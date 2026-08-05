@@ -1,7 +1,10 @@
 // @ballastella/core — the domain model, ProjectStore and its adapters, IIIF glue,
 // alignment serialisation, and annotation styling (ADR-0019).
 //
-// Deliberately empty. Ticket 01 establishes the package, its test runner, and the
-// resolution path from both apps; ticket 02 lands the first real export.
+// Ticket 01 established the package, its test runner, and the resolution path from both apps.
+// The Base Map catalog and its resolution live here rather than in an app because ADR-0020 has
+// the published viewer carrying the whole catalog and the style-switching logic too, not merely
+// "render the configured style".
 
-export {};
+export * from './base-map';
+export * from './theme';
