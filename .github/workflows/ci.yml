@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # ADR-0019: the viewer must never depend on terra-draw, the tiler, or wasm-vips.
+      # `pnpm lint` runs this too; it is first here so a violation is the first thing read.
+      - name: Viewer dependency fence
+        run: node scripts/check-viewer-deps.mjs
+
+      - run: pnpm lint
+
+      - run: pnpm check
+
+      - run: pnpm -r build
+
+      # ADR-0006: one build has to serve a domain root and a project subdirectory, so no
+      # asset may be referenced by absolute path. Checked against the built output rather
+      # than the config, because the config is not what ships.
+      - name: Built output references assets relatively
+        run: |
+          if grep -rEn '(src|href)="/[^"]*"' apps/editor/build apps/viewer/build; then
+            echo "::error::absolute asset paths in built output — see ADR-0006 (paths.relative)"
+            exit 1
+          fi
+          echo "OK: no absolute asset paths"
+
+      - run: pnpm -r test
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm exec playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

@@ -1,0 +1,34 @@
+{
+	"name": "ballastella",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"license": "MIT",
+	"packageManager": "pnpm@11.18.0",
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"build": "pnpm -r build",
+		"test": "pnpm -r test",
+		"test:e2e": "playwright install chromium && playwright test",
+		"check": "tsc --noEmit && pnpm -r check",
+		"lint": "node scripts/check-viewer-deps.mjs && prettier --check . && eslint .",
+		"format": "prettier --write ."
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@playwright/test": "^1.62.1",
+		"@types/node": "^26.1.2",
+		"eslint": "^10.8.0",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-svelte": "^3.22.0",
+		"globals": "^17.9.0",
+		"prettier": "^3.9.6",
+		"prettier-plugin-svelte": "^4.1.1",
+		"prettier-plugin-tailwindcss": "^0.8.1",
+		"svelte": "catalog:",
+		"typescript": "catalog:",
+		"typescript-eslint": "^8.66.0"
+	}
+}

@@ -1,0 +1,18 @@
+{
+	// Workspace-level tooling only: the Playwright config and the browser tests. Each
+	// package and app owns its own tsconfig.
+	"compilerOptions": {
+		"target": "ES2023",
+		"module": "Preserve",
+		"lib": ["ES2023"],
+		"types": ["node"],
+		"strict": true,
+		"noEmit": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"skipLibCheck": true
+	},
+	"include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

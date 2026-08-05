@@ -6,7 +6,14 @@ A **ballastella** — also Jacob's staff — is a graduated pole with a sliding 
 
 ## Status
 
-**Planning.** This repository currently holds the specification and the architectural record — no application code has been written yet. Work is tracked in [`.tracker/ballastella-v1/TRACKER.md`](.tracker/ballastella-v1/TRACKER.md).
+**Early.** The monorepo, toolchain, and CI are in place; both apps boot and render a placeholder, and `@ballastella/core` is still empty. No product behaviour has been built yet. Work is tracked in [`.tracker/ballastella-v1/TRACKER.md`](.tracker/ballastella-v1/TRACKER.md).
+
+```sh
+pnpm install
+pnpm -r build && pnpm -r test && pnpm lint && pnpm check && pnpm test:e2e
+```
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for what each command covers, and for the two rules the toolchain enforces on your behalf.
 
 ## The idea
 
@@ -23,6 +30,11 @@ Publishing writes a read-only viewer into the workspace. That workspace, pushed 
 | Path | What it holds |
 | --- | --- |
 | [`CONTEXT.md`](CONTEXT.md) | The project's ubiquitous language — the terms the code and UI are required to use, and the near-synonyms to avoid |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to work here, the commands, and the GPL fence against the Allmaps applications |
+| [`packages/core/`](packages/core) | `@ballastella/core` — domain model, `ProjectStore` and adapters, IIIF glue, alignment serialisation, annotation styling |
+| [`apps/editor/`](apps/editor) | `@ballastella/editor` — the authoring app |
+| [`apps/viewer/`](apps/viewer) | `@ballastella/viewer` — the lean read-only viewer written into published sites |
+| [`e2e/`](e2e) | Playwright browser tests, run against both built apps |
 | [`docs/adr/`](docs/adr) | Architectural decision records, referenced by number throughout the spec |
 | [`.tracker/ballastella-v1/SPEC.md`](.tracker/ballastella-v1/SPEC.md) | The v1 specification: problem, solution, user stories, scope |
 | [`.tracker/ballastella-v1/TRACKER.md`](.tracker/ballastella-v1/TRACKER.md) | Ticket ledger, status, and dependency ordering |

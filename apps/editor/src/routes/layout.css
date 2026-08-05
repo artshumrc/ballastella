@@ -1,0 +1,5 @@
+@import 'tailwindcss';
+
+/* ADR-0016: daisyUI is the only UI dependency. Tracy's generated theme replaces the
+   stock ones here, and ships in the published viewer as well as the authoring app. */
+@plugin 'daisyui';

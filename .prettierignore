@@ -1,0 +1,20 @@
+# Package managers
+pnpm-lock.yaml
+
+# Generated
+.svelte-kit
+build
+test-results
+playwright-report
+blob-report
+coverage
+
+# Static assets are served verbatim
+apps/*/static/
+
+# Prose. The specification, the ticket ledger, the ADRs, and the contributor documents are
+# written and reviewed by hand, and this project has a lot of them. Letting prettier reflow
+# their paragraphs and pad their tables turns every later edit into an unreadable diff, and
+# markdown is where the reasoning lives here rather than an afterthought. Prettier formats
+# code; prose is reviewed by reading it.
+*.md

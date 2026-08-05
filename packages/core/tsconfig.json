@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"target": "ES2023",
+		"module": "Preserve",
+		// core reaches for OPFS and `FileSystemSyncAccessHandle`, which is Worker-only
+		// (ADR-0001), so the Worker lib is here from the start.
+		"lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+		"strict": true,
+		"noEmit": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"sourceMap": true
+	},
+	"include": ["src/**/*.ts", "vitest.config.ts"]
+}

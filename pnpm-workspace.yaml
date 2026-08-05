@@ -1,0 +1,29 @@
+packages:
+  - packages/*
+  - apps/*
+
+# ADR-0019: shared dependency versions live here, not in individual manifests.
+# This is also how ADR-0010's exact-pinning requirement for `@allmaps/*` will be
+# expressed once for both apps: every `@allmaps/*` entry is an EXACT version with
+# no range specifier, because all of them are pre-1.0 and a bump is a migration
+# event. Nothing else here is pinned exactly.
+catalog:
+  # Svelte and SvelteKit
+  '@sveltejs/adapter-static': ^3.0.10
+  '@sveltejs/kit': ^2.70.2
+  '@sveltejs/vite-plugin-svelte': ^7.2.0
+  svelte: ^5.56.8
+  svelte-check: ^4.7.4
+
+  # Build and test
+  vite: ^8.2.0
+  vitest: ^4.1.10
+
+  # UI (ADR-0016: daisyUI is the only UI dependency)
+  '@tailwindcss/vite': ^4.3.3
+  daisyui: ^5.7.16
+  tailwindcss: ^4.3.3
+
+  # TypeScript. Held at ^6 rather than ^7: svelte-check and @sveltejs/kit peer on
+  # `^5 || ^6`, and typescript-eslint on `<6.1.0`. Raise when they catch up.
+  typescript: ^6.0.3
