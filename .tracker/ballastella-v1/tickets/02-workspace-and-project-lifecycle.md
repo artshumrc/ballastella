@@ -77,21 +77,21 @@ Do **not** build migration machinery. There are no migrations to run, and writin
 
 ## Acceptance criteria
 
-- [ ] `ProjectStore` has in-memory and OPFS adapters, both passing the same shared test suite
-- [ ] Creating, renaming, duplicating, and deleting a Project is reflected in the store's files
-- [ ] `project.json` contains `formatVersion: 1`
-- [ ] A `project.json` with `formatVersion: 2` is refused with a message, and the file is **not modified**
-- [ ] An interrupted `project.json` write leaves the previous contents intact and parseable
-- [ ] Two writes to the same path within the debounce window produce one store write; writes to different paths are not batched together
-- [ ] `pagehide` triggers a flush of pending writes
-- [ ] The save indicator observably transitions saved → saving → saved
-- [ ] The hub page lists Projects with names and last-modified, and `?p=<dir>` opens one
-- [ ] A store whose `list` throws renders "Workspace not reachable" with a locate-again action, not an error boundary
-- [ ] Renaming a Project to an existing display name succeeds; two Projects may share a display name but not a directory name
-- [ ] `size(path)` returns a byte length **without** calling `read` — asserted with a spy on the adapter, in both the in-memory and OPFS adapters
-- [ ] Opening a Project and closing it without editing anything writes **nothing**: every file in the Project directory is byte-identical before and after, verified by hashing
-- [ ] All dialogs use `<dialog>` + `showModal()`; Escape closes them and focus returns to the trigger
-- [ ] Every hub-page control is reachable and operable by keyboard
+- [x] `ProjectStore` has in-memory and OPFS adapters, both passing the same shared test suite
+- [x] Creating, renaming, duplicating, and deleting a Project is reflected in the store's files
+- [x] `project.json` contains `formatVersion: 1`
+- [x] A `project.json` with `formatVersion: 2` is refused with a message, and the file is **not modified**
+- [x] An interrupted `project.json` write leaves the previous contents intact and parseable
+- [x] Two writes to the same path within the debounce window produce one store write; writes to different paths are not batched together
+- [x] `pagehide` triggers a flush of pending writes
+- [x] The save indicator observably transitions saved → saving → saved
+- [x] The hub page lists Projects with names and last-modified, and `?p=<dir>` opens one
+- [x] A store whose `list` throws renders "Workspace not reachable" with a locate-again action, not an error boundary
+- [x] Renaming a Project to an existing display name succeeds; two Projects may share a display name but not a directory name
+- [x] `size(path)` returns a byte length **without** calling `read` — asserted with a spy on the adapter, in both the in-memory and OPFS adapters
+- [x] Opening a Project and closing it without editing anything writes **nothing**: every file in the Project directory is byte-identical before and after, verified by hashing
+- [x] All dialogs use `<dialog>` + `showModal()`; Escape closes them and focus returns to the trigger
+- [x] Every hub-page control is reachable and operable by keyboard
 
 ```bash
 pnpm --filter @ballastella/core test
@@ -105,3 +105,87 @@ Success: all exit 0. The e2e suite must include the save-indicator transition, t
 ## Blocked by
 
 - Ticket 01
+
+## Comments
+
+### Implementation, 2026-08-05
+
+All fifteen acceptance criteria verified. `pnpm --filter @ballastella/core test` (116 tests),
+`pnpm -r test`, `pnpm -r build`, `pnpm lint`, and `pnpm check` all exit 0, and the Playwright
+suite passes 17/17 — see the note on ports at the end.
+
+**Decisions the ticket left open, each with its reasoning in the code:**
+
+- **`write` is atomic; there is no `rename` on the interface.** ADR-0017 rule 4 requires temp
+  file then rename, and the Contract fixes the interface at five methods. Widening it to six
+  would have made every caller responsible for atomicity and given ticket 12 a way to skip it.
+  Instead `TempFileWriteStore` — a small abstract base both adapters extend — implements
+  `write` as `writeBytes(temp)` then `renameTempFile(temp, destination)`, with cleanup of the
+  orphan on failure. The temp suffix `.ballastella-tmp` is reserved: `list` never reports it and
+  `write` refuses it, so an interruption cannot leave litter that later looks like Project data.
+  Ticket 12's adapter inherits atomicity by extending the same base.
+- **The interruption test spies on a protected member.** No public API can make the *second*
+  step of a write fail, and fault-injection hooks in shipping code would be worse. The suite
+  therefore mocks `renameTempFile`, which is declared on the shared base, so both adapters fail
+  in the same place. This is the one place the suite knows something structural; the ticket
+  already sanctions the same technique for `size`.
+- **`updatedAt` lives in `project.json`, not in a new `stat`/`lastModified` store method.** The
+  hub needs last-modified and the interface has no clock. Both real backends expose a file
+  mtime for free, exactly as they do `size` — but a workspace is expected to live in git or
+  Dropbox (ADR-0008), and a fresh clone stamps every file with the moment of checkout, while a
+  zip import (ticket 13) loses mtimes altogether. A Project's own record of when its author
+  last touched it survives all of that. It is also why the ticket's own `size` essay argues for
+  `size` and says nothing about mtime: `size` is a fact about bytes, this is display state.
+- **The refusal message names `https://artshumrc.github.io/ballastella/`.** ADR-0010 requires
+  "open it at *URL*" and nothing in the repo records one. This is the GitHub Pages address of
+  the repository's own remote, exported as `BALLASTELLA_CANONICAL_URL` from core so a forker
+  changes it in one place. **A human should confirm this is the intended canonical instance** —
+  it is a guess from the git remote, not a recorded decision, and it is the one string a user
+  meets at the moment their work is at risk.
+- **Vitest browser mode was added so the OPFS adapter can run the shared suite.** There is no
+  OPFS in Node, and a Node stub of one would only prove the stub agrees with the memory
+  adapter — which is the thing the suite exists to check. `packages/core/vitest.config.ts` now
+  has two projects: `node` (SPEC's Seam 1) and `browser` (`*.browser.test.ts`, real Chromium,
+  real OPFS). `@vitest/browser-playwright` and `playwright` went into the catalog. This is also
+  what ticket 12 needs — its criterion says the shared suite runs "against all three adapters"
+  under `pnpm --filter @ballastella/core test`, and File System Access is no more available in
+  Node than OPFS is.
+- **The Project view has a name field.** Autosave needed a mutation surface to be observable at
+  all, and the display name is the only editable value that exists this early. It earns its
+  place: it is where "typing coalesces into one write" (`debounce: true`) and "the edit is
+  committed when it ends" (`onblur`/`onchange`) are established, so tickets 05–15 inherit rule 1
+  and rule 2 rather than improvising them.
+- **The save indicator holds "Saving…" for 400 ms minimum.** An OPFS write is often over in
+  single-digit milliseconds; shown for less than that the indicator is a strobe rather than
+  reassurance. The dwell is in the component, not in `Autosave`, because it is a display concern.
+- **A `Bytes` alias (`Uint8Array<ArrayBuffer>`) crosses the store boundary.** The default
+  `Uint8Array<ArrayBufferLike>` is not accepted by `createWritable().write` or `crypto.subtle`,
+  and saying so in the type is better than an assertion at every call site.
+- **`list(prefix)` is a string-prefix match, not a directory listing.** Pass a trailing `/` for
+  a directory. The OPFS adapter still descends to the prefix's directory before walking, so
+  listing one Project does not enumerate a sibling's pyramid.
+- **The OPFS adapter prunes directories a delete emptied.** Invisible through the interface, but
+  ticket 12's backend is a folder the user looks at.
+
+**Carried forward, not done here:**
+
+- **The OPFS write path is `createWritable()` in the page context, not
+  `FileSystemSyncAccessHandle` in a Worker.** ADR-0017 notes the Worker path is OPFS's *preferred*
+  write architecture; it is an optimisation, and the abstraction already absorbs the difference
+  (atomicity is the adapter's promise, not the caller's). A Worker plus a message protocol is
+  real complexity with no user-visible change at this size of data, and the tiler in ticket 05 is
+  the slice that will actually make it pay. `renameTempFile` prefers `FileSystemFileHandle.move`
+  and falls back to a copy when a browser lacks it; `createWritable` is atomic by specification
+  either way.
+- **`resolve()` from `$app/paths` is used for internal links** because `svelte/no-navigation-without-resolve`
+  requires it. Worth knowing before ticket 16 audits paths for `paths.relative`.
+
+**One shared-toolchain finding, deliberately not fixed here:**
+
+`playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, and both apps' ports are
+hard-coded (4173, 4174). Two checkouts of this repository on one machine therefore share a
+preview server: `pnpm test:e2e` in one worktree silently tests **the other worktree's build**,
+and every assertion fails for reasons that have nothing to do with the code under test. That
+happened during this ticket and cost a full debugging cycle. The fix is to read the ports from
+the environment, or to set `reuseExistingServer: false`; it belongs to whoever owns
+`playwright.config.ts` next, since it is ticket 01's file and outside this slice.

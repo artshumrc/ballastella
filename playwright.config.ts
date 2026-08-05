@@ -31,8 +31,10 @@ export default defineConfig({
 	use: { ...devices['Desktop Chrome'] },
 	projects: [
 		{
+			// `editor*.e2e.ts`, so a slice's browser tests can live in their own file instead of
+			// every ticket appending to one growing one.
 			name: 'editor',
-			testMatch: '**/editor.e2e.ts',
+			testMatch: '**/editor*.e2e.ts',
 			use: { baseURL: `http://localhost:${editorPort}` }
 		},
 		{
