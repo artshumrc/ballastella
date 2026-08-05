@@ -6,9 +6,9 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 ## Current Status
 
-Overall status: `Not Started`
+Overall status: `In Progress`
 
-Current ticket: none — ticket 01 is unblocked and ready to pick up.
+Current ticket: none — ticket 01 has landed. Tickets 02, 03, and 04 are now unblocked and can run in parallel.
 
 Last updated: 2026-08-05
 
@@ -16,7 +16,7 @@ Last updated: 2026-08-05
 
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
-| 01 | [01-monorepo-skeleton-and-toolchain.md](./tickets/01-monorepo-skeleton-and-toolchain.md) | Not Started | — |
+| 01 | [01-monorepo-skeleton-and-toolchain.md](./tickets/01-monorepo-skeleton-and-toolchain.md) | Completed | — |
 | 02 | [02-workspace-and-project-lifecycle.md](./tickets/02-workspace-and-project-lifecycle.md) | Not Started | 01 |
 | 03 | [03-image-pane-synthetic-projection.md](./tickets/03-image-pane-synthetic-projection.md) | Not Started | 01 |
 | 04 | [04-base-map-pane-and-catalog.md](./tickets/04-base-map-pane-and-catalog.md) | Not Started | 01 |

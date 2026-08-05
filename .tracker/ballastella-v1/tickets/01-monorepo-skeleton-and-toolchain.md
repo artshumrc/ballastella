@@ -6,6 +6,8 @@ The empty-but-working repository that every later ticket builds inside: a pnpm w
 
 No product behaviour. The deliverable is that **the commands in every other ticket's acceptance criteria exist and pass** on an empty codebase. Each app boots and renders a placeholder page; `core` exports nothing yet but builds and runs an empty test suite.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user story 102. Lays the groundwork for 80, 99, and 101 (`paths.relative`, the static adapter, and a toolchain with no server or secrets); those are demonstrated in ticket 16.
+
 ## Where to start
 
 Read [CONTEXT.md](../../../CONTEXT.md) for vocabulary, then [ADR-0019](../../../docs/adr/0019-minimal-pnpm-monorepo.md) (structure), [ADR-0021](../../../docs/adr/0021-mit-licence-and-gpl-hygiene.md) (licensing), [ADR-0016](../../../docs/adr/0016-daisyui-only-with-mandated-component-methods.md) (UI dependency), and the Testing Decisions section of [SPEC.md](../SPEC.md).
@@ -65,15 +67,15 @@ Files that must exist: `LICENCE` (MIT), `THIRD-PARTY-NOTICES.md`, and `CONTRIBUT
 
 ## Acceptance criteria
 
-- [ ] `pnpm install` succeeds from a clean clone
-- [ ] `pnpm -r build` succeeds and produces static output for both apps
-- [ ] `pnpm -r test` succeeds with at least one trivial passing test in `@ballastella/core`
-- [ ] `pnpm test:e2e` succeeds with at least one Playwright test that loads each app and asserts its placeholder renders
-- [ ] `pnpm lint` and `pnpm check` succeed
-- [ ] Both apps' built output references assets by **relative** path (no leading `/`)
-- [ ] The viewer-dependency check fails when `terra-draw` is added to `apps/viewer` and passes when it is not
-- [ ] `LICENCE`, `THIRD-PARTY-NOTICES.md` (with the libvips/LGPL entry), and `CONTRIBUTING.md` (with the GPL fence) exist
-- [ ] CI runs all of the above on push
+- [x] `pnpm install` succeeds from a clean clone
+- [x] `pnpm -r build` succeeds and produces static output for both apps
+- [x] `pnpm -r test` succeeds with at least one trivial passing test in `@ballastella/core`
+- [x] `pnpm test:e2e` succeeds with at least one Playwright test that loads each app and asserts its placeholder renders
+- [x] `pnpm lint` and `pnpm check` succeed
+- [x] Both apps' built output references assets by **relative** path (no leading `/`)
+- [x] The viewer-dependency check fails when `terra-draw` is added to `apps/viewer` and passes when it is not
+- [x] `LICENCE`, `THIRD-PARTY-NOTICES.md` (with the libvips/LGPL entry), and `CONTRIBUTING.md` (with the GPL fence) exist
+- [x] CI runs all of the above on push
 
 ```bash
 pnpm install
@@ -92,3 +94,60 @@ Success: every command exits 0, the `grep` prints `OK: no absolute asset paths`,
 ## Blocked by
 
 None — can start immediately.
+
+## Comments
+
+### Implementation, 2026-08-05
+
+All acceptance criteria verified, including from a fresh `git clone` into a clean directory.
+Dependencies were deliberately left unpinned so `pnpm install` resolves the latest stable
+versions; the `catalog:` block records caret ranges, and `@allmaps/*` will be the only exact
+pins when their owning tickets add them.
+
+**The `@ballastella` npm scope could not be confirmed either way, and does not need to be.**
+`@ballastella/core` returns 404 and the scope has no published packages — but the ticket's
+own fallback, `@dflood`, returns exactly the same signal, so neither is distinguishable from
+"owned but empty" without authenticating. The author confirmed there is no intent to publish
+to npm. All three manifests are therefore `"private": true`, `core` is consumed as
+`workspace:*`, and the registry is never contacted. Every acceptance command in every later
+ticket stands as written. If publishing ever becomes real, the scope must be checked then.
+
+**Deviations, each deliberate:**
+
+- **`LICENSE`, not `LICENCE`.** The MIT text was already committed under the American
+  spelling in 7e1aeb1 and `README.md` links to it. Renaming to match the ticket's spelling
+  would break that link and diverge from the convention GitHub and npm tooling expect. The
+  substance — MIT, at the repository root — is satisfied.
+- **`core` has no `build` script.** It exports its TypeScript source (`"exports": {".":
+"./src/index.ts"}`) rather than a build artefact, so there is no build step to keep in sync
+  and no stale `dist/` to debug; the apps' bundlers compile it. `pnpm -r build` therefore
+  builds the two apps, which are the only things that produce output. `core` is covered by
+  `pnpm check` (`tsc --noEmit`) and `pnpm -r test`. Ticket 09's
+  `pnpm --filter @ballastella/core exec tsc --noEmit` works as written.
+- **Prettier ignores `*.md`.** Running it across the repository wanted to reflow the SPEC,
+  the ticket ledger, and every ADR — 40-odd hand-written prose documents — which is an
+  adjacent rewrite this ticket rules out, and would make every later edit to them an
+  unreadable diff. Prettier now formats code; prose is reviewed by reading it.
+- **TypeScript held at `^6`, not `^7`.** TypeScript 7.0.2 is out, but `svelte-check` and
+  `@sveltejs/kit` peer on `^5 || ^6` and `typescript-eslint` on `<6.1.0`. Noted in
+  `pnpm-workspace.yaml` so the constraint is visible where the version is.
+- **Tailwind and daisyUI are installed here** (ADR-0016). No later ticket owns setting up the
+  styling toolchain, and every UI ticket assumes it exists. Stock daisyUI themes for now —
+  Tracy's generated theme replaces them, and ADR-0016 requires it to ship in the viewer too.
+- **README.md status updated.** It claimed no application code had been written, which this
+  ticket makes false.
+- **A placeholder favicon** replaces the scaffold's Svelte logo, so published sites do not
+  carry Svelte branding. Geometry only; it is not identity work.
+
+**Carried forward, not done here:**
+
+- **The tiler half of ADR-0019 is not manifest-visible.** `scripts/check-viewer-deps.mjs`
+  catches `terra-draw` (and its adapters) and `wasm-vips` by reading `apps/viewer/package.json`,
+  which is what the ticket asks for. The tiler will live inside `@ballastella/core`, so no
+  manifest check can see it — and once the viewer depends on `core`, `wasm-vips` could reach
+  the viewer transitively through `core` without touching the viewer's manifest. A transitive
+  check was not added because the ticket says the check "does not need to be clever", but
+  TRACKER.md already records this as a standing review item and this is the shape it takes.
+- **Both apps declare `@ballastella/core` and import it for side effects only** in
+  `+layout.ts`, so that `pnpm -r build` and `pnpm check` exercise app → core resolution while
+  core is empty. Ticket 02 replaces that with a real import.
