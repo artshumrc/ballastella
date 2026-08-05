@@ -19,6 +19,17 @@ catalog:
   vite: ^8.2.0
   vitest: ^4.1.10
 
+  # IIIF. Exact, no range specifier: pre-1.0, and a bump is a migration event.
+  # `@allmaps/types` is type-only. It is listed here because `@allmaps/iiif-parser`
+  # re-exports `TileZoomLevel` and `ImageRequest` from it while declaring it only as a
+  # devDependency, so without it those types silently degrade to `any` under
+  # `skipLibCheck` — which is the opposite of what pinning these packages is for.
+  '@allmaps/iiif-parser': 1.0.0-beta.48
+  '@allmaps/types': 1.0.0-beta.23
+
+  # Map stack (ADR-0005). Both panes are MapLibre GL maps.
+  maplibre-gl: ^6.1.0
+
   # UI (ADR-0016: daisyUI is the only UI dependency)
   '@tailwindcss/vite': ^4.3.3
   daisyui: ^5.7.16

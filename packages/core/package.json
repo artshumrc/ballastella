@@ -10,7 +10,11 @@
 		"check": "tsc --noEmit",
 		"test": "vitest run"
 	},
+	"dependencies": {
+		"@allmaps/iiif-parser": "catalog:"
+	},
 	"devDependencies": {
+		"@allmaps/types": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}
