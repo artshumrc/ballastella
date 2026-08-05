@@ -4,7 +4,9 @@
 	"compilerOptions": {
 		"target": "ES2023",
 		"module": "Preserve",
-		"lib": ["ES2023"],
+		// The browser tests reach into the page through `page.evaluate`, so the DOM — and OPFS, which
+		// is where a Project's files actually live — has to be typed here as well as in each app.
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
 		"types": ["node"],
 		"strict": true,
 		"noEmit": true,

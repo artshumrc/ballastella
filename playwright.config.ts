@@ -32,7 +32,7 @@ export default defineConfig({
 	projects: [
 		{
 			name: 'editor',
-			testMatch: '**/editor.e2e.ts',
+			testMatch: '**/editor*.e2e.ts',
 			use: { baseURL: `http://localhost:${editorPort}` }
 		},
 		{
