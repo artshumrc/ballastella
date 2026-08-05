@@ -87,3 +87,82 @@ Success: all exit 0, and the e2e test asserts by request interception that switc
 ## Blocked by
 
 - Ticket 01
+
+---
+
+## Implementation notes
+
+Recorded here because they are decisions and seams a reviewer needs, not defects.
+
+### `maplibre-gl` is pinned to `^5`, not `^6`
+
+Two reasons, both in the `pnpm-workspace.yaml` catalog comment. `@allmaps/maplibre` and
+`@allmaps/basemap` peer on `^5`, and two MapLibre copies in one page is not a version warning but
+a broken map — ticket 07 needs those packages. And v6 moved its worker into a sibling file whose
+URL it computes from `import.meta.url` at runtime, which no bundler can see: with v6 the built app
+404s on `maplibre-gl-worker.mjs` and the map never loads. v5 inlines the worker. This was found by
+building and running, not by reading.
+
+### `@allmaps/basemap` is not used
+
+The ticket lists it as a relevant package. It is `1.0.0-beta.9`, pulls `maplibre-contour`, and
+exists to add hillshade and contours — which this ticket puts out of scope — so it would be a
+pre-1.0 dependency (an ADR-0010 migration event) bought for nothing. `@protomaps/basemaps` is used
+directly instead, which is what `@allmaps/basemap` wraps.
+
+### Seams left for ticket 02
+
+Ticket 02 owns `project.json`, `ProjectStore`, and autosave; none of it existed in this branch.
+Two places stand in for it, both marked in the source and both meant to be deleted:
+
+- `apps/editor/src/lib/base-map/project-base-map.ts` — a `ProjectDefaultBaseMap` port with a
+  read/write pair over the one field this slice needs, and a throwaway OPFS implementation. The
+  write is read-modify-write over the whole document so existing keys survive, and it is **not
+  atomic**: that is ADR-0017's rule and ticket 02's to implement. Pretending to implement it here
+  would have been worse than leaving it visibly absent.
+- `apps/editor/src/routes/base-map/+page.svelte` — reads `?p=<dir>` per ADR-0008 and otherwise
+  falls back to a `demo-project` directory, so "reopening restores the default" is an assertion
+  about a real file rather than about a variable.
+
+The document written matches ticket 02's contract exactly: `{ formatVersion: 1, name, layers: [],
+baseMap }`. The two pure functions the field goes through — `readBaseMapId` and `withBaseMapId` —
+are in `core` and survive ticket 02 unchanged.
+
+### The pane is its own route
+
+`/base-map/` rather than a panel on the editor's home page, because tickets 02 and 03 were being
+implemented in parallel and both own `routes/+page.svelte`. **Nothing links to it yet.** Ticket 07
+composes the two panes; until then the route is reachable only by URL.
+
+### The forkability property, and how far it is asserted
+
+"Swapping the catalog module changes the switcher and requires no change outside that module" is
+asserted as a composition of three things rather than by literally swapping the module in a second
+build:
+
+1. `resolve.test.ts` and `style.test.ts` drive resolution, the option model, and style construction
+   from `FORKED_CATALOG` — different ids, labels, archives, flavors, view, and asset paths.
+2. `scripts/check-base-map-catalog.mjs`, wired into `pnpm lint`, fails if any module outside the
+   catalog names an entry id or an archive. Verified to fail on an injected violation.
+3. The browser suite asserts the rendered `<select>` options are exactly this deployment's catalog.
+
+Together: the switcher is `baseMapOptions(catalog)` and nothing else, and nothing else knows an id.
+A literal swap would need a second Playwright project against a second build with an aliased
+module, which SvelteKit's `vite preview` makes awkward (both builds share one output directory).
+If a reviewer wants the literal form, that is the shape it would take.
+
+### One assertion the browser cannot make
+
+Arrow-key selection inside a focused native `<select>` is Chromium's own popup, which headless
+Chromium does not run — pressing ArrowDown on a focused `<select>` changes nothing. So the
+keyboard test asserts the tab order reaches the switcher and that the element is a native
+`<select>` (which is *why* ADR-0016 mandates it), and leaves the popup to the platform.
+
+### Bundled base map assets
+
+`apps/editor/static/base-map/` carries a 4.1 MB Protomaps v4 extract of central Amsterdam, the
+Latin glyph ranges for the three Noto Sans stacks the labels use, and the five flavor sprite
+sheets — 4.8 MB in total. Provenance and licences are in `PROVENANCE.md` beside them and in
+`THIRD-PARTY-NOTICES.md`. The glyphs matter more than they look: `@protomaps/basemaps` gates every
+label layer behind its `lang` option, so "streets and labels" needs them bundled or it needs the
+network, and needing the network for labels would quietly defeat story 88.

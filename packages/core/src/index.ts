@@ -1,5 +1,9 @@
 // @ballastella/core — the domain model, ProjectStore and its adapters, IIIF glue,
 // alignment serialisation, and annotation styling (ADR-0019).
+//
+// The Base Map catalog and its resolution live here rather than in an app because ADR-0020 has
+// the published viewer carrying the whole catalog and the style-switching logic too, not merely
+// "render the configured style".
 
 export { Autosave, type AutosaveOptions, type SaveState } from './autosave/autosave.js';
 export { installFlushOnHide, type HideEventTargets } from './autosave/flush-on-hide.js';
@@ -48,3 +52,6 @@ export type {
 
 export { createImagePane } from './image-pane/iiif-image-pane';
 export type { ImagePane, ImagePaneTile, XyzTile } from './image-pane/iiif-image-pane';
+
+export * from './base-map';
+export * from './theme';

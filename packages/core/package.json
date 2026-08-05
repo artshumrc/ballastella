@@ -11,7 +11,9 @@
 		"test": "playwright install chromium && vitest run"
 	},
 	"dependencies": {
-		"@allmaps/iiif-parser": "catalog:"
+		"@allmaps/iiif-parser": "catalog:",
+		"@maplibre/maplibre-gl-style-spec": "catalog:",
+		"@protomaps/basemaps": "catalog:"
 	},
 	"devDependencies": {
 		"@allmaps/types": "catalog:",

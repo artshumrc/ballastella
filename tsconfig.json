@@ -5,8 +5,9 @@
 		"target": "ES2023",
 		"module": "Preserve",
 		// DOM as well as Node: a Playwright test is Node code, but the bodies of `page.evaluate`
-		// are browser code compiled in the same file, and this suite reaches straight for OPFS to
-		// seed and inspect a Workspace behind the app's back.
+		// are browser code compiled in the same file, and this suite reaches straight for OPFS —
+		// where a Project's files actually live — to seed and inspect a Workspace behind the
+		// app's back.
 		"lib": ["ES2023", "DOM", "DOM.Iterable"],
 		"types": ["node"],
 		"strict": true,
