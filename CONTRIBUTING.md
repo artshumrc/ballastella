@@ -63,7 +63,7 @@ but no `build`.
 
 CI runs all of them on every push.
 
-## Two rules the toolchain enforces for you
+## Three rules the toolchain enforces for you
 
 **`apps/viewer` must never depend on `terra-draw`, the tiler, or `wasm-vips`**
 ([ADR-0019](docs/adr/0019-minimal-pnpm-monorepo.md)). The viewer is a separate build so that
@@ -77,6 +77,15 @@ apps' `svelte.config.js` and is mandatory
 ([ADR-0006](docs/adr/0006-the-project-directory-is-the-published-site.md)): the publish
 target — a domain root or a project subdirectory — is unknown at build time. CI greps the
 built output, because the config is not what ships.
+
+**No module outside `packages/core/src/base-map/catalog.ts` may name a Base Map entry.** The
+catalog is deployment configuration, and replacing it is the whole of pointing a fork at its own
+tiles ([ADR-0020](docs/adr/0020-base-map-catalog-author-default-and-reader-switching.md)).
+`scripts/check-base-map-catalog.mjs` runs as part of `pnpm lint` and fails if an entry id or an
+archive appears anywhere else, because a special case keyed on one id still works perfectly on
+this deployment and fails only on the fork, where nobody is looking. Tests are exempt: the
+browser suite asserts that the switcher offers exactly this deployment's catalog, which it can
+only do by naming it.
 
 ## Dependency versions
 
