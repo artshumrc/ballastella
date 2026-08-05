@@ -8,7 +8,7 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: none — ticket 01 has landed. Tickets 02, 03, and 04 are now unblocked and can run in parallel.
+Current ticket: 02, 03, and 04 are in progress in parallel.
 
 Last updated: 2026-08-05
 
@@ -19,9 +19,9 @@ Last updated: 2026-08-05
 | Number | Filename | Status | Depends On | Fulfills |
 | --- | --- | --- | --- | --- |
 | 01 | [01-monorepo-skeleton-and-toolchain.md](./tickets/01-monorepo-skeleton-and-toolchain.md) | Completed | — | 102 |
-| 02 | [02-workspace-and-project-lifecycle.md](./tickets/02-workspace-and-project-lifecycle.md) | Not Started | 01 | *4*, *7*, 10, 11, 12, 73, 74, 75, 76, *77*, 97 |
-| 03 | [03-image-pane-synthetic-projection.md](./tickets/03-image-pane-synthetic-projection.md) | Not Started | 01 | — (groundwork for 31) |
-| 04 | [04-base-map-pane-and-catalog.md](./tickets/04-base-map-pane-and-catalog.md) | Not Started | 01 | 68, 69, *72*, *98*, 100, *101* |
+| 02 | [02-workspace-and-project-lifecycle.md](./tickets/02-workspace-and-project-lifecycle.md) | In Progress | 01 | *4*, *7*, 10, 11, 12, 73, 74, 75, 76, *77*, 97 |
+| 03 | [03-image-pane-synthetic-projection.md](./tickets/03-image-pane-synthetic-projection.md) | In Progress | 01 | — (groundwork for 31) |
+| 04 | [04-base-map-pane-and-catalog.md](./tickets/04-base-map-pane-and-catalog.md) | In Progress | 01 | 68, 69, *72*, *98*, 100, *101* |
 | 05 | [05-local-image-to-level-0-pyramid.md](./tickets/05-local-image-to-level-0-pyramid.md) | Not Started | 02 | 21, 22, 23 |
 | 06 | [06-injection-layer-local-tiles-to-renderers.md](./tickets/06-injection-layer-local-tiles-to-renderers.md) | Not Started | 03, 05 | 31 |
 | 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | Not Started | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
