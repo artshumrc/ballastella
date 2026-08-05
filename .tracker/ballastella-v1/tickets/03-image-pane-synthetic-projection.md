@@ -55,14 +55,14 @@ Commit a **real** fixture pyramid, not a synthetic gradient: enough zoom levels 
 
 ## Acceptance criteria
 
-- [ ] The fixture pyramid renders in a MapLibre map and is pannable and zoomable to full resolution
-- [ ] Tiles at every `scaleFactor` in the fixture load, including ragged edge tiles at the right and bottom margins
-- [ ] `resourceToSynthetic` → `syntheticToResource` round-trips within the documented tolerance for a set of points including all four corners, the centre, and points on the ragged edges
-- [ ] The round-trip assertion runs at **every** zoom level the fixture offers, not just one
-- [ ] Clicking reports an image pixel coordinate that matches the visually indicated feature within the documented tolerance
-- [ ] A point placed at maximum zoom, after zooming fully out and back in, reports the same pixel coordinate within tolerance
-- [ ] Tile URLs are built via `getTileImageRequest`, not by string arithmetic in this slice's own code
-- [ ] The chosen synthetic window and its justification are recorded in a comment
+- [x] The fixture pyramid renders in a MapLibre map and is pannable and zoomable to full resolution
+- [x] Tiles at every `scaleFactor` in the fixture load, including ragged edge tiles at the right and bottom margins
+- [x] `resourceToSynthetic` → `syntheticToResource` round-trips within the documented tolerance for a set of points including all four corners, the centre, and points on the ragged edges
+- [x] The round-trip assertion runs at **every** zoom level the fixture offers, not just one
+- [x] Clicking reports an image pixel coordinate that matches the visually indicated feature within the documented tolerance
+- [x] A point placed at maximum zoom, after zooming fully out and back in, reports the same pixel coordinate within tolerance
+- [x] Tile URLs are built via `getTileImageRequest`, not by string arithmetic in this slice's own code
+- [x] The chosen synthetic window and its justification are recorded in a comment
 
 ```bash
 pnpm --filter @ballastella/core test          # round-trip assertions
@@ -75,3 +75,87 @@ Success: all exit 0. **The round-trip assertions must be numeric.** A screenshot
 ## Blocked by
 
 - Ticket 01
+
+## Comments
+
+### Implementation, 2026-08-05
+
+**The projection holds.** Measured round-trip error, pixel → lng/lat → pixel, over a dense
+grid and at every zoom level the fixture offers:
+
+| Pyramid | worst Δx | worst Δy |
+|---|---|---|
+| fixture, 1200 × 851, 256px tiles, coarsest scale factor 8 | 0 | 4.5e-10 px |
+| archival scan, 60000 × 24000, 256px tiles, coarsest scale factor 256 | 0 | 0 |
+| very large scan, 65536 × 40000, 512px tiles, coarsest scale factor 128 | 1.4e-8 px | 0 |
+
+Documented tolerance is `ROUND_TRIP_TOLERANCE_PX = 1e-6` image pixels — some seventyfold
+headroom over the worst measurement, five orders of magnitude tighter than a pixel. The error
+grows with the window because the information sits in the low bits of a Mercator coordinate
+near 0.5; it does not grow with zoom, because the two functions are zoom-independent.
+
+**The window.** One tile of the Web Mercator grid at zoom 12 — the tile whose north-west corner
+is the equator meeting the prime meridian, so image pixel (0, 0) is *exactly* 0°, 0°. Full
+reasoning is in the header comment of `packages/core/src/image-pane/synthetic-projection.ts`,
+including why it must stay a whole tile zoom. The mapping is linear in Mercator, not in
+degrees, which is what makes the pyramid's tile grid coincide with MapLibre's XYZ grid; the
+consequence is 1.2 ppm of north-south stretch across the window, 0.0014 image pixels over this
+fixture, and it never enters the round-trip.
+
+**Two things the ticket did not anticipate, both handled:**
+
+- **MapLibre stretches a raster tile to fill its cell.** A ragged edge tile is 176 × 256 rather
+  than 256 × 256, and drawn as-is it is stretched 45%, putting content near the image's edges
+  tens of pixels from where a Control Point placed there would think it was. Ragged tiles are
+  therefore drawn into a transparent full-size tile at the size they actually cover. That size
+  is *not* `request.size`: IIIF rounds a served tile up to whole pixels — the coarsest level is
+  served 107 pixels high while covering 106.375 — so `ImagePaneTile.placement` carries the
+  unrounded size, and using the served one would leave a 0.6% systematic stretch. This is why
+  `maplibregl.addProtocol` is used rather than a plain URL template: it is the only point where
+  the bytes can be placed. It is deliberately *not* ADR-0011's injection layer — the `fetch`
+  inside it goes to the app's static assets, and ticket 06 replaces just that call.
+- **`@allmaps/types` had to be installed explicitly.** `@allmaps/iiif-parser` re-exports
+  `TileZoomLevel` and `ImageRequest` from it while declaring it only as a devDependency, so
+  under `skipLibCheck` those types silently degrade to `any` — the opposite of what pinning
+  these packages is for. Added to the catalog as an exact pin alongside the parser.
+
+**Deviations, each deliberate:**
+
+- **No `maxBounds` on the map.** MapLibre's `maxBounds` clamps how far out the view can go, and
+  on a pyramid this small that makes the coarsest levels unreachable at any usable zoom — which
+  would make "tiles at every `scaleFactor` load" untestable and untrue. The floor is `minZoom`
+  at the coarsest level's own zoom instead. The cost is that the image can be panned out of
+  view; "Fit whole map" is the remedy. Worth revisiting when the pane carries a real scan.
+- **The pane lives at its own route, `/image-pane`, not on the editor's home page.** It shows a
+  fixture, not the user's Historical Map, so it is a development surface; and tickets 02 and 04
+  were editing the home page in parallel.
+- **`playwright.config.ts`'s `testMatch` widened to `editor*.e2e.ts` / `viewer*.e2e.ts`**, so a
+  slice with a lot of browser behaviour owns its own file rather than everything accumulating in
+  `editor.e2e.ts`. Two-line change.
+- **`packages/core`'s test reads `info.json` out of `apps/editor/static/`.** A cross-package
+  file read in a test, done on purpose: it makes the bytes the unit tests reason about literally
+  the bytes the browser fetches, where a second copy would drift.
+
+**Findings that need someone's judgement, not mine:**
+
+- **`maplibre-gl` 6.1.0 requests a worker file that Vite does not emit.** Every page load of the
+  pane produces one 404 for `_app/immutable/nodes/maplibre-gl-worker.mjs`. MapLibre resolves it
+  from `import.meta.url` at runtime, expecting the worker to sit beside the bundle, which is not
+  how a bundled app is laid out. It is **harmless for this slice** — the image pane is a raster
+  source, loaded on the main thread; every test passes and the pane renders correctly — but a
+  vector source has no such luxury, so **ticket 04's base map will have to solve it**, probably
+  via `setWorkerUrl` plus a Vite worker entry, or a `vite.config.ts` alias. Left alone here
+  because it is not this ticket's problem to fix and `vite.config.ts` is a file ticket 04 owns.
+- **The canvas padding step's *rendered output* is confirmed by eye, not numerically.** The
+  contract it implements — `placement` equalling `region ÷ scaleFactor` — is asserted in
+  `iiif-image-pane.test.ts`, and every coordinate claim in the browser tests is numeric. But a
+  bug in the ten lines of `drawImage` in `tile-protocol.ts` would misplace the *raster* while
+  leaving the reported coordinates correct, and no test here would notice. Screenshots were
+  taken and the ragged edges align exactly with markers placed by the projection at the image
+  corners, at both the coarsest level and full resolution. SPEC rules out pixel comparison as a
+  verification strategy, so this is disclosed rather than papered over; if it should be covered,
+  the seam would be a browser-mode unit test of the padding function.
+- **`pnpm test:e2e` was verified on ports 4373/4374, not 4173/4174.** A parallel agent's preview
+  server held 4173 in another worktree, and `reuseExistingServer` silently pointed the suite at
+  *their* build. Only the two port constants differed; they are restored. Worth knowing that
+  this failure mode looks exactly like a missing route.

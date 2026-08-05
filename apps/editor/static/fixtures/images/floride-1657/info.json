@@ -1,0 +1,21 @@
+{
+  "@context": "http://iiif.io/api/image/3/context.json",
+  "id": "https://unset.invalid/floride-1657",
+  "type": "ImageService3",
+  "protocol": "http://iiif.io/api/image",
+  "profile": "level0",
+  "width": 1200,
+  "height": 851,
+  "tiles": [
+    {
+      "width": 256,
+      "height": 256,
+      "scaleFactors": [
+        1,
+        2,
+        4,
+        8
+      ]
+    }
+  ]
+}

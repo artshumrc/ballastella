@@ -31,15 +31,16 @@ export default defineConfig({
 	use: { ...devices['Desktop Chrome'] },
 	projects: [
 		{
-			// `editor*.e2e.ts`, so a slice's browser tests can live in their own file instead of
-			// every ticket appending to one growing one.
+			// `editor*.e2e.ts`, so that a slice with a lot of browser behaviour to assert can own
+			// its own file — `editor-image-pane.e2e.ts` — rather than every ticket appending to one
+			// growing file.
 			name: 'editor',
 			testMatch: '**/editor*.e2e.ts',
 			use: { baseURL: `http://localhost:${editorPort}` }
 		},
 		{
 			name: 'viewer',
-			testMatch: '**/viewer.e2e.ts',
+			testMatch: '**/viewer*.e2e.ts',
 			use: { baseURL: `http://localhost:${viewerPort}` }
 		}
 	],
