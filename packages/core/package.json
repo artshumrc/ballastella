@@ -8,9 +8,11 @@
 	},
 	"scripts": {
 		"check": "tsc --noEmit",
-		"test": "vitest run"
+		"test": "playwright install chromium && vitest run"
 	},
 	"devDependencies": {
+		"@vitest/browser-playwright": "catalog:",
+		"playwright": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

@@ -45,10 +45,13 @@ jobs:
           fi
           echo "OK: no absolute asset paths"
 
-      - run: pnpm -r test
-
+      # Before `pnpm -r test`, not only before the Playwright suite: the ProjectStore adapter
+      # suite runs against real OPFS in Vitest browser mode, so the unit tests need a browser
+      # too. `--with-deps` is what brings the system libraries headless Chromium needs here.
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm -r test
 
       - run: pnpm exec playwright test
 

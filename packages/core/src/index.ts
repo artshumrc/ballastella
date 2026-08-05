@@ -1,7 +1,35 @@
 // @ballastella/core — the domain model, ProjectStore and its adapters, IIIF glue,
 // alignment serialisation, and annotation styling (ADR-0019).
-//
-// Deliberately empty. Ticket 01 establishes the package, its test runner, and the
-// resolution path from both apps; ticket 02 lands the first real export.
 
-export {};
+export { Autosave, type AutosaveOptions, type SaveState } from './autosave/autosave.js';
+export { installFlushOnHide, type HideEventTargets } from './autosave/flush-on-hide.js';
+export {
+	BALLASTELLA_CANONICAL_URL,
+	CURRENT_FORMAT_VERSION,
+	PROJECT_FILE_NAME,
+	ProjectFileUnreadableError,
+	ProjectFormatTooNewError,
+	newProjectFile,
+	parseProjectFile,
+	projectFilePath,
+	serialiseProjectFile,
+	type ProjectFile
+} from './project/project-file.js';
+export {
+	Workspace,
+	toDirectoryName,
+	type ProjectSummary,
+	type WorkspaceOptions
+} from './project/workspace.js';
+export { MemoryProjectStore } from './store/memory-project-store.js';
+export { OpfsProjectStore, type DirectoryResolver } from './store/opfs-project-store.js';
+export {
+	InvalidPathError,
+	PathNotFoundError,
+	TEMP_PATH_SUFFIX,
+	isTempPath,
+	type Bytes,
+	type ProjectStore,
+	type StorePath
+} from './store/project-store.js';
+export { TempFileWriteStore } from './store/temp-file-write-store.js';
