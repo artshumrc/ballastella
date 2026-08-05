@@ -6,11 +6,20 @@ A user can place a pin, draw a line, and draw a shape on the Base Map; edit the 
 
 Each Annotation Layer is one GeoJSON `FeatureCollection` that opens correctly in other mapping tools.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, and 67. With ticket 09: 55. With tickets 09 and 13: 56. With tickets 07 and 13: 94. Story 62 was amended to drop footnotes (ADR-0009); emphasis and links are the v1 scope.
+
 ## Where to start
 
 [ADR-0009](../../../docs/adr/0009-annotations-use-simplestyle-spec.md) (the whole slice), [ADR-0002](../../../docs/adr/0002-display-state-separate-from-portable-documents.md) (default style lives on the Layer), [ADR-0005](../../../docs/adr/0005-maplibre-and-terra-draw.md) (data-driven styling).
 
 `terra-draw` and its MapLibre adapter arrived in ticket 07; the Layer list in ticket 09.
+
+```
+marked        Markdown → HTML
+dompurify     HTML → sanitised HTML
+```
+
+Both go in the ADR-0019 catalog, because **both apps need them** — the editor for the description preview, the viewer for popups. Declare `dompurify` as a direct dependency rather than relying on triiiceratops' tree: ADR-0018 explains why it costs nothing extra to install, but an undeclared import is not resolvable under pnpm's isolated `node_modules` and would break the moment triiiceratops changed it.
 
 ## Contract
 
@@ -47,7 +56,15 @@ lineStringDash: f => f.properties['stroke-dasharray'] ?? undefined
 
 **`description` holds Markdown**, chosen for how it *degrades*: a consumer that does not render it shows readable prose, where HTML shows visible tag soup.
 
-**Rendered Markdown must be sanitised.** This is a real vulnerability, not a formality: a user can open a Project authored by someone else (ticket 13's zip import, ticket 14's remote sources), and the viewer is a published site on the user's own domain. Unsanitised rendering is stored XSS on `maps.digitalhumanities.harvard.edu` or on a student's GitHub Pages origin. `dompurify` is already present via triiiceratops.
+**The pipeline is `marked` → `dompurify` → insert, and the order is not negotiable.** Sanitising before parsing is a known bypass shape: a parser downstream of the sanitiser can reconstruct markup out of text the sanitiser already cleared as inert. Write it so the order cannot be reversed by a later edit — one function owning both stages, not two calls a caller sequences.
+
+**Rendered Markdown must be sanitised.** This is a real vulnerability, not a formality: a user can open a Project authored by someone else (ticket 13's zip import, ticket 14's remote sources), and the viewer is a published site on the user's own domain. Unsanitised rendering is stored XSS on `maps.digitalhumanities.harvard.edu` or on a student's GitHub Pages origin.
+
+**The renderer is exported for reuse, not reimplemented in the viewer.** Ticket 17 asserts the same XSS payload is inert in the published site; that is only meaningful if it is the same code path.
+
+**Emphasis and links, not footnotes** (ADR-0009). Footnote syntax is not supported in v1 and must degrade to literal text rather than producing broken markup — define that as behaviour, not accident.
+
+**Authoring is a plain textarea with a live preview.** The preview is what makes Markdown acceptable to a scholar who has never written it; without it, the format is a tax on the audience this tool is for.
 
 **Style precedence: feature `properties` → Layer `defaultStyle` → simplestyle defaults.** Do not stamp defaults onto every feature at creation time — that produces much larger files that cannot be restyled in bulk.
 
@@ -61,7 +78,8 @@ Drawing tools: point, line, polygon, with vertex editing after drawing. Per ADR-
 - **W3C Web Annotation output** for these features. They are map features; GeoJSON is their ecosystem.
 - **Undo** — ticket 11.
 - **`terra-draw` Pro-style operations** — cut, split, auto-trace.
-- **Rich-text WYSIWYG editing.** A plain textarea with Markdown is the deliverable.
+- **Rich-text or WYSIWYG editing.** A plain textarea with a live preview is the deliverable. A block editor was considered and deferred: the stored value must stay a portable Markdown string for stories 67 and 94, which constrains an editor emitting a document tree more than it first appears.
+- **Markdown footnotes** (ADR-0009). Emphasis and links only; footnote syntax degrades to literal text.
 - **Custom marker icon upload.** `marker-symbol` uses the spec's allowed values.
 - **Reader-side popups in the Published Site** — ticket 17, which reuses this slice's sanitised renderer.
 
@@ -70,8 +88,12 @@ Drawing tools: point, line, polygon, with vertex editing after drawing. Per ADR-
 - [ ] Points, lines, and polygons can be drawn on the Base Map and appear in the correct Annotation Layer
 - [ ] Vertices can be edited after drawing, and an edit produces **exactly one** store write, on gesture end
 - [ ] `title` and `description` are editable and persist
-- [ ] Markdown in `description` renders with emphasis and links
+- [ ] Markdown in `description` renders with emphasis and links, and the editor shows a live preview while typing
 - [ ] A `description` containing `<img src=x onerror=alert(1)>` and a `javascript:` link renders inert — asserted, not assumed
+- [ ] Sanitisation runs **after** parsing: a payload that survives `marked` but not `dompurify` is inert, proving the order — a sanitise-then-parse implementation fails this and passes a naive "is it escaped" test
+- [ ] Footnote syntax (`[^1]`) renders as literal text, producing no anchors, no ids, and no broken markup
+- [ ] The sanitised renderer is exported from `core` and imported by both apps — not reimplemented in the viewer
+- [ ] `marked` and `dompurify` are catalog entries and direct dependencies of both apps, with accurate `THIRD-PARTY-NOTICES.md` entries
 - [ ] Colour, opacity, and width controls write simplestyle property names exactly
 - [ ] Solid, dashed, and dotted render distinctly; solid is the **absence** of `stroke-dasharray`; dashed and dotted store tuples
 - [ ] A Layer `defaultStyle` applies to features lacking their own properties, and a feature property overrides it

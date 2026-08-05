@@ -6,6 +6,8 @@ An ordered list of Layers in the editor. A user can show and hide any Layer, set
 
 Reordering works by dragging **and** by keyboard.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 49, 50, 51, 52, 53, and 54. Story 53 is the whole reason keyboard reorder is a contract term rather than a nicety. With ticket 10: 55. With tickets 10 and 13: 56. With ticket 16: 29 — the Layer list is where copy-versus-reference becomes visible, the publish warning is where it becomes consequential.
+
 ## Where to start
 
 [ADR-0002](../../../docs/adr/0002-display-state-separate-from-portable-documents.md) (the whole slice), [ADR-0016](../../../docs/adr/0016-daisyui-only-with-mandated-component-methods.md) (the reorderable list is custom and needs a keyboard path), [ADR-0014](../../../docs/adr/0014-v1-scope-fences.md) (why the union must tolerate a third kind).
@@ -34,6 +36,10 @@ Reordering, renaming, and toggling must **not** touch the `.json` files holding 
 
 Stacking order between kinds must be expressible and honoured: an annotation Layer above a map Layer draws above it. This is needed immediately, since labels must sit over the map they describe.
 
+**`imageMode` is displayed, not merely stored.** A map Layer shows whether its tiles are a local copy or a remote reference, because that is what decides whether the user's Published Site needs the network and whether their Project survives the host disappearing. Ticket 16 warns about it at publish time, which is too late to be the only place it is visible.
+
+Settle the value for a locally ingested image here: **a local pyramid is a local copy, not a `'referenced'` image.** Only ticket 14's remote resources are `'referenced'`. Without this the field is ambiguous for every image that exists at the time this ticket lands.
+
 **Keyboard reorder is required, not a nice-to-have.** No library provides drag-to-reorder, so this list is custom either way — and layer order is load-bearing in this app, so a drag-only implementation makes core functionality keyboard-inaccessible (ADR-0016). Ship move-up/move-down controls.
 
 Creating an Alignment (ticket 07) now produces a `kind: 'map'` Layer. `kind: 'annotation'` Layers are created in ticket 10; the union and the rendering order must already accommodate them.
@@ -55,6 +61,7 @@ Creating an Alignment (ticket 07) now produces a `kind: 'map'` Layer. `kind: 'an
 - [ ] Reordering by drag changes render order, including across kinds: an annotation Layer above a map Layer draws above it
 - [ ] Reordering by keyboard via move-up/move-down achieves the same result with no pointer involved
 - [ ] Renaming a Layer changes only `project.json`
+- [ ] A map Layer visibly indicates whether its image is a local copy or a remote reference, and a locally ingested image reads as a local copy
 - [ ] Reorder, rename, and toggle leave `alignments/*.json` and `annotations/*.geojson` byte-identical
 - [ ] Adding a hypothetical third `kind` to the union does not require changes outside the modules that render or edit Layers — demonstrated by a test fixture carrying an unknown kind, which is ignored gracefully rather than throwing
 - [ ] Every Layer control is reachable and operable by keyboard, and the list's structure and order are announced to assistive technology

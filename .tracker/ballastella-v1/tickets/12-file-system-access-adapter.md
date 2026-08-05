@@ -6,6 +6,8 @@ On a Chromium desktop browser, a user clicks "Choose Workspace folder," picks a 
 
 Everywhere else, nothing changes: OPFS remains the backend and the option is simply absent.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 1, 2, 3, and 7 (the folder-moved case; ticket 02 covers the unreachable-store case). With ticket 02: 4 — where the API is absent the option is absent, and OPFS keeps working. Story 6 is the remedy for this ticket's permission friction and lands in ticket 18.
+
 ## Where to start
 
 [ADR-0001](../../../docs/adr/0001-opfs-first-project-store.md) (this is the capability upgrade it describes), [ADR-0008](../../../docs/adr/0008-projects-live-in-a-workspace.md) (one grant covers every Project; unreachable workspace is a normal state), [ADR-0017](../../../docs/adr/0017-autosave-semantics.md) (this backend's write path differs from OPFS).

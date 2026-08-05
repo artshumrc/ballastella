@@ -4,6 +4,8 @@
 
 The core act of the application. A user sees their Historical Map beside the Base Map, clicks a feature on the map, then clicks the same place on the earth, and a numbered Control Point pair appears. With enough pairs, the Historical Map appears warped onto the Base Map. The Alignment is written to the Project as a IIIF Georeference Annotation.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 30, 32, 33, 34, 35, 36, 37, and 91. With tickets 10 and 13: 94 (standard formats, no proprietary index).
+
 ## Where to start
 
 [ADR-0022](../../../docs/adr/0022-control-point-pairing-is-click-then-click.md) (the interaction), [ADR-0013](../../../docs/adr/0013-transformation-types-and-distortion.md) (default type only — refinement is ticket 08), [ADR-0017](../../../docs/adr/0017-autosave-semantics.md) (gesture-end commits and half-pair skipping), [ADR-0010](../../../docs/adr/0010-integer-format-version-with-forward-only-migrations.md) (fixture round-trips).

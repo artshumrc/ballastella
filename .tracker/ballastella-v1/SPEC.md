@@ -27,6 +27,8 @@ The result is scholarship that is simultaneously: a working document, an archiva
 
 ## User Stories
 
+Which ticket delivers which story is recorded in the `Fulfills` column of [TRACKER.md](./TRACKER.md) and in a `Fulfills` line inside each ticket. Stories that are only partly covered, or covered emergently, are listed under [User story coverage](#user-story-coverage) at the end of this document. **Renumbering these stories breaks both.**
+
 ### Getting started and storage
 
 1. As a scholar, I want to choose a folder on my computer as my Workspace, so that my work lives somewhere I can see, back up, and find without the tool's help.
@@ -105,7 +107,7 @@ The result is scholarship that is simultaneously: a working document, an archiva
 59. As a scholar, I want to draw a shape, so that I can outline a region or extent.
 60. As a scholar, I want to edit an Annotation's vertices after drawing, so that a rough first pass can be refined.
 61. As a scholar, I want to give an Annotation a title, so that it is identifiable in the map and in a list.
-62. As a scholar, I want to write a longer description with emphasis, links, and footnotes, so that an Annotation can carry real scholarly prose.
+62. As a scholar, I want to write a longer description with emphasis and links, so that an Annotation can carry real scholarly prose.
 63. As a scholar, I want to choose an Annotation's colour, so that I can group related features visually.
 64. As a scholar, I want solid, dashed, and dotted lines, so that I can distinguish certain from conjectural routes.
 65. As a scholar, I want to set a default style for a whole Annotation Layer and override it on individual features, so that consistency is cheap and exceptions are possible.
@@ -288,6 +290,8 @@ One extension, because simplestyle has no dash concept: `stroke-dasharray: [dash
 
 `description` holds **Markdown** — chosen for how it degrades, since a consumer that does not render it shows readable prose where HTML shows tag soup. **Rendered Markdown is sanitised**: imported Projects are untrusted content and the viewer is a published site on the user's own domain.
 
+The pipeline is **`marked` → `dompurify` → insert**, never the reverse, and both are declared dependencies of both apps via the catalog. `marked` is chosen on size, since the renderer ships in `apps/viewer` too; the parser is not the security boundary, `dompurify` is (ADR-0009). **Footnotes are out of scope for v1** — see Out of Scope.
+
 Precedence: feature `properties` → Layer default style → simplestyle defaults.
 
 ### Base maps
@@ -419,6 +423,8 @@ Per ADR-0014:
 - **Publishing a single Project standalone.** The Workspace is the site; single-project output is a second mode, deferred.
 - **`twoOmega`, `airyKavr`, and `thetaa`** distortion measures. `thetaa` is excluded on principle, not priority: it is an angle, and angles are cyclic, so a linear colour ramp misrepresents it.
 - **IIIF Content State and arbitrary non-IIIF image URLs** as ingest paths.
+- **Markdown footnotes in an Annotation `description`.** v1 ships emphasis and links. Footnote syntax emits anchor ids and back-references, so several popups on one page collide in the DOM unless ids are namespaced per feature — and the sanitiser must then permit those ids and fragment links, widening the allowlist on the one surface where a mistake is a vulnerability rather than a defect. Footnote syntax typed by a user degrades to literal text (ADR-0009).
+- **Rich-text or WYSIWYG authoring of `description`.** A plain textarea with a live preview is the v1 deliverable. A block editor was considered and deferred: the stored value must remain a portable Markdown string for stories 67 and 94, which constrains any editor more than it first appears.
 
 ## Further Notes
 
@@ -441,3 +447,27 @@ Every `Image` must have `uri` assigned before a tile is requested. Forget it and
 ### On the audience
 
 The users are historians and students, not GIS professionals. Two consequences run through the whole specification: **guidance text is primary and labels are secondary**, wherever a choice has technical consequences; and **errors must name what is wrong and what to do**, because "checking Allmaps for existing georeferences" and "this host does not allow other websites to load its images" are actionable where a stack trace or a blank map is not.
+
+## User story coverage
+
+Every story above is claimed by at least one ticket. The mapping lives in two places, both of which must be updated together: the `Fulfills` column of [TRACKER.md](./TRACKER.md)'s ledger, and a `Fulfills` line under each ticket's *What to build*.
+
+Stories **95 and 96** (keyboard reach, announced guidance and status) are the exception. They are not assigned to a ticket because accessibility is an acceptance criterion inside every ticket that adds UI; a single accessibility slice at the end reliably becomes a graveyard. Story 97 is assigned to ticket 02, where the `<dialog>` + `showModal()` rule is established and asserted, and reused thereafter.
+
+### Stories only partly delivered
+
+None. Every story is covered by the acceptance criteria of the tickets listed against it.
+
+Story 62 was the last entry here, and it was closed by **amending the story rather than adding a criterion**: footnotes are deferred past v1 (see Out of Scope), leaving emphasis and links, which ticket 10 asserts. That gap also surfaced a missing decision — nothing named the Markdown renderer, only the sanitiser — now recorded in ADR-0009 and ticket 10. This section is kept deliberately: the next scope change will want it.
+
+### Stories deliberately read narrowly
+
+- **15** — warned as the Workspace approaches the hosting size limit. Read as *warned at the two moments that matter* rather than as a continuously displayed figure: ticket 15 warns before a mirror, which is the only action that grows a workspace by hundreds of megabytes in one gesture, and ticket 16 warns at publish, where the cliff actually bites. A persistent workspace-size indicator was considered and rejected — it would need recomputing across thousands of tile files to tell a scholar something actionable only at those two moments.
+
+### Stories whose delivery is emergent
+
+Satisfied by the combination of other tickets rather than by any ticket's own criteria. Recorded here so they are not mistaken for gaps.
+
+- **56** — each student works in their own Annotation Layer of a shared Project. Falls out of story 55 (multiple Annotation Layers, tickets 09 and 10) plus ticket 13's zip distribution. There is no collaboration feature and no criterion; the workflow is the instructor's.
+- **93** — the same files keep working after moving between machines, hosts, and domains. Delivered by the accumulation of ADR-0004's load-time base-URL resolution, ADR-0020's id-not-URL rule, and ticket 16's relative paths, each asserted in its own ticket. Ticket 16's "stamped Project still opens in the editor" is the closest thing to an end-to-end assertion.
+- **94** — a deposited Project is standard formats with no proprietary index. Georeference Annotations (ticket 07), GeoJSON with simplestyle (ticket 10), and the data-only zip (ticket 13). `project.json` is ours, but it holds only display state; nothing in it is needed to read the scholarship.

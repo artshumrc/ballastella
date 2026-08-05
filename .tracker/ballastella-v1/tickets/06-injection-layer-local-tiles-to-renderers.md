@@ -6,6 +6,8 @@ The image pane stops reading a fixture from static assets and starts reading the
 
 The problem being solved: **tiles in the store have no URL.** `<img src>` cannot reach them, MapLibre cannot fetch them, OpenSeadragon cannot fetch them.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user story 31, completing the projection work ticket 03 began. Also the mechanism behind story 8 (working with no network): local tiles reach the renderer without touching it.
+
 ## Where to start
 
 [ADR-0011](../../../docs/adr/0011-local-tiles-reach-renderers-by-per-consumer-injection.md) (the whole slice) and [ADR-0004](../../../docs/adr/0004-image-service-base-url-is-resolved-at-load-time.md) (why the placeholder is the routing key).

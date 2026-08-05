@@ -8,6 +8,8 @@ The user sees one pane containing a committed fixture level-0 pyramid, and can p
 
 **This is the highest-risk unknown in the project.** MapLibre is Web Mercator only, so image pixel space must be mapped into a synthetic geographic window and back. The failure mode is silent: Control Points that **drift as you zoom**, which looks like imprecision rather than a bug and would poison every alignment made with the tool.
 
+**Fulfills** — no [SPEC.md](../SPEC.md) user story on its own; the pane here shows a committed fixture, not the user's map. This is the groundwork for story 31 (deep zoom to place a Control Point precisely), which lands in ticket 06, and the precision every story in *Aligning* rests on.
+
 ## Where to start
 
 [ADR-0005](../../../docs/adr/0005-maplibre-and-terra-draw.md) — the MapLibre decision and the projection consequence. Then the Build-order section of [SPEC.md](../SPEC.md).

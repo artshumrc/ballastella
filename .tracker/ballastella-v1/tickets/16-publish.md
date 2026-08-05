@@ -6,6 +6,8 @@ A user clicks Publish. An `index.html` and a read-only viewer bundle are written
 
 Optionally, the user supplies a canonical URL and their Historical Maps become real, citable IIIF endpoints.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 78, 79, 80, 81, 88, 89, 90, 92, 99, and 101. Story 82's hub page is written here; its Reader behaviour is ticket 17. With ticket 13: 87 and 93. With ticket 15: 15. With ticket 09: 29.
+
 ## Where to start
 
 [ADR-0006](../../../docs/adr/0006-the-project-directory-is-the-published-site.md) (additive publishing, relative paths, the enumerable file set), [ADR-0008](../../../docs/adr/0008-projects-live-in-a-workspace.md) (workspace is the site root; `?p=` addressing), [ADR-0019](../../../docs/adr/0019-minimal-pnpm-monorepo.md) (the viewer is a separate lean build), [ADR-0004](../../../docs/adr/0004-image-service-base-url-is-resolved-at-load-time.md) (canonical URL stamping), [ADR-0020](../../../docs/adr/0020-base-map-catalog-author-default-and-reader-switching.md) (the catalog ships in the bundle).
@@ -42,7 +44,7 @@ The alternative — exporting to a separate directory containing the viewer *and
 |---|---|
 | Any Layer has `imageMode: 'referenced'` | The site depends on remote images; a Reader without a network sees nothing (ADR-0007) |
 | Bundling a pmtiles extract | State the size it is about to add, **before** adding it (ADR-0020) |
-| Workspace approaching ~1 GB | GitHub Pages caps a published site around 1 GB, with a hard 100 MB per-file limit in git. This is a **cliff**, not a slowdown: warn rather than letting `git push` fail cryptically (ADR-0008) |
+| Workspace approaching ~1 GB | GitHub Pages caps a published site around 1 GB, with a hard 100 MB per-file limit in git. This is a **cliff**, not a slowdown: warn rather than letting `git push` fail cryptically (ADR-0008). Computed from ticket 02's `ProjectStore#size` — never by reading tile bytes. Ticket 15 warns earlier, when a mirror is about to cause the growth |
 
 ### Canonical URL stamping — opt-in
 
@@ -72,7 +74,9 @@ This delivers something the placeholder cannot: **the tiles become a real, citab
 - [ ] The resolved base map catalog is present in the bundle
 - [ ] Publishing with a referenced Layer warns that the site needs a network
 - [ ] Bundling a pmtiles extract states its size before adding it
-- [ ] A workspace approaching 1 GB produces a warning naming the hosting limit
+- [ ] A workspace approaching 1 GB produces a warning naming the hosting limit, computed via `ProjectStore#size` without reading tile bytes
+- [ ] Publishing a **second** time after adding a Project extends the hub page to include it, leaves every earlier Project's files byte-identical, and refreshes the bundle's version stamp — the semester-long, one-repository workflow
+- [ ] Building, publishing, and serving the site require no API key, token, or secret: CI builds with no project-specific environment variables set, and no `*_KEY`, `*_TOKEN`, or `*_SECRET` reference exists in either app's source
 - [ ] Stamping a canonical URL rewrites every `info.json` `id`, and the value is remembered
 - [ ] A stamped Project still opens in the editor, because load-time override wins
 - [ ] Publish is reachable and operable by keyboard, and progress and warnings are announced

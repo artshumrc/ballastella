@@ -6,6 +6,8 @@ A user picks an image file from their computer. The app converts it to a level-0
 
 This slice also settles two facts nobody can guess: **where the decode ceiling actually falls per browser** (which sets the streaming-tiler threshold), and **whether our generated `info.json` is accepted by Allmaps end to end**.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 21, 22, and 23.
+
 ## Where to start
 
 [ADR-0003](../../../docs/adr/0003-every-image-is-tiled-client-side.md) (the whole slice) and [ADR-0004](../../../docs/adr/0004-image-service-base-url-is-resolved-at-load-time.md) (the placeholder `id`).

@@ -6,6 +6,8 @@ A user exports a Project as a zip file and imports it on another computer or han
 
 This is the **only** way in and out for Firefox, Safari, and iPad users, whose Projects live in browser-managed storage they cannot see (ADR-0001). It is also the archival and deposit path.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 5, 13, and 14. With tickets 07 and 10: 94. With ticket 16: 87 and 93. With tickets 09 and 10: 56 — this is how a shared Project reaches each student. This ticket is also the concrete reason ticket 10's Markdown sanitisation is required rather than theoretical.
+
 ## Where to start
 
 [ADR-0001](../../../docs/adr/0001-opfs-first-project-store.md) (why this is a first-class path, not a convenience), [ADR-0008](../../../docs/adr/0008-projects-live-in-a-workspace.md) (a Project zip is one Project subdirectory), [ADR-0009](../../../docs/adr/0009-annotations-use-simplestyle-spec.md) (imported content is untrusted).

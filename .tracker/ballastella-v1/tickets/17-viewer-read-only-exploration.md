@@ -6,6 +6,8 @@ The read-only experience a Reader gets from a Published Site. They arrive at a h
 
 It reads well on a phone. Nothing can be edited.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 70, 71, 72, 83, 84, 85, and 86, plus the Reader half of 82 and the viewer's case of 77. With ticket 04: 98 — the catalog supplies the high-contrast entry, this ticket makes a Reader able to choose it.
+
 ## Where to start
 
 [ADR-0006](../../../docs/adr/0006-the-project-directory-is-the-published-site.md) (the HTTP `ProjectStore` adapter), [ADR-0020](../../../docs/adr/0020-base-map-catalog-author-default-and-reader-switching.md) (reader switching and persistence), [ADR-0014](../../../docs/adr/0014-v1-scope-fences.md) (authoring is desktop, **viewing is fully responsive**), [ADR-0009](../../../docs/adr/0009-annotations-use-simplestyle-spec.md) (sanitisation), [ADR-0016](../../../docs/adr/0016-daisyui-only-with-mandated-component-methods.md) (theme ships with the viewer).
@@ -15,6 +17,8 @@ The bundle and its placement come from ticket 16.
 ## Contract
 
 **The viewer is the same reading code with a third `ProjectStore` adapter: HTTP `fetch` over relative paths.** OPFS, File System Access, and now HTTP — ADR-0001's abstraction paying out a third time. Do not write a parallel data layer.
+
+`size` may be left unsupported on this adapter. Nothing a Reader does needs it — the hosting-limit warnings belong to the editor (tickets 15 and 16) — and implementing it would mean a `HEAD` request per file for no benefit.
 
 **Nothing is editable.** No drawing tools, no Control Point manipulation, no writes of any kind. The viewer has no store `write`.
 

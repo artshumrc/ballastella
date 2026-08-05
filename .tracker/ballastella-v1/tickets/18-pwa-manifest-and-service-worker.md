@@ -4,6 +4,8 @@
 
 The editor becomes installable and works offline. A scholar in a reading room with hostile wifi opens the installed app and keeps aligning maps. When a new version is available they are told, and they choose when to reload.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 6, 8, and 9. Story 6 is the remedy for the permission friction ticket 12 introduces; story 8's prerequisites are spread across tickets 04, 06, and 15, and this is where the whole claim is verified end to end.
+
 ## What this actually fixes
 
 Offline is the real use case, and every other piece is already in place: storage is OPFS, local tiles reach renderers without network (ticket 06), and a bundled pmtiles extract provides a Base Map (ticket 04).

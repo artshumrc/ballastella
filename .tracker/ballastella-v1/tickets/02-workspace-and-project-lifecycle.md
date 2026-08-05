@@ -6,6 +6,8 @@ A user opens the editor, sees a hub page listing the Projects in their Workspace
 
 This slice establishes **the `ProjectStore` abstraction that every later slice depends on**, and the autosave rules that every later mutation obeys.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 4 (OPFS is the universal backend, so the tool works fully where folder access is impossible), 7, 10, 11, 12, 73, 74, 75, 76, 77, and 97. `size` is the prerequisite for story 15's hosting-limit warnings in tickets 15 and 16.
+
 ## Where to start
 
 [ADR-0001](../../../docs/adr/0001-opfs-first-project-store.md) (the store), [ADR-0008](../../../docs/adr/0008-projects-live-in-a-workspace.md) (workspace model and layout), [ADR-0017](../../../docs/adr/0017-autosave-semantics.md) (autosave), [ADR-0010](../../../docs/adr/0010-integer-format-version-with-forward-only-migrations.md) (version refusal), [ADR-0016](../../../docs/adr/0016-daisyui-only-with-mandated-component-methods.md) (component methods).
@@ -18,7 +20,10 @@ ProjectStore
   write(path, bytes)  → Promise<void>
   list(prefix)        → Promise<string[]>
   delete(path)        → Promise<void>
+  size(path)          → Promise<number>
 ```
+
+**`size` exists so a workspace's total byte count can be computed without reading it.** Tickets 15 and 16 both have to warn about the ~1 GB static-hosting cliff, and a multi-gigabyte pyramid is thousands of tile files — summing sizes by `read`ing each one would be the slowest possible way to answer a question both backends answer for free (`getFile().size`). **Do not implement `size` as a read.** It is in the interface here, before ticket 12, so the File System Access adapter inherits it via the shared suite rather than having it bolted on.
 
 Two adapters ship here: **in-memory** (for tests — see SPEC Testing Decisions, this is the primary seam) and **OPFS**. The File System Access adapter is ticket 12; do not anticipate it beyond keeping the interface honest.
 
@@ -83,6 +88,8 @@ Do **not** build migration machinery. There are no migrations to run, and writin
 - [ ] The hub page lists Projects with names and last-modified, and `?p=<dir>` opens one
 - [ ] A store whose `list` throws renders "Workspace not reachable" with a locate-again action, not an error boundary
 - [ ] Renaming a Project to an existing display name succeeds; two Projects may share a display name but not a directory name
+- [ ] `size(path)` returns a byte length **without** calling `read` — asserted with a spy on the adapter, in both the in-memory and OPFS adapters
+- [ ] Opening a Project and closing it without editing anything writes **nothing**: every file in the Project directory is byte-identical before and after, verified by hashing
 - [ ] All dialogs use `<dialog>` + `showModal()`; Escape closes them and focus returns to the trigger
 - [ ] Every hub-page control is reachable and operable by keyboard
 

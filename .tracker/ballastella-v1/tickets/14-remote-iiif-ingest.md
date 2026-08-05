@@ -6,6 +6,8 @@ A user pastes a IIIF URL — a Manifest, a Collection, or a bare image service �
 
 If the Allmaps community has already aligned that map, they are offered the chance to import that Alignment instead of starting from scratch. They can also view any Historical Map on its own, unwarped, as a document rather than as geography.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 16, 17, 18, 19, 20, 24, 25, 26, and 48. Sets `imageMode: 'referenced'`, the other half of what story 29 needs.
+
 ## Where to start
 
 [ADR-0015](../../../docs/adr/0015-ingest-surface-ids-and-community-alignment-lookup.md) (ingest surface, ids, the lookup), [ADR-0007](../../../docs/adr/0007-remote-iiif-is-referenced-by-default-mirrored-on-request.md) (referenced by default; the CORS gate), [ADR-0018](../../../docs/adr/0018-triiiceratops-embedded-as-a-svelte-component.md) (how triiiceratops is embedded and the parser boundary), [ADR-0011](../../../docs/adr/0011-local-tiles-reach-renderers-by-per-consumer-injection.md) (the OpenSeadragon `TileSource`).

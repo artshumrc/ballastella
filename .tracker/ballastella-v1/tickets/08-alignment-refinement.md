@@ -6,6 +6,8 @@ A user can choose how their Historical Map is stretched, see where the stretchin
 
 Three related capabilities on top of ticket 07's Alignment: the **transformation picker**, **distortion visualisation with the fold warning**, and an editable **Resource Mask**.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user stories 39, 40, 41, 42, 43, 44, 45, 46, and 47. The guidance-text-in-the-accessibility-tree criterion is also where story 96 is most load-bearing.
+
 ## Where to start
 
 [ADR-0013](../../../docs/adr/0013-transformation-types-and-distortion.md) — the entire slice, including the exact types, minimums, and labels. Also [ADR-0016](../../../docs/adr/0016-daisyui-only-with-mandated-component-methods.md) for why the guidance text cannot be a tooltip.

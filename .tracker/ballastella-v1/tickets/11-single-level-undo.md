@@ -4,6 +4,8 @@
 
 A user who mis-aims a drag or deletes the wrong thing can get it back. One step, covering the four destructive actions: a Control Point moved, a Control Point deleted, an Annotation deleted, a Layer deleted.
 
+**Fulfills** — [SPEC.md](../SPEC.md) user story 38, and only that one. The four covered actions are exactly its scope; the not-covered list in the Contract is what keeps this from growing into the history stack ADR-0014 fences out.
+
 ## Where to start
 
 [ADR-0014](../../../docs/adr/0014-v1-scope-fences.md) (the scope of undo and why it is deliberately not a history stack) and [ADR-0017](../../../docs/adr/0017-autosave-semantics.md) (the interaction with autosave, which is the crux).

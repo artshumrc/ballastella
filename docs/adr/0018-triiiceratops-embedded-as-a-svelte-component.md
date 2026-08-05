@@ -12,6 +12,6 @@ triiiceratops depends on **`manifesto.js`**; the alignment path uses **`@allmaps
 
 ## Consequences
 
-- **`dompurify` is already in triiiceratops' dependency tree**, satisfying ADR-0009's sanitisation requirement with the library we would have chosen anyway.
+- **`dompurify` is already in triiiceratops' dependency tree**, satisfying ADR-0009's sanitisation requirement with the library we would have chosen anyway. This means it costs nothing extra to install — **not** that it can be imported without declaring it, which pnpm's isolated `node_modules` prevents. It is a catalog entry and a direct dependency of both apps. Note also that sanitisation is only half a Markdown pipeline; ADR-0009 names the renderer.
 - triiiceratops exposes `./selectors` and `./testing` entry points, which is the intended way to read state such as the currently selected canvas rather than lifting it out by hand.
 - Bundle weight includes both parsers. Accepted; the alternative is teaching one parser to do the other's job.
