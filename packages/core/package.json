@@ -10,6 +10,10 @@
 		"check": "tsc --noEmit",
 		"test": "vitest run"
 	},
+	"dependencies": {
+		"@maplibre/maplibre-gl-style-spec": "catalog:",
+		"@protomaps/basemaps": "catalog:"
+	},
 	"devDependencies": {
 		"typescript": "catalog:",
 		"vitest": "catalog:"

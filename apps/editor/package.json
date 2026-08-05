@@ -11,9 +11,12 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@ballastella/core": "workspace:*"
+		"@ballastella/core": "workspace:*",
+		"maplibre-gl": "catalog:",
+		"pmtiles": "catalog:"
 	},
 	"devDependencies": {
+		"@maplibre/maplibre-gl-style-spec": "catalog:",
 		"@sveltejs/adapter-static": "catalog:",
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
