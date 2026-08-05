@@ -19,6 +19,12 @@ catalog:
   vite: ^8.2.0
   vitest: ^4.1.10
 
+  # Vitest browser mode, for the ProjectStore adapters that need a real browser: there is no
+  # OPFS in Node (ticket 02), and no File System Access either (ticket 12). Pinned to the same
+  # minor as vitest, which @vitest/browser-playwright peers on exactly.
+  '@vitest/browser-playwright': ^4.1.10
+  playwright: ^1.62.1
+
   # UI (ADR-0016: daisyUI is the only UI dependency)
   '@tailwindcss/vite': ^4.3.3
   daisyui: ^5.7.16

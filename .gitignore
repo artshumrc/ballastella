@@ -12,6 +12,9 @@ node_modules
 /playwright/.cache
 coverage
 
+# Agent worktrees
+/.claude/worktrees
+
 # OS
 .DS_Store
 Thumbs.db
