@@ -2,7 +2,7 @@
 
 A browser-based tool for placing historical map images onto the modern world and annotating them, where a scholar's work lives as ordinary files they own rather than rows in someone else's database.
 
-A **ballastella** — also Jacob's staff — is a graduated pole with a sliding crosspiece, used from the fourteenth century to measure the angular height of a star above the horizon and so establish one's position. It is the ancestor of the sextant. The name was chosen because a Control Point pair is a sighting: the user observes a feature on a historical map, observes the same feature on the earth, and the correspondence yields a position. See [ADR-0023](./docs/adr/0023-the-name-ballastella.md).
+A **ballastella** — also Jacob's staff — is a graduated pole with a sliding crosspiece, used from the fourteenth century to measure the angular height of a star above the horizon and so establish one's position. It is the ancestor of the sextant. The name was chosen because a Control Point pair is a sighting: the user observes a feature on a historical map, observes the same feature on the earth, and the correspondence yields a position.
 
 ## Language
 

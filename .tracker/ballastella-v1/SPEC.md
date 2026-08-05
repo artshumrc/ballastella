@@ -1,6 +1,6 @@
 # Ballastella — v1 Specification
 
-Vocabulary in this document is defined in [CONTEXT.md](../../CONTEXT.md). Decisions are recorded in [docs/adr](../../docs/adr) and referenced by number rather than restated. The project's name is explained in [ADR-0023](../../docs/adr/0023-the-name-ballastella.md).
+Vocabulary in this document is defined in [CONTEXT.md](../../CONTEXT.md). Decisions are recorded in [docs/adr](../../docs/adr) and referenced by number rather than restated.
 
 ## Problem Statement
 
