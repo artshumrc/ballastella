@@ -26,4 +26,4 @@ catalog:
 
   # TypeScript. Held at ^6 rather than ^7: svelte-check and @sveltejs/kit peer on
   # `^5 || ^6`, and typescript-eslint on `<6.1.0`. Raise when they catch up.
-  typescript: ^6.0.3
+  typescript: ~6.0.3
