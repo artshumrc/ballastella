@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { createImagePane } from '../image-pane/iiif-image-pane';
 import { MemoryProjectStore } from '../store/memory-project-store';
-import { buildImageInfo, imageDirectory, imageServiceId, planPyramid } from '../tiler/pyramid';
+import { imageDirectory } from '../project/image-files';
+import { buildImageInfo, imageServiceId, planPyramid } from '../tiler/pyramid';
 import {
 	storedPyramidTileSource,
 	type OpenSeadragonTileContext

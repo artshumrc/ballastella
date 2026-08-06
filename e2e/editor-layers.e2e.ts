@@ -88,8 +88,126 @@ declare global {
 			>;
 			builds: number;
 		};
+		/** How many times each file has been opened for reading — see `countFileReads`. */
+		ballastellaFileReads?: Record<string, number>;
 	}
 }
+
+/**
+ * Count every file the page opens for reading from now on, by file name.
+ *
+ * The only way to assert "this edit costs no read of the store" from outside, and the store is the
+ * thing being claimed about rather than an internal: OPFS issues no requests, so there is nothing on
+ * the network to watch. `getFile()` is the one call every read in `DirectoryHandleStore` goes through.
+ */
+async function countFileReads(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const counts: Record<string, number> = {};
+		window.ballastellaFileReads = counts;
+		const proto = FileSystemFileHandle.prototype;
+		const original = proto.getFile;
+		proto.getFile = function (this: FileSystemFileHandle) {
+			counts[this.name] = (counts[this.name] ?? 0) + 1;
+			return original.call(this);
+		};
+	});
+}
+
+const fileReads = (page: Page): Promise<Record<string, number>> =>
+	page.evaluate(() => ({ ...window.ballastellaFileReads }));
+
+/**
+ * Refuse every write whose file name contains `needle`, as a full disk or a revoked permission does.
+ *
+ * A quota failure part way through an alignment is not a hypothetical: OPFS has a quota, a folder
+ * Workspace can have its permission revoked mid-session, and either arrives as a rejected write in the
+ * middle of a gesture. `createWritable` is where `DirectoryHandleStore` opens a file to write it, and
+ * the atomic write's temporary path carries the destination's own name — so naming one file is enough
+ * to make exactly one of the two documents an alignment touches fail.
+ *
+ * @returns a function that stops refusing
+ */
+async function failWritesTo(page: Page, needle: string): Promise<() => Promise<void>> {
+	await page.evaluate((match) => {
+		const proto = FileSystemFileHandle.prototype as unknown as {
+			createWritable: (...args: unknown[]) => Promise<unknown>;
+			ballastellaOriginalCreateWritable?: (...args: unknown[]) => Promise<unknown>;
+		};
+		proto.ballastellaOriginalCreateWritable ??= proto.createWritable;
+		const original = proto.ballastellaOriginalCreateWritable;
+		proto.createWritable = function (this: FileSystemFileHandle, ...args: unknown[]) {
+			if (this.name.includes(match)) {
+				return Promise.reject(
+					new DOMException(`Quota exceeded writing ${this.name}`, 'QuotaExceededError')
+				);
+			}
+			return original.call(this, ...args);
+		};
+	}, needle);
+
+	return () =>
+		page.evaluate(() => {
+			const proto = FileSystemFileHandle.prototype as unknown as {
+				createWritable: unknown;
+				ballastellaOriginalCreateWritable?: unknown;
+			};
+			if (proto.ballastellaOriginalCreateWritable) {
+				proto.createWritable = proto.ballastellaOriginalCreateWritable;
+			}
+		});
+}
+
+/**
+ * Hold up every read of a file called `name` by `ms`, widening a window the machine usually closes.
+ *
+ * A check-then-act separated by an `await` is a race whether or not the await is usually fast, and a
+ * test that depends on it being slow is a test that passes by luck. Slowing the one read that sits in
+ * the middle of it makes the window wide enough to drive on purpose.
+ */
+async function delayReadsOf(page: Page, name: string, ms: number): Promise<void> {
+	await page.evaluate(
+		async ([match, delay]) => {
+			const proto = FileSystemFileHandle.prototype;
+			const original = proto.getFile;
+			proto.getFile = async function (this: FileSystemFileHandle) {
+				if (this.name === match) {
+					await new Promise((resolve) => setTimeout(resolve, delay as number));
+				}
+				return original.call(this);
+			};
+		},
+		[name, ms] as const
+	);
+}
+
+/** Hold up every write whose file name contains `needle` by `ms`. See {@link delayReadsOf}. */
+async function delayWritesTo(page: Page, needle: string, ms: number): Promise<void> {
+	await page.evaluate(
+		([match, delay]) => {
+			const proto = FileSystemFileHandle.prototype as unknown as {
+				createWritable: (...args: unknown[]) => Promise<unknown>;
+			};
+			const original = proto.createWritable;
+			proto.createWritable = async function (this: FileSystemFileHandle, ...args: unknown[]) {
+				if (this.name.includes(match as string)) {
+					await new Promise((resolve) => setTimeout(resolve, delay as number));
+				}
+				return original.call(this, ...args);
+			};
+		},
+		[needle, ms] as const
+	);
+}
+
+/** The names of a Project's stored Historical Maps, which are random identifiers (ADR-0015). */
+const storedImageIds = (page: Page, directory: string): Promise<string[]> =>
+	page.evaluate(async (project) => {
+		const root = await navigator.storage.getDirectory();
+		const images = await (await root.getDirectoryHandle(project)).getDirectoryHandle('images');
+		const names: string[] = [];
+		for await (const name of images.keys()) names.push(name);
+		return names;
+	}, directory);
 
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
@@ -185,15 +303,12 @@ async function clickAt(target: Locator, fx: number, fy: number): Promise<void> {
 }
 
 /**
- * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack.
- *
- * Made through the interface rather than seeded into OPFS, because the first criterion is that
- * *aligning* is what produces the Layer — so the Layer has to come from the alignment workspace and
- * not from a fixture that already contains one.
+ * A Project with one ingested Historical Map and not one Control Point yet — the state a scholar is in
+ * when they make their first pair, and so the state an interrupted first Alignment write starts from.
  *
  * @returns the Project directory
  */
-async function alignedProject(page: Page): Promise<string> {
+async function projectWithImage(page: Page): Promise<string> {
 	await page.goto('/');
 	await emptyWorkspace(page);
 	await page.reload();
@@ -210,6 +325,29 @@ async function alignedProject(page: Page): Promise<string> {
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 
+	return 'amsterdam-1625';
+}
+
+/** One Control Point pair, at the same fraction across both panes. */
+async function pairAt(page: Page, fx: number, fy: number): Promise<void> {
+	await clickAt(page.getByTestId('image-pane'), fx, fy);
+	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
+	await clickAt(page.getByTestId('base-map-pane'), fx, fy);
+	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
+}
+
+/**
+ * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack.
+ *
+ * Made through the interface rather than seeded into OPFS, because the first criterion is that
+ * *aligning* is what produces the Layer — so the Layer has to come from the alignment workspace and
+ * not from a fixture that already contains one.
+ *
+ * @returns the Project directory
+ */
+async function alignedProject(page: Page): Promise<string> {
+	const directory = await projectWithImage(page);
+
 	// Three pairs, which is the minimum a first-order polynomial can be solved from (ADR-0013), so
 	// the Layer this makes has something to draw.
 	for (const [fx, fy] of [
@@ -217,22 +355,30 @@ async function alignedProject(page: Page): Promise<string> {
 		[0.7, 0.35],
 		[0.5, 0.7]
 	] as const) {
-		await clickAt(page.getByTestId('image-pane'), fx, fy);
-		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
-		await clickAt(page.getByTestId('base-map-pane'), fx, fy);
-		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
+		await pairAt(page, fx, fy);
 	}
 	await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
 	await expect(page.getByRole('status')).toHaveText('Saved');
 
-	return 'amsterdam-1625';
+	return directory;
 }
 
-/** Open the Layers pane and wait until the stack has been put on the map. */
+/** How long the stack may take to reach the map. See {@link openLayers}. */
+const STACK_READY_MS = 20_000;
+
+/**
+ * Open the Layers pane and wait until the stack has been put on the map.
+ *
+ * The wait is longer than the default because what it waits for is a whole Base Map style — a PMTiles
+ * header, sprites, glyphs — and then a warped Historical Map on top of it. Five seconds is enough on an
+ * idle machine and not on a busy one, which reads as a failure of whatever the test went on to do.
+ */
 async function openLayers(page: Page, directory: string, drawn = 1): Promise<void> {
 	await page.goto(`/layers?p=${directory}`);
 	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
-	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', String(drawn));
+	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', String(drawn), {
+		timeout: STACK_READY_MS
+	});
 }
 
 const rows = (page: Page) => page.getByTestId('layer-row');
@@ -249,6 +395,15 @@ const stackBuilds = (page: Page): Promise<number> =>
 	page.evaluate(() => window.ballastellaLayerStack?.builds ?? -1);
 
 /**
+ * How long {@link warpedTiles} waits for the first decoded tile.
+ *
+ * Generous, and it costs nothing when the tiles are there: the poll returns on the first non-zero
+ * answer. A test that calls `warpedTiles` more than once therefore has to allow for this twice, which
+ * is what the `test.setTimeout` calls beside each of its callers are for.
+ */
+const WARPED_TILE_WAIT_MS = 30_000;
+
+/**
  * How many warped tiles have arrived **and decoded** for one Layer.
  *
  * `CacheableTile.isCachedTile()` is `data !== undefined`, and `data` is the ImageData the tile worker
@@ -256,15 +411,43 @@ const stackBuilds = (page: Page): Promise<number> =>
  * tiles that were merely asked for.
  */
 const warpedTiles = (page: Page, layerId: string): Promise<number> =>
-	page.evaluate(async (id) => {
-		const stack = window.ballastellaLayerStack;
-		const layer = stack?.warped[id];
-		if (!stack || !layer) return -1;
-		// Bring the warped map into view, or the renderer has no reason to ask for a tile.
-		stack.map.fitBounds(layer.getBounds(), { animate: false });
-		await new Promise((resolve) => setTimeout(resolve, 3000));
-		return (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
-	}, layerId);
+	page.evaluate(
+		async ([id, ceiling]) => {
+			// **The layer is looked up on every pass, never captured once.** Any change to the stack — a
+			// reorder, a Layer shown or hidden — tears the whole stack down and builds a new one, with a
+			// new `WarpedMapLayer` per map Layer, and the handle is replaced along with it. A version that
+			// grabbed the layer once and then polled it was watching an object that had been taken off the
+			// map, whose cache stays empty for ever: it answered 0 for a renderer that had six decoded
+			// tiles a second after the reorder, which is the opposite of the honest signal this is for.
+			const live = () => window.ballastellaLayerStack?.warped[id as string];
+			const cached = () => {
+				const layer = live();
+				return layer === undefined
+					? -1
+					: (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
+			};
+
+			// **Polled, not slept for, and still the same assertion.** `getCachedTiles()` is the honest
+			// signal — a cached tile is bytes that arrived *and* decoded through the ADR-0011 shim, which
+			// is what the `@allmaps/render` patch made possible — so what changed is the waiting, not what
+			// is being asked. A fixed three seconds and one look was enough on an idle machine and not on
+			// a loaded one; a longer fixed sleep would be the same defect, slower.
+			let framed: unknown;
+			for (let waited = 0; waited <= (ceiling as number); waited += 200) {
+				const layer = live();
+				if (layer !== undefined && layer !== framed) {
+					// Bring the warped map into view, or the renderer has no reason to ask for a tile — and
+					// again for a layer that has just replaced the one this was looking at.
+					framed = layer;
+					window.ballastellaLayerStack?.map.fitBounds(layer.getBounds(), { animate: false });
+				}
+				if (cached() > 0) break;
+				await new Promise((resolve) => setTimeout(resolve, 200));
+			}
+			return cached();
+		},
+		[layerId, WARPED_TILE_WAIT_MS] as const
+	);
 
 const warpedOpacity = (page: Page, layerId: string): Promise<number> =>
 	page.evaluate((id) => window.ballastellaLayerStack?.warped[id]?.getOpacity() ?? -1, layerId);
@@ -364,6 +547,88 @@ test.describe('a Layer for an aligned Historical Map', () => {
 		expect(after.updatedAt).toBe(before.updatedAt);
 	});
 
+	/**
+	 * The Layer must never exist without the Alignment it names.
+	 *
+	 * A Layer whose `alignmentRef` names a file that is not there is a Project ticket 13's import
+	 * refuses — `assertReferencesPresent` says the Layer "needs it to be drawn" — so an interrupted
+	 * first Alignment write leaves a scholar unable to import their own export. This is the same
+	 * discipline `addAnnotationLayer` already keeps for `geojsonRef`, and there is nothing exotic about
+	 * the interruption: OPFS has a quota, and a folder Workspace can have its permission revoked
+	 * mid-session.
+	 */
+	test('does not create the Layer when the Alignment could not be written', async ({ page }) => {
+		const directory = await projectWithImage(page);
+		const [imageId] = await storedImageIds(page, directory);
+		// The atomic write's temporary path carries the destination's own name, so this refuses the
+		// Alignment and nothing else — `project.json` is still perfectly writable.
+		const allowWrites = await failWritesTo(page, `.${imageId}.json.`);
+
+		await pairAt(page, 0.3, 0.3);
+		await pairAt(page, 0.7, 0.35);
+		await pairAt(page, 0.5, 0.7);
+		await expect(page.getByText('Quota exceeded')).toBeVisible();
+		// The barrier that makes the claim below a claim rather than a race: the Historical Map is being
+		// drawn from three pairs, so all three refused writes — and anything either of them set in
+		// motion — are long done. The first pair alone is what used to create the Layer.
+		await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+
+		// No Layer, because the Alignment it would name is not there. Read off the page, which renders
+		// the count out of the one in-memory `project.json`, and out of the file.
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (0)');
+		expect((await projectJson(page, directory)).layers).toEqual([]);
+
+		// And this is not Layer creation broken: once the disk is no longer full, the next pair produces
+		// the Layer, and it names an Alignment that is really there — a Project ticket 13 would accept.
+		await allowWrites();
+		await pairAt(page, 0.4, 0.5);
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const file = await projectJson(page, directory);
+		expect(file.layers).toHaveLength(1);
+		expect(await readProjectFile(page, directory, file.layers[0].alignmentRef)).toContain(
+			'Annotation'
+		);
+	});
+
+	/**
+	 * Making the Layer must not throw away whatever else changed while it was being made.
+	 *
+	 * Putting the Layer in the stack read `project.json` out of memory, then `await`ed a read of the
+	 * image's `manifest.json` for the Layer's name, and then wrote the *snapshot it took before the
+	 * await* back with the Layer added. So any other change to the document inside that window was
+	 * silently discarded — and one of them is the Project name field, which sits on this very page: a
+	 * user renames their Project while their first Control Point pair is being saved, sees the field
+	 * revert to the old name, and the file on disk carries the old name too. `project.json` is the
+	 * document whose loss is "not one annotation but the map of everything" (ADR-0017 rule 4), and this
+	 * is the only place in the app that wrote it from a stale snapshot.
+	 */
+	test('making the Layer does not discard a Project rename made while it was being made', async ({
+		page
+	}) => {
+		const directory = await projectWithImage(page);
+		// Widens the window between the snapshot and the write. The window is real at any speed; this
+		// only makes it wide enough to drive on purpose.
+		await delayReadsOf(page, 'manifest.json', 1500);
+
+		await pairAt(page, 0.3, 0.3);
+		// Inside the window: the pair is made, its Alignment is written, and the Layer is on its way.
+		const name = page.getByLabel('Project name');
+		await name.fill('Amsterdam, 1625');
+		await name.blur();
+
+		// Long enough for the delayed read and the write it leads to. A fixed wait rather than a signal,
+		// because the claim is about a write that must *not* undo an earlier one.
+		await page.waitForTimeout(3000);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// The Layer was made, and the rename survived it — on screen and in the file.
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(name).toHaveValue('Amsterdam, 1625');
+		expect((await projectJson(page, directory)).name).toBe('Amsterdam, 1625');
+	});
+
 	test('shows the Layer as a local copy, which is what decides whether a reader needs the network', async ({
 		page
 	}) => {
@@ -376,10 +641,46 @@ test.describe('a Layer for an aligned Historical Map', () => {
 	});
 });
 
+/**
+ * SPEC story 8's reading room, whose wifi answers the request and then never finishes it.
+ *
+ * **A request that hangs, not one that fails.** A PMTiles archive that is *refused* leaves the Layer
+ * drawing perfectly well over a blank Base Map — MapLibre treats a source, a sprite and a glyph range
+ * that errored as loaded, so `isStyleLoaded()` becomes true and the stack attaches. A request left
+ * open does not: the style never completes, the stack never attaches, `onstack` is never called, and
+ * the page's own fallback has nothing to say about a Layer whose Alignment it read perfectly well. The
+ * region then read "0 of 1 Layers are drawn" with no reason anywhere on the page, which tells a
+ * scholar their work is missing and not why. Captive portals and dead connections hang; that is the
+ * case worth covering.
+ */
+test.describe('a Base Map that never finishes loading', () => {
+	test('says why the Layer cannot be drawn rather than leaving the list silent', async ({
+		page
+	}) => {
+		// Longer than the pane's own wait for the style, which is the thing being asserted.
+		test.setTimeout(90_000);
+		const directory = await alignedProject(page);
+
+		// Neither fulfilled nor aborted: the request stays open for the life of the page.
+		await page.route('**/base-map/*.pmtiles', () => undefined);
+		await page.goto(`/layers?p=${directory}`);
+		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await expect(rows(page)).toHaveCount(1);
+
+		// The Layer's own row carries the reason, and the region still counts honestly.
+		await expect(rows(page).first().getByTestId('layer-problem')).toContainText(
+			'Base Map has not finished loading',
+			{ timeout: 40_000 }
+		);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '0');
+	});
+});
+
 test.describe('showing and hiding a Layer (SPEC story 50)', () => {
 	test('draws the Historical Map warped, and takes it off the map when hidden', async ({
 		page
 	}) => {
+		test.setTimeout(30_000 + WARPED_TILE_WAIT_MS);
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 		const layerId = (await rowIds(page))[0] as string;
@@ -442,9 +743,45 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		expect((await projectJson(page, directory)).layers[0].opacity).toBeCloseTo(0.35, 5);
 
 		await page.reload();
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
+			timeout: STACK_READY_MS
+		});
 		await expect(page.getByTestId('layer-opacity-value')).toHaveText('35%');
 		expect(await warpedOpacity(page, layerId)).toBeCloseTo(0.35, 5);
+	});
+
+	// **A real pointer drag, not `fill()`.** `fill()` sets `value` and dispatches `input`
+	// programmatically, so it cannot see the thing a user meets first: the row carries
+	// `draggable="true"` for the reorder, and a pointer drag beginning on a descendant of a draggable
+	// element can be claimed by the drag machinery instead of by the control under the cursor. A slider
+	// thumb that will not move puts story 51 out of reach by mouse, on the platform ADR-0014 says
+	// authoring targets — and every test in this file would still be green.
+	test('the slider can be dragged with the mouse, not only set programmatically', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		const layerId = (await rowIds(page))[0] as string;
+		await expect(page.getByTestId('layer-opacity-value')).toHaveText('100%');
+
+		const slider = page.getByTestId('layer-opacity');
+		const box = await slider.boundingBox();
+		if (!box) throw new Error('the opacity slider has no box to drag in');
+		// From the thumb, which sits at the right-hand end while the Layer is fully opaque.
+		await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(box.x + box.width * 0.5, box.y + box.height / 2, { steps: 10 });
+		await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2, { steps: 10 });
+		await page.mouse.up();
+
+		// Somewhere near the left of the track rather than an exact value: what is being asserted is
+		// that the gesture reached the control at all, and a range's own hit geometry is its business.
+		const opacity = await warpedOpacity(page, layerId);
+		expect(opacity, 'dragging the opacity slider did not reach the warped renderer').toBeLessThan(
+			0.6
+		);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		expect((await projectJson(page, directory)).layers[0].opacity).toBeCloseTo(opacity, 5);
 	});
 
 	// The union makes this a type error in `@ballastella/core`; here it is the UI honouring it, so
@@ -471,15 +808,36 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	 * deliberately enormous, so it is under the centre of the canvas wherever the Base Map happens to
 	 * be looking.
 	 *
+	 * @param defaultStyle the Annotation Layer's style, written into `project.json` — ticket 10 owns the
+	 * controls that would otherwise set it
 	 * @returns the Project directory and the two Layer ids, Annotation Layer first
 	 */
-	async function stackWithBothKinds(page: Page) {
+	async function stackWithBothKinds(page: Page, defaultStyle: Record<string, unknown> = {}) {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(2);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		const [annotationId, mapId] = (await rowIds(page)) as [string, string];
+
+		if (Object.keys(defaultStyle).length > 0) {
+			const file = await projectJson(page, directory);
+			await writeProjectFile(
+				page,
+				directory,
+				'project.json',
+				`${JSON.stringify(
+					{
+						...file,
+						layers: file.layers.map((layer: { kind: string }) =>
+							layer.kind === 'annotation' ? { ...layer, defaultStyle } : layer
+						)
+					},
+					null,
+					'\t'
+				)}\n`
+			);
+		}
 
 		await writeProjectFile(
 			page,
@@ -508,13 +866,17 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 			})
 		);
 		await page.reload();
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
+			timeout: STACK_READY_MS
+		});
 		return { directory, annotationId, mapId };
 	}
 
 	test('an Annotation Layer above a map Layer draws above it, and moving it down reverses that', async ({
 		page
 	}) => {
+		// Two waits for decoded tiles, either of which may take the full ceiling on a loaded machine.
+		test.setTimeout(30_000 + 2 * WARPED_TILE_WAIT_MS);
 		const { annotationId, mapId } = await stackWithBothKinds(page);
 
 		// Both are genuinely rendering: the Historical Map has decoded tiles, and the Annotation
@@ -562,10 +924,97 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		);
 	});
 
+	/**
+	 * The case ADR-0002 actually names: an opaque label over the map it describes.
+	 *
+	 * The test above exercises translucent over translucent, and only that. A `WarpedMapLayer` is a
+	 * MapLibre *custom* layer, so it always renders in the translucent pass; a `fill` at
+	 * `fill-opacity: 1` renders in the **opaque** pass, which is a different pass with different
+	 * ordering rules. Every polygon in this file inherits simplestyle's `fill-opacity: 0.6` default, so
+	 * the pass an annotation Layer will normally be in once ticket 10 gives it a solid fill was never
+	 * covered. Asserted through `getLayersOrder()` and `queryRenderedFeatures`, not pixels.
+	 */
+	test('an opaque annotation above a map Layer still draws above it', async ({ page }) => {
+		test.setTimeout(30_000 + WARPED_TILE_WAIT_MS);
+		const { annotationId, mapId } = await stackWithBothKinds(page, {
+			fill: '#aa0000',
+			'fill-opacity': 1
+		});
+
+		expect(await warpedTiles(page, mapId)).toBeGreaterThan(0);
+		expect(await renderedAtCentre(page)).toContain(`ballastella-layer-${annotationId}-fill`);
+
+		const above = await stackOrder(page);
+		expect(above.indexOf(`ballastella-layer-${mapId}`)).toBeLessThan(
+			above.indexOf(`ballastella-layer-${annotationId}-fill`)
+		);
+
+		await rows(page).nth(0).getByTestId('layer-move-down').click();
+		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+
+		const below = await stackOrder(page);
+		expect(below.indexOf(`ballastella-layer-${annotationId}-fill`)).toBeLessThan(
+			below.indexOf(`ballastella-layer-${mapId}`)
+		);
+	});
+
+	// The half of SPEC story 53 that "the order changed" cannot see. A keyboard user reorders by
+	// pressing the same button repeatedly, so where focus is *after* a move decides whether they can
+	// make a second one — and the `{#each}` is keyed, so Svelte moves the row's DOM node out from under
+	// the button that was just activated. Losing focus here means Tabbing back in from the top of the
+	// document, past MapLibre's own controls, for every single move.
+	test('leaves the keyboard on the Layer that moved, so a second move needs no Tab', async ({
+		page
+	}) => {
+		const { annotationId, mapId } = await stackWithBothKinds(page);
+		const moveDown = rows(page).nth(0).getByTestId('layer-move-down');
+
+		await page.keyboard.press('Tab');
+		await tabTo(page, moveDown, 'Move down');
+		await page.keyboard.press('Enter');
+		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
+
+		// At the bottom of the stack "Move down" is a disabled button, so the keyboard is handed the
+		// other half of the same control rather than the document body.
+		await expect(rows(page).nth(1).getByTestId('layer-move-up')).toBeFocused();
+
+		// And it really is operable from there: one keypress, no Tab, and the Layer comes back.
+		await page.keyboard.press('Enter');
+		expect(await rowIds(page)).toEqual([annotationId, mapId]);
+		await expect(page.getByTestId('layer-move-status')).toContainText('moved to 1 of 2');
+	});
+
+	// The same thing away from the ends, where the button that was pressed is still enabled — the case
+	// that is about Svelte moving a keyed node rather than about `disabled`.
+	test('keeps focus on the same button when the move does not reach the end', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(2);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(3);
+		const [top] = (await rowIds(page)) as [string, string, string];
+
+		const moveDown = rows(page).nth(0).getByTestId('layer-move-down');
+		await page.keyboard.press('Tab');
+		await tabTo(page, moveDown, 'Move down');
+		await page.keyboard.press('Enter');
+
+		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', top);
+		await expect(rows(page).nth(1).getByTestId('layer-move-down')).toBeFocused();
+
+		await page.keyboard.press('Enter');
+		expect((await rowIds(page))[2]).toBe(top);
+	});
+
+	// From the handle, which is the drag source: the row is only the drop target, because a pointer
+	// drag beginning anywhere inside a `draggable` element is claimed by the drag machinery rather than
+	// by the slider or the name field under the cursor.
 	test('reorders by dragging, reaching the same render order', async ({ page }) => {
 		const { annotationId, mapId } = await stackWithBothKinds(page);
 
-		await rows(page).nth(0).dragTo(rows(page).nth(1));
+		await rows(page).nth(0).getByTestId('layer-drag-handle').dragTo(rows(page).nth(1));
 
 		await expect(rows(page).nth(0)).toHaveAttribute('data-layer-id', mapId);
 		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
@@ -623,8 +1072,53 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 			...(await hashesUnder(page, directory, 'annotations/'))
 		];
 		expect(after).toEqual(before);
-		// And the display state did land somewhere: `project.json` is the only place it lives.
+
+		// And the display state did land somewhere: `project.json` is the only place it lives. The four
+		// values are named rather than left to "the bytes differ", because `writeProject` stamps a fresh
+		// `updatedAt` on every write — so the inequality below holds even if the rename, the reorder, the
+		// toggle and the opacity had all been dropped from the serialised `layers`, which would make the
+		// pairing with the hashes above vacuous.
+		const project = await projectJson(page, directory);
 		expect(await readProjectFile(page, directory, 'project.json')).not.toBe(projectBefore);
+		expect(project.layers[1].name).toBe('Trade routes');
+		expect(project.layers[1].kind).toBe('annotation');
+		expect(project.layers[0].kind).toBe('map');
+		expect(project.layers[0].visible).toBe(false);
+		expect(project.layers[0].opacity).toBeCloseTo(0.4, 5);
+	});
+
+	// Display state must not cost a read of the store either. A rename and an opacity drag change
+	// nothing about *which* Layers are drawn or out of which files, so re-reading every Alignment and
+	// every `FeatureCollection` for one of them makes the cheapest edit in the application one of the
+	// most expensive: at `step="0.05"` one drag of the slider is twenty input events, and a Project with
+	// six aligned maps and two Annotation Layers would pay eight OPFS reads and eight JSON parses for
+	// each one.
+	test('a rename and an opacity change re-read no Layer document at all', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(2);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const annotationId = (await rowIds(page))[0] as string;
+		const alignmentFile = (await alignmentRefOf(page, directory)).split('/').at(-1) as string;
+		await countFileReads(page);
+
+		await page.getByTestId('layer-opacity').fill('0.4');
+		await expect(page.getByTestId('layer-opacity-value')).toHaveText('40%');
+		await rows(page).nth(0).getByTestId('layer-name').fill('Trade routes');
+		await rows(page).nth(0).getByTestId('layer-name').blur();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		// Both Layers are still drawn, so nothing was skipped rather than re-read.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+
+		const reads = await fileReads(page);
+		expect(reads[alignmentFile] ?? 0, 'the Alignment was read again for display state').toBe(0);
+		expect(
+			reads[`${annotationId}.geojson`] ?? 0,
+			'the FeatureCollection was read again for display state'
+		).toBe(0);
 	});
 
 	test('renaming a Layer changes only project.json', async ({ page }) => {
@@ -639,6 +1133,30 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 
 		expect((await projectJson(page, directory)).layers[0].name).toBe('The 1625 plan');
 		expect(await readProjectFile(page, directory, alignmentRef)).toBe(alignmentBefore);
+	});
+
+	// The name field's half of the same question as the opacity drag: `fill()` never presses a mouse
+	// button, so it cannot see a text input inside a `draggable` row where a drag-select is claimed by
+	// the drag machinery and the user cannot select a word to replace it (SPEC story 54).
+	test('a Layer’s name can be selected by dragging across it with the mouse', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		const field = page.getByTestId('layer-name');
+		await expect(field).toHaveValue('la-floride.png');
+
+		const box = await field.boundingBox();
+		if (!box) throw new Error('the name field has no box to drag in');
+		await page.mouse.move(box.x + 6, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2, { steps: 10 });
+		await page.mouse.up();
+
+		const selected = await field.evaluate((element) => {
+			const input = element as HTMLInputElement;
+			return input.value.slice(input.selectionStart ?? 0, input.selectionEnd ?? 0);
+		});
+		expect(selected, 'dragging across the name field selected nothing').not.toBe('');
+		await expect(field).toBeFocused();
 	});
 
 	// ADR-0010: merely looking must not modify files. Ticket 02's review found an `onblur` that
@@ -716,6 +1234,65 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 			// build silently destroying a colleague's work (ADR-0010, ADR-0017 rule 4).
 			webAnnotationRef: 'image-annotations/l-cartouche.json'
 		});
+	});
+});
+
+test.describe('adding an Annotation Layer (SPEC stories 55 and 56)', () => {
+	/**
+	 * Two clicks, two Layers — the same stale-snapshot failure as `#ensureMapLayer`, found by a test
+	 * that clicked twice and flaked.
+	 *
+	 * `addAnnotationLayer` writes the empty `FeatureCollection` before the Layer that references it, on
+	 * purpose: a `geojsonRef` naming nothing is a Project ticket 13's import refuses. But it read
+	 * `project.json` out of memory *before* that write and wrote the snapshot back after, so a user
+	 * double-clicking the button got one Layer instead of two — and an orphaned `.geojson` in
+	 * `annotations/` that nothing references and no UI can reach.
+	 */
+	test('gives two clicks two Layers, and leaves no orphaned FeatureCollection', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		// Widens the window between the snapshot and the write, which is real at any speed.
+		await delayWritesTo(page, '.geojson.', 1000);
+		const add = page.getByTestId('add-annotation-layer');
+
+		// Deliberately not awaiting the first to land, which is what a double-click is.
+		await add.click();
+		await add.click();
+
+		await expect(rows(page)).toHaveCount(3, { timeout: 15_000 });
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// And every file in `annotations/` belongs to a Layer that is in the stack. An orphan there is a
+		// file the user can neither see nor delete.
+		const refs = (await projectJson(page, directory)).layers
+			.filter((layer: { kind: string }) => layer.kind === 'annotation')
+			.map((layer: { geojsonRef: string }) => layer.geojsonRef)
+			.sort();
+		const files = (await hashesUnder(page, directory, 'annotations/'))
+			.map((line) => line.split(' ')[0])
+			.sort();
+
+		expect(refs).toHaveLength(2);
+		expect(files).toEqual(refs);
+	});
+});
+
+test.describe('getting back out of the Layers pane', () => {
+	// The stack is where a user *notices* that a Control Point needs fixing — the Historical Map is
+	// visibly in the wrong place — so the way back to the alignment workspace has to be one click rather
+	// than a trip out to the hub and in again.
+	test('links back to the Project it belongs to, not only to the hub', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+
+		await page.getByTestId('back-to-project').click();
+
+		// *This* Project rather than the hub: its own name in the field, and its own Layer count.
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(page.getByLabel('Project name')).toHaveValue('Amsterdam 1625');
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
 	});
 });
 

@@ -1,6 +1,7 @@
 import { unzip, type UnzipFileInfo, type Unzipped } from 'fflate';
 
-import { mapLayerImageInfoPath, type Layer } from '../project/layer.js';
+import { imageDirectory } from '../project/image-files.js';
+import { imageIdFromAlignmentRef, mapLayerImageInfoPath, type Layer } from '../project/layer.js';
 import {
 	BALLASTELLA_CANONICAL_URL,
 	PROJECT_FILE_NAME,
@@ -8,6 +9,7 @@ import {
 	parseProjectFile,
 	type ProjectFile
 } from '../project/project-file.js';
+import { REFERENCED_IMAGE_FILE } from '../remote-iiif/referenced-image.js';
 import { isTempPath, type Bytes } from '../store/project-store.js';
 import type { ProjectFileSource, TransferFile } from './transfer.js';
 
@@ -362,7 +364,9 @@ function layerReferences(layer: Layer): readonly string[] {
  * GeoJSON, and — for a map Layer whose image is a local copy — the `info.json` that makes its
  * pyramid readable at all. That last one is the case that actually loses a reader's map: a Layer
  * pointing at an image directory the zip does not carry, which the structural check below cannot see
- * because there is no directory there to check.
+ * because there is no directory there to check. And for **every** map Layer, whatever its `imageMode`,
+ * that its image directory is in the archive at all — see the loop below for why that has to be a
+ * separate claim.
  *
  * **What it does not establish, deliberately.** Nothing here opens an Alignment or a
  * `FeatureCollection`. The image is found through the Alignment's *path*, which is where its identity
@@ -374,7 +378,8 @@ function layerReferences(layer: Layer): readonly string[] {
  * check that a pyramid is *complete* — a tile that is missing is a blank square, not a lost map, and
  * only the tiler knows which tiles a level should have.
  *
- * A `'referenced'` image (ticket 14) claims no local pyramid at all, so none is looked for.
+ * What it also does not check is *which* file makes a `'referenced'` image usable — ticket 14 owns
+ * that. The directory has to be there; what is in it is that ticket's contract.
  */
 function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<string>): void {
 	const missing = (reference: string, why: string): never => {
@@ -383,6 +388,14 @@ function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<stri
 			`This zip is missing “${reference}”, which ${why}.`
 		);
 	};
+
+	const imageDirectories = new Set<string>();
+	for (const path of present) {
+		const segments = path.split('/');
+		if (segments[0] === 'images' && segments.length > 2) {
+			imageDirectories.add(`${segments[0]}/${segments[1]}`);
+		}
+	}
 
 	for (const layer of project.layers) {
 		for (const reference of layerReferences(layer)) {
@@ -394,23 +407,48 @@ function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<stri
 				);
 			}
 		}
-	}
 
-	// An image directory without its `info.json` is a heap of tiles no IIIF client can open
-	// (ADR-0006's layout), so the pyramid is missing whether or not any Layer has been wired to it
-	// yet. This is the other half of the pair: the loop above catches an image a Layer names and the
-	// archive does not carry, and this one catches an image the archive carries incompletely.
-	const imageDirectories = new Set<string>();
-	for (const path of present) {
-		const segments = path.split('/');
-		if (segments[0] === 'images' && segments.length > 2) {
-			imageDirectories.add(`${segments[0]}/${segments[1]}`);
+		// **And the archive carries *something* for a map Layer's image, whatever `imageMode` says.**
+		// This is the half that must not be skippable from inside the file. `mapLayerImageInfoPath`
+		// answers `null` for a `'referenced'` image, correctly — its tiles are on somebody else's server
+		// (ADR-0007) — but on its own that made `imageMode` an exemption from the image check granted by
+		// the author of the archive: a zip with `project.json`, an Alignment, no `images/` directory
+		// whatsoever and one word changed imported cleanly and then drew nothing, because the renderer
+		// never consults `imageMode` and asks the ADR-0011 shim for every map Layer's tiles out of
+		// `images/<id>/`. A directory rather than a named file, because *what* a referenced image keeps
+		// there is ticket 14's to say and a future kind of image record would be a third answer; that the
+		// image exists in the archive at all is this check's business and cannot be waived.
+		if (layer.kind !== 'map') continue;
+		const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
+		if (imageId === null) continue;
+		const directory = imageDirectory(imageId);
+		if (!imageDirectories.has(directory)) {
+			missing(
+				`${directory}/`,
+				`the Layer “${layer.name || layer.id}” in ${PROJECT_FILE_NAME} needs to be drawn`
+			);
 		}
 	}
+
+	// An image directory that describes itself as neither is a heap of files no client can open
+	// (ADR-0006's layout), so the image is missing whether or not any Layer has been wired to it yet.
+	// This is the other half of the pair: the loop above catches an image a Layer names and the archive
+	// does not carry, and this one catches an image the archive carries incompletely.
+	//
+	// **Two ways to be describable, because there are two kinds of image.** A local copy has the
+	// `info.json` that makes its pyramid readable; a referenced image (ticket 14) has `remote.json`
+	// instead, because its tiles *and* its `info.json` are on somebody else's server. Requiring
+	// `info.json` of both meant a Project with a referenced Historical Map could be exported and then
+	// refused on the way back in — the same "a scholar cannot import their own export" this whole
+	// function exists to prevent, arriving from the other direction.
 	for (const directory of [...imageDirectories].sort()) {
 		const info = `${directory}/info.json`;
-		if (!present.has(info))
-			missing(info, `the image directory “${directory}” needs to be readable`);
+		if (present.has(info) || present.has(`${directory}/${REFERENCED_IMAGE_FILE}`)) continue;
+		missing(
+			info,
+			`the image directory “${directory}” needs it, or ${REFERENCED_IMAGE_FILE} if its tiles are ` +
+				`on another server, to be readable at all`
+		);
 	}
 }
 

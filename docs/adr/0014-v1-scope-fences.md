@@ -31,3 +31,5 @@ Scholars want to label a cartouche, a compass rose, a decorative panel — thing
 It is deferred because it is a **second annotation model**: targets are image coordinates rather than geography, so they are W3C Web Annotations rather than GeoJSON, with their own storage, editing surface, and layer kind.
 
 **Recorded here so that annotation storage is not designed in a way that blocks it.** Specifically: the layer kind discriminator from ADR-0002 must tolerate a third kind, and nothing may assume that all annotations are geographic.
+
+**`"foreign"` is a reserved `kind` literal, so the third kind must not be called that.** Ticket 09 implemented the tolerance above by parsing a `kind` this build has never heard of into a `ForeignLayer` — a layer that can be named, hidden, and reordered, and that serialises back with the kind the file carried and every field it arrived with. `kind: "foreign"` is the in-memory discriminator that makes narrowing work; the declared kind lives beside it. An author reading this section for the third kind would otherwise have no reason to know the name is taken.

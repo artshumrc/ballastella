@@ -30,7 +30,8 @@ import {
 	type ProjectStore,
 	type StorePath
 } from '../store/project-store.js';
-import { IMAGE_SERVICE_PLACEHOLDER_ORIGIN, imageDirectory } from '../tiler/pyramid.js';
+import { imageDirectory } from '../project/image-files.js';
+import { IMAGE_SERVICE_PLACEHOLDER_ORIGIN } from '../tiler/pyramid.js';
 
 /**
  * A `fetch` drop-in. Structurally identical to `@allmaps/types`' `FetchFn`, which is what

@@ -16,6 +16,7 @@
 	// "1 of 2" twice per row is worse than not drawing it.
 
 	import type { Layer } from '@ballastella/core';
+	import { tick } from 'svelte';
 
 	import type { DrawnOutcome } from './stack-layers';
 
@@ -57,10 +58,55 @@
 	const describeMove = (name: string, toIndex: number): string =>
 		`${name || 'Untitled Layer'} moved to ${toIndex + 1} of ${layers.length}`;
 
-	const move = (id: string, name: string, toIndex: number): void => {
-		if (toIndex < 0 || toIndex >= layers.length) return;
+	const move = (id: string, name: string, toIndex: number): boolean => {
+		if (toIndex < 0 || toIndex >= layers.length) return false;
 		onmove(id, toIndex);
 		moved = describeMove(name, toIndex);
+		return true;
+	};
+
+	/**
+	 * The two reorder buttons of each Layer, so a move can hand the keyboard back to one of them.
+	 *
+	 * Plain objects rather than `$state`: nothing renders from these, they are only read in the
+	 * microtask after a move, and making them reactive would make writing a `bind:this` a state change.
+	 */
+	const upButton: Record<string, HTMLButtonElement | undefined> = {};
+	const downButton: Record<string, HTMLButtonElement | undefined> = {};
+
+	/**
+	 * Move a Layer by button, and leave the keyboard on the Layer that moved.
+	 *
+	 * **Without this, story 53 gets exactly one keypress.** The `{#each}` is keyed by Layer id, so
+	 * Svelte *moves* the row's DOM node — and a focused element that is removed and reinserted is
+	 * blurred to `document.body`, whether or not the move reached the end of the stack. So a keyboard
+	 * user pressed "Move down" once and then had to Tab back in from the top of the document, past
+	 * MapLibre's own controls, for every further move. ADR-0016 makes the keyboard path the contract
+	 * and the drag the convenience, which is the reverse of that.
+	 *
+	 * The button that was pressed is preferred, and at the end of the stack it is `disabled` — "the top
+	 * Layer cannot go higher" is a disabled button, which is information a screen reader gets for free
+	 * from the markup — so the keyboard is handed the other half of the same control instead. That is
+	 * also the useful place to be: the next press undoes the move.
+	 *
+	 * Focus is only *restored*, never taken: if something else has been focused in the meantime, this
+	 * leaves it alone. The drop handler deliberately does not call this — a drag has no keyboard
+	 * position to keep, and moving focus to a button under the pointer would be a surprise.
+	 */
+	const moveByButton = async (
+		id: string,
+		name: string,
+		toIndex: number,
+		direction: 'up' | 'down'
+	): Promise<void> => {
+		const pressed = direction === 'up' ? upButton[id] : downButton[id];
+		if (!move(id, name, toIndex)) return;
+		await tick();
+		const active = document.activeElement;
+		if (active !== null && active !== document.body && active !== pressed) return;
+		const wanted = direction === 'up' ? upButton[id] : downButton[id];
+		const other = direction === 'up' ? downButton[id] : upButton[id];
+		(wanted && !wanted.disabled ? wanted : other)?.focus();
 	};
 
 	/**
@@ -111,27 +157,25 @@
 			{#each layers as layer, index (layer.id)}
 				{@const outcome = outcomes[layer.id]}
 				<!--
-					`draggable` on the row, with the two buttons beside it as the keyboard path. Playwright
-					drives the drag through the same HTML5 events a mouse produces, so the two routes to a
-					reorder are asserted against the same implementation.
+					**The whole row is the drop target; only the handle is the drag source.** It used to be
+					`draggable="true"` on the `<li>` itself, and a pointer drag beginning anywhere inside a
+					draggable element is claimed by the drag machinery rather than by the control under the
+					cursor — so the opacity slider's thumb would not move and the name field could not be
+					selected across, both by mouse, on the platform ADR-0014 says authoring targets. No test
+					could see it: `fill()` sets `value` and dispatches `input` without ever pressing a button.
+					`draggable="false"` on the descendants does not help; Chromium still starts the row's drag.
+
+					The handle is `aria-hidden` because it is pointer-only and redundant: the move-up and
+					move-down buttons beside it are the contract, and the drag is the convenience (ADR-0016).
 				-->
 				<li
 					class="rounded border border-base-300 p-3"
 					class:opacity-50={dragging === layer.id}
 					class:border-primary={over === layer.id && dragging !== layer.id}
-					draggable="true"
 					data-testid="layer-row"
 					data-layer-id={layer.id}
 					data-layer-kind={layer.kind}
 					data-layer-order={layer.order}
-					ondragstart={(event) => {
-						dragging = layer.id;
-						event.dataTransfer?.setData('text/plain', layer.id);
-					}}
-					ondragend={() => {
-						dragging = '';
-						over = '';
-					}}
 					ondragover={(event) => {
 						// Without this the drop never fires: the default action of `dragover` is to refuse.
 						event.preventDefault();
@@ -151,6 +195,23 @@
 					}}
 				>
 					<div class="flex flex-wrap items-center gap-3">
+						<span
+							class="cursor-grab leading-none opacity-60 select-none"
+							draggable="true"
+							aria-hidden="true"
+							data-testid="layer-drag-handle"
+							ondragstart={(event) => {
+								dragging = layer.id;
+								event.dataTransfer?.setData('text/plain', layer.id);
+							}}
+							ondragend={() => {
+								dragging = '';
+								over = '';
+							}}
+						>
+							⠿
+						</span>
+
 						<span class="text-sm tabular-nums opacity-60" aria-hidden="true">
 							{index + 1}/{layers.length}
 						</span>
@@ -186,18 +247,20 @@
 
 						<div class="flex items-center gap-1">
 							<button
+								bind:this={upButton[layer.id]}
 								class="btn btn-sm"
 								disabled={index === 0}
 								data-testid="layer-move-up"
-								onclick={() => move(layer.id, layer.name, index - 1)}
+								onclick={() => void moveByButton(layer.id, layer.name, index - 1, 'up')}
 							>
 								Move up<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
 							</button>
 							<button
+								bind:this={downButton[layer.id]}
 								class="btn btn-sm"
 								disabled={index === layers.length - 1}
 								data-testid="layer-move-down"
-								onclick={() => move(layer.id, layer.name, index + 1)}
+								onclick={() => void moveByButton(layer.id, layer.name, index + 1, 'down')}
 							>
 								Move down<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
 							</button>

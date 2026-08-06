@@ -37,6 +37,7 @@
 		type LineStyle,
 		type MapLayer
 	} from '@ballastella/core';
+	import { untrack } from 'svelte';
 
 	import AnnotationPanel from '$lib/annotations/AnnotationPanel.svelte';
 	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
@@ -86,8 +87,15 @@
 	/**
 	 * What requires the referenced documents to be read again: which Layers are drawn, and out of which
 	 * files. **Not** the name and not the opacity, which are display state and must not cost a read of
-	 * the store — a reorder that re-read every Alignment would make the cheapest edit in the
-	 * application one of the most expensive.
+	 * the store — a rename that re-read every Alignment would make the cheapest edit in the application
+	 * one of the most expensive.
+	 *
+	 * **A string, and the effect below reads nothing else that is tracked.** Deriveds compare by
+	 * reference and `shown` is a fresh array from `.filter()` on every change to `layers`, so an effect
+	 * that reads `shown` has `layers` as its real dependency however carefully it computes a key first.
+	 * That is what this guard used to be: the key was computed, discarded with `void`, and `shown` read
+	 * on the next line — so a rename cost a re-read of every Alignment, and one drag of the opacity
+	 * slider at `step="0.05"` cost twenty of them per Layer.
 	 */
 	const documentKey = $derived(
 		JSON.stringify(
@@ -109,13 +117,16 @@
 	let generation = 0;
 
 	$effect(() => {
+		// The two tracked dependencies: which files to read, and the session to read them from. `shown`
+		// is read *untracked*, so a rename or a dragged slider — neither of which changes which Layers
+		// are drawn or out of which files — cannot reach the store at all. See {@link documentKey}.
 		void documentKey;
 		// Editing an Annotation replaces the collection in `documents` without changing `documentKey`,
 		// so this must not also re-read on every edit — it would race the write and snap the map back to
 		// the bytes on disk. `reloadAt` is bumped only where a fresh read is genuinely wanted.
 		void reloadAt;
 		const current = session;
-		const wanted = shown;
+		const wanted = untrack(() => shown);
 		if (!current) return;
 		const mine = ++generation;
 		void (async () => {
@@ -593,7 +604,19 @@
 						void (activeLayer && session.setLayerDefaultStyle(activeLayer.id, style, options))}
 				/>
 
-				<p class="mt-6"><a class="link" href={resolve('/')}>Back to all Projects</a></p>
+				<!--
+					Back to the Project first, and to the hub second. The stack is where a user notices that
+					a Control Point needs fixing — the Historical Map is visibly in the wrong place — and
+					without this the only way back to the alignment workspace was out to the hub and in
+					again. The Project is addressed by query parameter (ADR-0008), so this is the same link
+					`ProjectView` uses to get here, in reverse.
+				-->
+				<p class="mt-6 flex flex-wrap gap-4">
+					<a class="link" data-testid="back-to-project" href="{resolve('/')}?p={openDirectory}">
+						Back to this Project
+					</a>
+					<a class="link" href={resolve('/')}>Back to all Projects</a>
+				</p>
 			</div>
 
 			<div>

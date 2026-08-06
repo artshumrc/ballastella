@@ -2,14 +2,12 @@ import { Image, Manifest } from '@allmaps/iiif-parser';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
+import { imageDirectory, imageInfoPath, imageManifestPath } from '../project/image-files.js';
 import { buildImageManifest, wholeImageDerivative } from './image-manifest.js';
 import {
 	IMAGE_SERVICE_PLACEHOLDER_ORIGIN,
 	PYRAMID_TILE_SIZE,
 	buildImageInfo,
-	imageDirectory,
-	imageInfoPath,
-	imageManifestPath,
 	planPyramid,
 	pyramidScaleFactors,
 	serialiseJson

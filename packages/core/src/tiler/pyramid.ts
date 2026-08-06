@@ -52,16 +52,6 @@ export const IMAGE_SERVICE_PLACEHOLDER_ORIGIN = 'https://unset.invalid';
 export const imageServiceId = (imageId: string): string =>
 	`${IMAGE_SERVICE_PLACEHOLDER_ORIGIN}/${imageId}`;
 
-/** Where an image's pyramid lives inside a Project directory. */
-export const imageDirectory = (imageId: string): StorePath => `images/${imageId}`;
-
-/** The path of an image's `info.json`, relative to the Project directory. */
-export const imageInfoPath = (imageId: string): StorePath => `${imageDirectory(imageId)}/info.json`;
-
-/** The path of an image's IIIF Presentation manifest, relative to the Project directory. */
-export const imageManifestPath = (imageId: string): StorePath =>
-	`${imageDirectory(imageId)}/manifest.json`;
-
 /** A level-0 IIIF Image API 3.0 image information document. */
 export type Level0ImageInfo = {
 	'@context': 'http://iiif.io/api/image/3/context.json';

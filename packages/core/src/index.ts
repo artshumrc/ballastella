@@ -40,6 +40,12 @@ export {
 	type SimpleStyle
 } from './project/layer.js';
 export {
+	IMAGE_DIRECTORY,
+	imageDirectory,
+	imageInfoPath,
+	imageManifestPath
+} from './project/image-files.js';
+export {
 	BALLASTELLA_CANONICAL_URL,
 	CURRENT_FORMAT_VERSION,
 	PROJECT_FILE_NAME,
@@ -375,9 +381,6 @@ export {
 	TILE_JPEG_QUALITY,
 	TILE_MEDIA_TYPE,
 	buildImageInfo,
-	imageDirectory,
-	imageInfoPath,
-	imageManifestPath,
 	imageServiceId,
 	planPyramid,
 	pyramidScaleFactors,

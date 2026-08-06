@@ -17,18 +17,11 @@
 import { generateRandomId } from '@allmaps/id';
 
 import type { Bytes, ProjectStore, StorePath } from '../store/project-store.js';
+import { imageDirectory, imageInfoPath, imageManifestPath } from '../project/image-files.js';
 import { STREAMING_TILER_THRESHOLD_PIXELS } from './decode-ceiling.js';
 import { readImageHeaderFromBlob } from './image-header.js';
 import { buildImageManifest } from './image-manifest.js';
-import {
-	buildImageInfo,
-	imageDirectory,
-	imageInfoPath,
-	imageManifestPath,
-	planPyramid,
-	serialiseJson,
-	type PlannedTile
-} from './pyramid.js';
+import { buildImageInfo, planPyramid, serialiseJson, type PlannedTile } from './pyramid.js';
 
 /** Which implementation of the ADR-0003 contract produced a pyramid. */
 export type TilerKind = 'decode-and-crop' | 'streaming';

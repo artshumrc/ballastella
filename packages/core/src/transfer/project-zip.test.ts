@@ -703,29 +703,79 @@ describe('rejecting a zip before writing anything', () => {
 		await nothingWritten();
 	});
 
-	// A `'referenced'` image's tiles are on somebody else's server by design (ADR-0007), so there is
-	// no local pyramid for the archive to be missing.
-	it('looks for no local pyramid for a referenced image', async () => {
+	// `imageMode` comes out of a `project.json` another person wrote, so it must not be able to waive
+	// the image check. It used to: `mapLayerImageInfoPath` answers `null` for a `'referenced'` image —
+	// correctly, its tiles are on somebody else's server (ADR-0007) — and on its own that let the author
+	// of an archive decide the check did not apply to them. A zip with `project.json`, an Alignment, no
+	// `images/` directory at all and one word changed imported cleanly and then drew nothing, because
+	// the renderer never consults `imageMode` and asks for every map Layer's tiles out of `images/<id>/`.
+	const referencedLayer = {
+		id: 'l1',
+		name: 'A map on somebody else’s server',
+		visible: true,
+		order: 0,
+		kind: 'map',
+		opacity: 1,
+		alignmentRef: 'alignments/amsterdam-1625.json',
+		imageMode: 'referenced'
+	};
+
+	it('rejects a referenced image whose directory the zip does not carry at all', async () => {
 		const files = projectFiles();
 		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
-		files['project.json'] = projectJson({
-			layers: [
-				{
-					id: 'l1',
-					name: 'A map on somebody else’s server',
-					visible: true,
-					order: 0,
-					kind: 'map',
-					opacity: 1,
-					alignmentRef: 'alignments/amsterdam-1625.json',
-					imageMode: 'referenced'
-				}
-			]
-		});
+		files['project.json'] = projectJson({ layers: [referencedLayer] });
+
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('missing-reference');
+		expect(failure.message).toContain('images/amsterdam-1625/');
+		// Named by the Layer the reader would find blank, not only by the path.
+		expect(failure.message).toContain('A map on somebody else’s server');
+		await nothingWritten();
+	});
+
+	// And the check is about presence rather than about the word: the same Layer with its image really
+	// in the archive is accepted. *What* a referenced image keeps in that directory is ticket 14's
+	// contract, which is why this asks for the directory and not for a named file.
+	it('accepts a referenced image whose directory the zip does carry', async () => {
+		const files = projectFiles();
+		files['project.json'] = projectJson({ layers: [referencedLayer] });
 
 		await expect(attemptImport(buildZip(files))).resolves.toMatchObject({
 			directory: 'amsterdam-1625'
 		});
+	});
+
+	// A Project with a referenced Historical Map has to survive its own export. It did not: the
+	// structural check below required `info.json` of *every* image directory, and a referenced image has
+	// neither tiles nor an `info.json` locally — its record is `remote.json` (ticket 14). So exporting
+	// such a Project and importing it again was refused, which is the same "a scholar cannot import
+	// their own export" the Layer checks above exist to prevent, arriving from the other direction.
+	it('accepts a referenced image described by remote.json rather than info.json', async () => {
+		const files = projectFiles();
+		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
+		files['images/amsterdam-1625/remote.json'] = '{"imageMode":"referenced"}';
+		files['project.json'] = projectJson({ layers: [referencedLayer] });
+
+		await expect(attemptImport(buildZip(files))).resolves.toMatchObject({
+			directory: 'amsterdam-1625'
+		});
+	});
+
+	// And an image directory that describes itself as neither is still refused, naming both ways out.
+	// An image no Layer has been wired to yet, which is what the structural check is for — a Layer's own
+	// reference is checked first and more specifically.
+	it('rejects an image directory that is neither a local pyramid nor a remote reference', async () => {
+		const files = projectFiles();
+		files['images/boston-1775/0,0,256,256/256,256/0/default.jpg'] = 'a tile and nothing else';
+
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure.reason).toBe('missing-reference');
+		expect(failure.message).toContain('images/boston-1775/info.json');
+		expect(failure.message).toContain('remote.json');
+		await nothingWritten();
 	});
 
 	// The honest limit of following the link by path. An `alignmentRef` that does not follow the

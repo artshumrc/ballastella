@@ -626,6 +626,14 @@ export class EditorSession {
 	 * {@link #ensureMapLayer}. Aligning a Historical Map is what puts it in the stack; nothing else
 	 * does, and the *second* Control Point must not rewrite `project.json`, or every pairing click
 	 * would stamp a fresh `updatedAt` on the document.
+	 *
+	 * **The Layer is made only when the Alignment reached storage**, which is why the call is inside
+	 * the `try` and not after it. A Layer whose `alignmentRef` names a file that is not there is a
+	 * Project ticket 13's import refuses by name — `assertReferencesPresent` says the Layer "needs it
+	 * to be drawn" — so a quota failure or a folder whose permission was revoked mid-session would
+	 * have left a scholar unable to import their own export. The same discipline
+	 * {@link addAnnotationLayer} keeps for `geojsonRef`: the reference must never exist without its
+	 * file.
 	 */
 	async writeAlignment(alignment: Alignment): Promise<void> {
 		const directory = this.openDirectory;
@@ -637,10 +645,10 @@ export class EditorSession {
 			// After the write resolved, so an attempt the store refused is not counted as one that
 			// happened. This is what lets the drag test assert the *number* of writes.
 			recordAlignmentWrite(path, alignment.controlPoints.length);
+			await this.#ensureMapLayer(directory, alignment.imageId);
 		} catch (cause) {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
 		}
-		await this.#ensureMapLayer(directory, alignment.imageId);
 	}
 
 	/**
@@ -656,26 +664,31 @@ export class EditorSession {
 	 * id is a random identifier (ADR-0015), so naming the Layer from it would name it after a hash.
 	 * SPEC story 54 is that they can then rename it, so the list describes their argument rather than
 	 * their filenames.
+	 *
+	 * **Nothing is read out of `openProject` before the `await` and used after it.** Reading the
+	 * image's label is a store read, and the version that took its snapshot of the document first wrote
+	 * that snapshot back — so anything else that changed `project.json` inside the window was silently
+	 * discarded. The Project name field is on the same page as the alignment workspace, so renaming a
+	 * Project while the first Control Point pair was being saved reverted the name, on screen and on
+	 * disk. The early return is kept because this runs on every completed pair and every released drag,
+	 * and it is what stops `manifest.json` being read once per pairing click; the answer that decides is
+	 * taken again afterwards, against the document as it is now.
 	 */
 	async #ensureMapLayer(directory: string, imageId: string): Promise<void> {
-		const project = this.openProject;
-		if (!project) return;
 		const alignmentRef = alignmentPath(imageId);
-		if (
-			project.layers.some((layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef)
-		) {
-			return;
-		}
+		const drawsIt = (project: ProjectFile): boolean =>
+			project.layers.some((layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef);
+
+		const before = this.openProject;
+		if (!before || drawsIt(before)) return;
+
+		const name = (await this.#imageLabel(directory, imageId)) || imageId;
+
+		const project = this.openProject;
+		if (!project || drawsIt(project)) return;
 		this.openProject = {
 			...project,
-			layers: addLayer(
-				project.layers,
-				newMapLayer({
-					id: crypto.randomUUID(),
-					name: (await this.#imageLabel(directory, imageId)) || imageId,
-					alignmentRef
-				})
-			)
+			layers: addLayer(project.layers, newMapLayer({ id: crypto.randomUUID(), name, alignmentRef }))
 		};
 		await this.#write(directory);
 	}
@@ -818,12 +831,17 @@ export class EditorSession {
 	 * a Project that ticket 13's import refuses, so the reference must never exist without its file.
 	 * Drawing into it is ticket 10.
 	 *
+	 * **And `project.json` is read after that write rather than before it**, for the same reason as
+	 * {@link #ensureMapLayer}: a snapshot taken before an `await` and written back after it discards
+	 * whatever else changed in between. Here the "whatever else" is the other click — a user
+	 * double-clicking the button got one Layer instead of two, plus an orphaned `.geojson` in
+	 * `annotations/` that nothing references and no part of the interface can reach.
+	 *
 	 * @returns the Layer, or `null` when it could not be created
 	 */
 	async addAnnotationLayer(name: string): Promise<AnnotationLayer | null> {
 		const directory = this.openDirectory;
-		const project = this.openProject;
-		if (!directory || !project) return null;
+		if (!directory || !this.openProject) return null;
 		const layer = newAnnotationLayer({ id: crypto.randomUUID(), name });
 		try {
 			await this.#autosave.commit(
@@ -834,6 +852,8 @@ export class EditorSession {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
 			return null;
 		}
+		const project = this.openProject;
+		if (!project) return null;
 		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
 		await this.#write(directory);
 		return layer;

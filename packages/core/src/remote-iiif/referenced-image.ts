@@ -44,9 +44,10 @@
 import type { Alignment } from '../alignment/alignment.js';
 import { serialiseAlignment, toRendererDocument } from '../alignment/georeference-annotation.js';
 import type { ImagePaneTileBase } from '../image-pane/iiif-image-pane.js';
+import { imageDirectory } from '../project/image-files.js';
 import type { ImageMode } from '../project/layer.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
-import { imageDirectory, serialiseJson } from '../tiler/pyramid.js';
+import { serialiseJson } from '../tiler/pyramid.js';
 
 /**
  * One Historical Map of a Project, said in terms of where its bytes are.
