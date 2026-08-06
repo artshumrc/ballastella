@@ -97,19 +97,48 @@ export {
 	ALIGNMENT_DIRECTORY,
 	DEFAULT_TRANSFORMATION_TYPE,
 	MINIMUM_CONTROL_POINTS,
+	MINIMUM_MASK_VERTICES,
+	NEVER_OFFERED_TRANSFORMATION_NAMES,
+	TRANSFORMATION_CHOICES,
 	alignmentPath,
 	alignmentStorePath,
 	canSolve,
 	collectControlPoints,
 	fullImageResourceMask,
+	insertMaskVertexAfter,
+	isFullImageResourceMask,
+	isTransformationOffered,
+	maskEdgeMidpoints,
+	moveMaskVertex,
 	newAlignment,
+	removeMaskVertex,
+	resetMaskToFullImage,
 	toDraftControlPoints,
+	transformationShortfall,
+	withTransformationType,
 	type Alignment,
 	type ControlPoint,
 	type DraftControlPoint,
 	type GeoPoint,
+	type TransformationChoice,
+	type TransformationTier,
 	type TransformationType
 } from './alignment/alignment.js';
+// Distortion (ADR-0013). The overlay is the renderer's; the fold check is ours, because it has to
+// run whether or not anything is being colourised.
+export {
+	COMPUTED_DISTORTION_MEASURES,
+	DEFAULT_DISTORTION_MEASURE,
+	DEFAULT_DISTORTION_VIEW,
+	DISTORTION_MEASURES,
+	FOLD_DISTORTION_MEASURE,
+	detectFold,
+	type DistortionMeasure,
+	type DistortionMeasureChoice,
+	type DistortionRamp,
+	type DistortionView,
+	type FoldWarning
+} from './alignment/distortion.js';
 export {
 	AlignmentUnreadableError,
 	parseAlignment,

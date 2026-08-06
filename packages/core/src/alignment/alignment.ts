@@ -77,7 +77,7 @@ export type TransformationType =
 	| 'linear';
 
 /**
- * The default, and the only type this slice ever writes. Choosing another is ticket 08.
+ * The default: what a new Alignment starts as, and what an unreadable type falls back to.
  */
 export const DEFAULT_TRANSFORMATION_TYPE: TransformationType = 'polynomial1';
 
@@ -99,6 +99,134 @@ export const MINIMUM_CONTROL_POINTS: Readonly<Record<TransformationType, number>
 };
 
 /**
+ * The three names upstream recognises that are **never** offered and never written (ADR-0013).
+ *
+ * Kept as data rather than as prose so the rule is assertable: `straight` throws in
+ * `typeAndOrderToTransformationType`, so offering it produces Alignments that fail to
+ * deserialize; the bare `polynomial` is an alias for `polynomial1` that leaves the order to be
+ * inferred; and `linear` is recognised as distinct but has no documented user-facing meaning.
+ *
+ * Two of the three are structurally unreachable — {@link TransformationType} excludes them — and
+ * `linear` is reachable only by *reading* a colleague's file, never by choosing it.
+ */
+export const NEVER_OFFERED_TRANSFORMATION_NAMES = ['straight', 'polynomial', 'linear'] as const;
+
+/** Whether a type is behind the Advanced disclosure (ADR-0013's two tiers). */
+export type TransformationTier = 'primary' | 'advanced';
+
+/**
+ * One row of the transformation picker (ADR-0013).
+ *
+ * **The guidance is the primary text and the label is secondary**, which is a decision about the
+ * interface but is recorded here rather than in a component: it is the ADR's table, it is the one
+ * place the six offered types are enumerated, and "these four are primary, these two are behind
+ * Advanced, and none of the three banned names appears" is then a question a unit test can ask.
+ */
+export interface TransformationChoice {
+	/** The canonical Allmaps name, and what is stored. */
+	readonly type: TransformationType;
+	readonly tier: TransformationTier;
+	/** Secondary text. "Standard" is not what a historian can act on; the guidance is. */
+	readonly label: string;
+	/** The primary text (ADR-0013). */
+	readonly guidance: string;
+	/** Below this the solve is under-determined, so the count gates the type. */
+	readonly minimumControlPoints: number;
+}
+
+/**
+ * The picker, in the order it is offered: four primary, then two behind Advanced (ADR-0013).
+ *
+ * `minimumControlPoints` is read out of {@link MINIMUM_CONTROL_POINTS} rather than repeated, so
+ * the number the picker gates on and the number {@link canSolve} gates on cannot drift apart —
+ * which would mean an option the user is allowed to choose and the renderer then refuses.
+ */
+export const TRANSFORMATION_CHOICES: readonly TransformationChoice[] = [
+	{
+		type: 'helmert',
+		tier: 'primary',
+		label: 'Simple',
+		guidance: 'Accurate modern maps — rotate, scale, and move only',
+		minimumControlPoints: MINIMUM_CONTROL_POINTS.helmert
+	},
+	{
+		type: 'polynomial1',
+		tier: 'primary',
+		label: 'Standard',
+		guidance: 'Most printed and scanned maps',
+		minimumControlPoints: MINIMUM_CONTROL_POINTS.polynomial1
+	},
+	{
+		type: 'projective',
+		tier: 'primary',
+		label: 'Perspective',
+		guidance: 'Maps photographed at an angle',
+		minimumControlPoints: MINIMUM_CONTROL_POINTS.projective
+	},
+	{
+		type: 'thinPlateSpline',
+		tier: 'primary',
+		label: 'Flexible',
+		guidance: 'Hand-drawn or geometrically inconsistent maps',
+		minimumControlPoints: MINIMUM_CONTROL_POINTS.thinPlateSpline
+	},
+	{
+		type: 'polynomial2',
+		tier: 'advanced',
+		label: 'Higher-order (2nd)',
+		guidance: 'Only with many well-spread points',
+		minimumControlPoints: MINIMUM_CONTROL_POINTS.polynomial2
+	},
+	{
+		type: 'polynomial3',
+		tier: 'advanced',
+		label: 'Higher-order (3rd)',
+		guidance: 'Only with many well-spread points',
+		minimumControlPoints: MINIMUM_CONTROL_POINTS.polynomial3
+	}
+];
+
+/** Whether `name` is a type the user may choose. `false` for the three banned names. */
+export function isTransformationOffered(name: string): boolean {
+	return TRANSFORMATION_CHOICES.some((choice) => choice.type === name);
+}
+
+/**
+ * Why `type` cannot be chosen with `controlPointCount` points, or `''` when it can.
+ *
+ * **The shortfall is named, not merely implied by a disabled control** (ADR-0013): "Flexible needs
+ * at least 3 Control Points — you have 2" tells the user what to do next, where a greyed-out
+ * option tells them only that something is wrong. It matters most in the Advanced tier, where ten
+ * points is a lot to accumulate before the option becomes legible.
+ */
+export function transformationShortfall(
+	type: TransformationType,
+	controlPointCount: number
+): string {
+	const needed = MINIMUM_CONTROL_POINTS[type];
+	if (controlPointCount >= needed) return '';
+	const choice = TRANSFORMATION_CHOICES.find((one) => one.type === type);
+	const name = choice ? choice.label : type;
+	const points = needed === 1 ? 'Control Point' : 'Control Points';
+	return `${name} needs at least ${needed} ${points} — you have ${controlPointCount}`;
+}
+
+/**
+ * The same Alignment under a different transformation type.
+ *
+ * **Every Control Point and the Resource Mask survive**, which is the whole reason this exists as
+ * a named function rather than an object spread at the call site. ADR-0013: the Control Points are
+ * the user's actual labour and the transformation is a lens over them, so the obvious
+ * implementation — reset on change — destroys work.
+ */
+export function withTransformationType(
+	alignment: Alignment,
+	transformationType: TransformationType
+): Alignment {
+	return { ...alignment, transformationType };
+}
+
+/**
  * One Historical Map's correspondence with the earth: its Control Points, its Resource Mask,
  * and its transformation type (CONTEXT.md, Align / Alignment).
  */
@@ -112,9 +240,9 @@ export interface Alignment {
 	/**
 	 * The outline of the part of the image to show once aligned (CONTEXT.md, Resource Mask).
 	 *
-	 * Defaults to the full image rectangle and is not editable in this slice — ticket 08 owns
-	 * that. Never empty: an empty mask renders nothing, which reads as a broken tool on a user's
-	 * first Alignment (ADR-0013).
+	 * Defaults to the full image rectangle and is editable from there — never empty, because an
+	 * empty mask renders nothing, which reads as a broken tool on a user's first Alignment
+	 * (ADR-0013). {@link MINIMUM_MASK_VERTICES} is what keeps it from being emptied by editing.
 	 */
 	readonly resourceMask: readonly ResourcePoint[];
 	readonly transformationType: TransformationType;
@@ -133,8 +261,9 @@ export const alignmentStorePath = (projectDirectory: string, imageId: string): s
 /**
  * The whole image, clockwise from its top-left corner.
  *
- * The default Resource Mask, and the only one this slice produces (ADR-0013: not empty, because
- * an empty mask renders nothing and reads as the tool being broken).
+ * The Resource Mask a new Alignment starts with (ADR-0013: not empty, because an empty mask
+ * renders nothing and reads as the tool being broken), and what "show the whole sheet again"
+ * resets to.
  */
 export function fullImageResourceMask(image: {
 	width: number;
@@ -197,4 +326,103 @@ export function toDraftControlPoints(alignment: Alignment): readonly DraftContro
 /** Whether there are enough Control Points for `transformationType` to be solved (ADR-0013). */
 export function canSolve(alignment: Alignment): boolean {
 	return alignment.controlPoints.length >= MINIMUM_CONTROL_POINTS[alignment.transformationType];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// EDITING THE RESOURCE MASK
+//
+// The mask is the answer to "which part of this sheet is actually the map" — the outline that
+// leaves out the margins, the title cartouche, and the decorative surround (CONTEXT.md). Every
+// operation below returns a new Alignment rather than mutating one, so a mask edit is the same
+// kind of thing as a Control Point edit and reaches storage through the same single write.
+//
+// **A mask can be made smaller but never emptied.** Upstream refuses a ring of fewer than three
+// vertices outright, so an edit that removed the third one would produce an Alignment that cannot
+// be written at all — and, since it would be rejected at *save* time rather than at edit time, the
+// user would learn about it as a failed save with their outline already gone.
+
+/**
+ * The fewest vertices a Resource Mask can have.
+ *
+ * Three, because that is the fewest an area can have and because it is also what
+ * `@allmaps/annotation` enforces — a two-vertex ring is refused by its own schema, so this is the
+ * boundary of the format and not a preference of ours.
+ */
+export const MINIMUM_MASK_VERTICES = 3;
+
+/** Move one Resource Mask vertex. Called on gesture end, so it is already one commit. */
+export function moveMaskVertex(alignment: Alignment, index: number, to: ResourcePoint): Alignment {
+	if (index < 0 || index >= alignment.resourceMask.length) return alignment;
+	const resourceMask = alignment.resourceMask.map((vertex, at) =>
+		at === index ? { x: to.x, y: to.y } : vertex
+	);
+	return { ...alignment, resourceMask };
+}
+
+/**
+ * Add a vertex on the edge that leaves vertex `index`, at its midpoint.
+ *
+ * This is what makes the mask an *outline* rather than four draggable corners. A sixteenth-century
+ * sheet whose map area is not a quadrilateral — an oval, a coastline traced round a cartouche —
+ * cannot be described without it, and the alternative (redraw the whole ring) throws away the work
+ * already in the mask.
+ *
+ * The new vertex lands exactly between its neighbours, so inserting one changes the polygon's
+ * shape by nothing at all until the user moves it. An insertion that also moved the outline would
+ * be an edit the user did not ask for.
+ */
+export function insertMaskVertexAfter(alignment: Alignment, index: number): Alignment {
+	const mask = alignment.resourceMask;
+	if (index < 0 || index >= mask.length) return alignment;
+	const from = mask[index] as ResourcePoint;
+	const to = mask[(index + 1) % mask.length] as ResourcePoint;
+	const midpoint: ResourcePoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+	const resourceMask = [...mask.slice(0, index + 1), midpoint, ...mask.slice(index + 1)];
+	return { ...alignment, resourceMask };
+}
+
+/**
+ * Remove one Resource Mask vertex, unless doing so would leave fewer than
+ * {@link MINIMUM_MASK_VERTICES}.
+ *
+ * Refused by returning the Alignment unchanged rather than by throwing: the caller is a keypress
+ * on a focused vertex, and a thrown error there is an unhandled rejection in a pane. The caller
+ * says why the vertex cannot go, which it can do because it knows the count.
+ */
+export function removeMaskVertex(alignment: Alignment, index: number): Alignment {
+	const mask = alignment.resourceMask;
+	if (index < 0 || index >= mask.length) return alignment;
+	if (mask.length <= MINIMUM_MASK_VERTICES) return alignment;
+	return { ...alignment, resourceMask: mask.filter((_, at) => at !== index) };
+}
+
+/** The mask again as the whole image, for a user who has outlined themselves into a corner. */
+export function resetMaskToFullImage(alignment: Alignment): Alignment {
+	return { ...alignment, resourceMask: fullImageResourceMask(alignment.image) };
+}
+
+/**
+ * The midpoint of every edge of the mask, in edge order — edge `i` leaves vertex `i`.
+ *
+ * The handles {@link insertMaskVertexAfter} is reached through. They are computed here rather than
+ * in the pane so that "the handle you grabbed is the edge that gains a vertex" is one fact with
+ * one definition, instead of a pane's arithmetic that has to agree with core's.
+ */
+export function maskEdgeMidpoints(
+	resourceMask: readonly ResourcePoint[]
+): readonly ResourcePoint[] {
+	return resourceMask.map((from, index) => {
+		const to = resourceMask[(index + 1) % resourceMask.length] as ResourcePoint;
+		return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+	});
+}
+
+/** Whether the mask is the whole image rectangle, which is what a new Alignment starts as. */
+export function isFullImageResourceMask(alignment: Alignment): boolean {
+	const full = fullImageResourceMask(alignment.image);
+	if (alignment.resourceMask.length !== full.length) return false;
+	return full.every((vertex, index) => {
+		const mine = alignment.resourceMask[index];
+		return mine !== undefined && mine.x === vertex.x && mine.y === vertex.y;
+	});
 }
