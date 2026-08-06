@@ -15,6 +15,8 @@
 	// declaring `"rights": "javascript:…"` would have become a clickable link — Svelte escapes
 	// interpolation but does not sanitise `href`. Shown as text, that whole class of thing is inert.
 
+	import { tick } from 'svelte';
+
 	import type { ReferencedImage } from '@ballastella/core';
 
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
@@ -30,6 +32,34 @@
 	// `void` rather than `await`: the handler returns synchronously so the dialog opens in the frame the
 	// button was pressed, and `prepare` fills it in as its one request resolves.
 	const open = () => void job.prepare(image);
+
+	let cancelButton: HTMLButtonElement | undefined = $state();
+	let startButton: HTMLButtonElement | undefined = $state();
+
+	/**
+	 * Start the copy, and keep the keyboard with it.
+	 *
+	 * **The button that was pressed is destroyed by pressing it.** `start` sets the step to `'copying'`
+	 * before its first `await`, which swaps this snippet's `{:else}` branch for Cancel — so a keyboard
+	 * user is dropped to `document.body` for the length of a job that can run for minutes, with the one
+	 * control that could stop it sitting unfocused behind a modal focus trap. CONTRIBUTING makes focus
+	 * management a criterion of the change that adds the UI, and a multi-minute job with a Cancel is
+	 * where it is most obviously owed.
+	 *
+	 * Focus is *taken* here, unlike in `LayerList`, and the reason is the modal: while the copy runs
+	 * Cancel is the only control in the dialog, and the dialog is the only thing the keyboard can reach.
+	 * When the copy ends without closing the dialog the same argument sends it back to the button that
+	 * started it, which is where the retry is; on success the dialog closes and `ModalDialog` restores
+	 * focus to whatever opened it.
+	 */
+	const start = async (): Promise<void> => {
+		const running = job.start();
+		await tick();
+		cancelButton?.focus();
+		await running;
+		await tick();
+		startButton?.focus();
+	};
 </script>
 
 <button
@@ -130,6 +160,7 @@
 		{#snippet actions()}
 			{#if job.busy}
 				<button
+					bind:this={cancelButton}
 					class="btn btn-sm"
 					type="button"
 					data-testid="mirror-cancel"
@@ -147,11 +178,12 @@
 					Not now
 				</button>
 				<button
+					bind:this={startButton}
 					class="btn btn-primary btn-sm"
 					type="button"
 					data-testid="mirror-start"
 					disabled={!plan || plan.refusal !== '' || job.step === 'preparing'}
-					onclick={() => job.start()}
+					onclick={start}
 				>
 					Copy it into this Project
 				</button>

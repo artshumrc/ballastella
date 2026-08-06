@@ -14,20 +14,30 @@
 // `read` would pass every other assertion about the number it returns.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// WHY IT SWEEPS ABANDONED WRITES FIRST
+// WHY IT DOES NOT SWEEP ABANDONED WRITES, THOUGH IT ONCE DID
 //
-// Ticket 12's review found that `list` never reports a file matching the reserved temporary suffix
-// — with or without a further extension, since Chromium's `createWritable()` leaves
-// `<name>.ballastella-tmp.crswap` behind. That is right for every other caller and wrong for this
-// one: those bytes are on the disk, and in the git repository the user pushes, while being invisible
-// to any total built from `list`. A number that silently under-reports is worse than no number here,
-// because the whole point of it is the decision "will this copy take me past what I can host".
+// `list` never reports a file matching the reserved temporary suffix — with or without a further
+// extension, since Chromium's `createWritable()` leaves `<name>.ballastella-tmp.crswap` behind — so a
+// total built from `list` is a floor rather than an exact figure whenever a crashed tab has left
+// litter on the disk. Ticket 12's review found that, and this function answered it by calling
+// `reclaimAbandonedWrites` before totalling.
 //
-// So the litter is removed before the total is taken, which makes the answer exact rather than a
-// floor. It is a deletion of files that are garbage by construction — nothing can reach them through
-// `ProjectStore` — and it is the same call `Workspace#deleteProject` already makes. A backend that
-// refuses the sweep still gets a number, with the `list` caveat back: being unable to say how large a
-// Workspace is would mean never warning about the cliff at all.
+// **That was a measurement with a destructive sweep of the whole Workspace inside it**, and the
+// caller is a user clicking "Make an offline copy" or opening the publish dialog.
+// `TempFileWriteStore.reclaimAbandonedWrites` deletes every temporary path it walks, unconditionally
+// and with no age check, because at its intended call site nothing else is writing. Fired from here it
+// could land between another write's `writeBytes` and its `renameTempFile` — an autosave of
+// `project.json`, a tile of an ingest running in the same tab — and delete that write's temporary file
+// out from under it, failing a save the user never connected to the button they pressed. Asking how
+// large a Workspace is must not be able to break what is being written into it.
+//
+// So the sweep stays where it is safe and expected: Workspace adoption, in
+// `workspace-storage.svelte.ts`, which is "the one moment a full sweep is both cheap and expected" —
+// the walk the listing does anyway, before any edit is in flight. That runs before any measurement in
+// the session, so the floor and the exact figure differ only for litter dropped since — another tab
+// dying mid-write, which is the case the next adoption sweeps up. Under-reporting by the bytes of one
+// abandoned write is the price of never deleting a file somebody is still writing, and it is much the
+// cheaper of the two errors.
 
 import type { ProjectStore } from '../store/project-store.js';
 
@@ -54,13 +64,11 @@ export type WorkspaceSize = {
 /**
  * The byte total under `prefix` — `''` for the whole Workspace, `'<directory>/'` for one Project.
  *
- * Reads nothing. See the note at the top of this file for both halves of why.
+ * **Reads nothing, and writes nothing — one `list` and one `size` per file it names.** See the note
+ * at the top of this file for both halves of why, the second of which is that this is a question a
+ * user asks while other things in the same tab are still writing.
  */
 export async function workspaceSize(store: ProjectStore, prefix = ''): Promise<WorkspaceSize> {
-	// Before the total, not after: see the note above. Swallowed rather than fatal — a Workspace whose
-	// litter cannot be swept still has a size, and refusing to say it would remove the warning entirely.
-	await store.reclaimAbandonedWrites(prefix).catch(() => undefined);
-
 	const paths = await store.list(prefix);
 	const sizes = await Promise.all(paths.map((path) => store.size(path).catch(() => 0)));
 

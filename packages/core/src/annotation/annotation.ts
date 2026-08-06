@@ -273,6 +273,22 @@ export function lineStyleOf(dash: readonly number[] | undefined): LineStyle {
 	return 'dashed';
 }
 
+/**
+ * `style` with one of the three line styles applied — **the one place solid is written as an absence**.
+ *
+ * Every control that offers the three-way choice goes through this: the per-Annotation one in the
+ * editor, through {@link setLineStyle}, and the Layer's own `defaultStyle`, which is a plain
+ * {@link SimpleStyle} with no collection around it. Both had the rule spelled out where they stood —
+ * "delete the property rather than setting something continuous" — which is two places to remember a
+ * rule ADR-0009 states once, and the second one is where a `[0, 0]` eventually gets written.
+ *
+ * The style itself is returned when nothing changed, so a caller can tell a no-op by identity and not
+ * write a file that says the same thing.
+ */
+export function withLineStyle<Style extends SimpleStyle>(style: Style, line: LineStyle): Style {
+	return withProperty(style, 'stroke-dasharray', dashArrayFor(line));
+}
+
 // ---------------------------------------------------------------------------------------------
 // Editing a collection
 // ---------------------------------------------------------------------------------------------
@@ -407,20 +423,26 @@ export function setText(
 	});
 }
 
-/** `properties` with one key set, or removed when the value is `undefined` or an empty string. */
-function withProperty(
-	properties: AnnotationProperties,
+/**
+ * `properties` with one key set, or removed when the value is `undefined` or an empty string.
+ *
+ * Generic over the style object, because a Layer's `defaultStyle` is a bare {@link SimpleStyle} and
+ * takes the same rule as an Annotation's own `properties` — see {@link withLineStyle}. Returns what it
+ * was given when nothing changed, which is how an untouched file stays byte-identical.
+ */
+function withProperty<Style extends SimpleStyle>(
+	properties: Style,
 	key: string,
 	value: unknown
-): AnnotationProperties {
+): Style {
 	const remove = value === undefined || value === '';
-	const current = (properties as Record<string, unknown>)[key];
+	const raw = properties as Record<string, unknown>;
 	if (remove && !(key in properties)) return properties;
-	if (!remove && current === value) return properties;
-	const next: Record<string, unknown> = { ...properties };
+	if (!remove && raw[key] === value) return properties;
+	const next: Record<string, unknown> = { ...raw };
 	if (remove) delete next[key];
 	else next[key] = value;
-	return next as AnnotationProperties;
+	return next as Style;
 }
 
 /**
@@ -450,7 +472,10 @@ export function setLineStyle(
 	id: string,
 	line: LineStyle
 ): AnnotationCollection {
-	return setStyle(collection, id, { 'stroke-dasharray': dashArrayFor(line) });
+	return replace(collection, id, (annotation) => {
+		const properties = withLineStyle(annotation.properties, line);
+		return properties === annotation.properties ? annotation : { ...annotation, properties };
+	});
 }
 
 // ---------------------------------------------------------------------------------------------

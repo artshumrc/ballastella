@@ -445,7 +445,6 @@ describe('planMirror against the fixture service', () => {
 
 		expect(plan.path).toBe('assembled');
 		expect(plan.requests).toHaveLength(20);
-		expect(plan.manyRequests).toBe(true);
 		expect(plan.notes.join(' ')).toContain('library.test');
 	});
 });

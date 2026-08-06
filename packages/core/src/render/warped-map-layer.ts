@@ -57,7 +57,11 @@ import {
 	toRendererResourceMask
 } from '../alignment/georeference-annotation.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import { referencedRendererDocument } from '../remote-iiif/referenced-image.js';
+import type { ImageMode } from '../project/layer.js';
+import {
+	referencedImagePath,
+	referencedRendererDocument
+} from '../remote-iiif/referenced-image.js';
 
 import { distortionRamp } from './distortion-ramp.js';
 
@@ -143,9 +147,15 @@ function mapOptionsFor(alignment: Alignment, distortion: DistortionView) {
  * a local copy. It has to be here rather than inside the Alignment because `@allmaps/maplibre`
  * builds every tile URL from the document's `resource.id`, and the two cases want different
  * answers: the ADR-0004 placeholder, which the injection layer resolves out of the store, or the
- * library's own address, which goes to the network. Passing `''` for a referenced image is a blank
- * warped Layer — the same silent failure ticket 06 spent a patch on — so the caller derives it from
- * the Layer's `imageMode` rather than deciding per call site.
+ * library's own address, which goes to the network.
+ *
+ * **A `'referenced'` Layer with no address is refused here rather than drawn from nowhere.** That
+ * pairing used to be accepted: the placeholder document parses, the renderer names a map, this
+ * reported `drawn`, and the injection layer then answered 404 for a pyramid a referenced image by
+ * definition does not have locally — a blank Layer with nothing said, which is the exact failure
+ * ticket 14's criterion names. It cannot be detected from `service` alone, because `''` is also the
+ * right answer for every local copy, so the caller says which kind of image this is with
+ * `imageMode` — and the guard can only run for a caller that does; see the option's own note.
  */
 export function showAlignment(
 	layer: WarpedMapLayer,
@@ -158,6 +168,7 @@ export function showAlignment(
 	 */
 	{
 		distortion = DEFAULT_DISTORTION_VIEW,
+		imageMode,
 		service = ''
 	}: {
 		/**
@@ -172,12 +183,40 @@ export function showAlignment(
 		 */
 		distortion?: DistortionView;
 		/**
+		 * Whether this Historical Map's tiles are in the Project or on somebody else's server — ticket
+		 * 09's field, straight off the Layer.
+		 *
+		 * **Optional, and the omission is not free.** It is what turns the `'referenced'`-with-no-address
+		 * case from a blank Layer into a refusal the page can print, so anything drawing a Layer of a
+		 * Project's stack has it in hand and should pass it — `drawLayerStack` reads it straight off
+		 * `drawn.layer.imageMode`. Left out, that pairing is undetectable here and the Layer draws
+		 * nothing with nothing said, which is the state this whole option exists to end. It is optional
+		 * only for the caller that has no Layer: the alignment pane, drawing the one Historical Map
+		 * being worked on.
+		 */
+		imageMode?: ImageMode;
+		/**
 		 * The remote image service URI for a `'referenced'` image (ticket 14), or `''` for a local copy.
 		 * It cannot live inside the Alignment — see the note above this function.
 		 */
 		service?: string;
 	} = {}
 ): WarpedRender {
+	// Before the Control Point count, because "one more point and the map appears" would be a lie: no
+	// number of Control Points draws an image whose tiles have no address. Refusing here is also what
+	// keeps the placeholder document out of the renderer entirely, so nothing is attached and reported
+	// drawn on the way to being torn down again.
+	if (imageMode === 'referenced' && service === '') {
+		return {
+			status: 'refused',
+			reason:
+				`This Historical Map is referenced rather than copied into this Project, and the record ` +
+				`of where it is served from (${referencedImagePath(alignment.imageId)}) could not be ` +
+				`read — so there is nowhere to fetch its tiles from. Nothing is drawn, rather than an ` +
+				`empty Layer reported as drawn.`
+		};
+	}
+
 	const need = MINIMUM_CONTROL_POINTS[alignment.transformationType];
 	const have = alignment.controlPoints.length;
 	if (have < need) return { status: 'too-few-points', have, need };

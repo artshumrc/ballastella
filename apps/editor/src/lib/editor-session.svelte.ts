@@ -257,6 +257,24 @@ export class EditorSession {
 	 * user concludes the tool lost their work.
 	 */
 	referencedImageErrors = $state<{ imageId: string; reason: string }[]>([]);
+	/**
+	 * Offline copies whose pyramid is in the folder but whose `project.json` never caught up, by image
+	 * id (ticket 15).
+	 *
+	 * Three ordinary things leave this state, and {@link mirrorImage} names all three: the session
+	 * moving to another Project while the copy ran, the Alignment rewrite throwing, and the
+	 * `project.json` write failing. In every one of them the pyramid has landed — `ingestImageFile`
+	 * writes `info.json` last, so a directory that has one is complete — and the document still says
+	 * `'referenced'`.
+	 *
+	 * It used to be **permanent and self-contradicting**: `remoteOrigins` reads the disk, so the Project
+	 * page listed the map under "Offline copies" and stopped offering the copy, while the Layers pane
+	 * reads `imageMode` and kept handing the renderer the library's address. The copied bytes sat unused
+	 * and a Published Site of it still needed the network — the exact failure this ticket exists to
+	 * prevent. {@link open} now corrects the open document in memory so nothing on screen disagrees, and
+	 * this list is what {@link finishInterruptedCopy} finishes on disk.
+	 */
+	unfinishedCopies = $state<string[]>([]);
 	ingest = $state<IngestProgress | null>(null);
 	/** The name of the file being ingested, for the progress message (SPEC story 23). */
 	ingestLabel = $state('');
@@ -491,7 +509,9 @@ export class EditorSession {
 	 *
 	 * Reads and nothing else. Opening last year's work must leave every byte of it alone
 	 * (ADR-0010), so there is no write anywhere on this path — not a stamped `updatedAt`, not a
-	 * normalised field.
+	 * normalised field. {@link #reconcileLocalCopies} corrects the document *in memory* for the same
+	 * reason ADR-0010 migrates in memory: what is on screen must be true, and the file is rewritten by
+	 * the user's first actual change rather than by having been looked at.
 	 *
 	 * **Idempotent, and immune to a read that arrives late.** Opening is driven by an effect over
 	 * the URL, which can run more than once for one navigation, and the naive version blanked
@@ -519,6 +539,7 @@ export class EditorSession {
 		this.images = [];
 		this.referencedImages = [];
 		this.referencedImageErrors = [];
+		this.unfinishedCopies = [];
 		this.ingestError = '';
 		// The hub is what a null `?p=` shows, and it needs the list. Listing here rather than on
 		// every mutation is what keeps typing a Project name from walking the whole Workspace once
@@ -540,6 +561,7 @@ export class EditorSession {
 			if (generation !== this.#openGeneration) return;
 			this.referencedImages = referenced.images;
 			this.referencedImageErrors = referenced.unreadable;
+			this.#reconcileLocalCopies();
 		} catch (cause) {
 			if (generation !== this.#openGeneration) return;
 			const problem = describeProblem(cause, directory);
@@ -564,6 +586,56 @@ export class EditorSession {
 			this.status = 'unreachable';
 			this.unreachableDetail = cause instanceof Error ? cause.message : String(cause);
 		}
+	}
+
+	/**
+	 * Make the open document agree with the folder about which Historical Maps have been copied
+	 * (ticket 15).
+	 *
+	 * **In memory, and only in memory.** ADR-0010's consequence is the rule and also the precedent:
+	 * "migrate in memory on open; write back only on the user's first actual change", because opening a
+	 * Project in a git repository or a Dropbox folder must not produce a diff nobody asked for. So this
+	 * corrects the Layer and records the image in {@link unfinishedCopies}; the file catches up either
+	 * with the next edit — every write of `project.json` goes through the corrected document — or with
+	 * {@link finishInterruptedCopy}, which is the user asking for it and is what also puts the Alignment
+	 * right.
+	 *
+	 * The direction is the one that cannot go wrong, and it is the same one `partitionByLocalCopy`
+	 * takes: a pyramid in the folder is a fact, `imageMode` is a claim, and mirroring is the single
+	 * action that can leave the two disagreeing. Narrow on purpose — only a Layer that says
+	 * `'referenced'` while its `remote.json` sits beside an `info.json` of ours is touched, which is
+	 * exactly the half-committed copy and nothing else.
+	 */
+	#reconcileLocalCopies(): void {
+		const project = this.openProject;
+		if (!project) return;
+
+		const copied = this.remoteOrigins.mirrored.map((image) => image.imageId);
+		// Paired with the `alignmentRef` they were found by, because that is what the rewrite below
+		// matches on: the two passes must agree about which Layers are meant. Arrays rather than a `Map`
+		// — the lint rule would ask for a `SvelteMap`, and this is a local the length of the
+		// referenced-image list rather than anything that renders.
+		const behind: { alignmentRef: string; imageId: string }[] = [];
+		for (const layer of project.layers) {
+			if (layer.kind !== 'map' || layer.imageMode !== 'referenced') continue;
+			const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
+			if (imageId === null || !copied.includes(imageId)) continue;
+			behind.push({ alignmentRef: layer.alignmentRef, imageId });
+		}
+
+		this.unfinishedCopies = behind.map((entry) => entry.imageId);
+		if (behind.length === 0) return;
+
+		this.openProject = {
+			...project,
+			layers: project.layers.map((layer) => {
+				if (layer.kind !== 'map') return layer;
+				const entry = behind.find((candidate) => candidate.alignmentRef === layer.alignmentRef);
+				return entry === undefined
+					? layer
+					: { ...layer, imageMode: imageModeOf(localCopySource(entry.imageId)) };
+			})
+		};
 	}
 
 	/**
@@ -905,8 +977,13 @@ export class EditorSession {
 	 *
 	 * Split on **whether the pyramid is there**, not on what a Layer's `imageMode` claims. That is the
 	 * direction that cannot go wrong: a copy whose pyramid landed and whose `project.json` write did not
-	 * shows here as copied, and the next open repairs the document — whereas trusting the claim would
-	 * mean an image whose tiles are in this folder being fetched from a library on every load.
+	 * shows here as copied — whereas trusting the claim would mean an image whose tiles are in this
+	 * folder being fetched from a library on every load.
+	 *
+	 * Which is also why it is not the whole answer. Being right about the disk while the document is
+	 * wrong is a disagreement, and {@link unfinishedCopies} is the other half of saying it: this getter
+	 * says where the bytes are, that list says which Layers have not caught up, and
+	 * {@link finishInterruptedCopy} is how the user ends the disagreement.
 	 */
 	get remoteOrigins(): { referenced: ReferencedImage[]; mirrored: ReferencedImage[] } {
 		return partitionByLocalCopy(this.referencedImages, this.images);
@@ -1047,9 +1124,17 @@ export class EditorSession {
 	 * ticket 16 will publish, and a self-contained site whose Alignment points at a stranger's server
 	 * is not self-contained.
 	 *
-	 * A failure anywhere leaves the Layer `'referenced'` and still rendering from the library, which is
-	 * the state it was in. The worst intermediate state is a pyramid on disk that nothing references:
-	 * bytes, not breakage, and the next attempt overwrites them because the image id does not change.
+	 * A failure before step 1 finishes leaves the Layer `'referenced'` and still rendering from the
+	 * library, which is the state it was in.
+	 *
+	 * **A failure after it is a half-committed copy, and the recovery is real rather than promised.**
+	 * The pyramid is in the folder and the document still says `'referenced'`, which is reachable three
+	 * ways: the session moving to another Project while the copy ran (the `return false` below), the
+	 * Alignment rewrite throwing, and the `project.json` write failing. That state used to be permanent
+	 * — `remoteOrigins` reads the disk, so the map moved to "Offline copies" and the copy could not be
+	 * started again — and it now ends in {@link unfinishedCopies}, is corrected on screen by
+	 * `#reconcileLocalCopies` when the Project is next opened, and is completed on disk by
+	 * {@link finishInterruptedCopy}, which redoes steps 2 and 3 without fetching anything.
 	 *
 	 * `imageMode` is derived from the source rather than typed in, so the Layer's claim and where its
 	 * tiles actually come from cannot be written independently.
@@ -1085,16 +1170,56 @@ export class EditorSession {
 
 		// A later `open` has moved the session to another Project while this ran. The pyramid landed in
 		// the right folder — `directory` was captured — but writing this session's `project.json` now
-		// would write the wrong document, so the Layer is left for the next open to catch up.
+		// would write the wrong document, so the two writes that follow the pyramid are left undone.
+		// Reopening that Project finds them: `#reconcileLocalCopies` puts the Layer right on screen and
+		// lists the image in `unfinishedCopies`, and `finishInterruptedCopy` is how the user completes it.
 		if (this.openDirectory !== directory) return false;
 
-		const path = alignmentStorePath(directory, image.imageId);
+		return this.#recordLocalCopy(directory, image.imageId);
+	}
+
+	/**
+	 * Finish an offline copy whose pyramid landed but whose document writes did not (ticket 15).
+	 *
+	 * The repair the two comments above used to promise and nothing implemented. It fetches nothing —
+	 * the expensive half is already in the folder, and `ingestImageFile` writes `info.json` last, so a
+	 * directory that has one is a complete pyramid — and does exactly the two writes that were missed,
+	 * in the same order: the Alignment, then `project.json`.
+	 *
+	 * Idempotent, which matters because one of the three ways in leaves the Alignment already rewritten:
+	 * re-serialising a document that already names the ADR-0004 placeholder produces the same bytes.
+	 *
+	 * @returns `true` when the Layer now says it is a local copy
+	 */
+	async finishInterruptedCopy(imageId: string): Promise<boolean> {
+		const directory = this.openDirectory;
+		if (!directory || !this.openProject) return false;
+		// The pyramid has to actually be there. Without this the button would rewrite an Alignment away
+		// from the library for an image whose tiles are still only on it — a blank Layer, from a control
+		// whose whole purpose is to stop one.
+		if (!this.images.some((image) => image.imageId === imageId)) return false;
+
+		try {
+			return await this.#recordLocalCopy(directory, imageId);
+		} catch (cause) {
+			this.saveError = cause instanceof Error ? cause.message : String(cause);
+			return false;
+		}
+	}
+
+	/**
+	 * The two writes that turn a pyramid on disk into a Layer that says so — steps 2 and 3 of
+	 * {@link mirrorImage}, shared with {@link finishInterruptedCopy} so that finishing an interrupted
+	 * copy cannot drift from finishing a fresh one.
+	 */
+	async #recordLocalCopy(directory: string, imageId: string): Promise<boolean> {
+		const path = alignmentStorePath(directory, imageId);
 		try {
 			// Re-serialised from the parsed Alignment rather than string-edited: `serialiseAlignment` is
 			// the one writer of that document, and it is what puts the placeholder back.
 			await this.#autosave.commit(
 				path,
-				serialiseAlignment(parseAlignment(await this.#store.read(path), { imageId: image.imageId }))
+				serialiseAlignment(parseAlignment(await this.#store.read(path), { imageId }))
 			);
 		} catch (cause) {
 			// No Alignment yet is the ordinary case for a map nobody has placed. Anything else is not:
@@ -1104,10 +1229,10 @@ export class EditorSession {
 
 		this.images = await listIngestedImages(this.#store, directory);
 
-		const alignmentRef = alignmentPath(image.imageId);
+		const alignmentRef = alignmentPath(imageId);
 		const project = this.openProject;
 		if (!project) return false;
-		const imageMode = imageModeOf(localCopySource(image.imageId));
+		const imageMode = imageModeOf(localCopySource(imageId));
 		this.openProject = {
 			...project,
 			layers: project.layers.map((layer) =>
@@ -1117,7 +1242,20 @@ export class EditorSession {
 			)
 		};
 		await this.#write(directory);
-		return this.saveError === '';
+		if (this.saveError !== '') {
+			// The pyramid is in the folder and the document is not: the half-committed state, reached
+			// without leaving the page. Listed now rather than only on the next open, because the map has
+			// already moved to "Offline copies" — `remoteOrigins` reads the disk — and a row that says it is
+			// copied while nothing offers to finish it is the contradiction this list exists to end.
+			if (!this.unfinishedCopies.includes(imageId)) {
+				this.unfinishedCopies = [...this.unfinishedCopies, imageId];
+			}
+			return false;
+		}
+		// Only once the document on disk agrees. Dropped any earlier and the offer to finish the copy
+		// would disappear while the state it repairs is still there.
+		this.unfinishedCopies = this.unfinishedCopies.filter((id) => id !== imageId);
+		return true;
 	}
 
 	/**

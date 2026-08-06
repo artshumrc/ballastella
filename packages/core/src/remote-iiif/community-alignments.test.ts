@@ -137,6 +137,24 @@ describe('what the lookup finds', () => {
 		expect(offer.state === 'found' && offer.alignments).toHaveLength(1);
 	});
 
+	it.each([`${SERVICE}/`, `${SERVICE}/info.json`])(
+		'matches an annotation that spells the service as %s',
+		async (written) => {
+			// The identifier is a hash of the address, so a spelling this app would not have minted from
+			// is an identifier that does not match and an existing Alignment silently not offered — the
+			// feature failing in the one direction nobody can see. Both sides go through
+			// `canonicalServiceUri`, which is what makes them the same string before they are hashed.
+			const offer = await findCommunityAlignments({
+				enabled: true,
+				image: parsedImage(),
+				imageId: IMAGE_ID,
+				fetchAnnotations: async () => [page([annotation(written)])]
+			});
+
+			expect(offer.state === 'found' && offer.alignments).toHaveLength(1);
+		}
+	);
+
 	it('reads a bare Annotation as well as a page of them', async () => {
 		const offer = await findCommunityAlignments({
 			enabled: true,

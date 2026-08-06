@@ -27,6 +27,7 @@ import {
 	setStyle,
 	setText,
 	simpleStyleViolations,
+	withLineStyle,
 	type AnnotationCollection,
 	type AnnotationProperties
 } from './annotation.js';
@@ -390,6 +391,22 @@ describe('solid, dashed, and dotted (SPEC story 61)', () => {
 		expect('stroke-dasharray' in back.annotations[0]!.properties).toBe(false);
 	});
 
+	test('a Layer’s default style takes the same rule, through the same function', () => {
+		// The Layer's `defaultStyle` is a bare `SimpleStyle` with no collection around it, so the
+		// Layers pane used to spell the rule out again where it stood — and a second statement of
+		// "solid is the property being absent" is where a `[0, 0]` eventually gets written.
+		const dashed = withLineStyle({ stroke: '#112233' }, 'dashed');
+		expect(dashed).toEqual({ stroke: '#112233', 'stroke-dasharray': [8, 4] });
+
+		const solid = withLineStyle(dashed, 'solid');
+		expect('stroke-dasharray' in solid).toBe(false);
+		// Everything else the Layer carried survives the change, which is what makes this a *default*
+		// style rather than a two-property one.
+		expect(solid).toEqual({ stroke: '#112233' });
+		// And an unchanged style is returned as it was, so nothing writes a file that says the same.
+		expect(withLineStyle(solid, 'solid')).toBe(solid);
+	});
+
 	test('the three options round-trip through the tuple', () => {
 		expect(lineStyleOf(dashArrayFor('solid'))).toBe('solid');
 		expect(lineStyleOf(dashArrayFor('dashed'))).toBe('dashed');
@@ -420,11 +437,11 @@ describe('solid, dashed, and dotted (SPEC story 61)', () => {
 	});
 
 	test('dashes are converted into MapLibre’s line-width units', () => {
-		// A stored [8, 4] on a 2px line is 8px on and 4px off; MapLibre wants that as a multiple of the
-		// width. Without this a dotted line becomes dashed as soon as the user thickens it.
-		expect(mapLibreDashArray(DASHED_DASHARRAY, 2)).toEqual([4, 2]);
-		expect(mapLibreDashArray(DOTTED_DASHARRAY, 1)).toEqual([1, 3]);
-		expect(mapLibreDashArray(DOTTED_DASHARRAY, 0)).toEqual([1, 3]);
+		// A stored [8, 4] is 8px on and 4px off at simplestyle's own default width of 2, and MapLibre
+		// wants that as a multiple of the width. The two patterns stay distinguishable by their ratio,
+		// which is what makes a dotted line read as dots rather than as short dashes.
+		expect(mapLibreDashArray(DASHED_DASHARRAY)).toEqual([4, 2]);
+		expect(mapLibreDashArray(DOTTED_DASHARRAY)).toEqual([0.5, 1.5]);
 	});
 });
 

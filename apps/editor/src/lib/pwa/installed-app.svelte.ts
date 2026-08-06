@@ -42,20 +42,36 @@ export class InstalledApp {
 	/** Whether the app is already running as an installed application. */
 	installed = $state(false);
 	/**
-	 * A newer version has installed itself and is waiting.
+	 * A version newer than the one this page is running exists.
 	 *
-	 * Never true on a first visit: a page with no controller was served from the network and is
-	 * therefore already the newest thing there is, so telling its reader about an update would be
-	 * telling them about themselves.
+	 * Never true about *this page's own* version — including on a first visit, where the worker
+	 * installing itself is the same build the network just served, so saying so would be telling the
+	 * reader about themselves. What makes it true is a *different* worker: one waiting behind the
+	 * controller, or one that took over while this page was uncontrolled. See {@link #considerNewer}.
 	 */
 	updateAvailable = $state(false);
 	/** The user said "not now". Their decision, and it is not re-asked for this page's lifetime. */
 	updateDismissed = $state(false);
+	/**
+	 * The user asked for the update and the deployment could not be reached, so nothing was dropped
+	 * and nothing was reloaded. See {@link applyUpdate}.
+	 */
+	updateUnreachable = $state(false);
 	/** Whether the network is there, which is what {@link applyUpdate} needs. */
 	online = $state(true);
 
 	#registration: ServiceWorkerRegistration | null = null;
 	#installPrompt: BeforeInstallPromptEvent | null = null;
+	/**
+	 * The worker whose build this page is running, as far as this page can tell.
+	 *
+	 * The baseline every later worker is compared against, and the reason a first visit is quiet: it
+	 * is read once, at registration, before anything can have changed. A controlled page runs its
+	 * controller's build. An uncontrolled one was served straight off the network a moment ago, so the
+	 * newest worker the registration has at that instant — waiting, active, or the one it is busy
+	 * installing — is the build it is showing.
+	 */
+	#thisPages: ServiceWorker | null = null;
 
 	/** Begin. Browser only, so call it from an effect. Returns its own teardown. */
 	start(): () => void {
@@ -63,7 +79,15 @@ export class InstalledApp {
 		const { signal } = abort;
 
 		this.online = navigator.onLine;
-		addEventListener('online', () => (this.online = true), { signal });
+		addEventListener(
+			'online',
+			() => {
+				this.online = true;
+				// The reason the last attempt was refused has gone, so the notice about it goes too.
+				this.updateUnreachable = false;
+			},
+			{ signal }
+		);
 		addEventListener('offline', () => (this.online = false), { signal });
 
 		// Chromium fires this when the app meets its install criteria; the event is what makes the
@@ -139,11 +163,40 @@ export class InstalledApp {
 	 *
 	 * It needs the network for that one load, which is why {@link online} gates the offer. That is not
 	 * a real narrowing: a waiting worker exists only because the network delivered it.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHY THE DEPLOYMENT IS PROVED REACHABLE FIRST
+	 *
+	 * Dropping the registration is the one irreversible step here, and between it and the reload
+	 * there is a window in which this browser has **no worker, no controlled page, and no offline
+	 * shell** — the thing a scholar in a reading room installed the app for. If the reload then does
+	 * not arrive, they are not back where they started; they are worse off than if they had never
+	 * been offered the update, and they stay that way until a real connection returns.
+	 *
+	 * `navigator.onLine` is not enough to rule that out. It is famously "connected to *something*":
+	 * true on a captive portal, true on a wifi network with no route out, and stale for a while after
+	 * a connection drops. So the registration goes only after the deployment has actually answered.
+	 *
+	 * `registration.update()` is the probe, and a well-chosen one rather than a convenient one. It
+	 * fetches `service-worker.js` bypassing both this worker and the HTTP cache, and it **rejects**
+	 * unless what comes back is really JavaScript from this origin — so a captive portal's login page,
+	 * which is exactly the case a `HEAD` on the entry HTML would wave through with a cheerful 200,
+	 * fails it. Refusing then costs the user nothing: the prompt stays, the old version keeps serving,
+	 * and the shell is still on disk.
 	 */
 	async applyUpdate(): Promise<void> {
+		const registration = this.#registration;
+		this.updateUnreachable = false;
+		try {
+			await registration?.update();
+		} catch {
+			// Say so and change nothing. The registration is still there, which is the whole point.
+			this.updateUnreachable = true;
+			return;
+		}
 		this.updateAvailable = false;
 		try {
-			await this.#registration?.unregister();
+			await registration?.unregister();
 		} catch {
 			// A registration that will not go is not a reason to refuse the reload; the worst case is
 			// the old version still serving, which is exactly where the user already was.
@@ -166,16 +219,26 @@ export class InstalledApp {
 		if (signal.aborted) return;
 		this.#registration = registration;
 
+		// What this page is running, read before any listener and before anything can change it.
+		// See {@link #thisPages}.
+		this.#thisPages =
+			navigator.serviceWorker.controller ??
+			registration.waiting ??
+			registration.active ??
+			registration.installing;
+
 		// A worker left waiting by an earlier visit. Read before any listener, because it has already
 		// happened and no event is coming.
-		this.#considerWaiting(registration);
+		this.#considerNewer(registration);
 
 		registration.addEventListener(
 			'updatefound',
 			() => {
 				const installing = registration.installing;
 				if (!installing) return;
-				installing.addEventListener('statechange', () => this.#considerWaiting(registration), {
+				// Every state this worker goes through, not only `installed`: on a page that is not
+				// controlled it may never wait at all, and `activated` is then the first news there is.
+				installing.addEventListener('statechange', () => this.#considerNewer(registration), {
 					signal
 				});
 			},
@@ -189,16 +252,36 @@ export class InstalledApp {
 	}
 
 	/**
-	 * Say so if, and only if, a *newer* worker is waiting for this page.
+	 * Say so if, and only if, the registration has a worker that is not the one this page is running.
 	 *
-	 * The `controller` test is the whole guard. On a first visit the freshly installed worker reaches
-	 * `installed` with nothing to replace, and this page — uncontrolled, served from the network — is
-	 * already what that worker would serve.
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHY THIS IS NOT "IS THERE A WAITING WORKER, AND AM I CONTROLLED"
+	 *
+	 * That was the guard, and it had a hole exactly where ADR-0012's promise is loudest. A page loaded
+	 * before this browser had ever seen the worker is **not controlled**, and an uncontrolled page is
+	 * not a client of the registration — so a version published during that session does not wait
+	 * behind anything. The browser installs it and activates it straight away, `activate` deletes the
+	 * caches the previous build filled, and under the old guard nobody was told: no controller, no
+	 * prompt. The first visit is not a rare case, it is everybody's first visit.
+	 *
+	 * So the question asked is the one the user actually has — *is what I am looking at the current
+	 * version?* — and the answer compares workers rather than reading `controller`. A first visit is
+	 * still quiet, because the worker installing during it **is** the build this page was served.
+	 *
+	 * ⚠ **This makes the activation visible; it cannot make it wait.** Nothing a page can do keeps a
+	 * new worker back when the page is not controlled: no worker cuts its own wait short here — that
+	 * one call is forbidden by ADR-0012 and by this ticket's acceptance criteria, and no comment in
+	 * this app spells it, so the grep for it has no decoys to sift — the browser simply has no client
+	 * to protect and does not wait at all. What this buys is that the user is told, and that
+	 * {@link applyUpdate} puts them on the version the caches now hold. The one thing it does not buy
+	 * is choosing *when*, on that one page load, and there is no API that would.
 	 */
-	#considerWaiting(registration: ServiceWorkerRegistration): void {
-		if (registration.waiting && navigator.serviceWorker.controller) {
-			this.updateAvailable = true;
-		}
+	#considerNewer(registration: ServiceWorkerRegistration): void {
+		const newest = registration.waiting ?? registration.active;
+		if (newest === null) return;
+		// A page that had met no worker at registration takes the first one it sees as its own.
+		this.#thisPages ??= newest;
+		if (newest !== this.#thisPages) this.updateAvailable = true;
 	}
 
 	/** How long between two update checks. Long enough that returning to the tab is not a poll. */

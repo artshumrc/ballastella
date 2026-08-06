@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
@@ -63,14 +63,97 @@ const MEDIA_TYPES: Record<string, string> = {
  */
 export const NEXT_VERSION_MARKER = 'ballastella-next-version';
 
+/** One answer to one request for bytes, ready to be written out or handed to `route.fulfill`. */
+export type ServedBytes = {
+	readonly status: 200 | 206 | 416;
+	readonly headers: Record<string, string>;
+	readonly body: Buffer;
+};
+
+/**
+ * A file, or the slice of it a `Range` header asked for, answered the way a byte-serving host does.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * THIS IS THE HOST THE SERVICE WORKER IS MODELLED ON
+ *
+ * The Base Map is one pmtiles archive read entirely by range, and `pmtiles`' `FetchSource` refuses a
+ * `200` whose `Content-Length` exceeds what it asked for — so a host that cannot byte-serve is a
+ * Base Map that never draws, and every Base Map assertion in the suite would be vacuous. Offline
+ * there is no host, and `slice()` in `apps/editor/src/service-worker.ts` stands in for one out of the
+ * shell cache. The suite's claim is that switching the network off changes nothing about the Base
+ * Map, and that claim is only worth as much as the host the worker is compared against: a model with
+ * no clamp and no `416` is a host the worker is not in fact imitating, and the two would drift with
+ * nothing here to notice.
+ *
+ * The two cannot share a module — that one is a service worker built against `$service-worker`, this
+ * is a Node test host — so this is the reference and that one is the copy, and each names the other.
+ * Change one, change both: the suffix form, the clamp at zero, and the `416` carrying the total,
+ * which is what `FetchSource` handles by asking again for the whole file.
+ *
+ * @param range the request's `Range` header, if it had one
+ */
+export function byteRange(body: Buffer, range: string | undefined, type: string): ServedBytes {
+	const asked = /^bytes=(\d*)-(\d*)$/.exec(range ?? '');
+	if (!asked) {
+		return {
+			status: 200,
+			headers: {
+				'content-type': type,
+				'content-length': String(body.length),
+				'accept-ranges': 'bytes'
+			},
+			body
+		};
+	}
+	const last = body.length - 1;
+	// `bytes=-500` is the final 500 bytes; `bytes=500-` is everything from 500 on.
+	const start = asked[1] === '' ? Math.max(0, body.length - Number(asked[2])) : Number(asked[1]);
+	const end = asked[1] === '' || asked[2] === '' ? last : Math.min(Number(asked[2]), last);
+	if (start > last) {
+		return {
+			status: 416,
+			headers: { 'content-range': `bytes */${body.length}` },
+			body: Buffer.alloc(0)
+		};
+	}
+	const part = body.subarray(start, end + 1);
+	return {
+		status: 206,
+		headers: {
+			'content-type': type,
+			'content-length': String(part.length),
+			'content-range': `bytes ${start}-${end}/${body.length}`,
+			'accept-ranges': 'bytes'
+		},
+		body: part
+	};
+}
+
+/**
+ * This deployment's own bundled Base Map archive, read off disk.
+ *
+ * Found by extension rather than by name, because ADR-0020 says a fork swapping its extract changes
+ * the catalog and nothing else — and a test that spelled the archive's file name would be one more
+ * thing it had to change. Used to stand in for *somebody else's* archive: a test that needs a
+ * `needsNetwork: true` Base Map to genuinely answer has to serve real pmtiles bytes from somewhere,
+ * and reaching the real host it names would put an internet dependency in this suite.
+ */
+export async function bundledBaseMapArchive(): Promise<Buffer> {
+	const directory = path.join(editorBuild, 'base-map');
+	const names = await readdir(directory);
+	const archive = names.find((name) => name.endsWith('.pmtiles'));
+	if (archive === undefined) throw new Error(`no pmtiles archive in ${directory}`);
+	return readFile(path.join(directory, archive));
+}
+
 export type EditorDeployment = {
 	/** The deployment's address, with a trailing slash. This is what `start_url` must resolve to. */
 	readonly url: string;
 	/** The path this build is served under — `''` for a domain root. */
 	readonly prefix: string;
-	/** Every path this server was asked for, in order. */
+	/** Every path this deployment was asked for, in order. */
 	readonly requests: string[];
-	/** Every path it answered with something other than 200 or 301. */
+	/** Every path it answered with something other than 200, 301, 206 or 416. */
 	readonly failures: { path: string; status: number }[];
 	/**
 	 * Serve a *different* build from now on: a new service worker, and an entry HTML carrying
@@ -81,6 +164,16 @@ export type EditorDeployment = {
 	 * decidable from `caches.keys()` as well as from the page.
 	 */
 	publishNewVersion(): void;
+	/**
+	 * Stop answering, in the middle of a test rather than at the end of one.
+	 *
+	 * Mechanically this is {@link close} — the same shutdown, and calling `close` after it is a no-op,
+	 * so a test may use it and still be torn down normally. It has a name of its own because it is
+	 * used for a different reason: what a dropped connection or a captive portal looks like from
+	 * inside the page. Unlike Playwright's `setOffline` it leaves `navigator.onLine` saying yes, which
+	 * is the case the update path has to survive rather than the one it can see coming.
+	 */
+	stopServing(): Promise<void>;
 	close(): Promise<void>;
 };
 
@@ -90,34 +183,73 @@ export type EditorDeployment = {
  * @param prefix a leading path such as `/teaching/ballastella`, or `''` for a domain root
  */
 export async function deployEditor(prefix = ''): Promise<EditorDeployment> {
-	const requests: string[] = [];
-	const failures: { path: string; status: number }[] = [];
-	let nextVersion = false;
+	const [only] = await deployEditors(prefix);
+	return only as EditorDeployment;
+}
+
+/**
+ * Two or more deployments of the same build **on one origin**, which is a different question from
+ * two servers and the reason this exists.
+ *
+ * ADR-0006's subdirectory case is `user.github.io/` and `user.github.io/ballastella/`: one host, two
+ * published folders, and — the part nothing else in this harness can express — *one* cache storage,
+ * *one* set of registrations, and one OPFS between them. A second `deployEditor` call gets a second
+ * port and therefore a second origin, where every one of those is private again and the interesting
+ * failure cannot happen.
+ *
+ * Paths are routed by longest matching prefix, so a root deployment and a subdirectory one can
+ * coexist exactly as they do on a static host — noting that on that host a root deployment's service
+ * worker has a scope of `/` and therefore *controls* the subdirectory's pages too, until its own
+ * registration exists. Every returned deployment shares the server; the first `close` shuts it down
+ * and the rest are no-ops.
+ *
+ * @param prefixes a leading path such as `/teaching/ballastella`, or `''` for a domain root
+ */
+export async function deployEditors(...prefixes: string[]): Promise<EditorDeployment[]> {
+	/** Longest first, so `/teaching/ballastella/x` is that deployment's and not the root's. */
+	const byDepth = [...prefixes].sort((a, b) => b.length - a.length);
+	const state = new Map(
+		prefixes.map((prefix) => [
+			prefix,
+			{
+				requests: [] as string[],
+				failures: [] as { path: string; status: number }[],
+				nextVersion: false
+			}
+		])
+	);
 
 	const server: Server = createServer(async (request, response) => {
 		const asked = request.url ?? '/';
-		requests.push(asked);
+		const url = new URL(asked, 'http://127.0.0.1');
+		const prefix = byDepth.find((candidate) => url.pathname.startsWith(`${candidate}/`));
+		// A path outside every published folder is nobody's and everybody's: it is the ADR-0006
+		// failure, and whichever deployment a test is looking at has to be able to see it.
+		const heard = prefix === undefined ? [...state.values()] : [state.get(prefix)!];
+		for (const record of heard) record.requests.push(asked);
 
 		const answer = (
 			status: number,
 			body: Buffer | string,
 			headers: Record<string, string> = {}
 		) => {
-			if (status !== 200 && status !== 301 && status !== 206)
-				failures.push({ path: asked, status });
+			// 416 is a correct answer to an impossible range, not a failure — see the byte-serving
+			// block below.
+			if (status !== 200 && status !== 301 && status !== 206 && status !== 416)
+				for (const record of heard) record.failures.push({ path: asked, status });
 			response.writeHead(status, headers);
 			response.end(request.method === 'HEAD' ? undefined : body);
 		};
 
-		const url = new URL(asked, 'http://127.0.0.1');
-		if (!url.pathname.startsWith(`${prefix}/`)) {
+		if (prefix === undefined) {
 			// What a static host does with a path outside the published folder. An asset referenced
 			// absolutely lands here, which is the failure ADR-0006 exists to prevent.
-			answer(404, `${url.pathname} is outside ${prefix}/`, {
+			answer(404, `${url.pathname} is outside ${prefixes.map((p) => `${p}/`).join(', ')}`, {
 				'content-type': 'text/plain; charset=utf-8'
 			});
 			return;
 		}
+		const nextVersion = state.get(prefix)!.nextVersion;
 
 		let relative = decodeURIComponent(url.pathname.slice(prefix.length + 1));
 
@@ -160,46 +292,45 @@ export async function deployEditor(prefix = ''): Promise<EditorDeployment> {
 
 		const type = MEDIA_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
 
-		// Range requests, because the Base Map is one pmtiles archive read by range and `pmtiles`
-		// refuses a 200 whose content-length exceeds what it asked for. A host that cannot byte-serve
-		// is a Base Map that never draws, which would make every base-map assertion here vacuous.
-		const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? '');
-		if (range) {
-			const start = range[1] === '' ? body.length - Number(range[2]) : Number(range[1]);
-			const end = range[2] === '' || range[1] === '' ? body.length - 1 : Number(range[2]);
-			const slice = body.subarray(start, Math.min(end, body.length - 1) + 1);
-			answer(206, slice, {
-				'content-type': type,
-				'content-length': String(slice.length),
-				'content-range': `bytes ${start}-${start + slice.length - 1}/${body.length}`,
-				'accept-ranges': 'bytes'
-			});
-			return;
-		}
-
-		answer(200, body, {
-			'content-type': type,
-			'content-length': String(body.length),
-			'accept-ranges': 'bytes'
-		});
+		// Byte-serving, because the Base Map is one pmtiles archive read entirely by range. See
+		// {@link byteRange} for why this host's arithmetic is worth being exact about.
+		const served = byteRange(body, request.headers.range, type);
+		answer(served.status, served.body, served.headers);
 	});
 
 	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
 	const { port } = server.address() as AddressInfo;
 
-	return {
-		url: `http://127.0.0.1:${port}${prefix}/`,
-		prefix,
-		requests,
-		failures,
-		publishNewVersion: () => {
-			nextVersion = true;
-		},
-		close: () =>
-			new Promise<void>((resolve, reject) =>
-				server.close((error) => (error ? reject(error) : resolve()))
-			)
+	/**
+	 * Shut down once, however many deployments ask.
+	 *
+	 * Memoised rather than guarded by a flag, so that a test which stops the server mid-way and then
+	 * lets its teardown close it waits for the same shutdown instead of racing it. Live connections
+	 * are destroyed: the browser holds keep-alives open, and `close` alone would wait for them.
+	 */
+	let shutdown: Promise<void> | null = null;
+	const stop = () => {
+		shutdown ??= new Promise<void>((resolve, reject) => {
+			server.closeAllConnections();
+			server.close((error) => (error ? reject(error) : resolve()));
+		});
+		return shutdown;
 	};
+
+	return prefixes.map((prefix) => {
+		const record = state.get(prefix)!;
+		return {
+			url: `http://127.0.0.1:${port}${prefix}/`,
+			prefix,
+			requests: record.requests,
+			failures: record.failures,
+			publishNewVersion: () => {
+				record.nextVersion = true;
+			},
+			stopServing: stop,
+			close: stop
+		};
+	});
 }
 
 /**
@@ -212,9 +343,12 @@ export async function deployEditor(prefix = ''): Promise<EditorDeployment> {
  */
 function asNextVersion(relative: string, body: Buffer): Buffer {
 	if (relative === 'service-worker.js') {
-		// The cache names are `ballastella-shell-${version}` and `ballastella-base-map-${version}`;
-		// these make them `…-next-${version}`, so they are different caches as well as a different
-		// worker, and `activate` still recognises them as ours to clean up after.
+		// The cache names are `ballastella-shell-${version}@${base}/` and its base-map twin; these make
+		// them `ballastella-shell-next-${version}@${base}/`, so they are different caches as well as a
+		// different worker. **The prefix is what changes and the `@${base}/` suffix is what does not**,
+		// which is deliberate: `activate` recognises a cache as this deployment's to clean up after by
+		// that suffix, so a substitution that touched it would leave the old build's caches orphaned
+		// for ever and make "the new version took over" untestable.
 		return Buffer.from(
 			body
 				.toString('utf8')

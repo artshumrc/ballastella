@@ -10,6 +10,8 @@
 	// `<dialog>` + `showModal()` through `ModalDialog` is mandated (ADR-0016), which is what brings
 	// Escape, the focus trap, and focus restoration.
 
+	import { tick } from 'svelte';
+
 	import {
 		describeBytes,
 		publishedSiteStaleness,
@@ -101,6 +103,13 @@
 		publishing = true;
 		failure = '';
 		try {
+			// The address is settled **first**, because core refuses one it cannot make an image service
+			// out of and its refusal ends "Nothing has been changed." Publishing the whole site and then
+			// asking would make that sentence false, in front of a user who has just had a website
+			// written into their Workspace and been told otherwise — and `scholar.example`, with no
+			// scheme, is the ordinary way to arrive there. Refused here, nothing has been written.
+			const stamped =
+				canonicalUrl.trim() === '' ? { images: 0 } : await session.stampCanonicalUrl(canonicalUrl);
 			const site = await session.publish({
 				plan: agreed,
 				readAsset: readBundleAsset,
@@ -108,11 +117,14 @@
 					progress = { files: seen.files, totalFiles: seen.totalFiles };
 				}
 			});
-			const stamped =
-				canonicalUrl.trim() === '' ? { images: 0 } : await session.stampCanonicalUrl(canonicalUrl);
-			published = { site, files: agreed.files.length, stamped: stamped.images };
+			// Closed, and the close applied, *before* the result is set. The region that carries the
+			// result is outside the dialog, and a mutation made while `showModal()` still holds the rest
+			// of the document inert is one no screen reader is told about — so the `tick` is the
+			// announcement rather than a tidy-up.
 			staleness = '';
 			open = false;
+			await tick();
+			published = { site, files: agreed.files.length, stamped: stamped.images };
 		} catch (cause) {
 			failure = cause instanceof Error ? cause.message : String(cause);
 		} finally {
@@ -121,9 +133,22 @@
 		}
 	};
 
-	/** The announced line. Empty when nothing is happening, so the region says nothing. */
-	const status = $derived.by(() => {
-		if (progress) return `Publishing: ${progress.files} of ${progress.totalFiles} files.`;
+	/**
+	 * The line announced while the writing is happening, from **inside** the dialog.
+	 *
+	 * It has to be inside: `showModal()` makes the whole document outside the open `<dialog>` inert,
+	 * and an inert `aria-live` region is not a quiet one — it is not announced at all. So progress
+	 * lives in the modal, which is the only non-inert subtree while publishing runs, and the result
+	 * below lives outside it, which is where the dialog has gone by the time there is a result.
+	 * Nothing is said twice: this is empty except while `progress` is set, and that is exactly the
+	 * span during which the other one is empty.
+	 */
+	const progressLine = $derived(
+		progress ? `Publishing: ${progress.files} of ${progress.totalFiles} files.` : ''
+	);
+
+	/** What happened, announced once the dialog has closed and the region outside it is live again. */
+	const result = $derived.by(() => {
 		if (published) {
 			const projects = published.site.projects.length;
 			return (
@@ -140,6 +165,10 @@
 </script>
 
 <!--
+	The result, announced from outside the dialog — where the dialog no longer is by the time this has
+	anything to say, because `run` closes it before it sets `published`. Progress is announced from a
+	second region inside the modal; see `progressLine`.
+
 	Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its first
 	text is not reliably announced.
 
@@ -155,7 +184,7 @@
 	class="mt-2 text-sm opacity-80"
 	data-testid="publish-status"
 >
-	{status}
+	{result}
 </p>
 
 {#if staleness && !open}
@@ -238,9 +267,14 @@
 		{/each}
 	{/if}
 
-	{#if progress}
-		<p class="mt-4">Writing {progress.files} of {progress.totalFiles} files…</p>
-	{/if}
+	<!--
+		Progress, seen and announced by the same element, from inside the modal so that it is not in
+		the inert half of the document while it has something to say. Always rendered and empty when
+		idle, for the same reason the region outside is.
+	-->
+	<p aria-live="polite" aria-atomic="true" class="mt-4" data-testid="publish-progress">
+		{progressLine}
+	</p>
 
 	{#snippet actions()}
 		<button class="btn" onclick={() => (open = false)} disabled={publishing}>Cancel</button>

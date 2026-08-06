@@ -23,6 +23,7 @@
 import {
 	crossesHostingLimit,
 	describeBytes,
+	estimateMirrorBytes,
 	hostingLimitWarning,
 	planMirror,
 	readRemoteImageService,
@@ -167,11 +168,23 @@ export class MirrorMap {
 		this.#abort?.abort();
 	}
 
+	/**
+	 * What this copy will add to the Workspace, in bytes, or `0` when there is no plan yet.
+	 *
+	 * Worked out here rather than carried as a field on {@link MirrorPlan}: it is a pure function of the
+	 * plan's own `width` and `height`, and a stored copy of an arithmetic result is one more thing that
+	 * can disagree with the numbers it came from. The three things below — the sentence, the warning,
+	 * and whether there is one — then cannot be looking at different figures.
+	 */
+	get estimatedBytes(): number {
+		return this.plan ? estimateMirrorBytes(this.plan.width, this.plan.height) : 0;
+	}
+
 	/** What the copy will add, and what the Workspace holds, as a person reads it. */
 	get sizeSummary(): string {
 		if (!this.plan) return '';
 		const held = this.workspace;
-		const adding = describeBytes(this.plan.estimatedBytes);
+		const adding = describeBytes(this.estimatedBytes);
 		return held === null
 			? `This copy will add roughly ${adding}.`
 			: `This copy will add roughly ${adding} to the ${describeBytes(held.bytes)} in ` +
@@ -182,13 +195,13 @@ export class MirrorMap {
 	/** ADR-0008's warning, or `''` when this copy stays inside the budget. */
 	get hostingWarning(): string {
 		if (!this.plan || this.workspace === null) return '';
-		return hostingLimitWarning(this.workspace.bytes, this.plan.estimatedBytes);
+		return hostingLimitWarning(this.workspace.bytes, this.estimatedBytes);
 	}
 
 	/** Whether that warning applies, for the list's own summary. */
 	get crossesLimit(): boolean {
 		if (!this.plan || this.workspace === null) return false;
-		return crossesHostingLimit(this.workspace.bytes, this.plan.estimatedBytes);
+		return crossesHostingLimit(this.workspace.bytes, this.estimatedBytes);
 	}
 
 	/** What the running copy is doing, in a sentence, for the announced status region. */

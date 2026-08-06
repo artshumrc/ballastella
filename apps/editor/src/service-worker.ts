@@ -16,8 +16,10 @@
 // **Two caches, each with a rule that can be stated in one line**, so that what is in them is
 // reviewable rather than emergent:
 //
-//   `ballastella-shell-<version>`     the hashed build's code and styles, and the entry HTML
-//   `ballastella-base-map-<version>`  this deployment's own bundled Base Map files
+//   `ballastella-shell-<version>@<base>/`     the hashed build's code and styles, and the entry HTML
+//   `ballastella-base-map-<version>@<base>/`  this deployment's own bundled Base Map files
+//
+// The `@<base>/` is the deployment, and it is load-bearing rather than tidy — see `HERE` below.
 //
 // Everything else is refused, and the refusals are the point:
 //
@@ -99,6 +101,14 @@
 // new worker waits, the *old* one keeps serving out of the *old* cache, because the cache is named
 // for the build that filled it and `activate` is the only thing that ever deletes another.
 //
+// ⚠ **A new worker waits only where there is a client to protect.** A page loaded before this
+// browser had ever seen this worker is not controlled by it and is therefore not a client of the
+// registration, so a version published during that one page's life installs and activates
+// immediately — the browser has nobody to wait for, and no code here or in the page can make it
+// wait. `activate` then runs, and the caches this build filled go. `$lib/pwa/installed-app.svelte.ts`
+// says so when it happens rather than pretending it did not; see `#considerNewer` there for why
+// nothing better is available.
+//
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // IT WORKS AT A DOMAIN ROOT AND IN A SUBDIRECTORY (ADR-0006)
 //
@@ -109,24 +119,47 @@
 // deployment, so the scope the browser derives is the deployment's own directory and not the
 // origin. A hardcoded `/` here would work at `example.org/` and 404 at `example.org/ballastella/`,
 // which is the failure ADR-0006 exists to prevent and which the suite drives at both.
+//
+// **Cache storage is the one place a scope does not reach**, and it is why `HERE` exists: two
+// deployments of this app on one origin share `caches`, so the deployment has to be written into the
+// names by hand or each one's `activate` deletes the other's shell.
 
 import { base, build, files, prerendered, version } from '$service-worker';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 
 /**
- * One cache per build, per kind.
+ * Which deployment a cache belongs to, spelled into every cache name.
+ *
+ * **`caches.keys()` is origin-wide, and a deployment is not.** ADR-0006 exists because one build has
+ * to serve `user.github.io/` *and* `user.github.io/ballastella/`, and both of those are one origin
+ * with one cache storage between them. A name carrying only the build version makes each deployment
+ * read the other's caches as some foreign app's, so whichever one activates last deletes the other's
+ * shell and Base Map — and the offline promise this whole file is for is gone from a deployment
+ * nobody touched. `base` is this worker's own directory, computed at runtime, which is exactly the
+ * thing that differs between the two.
+ *
+ * The `@` is not decoration: it anchors the suffix, so that a deployment at `/a/` cannot match a
+ * deployment at `/x/a/` by ending in the same characters.
+ */
+const HERE = `@${base}/`;
+
+/**
+ * One cache per build, per kind, per deployment.
  *
  * Named for the build rather than reused, so that an old worker waiting on the user's decision is
  * still serving the bytes it was installed with. A single shared cache name would let a newly
  * *installed* worker overwrite what the still-*active* one is serving — silent activation through
  * the back door, without any worker ever cutting its wait short.
  */
-const SHELL_CACHE = `ballastella-shell-${version}`;
-const BASE_MAP_CACHE = `ballastella-base-map-${version}`;
+const SHELL_CACHE = `ballastella-shell-${version}${HERE}`;
+const BASE_MAP_CACHE = `ballastella-base-map-${version}${HERE}`;
 
-/** Every cache this app makes, so `activate` can tell its own from another app's. */
-const OURS = /^ballastella-(shell|base-map)-/;
+/**
+ * Every cache **this deployment** makes, so `activate` can tell the builds it replaces from another
+ * app's caches and from a sibling deployment's on the same origin. See {@link HERE}.
+ */
+const ours = (name: string) => /^ballastella-(shell|base-map)-/.test(name) && name.endsWith(HERE);
 
 /**
  * The app shell: the entry HTML for every route, and the code and styles that run it.
@@ -207,16 +240,16 @@ worker.addEventListener('install', (event) => {
 
 worker.addEventListener('activate', (event) => {
 	// The old build's caches go only once this worker is genuinely in charge, which is the moment the
-	// user's decision has been taken and nothing is left serving out of them.
+	// user's decision has been taken and nothing is left serving out of them. **The old builds of
+	// *this* deployment**, and no others: `caches.keys()` answers for the whole origin, which may be
+	// hosting a second deployment of this same app one directory along. See {@link HERE}.
 	const keep = new Set([SHELL_CACHE, BASE_MAP_CACHE]);
 	event.waitUntil(
 		caches
 			.keys()
 			.then((names) =>
 				Promise.all(
-					names
-						.filter((name) => OURS.test(name) && !keep.has(name))
-						.map((name) => caches.delete(name))
+					names.filter((name) => ours(name) && !keep.has(name)).map((name) => caches.delete(name))
 				)
 			)
 	);
@@ -296,6 +329,16 @@ async function fromCache(name: string, path: string, request: Request): Promise<
  * it asked for. So a naive precache of the archive does not merely fail to help; it *breaks the Base
  * Map while online too*, which is worse than not caching it at all. Anything that revisits the
  * caching judgement in the header has to keep this or drop both.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * THE HOST THIS IMITATES IS `byteRange` IN `e2e/support/editor-deployment.ts`
+ *
+ * That is the model and this is the copy. What the suite proves is that switching the network off
+ * changes nothing about the Base Map, and that is only true if the two answer a `Range` identically
+ * — a difference in the clamping or the `416` would be a worker imitating a host nothing serves.
+ * They cannot share a module: this file is a service worker built against `$service-worker` and that
+ * one is a Node test host, so the duplication is deliberate and each copy names the other. Change
+ * one, change both: the suffix form, the clamp at zero, and the `416` carrying the total.
  */
 async function slice(response: Response, range: string, path: string): Promise<Response> {
 	const bytes = await bodyOf(response, path);

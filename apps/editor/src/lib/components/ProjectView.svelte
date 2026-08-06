@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	import { resolve } from '$app/paths';
 	import { resolveBaseMap } from '@ballastella/core';
 
@@ -79,6 +81,34 @@
 	 * that the first one's `busy` guard cannot see.
 	 */
 	const mirror = new MirrorMapJob(() => session);
+
+	/** What finishing an interrupted copy did, or `''` when there is nothing to say. */
+	let finishReport = $state('');
+	let finishStatus = $state<HTMLElement | undefined>();
+
+	/**
+	 * Finish an offline copy whose tiles landed but whose files never caught up (ticket 15).
+	 *
+	 * Nothing is fetched: the pyramid is already in the folder, and what is missing is the Alignment
+	 * rewrite and the Layer's `imageMode`. See `EditorSession.finishInterruptedCopy`.
+	 *
+	 * **The button is destroyed by its own success**, which is the `LayerList` delete problem again — a
+	 * keyboard user is dropped to `document.body` and has to Tab back in past two MapLibre panes. So the
+	 * outcome is announced *and* focused, and focus is only taken when the thing that had it has gone.
+	 */
+	const finishCopy = async (imageId: string): Promise<void> => {
+		finishReport = '';
+		const label = origins.mirrored.find((image) => image.imageId === imageId)?.label || imageId;
+		const finished = await session.finishInterruptedCopy(imageId);
+		finishReport = finished
+			? `${label} is recorded as an offline copy. Nothing in this Project reads it from the ` +
+				`library any more.`
+			: session.saveError ||
+				`${label} could not be recorded as an offline copy, so this Project's files still say it ` +
+					`is read from the library.`;
+		await tick();
+		if (document.activeElement === document.body) finishStatus?.focus();
+	};
 
 	/**
 	 * The app's one online signal, so a referenced Historical Map can say why it is not there.
@@ -407,9 +437,46 @@
 						<code class="text-xs break-all opacity-70" data-testid="mirrored-image-source"
 							>{image.service}</code
 						>
+						<!--
+							A copy whose tiles landed and whose document writes did not (ticket 15). Said and
+							offered rather than left to be discovered: the pyramid is in the folder, so this list
+							is where the map now appears, but the Layer still says it is fetched from the library
+							— which is what a Published Site of it would do. `EditorSession` has already corrected
+							the Layer on screen; this is the button that corrects the files, and it fetches
+							nothing.
+						-->
+						{#if session.unfinishedCopies.includes(image.imageId)}
+							<span class="text-sm text-warning" data-testid="unfinished-copy"
+								>The tiles are here, but this Project's files still say it is read from the library.</span
+							>
+							<button
+								class="btn btn-sm"
+								type="button"
+								data-testid="finish-copy"
+								onclick={() => finishCopy(image.imageId)}
+							>
+								Finish the offline copy
+							</button>
+						{/if}
 					</li>
 				{/each}
 			</ul>
+
+			<!--
+				What finishing an interrupted copy did. Announced rather than only drawn (SPEC story 96), and
+				focusable so that the keyboard has somewhere to land when the button that was pressed
+				disappears with the problem it fixed.
+			-->
+			<p
+				bind:this={finishStatus}
+				tabindex="-1"
+				class="mt-2 min-h-6 text-sm"
+				aria-live="polite"
+				aria-atomic="true"
+				data-testid="finish-copy-report"
+			>
+				{finishReport}
+			</p>
 		</section>
 	{/if}
 

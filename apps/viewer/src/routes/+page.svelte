@@ -46,7 +46,6 @@
 		imageIdFromAlignmentRef,
 		imageInfoPath,
 		isAbsoluteUrl,
-		isDescriptionRendererSupported,
 		otherTheme,
 		parseProjectFile,
 		parsePublishedSite,
@@ -68,7 +67,6 @@
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
 	import { onMount, untrack } from 'svelte';
 
-	import { annotationHtml } from '$lib/annotation-text';
 	import BaseMapSwitcher from '$lib/BaseMapSwitcher.svelte';
 	import { readLayerDocuments, type ReadDocuments } from '$lib/project-documents';
 	import ReaderLayerControls from '$lib/ReaderLayerControls.svelte';
@@ -84,39 +82,14 @@
 	} from '$lib/unwarped-manifest';
 
 	/**
-	 * The site's own prose, authored as Markdown so that the emphasis and the link below are produced
-	 * by `marked` and then sanitised by DOMPurify — the same two stages, in the same order, that a
-	 * scholar's Annotation `description` goes through (ADR-0009). Keeping the shared path live in the
-	 * viewer's shipped bundle is what makes ticket 17's "the payload inert in the editor is inert here"
-	 * assertion mean anything: a reimplementation would have to remove working code.
-	 */
-	const about = {
-		description:
-			'These are the Projects published from one Ballastella Workspace. A Reader can *look* at ' +
-			'the work — the aligned Historical Maps and the Annotations written over them — and ' +
-			'**cannot change it**. Published with ' +
-			'[Ballastella](https://github.com/artshumrc/ballastella#readme).'
-	};
-
-	/**
-	 * Whether the page has hydrated, which gates the `{@html}` render for **two** reasons.
+	 * Whether the page has hydrated — the line between the file a static host serves and a browser
+	 * reading it.
 	 *
-	 * The first is a requirement: this app prerenders (ADR-0006) and DOMPurify needs a DOM, so the
-	 * renderer refuses in Node rather than degrading to returning its input — the safe direction,
-	 * since a fallback returning unsanitised HTML would write an XSS payload into a static file.
-	 *
-	 * The second is a Svelte hydration rule worth writing down because it was found the hard way.
-	 * **`{@html}` is not re-rendered during hydration**: Svelte adopts whatever nodes the server
-	 * produced and never compares them against the client's value. So a `{@html}` whose expression
-	 * was `''` on the server and complete HTML on the client renders *nothing at all*, permanently,
-	 * with no error and no hydration warning. Gating on a flag that is false during the client's
-	 * first render and true immediately after makes the value genuinely *change* after hydration,
-	 * which is what makes Svelte update it.
-	 *
-	 * That failure deserves a test rather than only a comment, because **a blank render surface
-	 * passes every "is the payload inert?" assertion.** So `e2e/viewer.e2e.ts` asserts the text **is**
-	 * present as well as that the markup is not — on every surface, including the Annotation popup,
-	 * which is the one a stranger's Project writes.
+	 * Everything gated on it needs something prerendering has not got. `page.url.searchParams` **throws**
+	 * during prerendering, because a prerendered page is one file serving every query string (see
+	 * {@link openDirectory}); there is no site record to read at build time, since publishing writes it
+	 * and the build does not; and a Base Map preference is one Reader's `localStorage` rather than a fact
+	 * about the file. So the prerendered HTML is the hub's own skeleton and nothing more.
 	 */
 	let hydrated = $state(false);
 	onMount(() => {
@@ -125,10 +98,6 @@
 		// flavor. Here rather than at module scope, because a module body runs during prerendering too.
 		startTheme();
 	});
-
-	const aboutHtml = $derived(
-		hydrated && isDescriptionRendererSupported() ? annotationHtml(about) : ''
-	);
 
 	/**
 	 * The Project asked for, or `null` for the hub.
@@ -448,10 +417,27 @@
 	 *
 	 * Read out of the site record, because including them is opt-in at publish time: they are about 4.9 MB
 	 * against the same hosting budget as the scholar's Historical Maps, and a scholar publishing to a
-	 * network-connected audience reasonably leaves them out. Defaults to attempting them when there is no
-	 * record to read, which is the pre-publish bundle where nothing else works either.
+	 * network-connected audience reasonably leaves them out.
+	 *
+	 * **Absent means absent, and the map waits rather than guessing** — see {@link siteRecordKnown}. This
+	 * used to default to `true` while the record was still being read, on the reasoning that no record at
+	 * all is the pre-publish bundle. But the record and the Project are read by two independent effects,
+	 * so on a real site `?p=` could open a Project before the record arrived, and the pane would build the
+	 * ordinary style and fire exactly the pmtiles and sprite requests at absent files that this whole path
+	 * exists to prevent. It was invisible because it lost the race: it took removing an unrelated
+	 * `{@html}` from this page, which had been slowing hydration just enough, for the requests to appear.
 	 */
-	const bundledBaseMapAvailable = $derived(site === null ? true : site.baseMapBundled);
+	const bundledBaseMapAvailable = $derived(site?.baseMapBundled ?? false);
+
+	/**
+	 * Whether the site record question has been settled — read, or failed to read.
+	 *
+	 * The map pane waits for this, because the style it builds on its first frame depends on the answer
+	 * and MapLibre requests a style's files as soon as it is given one. Waiting rather than restyling: a
+	 * corrected style still leaves the first style's 404s in the network log, which is the thing being
+	 * promised against.
+	 */
+	const siteRecordKnown = $derived(site !== null || siteError !== '');
 
 	/**
 	 * Why the modern reference map is missing, or `''`.
@@ -628,13 +614,22 @@
 		</div>
 
 		<!--
-			`{@html}`, and safe for one reason only: `aboutHtml` is DOMPurify's own output. There is no
-			path into this expression that has not been through the sanitiser, and there must never be one.
+			The site's own sentence about itself, as ordinary markup.
+
+			It was Markdown put through `renderAnnotationPopup` and `{@html}`-ed, which made this page's
+			marketing copy into a pseudo-Annotation: an Annotation is a scholar's content (CONTEXT.md), and
+			the shared renderer's job is a stranger's untrusted text rather than a string in this file. The
+			shared path is live in this bundle where it belongs — `ReaderMapPane` builds every Annotation
+			popup through `showAnnotationPopup`, which is `renderAnnotationPopup` and this repository's one
+			`setHTML` — and `e2e/viewer-reader.e2e.ts` asserts a payload is inert there, on the surface a
+			stranger's Project actually writes. There is now no `{@html}` anywhere in this app.
 		-->
-		<div class="mt-4 prose" data-testid="viewer-annotation-text">
-			<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-			{@html aboutHtml}
-		</div>
+		<p class="mt-4 max-w-prose">
+			These are the Projects published from one Ballastella Workspace. A Reader can look at the work
+			— the aligned Historical Maps and the Annotations written over them — and cannot change it.
+			Published with
+			<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
+		</p>
 
 		{#if siteError}
 			<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
@@ -796,7 +791,7 @@
 						<div
 							class="h-[60vh] overflow-hidden rounded border border-base-300 sm:h-[32rem] lg:h-[36rem]"
 						>
-							{#if fetchTile}
+							{#if fetchTile && siteRecordKnown}
 								<ReaderMapPane
 									entryId={baseMap.entry.id}
 									{catalog}

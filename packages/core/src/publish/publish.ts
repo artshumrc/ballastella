@@ -39,7 +39,9 @@ import type { ProjectSummary } from '../project/workspace.js';
 import { assertStorePath, type Bytes, type ProjectStore } from '../store/project-store.js';
 import { serialiseJson } from '../tiler/pyramid.js';
 import {
+	PUBLISHED_APP_DIRECTORY,
 	PUBLISHED_SITE_RECORD_NAME,
+	VIEWER_FILE_PATHS,
 	claimedByPublishing,
 	isViewerFile
 } from '../transfer/viewer-files.js';
@@ -390,10 +392,15 @@ export type PublishSiteOptions = {
 /**
  * Write the Published Site into the Workspace.
  *
- * **Additive, and that is a property of this function rather than an intention.** It writes only
- * the paths the plan names, every one of which is a name `PUBLISHED_SITE_PATHS` records, and it
- * reads nothing from the Workspace — so no Project file can be rewritten, re-serialised, or
- * touched by publishing, whatever else changes here later.
+ * **Additive towards the user's data, and that is a property of this function rather than an
+ * intention.** It writes only the paths the plan names, every one of which is a name
+ * `VIEWER_FILE_PATHS` records — checked below rather than assumed — and it reads nothing from the
+ * Workspace, so no Project file can be rewritten, re-serialised, or touched by publishing, whatever
+ * else changes here later.
+ *
+ * The one thing it removes is what the *last* publish wrote and this one does not: see
+ * {@link removeSupersededFiles}, which is confined to the same recorded list and runs only once
+ * everything this publish writes is on disk.
  *
  * The site record is written **last**, for the same reason `project.json` is written last
  * everywhere else in this codebase: it is what a Reader's first request resolves through, and a
@@ -450,7 +457,48 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 	await store.write(PUBLISHED_SITE_RECORD_NAME, serialisePublishedSite(site));
 	written += 1;
 	report(PUBLISHED_SITE_RECORD_NAME);
+
+	// After the record, deliberately. Everything this publish writes is already on disk by here, so
+	// an interruption during the sweep leaves a complete site with some superseded files still beside
+	// it — the same "a site that works" outcome the write order above is arranged for.
+	await removeSupersededFiles(store, new Set(plan.files.map((file) => file.path)));
 	return site;
+}
+
+/**
+ * Remove the files a previous publish wrote that this one does not.
+ *
+ * The case this exists for is the Base Map. Publish with it, then publish without it, and ~5 MB of
+ * `base-map/` stays in the Workspace while the record written beside it says `baseMapBundled: false`
+ * — the folder and the site's own account of itself disagreeing about what the site is. A Reader is
+ * unaffected, because nothing points at those files; the user is not, because the folder **is** the
+ * product (ADR-0006) and they are about to push it.
+ *
+ * **Only paths `VIEWER_FILE_PATHS` records are so much as listed.** That is the whole of the safety
+ * argument: the sweep cannot reach a Project directory because it never asks about one, and a
+ * Project whose folder is one of those names was refused above rather than published over.
+ *
+ * `_app/` is left alone on purpose. Its names are content hashes, so an edited viewer writes new
+ * ones beside the old, and ADR-0006 records that accumulation as an accepted cost of publishing into
+ * the working folder. Sweeping it would be a change to that decision rather than a repair of this
+ * one.
+ */
+async function removeSupersededFiles(
+	store: ProjectStore,
+	planned: ReadonlySet<string>
+): Promise<void> {
+	for (const recorded of VIEWER_FILE_PATHS) {
+		if (recorded === PUBLISHED_APP_DIRECTORY) continue;
+		if (recorded.endsWith('/')) {
+			for (const path of await store.list(recorded)) {
+				if (!planned.has(path)) await store.delete(path);
+			}
+		} else if (!planned.has(recorded)) {
+			// `delete` is idempotent, so a recorded name this Workspace never held costs one no-op
+			// rather than a `list` of the whole Workspace to find out.
+			await store.delete(recorded);
+		}
+	}
 }
 
 const siteRecord = (fields: {

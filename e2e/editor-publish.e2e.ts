@@ -318,9 +318,10 @@ test.describe('publishing a Workspace', () => {
 
 		const taken = await takeWorkspace(page);
 		const offenders: string[] = [];
+		const inspected: string[] = [];
 		for (const [relative, base64] of Object.entries(taken)) {
 			if (!/\.(html|css|js|json)$/.test(relative)) continue;
-			if (relative.includes('/')) continue;
+			inspected.push(relative);
 			const text = Buffer.from(base64, 'base64').toString('utf8');
 			for (const match of text.matchAll(/(?:src|href)="\/[^"]*"/g)) {
 				offenders.push(`${relative}: ${match[0]}`);
@@ -328,7 +329,13 @@ test.describe('publishing a Workspace', () => {
 		}
 
 		expect(offenders).toEqual([]);
-		expect(Object.keys(taken)).toContain('index.html');
+		// The whole tree, not the three files that happen to sit at the root. An earlier version of
+		// this skipped everything with a `/` in its path, which is `_app/immutable/**` — the entire
+		// viewer — and all of `base-map/`: the criterion's own verification command is
+		// `grep -rEo '(src|href)="/[^"]*"'` over the published Workspace, and `-r` is the point.
+		expect(inspected).toContain('index.html');
+		expect(inspected.filter((relative) => relative.startsWith('_app/')).length).toBeGreaterThan(5);
+		expect(inspected.some((relative) => relative.startsWith('base-map/'))).toBe(true);
 	});
 
 	test('adds the site to the Workspace and copies no Project data', async ({ page }) => {
@@ -382,6 +389,115 @@ test.describe('publishing a Workspace', () => {
 		);
 		expect(withBaseMap.length).toBeGreaterThan(1);
 		expect(withBaseMap.some((path) => path.endsWith('.pmtiles'))).toBe(true);
+	});
+
+	test('removes a Base Map it published before, when the next publish leaves it out', async ({
+		page
+	}) => {
+		// The order the folder gets wrong. Publishing only ever wrote, so ~5 MB of `base-map/` stayed in
+		// the Workspace while the record written beside it said the site carried no Base Map at all —
+		// the folder and the site's own account of itself disagreeing, in a folder the user is about to
+		// push. The other order is covered above; this is the one that leaves litter.
+		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
+		await publish(page, { baseMap: true });
+
+		const bundled = await takeWorkspace(page);
+		expect(
+			Object.keys(bundled).filter((path) => path.startsWith('base-map/')).length
+		).toBeGreaterThan(1);
+
+		await publish(page);
+
+		const after = await takeWorkspace(page);
+		expect(Object.keys(after).filter((path) => path.startsWith('base-map/'))).toEqual([]);
+		expect(await siteRecord(page)).toMatchObject({ baseMapBundled: false });
+		// The site is still whole: the sweep only ever reaches the paths publishing records.
+		expect(Object.keys(after)).toContain('index.html');
+		// And it never reaches a Project. Every Project file is byte-identical across the republish.
+		const hashes = (files: Record<string, string>) =>
+			Object.fromEntries(
+				Object.entries(files)
+					.filter(([relative]) => relative.startsWith('amsterdam-1625/'))
+					.map(([relative, base64]) => [relative, sha256(base64)])
+			);
+		expect(hashes(after)).toEqual(hashes(bundled));
+	});
+
+	test('refuses a mistyped address before it writes a thing, which is what its refusal claims', async ({
+		page
+	}) => {
+		// `scholar.example` — no scheme — is how a user ordinarily arrives here, the placeholder being
+		// the only hint. Core's refusal ends "Nothing has been changed.", so the address has to be
+		// settled *before* the site is written rather than after: the failure this guards is the whole
+		// Workspace gaining a website and the user being told, in the same breath, that it did not.
+		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
+		const before = await takeWorkspace(page);
+
+		const dialog = await openPublishDialog(page);
+		await dialog.getByRole('checkbox').uncheck();
+		await dialog.getByLabel(/Address your Historical Maps/).fill('scholar.example');
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+
+		const refusal = dialog.getByRole('alert');
+		await expect(refusal).toContainText('scholar.example');
+		await expect(refusal).toContainText('https://');
+		await expect(refusal).toContainText('Nothing has been changed.');
+
+		// The sentence, checked against the folder rather than taken on trust.
+		expect(await takeWorkspace(page)).toEqual(before);
+		// And nothing was announced as published, because nothing was.
+		await expect(page.getByTestId('publish-status')).toHaveText('');
+	});
+
+	test('announces progress from inside the modal, where the document is not inert', async ({
+		page
+	}) => {
+		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
+		const dialog = await openPublishDialog(page);
+		await dialog.getByRole('checkbox').uncheck();
+
+		// `showModal()` makes every node outside the open `<dialog>` inert, and an inert live region is
+		// not a quiet one — it is never announced. So *where* the region sits is the accessibility
+		// claim, and its attributes are not: a correct `aria-live="polite"` outside the modal announces
+		// nothing while the modal is open. Asked here the way the browser decides it.
+		expect(
+			await page.evaluate(() => {
+				const modal = document.querySelector('dialog[open]');
+				const region = (testid: string) => {
+					const element = document.querySelector(`[data-testid="${testid}"]`);
+					if (element === null || modal === null) return 'missing';
+					return {
+						insideTheModal: modal.contains(element),
+						live: element.getAttribute('aria-live'),
+						atomic: element.getAttribute('aria-atomic')
+					};
+				};
+				return { progress: region('publish-progress'), result: region('publish-status') };
+			})
+		).toEqual({
+			progress: { insideTheModal: true, live: 'polite', atomic: 'true' },
+			// The result is outside on purpose: by the time it has anything to say the dialog has closed,
+			// and it stays on screen afterwards. The two never speak at once.
+			result: { insideTheModal: false, live: 'polite', atomic: 'true' }
+		});
+
+		// Slow the viewer's own files down, so the progress line is on screen long enough to assert
+		// rather than long enough to be lucky. Publishing fetches each one from the editor's deployment.
+		await page.route('**/viewer-bundle/**', async (route) => {
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			await route.continue();
+		});
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(dialog.getByTestId('publish-progress')).toContainText(
+			/Publishing: \d+ of \d+ files\./
+		);
+
+		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+			timeout: 60_000
+		});
+		// One region speaks at a time: the progress line is emptied rather than left holding a sentence
+		// a screen reader would read out again on the next publish.
+		await expect(page.getByTestId('publish-progress')).toHaveText('');
 	});
 
 	test('warns that a referenced Historical Map leaves a Reader with no network seeing nothing', async ({

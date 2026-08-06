@@ -60,38 +60,38 @@ describe('workspaceSize', () => {
 		expect(read).not.toHaveBeenCalled();
 	});
 
-	it('does not under-report because of an abandoned write it cannot see', async () => {
-		// Ticket 12's review found that a file matching the reserved suffix is excluded from `list`,
-		// with or without a further extension — so a total built from `list` alone silently omits the
-		// litter a crashed tab left behind, and the number a user is shown before a copy that may cross
-		// the ~1 GB cliff would be smaller than what is on disk. Reclaimed first, so the total is exact
-		// rather than a floor.
+	it('deletes nothing, not even the litter it cannot count', async () => {
+		// This used to sweep abandoned writes before totalling, so that the number was exact rather than
+		// a floor. It is a **measurement**, reached from a button a user presses while an autosave or an
+		// ingest may be part way through its own two-step write — and the sweep deletes every temporary
+		// path unconditionally, so one firing at the wrong moment took another write's temporary file
+		// with it and failed a save. The litter is swept at Workspace adoption instead, where nothing
+		// else is writing.
 		const store = await filled({ 'p/project.json': 100 });
 		store.plant(`p/images/a/tile.jpg${TEMP_PATH_SUFFIX}`, new Uint8Array(5000));
 		store.plant(`p/images/a/tile.jpg${TEMP_PATH_SUFFIX}.crswap`, new Uint8Array(6000));
 
+		// A floor: `list` hides both, so neither is in the total.
 		expect(await workspaceSize(store)).toEqual({ bytes: 100, files: 1 });
-		// And they are gone, rather than sitting on disk outside the total.
-		expect([...store.snapshot().keys()]).toEqual(['p/project.json']);
+		// And both are still on the disk, because a half-written file may be one somebody is writing now.
+		expect([...store.snapshot().keys()].sort()).toEqual([
+			`p/images/a/tile.jpg${TEMP_PATH_SUFFIX}`,
+			`p/images/a/tile.jpg${TEMP_PATH_SUFFIX}.crswap`,
+			'p/project.json'
+		]);
 	});
 
-	it('reclaims only under the prefix it was asked about', async () => {
-		const store = await filled({ 'a/project.json': 10, 'b/project.json': 10 });
-		store.plant(`b/tile.jpg${TEMP_PATH_SUFFIX}`, new Uint8Array(7));
-
-		await workspaceSize(store, 'a/');
-
-		expect(store.snapshot().has(`b/tile.jpg${TEMP_PATH_SUFFIX}`)).toBe(true);
-	});
-
-	it('survives a Workspace whose litter cannot be swept', async () => {
-		// A backend that refuses the sweep is not a reason to refuse the number. The total then has
-		// the `list` caveat, which is the state the sweep exists to remove — but a user who cannot be
-		// told how large their Workspace is cannot be warned about the cliff at all.
+	it('does not disturb a write that is in flight while it counts', async () => {
+		// The failure the sweep could cause, from the outside: a write interrupted between its two steps
+		// has a temporary file on the disk under the same prefix, and the total must still be a total
+		// when that write resumes.
 		const store = await filled({ 'p/project.json': 100 });
-		vi.spyOn(store, 'reclaimAbandonedWrites').mockRejectedValue(new Error('read-only'));
+		const temp = `p/.project.json.abc${TEMP_PATH_SUFFIX}`;
+		store.plant(temp, new Uint8Array(4000));
 
-		expect(await workspaceSize(store)).toEqual({ bytes: 100, files: 1 });
+		await workspaceSize(store);
+
+		expect(store.snapshot().has(temp)).toBe(true);
 	});
 });
 

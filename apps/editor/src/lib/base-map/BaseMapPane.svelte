@@ -139,6 +139,9 @@
 		 * The pointer and keyboard routes to the same act, on the pane rather than only on the Finish
 		 * button, because a user drawing a nine-vertex shape is looking at the map and not at the
 		 * toolbar.
+		 *
+		 * A double-click reaches this **only while a shape is part-drawn**, because suppressing
+		 * MapLibre's own double-click zoom is the price of it — see {@link drawingInProgress}.
 		 */
 		onfinishshape?: () => void;
 		/** The reader dismissed the popup with its own close button or with Escape. */
@@ -165,28 +168,6 @@
 	let container: HTMLDivElement;
 	let map = $state<MapLibreMap | undefined>(undefined);
 	let overlayLayer = $state.raw<OverlayPointLayer<GeoPoint> | undefined>(undefined);
-
-	/**
-	 * Whether this pane's map has been taken down, so that nothing asks a removed map anything.
-	 *
-	 * **A removed map answers nothing, and asking it throws.** `Map#remove` calls `setStyle(null)`,
-	 * which deletes the map's `style`; every method that reads it — `getLayer` included, which is the
-	 * guard the teardowns below use before taking a layer off — then fails with
-	 * `TypeError: Cannot read properties of undefined (reading 'getLayer')`.
-	 *
-	 * That mattered far beyond a noisy console. Svelte destroys a component's effects **in the order
-	 * they were created**, and `onMount` is registered above every effect in this file, so its teardown
-	 * removed the map before the effects that had put layers on it let go. An exception thrown while
-	 * Svelte is destroying one page abandons the rest of that synchronous flush — including the *mount*
-	 * of the page being navigated to. So clicking through from the Project page to the Layers pane, once
-	 * the Project page had a local Historical Map and therefore a warped layer to take off, produced a
-	 * Layers pane containing no MapLibre map at all: no Base Map, no Layer stack, and nothing logged
-	 * beyond one `TypeError` from a page the user had already left.
-	 *
-	 * A plain `let` rather than `$state`, deliberately: it is read only inside teardowns, and nothing may
-	 * re-run because a map was removed.
-	 */
-	let removed = false;
 
 	/**
 	 * What the map is currently painted with. A plain `let`, deliberately: in runes mode it is not
@@ -235,6 +216,18 @@
 		return null;
 	};
 
+	/**
+	 * Whether a line or a shape is part-drawn on this pane at this moment.
+	 *
+	 * Read off {@link overlayPoints}, which already carries one `annotation-draft` handle per vertex
+	 * placed so far — a vertex of a shape still being placed, and drawn nowhere else. So the pane can
+	 * tell a gesture in progress from a resting one without holding a copy of the toolbar's state,
+	 * which is the same line {@link onclickannotation} draws: the page knows which tool is in hand, and
+	 * a second copy here is a second thing that can be wrong.
+	 */
+	const drawingInProgress = (): boolean =>
+		overlayPoints.some((point) => point.kind === 'annotation-draft');
+
 	onMount(() => {
 		registerPmtilesProtocol();
 
@@ -264,8 +257,15 @@
 
 		// Double-click ends a line or a shape. MapLibre's own default for `dblclick` is to zoom in, which
 		// would otherwise fire in the same gesture and leave the user somewhere else on the earth.
+		//
+		// **Only while something is actually part-drawn**, which is the whole of the guard: the Layers
+		// pane always supplies `onfinishshape`, so preventing the default whenever it exists killed
+		// double-click zoom on that pane outright — with the select tool in hand, with no Annotation
+		// Layer, and on a pane the user was only reading. A gesture in progress is asked of
+		// {@link drawingInProgress} rather than held here, so the pane keeps no copy of the toolbar's
+		// state.
 		created.on('dblclick', (event) => {
-			if (onfinishshape === undefined) return;
+			if (onfinishshape === undefined || !drawingInProgress()) return;
 			event.preventDefault();
 			onfinishshape();
 		});
@@ -297,13 +297,8 @@
 		map = created;
 		const unexpose = exposeBaseMapToBrowserTests(created);
 
-		return () => {
-			unexpose();
-			// Said *before* the map goes, because everything that reads it runs afterwards.
-			removed = true;
-			created.remove();
-			map = undefined;
-		};
+		// The map itself is taken down by the last effect in this file, not here — see the note there.
+		return unexpose;
 	});
 
 	$effect(() => {
@@ -421,9 +416,8 @@
 			drawnAlignment = null;
 			// `setStyle` on a theme change removes our layer along with everything else, so removing
 			// one that has already gone has to be survivable rather than an exception in a teardown.
-			// And a map that has itself been removed took the layer with it *and* cannot be asked —
-			// `getLayer` on one throws, which is what {@link removed} exists for.
-			if (!removed && added && current.getLayer(layer.id)) current.removeLayer(layer.id);
+			// The map is still there to be asked: its own removal is the last teardown in this file.
+			if (added && current.getLayer(layer.id)) current.removeLayer(layer.id);
 			onwarped?.(null);
 		};
 	});
@@ -569,9 +563,10 @@
 
 		return () => {
 			stopWaiting();
-			// `mapIsGone` for the same reason the warped layer's teardown checks it: a removed map has no
-			// style to answer `getLayer`, and the throw would abandon the rest of Svelte's destroy.
-			built?.destroy({ mapIsGone: removed });
+			// No `mapIsGone`: the map is still alive here, because taking it down is the last teardown in
+			// this file. That is what lets `destroy` ask `getLayer` and take our layers off properly
+			// rather than trusting `Map#remove` to have carried them away.
+			built?.destroy();
 			stack = undefined;
 			onstack?.({});
 		};
@@ -630,6 +625,37 @@
 		if (!shown || !forAlignment) return;
 		void currentTheme;
 		updateAlignment(shown.layer, shown.mapId, forAlignment, view);
+	});
+
+	/**
+	 * Take the map down — and **last, which is the whole reason this is an effect and is here**.
+	 *
+	 * `Map#remove` calls `setStyle(null)`, which deletes the map's `style`; every method that reads it
+	 * then throws, `getLayer` included — and `getLayer` is what each teardown above asks before taking
+	 * its layer off. So the order in which teardowns run is load-bearing, and Svelte fixes it: a
+	 * component's effects are destroyed **in the order they were created**. This effect is created after
+	 * every other one in this file, so its cleanup runs after every other one, and each of those runs
+	 * against a live map.
+	 *
+	 * It used to be `onMount`'s cleanup, which is registered *above* every effect here and therefore ran
+	 * *first*. The cost was far beyond a noisy console: an exception thrown while Svelte is destroying
+	 * one page abandons the rest of that synchronous flush — including the *mount* of the page being
+	 * navigated to. Clicking through from the Project page to the Layers pane, once the Project page had
+	 * a local Historical Map and therefore a warped layer to take off, produced a Layers pane containing
+	 * no MapLibre map at all: no Base Map, no Layer stack, and nothing logged beyond one `TypeError` from
+	 * a page the user had already left. A flag saying "the map has gone, do not ask it" fixed the two
+	 * teardowns that existed and left every future one to remember it; putting the removal last means
+	 * there is nothing to remember. `e2e/editor-layers.e2e.ts` asserts the `pageerror` itself, in both
+	 * directions of that navigation, because the exception is the mechanism and the blank pane is only
+	 * its most visible symptom.
+	 *
+	 * Nothing sets `map` back to `undefined`: the component is on its way out, and a write to state
+	 * during a destroy flush is a re-render nobody asked for.
+	 */
+	$effect(() => {
+		const created = map;
+		if (!created) return;
+		return () => created.remove();
 	});
 </script>
 

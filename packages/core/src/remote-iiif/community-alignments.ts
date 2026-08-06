@@ -40,6 +40,7 @@ import type { Image } from '@allmaps/iiif-parser';
 
 import type { Alignment } from '../alignment/alignment.js';
 import { parseAlignment } from '../alignment/georeference-annotation.js';
+import { canonicalServiceUri } from './service-uri.js';
 
 /** The third party this asks. Named as a constant so a test can watch for exactly this host. */
 export const COMMUNITY_ALIGNMENT_HOST = 'annotations.allmaps.org';
@@ -173,7 +174,10 @@ async function maps(document: unknown): Promise<{ imageId: string; bytes: Uint8A
 			// A cyclic or otherwise unserialisable item. Skipped, not fatal.
 			continue;
 		}
-		out.push({ imageId: await generateId(resourceId.replace(/\/$/, '')), bytes });
+		// The same spelling `image-service.ts` minted this Project's id from. `generateId` hashes the
+		// string it is given, so an annotation naming `…/sheet/info.json` where the service was accepted
+		// as `…/sheet` would hash to a different image and the match below would silently find nothing.
+		out.push({ imageId: await generateId(canonicalServiceUri(resourceId)), bytes });
 	}
 
 	return out;

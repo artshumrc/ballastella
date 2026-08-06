@@ -118,7 +118,13 @@
 								aria-label="Show {name(layer)}"
 								onchange={(event) => show(layer, event.currentTarget.checked)}
 							/>
-							<span class="font-medium">{layer.name}</span>
+							<!--
+								`name(layer)`, the same helper the `aria-label` above and the announcement use. An
+								untitled Layer must read as "Untitled Layer" on the page as well as to a screen
+								reader; interpolating `layer.name` left a sighted Reader a bare toggle with nothing
+								beside it, on the one row where the announcement said a name aloud.
+							-->
+							<span class="font-medium">{name(layer)}</span>
 						</label>
 					</div>
 

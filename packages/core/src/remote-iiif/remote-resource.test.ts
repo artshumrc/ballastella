@@ -346,6 +346,21 @@ describe('the parser boundary', () => {
 		).toBe('https://images.example.test/iiif/3/sheet-1');
 	});
 
+	it.each([
+		'https://images.example.test/iiif/3/sheet-1',
+		'https://images.example.test/iiif/3/sheet-1/',
+		'https://images.example.test/iiif/3/sheet-1/info.json',
+		'  https://images.example.test/iiif/3/sheet-1#canvas  '
+	])('spells one service one way, however it was written: %s', (written) => {
+		// The URI crossing the boundary is hashed into the Historical Map's identity and into the key
+		// the Allmaps lookup is made on, so two spellings of one service are two Layers that cannot be
+		// told apart and an existing Alignment silently not found. One canonicaliser answers for the
+		// paste, the boundary, `remote.json`, and an annotation's own target.
+		expect(imageServiceUriCrossingBoundary(written)).toBe(
+			'https://images.example.test/iiif/3/sheet-1'
+		);
+	});
+
 	it('refuses a parsed object, which is the mistake that would otherwise compile', async () => {
 		// ADR-0018's rule is that only a string crosses. A parsed canvas has an `imageService`
 		// property on *both* parsers' objects, so handing one over type-checks and works — until the

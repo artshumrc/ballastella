@@ -117,6 +117,12 @@ export type MirrorPiecePayload = MirrorPiece & { readonly bytes: Blob };
  *
  * Everything the dialog shows comes from here rather than being recomputed in the UI, so what the
  * user agreed to and what runs cannot differ: {@link mirrorRemoteImage} takes the same plan back.
+ *
+ * **Decisions, not restatements.** Every field below is something `planMirror` worked out and nothing
+ * else can; a number that is a pure function of two other fields is not carried, because a stored copy
+ * of an arithmetic result is a thing that can disagree with the fields it was computed from. So the
+ * estimated size is {@link estimateMirrorBytes} of `width` and `height` at the one place that shows it,
+ * and "is this more than one request" is `requests.length > 1` at the one place that asks.
  */
 export type MirrorPlan = {
 	readonly path: MirrorPath;
@@ -124,12 +130,17 @@ export type MirrorPlan = {
 	readonly height: number;
 	/** The host this will ask, for the warning that has to name it. */
 	readonly host: string;
-	/** Every URL this will fetch, in order. One for `'full-max'`. */
+	/**
+	 * Every URL this will fetch, in order. One for `'full-max'`.
+	 *
+	 * Carried rather than derived from {@link pieces}, which only looks redundant: the `'full-max'`
+	 * path has no pieces at all, and its one URL is the version-dependent spelling
+	 * {@link wholeImageUrl} works out. This is the list, and `pieces` is the subset of it that has a
+	 * region to stitch into.
+	 */
 	readonly requests: readonly string[];
 	/** The pieces the `assembled` path stitches. `[]` for `'full-max'`. */
 	readonly pieces: readonly MirrorPiece[];
-	/** Whether the host is asked for more than one request — ADR-0007's politeness warning. */
-	readonly manyRequests: boolean;
 	/**
 	 * Which of the service's own declared limits rules out one whole-image request, or `''`.
 	 *
@@ -137,7 +148,6 @@ export type MirrorPlan = {
 	 * a copy took five hundred requests needs the field name and the number.
 	 */
 	readonly cappedBy: string;
-	readonly estimatedBytes: number;
 	/** Whether tiling this routes to the streaming tiler (ADR-0003). */
 	readonly needsStreamingTiler: boolean;
 	/** Everything the user must be told before the copy starts, in the order to say it. */
@@ -243,9 +253,7 @@ export function planMirror(
 		host,
 		requests,
 		pieces,
-		manyRequests: requests.length > 1,
 		cappedBy,
-		estimatedBytes: estimateMirrorBytes(width, height),
 		needsStreamingTiler,
 		notes,
 		refusal

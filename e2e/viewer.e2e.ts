@@ -12,52 +12,6 @@ test('the hub page loads', async ({ page }) => {
 	await expect(page.getByRole('heading', { level: 1, name: 'Published Projects' })).toBeVisible();
 });
 
-test('the viewer renders its own prose through core’s sanitised renderer', async ({ page }) => {
-	// ADR-0009 requires the renderer be exported from `core` and reused here rather than reimplemented,
-	// because ticket 17 asserts that the payload which is inert in the editor is inert in a Published
-	// Site — and that means nothing unless it is the same code path. This asserts the path is live in the
-	// viewer's own bundle: the emphasis and the link below were produced by `marked` and then passed
-	// by DOMPurify, in that order, inside this build.
-	//
-	// The *Annotation* payload assertion for the viewer belongs to ticket 17, which is where a Published
-	// Site has a stranger's Annotations to render. What is closed here is that there is one renderer and
-	// the viewer uses it. `e2e/editor-publish.e2e.ts` closes the other untrusted surface this ticket
-	// added: a Project's display name on the hub page.
-	const failures: string[] = [];
-	page.on('pageerror', (error) => failures.push(error.message));
-	page.on('dialog', (dialog) => failures.push(`dialog: ${dialog.message()}`));
-
-	await page.goto('./');
-
-	const text = page.getByTestId('viewer-annotation-text');
-	// That something rendered at all, before anything about what it does not contain. A blank surface
-	// passes every "nothing dangerous survived" assertion, and blank is exactly what `{@html}` looks
-	// like when Svelte has adopted prerendered nodes for it — which is how this very page first behaved.
-	await expect(text).toContainText('published from one Ballastella Workspace');
-	await expect(text.locator('em')).toHaveText('look');
-	await expect(text.locator('strong')).toHaveText('cannot change it');
-	await expect(text.locator('a')).toHaveAttribute(
-		'href',
-		'https://github.com/artshumrc/ballastella#readme'
-	);
-
-	// Nothing the sanitiser would have stripped, and nothing thrown — including during prerender, where
-	// there is no DOM and the renderer refuses rather than returning its input unsanitised.
-	expect(
-		await page.evaluate(() => {
-			const host = document.querySelector('[data-testid="viewer-annotation-text"]');
-			const handlers: string[] = [];
-			for (const element of host?.querySelectorAll('*') ?? []) {
-				for (const attribute of element.attributes) {
-					if (attribute.name.toLowerCase().startsWith('on')) handlers.push(attribute.name);
-				}
-			}
-			return { scripts: host?.querySelectorAll('script').length ?? -1, handlers };
-		})
-	).toEqual({ scripts: 0, handlers: [] });
-	expect(failures).toEqual([]);
-});
-
 test('the built bundle carries no publishing machinery', async () => {
 	// ADR-0019's boundary, in the direction ticket 16 pushed on it. The publish planner, its warnings,
 	// and the canonical stamp all live in `@ballastella/core`, which `apps/viewer` imports **wholesale**

@@ -20,11 +20,11 @@
 		baseMapFallbackNotice,
 		findAnnotation,
 		imageIdFromAlignmentRef,
+		insertAnnotationAt,
 		newAnnotation,
 		otherTheme,
 		removeAnnotation,
 		resolveBaseMap,
-		restoreAnnotation,
 		setGeometry,
 		setLineStyle,
 		setStyle,
@@ -272,6 +272,16 @@
 	const drawing = new AnnotationDrawing();
 
 	/**
+	 * Why an undo did not happen, or `''`.
+	 *
+	 * The affordance disappears when it is pressed, so an undo that quietly declined to do anything
+	 * would look exactly like an undo that worked — and the one thing this feature has to convey is
+	 * whether the user's work is back. `UndoControl` announces the success; a refusal has to be said
+	 * from here, because it is this page that knows which Layer the record named.
+	 */
+	let undoRefusal = $state('');
+
+	/**
 	 * Where the open popup is anchored, or `null` for none.
 	 *
 	 * The *place* rather than the popup, because MapLibre's `Popup` belongs inside the pane that owns
@@ -285,10 +295,27 @@
 		next: AnnotationCollection,
 		options: { debounce?: boolean } = {}
 	): Promise<void> {
-		const current = session;
 		const layer = activeLayer;
-		if (!current || !layer) return;
-		if (next === activeCollection) return;
+		if (!layer) return;
+		await commitAnnotationsIn(layer, next, options);
+	}
+
+	/**
+	 * The same, into a Layer named outright rather than whichever one is chosen.
+	 *
+	 * **Undo is why this exists**, and it is the only caller that needs it: an `AnnotationDeletedUndo`
+	 * carries the Layer the Annotation was in precisely so it cannot be restored into another one, and
+	 * the picker may well have moved between the deletion and the undo. Everything else edits what the
+	 * user is looking at, which is what {@link commitAnnotations} is for.
+	 */
+	async function commitAnnotationsIn(
+		layer: AnnotationLayer,
+		next: AnnotationCollection,
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		const current = session;
+		if (!current) return;
+		if (next === documents[layer.id]) return;
 		documents = { ...documents, [layer.id]: next };
 		await current.writeAnnotations(layer, next, options);
 	}
@@ -444,6 +471,8 @@
 		if (!collection || !layer || !id) return;
 		const at = collection.annotations.findIndex((one) => one.id === id);
 		const annotation = collection.annotations[at];
+		// A refusal is about the record that is being replaced, so it goes with it.
+		undoRefusal = '';
 		selectedAnnotationId = null;
 		popupAt = null;
 		await commitAnnotations(removeAnnotation(collection, id));
@@ -456,14 +485,62 @@
 		};
 		// Recorded *after* the write, so a deletion the store refused is not offered as something to undo
 		// — the same discipline `writeAlignment` follows when it counts a write.
-		session.record(record, async () => {
-			// Restored into the collection as it is *now* rather than into a snapshot: whatever else has
-			// been drawn or edited since must survive an undo of one deletion.
-			const current = activeCollection;
-			if (!current) return;
-			selectedAnnotationId = annotation.id;
-			await commitAnnotations(restoreAnnotation(current, record));
-		});
+		session.record(record, () => restoreDeleted(record));
+	}
+
+	/**
+	 * Put a deleted Annotation back **into the Layer it was deleted from** (SPEC story 38).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHY THE RECORD NAMES THE LAYER AND THIS READS IT
+	 *
+	 * `chosenLayerId` is a working choice the user is free to change, and nothing stops them changing
+	 * it between the deletion and the undo — the picker is a few pixels from the affordance. An undo
+	 * that wrote into whichever Layer happened to be chosen would take an Annotation out of one
+	 * `.geojson` and put it into another, which is not an undo of anything: it is a move the user did
+	 * not ask for, into a file they were not looking at. `AnnotationDeletedUndo.layerId` exists for
+	 * exactly this, and this is where it is spent.
+	 *
+	 * The picker follows the record rather than the other way round, so the user *watches* the
+	 * Annotation come back instead of being told it did — the same reason `AlignmentPairing.restore`
+	 * selects the pair it put back.
+	 *
+	 * Restored into that Layer's collection **as it is now** rather than into a snapshot: whatever else
+	 * has been drawn or edited in it since must survive an undo of one deletion.
+	 */
+	async function restoreDeleted(record: AnnotationDeletedUndo): Promise<void> {
+		undoRefusal = '';
+		const current = session;
+		if (!current) return;
+		const layer = annotationLayers.find((one) => one.id === record.layerId);
+		if (!layer) {
+			// Not reachable through the interface — deleting a Layer is itself one of the four recorded
+			// actions, so it replaces this record rather than orphaning it. Said rather than silently
+			// redirected all the same, because the alternative to saying so is writing the Annotation into
+			// a Layer the user never deleted it from.
+			undoRefusal =
+				`The Annotation could not be put back: the Annotation Layer it was in is no longer in ` +
+				'this Project.';
+			return;
+		}
+		let collection = documents[layer.id] as AnnotationCollection | undefined;
+		if (collection === undefined) {
+			// Only a Layer that has since been hidden gets here: `documents` holds the Layers the map is
+			// given, and a hidden one is absent from it. Read rather than assumed empty — assuming would
+			// write a file holding one Annotation over a file holding twenty.
+			try {
+				collection = await current.readAnnotations(layer);
+			} catch (cause) {
+				undoRefusal =
+					`The Annotation could not be put back: ${layer.name || 'its Annotation Layer'} could ` +
+					`not be read. ${cause instanceof Error ? cause.message : String(cause)}`;
+				return;
+			}
+		}
+		chosenLayerId = layer.id;
+		selectedAnnotationId = record.annotation.id;
+		popupAt = null;
+		await commitAnnotationsIn(layer, insertAnnotationAt(collection, record.annotation, record.at));
 	}
 
 	/** Type into the title or the description. Coalesced per file (ADR-0017 rule 2). */
@@ -562,6 +639,21 @@
 				other has said "Saved", which is the whole point of ADR-0014's undo.
 			-->
 			<UndoControl {session} />
+
+			<!--
+				Why an undo did not happen. `aria-live="polite"` is ADR-0016's mandated method for a status,
+				and this is a second region rather than a line inside `UndoControl` because the refusal is
+				this page's knowledge: the record names an Annotation Layer, and only the page holding the
+				stack can say that Layer is not there any more.
+			-->
+			<p
+				class="max-w-prose text-sm text-warning"
+				aria-live="polite"
+				aria-atomic="true"
+				data-testid="undo-refused"
+			>
+				{undoRefusal}
+			</p>
 
 			<!-- ADR-0017 rule 5: there is no Save button, so this is the only signal that a reorder,
 			     a rename, or a visibility toggle reached storage. -->

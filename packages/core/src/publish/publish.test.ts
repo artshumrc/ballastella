@@ -113,22 +113,22 @@ describe('planning a publish', () => {
 		expect(await store.list('')).toEqual(before);
 	});
 
-	it('weighs the Workspace through size() and never by reading a file', async () => {
+	it('weighs the Workspace without opening a single file', async () => {
 		// ADR-0008's cliff has to be answerable about a Workspace holding a mirrored pyramid, which is
-		// tens of thousands of tiles. The spy is the assertion: a version of this written with `read`
-		// would satisfy every other claim about the number it returns.
+		// tens of thousands of tiles. The *absence* of a read is the claim, and it is the one thing
+		// here no assertion about files could carry: a version written with `read` returns exactly the
+		// same total, correct in every respect and unusable on a real Workspace.
 		await store.write('amsterdam-1625/images/x/0,0,256,256/256,256/0/default.jpg', encode('tile'));
 		const read = vi.spyOn(store, 'read');
-		const size = vi.spyOn(store, 'size');
 
 		const planned = await plan();
 
-		expect(size).toHaveBeenCalled();
 		// `project.json` is read — the referenced-image warning is a fact about the Layer stack — but
 		// nothing else is, and in particular no tile.
 		expect(
 			read.mock.calls.map(([path]) => path).filter((path) => !path.endsWith('/project.json'))
 		).toEqual([]);
+		// The tile and the `project.json`, so this is not passing because nothing was weighed at all.
 		expect(planned.workspace.files).toBe(2);
 	});
 
@@ -433,6 +433,43 @@ describe('publishing', () => {
 		]);
 		expect(await snapshot('amsterdam-1625/')).toEqual(before);
 		expect(record.publishedAt).toBe('2026-03-04T05:06:07.000Z');
+	});
+
+	it('removes a Base Map it published before, when this publish leaves it out', async () => {
+		// The order the folder gets wrong: with, then without. Publishing only ever wrote, so ~5 MB of
+		// `base-map/` stayed behind while the record beside it said `baseMapBundled: false` — the
+		// Workspace and the site's own account of itself disagreeing about what the site is.
+		await publish({ includeBaseMap: true });
+		expect(await store.list('base-map/')).toEqual([
+			'base-map/extract.pmtiles',
+			'base-map/fonts/Noto Sans Regular/0-255.pbf',
+			'base-map/sprites/light.png'
+		]);
+		const project = await snapshot('amsterdam-1625/');
+
+		await publish({ includeBaseMap: false });
+
+		expect(await store.list('base-map/')).toEqual([]);
+		expect(parsePublishedSite(await store.read('ballastella-site.json')).baseMapBundled).toBe(
+			false
+		);
+		// The sweep never leaves the recorded list, so the Projects beside it are byte-identical.
+		expect(await snapshot('amsterdam-1625/')).toEqual(project);
+		expect(decode(await store.read('index.html'))).toBe('bytes of viewer-bundle/index.html');
+	});
+
+	it('keeps the hashed chunks an earlier viewer left, which ADR-0006 accepts', async () => {
+		// The counterpart to the sweep above, and the reason it is not simply "delete what is not in
+		// the plan": `_app/` holds content-hashed names, so an edited viewer writes new ones beside the
+		// old and ADR-0006 takes that accumulation as the cost of publishing into the working folder.
+		// Changing that is a decision for the ADR, so a test holds the line rather than a comment.
+		await store.write('_app/immutable/nodes/0.FROM-AN-OLDER-BUILD.js', encode('older'));
+
+		await publish();
+
+		expect(await store.list('_app/immutable/nodes/')).toContain(
+			'_app/immutable/nodes/0.FROM-AN-OLDER-BUILD.js'
+		);
 	});
 
 	it('refreshes a version stamp that has gone stale, rather than leaving what is there', async () => {

@@ -111,6 +111,31 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
 ];
 
 /**
+ * Where the document says this Historical Map's image is served from.
+ *
+ * **The only thing that differs between a local copy and a referenced remote image** (ticket 14),
+ * and it is an argument here rather than a rewrite performed elsewhere because CONTEXT.md confines
+ * the Georeference Annotation's own fields to this module: a second module that `JSON.parse`d this
+ * one's output and reassigned `target.source.id` would be a second writer of the format, and the
+ * two would drift the first time upstream moved the field.
+ */
+export type AlignmentAddress = {
+	/**
+	 * The remote image service URI a `'referenced'` Historical Map's tiles come from, canonical
+	 * (no trailing slash, no `/info.json`). Omit — or pass `''` — for a Historical Map whose pyramid
+	 * is in the Project.
+	 *
+	 * **Omitting it writes the ADR-0004 placeholder, which for a referenced image is a blank map.**
+	 * `@allmaps/maplibre` builds every tile URL from this address, so the placeholder sends a
+	 * referenced image's tile requests into the ADR-0011 injection layer, which looks for a pyramid
+	 * the Project by definition does not contain. In a file it is worse than blank: a document
+	 * claiming `unset.invalid` is standard-shaped and unresolvable by Allmaps or by anyone else,
+	 * which is exactly the interoperability ADR-0007 is claiming (SPEC stories 91, 92).
+	 */
+	readonly imageService?: string;
+};
+
+/**
  * The Alignment in the in-memory document shape `@allmaps/*` consumes.
  *
  * Exported for `@allmaps/maplibre`, whose `addGeoreferencedMap` takes this rather than a
@@ -133,15 +158,19 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
  * `warped-map-layer.ts`. Nothing can be done about it here, because the field this object writes
  * is the field the format defines.
  */
-export function toRendererDocument(alignment: Alignment): unknown {
+export function toRendererDocument(
+	alignment: Alignment,
+	{ imageService = '' }: AlignmentAddress = {}
+): unknown {
 	return {
 		'@context': 'https://schemas.allmaps.org/map/2/context.json',
 		type: 'GeoreferencedMap',
 		resource: {
-			// The ADR-0004 placeholder, on purpose. It is what a locally stored pyramid's `info.json`
-			// declares, and it is the routing key the ADR-0011 injection layer matches on — so the
-			// Alignment names its image exactly the way every other consumer of that image does.
-			id: imageServiceId(alignment.imageId),
+			// A referenced image's own address, or — for a locally stored pyramid — the ADR-0004
+			// placeholder, which is what that pyramid's `info.json` declares and the routing key the
+			// ADR-0011 injection layer matches on. Either way the Alignment names its image exactly the
+			// way every other consumer of that image does; see {@link AlignmentAddress}.
+			id: imageService === '' ? imageServiceId(alignment.imageId) : imageService,
 			type: 'ImageService3',
 			width: alignment.image.width,
 			height: alignment.image.height
@@ -197,9 +226,14 @@ export function toRendererResourceMask(alignment: Alignment): [number, number][]
  * The annotation carries no `id` either: an Alignment's identity is its path, the same discipline
  * ADR-0008 applies to a Project, and minting a second identifier would create something that can
  * disagree with the filename.
+ *
+ * `address` says where the image is served from. It is the whole of the difference between the file
+ * written for a local copy and the one written for a referenced remote image — see {@link
+ * AlignmentAddress} — and it goes through `generateAnnotation` with everything else, so the Resource
+ * Mask's plain-decimal fix, the absent timestamps and the validation below all apply to it.
  */
-export function serialiseAlignment(alignment: Alignment): Bytes {
-	const annotation = generateAnnotation(toRendererDocument(alignment));
+export function serialiseAlignment(alignment: Alignment, address: AlignmentAddress = {}): Bytes {
+	const annotation = generateAnnotation(toRendererDocument(alignment, address));
 	rewriteResourceMaskInPlainDecimal(annotation, alignment.resourceMask);
 	// **The write path checks its own output, with upstream's own validator.** `generateAnnotation`
 	// does not: it will happily emit a `polygon points` attribute or an `<svg width>` that

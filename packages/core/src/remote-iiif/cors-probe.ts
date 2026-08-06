@@ -105,8 +105,15 @@ export type ProbeRemoteImageOptions = {
 };
 
 /**
- * What the gate found. Returned rather than thrown when the service is usable, so a caller can
- * show the user which two requests were made — the lookup is disclosed and so is this.
+ * What the gate found, when it did not refuse.
+ *
+ * **Nothing shows this yet.** It is returned so that a caller can tell the user which requests were
+ * made on their behalf — the community lookup discloses itself (ADR-0015) and a probe of a third
+ * party's server has the same claim on being disclosed — but the one call site,
+ * `add-remote-map.svelte.ts`, discards it. Surfacing it is a line beside the "checking Allmaps…"
+ * note in the add flow, listing {@link tileUrls}; until that exists the fields are asserted by
+ * `cors-probe.test.ts` and read by nothing else, which is said here rather than left to be
+ * discovered.
  */
 export type RemoteImageProbe = {
 	readonly host: string;

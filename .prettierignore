@@ -1,6 +1,11 @@
 # Package managers
 pnpm-lock.yaml
 
+# Per-developer tool settings, written by the tool rather than by hand. Not in the repository, but
+# `pnpm lint` still reaches it, so without this every contributor's working copy fails the format
+# check on a file they did not write and cannot usefully reformat.
+.claude/settings.local.json
+
 # Generated
 .svelte-kit
 build

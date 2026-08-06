@@ -100,7 +100,6 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 
 		expect(plan.path).toBe('full-max');
 		expect(plan.requests).toHaveLength(1);
-		expect(plan.manyRequests).toBe(false);
 		expect(plan.refusal).toBe('');
 	});
 
@@ -122,7 +121,6 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 
 		expect(plan.path).toBe('assembled');
 		expect(plan.requests).toHaveLength(6);
-		expect(plan.manyRequests).toBe(true);
 		expect(plan.pieces.map((piece) => piece.region)).toEqual([
 			{ x: 0, y: 0, width: 256, height: 256 },
 			{ x: 256, y: 0, width: 256, height: 256 },
@@ -215,16 +213,22 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 });
 
 describe('planMirror: what the copy will cost the Workspace', () => {
-	it('estimates from the dimensions, over-stating rather than under-stating', async () => {
+	it('estimates from the dimensions, over-stating rather than under-stating', () => {
 		// Measured against the committed 1200×851 pyramid in `apps/editor/static/fixtures`: 29 tiles,
 		// 575 261 bytes, which is 0.563 bytes per source pixel at quality 85. The constant is above that
 		// on purpose — the number exists to warn about a hosting limit, and an estimate that came in
 		// under the truth would be the one that let a user walk off the cliff unwarned.
 		expect(ESTIMATED_MIRROR_BYTES_PER_PIXEL).toBeGreaterThan(0.5633);
 		expect(estimateMirrorBytes(1200, 851)).toBeGreaterThan(575_261);
-		expect(planMirror(await levelTwo(1200, 851)).estimatedBytes).toBe(
-			estimateMirrorBytes(1200, 851)
-		);
+	});
+
+	it('carries the dimensions that estimate is taken from', async () => {
+		// The plan no longer carries the estimate itself — a stored arithmetic result is a thing that can
+		// disagree with the fields it came from — so what it owes the dialog is the two numbers.
+		const plan = planMirror(await levelTwo(1200, 851));
+
+		expect([plan.width, plan.height]).toEqual([1200, 851]);
+		expect(estimateMirrorBytes(plan.width, plan.height)).toBe(estimateMirrorBytes(1200, 851));
 	});
 
 	it('says when the copy will need the streaming tiler', async () => {

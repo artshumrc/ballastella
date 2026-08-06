@@ -59,6 +59,7 @@ but no `build`.
 | `pnpm test:e2e`                      | browser tests (Playwright, headless Chromium)  |
 | `pnpm lint`                          | lint, format check, and the source fences      |
 | `pnpm check:bundles`                 | ADR-0019 against built output (needs a build)  |
+| `pnpm check:dev`                     | both apps answer their root route under `vite dev` |
 | `pnpm check`                         | Svelte and TypeScript checks                   |
 | `pnpm format`                        | rewrite formatting in place                    |
 
@@ -147,3 +148,12 @@ particular function was called is not.
 There are two seams and no others: an in-memory `ProjectStore` for application logic, and
 Playwright against headless Chromium for the running app. There is deliberately no
 map-abstraction layer — Playwright drives real MapLibre.
+
+**The browser suite runs against `apps/*/build`, so development mode is not covered by it.** That is
+the right default — the shipped Published Site is prerendered static files with no server (ADR-0006),
+so the build is what a Reader gets. But it left `vite dev` as the one configuration nothing exercised,
+and it broke: a dependency resolving to its CommonJS build under SSR made every route of both apps
+answer 500 while lint, typecheck, the unit suite, the browser suite and both bundle fences stayed
+green. `pnpm check:dev` is the floor under that — it boots each app's dev server and asserts the root
+route answers 200. It is a boot check on purpose; what a page then *does* belongs in the browser suite,
+against the build that ships.

@@ -58,6 +58,18 @@
 						without one.
 					</p>
 				{/if}
+				<!--
+					The connection said yes and the deployment did not answer — a captive portal, or a network
+					with no route out. Said rather than swallowed, because the alternative reading of a button
+					that did nothing is that the app is broken. Nothing was given up to find out: the old
+					version is still serving and this computer can still work offline.
+				-->
+				{#if app.updateUnreachable}
+					<p class="text-sm text-warning" data-testid="update-unreachable">
+						Ballastella could not be reached just now, so nothing has changed and this version is
+						still running. Try again when you have a connection you can browse with.
+					</p>
+				{/if}
 				<div class="card-actions justify-end">
 					<button
 						type="button"

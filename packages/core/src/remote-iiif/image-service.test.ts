@@ -333,6 +333,59 @@ describe('bounds on what a stranger’s info.json may declare', () => {
 	});
 });
 
+describe('the id a stranger’s document declares for itself', () => {
+	// A document served from `library.test` that says its own address is something else. Adopting it
+	// is not optional — it is what the Image API requires and what `harvard-ids` above needs — but
+	// what is adopted becomes the identifier this Historical Map is filed under, the base of every
+	// tile request, and the citation written into `remote.json`. So it goes through the same check a
+	// pasted address does.
+	const declaring = (id: unknown) => ({
+		'@context': 'http://iiif.io/api/image/3/context.json',
+		id,
+		type: 'ImageService3',
+		protocol: 'http://iiif.io/api/image',
+		profile: 'level0',
+		width: 1200,
+		height: 851,
+		tiles: [{ width: 256, height: 256, scaleFactors: [1, 2, 4, 8] }]
+	});
+
+	const adopt = (id: unknown) =>
+		acceptRemoteImageService(declaring(id), {
+			requestedUrl: 'https://library.test/iiif/3/sheet/info.json',
+			fallbackUri: 'https://library.test/iiif/3/sheet'
+		});
+
+	it('is adopted from another host, because that is ordinary IIIF and a real service does it', async () => {
+		// The synthetic twin of the `harvard-ids` case above, kept separate so the rule survives the
+		// day that fixture is re-captured: a different host is *allowed*, and refusing one would refuse
+		// a live library.
+		const remote = await adopt('https://mps.other.test/assets/images/drs:47174896');
+
+		expect(remote.uri).toBe('https://mps.other.test/assets/images/drs:47174896');
+		expect(remote.requestedUrl).toContain('library.test');
+		expect(remote.pane.allTiles()[0]?.url).toContain('mps.other.test');
+	});
+
+	it.each([
+		['a relative address', '/iiif/3/sheet'],
+		['a javascript: URL', 'javascript:alert(1)'],
+		['a data: URL', 'data:application/json,%7B%7D'],
+		['an address carrying a password', 'https://alice:secret@other.test/iiif/3/sheet']
+	])('refuses %s, naming the host that sent it', async (_what, id) => {
+		const failure = await adopt(id).then(
+			() => null,
+			(cause: unknown) => cause as RemoteIiifRejectedError
+		);
+
+		expect(failure).toBeInstanceOf(RemoteIiifRejectedError);
+		expect(failure?.host).toBe('library.test');
+		expect(failure?.message).toContain('library.test');
+		expect(failure?.message).toContain(id);
+		expect(failure?.message).toContain('Nothing has been added');
+	});
+});
+
 describe('reading a service over the network', () => {
 	it('normalises a URL that ends in /info.json, because that is what people copy', async () => {
 		const requests: string[] = [];

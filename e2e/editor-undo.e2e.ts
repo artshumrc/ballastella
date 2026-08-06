@@ -134,18 +134,42 @@ const rowText = (page: Page, ordinal: number): Promise<string> =>
  * status is the barrier `start` uses for exactly this reason: it renders only once the Alignment has
  * been read.
  *
- * **Navigated by URL rather than by the in-app "Back to this Project" link**, which is not a
- * convenience: leaving the Layers pane while a map Layer is drawn currently throws
- * `Cannot read properties of undefined (reading 'getLayer')` out of the stack's teardown and kills the
- * next page's effects, so the workspace sits at "Opening the Historical Map…" for ever. It reproduces
- * with no undo involved (show a Layer, hide it, show it, follow the link), so it is a Layers-pane
- * lifecycle defect rather than this ticket's — recorded on ticket 11's findings, and another agent owns
- * that path.
+ * **By URL, so this is a reload and a new `EditorSession`** — which is what the callers below want:
+ * the resurrection trap has to survive the page being closed and opened again, and a tombstone is the
+ * only thing that can carry it there. Anything asserting what survives a *route change* must use the
+ * links instead, because a reload throws the undo record away with the session it was held in
+ * (ADR-0014 does not persist it). {@link throughLayersAndBack} is that route.
  */
 async function openWorkspace(page: Page): Promise<void> {
 	await page.goto('/?p=amsterdam-1625');
 	await waitForSurface(page);
 	await expect(page.getByTestId('pairing-status')).toContainText('Control Point');
+}
+
+/**
+ * Leave the alignment workspace for the Layers pane and come back, **without reloading the page**.
+ *
+ * The two in-app links rather than `page.goto`, and that is the whole of the helper: a reload builds a
+ * new session and the undo slot goes with it, so a round trip by URL would assert nothing at all about
+ * a record surviving. What the round trip does to the workspace is the point — it is destroyed and
+ * rebuilt, with a fresh `AlignmentPairing` read from the file, while the record stays where it was.
+ *
+ * @param resuming how many Control Points the rebuilt pairing must show before it is safe to click
+ */
+async function throughLayersAndBack(page: Page, resuming: number): Promise<void> {
+	await page.getByTestId('open-layers').click();
+	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
+		timeout: STACK_READY_MS
+	});
+
+	await page.getByTestId('back-to-project').click();
+	await waitForSurface(page);
+	// **The rows are the barrier, not the pane.** `pairing` is `undefined` until the pyramid has been
+	// read and the Alignment after it, and the status line reads "…your first Control Point" in the
+	// meantime — which contains the same words as the resumed one. A click before the pairing exists is
+	// dropped on the floor.
+	await expect(controlPointRows(page)).toHaveCount(resuming);
 }
 
 /**
@@ -216,6 +240,69 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		await expect(page.getByTestId('undo-done')).toHaveText('Undone: move of Control Point 1.');
 		await page.keyboard.press('Control+z');
 		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
+	});
+
+	/**
+	 * The record outlives the component that made it, and reversing it has to act on the pairing that is
+	 * on screen **now**.
+	 *
+	 * `EditorSession.open` returns early for the Project already showing, and `forgetUndoOfOtherImages`
+	 * drops a Control Point record only for a *different* Historical Map — so a trip to the Layers pane
+	 * and back leaves the pending undo exactly where it was while the workspace builds a fresh
+	 * `AlignmentPairing` out of the file. That is the ticket's premise working, and it is also what made
+	 * a restore closure that had captured its pairing dangerous: undoing wrote *that* object's whole
+	 * Alignment, so a Control Point placed after coming back was deleted out of the file with nothing on
+	 * screen moving and the affordance claiming only that a point had been put back.
+	 */
+	test('reverses the pairing now on screen, keeping a pair made after the round trip', async ({
+		page
+	}) => {
+		test.setTimeout(150_000);
+		const imageId = await alignedProject(page);
+		const before = await storedAlignment(page, imageId);
+		const beforeMove = JSON.parse(before as string);
+		const wasAt = await rowText(page, 1);
+
+		const half = imagePoints(page).first();
+		await half.focus();
+		const wasAtPixel = await half.getAttribute('data-resource-x');
+		await page.keyboard.press('Shift+ArrowRight');
+
+		// The destructive change is on disk before anything else happens, as everywhere in this file.
+		await saved(page);
+		await expect.poll(() => storedAlignment(page, imageId)).not.toBe(before);
+
+		await throughLayersAndBack(page, 3);
+		// It survived the route change, which is what makes the rest of this test worth asserting.
+		await expect(undoButton(page)).toHaveText('Undo move of Control Point 1');
+
+		// A fourth pair, made after the remount: it exists only in the pairing now on screen, and never
+		// existed in the one the record was made on.
+		await makePairs(page, 4);
+		await waitForStored(page, imageId, 4);
+		await saved(page);
+		const fourth = await rowText(page, 4);
+
+		await undoButton(page).click();
+		await saved(page);
+		await waitForStored(page, imageId, 4);
+
+		// **Four pairs, not three.** The three originals are the file as it was before the move — so the
+		// move really was reversed — and the fourth is untouched beside them.
+		const after = JSON.parse((await storedAlignment(page, imageId)) as string);
+		expect(after.body.features.slice(0, 3)).toEqual(beforeMove.body.features);
+		expect(after.body.features).toHaveLength(4);
+
+		// And on screen, which is the half that was silently not happening: the handle is drawn back at
+		// the image pixel it started from, in a list that still has the fourth pair in it.
+		await expect(controlPointRows(page)).toHaveCount(4);
+		await expect(imagePoints(page).first()).toHaveAttribute(
+			'data-resource-x',
+			wasAtPixel as string
+		);
+		expect(await rowText(page, 1)).toBe(wasAt);
+		expect(await rowText(page, 4)).toBe(fourth);
+		await expect(undoButton(page)).toHaveCount(0);
 	});
 });
 
@@ -300,6 +387,67 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		const painted = await waitForPaintedAnnotations(page, [annotationId]);
 		expect(painted[annotationId]?.length ?? 0).toBeGreaterThan(0);
 		await expect(undoButton(page)).toHaveCount(0);
+	});
+
+	/**
+	 * Which Annotation Layer is being drawn into is a **working choice**, not part of the work, and
+	 * nothing stops a user changing it between the deletion and the undo — the picker sits a few
+	 * centimetres from the affordance. `AnnotationDeletedUndo` carries the Layer the Annotation was in
+	 * "so it cannot be restored into another one", and this is that claim asserted: an undo that read
+	 * the chosen Layer instead would take the Annotation out of one `.geojson` and put it into another,
+	 * which is not an undo of anything — it is a move into a file the user was not looking at.
+	 */
+	test('goes back into the Layer it was deleted from, not the one chosen when Undo is pressed', async ({
+		page
+	}) => {
+		test.setTimeout(90_000);
+		const routes = await startAnnotating(page);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(layerRows(page)).toHaveCount(2);
+		await saved(page);
+		// A new Layer goes on top of the stack and the picker follows it, so the older one is chosen back
+		// before anything is drawn.
+		const places = (await rowIds(page)).find((id) => id !== routes) as string;
+		await page.getByTestId('annotation-layer-choice').selectOption(routes);
+
+		await drawPin(page, 0.4, 0.45);
+		await selectAnnotation(page);
+		await page.getByTestId('annotation-title').fill('Fort Amsterdam');
+		await page.getByTestId('annotation-title').blur();
+		await saved(page);
+
+		// Both files, so "the other Layer gained nothing" is a claim about bytes rather than about a list.
+		const before = await hashesUnder(page, 'annotations/');
+		expect(before).toHaveLength(2);
+		const deleted = (await storedAnnotations(page, routes)).features[0];
+		const annotationId = deleted?.id as string;
+
+		await page.getByTestId('annotation-delete').click();
+		await saved(page);
+		expect((await storedAnnotations(page, routes)).features).toHaveLength(0);
+
+		// The gesture the record's `layerId` exists to survive.
+		await page.getByTestId('annotation-layer-choice').selectOption(places);
+		await expect(page.getByTestId('annotation-list-empty')).toBeVisible();
+
+		await expect(undoButton(page)).toHaveText('Undo delete of “Fort Amsterdam”');
+		await undoButton(page).click();
+		await saved(page);
+
+		// Byte for byte back where it came from, and the chosen Layer's file is the one it was.
+		await expect.poll(() => hashesUnder(page, 'annotations/')).toEqual(before);
+		expect((await storedAnnotations(page, places)).features).toHaveLength(0);
+		const back = (await storedAnnotations(page, routes)).features[0];
+		expect(back?.id).toBe(annotationId);
+		expect(back?.properties).toEqual(deleted?.properties);
+
+		// The picker followed the record, so the user *watches* it come back rather than being told it
+		// happened somewhere they are not looking.
+		await expect(page.getByTestId('annotation-layer-choice')).toHaveValue(routes);
+		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
+		await expect(page.getByTestId('undo-refused')).toHaveText('');
+		const restored = await waitForPaintedAnnotations(page, [annotationId]);
+		expect(restored[annotationId]?.length ?? 0).toBeGreaterThan(0);
 	});
 });
 

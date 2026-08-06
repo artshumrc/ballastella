@@ -4,8 +4,14 @@
 // this is ours; and a scoped undo is not optional, because dragging a Control Point is a destructive,
 // easy-to-mis-aim gesture and a scholar who nudges the wrong point and cannot get it back will not
 // trust the tool. But making every mutation a command object shapes the whole state layer, which is
-// the work ADR-0014 defers — so what is here is a *record of one prior value* and the functions that
-// put it back, with no command objects, no inverse-operation registry, and nothing to extend.
+// the work ADR-0014 defers — so what is here is a *record of one prior value* and the one slot that
+// holds it, with no command objects, no inverse-operation registry, and nothing to extend.
+//
+// **Putting a thing back is the ordinary operation that put it there, not an undo-only one.** Only the
+// Control Point drafts need a function of their own — {@link restoreControlPoint}, because a move and a
+// deletion are one array operation with two shapes — and a deleted Annotation and a deleted Layer go
+// back through `insertAnnotationAt` and `insertLayerAt`, which are the same functions any other insert
+// uses. A pass-through here per kind would only be a second name for each of them.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE CRUX: UNDO MUST WORK AFTER AUTOSAVE HAS WRITTEN THE DESTRUCTIVE CHANGE TO DISK
@@ -21,10 +27,9 @@
 // import('../autosave/autosave.js').Autosave} as every other edit, with no bespoke save path.
 
 import type { DraftControlPoint, GeoPoint } from '../alignment/alignment.js';
-import type { Annotation, AnnotationCollection } from '../annotation/annotation.js';
-import { insertAnnotationAt } from '../annotation/annotation.js';
+import type { Annotation } from '../annotation/annotation.js';
 import type { ResourcePoint } from '../image-pane/synthetic-projection.js';
-import { insertLayerAt, type Layer } from '../project/layer.js';
+import type { Layer } from '../project/layer.js';
 import type { Bytes } from '../store/project-store.js';
 
 /**
@@ -151,6 +156,15 @@ const quoted = (name: string | undefined, fallback: string): string =>
  * index it held. Restoring an id that is already among the drafts returns the array it was given, so a
  * caller can tell a no-op by identity and write nothing — the discipline `alignment.ts` and `layer.ts`
  * both follow.
+ *
+ * **Matching is by id, and the id is the caller's problem.** A Control Point's id is minted per
+ * session and is not in the file — the format carries no per-point identifier, and adding one would be
+ * the proprietary index SPEC story 94 rules out. So a record can outlive the pairing that made it, and
+ * the ids it names can be gone. Resolving that is deliberately *not* done here: from an array of
+ * drafts alone, "the recorded pair was deleted" and "the recorded pair is still there under a new id"
+ * look identical, and guessing between them by position would put a moved pair's old coordinates onto
+ * some other pair. The caller knows which happened, because it knows whether the pairing in front of
+ * it is the one the record was made on. See `putBack` in `AlignmentWorkspace.svelte`.
  */
 export function restoreControlPoint(
 	drafts: readonly DraftControlPoint[],
@@ -168,26 +182,6 @@ export function restoreControlPoint(
 	if (drafts.some((draft) => draft.id === record.point.id)) return drafts;
 	const at = Math.min(drafts.length, Math.max(0, record.at));
 	return [...drafts.slice(0, at), record.point, ...drafts.slice(at)];
-}
-
-/** The collection with a deleted Annotation back at its own position, with every property it had. */
-export function restoreAnnotation(
-	collection: AnnotationCollection,
-	record: AnnotationDeletedUndo
-): AnnotationCollection {
-	return insertAnnotationAt(collection, record.annotation, record.at);
-}
-
-/**
- * The stack with a deleted Layer back at its own position.
- *
- * Its *file* is not this function's business, for the same reason it is not `removeLayer`'s: the bytes
- * are in the record and go back through the store. Returns the array it was given when a Layer with
- * this id is already in the stack — see {@link insertLayerAt} on why a duplicate id must never be
- * written.
- */
-export function restoreLayer(layers: readonly Layer[], record: LayerDeletedUndo): readonly Layer[] {
-	return insertLayerAt(layers, record.layer, record.at);
 }
 
 /**

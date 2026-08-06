@@ -20,7 +20,6 @@
 import {
 	DASHED_DASHARRAY,
 	DOTTED_DASHARRAY,
-	SIMPLESTYLE_DEFAULTS,
 	type AnnotationCollection,
 	type LineStyle
 } from '../annotation/annotation.js';
@@ -177,12 +176,14 @@ function annotationLayers(
 				...(style === 'solid'
 					? {}
 					: {
-							// MapLibre expresses a dash as a multiple of the line's own width; the stored tuple
-							// is in the same units as the width, like SVG's. A constant is correct here because
-							// every feature in this layer is in the same bucket, and the width divides out.
+							// One constant for the whole bucket, because `line-dasharray` is the one paint
+							// property MapLibre will not evaluate per feature — which is why there is a layer
+							// per pattern at all. MapLibre multiplies it by each feature's own `line-width`, so
+							// a thicker Annotation draws a proportionally longer dash than the file states; the
+							// ratio, which is what tells dashed from dotted, is what survives. See
+							// `mapLibreDashArray` for why the alternative is a layer per width.
 							'line-dasharray': mapLibreDashArray(
-								style === 'dashed' ? DASHED_DASHARRAY : DOTTED_DASHARRAY,
-								SIMPLESTYLE_DEFAULTS['stroke-width']
+								style === 'dashed' ? DASHED_DASHARRAY : DOTTED_DASHARRAY
 							)
 						})
 			}

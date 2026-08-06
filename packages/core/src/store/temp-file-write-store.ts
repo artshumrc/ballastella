@@ -58,6 +58,22 @@ export abstract class TempFileWriteStore implements ProjectStore {
 		return this.byteLength(assertStorePath(path));
 	}
 
+	/**
+	 * Delete every abandoned temporary file under `prefix`.
+	 *
+	 * **Unconditional, so it must not be called while anything is writing.** There is no age check and
+	 * there is nowhere to get one: `ProjectStore` reports a byte length and nothing else, deliberately
+	 * (ADR-0001), so telling a dead tab's litter from a temporary file created a millisecond ago by
+	 * `write` would mean putting a modification time into the interface and into every adapter. Until
+	 * something needs that for its own sake, the cheaper guarantee is the caller's — sweep where nothing
+	 * else is writing.
+	 *
+	 * Which is the whole of the precondition, and it has been broken once: `workspaceSize` called this
+	 * before totalling, so a user clicking "Make an offline copy" swept the entire Workspace, and a sweep
+	 * landing between another write's `writeBytes` and its `renameTempFile` deleted that write's file and
+	 * failed the save. The two safe call sites are Workspace adoption, where the walk is one the listing
+	 * does anyway and no edit is in flight, and deleting a Project outright.
+	 */
 	async reclaimAbandonedWrites(prefix: string): Promise<void> {
 		// One implementation for every backend, like `write` itself: the litter is created here, so
 		// reclaiming it belongs here too rather than being each adapter's problem to remember.

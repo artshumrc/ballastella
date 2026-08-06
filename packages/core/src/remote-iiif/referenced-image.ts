@@ -48,6 +48,7 @@ import { imageDirectory } from '../project/image-files.js';
 import type { ImageMode } from '../project/layer.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
 import { serialiseJson } from '../tiler/pyramid.js';
+import { canonicalServiceUri } from './service-uri.js';
 
 /**
  * One Historical Map of a Project, said in terms of where its bytes are.
@@ -82,15 +83,28 @@ void _everyImageModeHasASource;
 /**
  * Where this Historical Map's tiles are served from, in the form ticket 03's reader takes.
  *
- * **The whole distinction, in one expression.** Every consumer of a Historical Map's bytes goes
- * through here, so there is one place that knows the rule rather than one per pane — and the
- * `ImagePaneTileBase` union means the answer cannot be mistaken for the other kind downstream.
+ * **The whole distinction, in one expression**, so that the rule lives in one place rather than one
+ * per pane — and the `ImagePaneTileBase` union means the answer cannot be mistaken for the other
+ * kind downstream.
+ *
+ * **Not yet every consumer, and the exception is worth knowing.** `HistoricalMapPane.svelte` builds
+ * `{ storedImageId }` for itself, so the pane the Alignment workspace draws a Historical Map in
+ * always reaches into the Project — correct for a local copy, and for a referenced image the pane
+ * asks the injection layer for a pyramid that is not there. Routing it through here is what would
+ * make aligning a referenced Historical Map work; recorded on ticket 14 rather than claimed here.
  */
 export function tileBaseFor(source: HistoricalMapSource): ImagePaneTileBase {
 	return source.imageMode === 'referenced' ? source.service : { storedImageId: source.imageId };
 }
 
-/** Whether this Historical Map's tiles are on somebody else's server. */
+/**
+ * Whether this Historical Map's tiles are on somebody else's server.
+ *
+ * No production caller: every place that asks reads `imageMode` directly, or asks
+ * {@link partitionByLocalCopy} what is on disk, which is the better question. Kept only because it
+ * is part of the package's published surface; a follow-up that drops it from `index.ts` should drop
+ * it from here in the same change.
+ */
 export const isReferenced = (source: HistoricalMapSource): boolean =>
 	source.imageMode === 'referenced';
 
@@ -141,7 +155,7 @@ export type ReferencedImageFields = Omit<
 
 export const referencedImage = (fields: ReferencedImageFields): ReferencedImage => ({
 	imageId: fields.imageId,
-	service: fields.service.replace(/\/$/, ''),
+	service: canonicalServiceUri(fields.service),
 	label: fields.label ?? '',
 	partOf: fields.partOf ?? '',
 	canvas: fields.canvas ?? '',
@@ -341,64 +355,40 @@ export const localCopySource = (imageId: string): HistoricalMapSource => ({
 export const imageModeOf = (source: HistoricalMapSource): ImageMode => source.imageMode;
 
 /**
- * The in-memory `GeoreferencedMap` for a referenced image: the Alignment, with the remote service
- * as its `resource.id`.
+ * The document a renderer takes for a referenced Historical Map: the Alignment, addressed at the
+ * remote service rather than at the ADR-0004 placeholder.
  *
- * `toRendererDocument` writes the ADR-0004 placeholder, which is right for a stored pyramid and
- * wrong here — `@allmaps/maplibre` fetches tiles from that `id`, so left alone a referenced image
- * renders by asking the injection layer for a pyramid the Project does not contain: a blank warped
- * Layer, which is the same silent failure ticket 06 spent a patch on.
- *
- * The substitution is exactly ADR-0004's own rule applied to the other case — the address is
+ * That substitution is exactly ADR-0004's own rule applied to the other case — the address is
  * resolved at load time from wherever the tiles are really served — and the address comes from
- * `remote.json`.
+ * `remote.json`. Without it `@allmaps/maplibre` fetches tiles from the placeholder, which asks the
+ * injection layer for a pyramid the Project does not contain: a blank warped Layer, the same silent
+ * failure ticket 06 spent a patch on.
+ *
+ * **A delegation, and it has to be.** This module names no field of the Georeference Annotation and
+ * parses none of it; the address is an argument to the one module that reads and writes the format
+ * (CONTEXT.md). What is left here is what this module does own — the canonical spelling of a remote
+ * service's address.
  */
-export function referencedRendererDocument(alignment: Alignment, service: string): unknown {
-	const map = toRendererDocument(alignment) as { resource?: { id?: unknown } };
-	if (typeof map.resource?.id !== 'string') {
-		// Not defensive padding. `toRendererDocument` is upstream of this in the same package, and if
-		// its shape changes the substitution would silently stop happening — leaving the placeholder
-		// in a document handed to the renderer, which draws nothing and logs nothing.
-		throw new Error(
-			`toRendererDocument no longer produces resource.id, so a referenced image's remote address ` +
-				`cannot be substituted into it. Fix this rather than the caller: without the substitution ` +
-				`a referenced Historical Map renders blank.`
-		);
-	}
-	map.resource.id = service.replace(/\/$/, '');
-	return map;
-}
+export const referencedRendererDocument = (alignment: Alignment, service: string): unknown =>
+	toRendererDocument(alignment, { imageService: canonicalServiceUri(service) });
 
 /**
- * An Alignment of a referenced image, as a Georeference Annotation naming the **remote** service.
+ * An Alignment of a referenced image, as a file naming the **remote** service.
  *
- * This is what makes ADR-0007's interoperability claim true rather than aspirational: Allmaps'
- * own model is a Georeference Annotation pointing at a remote IIIF resource, so for a referenced
- * image — the one case where the resource has a real public URI — the file we write is directly
- * consumable by Allmaps and by anything else implementing the extension (SPEC stories 91, 92).
- * Writing the `unset.invalid` placeholder instead would produce a standard-shaped document that
- * nothing in the world can resolve.
+ * This is what makes ADR-0007's interoperability claim true rather than aspirational: Allmaps' own
+ * model is a Georeference Annotation pointing at a remote IIIF resource, so for a referenced image —
+ * the one case where the resource has a real public URI — the file we write is directly consumable
+ * by Allmaps and by anything else implementing the extension (SPEC stories 91, 92). The
+ * `unset.invalid` placeholder would produce a standard-shaped document nothing in the world can
+ * resolve.
  *
- * Done by rewriting the one field on the serialised document rather than by re-implementing
- * `serialiseAlignment`, so the Resource Mask's plain-decimal fix, the absent timestamps, and the
- * byte-for-byte formatting all still come from the single writer that owns them.
+ * A delegation for the same reason as above, so the Resource Mask's plain-decimal fix, the absent
+ * timestamps, the write-path validation and the byte-for-byte formatting all still come from the
+ * single writer that owns them — and now the address goes *through* that writer rather than being
+ * edited into its output afterwards, which is what stops a second reader of the format existing.
  */
-export function serialiseReferencedAlignment(alignment: Alignment, service: string): Bytes {
-	const text = new TextDecoder().decode(serialiseAlignment(alignment));
-	const annotation = JSON.parse(text) as { target?: { source?: { id?: unknown } } };
-
-	if (typeof annotation.target?.source?.id !== 'string') {
-		throw new Error(
-			`A Georeference Annotation written by serialiseAlignment no longer carries ` +
-				`target.source.id, so a referenced image's remote address cannot be written into it. ` +
-				`Fix this rather than skipping it: the alternative is a file that claims the ` +
-				`unset.invalid placeholder and is therefore unresolvable by Allmaps or anyone else.`
-		);
-	}
-
-	annotation.target.source.id = service.replace(/\/$/, '');
-	return serialiseJson(annotation);
-}
+export const serialiseReferencedAlignment = (alignment: Alignment, service: string): Bytes =>
+	serialiseAlignment(alignment, { imageService: canonicalServiceUri(service) });
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 

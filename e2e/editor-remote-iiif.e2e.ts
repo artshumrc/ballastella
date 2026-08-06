@@ -332,6 +332,24 @@ async function emptyWorkspace(page: Page): Promise<void> {
 	});
 }
 
+/** Overwrite a file in a Project, the way a hand-edit or a half-finished write would leave it. */
+const writeFile = (page: Page, directory: string, path: string, body: string): Promise<void> =>
+	page.evaluate(
+		async ([directory, path, body]) => {
+			const root = await navigator.storage.getDirectory();
+			let handle = await root.getDirectoryHandle(directory as string);
+			const segments = (path as string).split('/');
+			for (const segment of segments.slice(0, -1)) {
+				handle = await handle.getDirectoryHandle(segment);
+			}
+			const file = await handle.getFileHandle(segments[segments.length - 1] as string);
+			const writable = await file.createWritable();
+			await writable.write(body as string);
+			await writable.close();
+		},
+		[directory, path, body]
+	);
+
 const readJson = (page: Page, directory: string, path: string): Promise<unknown> =>
 	page.evaluate(
 		async ([directory, path]) => {
@@ -758,6 +776,43 @@ test.describe('reading a referenced Historical Map as a document', () => {
 			expect(placeholderRequests).toEqual([]);
 		});
 	}
+
+	test('says so when the record of where a referenced map lives cannot be read', async ({
+		page
+	}) => {
+		// `remote.json` is the only thing that says where a referenced Historical Map's tiles are, and a
+		// Project whose copy of it has been hand-edited or half-written is a Layer nothing can draw. The
+		// failure this guards is the quiet one: skipping the record, and leaving the scholar with a Layer
+		// that draws nothing and no sentence anywhere. Opening the Project must not fail either — the
+		// other Historical Maps are fine — so the readable ones are listed and the broken one is named.
+		//
+		// Two maps, because one is not the same test: the reason is shown inside the referenced-maps
+		// section, so a Project whose *only* referenced record is unreadable currently says nothing at
+		// all. That gap is recorded against `ProjectView.svelte` rather than asserted here.
+		await installFixtureHosts(page);
+		await openNewProject(page);
+
+		for (const name of ['florida', 'approaches']) {
+			await lookUp(page, `${service('images.test', name)}/info.json`);
+			await expect(page.getByTestId('remote-add')).toBeVisible();
+			await page.getByTestId('remote-add').click();
+			await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		}
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const broken = generateId(service('images.test', 'approaches'));
+		await writeFile(page, 'amsterdam-1625', `images/${broken}/remote.json`, '{"label":"corrupt"}');
+
+		await page.goto('/?p=amsterdam-1625');
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+
+		// The readable one is still listed, so one broken record has not taken the Project down with it.
+		await expect(page.getByTestId('referenced-image-label')).toHaveCount(1);
+
+		const alert = page.getByRole('alert').filter({ hasText: broken });
+		await expect(alert).toContainText('names no image service');
+		await expect(alert).toContainText('nowhere to fetch its tiles from');
+	});
 
 	test('uses triiiceratops as a Svelte component, never its web-component export', async ({
 		page

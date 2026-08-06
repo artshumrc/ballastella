@@ -29,6 +29,7 @@ import {
 	remoteIiifUrl,
 	type RemoteIiifLimits
 } from './remote-resource.js';
+import { canonicalServiceUri } from './service-uri.js';
 
 /**
  * Largest image, in pixels, this will accept a reference to.
@@ -121,7 +122,7 @@ export async function readRemoteImageService(
 	options: ReadRemoteImageServiceOptions
 ): Promise<RemoteImageService> {
 	const requested = remoteIiifUrl(uri);
-	const base = requested.href.replace(/\/info\.json$/, '').replace(/\/$/, '');
+	const base = canonicalServiceUri(requested.href);
 	const infoUrl = remoteIiifUrl(`${base}/info.json`);
 	const limits = { ...REMOTE_IIIF_LIMITS, ...options.limits };
 	const info = await fetchRemoteJson(infoUrl, { fetch: options.fetch, limits });
@@ -145,7 +146,11 @@ export async function acceptRemoteImageService(
 	// A document with no `id` at all is not spec-legal, but it happens, and the URL it was fetched
 	// from is the only other candidate — IIIF's own rule for a service is that its base is where
 	// its `info.json` lives, so this is the same answer by a different route.
-	const uri = (declaredId ?? context.fallbackUri).replace(/\/$/, '');
+	const uri = canonicalServiceUri(
+		declaredId === null
+			? context.fallbackUri
+			: adoptDeclaredId(declaredId, { url: context.requestedUrl, host })
+	);
 
 	assertDeclaredSizeIsSane(info, { url: context.requestedUrl, host });
 
@@ -281,6 +286,41 @@ export function extendedTileset(
 		},
 		coarsest: needed
 	};
+}
+
+/**
+ * The declared `id`, checked before this app adopts it as the image's identity.
+ *
+ * **Everything downstream is built from this string**: `generateId(uri)` mints the Historical Map's
+ * id from it, `createImagePane` builds every tile URL on it, and it is written into `remote.json` as
+ * the citation. It is also the one URL on this path that used to skip {@link remoteIiifUrl} — a
+ * stranger's document was believed on read (`parseReferencedImage` checks the scheme) but not on
+ * write, which is the asymmetry this closes. The CORS probe bounds what a bad one could do; it is
+ * not a reason to adopt it unchecked.
+ *
+ * **A different host is allowed, and must be.** `ids.lib.harvard.edu` answers with a document whose
+ * `id` is on `mps.lib.harvard.edu`, and the Image API requires `id` to be the base every request is
+ * built on — so redirecting the address elsewhere is ordinary IIIF rather than a smell. What is
+ * refused is what `remoteIiifUrl` refuses for a pasted URL: a relative address, a scheme that is not
+ * http(s), and credentials baked into the URL. The diagnostic names both hosts, because "this map is
+ * refused" is only actionable if the scholar can see which server said what.
+ */
+function adoptDeclaredId(declaredId: string, at: { url: string; host: string }): string {
+	try {
+		// The normalised href rather than the input, as at the ADR-0018 parser boundary: returning the
+		// original would make the fragment stripping advisory, and `generateId` hashes what it is given.
+		return remoteIiifUrl(declaredId).href;
+	} catch (cause) {
+		throw new RemoteIiifRejectedError({
+			...at,
+			reason:
+				`${at.host} answered with an image description that names itself “${declaredId}”, and ` +
+				`Ballastella will not adopt that as this map's address: ${message(cause)}\n\n` +
+				`Every tile request, the identifier this Historical Map is filed under, and the citation ` +
+				`written beside it all come from that address, so it is checked exactly as a pasted one ` +
+				`is. Nothing has been added.`
+		});
+	}
 }
 
 /** The `id` (Image API 3) or `@id` (Image API 2) a document declares, if it declares one. */

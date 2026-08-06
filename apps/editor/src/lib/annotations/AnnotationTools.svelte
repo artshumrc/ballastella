@@ -37,12 +37,20 @@
 	} = $props();
 
 	/** The tools, in the order they are offered. `select` first, because it is the resting state. */
-	const TOOLS: { tool: AnnotationTool; hint: string }[] = [
-		{ tool: 'select', hint: 'Choose a pin, line, or shape already on the map' },
-		{ tool: 'point', hint: 'Place a pin at one place' },
-		{ tool: 'line', hint: 'Draw a route or a boundary as a line' },
-		{ tool: 'polygon', hint: 'Draw an area as a shape' }
-	];
+	const TOOLS: AnnotationTool[] = ['select', 'point', 'line', 'polygon'];
+
+	/**
+	 * What the region below says: **the tool by name**, then the gesture.
+	 *
+	 * The name is here rather than only in the pressed button because the criterion is that the active
+	 * tool is *announced*, and a highlight is not an announcement — nor is `data-tool`, which is a test
+	 * attribute and reaches nobody. Each tool's own status line then says what to do with it, which is
+	 * where the four per-button `title` tooltips went: CONTRIBUTING is explicit that a tooltip is not an
+	 * information channel, and this is text that is both visible and read out.
+	 */
+	const announcement = $derived(
+		disabled ? 'Add an Annotation Layer to start drawing.' : `${toolName(tool)} tool. ${status}`
+	);
 </script>
 
 <div class="flex flex-col gap-2">
@@ -53,18 +61,17 @@
 		`<button>` set does not have.
 	-->
 	<div role="toolbar" aria-label="Annotation tools" class="join" data-testid="annotation-tools">
-		{#each TOOLS as entry (entry.tool)}
+		{#each TOOLS as entry (entry)}
 			<button
 				type="button"
 				class="btn join-item btn-sm"
-				class:btn-primary={tool === entry.tool}
-				aria-pressed={tool === entry.tool}
+				class:btn-primary={tool === entry}
+				aria-pressed={tool === entry}
 				{disabled}
-				data-testid="annotation-tool-{entry.tool}"
-				title={entry.hint}
-				onclick={() => onchoose(entry.tool)}
+				data-testid="annotation-tool-{entry}"
+				onclick={() => onchoose(entry)}
 			>
-				{toolName(entry.tool)}
+				{toolName(entry)}
 			</button>
 		{/each}
 	</div>
@@ -74,8 +81,9 @@
 		because the save indicator already owns that role on this page — the same reason the Layer
 		list's move announcement and the pairing prompt are `aria-live` too.
 
-		`data-tool` and `data-vertices` are how the Playwright suite reads the state of the gesture,
-		which is a question about the app rather than about the canvas.
+		`data-tool` and `data-drawing` are how the Playwright suite drives the gesture, which is a
+		question about the app rather than about the canvas. They are not what carries the tool to a
+		user: the sentence does, and the suite asserts that sentence.
 	-->
 	<p
 		class="min-h-6 text-sm opacity-80"
@@ -85,7 +93,7 @@
 		data-tool={tool}
 		data-drawing={drawing ? 'true' : 'false'}
 	>
-		{disabled ? 'Add an Annotation Layer to start drawing.' : status}
+		{announcement}
 	</p>
 
 	{#if drawing}

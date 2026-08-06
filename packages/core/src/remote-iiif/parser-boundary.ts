@@ -19,6 +19,7 @@
 // this one call, it refuses anything that is not a URI string, and the refusal names the rule.
 
 import { RemoteIiifRejectedError, remoteIiifUrl } from './remote-resource.js';
+import { canonicalServiceUri } from './service-uri.js';
 
 /**
  * Thrown when something other than an image service URI is handed across the parser boundary.
@@ -69,10 +70,10 @@ export function imageServiceUriCrossingBoundary(selected: unknown): string {
 		});
 	}
 	// Returns the normalised href rather than the input: the fragment stripping and scheme check in
-	// `remoteIiifUrl` are the point, and returning the original would make them advisory.
-	return remoteIiifUrl(trimmed)
-		.href.replace(/\/info\.json$/, '')
-		.replace(/\/$/, '');
+	// `remoteIiifUrl` are the point, and returning the original would make them advisory. The spelling
+	// is then `canonicalServiceUri`'s, the same one the pasted-URL path and `remote.json` use, so a
+	// canvas and a paste that name one service cannot become two Historical Maps.
+	return canonicalServiceUri(remoteIiifUrl(trimmed).href);
 }
 
 const describe = (value: unknown): string => {

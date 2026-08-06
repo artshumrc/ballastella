@@ -4,5 +4,21 @@ import { defineConfig } from 'vite';
 
 // Adapter, `paths.relative`, and compiler options live in svelte.config.js.
 export default defineConfig({
-	plugins: [tailwindcss(), sveltekit()]
+	plugins: [tailwindcss(), sveltekit()],
+
+	// **`maplibre-gl` must go through Vite's own pipeline on the server side, or `pnpm dev` is a 500
+	// on every route.** The package ships an ESM build and a CommonJS one. Bundling picks the ESM
+	// build, so `import { Map, NavigationControl, Popup, addProtocol }` resolves and every built app
+	// works. Left external, Node loads the CommonJS build instead, whose named exports do not exist as
+	// ES bindings — and because the panes reach it through `@ballastella/core/render`, the SSR pass of
+	// the root route died with "Named export 'Popup' not found" before rendering a byte.
+	//
+	// It went unnoticed because **nothing tests development mode**: the browser suite runs against
+	// `apps/*/build`, and the shipped site is prerendered static files (ADR-0006) with no SSR server at
+	// all, so production was genuinely fine while the developer loop was completely broken.
+	//
+	// Do not "fix" this at the import sites with `import maplibregl from 'maplibre-gl'` and a
+	// destructure. That is what the Vite error message suggests, and it fails the other way round:
+	// once this line is here the ESM build is what loads, and it has no default export.
+	ssr: { noExternal: ['maplibre-gl'] }
 });

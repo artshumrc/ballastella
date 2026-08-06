@@ -157,6 +157,22 @@
 		<fieldset class="rounded border border-base-300 p-3">
 			<legend class="px-1 text-sm font-semibold">This Layer's default style</legend>
 			<div class="flex flex-col gap-2">
+				<!--
+					One control writing **two** simplestyle properties, because a pin's colour is not a line's.
+					`marker-color` is what paints a pin and `stroke` is what paints a line, an outline, and a
+					pin's own thin ring — so a control labelled "Line and pin colour" that wrote `stroke` alone
+					left every pin at simplestyle's grey `#7e7e7e` and contradicted its own label. Two separate
+					controls are the alternative and are what the per-Annotation editor has; here they would
+					make the bulk affordance two actions where "make this Layer's Annotations blue" is one.
+					Anything an Annotation sets for itself still wins, per property (ADR-0009) — so the pin
+					whose own colour differs from the Layer's still shows its 1px `stroke` ring, and a pin
+					taking the Layer's default draws that ring in its own colour and so has none to see.
+
+					The swatch shows `stroke`, because this control writes the two together and is the only
+					thing in the app that sets either on a Layer. A `defaultStyle` that arrived from somewhere
+					else with only `marker-color` therefore shows the line colour until this is used, which
+					then makes them agree.
+				-->
 				<label class="flex items-center justify-between gap-2 text-sm">
 					<span>Line and pin colour</span>
 					<input
@@ -164,11 +180,13 @@
 						class="h-8 w-16"
 						value={layer.defaultStyle.stroke ?? SIMPLESTYLE_DEFAULTS.stroke}
 						data-testid="layer-default-stroke"
-						oninput={(event) =>
+						oninput={(event) => {
+							const colour = event.currentTarget.value;
 							onlayerstyle(
-								{ ...layer.defaultStyle, stroke: event.currentTarget.value },
+								{ ...layer.defaultStyle, stroke: colour, 'marker-color': colour },
 								{ debounce: true }
-							)}
+							);
+						}}
 						onchange={() => oncommit()}
 					/>
 				</label>

@@ -1,7 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+	bundledBaseMapArchive,
+	byteRange,
 	deployEditor,
+	deployEditors,
 	NEXT_VERSION_MARKER,
 	type EditorDeployment
 } from './support/editor-deployment';
@@ -382,6 +385,51 @@ test.describe('the web app manifest and the service worker scope', () => {
 	}
 });
 
+test.describe('two deployments of this app on one origin', () => {
+	/**
+	 * ADR-0006's other half, and the one a scope does not cover.
+	 *
+	 * A service worker's scope keeps two deployments' *registrations* apart, and every other test in
+	 * this file rests on that. **Cache storage is not scoped.** `caches.keys()` answers for the whole
+	 * origin, so each deployment sees the other's caches, and unless the deployment is written into
+	 * the names, `activate` reads them as some other app's litter and deletes them. Whichever
+	 * deployment was published second then takes the first one's offline shell with it — silently,
+	 * on a deployment nobody touched, discovered by a scholar in a reading room with no network.
+	 *
+	 * **Two sibling directories rather than a domain root and a subdirectory**, which is the same
+	 * failure and a cleaner statement of it: a deployment at the root has a scope of `/`, so it also
+	 * *controls* the subdirectory's pages until the more specific registration exists, and that
+	 * interleaving would make this test about something else. Two repositories on one GitHub Pages
+	 * user site — `user.github.io/ballastella/` and `user.github.io/teaching-ballastella/` — is the
+	 * shape here, and it is at least as ordinary.
+	 */
+	test('do not delete each other’s offline shell', async ({ page, context }) => {
+		const [first, second] = await deployEditors('/teaching/ballastella', '/research/ballastella');
+		try {
+			await installAndControl(page, first.url);
+			// A worker of its own, activating for the first time — and `activate` is the only thing in
+			// this application that ever deletes a cache.
+			await installAndControl(page, second.url);
+
+			// Four, not two: each deployment's shell and its Base Map, side by side on one origin.
+			expect(
+				await cacheNames(page),
+				'a deployment’s caches were swept away by its neighbour'
+			).toHaveLength(4);
+
+			// And the claim that is not about caches at all. With the network off, **both** deployments
+			// still open — the one installed first exactly as much as the one installed last.
+			await context.setOffline(true);
+			await page.goto(first.url);
+			await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
+			await page.goto(second.url);
+			await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
+		} finally {
+			await first.close();
+		}
+	});
+});
+
 test.describe('an offline working session', () => {
 	let site: EditorDeployment;
 
@@ -409,6 +457,9 @@ test.describe('an offline working session', () => {
 		});
 
 		await installAndControl(page, site.url);
+		// What `install` put there, kept so that the end of this session can be compared against it.
+		// See the assertion at the foot of the test.
+		const precached = await cachedUrls(page);
 		await emptyWorkspace(page);
 		await page.reload();
 
@@ -497,6 +548,192 @@ test.describe('an offline working session', () => {
 		// request carries `%20` — and the only sign of it was this warning.
 		expect(complaints, 'a Base Map file was not served from the cache').toEqual([]);
 		expect(errors, 'the app threw during the offline session').toEqual([]);
+
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **AND THE CACHES ARE STILL EXACTLY WHAT `install` MADE THEM.**
+		//
+		// The ticket's cache-contents criterion is worded "after a full working session", and this is
+		// where that session ends: a pyramid ingested, a Historical Map drawn warped over the Base Map,
+		// Control Points paired and repaired, an Annotation drawn, and every one of those written to
+		// OPFS. Inspecting the caches immediately after install — which is the only other place this
+		// suite looks inside them — asserts what `install` put there and says nothing at all about what
+		// a session adds, which is the half the four fences are actually about.
+		//
+		// Compared whole rather than filtered, because the interesting failure is an *addition*: one
+		// runtime `cache.put` on a path that passes every rule above would be invisible to a per-URL
+		// check written in terms of those rules, and is precisely what a later "just cache this too"
+		// looks like in a diff.
+		expect(await cachedUrls(page), 'the working session added something to a cache').toEqual(
+			precached
+		);
+	});
+});
+
+/**
+ * The other half of the same criterion, and the half the offline session cannot reach.
+ *
+ * ADR-0012's fences 3 and 4 are about *other people's servers* — a library's IIIF endpoint and a
+ * remote Base Map archive — and a session with the network off never asks either of them for
+ * anything, so it cannot show that what came back was not kept. This one runs online and asks both.
+ *
+ * Both are stood in for rather than reached. `gallica.example.test` does not exist and the catalog's
+ * remote archive is somebody's goodwill bucket; putting either in this suite's path would make a
+ * green run depend on the internet. What is under test is not their hosting, it is what this
+ * application does with bytes that arrive from somewhere that is not this deployment.
+ */
+test.describe('a working session that reaches other people’s servers', () => {
+	let site: EditorDeployment;
+
+	test.beforeEach(async () => {
+		site = await deployEditor();
+	});
+	test.afterEach(async () => {
+		await site.close();
+	});
+
+	/** A library's IIIF Image service: reached every time, cached never (ADR-0012 fence 3). */
+	const LIBRARY = 'gallica.example.test';
+	const SERVICE = `https://${LIBRARY}/iiif/3/btv1b8592433v`;
+	const REFERENCED_WIDTH = 700;
+	const REFERENCED_HEIGHT = 500;
+
+	test('reads a referenced Historical Map and a Base Map that needs the network, and caches neither', async ({
+		page,
+		context
+	}) => {
+		const errors: string[] = [];
+		page.on('pageerror', (error) => errors.push(`${error.name}: ${error.message}`));
+
+		const here = new URL(site.url).origin;
+		const archive = await bundledBaseMapArchive();
+		let libraryRequests = 0;
+		let remoteArchiveRequests = 0;
+
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// `context.route`, NOT `page.route`
+		//
+		// Every page in this file is under a service worker's control, and a request that has passed
+		// through a worker is not the page's own as far as Playwright is concerned — `page.route`,
+		// which is what every other fixture host in this repository uses, never sees it. This is the
+		// only interception in the suite that has to work from underneath a worker.
+		await context.route(
+			(url) =>
+				url.origin !== here && (url.hostname === LIBRARY || url.pathname.endsWith('.pmtiles')),
+			async (route) => {
+				const url = new URL(route.request().url());
+				const cors = { 'access-control-allow-origin': '*' };
+
+				// Somebody else's Base Map archive, answered with this deployment's own bundled bytes: a
+				// different *place* and identical behaviour, and the place is the whole of fence 4. Byte
+				// served by the same helper the deployment's own host uses, because `pmtiles` rejects a
+				// `200` longer than it asked for and would stop after one request.
+				if (url.pathname.endsWith('.pmtiles')) {
+					remoteArchiveRequests += 1;
+					const served = byteRange(
+						archive,
+						route.request().headers()['range'],
+						'application/octet-stream'
+					);
+					return route.fulfill({
+						status: served.status,
+						headers: { ...served.headers, ...cors },
+						body: served.body
+					});
+				}
+
+				libraryRequests += 1;
+				if (url.pathname.endsWith('/info.json')) {
+					return route.fulfill({
+						status: 200,
+						contentType: 'application/json',
+						headers: cors,
+						body: JSON.stringify({
+							'@context': 'http://iiif.io/api/image/3/context.json',
+							id: SERVICE,
+							type: 'ImageService3',
+							protocol: 'http://iiif.io/api/image',
+							profile: 'level2',
+							width: REFERENCED_WIDTH,
+							height: REFERENCED_HEIGHT,
+							tiles: [{ width: 256, height: 256, scaleFactors: [1, 2] }]
+						})
+					});
+				}
+				const tile = /\/\d+,\d+,\d+,\d+\/(\d+),(\d+)\/0\/default\.(jpg|png)$/.exec(url.pathname);
+				if (!tile) return route.fulfill({ status: 404, headers: cors, body: 'no such tile' });
+				return route.fulfill({
+					status: 200,
+					contentType: 'image/png',
+					headers: cors,
+					body: gradientPng(Number(tile[1]), Number(tile[2]))
+				});
+			}
+		);
+
+		await installAndControl(page, site.url);
+		// What `install` put there. Everything below has to leave it exactly so.
+		const precached = await cachedUrls(page);
+		await emptyWorkspace(page);
+		await page.reload();
+
+		const imageId = await startProjectWithMap(page);
+		const project = new URL(page.url()).searchParams.get('p');
+		expect(project, 'a Project is addressed by ?p= (ADR-0008)').not.toBeNull();
+
+		// A Historical Map this Project references rather than holds, written beside the local one.
+		// Behind the app's back because the route that produces one is ticket 14's, and what is under
+		// test here is only what happens to the tiles once they arrive.
+		await writeProjectFile(
+			page,
+			'images/btv1b8592433v/remote.json',
+			JSON.stringify({
+				service: SERVICE,
+				label: 'Carte de la Floride',
+				width: REFERENCED_WIDTH,
+				height: REFERENCED_HEIGHT
+			})
+		);
+		await page.reload();
+		await expect(page.getByTestId('referenced-image-host')).toHaveText(LIBRARY);
+
+		// Reading it as a document is what actually pulls tiles off the library's server (SPEC story
+		// 48) — the pane alone would leave fence 3 asserted against a map nobody had loaded.
+		await page.getByTestId('view-unwarped').click();
+		await expect(page.getByTestId('unwarped-view')).toBeVisible();
+		await expect.poll(() => libraryRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(1);
+		await page.getByTestId('unwarped-close').click();
+
+		// A Control Point pair, so that this is a working session and not a tour.
+		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
+			'data-tiles-loaded',
+			'true',
+			{ timeout: TILES_READY_MS }
+		);
+		await makePair(page, [0.4, 0.4]);
+		await waitForStored(page, imageId, 1);
+
+		// And the Base Map this deployment's catalog marks as needing the network — chosen *by that
+		// marking* rather than by its id, because ADR-0020 makes the catalog a fork's to replace and a
+		// test naming an entry would be one more thing a fork had to change.
+		await page.goto(`${site.url}base-map?p=${project}`);
+		const switcher = page.getByRole('combobox', { name: 'Base Map' });
+		// Located rather than read out of an `evaluateAll`, which does not auto-wait: straight after
+		// `goto` that ran against the options the client had not rendered yet, found none, and failed
+		// claiming the catalog offers no such entry. On a slower machine it would have failed; on a
+		// faster one it would have passed. A locator retries until the catalog is on the page.
+		const remote = switcher.locator('option', { hasText: /needs network/i });
+		await expect(remote, 'this catalog offers no Base Map that needs the network').toHaveCount(1);
+		await switcher.selectOption(await remote.getAttribute('value'));
+		await expect.poll(() => remoteArchiveRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(0);
+
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **AND NOT ONE BYTE OF EITHER OF THEM IS IN A CACHE.**
+		//
+		// Compared whole against what `install` left, rather than filtered by host: the failure worth
+		// catching is an *addition*, and a check written as "no URL from these two hosts" would wave
+		// through the next thing somebody decides to keep.
+		expect(await cachedUrls(page), 'the session added something to a cache').toEqual(precached);
+		expect(errors, 'the app threw during the session').toEqual([]);
 	});
 });
 
@@ -709,16 +946,27 @@ test.describe('an update, and who decides when', () => {
 	 * about.
 	 */
 	async function publishAndDiscover(page: Page): Promise<void> {
-		site.publishNewVersion();
-		await page.evaluate(async () => {
-			const registration = await navigator.serviceWorker.getRegistration();
-			await registration?.update();
-		});
+		await publishAndCheck(page);
 		await page.waitForFunction(
 			async () => (await navigator.serviceWorker.getRegistration())?.waiting !== null,
 			undefined,
 			{ timeout: INSTALL_MS }
 		);
+	}
+
+	/**
+	 * The same, without waiting for the new worker to *wait*.
+	 *
+	 * On an uncontrolled page it never will: there is no client using the registration for the
+	 * browser to protect, so the new worker activates the moment it has installed. That is the case
+	 * the test below is about, and `publishAndDiscover` would time out on it.
+	 */
+	async function publishAndCheck(page: Page): Promise<void> {
+		site.publishNewVersion();
+		await page.evaluate(async () => {
+			const registration = await navigator.serviceWorker.getRegistration();
+			await registration?.update();
+		});
 	}
 
 	test('the prompt appears, nothing reloads, and the alignment in progress is untouched', async ({
@@ -879,11 +1127,90 @@ test.describe('an update, and who decides when', () => {
 		await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
 		await expect(page.getByTestId('update-prompt')).toBeHidden();
 
-		// And the old build's caches are gone, replaced by the new build's — which is `activate` having
-		// run, and therefore the new worker genuinely being in charge rather than merely being present.
-		// Two caches and both from the new build: a shell half of one build and half of another is the
-		// version skew ADR-0010 is about.
+		// And the old build's caches are gone — which is `activate` having run, and therefore the new
+		// worker genuinely being in charge rather than merely being present. Two caches where a moment
+		// ago there were four: a shell half of one build and half of another is the version skew
+		// ADR-0010 is about, and the marker above already says *which* build is serving. Deliberately
+		// no assertion about how a cache is named: SPEC's Testing Decisions rule out asserting on
+		// private structure, and a cache name is this worker's business and nobody else's.
 		await expect.poll(() => cacheNames(page), { timeout: INSTALL_MS }).toHaveLength(2);
-		for (const name of await cacheNames(page)) expect(name).toContain('-next-');
+	});
+
+	test('a version published to a page that no worker controls is still announced', async ({
+		page
+	}) => {
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **THE FIRST-EVER VISIT, WHICH IS EVERY USER'S FIRST VISIT.**
+		//
+		// `installAndControl` is deliberately not used here, and its reload is exactly why: a newly
+		// installed worker does not claim the page that installed it, so the first load of this app in
+		// a browser stays uncontrolled for its whole life. Every other update test in this file starts
+		// from the reload, and so none of them could see what this one is about.
+		//
+		// The consequence is the sharp end of ADR-0012. An uncontrolled page is not a client of the
+		// registration, so a version published during this session has nothing to wait behind: the
+		// browser installs it, activates it, and `activate` deletes the caches the previous build
+		// filled. Nothing a page can do prevents that — but being told is the whole of story 9, and
+		// the guard that asked "is there a waiting worker *and* am I controlled" answered no to both
+		// halves here and said nothing at all.
+		await page.goto(site.url);
+		await waitForReady(page);
+		expect(
+			await page.evaluate(() => navigator.serviceWorker.controller === null),
+			'this page is already controlled, so it is not the case under test'
+		).toBe(true);
+
+		await publishAndCheck(page);
+
+		await expect(page.getByTestId('update-prompt')).toBeVisible({ timeout: INSTALL_MS });
+		await expect(page.getByTestId('update-prompt')).toContainText('new version');
+
+		// And taking it lands on the new build, said by the marker in its entry HTML.
+		await page.getByTestId('update-reload').click();
+		await expect(page.locator(`meta[name="${NEXT_VERSION_MARKER}"]`)).toHaveCount(1, {
+			timeout: INSTALL_MS
+		});
+		await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
+	});
+
+	test('an update the deployment cannot answer for is refused, and the offline shell survives', async ({
+		page
+	}) => {
+		await installAndControl(page, site.url);
+		await publishAndDiscover(page);
+		await expect(page.getByTestId('update-prompt')).toBeVisible();
+
+		// A mark that survives nothing: if this page reloads at all, it is gone.
+		await page.evaluate(() => {
+			(window as unknown as { ballastellaAlive?: string }).ballastellaAlive = 'the same document';
+		});
+
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **THE CONNECTION GOES, AND THE BROWSER DOES NOT NOTICE.**
+		//
+		// Not `setOffline`, deliberately. That flips `navigator.onLine`, which disables the button, so
+		// it drives the case the app can already see coming. This is the other one: a captive portal, a
+		// wifi network with no route out, a connection that dropped a moment ago — the browser is
+		// certain it is online, the button is enabled, and the user clicks it. Taking the update means
+		// dropping the registration and reloading, and if the reload does not arrive the user is left
+		// with no worker, no controlled page, and no offline shell: worse off than if they had never
+		// been offered it, which is the opposite of what this ticket is for.
+		await site.stopServing();
+		await page.getByTestId('update-reload').click();
+
+		await expect(page.getByTestId('update-unreachable')).toBeVisible();
+		await expect(page.getByTestId('update-prompt')).toBeVisible();
+		expect(
+			await page.evaluate(
+				() => (window as unknown as { ballastellaAlive?: string }).ballastellaAlive
+			),
+			'the page was reloaded into a deployment that could not answer it'
+		).toBe('the same document');
+
+		// **And the shell is still on this computer**, which is the whole reason the registration was
+		// not dropped. There is no server left, so this reload can only be served out of the cache.
+		await page.reload();
+		await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'New Project' })).toBeVisible();
 	});
 });

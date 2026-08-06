@@ -57,7 +57,15 @@ function watchFailures(page: Page): string[] {
 	return failures;
 }
 
-/** The style property names simplestyle 1.1.0 defines, plus ADR-0009's one extension. */
+/**
+ * The style property names simplestyle 1.1.0 defines, plus ADR-0009's one extension.
+ *
+ * The same eleven names as `SIMPLESTYLE_PROPERTIES` in `@ballastella/core`, written out again because
+ * the Playwright project cannot import them: it is the workspace root, which declares no dependency on
+ * `@ballastella/core` and resolves nothing from it. Re-declaring is the lesser evil — the point of the
+ * assertion is that the app writes *the spec's* names, and a list copied from the spec is a better
+ * witness to that than one imported from the code under test.
+ */
 const SIMPLESTYLE_NAMES = new Set([
 	'title',
 	'description',
@@ -871,6 +879,23 @@ test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
 	});
 });
 
+/**
+ * What MapLibre says it painted each Annotation with, by the Annotation's own id.
+ *
+ * The resolved style off the render copy, which is the only place the whole precedence chain is
+ * visible: the file holds what the user set, the Layer holds its default, and this is the answer.
+ */
+const renderedStyles = (page: Page) =>
+	page.evaluate(() => {
+		const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
+		const out: Record<string, Record<string, unknown>> = {};
+		for (const feature of map?.queryRenderedFeatures() ?? []) {
+			const id = feature.properties?.['ballastella:id'];
+			if (typeof id === 'string') out[id] = feature.properties;
+		}
+		return out;
+	});
+
 /** One LineString `Feature`, for a seeded fixture. */
 const line = (
 	id: string,
@@ -908,15 +933,7 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 		await writeProjectFile(page, 'project.json', JSON.stringify(project, null, '\t'));
 		await reopenLayers(page);
 
-		const styles = await page.evaluate(() => {
-			const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
-			const out: Record<string, Record<string, unknown>> = {};
-			for (const feature of map?.queryRenderedFeatures() ?? []) {
-				const id = feature.properties?.['ballastella:id'];
-				if (typeof id === 'string') out[id] = feature.properties;
-			}
-			return out;
-		});
+		const styles = await renderedStyles(page);
 
 		// The inheriting Annotation draws with the Layer's colour and width.
 		expect(styles['inherits']?.['stroke']).toBe('#112233');
@@ -949,26 +966,54 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 			[0.3, 0.6],
 			[0.7, 0.65]
 		]);
+		// **And a pin**, because a pin is painted from `marker-color` and a line from `stroke`. A control
+		// labelled "Line and pin colour" that wrote only `stroke` left every pin at simplestyle's own
+		// grey, and this test could not see it while it drew nothing but lines.
+		await drawPin(page, 0.5, 0.5);
 		const before = await hashesUnder(page, 'annotations/');
 
 		await page.getByTestId('layer-default-stroke').fill('#112233');
 		await page.getByTestId('layer-default-line-style').selectOption('dashed');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
-		// It landed on the Layer, as a tuple and not a keyword.
+		// It landed on the Layer, under both colour names and as a tuple rather than a keyword.
 		const layer = (await projectJson(page)).layers.find(
 			(one: { id: string }) => one.id === layerId
 		);
-		expect(layer.defaultStyle).toEqual({ stroke: '#112233', 'stroke-dasharray': [8, 4] });
+		expect(layer.defaultStyle).toEqual({
+			stroke: '#112233',
+			'marker-color': '#112233',
+			'stroke-dasharray': [8, 4]
+		});
 
-		// Both Annotations now draw with it, and both are in the dashed bucket.
+		// All three now draw with it: the lines in the dashed bucket, the pin in the new colour.
 		const stored = await storedAnnotations(page, layerId);
+		const isPin = (feature: { geometry: { type: string } | null }) =>
+			feature.geometry?.type === 'Point';
+		// Polled, because this asks what MapLibre has *drawn*: changing the Layer's default replaces the
+		// source, and asking before the next frame answers about the one before it — which would read as
+		// "the bulk restyle did not reach this Annotation".
+		await expect
+			.poll(
+				async () => {
+					const drawn = await renderedStyles(page);
+					return stored.features.every(
+						(feature) =>
+							drawn[feature.id]?.[isPin(feature) ? 'marker-color' : 'stroke'] === '#112233'
+					);
+				},
+				{ timeout: 20_000 }
+			)
+			.toBe(true);
+
 		const painted = await waitForPaintedAnnotations(
 			page,
 			stored.features.map((feature) => feature.id)
 		);
 		for (const feature of stored.features) {
-			expect(painted[feature.id]).toContain(`ballastella-layer-${layerId}-line-dashed`);
+			expect(painted[feature.id]).toContain(
+				`ballastella-layer-${layerId}-${isPin(feature) ? 'point' : 'line-dashed'}`
+			);
 			// And nothing was stamped into the file: that is what makes the next bulk change possible.
 			expect(feature.properties).toEqual({});
 		}
@@ -985,13 +1030,7 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 		]);
 		const id = (await storedAnnotations(page, layerId)).features[0]!.id;
 
-		const drawnWith = await page.evaluate((id) => {
-			const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
-			for (const feature of map?.queryRenderedFeatures() ?? []) {
-				if (feature.properties?.['ballastella:id'] === id) return feature.properties;
-			}
-			return null;
-		}, id);
+		const drawnWith = (await renderedStyles(page))[id];
 
 		expect(drawnWith?.['stroke']).toBe('#555555');
 		expect(drawnWith?.['stroke-width']).toBe(2);
@@ -1099,13 +1138,21 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		const failures = watchFailures(page);
 		const layerId = await startAnnotating(page);
 
-		// Each tool is a real button whose pressed state is announced, not merely drawn.
-		for (const tool of ['select', 'point', 'line', 'polygon'] as const) {
+		// Each tool is a real button whose pressed state is announced, not merely drawn — and the region
+		// **names the tool in words**. The criterion is that the active tool is announced, so what is
+		// asserted is the announced text: `data-tool` is a test attribute and reaches nobody, and a
+		// toolbar could satisfy it while the live region said nothing about which tool was in hand.
+		for (const [tool, spoken] of [
+			['select', 'Select tool.'],
+			['point', 'Pin tool.'],
+			['line', 'Line tool.'],
+			['polygon', 'Shape tool.']
+		] as const) {
 			const button = page.getByTestId(`annotation-tool-${tool}`);
 			await tabTo(page, button, `the ${tool} tool`);
 			await page.keyboard.press('Enter');
 			await expect(button).toHaveAttribute('aria-pressed', 'true');
-			await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', tool);
+			await expect(page.getByTestId('annotation-status')).toContainText(spoken);
 		}
 
 		// The toolbar announces itself as one set of alternatives.

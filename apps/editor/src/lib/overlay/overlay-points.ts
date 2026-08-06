@@ -29,12 +29,16 @@ import { Marker, type LngLatLike, type Map as MapLibreMap } from 'maplibre-gl';
  * is in image pixel space, so it has no meaning on the Base Map. A vertex can be moved and
  * removed; an edge handle sits at the midpoint of an edge and adds a vertex there.
  *
- * `annotation-vertex`, `annotation-edge`, and `annotation-draft` are ticket 10's, on the Base Map
- * only — an Annotation is on real geography. The first two are the same pair of affordances the mask
- * has, for the same reason: an Annotation's vertex is the same object to a keyboard as a Control
- * Point or a mask corner, so it arrives on this seam rather than inside a WebGL drawing library that
- * cannot be focused. `annotation-draft` is a vertex of a shape still being placed — it has no
- * identity to move or delete yet, so it is drawn and not operable.
+ * `annotation-vertex` and `annotation-draft` are ticket 10's, on the Base Map only — an Annotation is
+ * on real geography. A vertex is the same object to a keyboard as a Control Point or a mask corner, so
+ * it arrives on this seam rather than inside a WebGL drawing library that cannot be focused.
+ * `annotation-draft` is a vertex of a shape still being placed — it has no identity to move or delete
+ * yet, so it is drawn and not operable.
+ *
+ * There is deliberately **no** `annotation-edge` to match `mask-edge`. Ticket 10 declared one, gave it
+ * a `+` glyph and a style, and never emitted a single one: inserting a vertex into a line or a shape is
+ * not in that ticket. A kind nothing produces is an affordance the code promises and the app does not
+ * have, so it is not here until something draws it.
  */
 export type OverlayPointKind =
 	| 'reference'
@@ -43,23 +47,30 @@ export type OverlayPointKind =
 	| 'mask-vertex'
 	| 'mask-edge'
 	| 'annotation-vertex'
-	| 'annotation-edge'
 	| 'annotation-draft';
 
 /**
- * The kinds a user can operate: focusable `<button>`s, draggable, arrow-key movable, Delete-able.
+ * The kinds a user can operate: focusable `<button>`s, draggable and arrow-key movable where the
+ * caller supplies {@link OverlayPoint.onmoveend}, and Delete-able where it supplies
+ * {@link OverlayPoint.ondelete}.
  *
- * A set rather than a comparison, because there are now five of them and the list is the whole of
- * the distinction. Anything not here is a label — `aria-hidden`, `pointer-events: none`, so clicks
- * reach the map underneath. `annotation-draft` is deliberately absent: a vertex of a shape still
- * being placed must not swallow the very next click, which is the click that places the next one.
+ * A set rather than a comparison, because there are four of them and the list is the whole of the
+ * distinction. Anything not here is a label — `aria-hidden`, `pointer-events: none`, so clicks reach
+ * the map underneath. `annotation-draft` is deliberately absent: a vertex of a shape still being placed
+ * must not swallow the very next click, which is the click that places the next one.
+ *
+ * The two callbacks are per point rather than per kind, so what a handle can do is whatever the pane
+ * asked for: a Control Point and a Resource Mask corner are deleted from their own handle, and an
+ * Annotation's vertex currently is not — an Annotation is deleted whole, from the panel beside the map,
+ * and removing one vertex of a three-vertex shape has no defined answer yet. Delete on an Annotation's
+ * vertex therefore does nothing at all, which is said here rather than left implied by a doc that
+ * promises every interactive kind is Delete-able.
  */
 const INTERACTIVE_KINDS: ReadonlySet<OverlayPointKind> = new Set<OverlayPointKind>([
 	'control-point',
 	'mask-vertex',
 	'mask-edge',
-	'annotation-vertex',
-	'annotation-edge'
+	'annotation-vertex'
 ]);
 
 /** How far one arrow-key press moves a point, in screen pixels. */

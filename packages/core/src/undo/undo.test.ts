@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
 import { Autosave } from '../autosave/autosave.js';
-import { emptyCollection, newAnnotation, removeAnnotation } from '../annotation/annotation.js';
+import {
+	emptyCollection,
+	insertAnnotationAt,
+	newAnnotation,
+	removeAnnotation
+} from '../annotation/annotation.js';
 import { parseAnnotations, serialiseAnnotations } from '../annotation/geojson.js';
 import {
+	insertLayerAt,
 	newAnnotationLayer,
 	newMapLayer,
 	parseLayers,
 	removeLayer,
 	serialiseLayers,
-	setLayerVisible,
 	type Layer
 } from '../project/layer.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
@@ -18,9 +23,7 @@ import {
 	describeUndo,
 	isControlPointUndo,
 	layerFileRef,
-	restoreAnnotation,
 	restoreControlPoint,
-	restoreLayer,
 	type AnnotationDeletedUndo,
 	type ControlPointDeletedUndo,
 	type ControlPointMovedUndo,
@@ -189,6 +192,12 @@ describe('a deleted Control Point pair', () => {
 	});
 });
 
+/**
+ * A deleted Annotation goes back through `insertAnnotationAt` — the ordinary insert, called with the
+ * record's `annotation` and its `at`, exactly as `routes/layers/+page.svelte` calls it. Driven here
+ * rather than through a pass-through of undo's own, because a second name for one insert is a second
+ * thing to keep true; what is undo's about these is *which* arguments the record supplies.
+ */
 describe('a deleted Annotation', () => {
 	const dashed = {
 		...newAnnotation({
@@ -225,7 +234,7 @@ describe('a deleted Annotation', () => {
 		const after = removeAnnotation(collection, 'a2');
 		expect(after.annotations).toHaveLength(2);
 
-		const back = restoreAnnotation(after, record);
+		const back = insertAnnotationAt(after, record.annotation, record.at);
 		expect(back.annotations.map((one) => one.id)).toEqual(['a1', 'a2', 'a3']);
 		expect(back.annotations[1]).toEqual(dashed);
 	});
@@ -244,15 +253,16 @@ describe('a deleted Annotation', () => {
 		};
 
 		const emptied = removeAnnotation(collection, 'a2');
-		const back = restoreAnnotation(emptied, record);
+		const back = insertAnnotationAt(emptied, record.annotation, record.at);
 
 		expect(serialiseAnnotations(back)).toEqual(before);
 		// And through a parse, which is what the app actually holds after a reload.
 		expect(
 			serialiseAnnotations(
-				restoreAnnotation(
+				insertAnnotationAt(
 					parseAnnotations(serialiseAnnotations(emptied), { path: 'annotations/l-notes.geojson' }),
-					record
+					record.annotation,
+					record.at
 				)
 			)
 		) //
@@ -268,7 +278,7 @@ describe('a deleted Annotation', () => {
 			annotation: dashed
 		};
 
-		expect(restoreAnnotation(collection, record)).toBe(collection);
+		expect(insertAnnotationAt(collection, record.annotation, record.at)).toBe(collection);
 	});
 
 	it('puts one back into a collection that has since been emptied', () => {
@@ -279,10 +289,17 @@ describe('a deleted Annotation', () => {
 			annotation: dashed
 		};
 
-		expect(restoreAnnotation(emptyCollection(), record).annotations).toEqual([dashed]);
+		expect(insertAnnotationAt(emptyCollection(), record.annotation, record.at).annotations).toEqual(
+			[dashed]
+		);
 	});
 });
 
+/**
+ * And a deleted Layer goes back through `insertLayerAt`, which is what `EditorSession.#restoreLayer`
+ * calls. Its *file* is not that function's business — the bytes are in the record and go back through
+ * the store, which is the block below.
+ */
 describe('a deleted Layer', () => {
 	const stack: readonly Layer[] = [notes, mapLayer];
 
@@ -298,7 +315,7 @@ describe('a deleted Layer', () => {
 		const after = removeLayer(stack, 'l-map');
 		expect(after.map((layer) => layer.id)).toEqual(['l-notes']);
 
-		const back = restoreLayer(after, record);
+		const back = insertLayerAt(after, record.layer, record.at);
 		expect(back.map((layer) => layer.id)).toEqual(['l-notes', 'l-map']);
 		// `order` follows the position, so the restored Layer's stored number agrees with the array.
 		expect(back.map((layer) => layer.order)).toEqual([0, 1]);
@@ -322,11 +339,12 @@ describe('a deleted Layer', () => {
 			bytes: null
 		};
 
-		// The identity return is the no-op signal, so the caller writes nothing at all.
-		expect(restoreLayer(stack, record)).toBe(stack);
+		// The identity return is the no-op signal, so the caller writes nothing at all — `#restoreLayer`
+		// checks for exactly this and returns before it touches `project.json`.
+		expect(insertLayerAt(stack, record.layer, record.at)).toBe(stack);
 		// And the document that would have been written holds one Layer per id, which is the property
 		// `parseLayers` would otherwise enforce by throwing one away.
-		const written = parseLayers(serialiseLayers(restoreLayer(stack, record)));
+		const written = parseLayers(serialiseLayers(insertLayerAt(stack, record.layer, record.at)));
 		expect(written.filter((layer) => layer.id === 'l-map')).toHaveLength(1);
 	});
 
@@ -348,11 +366,16 @@ describe('a deleted Layer', () => {
 });
 
 /**
- * The crux of the ticket, at the level a unit test can reach it: the record holds the bytes, so what
- * goes back is what was there — not a re-serialisation of a parsed model, and not whatever the store
- * happens to hold at the moment undo is pressed.
+ * The crux of the ticket at the level a unit test can reach it: a deletion driven all the way to
+ * storage, offered to the slot, and then reversed **by taking the slot and running what it hands
+ * back** — so what is exercised is the record, the slot, and the bytes going back through `Autosave`,
+ * rather than a rehearsal of those steps by hand.
+ *
+ * What is *not* here is `EditorSession.deleteLayer` and its `#restoreLayer`, which assemble the record
+ * and supply the closure below in the running app; those need a browser and are the first two tests of
+ * `e2e/editor-undo.e2e.ts`, which assert the restored file byte-for-byte against the deleted one.
  */
-describe('the record holds file bytes, independent of write state (ADR-0017)', () => {
+describe('a deletion reversed through the slot, after it reached storage (ADR-0017)', () => {
 	const path = 'amsterdam-1625/alignments/floride-1657.json';
 	// Deliberately *not* what `serialiseAlignment` would produce: a colleague's file, with fields this
 	// build carries rather than understands. A record that held a parsed Alignment would restore
@@ -362,29 +385,43 @@ describe('the record holds file bytes, independent of write state (ADR-0017)', (
 			'\t"type": "Annotation",\n\t"http://example.org/vocab#note": "kept"\n}\n'
 	);
 
-	it('puts the exact bytes back after autosave has already written the deletion', async () => {
+	it('puts the exact bytes and the stack entry back when the slot is taken', async () => {
 		const store = new MemoryProjectStore();
 		const autosave = new Autosave(store);
+		const slot = new UndoSlot();
 		await store.write(path, original);
+		let stack: readonly Layer[] = [notes, mapLayer];
 
-		// The destructive action, all the way to storage: the record is taken first, and then the file
-		// is gone from the store — which is the state a naive "revert to last saved state" cannot leave.
+		// The destructive action, all the way to storage: the bytes are read into the record first, and
+		// then the entry and the file are both gone — the state a naive "revert to the last saved state"
+		// cannot come back from, because the deletion *is* the last saved state.
 		const record: LayerDeletedUndo = {
 			kind: 'layer-deleted',
-			at: 0,
+			at: 1,
 			layer: mapLayer,
 			path: 'alignments/floride-1657.json',
 			bytes: await store.read(path)
 		};
+		stack = removeLayer(stack, 'l-map');
 		await store.delete(path);
+		// Offered exactly as `deleteLayer` offers it: the record, and a closure that puts the file back
+		// through the same Autosave as every other edit — there is no bespoke save path here.
+		slot.offer(record, async () => {
+			await autosave.commit(path, record.bytes as Uint8Array<ArrayBuffer>);
+			stack = insertLayerAt(stack, record.layer, record.at);
+		});
 		await expect(store.read(path)).rejects.toThrow(/Nothing is stored/);
+		expect(stack.map((layer) => layer.id)).toEqual(['l-notes']);
 
-		// The undo, through the same Autosave as every other edit — no bespoke save path.
-		await autosave.commit(path, record.bytes as Uint8Array<ArrayBuffer>);
+		// Undo pressed. `take` empties the slot and hands back the work, so a second press finds nothing.
+		await slot.take()?.();
 		await autosave.flush();
 
 		expect(await store.read(path)).toEqual(original);
+		expect(stack.map((layer) => layer.id)).toEqual(['l-notes', 'l-map']);
 		expect(autosave.state).toBe('saved');
+		expect(slot.record).toBeNull();
+		expect(slot.take()).toBeNull();
 	});
 
 	// The other half of "independent of write state": the record is a copy taken at the moment of
@@ -436,18 +473,13 @@ describe('the one undo slot (ADR-0014)', () => {
 		expect(slot.record).toBeNull();
 	});
 
-	// A non-destructive action cannot consume the slot, and that is structural rather than careful:
-	// nothing on the paths that rename, reorder, toggle, or restyle reaches this class at all. What is
-	// asserted here is the half a unit test can see — the slot is untouched by anything but `offer`.
-	it('survives an edit that is not destructive', () => {
-		const slot = new UndoSlot();
-		slot.offer(record(3), async () => undefined);
-
-		const toggled = setLayerVisible([notes, mapLayer], 'l-map', false);
-
-		expect(toggled[1]?.visible).toBe(false);
-		expect(describeUndo(slot.record as UndoRecord)).toBe('Undo delete of Control Point 3');
-	});
+	// **"A non-destructive edit leaves the delete still undoable" is not asserted here, deliberately.**
+	// Nothing on the paths that rename, reorder, toggle, or restyle reaches this class at all, so any
+	// unit test of it would call `setLayerVisible` on an array this slot has never heard of and then
+	// find the slot unchanged — true by construction, and green against an app that had wired a
+	// visibility toggle straight into `offer`. The claim is about the app's wiring, so it is asserted
+	// where the wiring is: `e2e/editor-undo.e2e.ts`, "a visibility toggle and a rename leave the delete
+	// still undoable".
 
 	it('tells a subscriber what is in it, now and on every change', () => {
 		const slot = new UndoSlot();

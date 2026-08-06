@@ -1,10 +1,12 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
 	servePublishedSite,
 	siteRecord,
+	writePublishedSite,
 	writeSiteFile,
 	type SiteFiles
 } from './support/published-site.js';
@@ -17,7 +19,7 @@ import {
 	projectFiles,
 	type ProjectFixture
 } from './support/reader-project.js';
-import type { StaticSite } from './support/static-site.js';
+import { serveDirectory, type StaticSite } from './support/static-site.js';
 
 /**
  * SPEC's Seam 2 for ticket 17: the read-only experience a Reader gets from a Published Site, driven in a
@@ -292,20 +294,27 @@ test.describe('untrusted text on a Published Site', () => {
 	 * `maps.digitalhumanities.harvard.edu` — and the Project it renders may have arrived from a stranger
 	 * by zip import (ticket 13) or from a remote library (ticket 14).
 	 *
-	 * **Three surfaces, and they are safe for two different reasons.** That distinction is inherited from
+	 * **Two surfaces, and they are safe for different reasons.** That distinction is inherited from
 	 * ticket 10 rather than rediscovered, and it is what stops a future edit "simplifying" the wrong one:
 	 *
 	 *   1. the **Annotation popup** — `renderAnnotationPopup`: the title HTML-escaped, the description
 	 *      through `marked` then DOMPurify, and the assembled document through DOMPurify again;
-	 *   2. the **site's own prose block** — the same `renderAnnotationPopup`, which is why it is authored
-	 *      as Markdown at all: it keeps the shared path live in the shipped bundle;
-	 *   3. the **names** — a Project's on the hub and a Layer's in the controls — where safety is
+	 *   2. the **names** — a Project's on the hub and a Layer's in the controls — where safety is
 	 *      **Svelte's text interpolation** and DOMPurify is not involved at all.
 	 *
-	 * Breaking the sanitiser therefore reddens the first two and correctly leaves the third green. That
+	 * Breaking the sanitiser therefore reddens the first and correctly leaves the second green. That
 	 * asymmetry was verified by mutation, not assumed: `sanitise` in
-	 * `packages/core/src/annotation/markdown.ts` was made to return its input, and the popup and prose
-	 * tests below went red while the name test stayed green.
+	 * `packages/core/src/annotation/markdown.ts` was made to return its input, and the popup tests
+	 * below went red while the name test stayed green.
+	 *
+	 * **There was a third surface and it is deliberately gone.** The hub page used to author its own
+	 * blurb as a pseudo-Annotation and `{@html}` it, so that the shared renderer stayed live in the
+	 * shipped bundle and a `{@html}` hydrating permanently blank would be caught. Ticket 10's review
+	 * found that surface was Reader-side popup behaviour this ticket owns, so it was removed along with
+	 * the app's last `{@html}`. Nothing was lost: the popup tests above load a Published Site in this
+	 * build and open a real popup, so they already prove the shared path is live here — and each of
+	 * them asserts the prose arrived *before* asserting what did not, which is the same blank-surface
+	 * guard the prose block was carrying.
 	 */
 	let site: { sites: StaticSite[]; directory: string; close(): Promise<void> } | null = null;
 
@@ -355,43 +364,6 @@ test.describe('untrusted text on a Published Site', () => {
 			expect(seen.failures).toEqual([]);
 		});
 	}
-
-	test('the site’s own prose block renders through the same sanitiser, and renders at all', async ({
-		page
-	}) => {
-		// ADR-0009 requires the renderer be exported from `core` and reused here rather than reimplemented.
-		// This asserts the shared path is **live in the viewer's own bundle**: the emphasis and the link
-		// below were produced by `marked` and then passed by DOMPurify, in that order, inside this build. A
-		// reimplementation in the viewer would have to remove working code to get here.
-		//
-		// **It is deliberately not a sanitiser assertion, and it cannot be one.** This prose is ours, so
-		// there is no payload for a sanitiser to remove — mutation-verified: with `sanitise` made to return
-		// its input, this test stays green while all eight popup payload tests and the ordering test go red.
-		// That is the correct division of labour and is recorded here so nobody later reads this test as
-		// covering the security property. What it *does* catch is the failure that would make every one of
-		// those payload assertions vacuous: a `{@html}` that renders nothing at all, permanently, because
-		// Svelte adopted prerendered nodes for it and never compared them.
-		site = await published(oneProject());
-		const seen = watch(page);
-
-		await page.goto(site.sites[0]!.url);
-
-		const text = page.getByTestId('viewer-annotation-text');
-		// That something rendered at all, before anything about what it does not contain. `{@html}` is not
-		// re-rendered during hydration — Svelte adopts the prerendered nodes and never compares them — so a
-		// permanently blank surface is a real failure mode of this exact expression, and it is one that
-		// passes every "nothing dangerous survived" check.
-		await expect(text).toContainText('published from one Ballastella Workspace');
-		await expect(text.locator('em')).toHaveText('look');
-		await expect(text.locator('strong')).toHaveText('cannot change it');
-		await expect(text.locator('a')).toHaveAttribute(
-			'href',
-			'https://github.com/artshumrc/ballastella#readme'
-		);
-
-		expect(await dangerousIn(text)).toEqual(INERT);
-		expect(seen.failures).toEqual([]);
-	});
 
 	test('a Project’s name and a Layer’s name are text, never markup — a different mechanism', async ({
 		page
@@ -734,9 +706,19 @@ test.describe('exploring a Project', () => {
 test.describe('the Base Map a Reader sees', () => {
 	let site: { sites: StaticSite[]; directory: string; close(): Promise<void> } | null = null;
 
+	/**
+	 * Teardown for the one test here that needs two Published Sites on **one** origin, which the shared
+	 * harness cannot give it: that serves each base path from its own port, and two ports are two
+	 * origins. A function rather than a site record, because what has to come down is a server plus the
+	 * two temporary directories behind it.
+	 */
+	let sharedOrigin: (() => Promise<void>) | null = null;
+
 	test.afterEach(async () => {
 		await site?.close();
 		site = null;
+		await sharedOrigin?.();
+		sharedOrigin = null;
 	});
 
 	/** The option labels the site's catalog offers, and which of them need the network. */
@@ -749,6 +731,25 @@ test.describe('the Base Map a Reader sees', () => {
 				text: option.textContent?.trim() ?? '',
 				needsNetwork: option.dataset.needsNetwork === 'true'
 			}))
+		);
+
+	/**
+	 * The Base Map's own painted colours, which is what a flavor is.
+	 *
+	 * Read before and after each of the two assertions below that a Base Map *changed*, because the
+	 * interesting failure is the one where the control moves and the map does not: a `<select>` that
+	 * agrees with itself satisfies the letter of both criteria while the Reader still looks at the
+	 * same paint. The paint is what a Reader with low vision actually receives, so it is what is
+	 * compared — and comparing it against a value captured beforehand is what makes a style that
+	 * never changed a failure rather than a pass.
+	 */
+	const paint = (page: Page) =>
+		page.evaluate(() =>
+			JSON.stringify(
+				window
+					.ballastellaReaderMap!.map.getStyle()
+					.layers.map((layer) => ('paint' in layer ? layer.paint : null))
+			)
 		);
 
 	test('starts at the author’s default, not at the deployment’s', async ({ page }) => {
@@ -837,32 +838,70 @@ test.describe('the Base Map a Reader sees', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('two Published Sites on different paths do not share a preference', async ({ page }) => {
+	test('two Published Sites on different paths of one origin do not share a preference', async ({
+		page
+	}) => {
 		// `localStorage` is per **origin**, and a department domain with a folder per student — or one
 		// `username.github.io` with a repository per semester — is the ordinary case rather than an edge
 		// one. One key would mean a Reader's choice on one scholar's site silently reframing another's.
 		//
-		// Both sites here are served from **the same directory**, so the only thing that differs is the
-		// path. That is what makes this a test of the keying rather than of two builds.
-		site = await published(oneProject({ baseMap: 'physical' }));
-		const [root, subpath] = site.sites as [StaticSite, StaticSite];
+		// **One server, two paths**, which is the whole point of this test and why it does not use the
+		// harness's two base paths: those are two ports, so they are two origins, and two origins get
+		// separate `localStorage` from the browser whatever this code does. A test at two ports would go
+		// green with the site's path dropped from the key entirely — the one defect it exists to catch.
+		//
+		// Both paths are the **same directory**, reached through two symlinks, so nothing here can become
+		// a test of two builds and the two sites cannot drift apart.
+		const directory = await writePublishedSite(oneProject({ baseMap: 'physical' }));
+		const origin = await mkdtemp(path.join(tmpdir(), 'ballastella-origin-'));
+		await symlink(directory, path.join(origin, 'tracy'), 'dir');
+		await symlink(directory, path.join(origin, 'sam'), 'dir');
+		const server = await serveDirectory(origin);
+		sharedOrigin = async () => {
+			await server.close();
+			await rm(origin, { recursive: true, force: true });
+			await rm(directory, { recursive: true, force: true });
+		};
+
+		const tracy = `${server.url}tracy/?p=amsterdam-1625`;
+		const sam = `${server.url}sam/?p=amsterdam-1625`;
 		const seen = watch(page);
 
-		await page.goto(root.url + '?p=amsterdam-1625');
+		await page.goto(tracy);
 		await mapReady(page);
 		await page.getByTestId('base-map-switcher').selectOption('muted');
 		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
 
-		// The subdirectory site is a *different* site on the same origin only if the ports agree, and they
-		// do not — so the sharper assertion is the one below, made by driving the subpath site and then
-		// coming back. Here the point is that the second site starts at the author's default.
-		await page.goto(subpath.url + '?p=amsterdam-1625');
+		// The second site starts at the author's default rather than at the stranger's choice, and then
+		// takes a different one of its own.
+		await page.goto(sam);
 		await mapReady(page);
 		await expect(page.getByTestId('base-map-switcher')).toHaveValue('physical');
+		await page.getByTestId('base-map-switcher').selectOption('streets');
+		await expect(page.getByTestId('base-map-switcher')).toHaveValue('streets');
 
-		await page.goto(root.url + '?p=amsterdam-1625');
+		// Each site still has its own choice on return, which is the criterion.
+		await page.goto(tracy);
 		await mapReady(page);
 		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
+		await page.goto(sam);
+		await mapReady(page);
+		await expect(page.getByTestId('base-map-switcher')).toHaveValue('streets');
+
+		// And in one origin's storage there are two keys, named after the two paths — the shape the
+		// behaviour above rests on, asserted directly so that a regression names itself.
+		expect(
+			await page.evaluate(() =>
+				Object.fromEntries(
+					Object.entries({ ...window.localStorage }).filter(([key]) =>
+						key.startsWith('ballastella.baseMap')
+					)
+				)
+			)
+		).toEqual({
+			[`ballastella.baseMap:${server.url}tracy/`]: 'muted',
+			[`ballastella.baseMap:${server.url}sam/`]: 'streets'
+		});
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -905,18 +944,18 @@ test.describe('the Base Map a Reader sees', () => {
 
 		const muted = (await options(page)).find((entry) => /muted|contrast/i.test(entry.text));
 		expect(muted, 'the catalog offers a muted or high-contrast Base Map').toBeDefined();
+
+		// **Before the switch**, and the Base Map the Reader starts on has to be a different one, or the
+		// comparison below would be asking whether selecting an option changes the option.
+		await expect(page.getByTestId('base-map-switcher')).not.toHaveValue(muted!.value);
+		const before = await paint(page);
+
 		await page.getByTestId('base-map-switcher').selectOption(muted!.value);
 
 		// The style was repainted, and its layers now carry the muted flavor's own colours rather than the
 		// default's. Compared against the paint before the switch, so this cannot pass on a style that
 		// never changed.
-		await expect
-			.poll(() =>
-				page.evaluate(
-					() => JSON.stringify(window.ballastellaReaderMap!.map.getStyle().layers).length
-				)
-			)
-			.toBeGreaterThan(0);
+		await expect.poll(() => paint(page)).not.toBe(before);
 		await expect(page.getByTestId('base-map-switcher')).toHaveValue(muted!.value);
 		expect(seen.failures).toEqual([]);
 	});
@@ -930,16 +969,7 @@ test.describe('the Base Map a Reader sees', () => {
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
 
-		/** The Base Map's own painted colours, which is what a flavor is. */
-		const paint = () =>
-			page.evaluate(() =>
-				JSON.stringify(
-					window
-						.ballastellaReaderMap!.map.getStyle()
-						.layers.map((layer) => ('paint' in layer ? layer.paint : null))
-				)
-			);
-		const before = await paint();
+		const before = await paint(page);
 		const themeBefore = await page.evaluate(() => document.documentElement.dataset.theme);
 
 		await page.getByRole('button', { name: /Switch to .* theme/ }).click();
@@ -948,7 +978,7 @@ test.describe('the Base Map a Reader sees', () => {
 		await expect
 			.poll(() => page.evaluate(() => document.documentElement.dataset.theme))
 			.not.toBe(themeBefore);
-		await expect.poll(paint).not.toBe(before);
+		await expect.poll(() => paint(page)).not.toBe(before);
 		expect(seen.failures).toEqual([]);
 	});
 });

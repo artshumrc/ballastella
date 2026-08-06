@@ -11,6 +11,7 @@ import {
 	ReferencedImageUnreadableError,
 	imageModeOf,
 	isReferenced,
+	listReferencedImages,
 	localCopySource,
 	parseReferencedImage,
 	partitionByLocalCopy,
@@ -179,6 +180,19 @@ describe('the record beside a referenced image', () => {
 		).toThrow(ReferencedImageUnreadableError);
 	});
 
+	it('is spelled one way however the address arrived', () => {
+		// The same service reached three ways — bare, with a trailing slash, and as the URL a user
+		// copies out of their address bar — is one Historical Map. It has to be: `generateId` hashes
+		// this string into the image's identity and into the key the Allmaps lookup is made on, so two
+		// spellings are two Layers that cannot be told apart and an existing Alignment silently not
+		// found. See `canonicalServiceUri`, which is the one place that decides it.
+		for (const written of [SERVICE, `${SERVICE}/`, `${SERVICE}/info.json`]) {
+			expect(referencedImage({ imageId: 'x', service: written, width: 1, height: 1 }).service).toBe(
+				SERVICE
+			);
+		}
+	});
+
 	it('loses a field rather than the map when provenance is missing or the wrong type', () => {
 		const read = parseReferencedImage(
 			new TextEncoder().encode(JSON.stringify({ service: SERVICE, label: 42, width: 'wide' })),
@@ -188,6 +202,53 @@ describe('the record beside a referenced image', () => {
 		expect(read.service).toBe(SERVICE);
 		expect(read.label).toBe('');
 		expect(read.width).toBe(0);
+	});
+});
+
+describe('every referenced image a Project records', () => {
+	const project = async (files: Record<string, string>) => {
+		const store = new MemoryProjectStore();
+		for (const [path, body] of Object.entries(files)) {
+			await store.write(`amsterdam-1625/${path}`, new TextEncoder().encode(body));
+		}
+		return store;
+	};
+
+	it('skips a record that will not parse and hands its id back, rather than failing the open', async () => {
+		// One unreadable `remote.json` must not stop the Project opening — but it must not vanish
+		// either: the user has a Layer naming an image nothing can draw, and the Project view has to be
+		// able to say so. Drawing the rest and reporting this one is the only outcome in which neither
+		// half is lost.
+		const store = await project({
+			'images/a8eb9e9cf936cc3d/remote.json': `{"service":"${SERVICE}","width":2781,"height":3622}`,
+			'images/ffff0000ffff0000/remote.json': '{"label":"no address at all"}',
+			'images/eeee1111eeee1111/remote.json': 'this is not JSON'
+		});
+
+		const { images, unreadable } = await listReferencedImages(store, 'amsterdam-1625');
+
+		expect(images.map((image) => image.imageId)).toEqual(['a8eb9e9cf936cc3d']);
+		expect(unreadable.map((failure) => failure.imageId).sort()).toEqual([
+			'eeee1111eeee1111',
+			'ffff0000ffff0000'
+		]);
+		// The reason is the sentence the user sees, so it says what is missing and what it costs.
+		const noAddress = unreadable.find((failure) => failure.imageId === 'ffff0000ffff0000');
+		expect(noAddress?.reason).toContain('names no image service');
+		expect(noAddress?.reason).toContain('nowhere to fetch its tiles from');
+	});
+
+	it('reads only the Project’s own images, not a remote.json nested below one', async () => {
+		const store = await project({
+			'images/a8eb9e9cf936cc3d/remote.json': `{"service":"${SERVICE}","width":1,"height":1}`,
+			'images/a8eb9e9cf936cc3d/tiles/remote.json': 'not an image of this Project',
+			'images/a8eb9e9cf936cc3d/info.json': '{}'
+		});
+
+		const { images, unreadable } = await listReferencedImages(store, 'amsterdam-1625');
+
+		expect(images.map((image) => image.imageId)).toEqual(['a8eb9e9cf936cc3d']);
+		expect(unreadable).toEqual([]);
 	});
 });
 
