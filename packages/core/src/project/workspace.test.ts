@@ -272,6 +272,21 @@ describe('Workspace', () => {
 			}
 		});
 
+		it('reports a rejected write to its caller rather than resolving', async () => {
+			// The app awaits this and updates the screen from it. While autosave resolved on failure,
+			// a rename that never reached the disk was a success all the way up to the UI.
+			const autosave = new Autosave(store, { debounceMs: 400 });
+			const via = new Workspace(store, { autosave, now: () => clock });
+			const { directory } = await via.createProject('Amsterdam 1625');
+			vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('quota exceeded'));
+
+			await expect(via.renameProject(directory, 'Amsterdam 1626')).rejects.toThrow(
+				'quota exceeded'
+			);
+
+			expect((await readJson(store, `${directory}/project.json`)).name).toBe('Amsterdam 1625');
+		});
+
 		it('writes a discrete action immediately, so a closed tab cannot lose it', async () => {
 			const autosave = new Autosave(store, { debounceMs: 10_000 });
 			const via = new Workspace(store, { autosave, now: () => clock });

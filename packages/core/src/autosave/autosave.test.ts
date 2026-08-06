@@ -93,6 +93,73 @@ describe('Autosave', () => {
 
 			expect(writes).toEqual([]);
 		});
+
+		it('does not turn one failing write into a storm of retries', async () => {
+			const write = vi.spyOn(store, 'write').mockRejectedValue(new Error('quota exceeded'));
+			autosave.queue('p/project.json', utf8.encode('a'));
+
+			await autosave.flush();
+
+			// A write that has just failed will not succeed on an immediate retry, and a flush that
+			// kept trying would turn one quota failure into a hundred against a full disk. Failed
+			// bytes stay pending, so this is the guard on the loop that drains them.
+			expect(write).toHaveBeenCalledTimes(1);
+			expect(autosave.state).toBe('unsaved');
+		});
+	});
+
+	describe('surviving a store that rejects a write', () => {
+		it('reports the failure to its caller rather than resolving', async () => {
+			// `Workspace.writeProject` and `EditorSession` both await this. While it resolved, a
+			// rename that never reached the disk was reported as a success all the way up.
+			vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('quota exceeded'));
+
+			await expect(autosave.commit('p/project.json', utf8.encode('a'))).rejects.toThrow(
+				'quota exceeded'
+			);
+		});
+
+		it('keeps the bytes, so a later flush still has something to write', async () => {
+			// The bytes used to be cleared *before* the write was attempted, and a failure merely
+			// returned: the edit was gone, there was nothing for `flush` to retry, and the entry was
+			// then deleted outright. This is the closed-laptop path arriving after a hiccup.
+			vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('quota exceeded'));
+			await autosave.commit('p/project.json', utf8.encode('renamed')).catch(() => undefined);
+
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(true);
+			await autosave.flush();
+
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('renamed');
+			expect(autosave.state).toBe('saved');
+			expect(autosave.lastError).toBeUndefined();
+		});
+
+		it('keeps the newest bytes when an edit arrives while the store is failing', async () => {
+			vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('quota exceeded'));
+			const failing = autosave.commit('p/project.json', utf8.encode('first')).catch(
+				() => undefined
+			);
+			autosave.queue('p/project.json', utf8.encode('second'));
+			await failing;
+
+			await autosave.flush();
+
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
+		});
+	});
+
+	describe('what is waiting to be written', () => {
+		it('reports a path as pending until the store has it', async () => {
+			// Read by the Project view, which must not commit — and so must not stamp a fresh
+			// `updatedAt` — when nothing has changed (ADR-0010).
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(false);
+
+			autosave.queue('p/project.json', utf8.encode('a'));
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(true);
+
+			await autosave.flush();
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(false);
+		});
 	});
 
 	describe('the save state (rule 5)', () => {
@@ -115,7 +182,24 @@ describe('Autosave', () => {
 		it('does not claim saved when the store rejected the write', async () => {
 			vi.spyOn(store, 'write').mockRejectedValue(new Error('storage went away'));
 
-			await autosave.commit('p/project.json', utf8.encode('a'));
+			await autosave.commit('p/project.json', utf8.encode('a')).catch(() => undefined);
+
+			expect(autosave.state).toBe('unsaved');
+			expect(autosave.lastError).toBeInstanceOf(Error);
+		});
+
+		it('does not claim saved because some other file was written afterwards', async () => {
+			// The concrete failure this forbids: rename a Project with OPFS quota exhausted, then
+			// create any other Project, and the indicator read "Saved" for an edit that was never
+			// written. ADR-0017 rule 5 exists because the indicator is the user's only signal, so an
+			// indicator that lies is worse than none.
+			vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('quota exceeded'));
+			await autosave
+				.commit('amsterdam-1625/project.json', utf8.encode('renamed'))
+				.catch(() => undefined);
+			expect(autosave.state).toBe('unsaved');
+
+			await autosave.commit('boston-1775/project.json', utf8.encode('a new Project'));
 
 			expect(autosave.state).toBe('unsaved');
 			expect(autosave.lastError).toBeInstanceOf(Error);

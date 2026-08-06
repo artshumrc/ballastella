@@ -29,7 +29,6 @@ export class Autosave {
 	readonly #files = new Map<StorePath, PendingFile>();
 	readonly #listeners = new Set<(state: SaveState) => void>();
 	#state: SaveState = 'saved';
-	#lastError: unknown;
 
 	constructor(store: ProjectStore, options: AutosaveOptions = {}) {
 		this.#store = store;
@@ -41,9 +40,19 @@ export class Autosave {
 		return this.#state;
 	}
 
-	/** Why the last write failed, if it did. Cleared by the next write that succeeds. */
+	/**
+	 * Why a write failed, if one did and its bytes are still waiting.
+	 *
+	 * Tracked per file rather than globally. A single field was cleared by the next write that
+	 * happened to succeed, so renaming a Project with the disk full and then creating any other
+	 * Project made the indicator read "Saved" for an edit that was never written — exactly what
+	 * ADR-0017 rule 5 exists to prevent.
+	 */
 	get lastError(): unknown {
-		return this.#lastError;
+		for (const file of this.#files.values()) {
+			if (file.error !== undefined) return file.error;
+		}
+		return undefined;
 	}
 
 	/** Called on every change of {@link state}. Returns its own unsubscribe. */
@@ -64,7 +73,10 @@ export class Autosave {
 		if (file.timer !== undefined) clearTimeout(file.timer);
 		file.timer = setTimeout(() => {
 			file.timer = undefined;
-			void this.#drain(path);
+			// Nobody is awaiting a debounced write, so a failure is reported through the save state
+			// and `lastError` rather than as an unhandled rejection. The bytes stay pending either
+			// way, so the next commit or flush tries again.
+			void this.#drain(path).catch(() => undefined);
 		}, this.#debounceMs);
 		this.#publish();
 	}
@@ -77,6 +89,9 @@ export class Autosave {
 	 * write; debouncing alone would turn a drag into a write storm against the storage layer,
 	 * worst in OPFS, which is the constrained backend. No gesture exists yet, which is exactly
 	 * why the mechanism has to be here before the slices that need it.
+	 *
+	 * **Rejects when the store rejected**, so a caller cannot report a mutation as saved when it
+	 * was not. The bytes stay pending, so a later {@link flush} still has them.
 	 */
 	commit(path: StorePath, bytes: Bytes): Promise<void> {
 		const file = this.#file(path);
@@ -93,6 +108,10 @@ export class Autosave {
 	 *
 	 * Wired to `visibilitychange` → hidden and to `pagehide` — never `beforeunload`, which is
 	 * unreliable and ignored on mobile. This is the closed-laptop path.
+	 *
+	 * Resolves rather than rejects even when a write failed: it is called from an event listener
+	 * with nobody to catch it, and the failure is already visible in {@link state} and
+	 * {@link lastError}.
 	 */
 	async flush(): Promise<void> {
 		// A write can queue further work, so drain until there is nothing left rather than once.
@@ -107,7 +126,11 @@ export class Autosave {
 				else if (file.draining) draining.push(file.draining);
 			}
 			if (draining.length === 0) return;
-			await Promise.allSettled(draining);
+			const results = await Promise.allSettled(draining);
+			// Failed bytes stay pending, so without this the loop would retry them up to a hundred
+			// times — one quota failure turned into a hundred against a full disk. A write that has
+			// just failed will not succeed on an immediate retry; the next edit or flush tries again.
+			if (results.some((result) => result.status === 'rejected')) return;
 		}
 	}
 
@@ -141,14 +164,21 @@ export class Autosave {
 		this.#publish('saving');
 		while (file.pending !== undefined) {
 			const bytes = file.pending;
-			file.pending = undefined;
 			try {
 				await this.#store.write(path, bytes);
-				this.#lastError = undefined;
 			} catch (cause) {
-				this.#lastError = cause;
-				return;
+				// The bytes stay pending, deliberately. Clearing them before the attempt and merely
+				// returning on failure lost the edit outright: there was nothing left for `flush` to
+				// find, nothing to retry, and nothing keeping the indicator off "Saved" — which is
+				// exactly what ADR-0017 rule 5 forbids. Rethrown so `commit`'s caller cannot report
+				// a mutation it did not get.
+				file.error = cause;
+				throw cause;
 			}
+			// Only clear what the store actually took. An edit that arrived while it had these bytes
+			// is newer and has to survive to the next pass.
+			if (file.pending === bytes) file.pending = undefined;
+			file.error = undefined;
 		}
 	}
 
@@ -163,10 +193,11 @@ export class Autosave {
 		let unsaved = false;
 		for (const file of this.#files.values()) {
 			if (file.draining) return 'saving';
+			// A write that failed left its bytes pending, so "unsaved" follows from the file's own
+			// state and no separate error flag can go stale against it.
 			if (file.pending !== undefined || file.timer !== undefined) unsaved = true;
 		}
-		if (unsaved) return 'unsaved';
-		return this.#lastError === undefined ? 'saved' : 'unsaved';
+		return unsaved ? 'unsaved' : 'saved';
 	}
 }
 
@@ -174,4 +205,6 @@ interface PendingFile {
 	timer?: ReturnType<typeof setTimeout> | undefined;
 	pending?: Bytes | undefined;
 	draining?: Promise<void> | undefined;
+	/** Why this file's last write attempt failed. Cleared when one succeeds. */
+	error?: unknown;
 }
