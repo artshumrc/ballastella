@@ -122,10 +122,50 @@ export type {
 	TransferProgressListener
 } from './transfer/transfer.js';
 export {
+	PUBLISHED_APP_DIRECTORY,
+	PUBLISHED_SITE_RECORD_NAME,
 	VIEWER_FILE_PATHS,
+	claimedByPublishing,
 	createViewerFileFilter,
 	isViewerFile
 } from './transfer/viewer-files.js';
+
+// Publishing (ticket 16; ADR-0006, ADR-0008). Both apps, for different halves of it: the editor
+// plans and writes a Published Site, and the viewer reads the site record to know which Projects
+// exist and which Base Maps it may offer (ADR-0020) — a static host has no directory listing, so
+// that record is the only way the hub page can list anything.
+//
+// It adds no dependency and reaches no heavy module: paths, byte counts, and JSON. The bundle's
+// bytes arrive through the injected `readAsset`, for the same reason ADR-0011's shim exists — where
+// the viewer's files are served from is the app's knowledge, not core's.
+export {
+	PUBLISHED_SITE_FORMAT_VERSION,
+	PublishRefusedError,
+	PublishedSiteUnreadableError,
+	canonicalImageServiceId,
+	normaliseCanonicalUrl,
+	parsePublishedSite,
+	planPublish,
+	publishSite,
+	publishedSiteStaleness,
+	readPublishedSite,
+	serialisePublishedSite,
+	stampCanonicalUrl,
+	type CanonicalStamp,
+	type PlanPublishOptions,
+	type PublishPlan,
+	type PublishSiteOptions,
+	type PublishWarning,
+	type PublishedProject,
+	type PublishedSite
+} from './publish/publish.js';
+export {
+	ViewerBundleUnreadableError,
+	bundleBytes,
+	parseViewerBundle,
+	type ViewerBundle,
+	type ViewerBundleFile
+} from './publish/viewer-bundle.js';
 
 export {
 	ROUND_TRIP_TOLERANCE_PX,

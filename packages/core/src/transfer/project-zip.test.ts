@@ -1077,11 +1077,37 @@ describe('rejecting a zip before writing anything', () => {
 });
 
 describe('the viewer-file list (ADR-0006)', () => {
-	it('is empty until ticket 16 writes the files it would name', async () => {
+	it('leaves a published viewer out of the data-only zip, and keeps every data file in it', async () => {
+		// The list itself is asserted against what publishing actually writes in `publish.test.ts`,
+		// which is the half that can go stale. What is asserted here is the half ADR-0006 asks for:
+		// that the recorded set is what the data-only zip excludes.
+		//
+		// A Project directory holding a viewer is the shape it has when somebody unpacks a Published
+		// Site into one, or copies a published folder in to work on — which is exactly the case
+		// ADR-0006 means by "without that list the two export flavours are indistinguishable".
 		const { VIEWER_FILE_PATHS, isViewerFile } = await import('./viewer-files.js');
 
-		expect(VIEWER_FILE_PATHS).toEqual([]);
-		expect(isViewerFile('project.json')).toBe(false);
+		expect(VIEWER_FILE_PATHS.length).toBeGreaterThan(0);
+		expect(VIEWER_FILE_PATHS.map(isViewerFile)).toEqual(
+			// A directory entry is matched by its own prefix, so every recorded path is recognised.
+			VIEWER_FILE_PATHS.map(() => true)
+		);
+
+		const store = new MemoryProjectStore();
+		await seed(store, 'amsterdam-1625', projectFiles());
+		await seed(store, 'amsterdam-1625', {
+			'index.html': '<!doctype html>',
+			'_app/immutable/chunks/abc.js': 'the viewer',
+			'ballastella-site.json': '{"projects":[]}',
+			'base-map/extract.pmtiles': 'a Base Map extract',
+			'robots.txt': 'User-agent: *'
+		});
+
+		const exported = await exportProjectZip(store, 'amsterdam-1625');
+		const zip = await readProjectZip(await collect(exported.body));
+
+		expect([...zip.paths].sort()).toEqual(Object.keys(projectFiles()).sort());
+		expect(exported.totalFiles).toBe(Object.keys(projectFiles()).length);
 	});
 
 	it('matches an exact path and a whole directory, and nothing adjacent', async () => {
