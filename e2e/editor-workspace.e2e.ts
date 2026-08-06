@@ -66,12 +66,40 @@ async function hashProject(page: Page, directory: string): Promise<Record<string
 }
 
 /** The display name in `project.json` as it sits on disk. */
+/**
+ * The `name` in `project.json`, read out of OPFS behind the app's back.
+ *
+ * Retried, because the app writes atomically — a temp file, then `move()` over the destination
+ * (ADR-0017) — and a read that lands inside that window throws rather than returning stale bytes:
+ * `getFileHandle` with a `NotFoundError` while the destination is momentarily gone, or `getFile()`
+ * with a `NotReadableError` as it is replaced. Those are transient by construction, but they were
+ * propagating out of `expect.poll`, whose retry covers a failed *assertion* and not a callback that
+ * throws. That made this the flakiest test in the suite — it failed 2 of 5 runs at `--workers=1`,
+ * with nothing else running.
+ *
+ * This is a fix to the read, not to the assertion: the bytes on disk are still what is compared, so
+ * a write that never happens still fails. Only a read that collided with an atomic replace is
+ * forgiven, and only for as long as one can plausibly last.
+ */
 async function readProjectName(page: Page, directory = 'amsterdam-1625'): Promise<string> {
 	return page.evaluate(async (directory) => {
-		const root = await navigator.storage.getDirectory();
-		const project = await root.getDirectoryHandle(directory);
-		const file = await project.getFileHandle('project.json');
-		return JSON.parse(await (await file.getFile()).text()).name;
+		let lastFailure: unknown;
+		for (let attempt = 0; attempt < 20; attempt++) {
+			try {
+				const root = await navigator.storage.getDirectory();
+				const project = await root.getDirectoryHandle(directory);
+				const file = await project.getFileHandle('project.json');
+				return JSON.parse(await (await file.getFile()).text()).name as string;
+			} catch (cause) {
+				lastFailure = cause;
+				await new Promise((resolve) => setTimeout(resolve, 25));
+			}
+		}
+		throw new Error(
+			`project.json in ${directory} could not be read in 20 attempts — the last failure was ` +
+				`${lastFailure instanceof Error ? `${lastFailure.name}: ${lastFailure.message}` : String(lastFailure)}. ` +
+				'A transient failure here is the atomic-replace window; a persistent one is not.'
+		);
 	}, directory);
 }
 
