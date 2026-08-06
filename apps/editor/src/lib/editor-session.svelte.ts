@@ -12,6 +12,7 @@ import {
 	alignmentPath,
 	alignmentStorePath,
 	annotationStorePath,
+	assembleWithCanvas,
 	createStoreImageFetch,
 	emptyAnnotationCollection,
 	exportProjectZip,
@@ -22,12 +23,15 @@ import {
 	installFlushOnHide,
 	listIngestedImages,
 	listReferencedImages,
+	localCopySource,
+	mirrorRemoteImage,
 	moveLayer,
 	newAlignment,
 	newAnnotationLayer,
 	newMapLayer,
 	openDecodeAndCropSource,
 	parseAlignment,
+	partitionByLocalCopy,
 	projectFilePath,
 	readImageLabel,
 	readProjectZip,
@@ -42,6 +46,7 @@ import {
 	sourceOf,
 	streamingTiler,
 	toDirectoryName,
+	workspaceSize,
 	type Alignment,
 	type AnnotationLayer,
 	type FetchFn,
@@ -49,6 +54,8 @@ import {
 	type IngestedImage,
 	type Layer,
 	type MapLayer,
+	type MirrorPlan,
+	type MirrorProgress,
 	type ProjectFile,
 	type ProjectStore,
 	type ProjectSummary,
@@ -56,7 +63,8 @@ import {
 	type ReferencedImage,
 	type RemoteImageService,
 	type SaveState,
-	type TransferProgress
+	type TransferProgress,
+	type WorkspaceSize
 } from '@ballastella/core';
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
@@ -175,11 +183,15 @@ export class EditorSession {
 	/**
 	 * The Historical Maps this Project **references** rather than holds (ticket 14, ADR-0007).
 	 *
-	 * A separate list from {@link images} and disjoint from it: a local copy has an `info.json` in the
-	 * Project and a referenced image has a `remote.json` instead, because its tiles and its
-	 * description are both on somebody else's server. Together they are the Project's Historical Maps.
-	 * Keeping them apart is what makes `imageMode` a fact about where bytes are rather than a flag
-	 * somebody has to remember to set.
+	 * A separate list from {@link images}: a local copy has an `info.json` in the Project and a
+	 * referenced image has a `remote.json` instead, because its tiles and its description are both on
+	 * somebody else's server. Keeping them apart is what makes `imageMode` a fact about where bytes are
+	 * rather than a flag somebody has to remember to set.
+	 *
+	 * The two lists were disjoint until ticket 15. An image that has been copied offline appears in
+	 * **both** — its pyramid is here and its `remote.json` stays, because that record is the citation
+	 * ADR-0007 protects — so this is the list of everything the Project knows an origin for, and
+	 * {@link remoteOrigins} is what says which are still fetched from the library.
 	 */
 	referencedImages = $state<ReferencedImage[]>([]);
 	/**
@@ -751,6 +763,123 @@ export class EditorSession {
 		if (this.saveError !== '') return null;
 		this.referencedImages = [...this.referencedImages, record];
 		return layer;
+	}
+
+	/**
+	 * The Historical Maps this Project still fetches from a library, and the ones it has copied
+	 * (ticket 15).
+	 *
+	 * Split on **whether the pyramid is there**, not on what a Layer's `imageMode` claims. That is the
+	 * direction that cannot go wrong: a copy whose pyramid landed and whose `project.json` write did not
+	 * shows here as copied, and the next open repairs the document — whereas trusting the claim would
+	 * mean an image whose tiles are in this folder being fetched from a library on every load.
+	 */
+	get remoteOrigins(): { referenced: ReferencedImage[]; mirrored: ReferencedImage[] } {
+		return partitionByLocalCopy(this.referencedImages, this.images);
+	}
+
+	/**
+	 * How many bytes the whole Workspace holds, for the ADR-0008 hosting warning (ticket 15, 16).
+	 *
+	 * Through `workspaceSize`, which uses `ProjectStore#size` and never `read`: a Workspace with a
+	 * mirrored pyramid in it is tens of thousands of files, and opening every one of them to add up
+	 * their lengths would make this the slowest thing in the application. The whole Workspace rather
+	 * than the open Project, because the ~1 GB budget is shared by every Project published together.
+	 */
+	async workspaceBytes(): Promise<WorkspaceSize> {
+		return workspaceSize(this.#store);
+	}
+
+	/**
+	 * Copy a referenced Historical Map into this Project as local tiles (SPEC stories 27, 28).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE ORDER OF THE THREE WRITES, WHICH IS THE SAME DISCIPLINE `addReferencedMap` FOLLOWS
+	 *
+	 *   1. the pyramid, through `mirrorRemoteImage` → `ingestImageFile`, whose `info.json` lands last
+	 *      and is therefore the completion marker for the whole directory;
+	 *   2. `alignments/<id>.json`, rewritten to name the ADR-0004 placeholder instead of the library;
+	 *   3. `project.json`, whose Layer stops saying `'referenced'`.
+	 *
+	 * **`project.json` is last, and step 2 is not optional.** The stored Alignment of a referenced
+	 * image names the remote service as its `resource.id` (ticket 14), which is what made it resolvable
+	 * by Allmaps and what made the warped Layer render at all. Left alone after a copy it would keep
+	 * sending `@allmaps/maplibre` to the library for tiles that are now in this folder — so the copy
+	 * would work, the map would draw, and mirroring would have bought nothing at all. It is also what
+	 * ticket 16 will publish, and a self-contained site whose Alignment points at a stranger's server
+	 * is not self-contained.
+	 *
+	 * A failure anywhere leaves the Layer `'referenced'` and still rendering from the library, which is
+	 * the state it was in. The worst intermediate state is a pyramid on disk that nothing references:
+	 * bytes, not breakage, and the next attempt overwrites them because the image id does not change.
+	 *
+	 * `imageMode` is derived from the source rather than typed in, so the Layer's claim and where its
+	 * tiles actually come from cannot be written independently.
+	 *
+	 * @returns `true` when the copy landed and the Layer now says so
+	 */
+	async mirrorImage(options: {
+		image: ReferencedImage;
+		service: RemoteImageService;
+		/** The plan the user was shown, so what was agreed to is what runs. */
+		plan: MirrorPlan;
+		onProgress?: (progress: MirrorProgress) => void;
+		signal?: AbortSignal;
+	}): Promise<boolean> {
+		const directory = this.openDirectory;
+		const fetch = this.imageServiceFetch();
+		if (!directory || !this.openProject || !fetch) return false;
+		const { image, service, plan } = options;
+
+		await mirrorRemoteImage({
+			store: this.#store,
+			projectDirectory: directory,
+			service,
+			plan,
+			label: image.label || image.imageId,
+			fetch,
+			assemble: assembleWithCanvas,
+			openDecodeAndCrop: openDecodeAndCropSource,
+			openStreaming: streamingTiler(loadLibvips),
+			...(options.onProgress ? { onProgress: options.onProgress } : {}),
+			...(options.signal ? { signal: options.signal } : {})
+		});
+
+		// A later `open` has moved the session to another Project while this ran. The pyramid landed in
+		// the right folder — `directory` was captured — but writing this session's `project.json` now
+		// would write the wrong document, so the Layer is left for the next open to catch up.
+		if (this.openDirectory !== directory) return false;
+
+		const path = alignmentStorePath(directory, image.imageId);
+		try {
+			// Re-serialised from the parsed Alignment rather than string-edited: `serialiseAlignment` is
+			// the one writer of that document, and it is what puts the placeholder back.
+			await this.#autosave.commit(
+				path,
+				serialiseAlignment(parseAlignment(await this.#store.read(path), { imageId: image.imageId }))
+			);
+		} catch (cause) {
+			// No Alignment yet is the ordinary case for a map nobody has placed. Anything else is not:
+			// leaving an Alignment that points at the library would undo the whole copy.
+			if (!(cause instanceof PathNotFoundError)) throw cause;
+		}
+
+		this.images = await listIngestedImages(this.#store, directory);
+
+		const alignmentRef = alignmentPath(image.imageId);
+		const project = this.openProject;
+		if (!project) return false;
+		const imageMode = imageModeOf(localCopySource(image.imageId));
+		this.openProject = {
+			...project,
+			layers: project.layers.map((layer) =>
+				layer.kind === 'map' && layer.alignmentRef === alignmentRef
+					? { ...layer, imageMode }
+					: layer
+			)
+		};
+		await this.#write(directory);
+		return this.saveError === '';
 	}
 
 	/**
