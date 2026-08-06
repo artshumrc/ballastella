@@ -16,4 +16,8 @@ This is precisely what a well-meaning contributor does while "just fixing the pr
 
 ## `wasm-vips` requires a third-party licence notice
 
-The wrapper is MIT, but the artefact it ships is compiled **libvips, which is LGPL-2.1-or-later**, together with its own bundled dependencies. LGPL permits use in permissively licensed software, and lazy-loading it as a separate module (ADR-0003) is closer to dynamic linking than static, which LGPL explicitly contemplates. So this is a notice-and-attribution obligation rather than a problem — but it needs a real third-party licences page. It is the one dependency where "MIT on npm" does not tell the whole story.
+The wrapper is MIT, but the artefact it ships is compiled **libvips, which `wasm-vips` states as LGPLv3** — reached via the "any later version" clause of LGPLv2.1, so LGPLv3's terms are the ones that bind, not LGPL-2.1's. This decision originally said LGPL-2.1-or-later, and that was checked against the installed package and corrected when ticket 05 made the dependency real.
+
+It ships **twenty other libraries** with it, and they are not incidental: `aom` is BSD-2-Clause *plus* the Alliance for Open Media Patent License 1.0, `glib`, `libexif` and `libheif` are also LGPLv3, and the rest are permissive but each carries its own attribution. The authoritative list is the package's own `THIRD-PARTY-NOTICES.md`, and it is reproduced in [ours](../../THIRD-PARTY-NOTICES.md) rather than summarised, because a bump can change it.
+
+LGPL permits use in permissively licensed software, and lazy-loading it as a separate module (ADR-0003) is closer to dynamic linking than static, which LGPL explicitly contemplates. So this is a notice-and-attribution obligation rather than a problem — but it needs a real third-party licences page. It is the one dependency where "MIT on npm" does not tell the whole story.

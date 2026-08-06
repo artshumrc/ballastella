@@ -64,7 +64,10 @@ catalog:
   # host their own instance". It is a dependency of `apps/editor` and never of `@ballastella/core`
   # or `apps/viewer` (ADR-0019) — core takes the module through an injected loader — and it is
   # reached only by dynamic import, so it is fetched when the streaming path is taken and not
-  # before. The artefact is compiled libvips, LGPL-2.1-or-later; see THIRD-PARTY-NOTICES.md.
+  # before. The artefact is compiled libvips, **LGPLv3** — the package's own notices say so, via
+  # the "any later version" clause of LGPLv2.1 — plus twenty other bundled libraries with
+  # attribution obligations of their own, including aom's patent licence. Read
+  # THIRD-PARTY-NOTICES.md before bumping this pin: a new version can change that list.
   'wasm-vips': 0.0.18
 
   # UI (ADR-0016: daisyUI is the only UI dependency)
