@@ -36,7 +36,7 @@ Last updated: 2026-08-06
 | 06 | [06-injection-layer-local-tiles-to-renderers.md](./tickets/06-injection-layer-local-tiles-to-renderers.md) | Completed | 03, 05 | 31 |
 | 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | Completed | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
 | 08 | [08-alignment-refinement.md](./tickets/08-alignment-refinement.md) | In Progress | 07 | 39, 40, 41, 42, 43, 44, 45, 46, 47 |
-| 09 | [09-layers.md](./tickets/09-layers.md) | Not Started | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
+| 09 | [09-layers.md](./tickets/09-layers.md) | In Progress | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
 | 10 | [10-annotations.md](./tickets/10-annotations.md) | Not Started | 09 | *55*, *56*, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, *94* |
 | 11 | [11-single-level-undo.md](./tickets/11-single-level-undo.md) | Not Started | 08, 10 | 38 |
 | 12 | [12-file-system-access-adapter.md](./tickets/12-file-system-access-adapter.md) | Completed | 02 | 1, 2, 3, *4*, *7* |
