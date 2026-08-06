@@ -19,29 +19,43 @@ wrapper — needs an entry here before it is added.**
 ## `wasm-vips` — the one that is not what it looks like
 
 **The npm wrapper is MIT. The artefact it ships is compiled [libvips](https://www.libvips.org/),
-which is LGPL-2.1-or-later**, together with libvips' own bundled dependencies.
+which `wasm-vips` 0.0.18 states as LGPLv3**, together with libvips' own bundled dependencies —
+several of which are also LGPLv3.
 
-This entry is written down before anything imports `wasm-vips`, deliberately. It is the one
-dependency in this project where "MIT on npm" does not tell the whole story, and it is
-exactly the kind of thing that gets forgotten at the moment the dependency is actually
-added. `wasm-vips` is the streaming tiler for images above the `createImageBitmap` decode
-ceiling ([ADR-0003](docs/adr/0003-every-image-is-tiled-client-side.md)).
+This entry was written down before anything imported `wasm-vips`, deliberately, and **checked
+against the package on 2026-08-05 when ticket 05 made the dependency real.** Two things it said
+were wrong, and are corrected below. It is the one dependency in this project where "MIT on npm"
+does not tell the whole story. `wasm-vips` is the streaming tiler for images above the
+`createImageBitmap` decode ceiling ([ADR-0003](docs/adr/0003-every-image-is-tiled-client-side.md)).
 
-LGPL permits use in permissively licensed software. Lazy-loading libvips as a separate
-module — which is what ADR-0003 specifies, for bundle-size reasons rather than licensing
-ones — is closer to dynamic linking than to static linking, and dynamic linking is a case
-LGPL-2.1 explicitly contemplates. So this is a notice-and-attribution obligation rather than
-a problem. Meeting it requires:
+**The version is LGPLv3, not LGPL-2.1-or-later.** The package's own
+[`THIRD-PARTY-NOTICES.md`](https://github.com/kleisauke/wasm-vips/blob/master/THIRD-PARTY-NOTICES.md)
+lists libvips, glib, libexif and libheif as LGPLv3, reached "via the 'any later version' clause of
+the LGPLv2 or LGPLv2.1". LGPLv3 adds obligations LGPL-2.1 does not have — notably its anti-tivoisation
+and installation-information terms — so the distinction is not cosmetic even though the
+notice-and-relink shape of the obligation is the same.
+
+**The licence text does not ship in the package.** `wasm-vips` publishes `LICENSE` (the MIT text
+for the wrapper) and `THIRD-PARTY-NOTICES.md`, and no LGPL text of any version. The previous claim
+that "the LGPL-2.1 licence text ships in the `wasm-vips` package" was simply not true, and it was
+the line the whole obligation was resting on. It joins the open item at the end of this file.
+
+LGPL permits use in permissively licensed software. Loading libvips as a separately fetched
+WebAssembly module — which is what ADR-0003 specifies, for bundle-size reasons rather than
+licensing ones, and what `apps/editor/src/lib/ingest/libvips-loader.ts` does — is closer to
+dynamic linking than to static linking, and dynamic linking is a case the LGPL explicitly
+contemplates. So this is a notice-and-attribution obligation rather than a problem. Meeting it
+requires:
 
 - this notice, reproduced in the published viewer as well as the authoring app;
-- the LGPL-2.1 licence text, which ships in the `wasm-vips` package;
+- **the LGPLv3 text, which must be fetched from upstream and committed here** — see the open item;
 - keeping libvips replaceable — it is loaded as a separate module and is not statically
   linked into the application bundle.
 
-| Component            | Licence            |
-| -------------------- | ------------------ |
-| `wasm-vips` wrapper  | MIT                |
-| compiled libvips     | LGPL-2.1-or-later  |
+| Component           | Licence | Text ships?                       |
+| ------------------- | ------- | --------------------------------- |
+| `wasm-vips` wrapper | MIT     | yes, `LICENSE` in the package     |
+| compiled libvips    | LGPLv3  | **no** — see the open item        |
 
 ## Everything else
 
@@ -51,7 +65,7 @@ dependency at a time.
 
 | Component                        | Licence       | What it does                                    |
 | -------------------------------- | ------------- | ----------------------------------------------- |
-| `@allmaps/*`                     | MIT           | Georeference annotation parsing, warped rendering, transformations |
+| `@allmaps/*`                     | MIT           | Georeference annotation parsing, warped rendering, transformations, and the ids local images are stored under |
 | `triiiceratops`                  | MIT           | IIIF Manifest and Collection navigation, unwarped viewing |
 | `manifesto.js` (via triiiceratops) | Apache-2.0  | IIIF Presentation parsing inside triiiceratops   |
 | `openseadragon` (via triiiceratops) | BSD-3-Clause | Deep-zoom image viewer                        |
@@ -105,23 +119,32 @@ files in [`apps/editor/static/fixtures/README.md`](apps/editor/static/fixtures/R
 No attribution is required for a 1657 work the Library of Congress records no known restrictions
 on, so there is no runtime obligation here — unlike the base map's ODbL condition above.
 
-## Open: two licence texts do not ship
+## Open: three licence texts do not ship
 
-**Needs a human.** OFL 1.1 and BSD-3-Clause both require the licence text to accompany
-redistribution, and neither text is anywhere in this repository or in `node_modules`:
+**Needs a human.** OFL 1.1, BSD-3-Clause and LGPLv3 all require the licence text to accompany
+redistribution, and none of the three is anywhere in this repository or in `node_modules`:
 
 | Content                      | Licence      | Where its text is |
 | ---------------------------- | ------------ | ----------------- |
 | `base-map/fonts/Noto Sans *` | OFL 1.1      | missing           |
 | `base-map/sprites/*`         | BSD-3-Clause | missing           |
+| compiled libvips, via `wasm-vips` | LGPLv3  | missing           |
 
 `@protomaps/basemaps` — the source of the sprite sheets and the glyph build — ships no `LICENSE`
 file, so there is nothing to copy from. `maplibre-gl` does ship a BSD-3-Clause text, but it carries
 MapLibre's copyright line rather than Protomaps', and substituting one for the other would be
-fabricating an attribution rather than reproducing one.
+fabricating an attribution rather than reproducing one. `wasm-vips` ships the MIT text for its own
+wrapper and nothing for libvips.
 
-Resolving this means fetching both texts from their sources —
-[OFL 1.1](https://openfontlicense.org/), and the BSD-3-Clause notice as published by
+Resolving this means fetching all three texts from their sources —
+[OFL 1.1](https://openfontlicense.org/), the BSD-3-Clause notice as published by
 [protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets) with its own copyright
-line — and committing them beside the assets they cover. That is a network fetch and a
-copyright-holder determination, so it is left for a person rather than guessed at.
+line, and the [LGPLv3](https://www.gnu.org/licenses/lgpl-3.0.txt) text — and committing them beside
+the assets they cover. That is a network fetch and a copyright-holder determination, so it is left
+for a person rather than guessed at.
+
+The libvips one is the least urgent of the three in practice, because
+[ticket 05](.tracker/ballastella-v1/tickets/05-local-image-to-level-0-pyramid.md) established that
+the streaming tiler cannot run on a static host at all with the published build, so nothing
+currently reaches it — but it is the most urgent to resolve *before* it can, since LGPLv3 carries
+more than OFL's or BSD's notice obligation.
