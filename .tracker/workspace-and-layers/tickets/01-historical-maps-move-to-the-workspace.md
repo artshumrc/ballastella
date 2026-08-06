@@ -103,3 +103,30 @@ Exits 0 with a success message. To prove it is not vacuous, add a module that bu
 ## Blocked by
 
 None — can start immediately.
+
+## Implementation notes
+
+Three things worth knowing before the next ticket, none of them a deviation from the contract.
+
+**`HistoricalMapSource`, `tileBaseFor`, `sourceOf`, and `isReferenced` were kept.** The contract names
+`ImageMode`, `imageModeOf`, and `localCopySource` for deletion and those are gone, but the union itself
+describes an *in-memory observation* of where tiles are, which ADR-0023 keeps rather than removes — and
+`tileBaseFor` is what ticket 07 needs to point the alignment pane at a Library's server. The cost of
+keeping it is that its local half has no constructor any more (`localCopySource` was it), so a caller
+writes `{ imageMode: 'mirrored', imageId }` by hand. Ticket 07 should give it one back or drop the union;
+either is a smaller decision than making it here. The union's discriminator is still spelled `imageMode`,
+which the criterion's `grep` does not match — it is case-sensitive and looks for `ImageMode`.
+
+**The published viewer now costs one 404 per referenced Historical Map.** A static host has no directory
+listing, so the viewer asks whether a map has an `info.json` of its own and reads the answer off the
+status. `info.json` is asked first because a local copy is the common case and that request is one
+`@allmaps/maplibre` makes anyway; only a referenced map pays. `editor-publish.e2e.ts` asserts that exact
+404 by name rather than filtering it out, so a *second* unexpected failed request is still fatal. If this
+becomes a problem, `ballastella-site.json` is the place to record the answer — a new field, and a
+decision of its own.
+
+**`assertReferencesPresent` no longer asks a foreign Layer about `alignmentRef`.** It still asks about
+`geojsonRef`. A Layer carrying `alignmentRef` means nothing this build writes any more, so requiring the
+archive to carry it would refuse an archive for a reason nobody could act on. A foreign Layer's `imageId`
+is likewise not interpreted: this build cannot know that an unknown kind's `imageId` names a Historical
+Map, and guessing would refuse archives over a guess.
