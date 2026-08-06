@@ -3,3 +3,105 @@
 /* ADR-0016: daisyUI is the only UI dependency. Tracy's generated theme replaces the
    stock ones here, and ships in the published viewer as well as the authoring app. */
 @plugin 'daisyui';
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+   Overlay points on a map pane.
+
+   Global, and here rather than in a component, because these elements are created
+   imperatively for MapLibre (`overlay-points.ts`) and so sit outside Svelte's component tree
+   — there is nothing for a scoped rule to attach to. They live in the layout's stylesheet
+   rather than in `ImagePane.svelte` because **both** panes draw them: a Control Point has a
+   half on the Historical Map and a half on the Base Map, and rules shipped with one component
+   would be missing on a route that mounts only the other.
+
+   Colours come from daisyUI's theme variables rather than being literals, so a Control Point
+   follows the flavour the user chose (ADR-0016, ADR-0020) instead of staying bright red in a
+   dark theme. */
+
+.pane-overlay-point {
+	box-sizing: border-box;
+	width: 17px;
+	height: 17px;
+	border-radius: 9999px;
+	/* Clicks reach the map underneath. A reference or reported point is a label, not a target;
+	   a Control Point overrides this, because it is one. */
+	pointer-events: none;
+}
+
+.pane-overlay-point-reference {
+	border: 2px solid oklch(0.55 0.22 25);
+	box-shadow: 0 0 0 1px oklch(1 0 0 / 0.85);
+}
+
+.pane-overlay-point-reported {
+	border: 3px solid oklch(0.6 0.19 250);
+	box-shadow: 0 0 0 1px oklch(1 0 0 / 0.85);
+}
+
+/* A Control Point: a numbered, grabbable, focusable target. The ordinal is *inside* it as
+   text, because ADR-0022 wants "look at point 7" to work over a student's shoulder — which a
+   tooltip does not serve. */
+.pane-overlay-point-control-point {
+	pointer-events: auto;
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 2px solid var(--color-base-100);
+	background: var(--color-primary);
+	color: var(--color-primary-content);
+	font-size: 12px;
+	font-weight: 700;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+	cursor: grab;
+	box-shadow: 0 1px 3px oklch(0 0 0 / 0.4);
+}
+
+.pane-overlay-point-control-point:active {
+	cursor: grabbing;
+}
+
+/* Focus is the keyboard path's only feedback about which point the arrow keys will move, so it
+   is deliberately heavier than the hover state and is never suppressed. */
+.pane-overlay-point-control-point:focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+/* Selecting either half highlights its partner in the opposite pane (ADR-0022 contract 4).
+   This is the rule that makes twenty points comprehensible, so it has to read at a glance and
+   not only on close inspection. */
+.pane-overlay-point-selected {
+	background: var(--color-secondary);
+	color: var(--color-secondary-content);
+	box-shadow:
+		0 0 0 4px var(--color-secondary),
+		0 1px 3px oklch(0 0 0 / 0.4);
+	z-index: 2;
+}
+
+/* The half that has been clicked but not yet matched. Dashed and hollow, because "the tool is
+   waiting for your second click" has to be visible without being mistaken for a finished pair
+   (ADR-0022 contract 1) — without it the user does not know the app is waiting, and the second
+   click lands somewhere arbitrary. */
+.pane-overlay-point-pending {
+	border: 2px dashed var(--color-warning);
+	background: var(--color-base-100);
+	color: var(--color-warning);
+	animation: pane-overlay-point-waiting 1.4s ease-in-out infinite;
+}
+
+@keyframes pane-overlay-point-waiting {
+	50% {
+		opacity: 0.45;
+	}
+}
+
+/* Motion is decoration here; the dashed hollow ring already carries the meaning. */
+@media (prefers-reduced-motion: reduce) {
+	.pane-overlay-point-pending {
+		animation: none;
+	}
+}

@@ -105,8 +105,17 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
  * ADR-0008 applies to a Project, and minting a second identifier would create something that can
  * disagree with the filename.
  */
-export function serialiseAlignment(alignment: Alignment): Bytes {
-	const georeferencedMap = {
+/**
+ * The Alignment in the in-memory document shape `@allmaps/*` consumes.
+ *
+ * Exported for `@allmaps/maplibre`, whose `addGeoreferencedMap` takes this rather than a
+ * serialised annotation. It is here, in the one module that owns the format's vocabulary, so that
+ * the renderer's caller can pass an `Alignment` and never assemble a `GeoreferencedMap` of its own
+ * — two places building this object is how the *stored* Alignment and the *rendered* one come to
+ * disagree, which is a Historical Map drawn somewhere other than where it was saved.
+ */
+export function toGeoreferencedMap(alignment: Alignment): unknown {
+	return {
 		'@context': 'https://schemas.allmaps.org/map/2/context.json',
 		type: 'GeoreferencedMap',
 		resource: {
@@ -125,8 +134,10 @@ export function serialiseAlignment(alignment: Alignment): Bytes {
 		resourceMask: alignment.resourceMask.map((point) => [point.x, point.y]),
 		transformation: transformationTypeToTypeAndOrder(alignment.transformationType)
 	};
+}
 
-	const annotation = generateAnnotation(georeferencedMap);
+export function serialiseAlignment(alignment: Alignment): Bytes {
+	const annotation = generateAnnotation(toGeoreferencedMap(alignment));
 	rewriteResourceMaskInPlainDecimal(annotation, alignment.resourceMask);
 	return new TextEncoder().encode(`${JSON.stringify(annotation, null, '\t')}\n`);
 }

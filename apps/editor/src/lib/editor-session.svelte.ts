@@ -6,16 +6,21 @@ import {
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
 	Workspace,
+	alignmentStorePath,
 	createStoreImageFetch,
 	exportProjectZip,
 	ingestImageFile,
 	installFlushOnHide,
 	listIngestedImages,
+	newAlignment,
 	openDecodeAndCropSource,
+	parseAlignment,
 	projectFilePath,
 	readProjectZip,
+	serialiseAlignment,
 	streamingTiler,
 	toDirectoryName,
+	type Alignment,
 	type FetchFn,
 	type IngestProgress,
 	type IngestedImage,
@@ -143,6 +148,15 @@ export class EditorSession {
 	/** The name of the file being ingested, for the progress message (SPEC story 23). */
 	ingestLabel = $state('');
 	ingestError = $state('');
+
+	/**
+	 * Why the Historical Map's stored Alignment could not be read, if it could not.
+	 *
+	 * A file that is there and unreadable must say so. Falling back to an empty Alignment silently
+	 * would show the user no Control Points and then overwrite the ones they had on the next save —
+	 * which is the largest single loss this slice could inflict.
+	 */
+	alignmentError = $state('');
 
 	constructor(store: ProjectStore) {
 		this.#store = store;
@@ -482,6 +496,64 @@ export class EditorSession {
 		return directory === null
 			? null
 			: createStoreImageFetch({ store: this.#store, projectDirectory: directory });
+	}
+
+	/**
+	 * Read one Historical Map's Alignment, or start a new one over the whole image.
+	 *
+	 * A Project with no Alignment for an image is the ordinary first case, not a failure, so a
+	 * missing file comes back as a fresh Alignment rather than as an error — and **nothing is
+	 * written here**. ADR-0010: merely opening last year's Project must not modify a single byte of
+	 * it, so the file appears only when the user makes their first Control Point.
+	 *
+	 * A file that exists and cannot be read is a different matter and is surfaced: it means an
+	 * Alignment the user made is not being shown, and silently replacing it with an empty one would
+	 * discard their work on the next save.
+	 */
+	async readAlignment(
+		imageId: string,
+		image: { width: number; height: number }
+	): Promise<Alignment> {
+		const directory = this.openDirectory;
+		this.alignmentError = '';
+		if (!directory) return newAlignment(imageId, image);
+
+		try {
+			const bytes = await this.#store.read(alignmentStorePath(directory, imageId));
+			return parseAlignment(bytes, { imageId });
+		} catch (cause) {
+			if (cause instanceof PathNotFoundError) return newAlignment(imageId, image);
+			this.alignmentError = cause instanceof Error ? cause.message : String(cause);
+			throw cause;
+		}
+	}
+
+	/**
+	 * Write an Alignment (SPEC stories 91 and 94).
+	 *
+	 * **Now, not on a timer.** Every edit that reaches here is a discrete act or the end of a
+	 * gesture — a pair completed, a dragged half released on pointer-up, a pair deleted — which is
+	 * ADR-0017 rule 1, and is why a drag costs exactly one store write rather than one per frame.
+	 * The debounce is for text being typed; there is no such thing here.
+	 *
+	 * Routed through the same {@link Autosave} as `project.json` so that rule 2's per-file debounce
+	 * and rule 5's save state are one mechanism rather than one per file kind. It writes a different
+	 * file, though: **nothing here touches `project.json`.** The Layer that will reference this
+	 * Alignment arrives in ticket 09, and stamping `updatedAt` now would be a write with nothing
+	 * behind it — and a second writer of the document this class holds the only copy of.
+	 */
+	async writeAlignment(alignment: Alignment): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory) return;
+		try {
+			await this.#autosave.commit(
+				alignmentStorePath(directory, alignment.imageId),
+				serialiseAlignment(alignment)
+			);
+			this.saveError = '';
+		} catch (cause) {
+			this.saveError = cause instanceof Error ? cause.message : String(cause);
+		}
 	}
 
 	/**

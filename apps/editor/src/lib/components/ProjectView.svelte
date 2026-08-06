@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { resolveBaseMap } from '@ballastella/core';
 
-	import HistoricalMapPane from '$lib/image-pane/HistoricalMapPane.svelte';
+	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -11,11 +12,12 @@
 	/**
 	 * One Project, selected client-side from `?p=<folder>` (ADR-0008).
 	 *
-	 * The Control Points and the Layer stack still arrive in later slices. What is here is the
-	 * frame they hang in, the autosave rules they will follow — the name field below is the app's
-	 * first editable value, so it is where "typing coalesces into one write" and "the edit is
-	 * committed when it ends" are established rather than improvised per slice (ADR-0017) — and,
-	 * since ticket 06, the user's own Historical Maps rendered from their own Project.
+	 * The Layer stack still arrives in a later slice. What is here is the frame it hangs in, the
+	 * autosave rules it will follow — the name field below is the app's first editable value, so it
+	 * is where "typing coalesces into one write" and "the edit is committed when it ends" are
+	 * established rather than improvised per slice (ADR-0017) — the user's own Historical Maps
+	 * rendered from their own Project since ticket 06, and since ticket 07 the Control Point pairing
+	 * that is the reason the tool exists.
 	 *
 	 * `storage` is here for the two states in which there is no Project to show because there is no
 	 * Workspace to show it from — see {@link WorkspaceRecovery}. Both were reachable and neither was
@@ -182,24 +184,28 @@
 			</ul>
 
 			<!--
-				The pane itself. Every byte it draws comes out of the ProjectStore through the ADR-0011
-				shim — no static-asset fallback, no URL anywhere — which is what makes deep zoom into the
-				user's own map work with no network at all (stories 31 and 8).
+				The Historical Map beside the Base Map, and the pairing between them — the core act of
+				the application (SPEC stories 30 and 32–37).
+
+				Every byte the left pane draws comes out of the ProjectStore through the ADR-0011 shim —
+				no static-asset fallback, no URL anywhere — which is what makes deep zoom into the user's
+				own map work with no network at all (stories 31 and 8).
 			-->
 			{#if imageServiceFetch && shown}
-				<div class="mt-4">
-					<HistoricalMapPane
+				<div class="mt-6">
+					<AlignmentWorkspace
+						{session}
 						imageId={shown}
 						fetchTile={imageServiceFetch}
-						label="Historical Map, unwarped, in image pixel coordinates"
+						baseMapId={resolveBaseMap(session.openProject.baseMap).entry.id}
 					/>
 				</div>
 			{/if}
 		{:else if !session.ingest}
 			<p class="mt-4 max-w-prose">
-				This Project has no Historical Maps yet. Aligning and annotating them arrive in later
-				slices; what works now is bringing one in — the image is converted to a IIIF pyramid,
-				written into the Project as you watch, and shown here to zoom into.
+				This Project has no Historical Maps yet. What works now is bringing one in — the image is
+				converted to a IIIF pyramid, written into the Project as you watch, and shown here beside a
+				Base Map to align onto the world.
 			</p>
 		{/if}
 	</section>
