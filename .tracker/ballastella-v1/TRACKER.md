@@ -8,13 +8,13 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: 06 is in progress. Tickets 12 and 13 are reviewed and remediated; ticket 05 is merged and green but is `Needs Human Validation or Intervention` — see open question 3.
+Current ticket: 07 is in progress, on the scope the upstream blocker leaves open (see open question 5). Tickets 12 and 13 are reviewed and remediated; ticket 05 is merged and green but is `Needs Human Validation or Intervention` — see open question 3.
 
 The tree runs **475 unit tests and 82 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Five items need a human — see [Open questions for a human](#open-questions-for-a-human).** Items 3 and 4 constrain what v1 can claim; none blocks ticket 06.
+**Six items need a human — see [Open questions for a human](#open-questions-for-a-human).** Items 3 and 4 constrain what v1 can claim; none blocks ticket 06.
 
 ### A note on how much to trust a green ticket
 
@@ -33,8 +33,8 @@ Last updated: 2026-08-05
 | 03 | [03-image-pane-synthetic-projection.md](./tickets/03-image-pane-synthetic-projection.md) | Completed | 01 | — (groundwork for 31) |
 | 04 | [04-base-map-pane-and-catalog.md](./tickets/04-base-map-pane-and-catalog.md) | Completed | 01 | 68, 69, *72*, *98*, 100, *101* |
 | 05 | [05-local-image-to-level-0-pyramid.md](./tickets/05-local-image-to-level-0-pyramid.md) | Needs Human Validation or Intervention | 02 | 21, 23, **22** |
-| 06 | [06-injection-layer-local-tiles-to-renderers.md](./tickets/06-injection-layer-local-tiles-to-renderers.md) | In Progress | 03, 05 | 31 |
-| 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | Not Started | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
+| 06 | [06-injection-layer-local-tiles-to-renderers.md](./tickets/06-injection-layer-local-tiles-to-renderers.md) | Completed | 03, 05 | 31 |
+| 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | In Progress | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
 | 08 | [08-alignment-refinement.md](./tickets/08-alignment-refinement.md) | Not Started | 07 | 39, 40, 41, 42, 43, 44, 45, 46, 47 |
 | 09 | [09-layers.md](./tickets/09-layers.md) | Not Started | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
 | 10 | [10-annotations.md](./tickets/10-annotations.md) | Not Started | 09 | *55*, *56*, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, *94* |
@@ -71,7 +71,15 @@ Raised by the code reviews of tickets 02–04 and 12–13, and by ticket 05's im
 
    `exportProjectZip` now refuses with `ProjectTooLargeToZipError`, naming the folder Workspace as the way out. That is honest but it means **a legitimately large Project is un-exportable for exactly the Firefox, Safari, and iPad users for whom zip is the only way out** — the users ADR-0001 built this path for. The real fix is zip64 in the writer: either fflate gains it, or the central directory is written here. Related and also open: import holds the whole compressed archive in the JS heap, so a ~400 MB export cannot be re-imported on an iPad (recorded in ticket 13 with two fix shapes — `File.slice()`, or a quarantine directory).
 
-5. **The two licence texts still do not ship** — now three, with LGPLv3. OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
+5. **An upstream `@allmaps/render` bug blocks warped rendering, which is ticket 07's central act.** Found by ticket 06, which is otherwise complete and green.
+
+   `@allmaps/render@1.0.0-beta.83` passes `fetchFn` into a Comlink worker **unproxied** — the abort callback in the very same argument list *is* wrapped in `Comlink.proxy()` — and `postMessage` cannot clone a function. Verified in Chromium against a real ingested pyramid: `addGeoreferencedMap` succeeds and the layer reports bounds, then **every tile fails with `DataCloneError`**, naming our own ADR-0011 shim as the unclonable object. Upstream logs and swallows it, so **the symptom is a blank warped map with nothing surfaced.**
+
+   So `fetchFn` reaches a stored pyramid's `info.json` and cannot reach its tiles. There is **no workaround inside this repository**: proxying from outside the package is impossible, and would hand back a proxied `Response` that `createImageBitmap` cannot consume. `e2e/editor-warped-fetch.e2e.ts` asserts the defect deliberately — **when that test starts failing, the upstream fix has landed.**
+
+   This blocks ticket 07's acceptance criteria "with 3 or more pairs, the Historical Map renders warped on the Base Map" and "reloading restores … the warped render". Everything else in ticket 07 — pairing, ordinals, persistence as a IIIF Georeference Annotation — is unaffected. The fix is one line upstream; the options (upstream PR, a local `pnpm patch`, or deferring warped render) are laid out in ticket 06.
+
+6. **The two licence texts still do not ship** — now three, with LGPLv3. OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
 
 ## Sequencing notes
 
