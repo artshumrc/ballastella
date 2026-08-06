@@ -106,14 +106,23 @@ export class WorkspaceStorage {
 	 * Go back to browser-managed storage.
 	 *
 	 * The folder is untouched and every Project in it stays where it is; so does every Project in
-	 * OPFS, which is why trying the folder option and changing one's mind costs nothing. The
-	 * remembered handle is dropped, because continuing to offer a folder the user has just moved
-	 * away from is nagging — choosing it again brings it back in one gesture.
+	 * OPFS, which is why trying the folder option and changing one's mind costs nothing.
+	 *
+	 * **Whether the handle is dropped depends on which of two buttons this is.** Beside "Choose
+	 * Workspace folder…" it is a deliberate switch, and dropping it is right: continuing to offer a
+	 * folder the user has just moved away from is the nagging ticket 12 rules out, and choosing it
+	 * again brings it back in one gesture. Beside "Locate Workspace folder again", when the Workspace
+	 * cannot be reached, it is the escape hatch — a user whose external drive is unplugged clicking it
+	 * to keep working — and dropping the grant there costs them a trip back through the operating
+	 * system's dialog for a folder they never gave up. Same button, two meanings, told apart by
+	 * whether the Workspace they are leaving was reachable.
 	 */
 	async useBrowserStorage(): Promise<void> {
 		this.problem = '';
-		await forgetWorkspaceFolder().catch(() => undefined);
-		this.reopenable = null;
+		if (this.session.status !== 'unreachable') {
+			await forgetWorkspaceFolder().catch(() => undefined);
+			this.reopenable = null;
+		}
 		await this.#adopt(OpfsProjectStore.open(), 'browser', '');
 	}
 
@@ -145,6 +154,20 @@ export class WorkspaceStorage {
 		// Listing is left to the effect over the URL that opens the Workspace, so a swap and a
 		// navigation cannot each trigger their own walk of a Workspace with tens of thousands of
 		// tile files in it.
+		//
+		// The sweep, however, belongs here. A write interrupted between its two steps leaves a file
+		// nothing else can reach — `list` hides it, `delete` refuses it — and
+		// `reclaimAbandonedWrites` had exactly one caller in the app: deleting a Project. So a laptop
+		// that died mid-autosave left a dotfile in `~/Dropbox/maps/amsterdam-1625/` that `git add -A`
+		// commits and Dropbox syncs, and nothing removed it unless that Project was deleted outright.
+		// Adopting a Workspace is the one moment a full sweep is both cheap and expected: it costs the
+		// same walk the listing that immediately follows it already does, and the user is watching a
+		// Workspace open rather than waiting on an edit.
+		//
+		// Best-effort and swallowed. A Workspace that cannot be swept is either unreachable — which the
+		// listing is about to say properly — or holding a file it will not give up, and neither is a
+		// reason to refuse to open it.
+		await store.reclaimAbandonedWrites('').catch(() => undefined);
 	}
 }
 

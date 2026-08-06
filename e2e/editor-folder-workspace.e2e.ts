@@ -306,6 +306,84 @@ test.describe('choosing a folder as the Workspace', () => {
 		await expect(page.getByRole('link', { name: 'In Browser' })).toHaveCount(0);
 	});
 
+	test('sweeps abandoned writes out of the folder when it is adopted', async ({ page }) => {
+		// A laptop that died mid-autosave leaves a `.ballastella-tmp` — or Chromium's
+		// `.ballastella-tmp.crswap` — inside the Project directory. `list` hides it, `delete` refuses
+		// it, and `reclaimAbandonedWrites` had exactly one caller in the app: `Workspace.deleteProject`.
+		// So in `~/Dropbox/maps/amsterdam-1625/` it is a file `git add -A` commits and Dropbox syncs,
+		// and nothing removed it unless the whole Project was deleted. Choosing or reopening a folder is
+		// the one moment a full sweep is cheap and expected.
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'Amsterdam 1625');
+
+		await page.evaluate(async (folder) => {
+			const root = await navigator.storage.getDirectory();
+			const project = await (
+				await root.getDirectoryHandle(folder)
+			).getDirectoryHandle('amsterdam-1625');
+			for (const litter of [
+				'.project.json.abandoned.ballastella-tmp',
+				'.project.json.crashed.ballastella-tmp.crswap'
+			]) {
+				const writable = await (
+					await project.getFileHandle(litter, { create: true })
+				).createWritable();
+				await writable.write('half a document');
+				await writable.close();
+			}
+		}, PICKED_FOLDER);
+		expect(await everyPathInFolder(page)).toHaveLength(3);
+
+		// Reopening is an adoption too, so the sweep has to be on that path and not only on picking.
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await inFolder(page);
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+
+		await expect.poll(() => everyPathInFolder(page)).toEqual(['amsterdam-1625/project.json']);
+	});
+
+	test('keeps the folder when "Use browser storage instead" is the escape from an unreachable one', async ({
+		page
+	}) => {
+		// The same button is two things: a deliberate switch, where forgetting the folder is right
+		// because continuing to offer one the user has just left is nagging; and the escape hatch beside
+		// "Locate Workspace folder again" when the Workspace cannot be reached. Forgetting on the second
+		// costs a user whose external drive is unplugged their persistent grant, and sends them back
+		// through the operating system's dialog to get it back.
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'Amsterdam 1625');
+		await page.evaluate(async (folder) => {
+			const root = await navigator.storage.getDirectory();
+			await root.removeEntry(folder, { recursive: true });
+		}, PICKED_FOLDER);
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await expect(page.getByRole('alert')).toContainText('Workspace not reachable');
+
+		await page.getByRole('button', { name: 'Use browser storage instead' }).click();
+
+		await inBrowserStorage(page);
+		// Still offered, because the folder has not been given up — only stepped away from.
+		await expect(page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` })).toBeVisible();
+	});
+
+	test('forgets the folder when browser storage is chosen deliberately', async ({ page }) => {
+		// The other half of the same button, so the fix above is not just "never forget".
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'Amsterdam 1625');
+
+		await page.getByRole('button', { name: 'Use browser storage instead' }).click();
+
+		await inBrowserStorage(page);
+		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
+		await page.reload();
+		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
+	});
+
 	test('writes a Project the browser backend reads with no conversion, once copied in', async ({
 		page
 	}) => {
