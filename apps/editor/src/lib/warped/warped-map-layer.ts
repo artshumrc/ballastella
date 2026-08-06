@@ -41,7 +41,7 @@ import {
 	COMPUTED_DISTORTION_MEASURES,
 	DEFAULT_DISTORTION_VIEW,
 	MINIMUM_CONTROL_POINTS,
-	toGeoreferencedMap,
+	toRendererDocument,
 	type Alignment,
 	type DistortionView,
 	type FetchFn
@@ -143,7 +143,7 @@ export function showAlignment(
 		// Believing the declared type here would surface a rejected Alignment as a map id, and the
 		// symptom would be an empty Base Map with the page reporting success.
 		const mapId: unknown = layer.addGeoreferencedMap(
-			toGeoreferencedMap(alignment),
+			toRendererDocument(alignment),
 			mapOptionsFor(alignment, distortion)
 		);
 		if (mapId instanceof Error) return { status: 'refused', reason: mapId.message };

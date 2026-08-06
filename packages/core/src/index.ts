@@ -175,7 +175,7 @@ export {
 	AlignmentUnreadableError,
 	parseAlignment,
 	serialiseAlignment,
-	toGeoreferencedMap
+	toRendererDocument
 } from './alignment/georeference-annotation.js';
 
 export { createImagePane } from './image-pane/iiif-image-pane';
