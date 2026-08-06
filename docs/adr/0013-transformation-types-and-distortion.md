@@ -20,7 +20,9 @@ The four primary types span the real range of need, and none substitutes for ano
 ## Three types are never exposed
 
 - **`straight` must never be offered — it is not round-trippable.** `typeAndOrderToTransformationType` handles `helmert`, `polynomial{,1,2,3}`, `thinPlateSpline`, `linear`, and `projective`, and **throws `'Unrecognised transformationType.'` for `straight`**, despite `straight` being a member of the `TransformationType` union. Exposing it would produce alignments that fail to deserialize.
-- **`polynomial` is an alias for `polynomial1`** (`transformationTypeToTypeAndOrder` maps both to polynomial order 1). Always store the explicit `polynomial1`.
+- **`polynomial` is an alias for `polynomial1`** (`transformationTypeToTypeAndOrder` maps both to polynomial order 1). The in-memory value is always the explicit `polynomial1`.
+
+  **Corrected: the wire form is `{ type: 'polynomial', options: { order: 1 } }`, not the literal string.** This ADR previously said "always store the explicit `polynomial1`", and that string **cannot be written** — `@allmaps/annotation@1.0.0-beta.37`'s Zod enum has no `polynomial1` member, and its `.or()` fallback is unreachable because `parseIfValid` always succeeds first. So `generateAnnotation` writes *no transformation at all*, and parsing a file containing `polynomial1` returns `undefined`. Ticket 07 therefore writes the `{ type, options.order }` form through upstream's own `transformationTypeToTypeAndOrder`, which round-trips and reads back as exactly `polynomial1`. The behaviour this ADR wanted holds; the serialisation it named does not exist. Recorded here rather than left as an open question, because an ADR that contradicts the code is worse than one that is silent.
 - **`linear`** is recognised as distinct from `polynomial1` but has no documented user-facing meaning.
 
 **The guidance text, not the label, is the primary text in the picker.** "Most printed maps" is what a historian can act on; "Standard" is not. Labels are secondary, and are presentation only — the value stored in the Georeference Annotation is always the canonical Allmaps string, following the same boundary discipline as ADR-0004.

@@ -1,6 +1,8 @@
 # The project directory is the published site
 
 > **Amended by [ADR-0008](./0008-projects-live-in-a-workspace.md):** the published site root is the *workspace*, and a project is a directory inside it. Everything below still holds — publishing is additive and copies no data — but `index.html` and the viewer bundle live at the workspace root and are shared by every project.
+>
+> **Amended again by [ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md):** the directory tree below is out of date. A project directory holds `project.json` and `annotations/` only — `images/` and `alignments/` live at the **workspace** root and are shared by every project, so that one historical map has one place on the earth however many projects use it.
 
 Publishing writes an `index.html` and a read-only viewer bundle *into* the project directory, additively, alongside the data already there. Publishing is then `git push`, or uploading the folder to any static host. No data is copied.
 

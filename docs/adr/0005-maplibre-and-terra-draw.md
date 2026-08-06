@@ -1,8 +1,10 @@
-# MapLibre GL + terra-draw, not Leaflet + Geoman
+# MapLibre GL, not Leaflet + Geoman — and no drawing library at all
 
-> **⚠ Amended 2026-08-06 by the [Amendment](#amendment-2026-08-06--control-points-and-resource-masks-do-not-go-through-terra-draw) at the foot of this document, and NOT YET RATIFIED BY A HUMAN.** Control Points and the Resource Mask reach the panes through the app's own `overlayPoints` seam rather than through `terra-draw`. Annotations are still expected to use it (ticket 10). The MapLibre decision itself is untouched. Read the amendment before acting on the paragraph below.
+> **⚠ Amended, and now settled: `terra-draw` is not used anywhere and is not going to be.** Control Points, the Resource Mask, **and Annotations** all reach the panes through the app's own `overlayPoints` seam. The MapLibre GL decision — the substance of this ADR — is untouched. See the [Amendment](#amendment-2026-08-06--control-points-and-resource-masks-do-not-go-through-terra-draw) at the foot of this document for the reasoning, and [Resolution](#resolution) for what closed it.
+>
+> **Also amended by [ADR-0025](./0025-no-base-map-ships-offline-is-per-project-and-opt-in.md):** no bundled pmtiles extract ships. The offline Base Map is a per-Project, opt-in tile cache.
 
-Both the base-map pane and the image pane are MapLibre GL maps. Drawing and editing goes through `terra-draw` with `terra-draw-maplibre-gl-adapter` — **see the amendment: this now holds for annotations only, not for control points or resource masks.** Rendering of aligned historical maps uses `@allmaps/maplibre`.
+Both the base-map pane and the image pane are MapLibre GL maps. Drawing and editing goes through the app's own `overlayPoints` seam — **not** through `terra-draw`, which the amendment below explains and which was originally specified here. Rendering of aligned historical maps uses `@allmaps/maplibre`.
 
 The original plan was Leaflet + `leaflet-geoman-free`, and that was reasonable on the information available. Three findings changed it.
 
@@ -48,9 +50,13 @@ A fifth consideration is smaller but real: ADR-0019 counts two new runtime depen
 ### What this does not change
 
 - The MapLibre GL decision, the `pmtiles://` protocol, and `@allmaps/maplibre` for warped rendering — the substance of this ADR — are untouched.
-- `terra-draw` remains the choice for **annotations** (ticket 10), which are arbitrary user-drawn points, lines and polygons with a tool palette. That is the case the library is actually for, and adopting it there costs nothing that adopting it here would have saved. Its keyboard story is a problem ticket 10 has to answer on its own terms; it is not answered by this amendment.
-- ADR-0019's fence still names `terra-draw` as a dependency `apps/viewer` must never have, and `scripts/check-viewer-deps.mjs` still enforces it. That check passes today for the uninteresting reason that nothing depends on it yet.
+- ~~`terra-draw` remains the choice for **annotations** (ticket 10)~~ — see [Resolution](#resolution). It did not.
+- ADR-0019's fence still names `terra-draw` as a dependency `apps/viewer` must never have, and `scripts/check-viewer-deps.mjs` still enforces it. That check now passes for a better reason than it used to: nothing anywhere depends on it, and nothing will.
 
-### What a human is being asked to decide
+### Resolution
 
-Whether the sentence "all drawing and editing — control points, resource masks, and annotations — goes through `terra-draw`" should be narrowed to annotations, permanently, on the reasoning above. Two reviewers have independently reached that conclusion from the code; neither is a person.
+**Ratified, and wider than it was proposed.** The open question was whether to narrow "all drawing and editing goes through `terra-draw`" to annotations alone. Ticket 10 then built annotations on the same `overlayPoints` seam as Control Points and the Resource Mask — `drawing.svelte.ts` holds the gesture state and every vertex is a real `<button>` with an accessible name, arrow-key movement, and Delete — so the last case that might have used a drawing library did not.
+
+So the narrowing is not to annotations; it is to nothing. **`terra-draw` and `terra-draw-maplibre-gl-adapter` appear in no manifest, no lockfile entry, and no source file, and are not planned.** Every reference to them in SPEC and in tickets is stale and must be read as historical.
+
+The keyboard argument turned out to be the whole argument, and it applied to all three cases identically: a WebGL canvas cannot be focused per feature, so anything drawn inside a MapLibre GL layer is mouse-only. This is a Harvard-hosted teaching tool held to WCAG 2.1 AA, and CONTRIBUTING makes keyboard reach an acceptance criterion in every change that adds UI. Having built the DOM path once because accessibility required it, a second editing mechanism beside it would have been two ways to move the same point.

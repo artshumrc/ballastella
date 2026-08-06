@@ -1,5 +1,9 @@
 # Base maps: deployment catalog, author default, reader switching
 
+> **Amended by [ADR-0025](./0025-no-base-map-ships-offline-is-per-project-and-opt-in.md):** no pmtiles archive ships, and the deployment must name its own or the build fails. "Publishing an offline site copies the pmtiles extract" below is replaced by a per-project, opt-in cache of the tiles that project's own content needs. `PublishedSite.baseMapBundled` changes meaning accordingly. The **zero-extra-bytes claim survives intact**, because the cache holds vector tiles and the several looks are still style documents over one dataset.
+>
+> **Amended by [ADR-0026](./0026-the-opening-view-is-computed-from-the-projects-content.md):** `BASE_MAP_CATALOG.initialView` is no longer what a project opens on — the view is computed from the project's own content, and `initialView` survives only as the fallback for a project with nothing placed on the earth. Note that ADR-0026 declines, for now, to store an author-chosen opening view, *even though this ADR's own argument for storing the author's base-map default — "the default still governs first contact, which is the moment that carries the argument" — applies to the viewport just as well.* ADR-0026 records that tension rather than resolving it.
+
 - The **catalog** of available base maps is deployment configuration, and ships inside the viewer bundle at publish time.
 - **`project.json` records the author's default** base map, by **stable id** — never by URL.
 - The **viewer exposes a base map switcher**, so a reader can change base maps in a published, read-only site.

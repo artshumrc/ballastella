@@ -1,5 +1,11 @@
 # Projects live in a workspace, and the workspace is the published site
 
+> **Amended by [ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md):** the tree below is out of date. `images/` and `alignments/` sit at the workspace root, shared by every project; a project directory holds `project.json` and `annotations/`. `images`, `alignments`, and `base-map` are therefore reserved directory names and must be refused when a project is created — `toDirectoryName('Images')` produces `images`, and the existing check runs only at publish time, which is too late.
+>
+> **Amended by [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md):** "a project zip is one project subdirectory" no longer describes transfer. Backup is a **tar of the whole workspace**; a project bundle is a separate artefact that opens only in a throwaway Review Workspace and is never merged into the recipient's own.
+>
+> The shared ~1 GB budget below is *more* significant under ADR-0023, not less: the workspace can hold historical maps no project uses, and publishing is additive so it cannot exclude them. The hosting warning must name that weight.
+
 A user chooses one **workspace** directory. Projects are directories inside it. Publishing writes a single `index.html` and one shared viewer bundle at the workspace root; that root, published, is a hub page listing every project, with a project addressed by query parameter — `/?p=amsterdam-1625`.
 
 ```

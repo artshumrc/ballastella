@@ -7,11 +7,11 @@ A **ballastella** — also Jacob's staff — is a graduated pole with a sliding 
 ## Language
 
 **Workspace**:
-The one place a user keeps all their projects — a directory they choose, holding every project as a subdirectory. Published, a workspace is a hub page listing the projects inside it.
+The one place a user keeps their work — a directory they choose, holding every project as a subdirectory and every historical map they have brought in. Published, a workspace is a hub page listing the projects inside it.
 _Avoid_: library, root, vault, home
 
 **Project**:
-One coherent piece of work within a workspace: the historical maps brought in for it, the alignments made, the annotations written, and the order those are stacked in. A project is a directory of files the user owns, not a record in a database.
+One coherent piece of work within a workspace: which of the workspace's historical maps it uses, the alignments made for them, the annotations written, and the order those are stacked in. A project is a directory of files the user owns, not a record in a database. It composes historical maps rather than containing them, so one map can appear in several projects (ADR-0023).
 _Avoid_: workspace, document, map (for the whole), collection
 
 **Published Site**:
@@ -26,13 +26,25 @@ _Avoid_: overlay, track, group
 The scanned or photographed map a scholar is working with — the thing being aligned. Always qualified, because "map" alone is ambiguous in this project.
 _Avoid_: map, image, scan, source
 
+**Library**:
+The institution whose server a referenced historical map's tiles stay on — the thing a scholar cites, and the thing that reorganises and breaks their links. Reserved for that meaning alone: never used for the workspace, and never for a user's own collection of historical maps.
+_Avoid_: repository, host, provider, source
+
 **Base Map**:
 The modern reference map of the world that historical maps are aligned onto and annotations are placed over. One of several the user can switch between.
 _Avoid_: map, background, tiles
 
 **Align / Alignment**:
-To establish the correspondence between a historical map image and locations on the earth, and the artifact that records it — its control points, resource mask, and transformation type. One word, used as both verb and noun, in the UI and in the code.
+To establish the correspondence between a historical map image and locations on the earth, and the artifact that records it — its control points, resource mask, and transformation type. One word, used as both verb and noun, in the UI and in the code. There is exactly one alignment per historical map, belonging to the workspace and shared by every project that uses that map (ADR-0023).
 _Avoid_: georeference, warp, pin, register, rectify, GeoreferencedMap
+
+**Offline Copy**:
+A referenced historical map whose tiles have been fetched into the workspace, so it no longer needs the network and survives the library reorganising. The address it came from is kept, so it can still be cited. The user-facing verb is "make an offline copy".
+_Avoid_: mirror, cache, download, localise
+
+**Review Workspace**:
+A throwaway workspace holding one project someone else sent, opened to be looked at and then discarded. Never merged into the user's own workspace, and nothing in it can be promoted out of it.
+_Avoid_: sandbox, preview, scratch, temp
 
 **Control Point**:
 A single correspondence between one point on a historical map image and one point on the earth. Control points are paired by nature — a control point without both halves is incomplete, not merely empty.

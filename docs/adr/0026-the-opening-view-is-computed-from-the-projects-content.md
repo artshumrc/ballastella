@@ -1,0 +1,18 @@
+# The opening view is computed from the Project's content, never stored
+
+Opening a Project fits the map to the union of what that Project has placed on the earth — its Annotations' geometries and its aligned Historical Maps' extents. Nothing about the view is written to `project.json`.
+
+Recorded because a future reader will reasonably ask why, given that [ADR-0020](./0020-base-map-catalog-author-default-and-reader-switching.md) *does* store the author's default Base Map in `project.json`, and justifies it with an argument that applies here just as well: "The default still governs first contact, which is the moment that carries the argument." A scholar whose argument is about one harbour may not want a reader's first sight to be a bounding box around every Annotation they happened to make, including three in the next province.
+
+It is computed anyway because auto-fit is the right *default* under either answer, so building it forecloses nothing — an author-set opening view is strictly additive later. Storing one now would add a field, an affordance, and a "your recorded view no longer contains your work" problem, for a case no user has yet asked for. **Recorded as a v2 candidate** so the next person finds this argument rather than rediscovering it.
+
+The computation belongs in `@ballastella/core` as a pure function: `@allmaps/transform`'s `GcpTransformer` is already a direct dependency and already used in `alignment/distortion.ts`, so an aligned Historical Map's geographic extent comes from transforming its Resource Mask ring — no renderer, no async race, testable in Node, and usable by the editor and the published viewer alike.
+
+## Consequences
+
+- **What counts, in order:** visible Layers; failing that, all Layers; failing that, `BASE_MAP_CATALOG.initialView`. So a brand-new Project still opens somewhere deliberate rather than at 0°, 0°.
+- **An unaligned Historical Map contributes nothing**, having no place on the earth. A Project of only unaligned maps falls through to the deployment default.
+- **The fit happens once, on open, and never again.** Refitting when a Layer is toggled or an Annotation added would pull the map out from under someone mid-edit. An explicit "Fit to this Project" control covers the rest, and is discoverable in a way an automatic jump is not.
+- **Zoom is capped and the box is padded.** A Project with a single pin has zero-area bounds, and fitting to that goes to maximum zoom — a reader's first sight would be four roof tiles.
+- **The published viewer must use the same function**, or a Published Site opens on the deployment's default while the editor opens on the work. Ticket 17 is already merged and unreviewed, so this is the most likely thing to be missed.
+- **The alignment view fits to the Alignment being worked on** — its Control Points' extent when there are any, else the Project's fit. Reopening a half-finished Alignment then lands where the work was left, instead of somewhere that has to be navigated away from every time.

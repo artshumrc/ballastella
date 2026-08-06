@@ -2,7 +2,13 @@
 
 The authoring app ships a web app manifest and a service worker that precaches the app shell, making it installable and usable offline. Silent activation is disabled: no `skipWaiting`, and an explicit "Update available — reload" prompt.
 
-Offline authoring is achievable rather than aspirational — storage is OPFS, local tiles reach renderers without network via per-consumer injection (ADR-0011), and a bundled pmtiles extract provides a base map (ADR-0005). The only remaining network dependencies are referenced remote IIIF (ADR-0007) and remote base maps, both of which the user chose deliberately. And offline is the real use case: a scholar in a reading room or archive with hostile wifi is a primary user.
+Offline authoring is achievable rather than aspirational — storage is OPFS, and local tiles reach renderers without network via per-consumer injection (ADR-0011). And offline is the real use case: a scholar in a reading room or archive with hostile wifi is a primary user.
+
+> **Narrowed by [ADR-0025](./0025-no-base-map-ships-offline-is-per-project-and-opt-in.md).** This paragraph originally claimed a bundled pmtiles extract as the base map. **No archive ships.** The honest claim is now: a user's historical maps, alignments, and annotations always work with no network; the **base map** works offline once that project has been made available offline, which caches the tiles its own content needs. SPEC story 8 must be reworded to match rather than quietly failing. One consequence lands on first contact: an installed app opened offline with a brand-new project has no base map, and that state must be named — "there's no connection, so the base map can't load yet; everything else works" — not left as a blank grey rectangle.
+>
+> ADR-0025 also requires `navigator.storage.persist()`, which belongs to this ADR's remit: it is called nowhere today, and installing the app is what usually grants it.
+
+The only remaining network dependencies the user chose deliberately are referenced remote IIIF (ADR-0007) and remote base maps.
 
 Installing also **fixes friction introduced by ADR-0001**. Chrome's persistent File System Access permission works best for installed PWAs, so "install this app" is the answer to "why does it keep asking about my folder?" The PWA is not decoration; it is the remedy for a cost the storage decision imposed.
 
