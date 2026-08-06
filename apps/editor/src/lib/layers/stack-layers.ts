@@ -33,6 +33,14 @@ import { exposeLayerStackToBrowserTests } from './browser-test-handle';
 export interface DrawnMapLayer {
 	readonly layer: MapLayer;
 	readonly alignment: Alignment;
+	/**
+	 * The remote image service this Layer's tiles come from, or `''` for a local copy (ticket 14).
+	 *
+	 * Resolved by the caller from the Project's `remote.json` records, for the same reason the
+	 * Alignment is: reaching the store is `EditorSession`'s business. A `'referenced'` Layer with `''`
+	 * here draws nothing at all, so the caller derives it from `imageMode` — see the layers pane.
+	 */
+	readonly service?: string;
 }
 
 export interface DrawnAnnotationLayer {
@@ -180,7 +188,7 @@ export function drawLayerStack(options: {
 			added.push(layer.id);
 			warped[layerId] = layer;
 			layer.setOpacity(drawn.layer.opacity);
-			const render: WarpedRender = showAlignment(layer, drawn.alignment);
+			const render: WarpedRender = showAlignment(layer, drawn.alignment, drawn.service ?? '');
 			outcomes[layerId] = describe(render);
 			continue;
 		}

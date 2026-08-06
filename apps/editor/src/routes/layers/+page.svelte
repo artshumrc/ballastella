@@ -17,6 +17,7 @@
 	import { page } from '$app/state';
 	import {
 		baseMapFallbackNotice,
+		imageIdFromAlignmentRef,
 		otherTheme,
 		resolveBaseMap,
 		type Alignment,
@@ -128,11 +129,28 @@
 			if (layer.kind === 'map') {
 				// A map Layer with no Alignment yet is not handed to the map at all: there is nothing to
 				// place it by, and `showAlignment` would have to refuse it a second time.
-				return document === undefined ? [] : [{ layer, alignment: document as Alignment }];
+				if (document === undefined) return [];
+				return [{ layer, alignment: document as Alignment, service: remoteServiceFor(layer) }];
 			}
 			return [{ layer, features: document ?? null }];
 		})
 	);
+
+	/**
+	 * Where a `'referenced'` Layer's tiles are served from, or `''` for a local copy (ticket 14).
+	 *
+	 * Keyed off `imageMode` rather than off "is there a record for this image", so a referenced Layer
+	 * whose `remote.json` is missing or unreadable comes back `''` and is **refused visibly** by
+	 * `showAlignment` rather than drawn from the ADR-0004 placeholder — which would send it into the
+	 * injection layer looking for a pyramid that by definition is not there, and render blank.
+	 */
+	const remoteServiceFor = (layer: MapLayer): string => {
+		if (layer.imageMode !== 'referenced') return '';
+		const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
+		return (
+			(session?.referencedImages ?? []).find((image) => image.imageId === imageId)?.service ?? ''
+		);
+	};
 
 	/** What the map made of each Layer it was given. */
 	let rendered = $state.raw<Readonly<Record<string, DrawnOutcome>>>({});

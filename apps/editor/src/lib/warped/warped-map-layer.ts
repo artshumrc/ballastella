@@ -39,6 +39,7 @@
 import { WarpedMapLayer } from '@allmaps/maplibre';
 import {
 	MINIMUM_CONTROL_POINTS,
+	referencedGeoreferencedMap,
 	toGeoreferencedMap,
 	type Alignment,
 	type FetchFn
@@ -83,8 +84,20 @@ export type WarpedRender =
  * normal thing for the page to render. An Alignment with two Control Points is not an error — it
  * is a user halfway through their first pairing, who needs to be told that a third point is what
  * makes the map appear.
+ *
+ * `service` is the **remote** image service URI for a `'referenced'` image (ticket 14), and `''` for
+ * a local copy. It has to be here rather than inside the Alignment because `@allmaps/maplibre`
+ * builds every tile URL from the document's `resource.id`, and the two cases want different
+ * answers: the ADR-0004 placeholder, which the injection layer resolves out of the store, or the
+ * library's own address, which goes to the network. Passing `''` for a referenced image is a blank
+ * warped Layer — the same silent failure ticket 06 spent a patch on — so the caller derives it from
+ * the Layer's `imageMode` rather than deciding per call site.
  */
-export function showAlignment(layer: WarpedMapLayer, alignment: Alignment): WarpedRender {
+export function showAlignment(
+	layer: WarpedMapLayer,
+	alignment: Alignment,
+	service = ''
+): WarpedRender {
 	const need = MINIMUM_CONTROL_POINTS[alignment.transformationType];
 	const have = alignment.controlPoints.length;
 	if (have < need) return { status: 'too-few-points', have, need };
@@ -94,7 +107,11 @@ export function showAlignment(layer: WarpedMapLayer, alignment: Alignment): Warp
 		// which is a claim rather than a guarantee, so it is widened and checked rather than trusted.
 		// Believing the declared type here would surface a rejected Alignment as a map id, and the
 		// symptom would be an empty Base Map with the page reporting success.
-		const mapId: unknown = layer.addGeoreferencedMap(toGeoreferencedMap(alignment));
+		const document =
+			service === ''
+				? toGeoreferencedMap(alignment)
+				: referencedGeoreferencedMap(alignment, service);
+		const mapId: unknown = layer.addGeoreferencedMap(document);
 		if (mapId instanceof Error) return { status: 'refused', reason: mapId.message };
 		if (typeof mapId !== 'string' || mapId === '') {
 			return { status: 'refused', reason: 'the renderer accepted the Alignment but named no map' };

@@ -50,15 +50,33 @@
 	/**
 	 * The library's own Manifest where there is one, and a wrapper where there is not.
 	 *
-	 * Deliberately one or the other and never both: handing over `manifestJson` built from our reading
-	 * of a document triiiceratops could fetch itself would put our parser's interpretation inside its
-	 * navigation, which is the one thing ADR-0018 forbids.
+	 * Never both interpretations of one document: where triiiceratops can fetch and parse the
+	 * library's Manifest itself, it is given the **URL** and nothing else, because handing over a
+	 * `manifestJson` built from *our* reading of a document it could read itself is exactly what
+	 * ADR-0018 forbids.
+	 *
+	 * **`manifestJson` needs `manifestId` beside it.** Measured against
+	 * `triiiceratops@1.0.0-rc.35`: `TriiiceratopsViewer`'s effect is
+	 * `if (manifestId && manifestJson) { setManifestData(…) }`, so `manifestJson` on its own does
+	 * nothing at all — the viewer mounts its chrome over an empty area and logs at a debug level that
+	 * is off by default. The id is not a second fetch; it is the key the manifest is cached under, and
+	 * the document is supplied, so nothing is requested from it.
 	 */
 	const source = $derived(
 		image.partOf === ''
-			? { manifestJson: unwarpedManifest(image) }
+			? { manifestId: `${image.service}/manifest.json`, manifestJson: unwarpedManifest(image) }
 			: { manifestId: image.partOf, ...(image.canvas === '' ? {} : { canvasId: image.canvas }) }
 	);
+
+	/**
+	 * What triiiceratops said went wrong, if anything did.
+	 *
+	 * Its `onviewererror` channel exists so a host can present a failure "without scraping the
+	 * console", and taking it is not optional here: the failure mode of an embedded tile viewer is a
+	 * blank rectangle, which is precisely the unactionable outcome this whole ticket's CORS gate is
+	 * written against. A panel that says nothing is a support request.
+	 */
+	let viewerError = $state('');
 </script>
 
 <div class="mt-4" data-testid="unwarped-view">
@@ -80,15 +98,29 @@
 	</p>
 
 	<!--
-		A fixed height, because OpenSeadragon measures its container and a container that sizes itself
-		from its content collapses to nothing. `min-h` rather than `h` so a narrow window can grow it.
+		A **definite** height, not `min-h`. triiiceratops' root sizes itself at `height: 100%`, and 100%
+		of a parent whose `height` is `auto` resolves to auto — so with `min-h` the viewer laid out at
+		zero pixels tall, OpenSeadragon never built a container, and the panel rendered its toolbar over
+		nothing. Measured: `#triiiceratops-viewer` was 830 × **0**.
 	-->
-	<div class="mt-3 min-h-[28rem] overflow-hidden rounded-box border border-base-300">
+	<div class="mt-3 h-[32rem] overflow-hidden rounded-box border border-base-300">
 		<!--
 			`theme` is triiiceratops' own light/dark switch, driven from the app's one theme signal —
 			ADR-0016 asks for a single source of truth rather than two toggles that happen to agree, and
 			an embedded viewer with its own idea of the theme is exactly that second toggle.
 		-->
-		<TriiiceratopsViewer {...source} theme={theme.current} />
+		<TriiiceratopsViewer
+			{...source}
+			theme={theme.current}
+			onviewererror={(error) => (viewerError = error.message || 'This image could not be shown.')}
+		/>
 	</div>
+
+	{#if viewerError}
+		<div role="alert" class="mt-3 alert max-w-prose alert-warning">
+			<p data-testid="unwarped-error">
+				{new URL(image.service).hostname} could not show this image: {viewerError}
+			</p>
+		</div>
+	{/if}
 </div>
