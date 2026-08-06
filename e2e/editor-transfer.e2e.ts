@@ -379,6 +379,21 @@ test.describe('a zip that is refused, with nothing written', () => {
 		expect(await projectContents(page, 'boston-1775')).toEqual(mine);
 	};
 
+	test('a Project that will not fit in what this browser has left', async ({ page }) => {
+		// Asked before the import is offered, not discovered part way through it. A zip declares how
+		// much it unpacks to and browser-managed storage will say how much room is left, so the one
+		// moment worth asking is while nothing has been written and cancelling costs nothing.
+		//
+		// The quota is scripted because no automated browser can be made genuinely full, and because
+		// what is being asserted is the app's sequencing rather than Chromium's accounting.
+		await page.addInitScript(() => {
+			navigator.storage.estimate = async () => ({ quota: 1_000_128, usage: 1_000_000 });
+		});
+		await page.reload();
+
+		await refuses(page, zipFixture(projectFiles()), 'needs about', 'left for Ballastella');
+	});
+
 	test('a zip with no project.json', async ({ page }) => {
 		await refuses(
 			page,
