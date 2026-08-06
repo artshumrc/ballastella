@@ -464,14 +464,34 @@ test.describe('the Workspace’s Historical Maps', () => {
 	});
 
 	test('is fully operable from the keyboard', async ({ page }) => {
+		// **Tabbed to rather than `focus()`ed.** Calling `focus()` reaches an element a keyboard user
+		// cannot: a control taken out of the tab order — `tabindex="-1"`, or a `<div>` with a click
+		// handler — passes a test written that way while being unreachable in the app.
 		const trigger = entry(page, 'A map nobody kept').getByRole('button', { name: /^Delete/ });
-		await trigger.focus();
+		await page.getByRole('button', { name: 'Import Project…' }).focus();
+		for (
+			let tab = 0;
+			tab < 40 && !(await trigger.evaluate((node) => node === document.activeElement));
+			tab++
+		) {
+			await page.keyboard.press('Tab');
+		}
+		await expect(trigger).toBeFocused();
 		await page.keyboard.press('Enter');
 
 		const dialog = page.getByRole('dialog', { name: 'Delete Historical Map' });
 		await expect(dialog).toBeVisible();
-		// Tab into the dialog's own actions and confirm without ever touching a pointer.
-		await page.getByRole('button', { name: 'Delete Historical Map' }).focus();
+		// And on into the dialog's own actions, without ever touching a pointer. `showModal()` traps
+		// focus inside the dialog, so tabbing from here cannot leave it.
+		const confirm = page.getByRole('button', { name: 'Delete Historical Map' });
+		for (
+			let tab = 0;
+			tab < 10 && !(await confirm.evaluate((node) => node === document.activeElement));
+			tab++
+		) {
+			await page.keyboard.press('Tab');
+		}
+		await expect(confirm).toBeFocused();
 		await page.keyboard.press('Enter');
 
 		await expect(page.getByTestId('historical-map')).toHaveCount(3);
