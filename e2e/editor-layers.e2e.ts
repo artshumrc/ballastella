@@ -583,6 +583,9 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		await rows(page).nth(0).getByTestId('layer-move-down').click();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		await page.reload();
+		// Waited for, not assumed: a reload renders the hub frame before `?p=` has been read, so the
+		// rows arrive a tick after the page does (ADR-0008 — a Project is selected client-side).
+		await expect(rows(page)).toHaveCount(2);
 
 		expect(await rowIds(page)).toEqual([mapId, annotationId]);
 		expect((await projectJson(page, directory)).layers.map((layer: { id: string }) => layer.id)) //
