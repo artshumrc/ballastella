@@ -13,7 +13,8 @@
 	"dependencies": {
 		"@allmaps/iiif-parser": "catalog:",
 		"@maplibre/maplibre-gl-style-spec": "catalog:",
-		"@protomaps/basemaps": "catalog:"
+		"@protomaps/basemaps": "catalog:",
+		"fflate": "catalog:"
 	},
 	"devDependencies": {
 		"@allmaps/types": "catalog:",

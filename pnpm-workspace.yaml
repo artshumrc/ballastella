@@ -59,3 +59,17 @@ catalog:
   '@protomaps/basemaps': ^5.7.2
   maplibre-gl: ^5.24.0
   pmtiles: ^4.4.1
+
+  # Zip export and import (ticket 13, ADR-0001: the only way in and out for Firefox, Safari,
+  # and iPad).
+  #
+  # fflate rather than a browser-only library, because the round-trip tests are Seam 1 — an
+  # in-memory ProjectStore in Node — and rather than a write-only one such as `client-zip`,
+  # because import is half the slice. It gives an incremental `Zip` (one file in memory at a
+  # time, so a mirrored pyramid of hundreds of megabytes never lands in the heap whole) and an
+  # `unzip` whose `filter` reads the central directory without inflating anything, which is what
+  # lets import validate the whole archive *before* writing its first byte.
+  #
+  # Also a devDependency of the repository root: the Playwright suite builds the fixture zips it
+  # feeds to the file input, and reads back the ones the app downloads.
+  fflate: ^0.8.3

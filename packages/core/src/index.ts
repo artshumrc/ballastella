@@ -20,6 +20,7 @@ export {
 	type ProjectFile
 } from './project/project-file.js';
 export {
+	ProjectDirectoryCollisionError,
 	Workspace,
 	toDirectoryName,
 	type ProjectSummary,
@@ -37,6 +38,29 @@ export {
 	type StorePath
 } from './store/project-store.js';
 export { TempFileWriteStore } from './store/temp-file-write-store.js';
+
+export {
+	exportProjectZip,
+	type ExportProjectZipOptions,
+	type ProjectExport
+} from './transfer/export-project-zip.js';
+export {
+	ProjectZipRejectedError,
+	readProjectZip,
+	type ProjectZip,
+	type ProjectZipRejection
+} from './transfer/import-project-zip.js';
+export type {
+	ProjectFileSource,
+	TransferFile,
+	TransferProgress,
+	TransferProgressListener
+} from './transfer/transfer.js';
+export {
+	VIEWER_FILE_PATHS,
+	createViewerFileFilter,
+	isViewerFile
+} from './transfer/viewer-files.js';
 
 export {
 	ROUND_TRIP_TOLERANCE_PX,
