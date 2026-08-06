@@ -372,9 +372,32 @@ const STACK_READY_MS = 20_000;
  * The wait is longer than the default because what it waits for is a whole Base Map style — a PMTiles
  * header, sprites, glyphs — and then a warped Historical Map on top of it. Five seconds is enough on an
  * idle machine and not on a busy one, which reads as a failure of whatever the test went on to do.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * THE WAY IN IS A PARAMETER, AND THAT IS NOT A CONVENIENCE
+ *
+ * There are two ways to reach this pane and **they were not equivalent**. A fresh load — `via: 'load'`,
+ * which is what every test in this file used and so remains the default — worked; the client-side
+ * navigation from the Project page did not, once that page had a local Historical Map on it. Its
+ * `WarpedMapLayer` was taken off a map that had already been removed, `Map#getLayer` threw because a
+ * removed map has no style, and an exception thrown while Svelte is destroying one page abandons the
+ * rest of that flush — including the mount of the page being navigated to. So the Layers pane arrived
+ * with no MapLibre map inside it at all and the stack was never built.
+ *
+ * Neither route can stand in for the other, which is why {@link via} exists rather than being chosen
+ * once here. `editor-remote-iiif.e2e.ts` covers the same pair for a `'referenced'` Layer, where the
+ * failure went the other way round.
+ *
+ * @param via `'load'` navigates to the pane's URL; `'link'` clicks through from the Project page, which
+ *   the caller must already be on.
  */
-async function openLayers(page: Page, directory: string, drawn = 1): Promise<void> {
-	await page.goto(`/layers?p=${directory}`);
+async function openLayers(
+	page: Page,
+	directory: string,
+	{ drawn = 1, via = 'load' }: { drawn?: number; via?: 'load' | 'link' } = {}
+): Promise<void> {
+	if (via === 'link') await page.getByTestId('open-layers').click();
+	else await page.goto(`/layers?p=${directory}`);
 	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', String(drawn), {
 		timeout: STACK_READY_MS
@@ -638,6 +661,37 @@ test.describe('a Layer for an aligned Historical Map', () => {
 		const badge = page.getByTestId('layer-image-mode');
 		await expect(badge).toHaveAttribute('data-image-mode', 'mirrored');
 		await expect(badge).toContainText('Local copy');
+	});
+
+	/**
+	 * The link from the Project page is a way in of its own, and it used to be a broken one.
+	 *
+	 * Every other test in this file loads `/layers?p=…` directly, so a defect that only the client-side
+	 * navigation reaches was invisible to the whole suite by construction — see {@link openLayers}. It
+	 * needs a **local** Historical Map on the Project page to reproduce, because that is what puts a
+	 * warped layer on a Base Map pane that then has to be torn down: the pane the user is leaving removed
+	 * its map first and asked it for a layer afterwards, `Map#getLayer` threw on a map with no style, and
+	 * Svelte abandoned the rest of the destroy — and with it the mount of the pane being navigated to.
+	 *
+	 * **`pageerror` is asserted as well as the drawn count**, because the exception is the mechanism and
+	 * asserting only the outcome would leave the next version of this failure free to arrive silently.
+	 * And the stack is asked of MapLibre rather than of the app, for the reason the whole file does:
+	 * MapLibre's layer order *is* the drawing.
+	 */
+	test('draws the stack when the pane is reached by the link from the Project page', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		const crashes: string[] = [];
+		page.on('pageerror', (error) => crashes.push(error.message));
+
+		await openLayers(page, directory, { via: 'link' });
+
+		const layerId = (await rowIds(page))[0] as string;
+		expect(await stackOrder(page)).toEqual([`ballastella-layer-${layerId}`]);
+		// The handle exists at all, which is the symptom that was reported: no map, no stack, no handle.
+		expect(await stackBuilds(page)).toBeGreaterThan(0);
+		expect(crashes, 'the navigation threw while tearing the previous pane down').toEqual([]);
 	});
 });
 
@@ -1285,6 +1339,13 @@ test.describe('getting back out of the Layers pane', () => {
 	// than a trip out to the hub and in again.
 	test('links back to the Project it belongs to, not only to the hub', async ({ page }) => {
 		const directory = await alignedProject(page);
+		// The other direction of the same defect the link-route test above covers, and it needs asserting
+		// separately because it is **invisible on screen**: leaving this pane took the stack off a map that
+		// had already been removed, `Map#getLayer` threw, and Svelte abandoned the rest of the flush — but
+		// the Project page's own markup is derived state rather than effects, so it rendered anyway and only
+		// its effects were skipped. Nothing below would have failed; the exception is the whole signal.
+		const crashes: string[] = [];
+		page.on('pageerror', (error) => crashes.push(error.message));
 		await openLayers(page, directory);
 
 		await page.getByTestId('back-to-project').click();
@@ -1293,6 +1354,8 @@ test.describe('getting back out of the Layers pane', () => {
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 		await expect(page.getByLabel('Project name')).toHaveValue('Amsterdam 1625');
 		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+
+		expect(crashes, 'leaving the pane threw while taking the stack off the map').toEqual([]);
 	});
 });
 
