@@ -112,6 +112,33 @@ reintroduce the prompt-per-Project friction ADR-0008's workspace model exists to
 handle goes in IndexedDB because it is the only browser storage that will hold one — it is
 serialisable but not stringifiable, so `localStorage` cannot.
 
+The recalled handle is **held in memory once read**, and that is about the activation budget rather
+than about speed. A gesture's transient activation is spent by time as well as by use, and
+`reopenWorkspaceFolder` used to open IndexedDB and wait for a transaction *between* the user's click
+and the one call that needs to be next to it. `rememberedFolderName()` already fetches the same
+handle on load — safe there, because reading IndexedDB prompts for nothing — so keeping it makes the
+gesture path synchronous up to `requestPermission()` for nothing.
+
+### One Workspace, and the routes that have to agree about it
+
+The Workspace is created in `routes/+layout.svelte` and read from Svelte context by every route
+(`WorkspaceHost`). This is not tidiness: `/base-map/+page.svelte` used to call
+`EditorSession.opfs()` directly while `/` went through `WorkspaceStorage`, so a folder-Workspace
+author's Base Map choice was written into the *OPFS* Project of the same name — a state the folder
+e2e deliberately creates — with a fresh `updatedAt`, an indicator reading "Saved", and their folder
+file untouched. The layout mounts once for the whole app, so a client-side navigation now carries the
+live session including a resumed folder, and `unsupportedReason` is answered in one place instead of
+two. Ticket 07 puts that pane on the Project page, which makes this the default path.
+
+`StorageChoice` stays hub-only, because *choosing* where a Workspace lives is a Workspace-level act.
+Recovering one you are already using is not a choice, so the two recoveries — "not reachable", and
+"remembered but not open yet" — live in `WorkspaceRecovery` and appear beside the Project on any
+route. Criterion 7's Project-page half was previously unmet in a way worse than reported: a deleted
+folder makes `getDirectoryHandle('amsterdam-1625')` raise the same `NotFoundError` as a Project that
+really has gone, so the page said "There is no Project called amsterdam-1625 in this Workspace" —
+telling a scholar their work does not exist while it sat in a folder on their desk. `open()` now asks
+the Workspace before blaming the Project, on that failure path only.
+
 ### What the tests genuinely assert, and what they simulate
 
 Stated plainly, because an adapter tested only against a fake handle has not been tested.
@@ -136,10 +163,37 @@ storage, and not the app's sequencing around it.
 in a *real* folder creates a visible `<name>.crswap` sibling, which `abort()`/`close()` remove.
 Nothing in CI can confirm that in a folder the OS owns rather than in OPFS. Open a real folder
 once, interrupt a save, and look for leftover `.crswap` or `.ballastella-tmp` files — in a git
-working tree those are litter the user commits.
+working tree those are litter the user commits. Both spellings are now inside the reserved-suffix
+machinery and swept when a Workspace is adopted, so the check is that nothing survives rather than
+that the app copes.
 
-### Noticed, not fixed (ticket 02's, out of scope here)
+### Story 2's one characteristic failure has no coverage, and cannot have
 
-`ProjectView` renders "Opening…" indefinitely when the Workspace becomes unreachable while `?p=`
-names a Project; only the hub renders ADR-0008's "Workspace not reachable". Reachable today by
-opening a Project link and then deleting the folder.
+Story 2 — pointing a Workspace at a Dropbox or iCloud folder — is claimed by this ticket, and the
+happy path is covered like any other folder. Its distinctive failure is not, and the gap is
+**inherent**: a local `createWritable()` takes an exclusive lock and raises
+`NoModificationAllowedError` when a sync daemon, an editor, or antivirus is holding the file, and
+**OPFS cannot produce that state at all**. Every handle an automated browser can obtain comes from
+`navigator.storage.getDirectory()`, so there is nothing to provoke it with short of a real synced
+folder and a real second process.
+
+What was cheap and is done: `DirectoryHandleStore.writeBytes` now maps that one error to a message
+naming the likely cause and the remedy. Undescribed, the raw browser text reached `saveError`
+verbatim, where "The requested file could not be written to" is indistinguishable from a full disk;
+retrying is the whole remedy and usually works within seconds, which is exactly what a user cannot
+guess. **Untested, and knowingly so** — a test asserting the mapping would only assert that the
+`if` matches the string it was written against.
+
+The other half of a real check belongs with the human minute above: put a Workspace in a real
+Dropbox folder, edit while it syncs, and confirm the message is what appears rather than a stack
+trace.
+
+### The public barrel is wider than anything needs
+
+`DirectoryHandleStore` and `DirectoryResolver` are exported from `packages/core/src/index.ts`
+although nothing outside `packages/core` imports either — they exist so `OpfsProjectStore` and
+`FileSystemAccessProjectStore` can share one implementation, which is an internal arrangement.
+`TempFileWriteStore` is in the same position. Recorded rather than narrowed, because removing an
+export is the sort of change that wants to happen once, deliberately, across the whole barrel; but
+ADR-0001's narrowness is a property of the *interface*, and a barrel that publishes the base classes
+invites an app to reach past `ProjectStore` for a handle.
