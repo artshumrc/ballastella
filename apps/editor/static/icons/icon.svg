@@ -1,0 +1,11 @@
+<!-- Placeholder mark: a ballastella — a graduated staff sighting a star, with its sliding
+     crosspiece. The same geometry as src/lib/assets/favicon.svg, on the solid ground a
+     maskable installed-app icon needs. Tracy's real identity work replaces this. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="512" height="512">
+	<rect width="32" height="32" fill="#134e4a" />
+	<g fill="none" stroke="#5eead4" stroke-width="2.5" stroke-linecap="round">
+		<path d="M5 27 L23 9" />
+		<path d="M13 11 L23 21" />
+	</g>
+	<circle cx="26" cy="6" r="2.5" fill="#5eead4" />
+</svg>
