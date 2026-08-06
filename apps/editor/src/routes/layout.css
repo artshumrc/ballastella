@@ -84,20 +84,31 @@
 	place-items: center;
 	padding: 0;
 	line-height: 1;
-	cursor: grab;
 	border-radius: 2px;
 	box-shadow: 0 1px 3px oklch(0 0 0 / 0.4);
 }
 
+/* A corner is dragged, so it says so. */
 .pane-overlay-point-mask-vertex {
 	width: 16px;
 	height: 16px;
 	border: 2px solid var(--color-base-100);
 	background: var(--color-accent);
+	cursor: grab;
+}
+
+.pane-overlay-point-mask-vertex:active {
+	cursor: grabbing;
 }
 
 /* The midpoint of an edge, carrying a `+`: activating it adds a vertex there. Smaller and hollow,
-   so it reads as "somewhere a vertex could be" rather than as one that is already there. */
+   so it reads as "somewhere a vertex could be" rather than as one that is already there.
+
+   **`cursor: pointer`, not `grab`.** This handle is deliberately not draggable — `paint` calls
+   `setDraggable(false)` for it, because a handle that both inserted and moved would make "I nudged
+   it" and "I added one" the same gesture (ticket 08). It carried `grab` and `grabbing`, which
+   advertised the one gesture it refuses: the user presses, pulls, nothing happens, and the handle
+   reads as broken rather than as a button. */
 .pane-overlay-point-mask-edge {
 	width: 14px;
 	height: 14px;
@@ -107,16 +118,12 @@
 	font-size: 11px;
 	font-weight: 700;
 	opacity: 0.75;
+	cursor: pointer;
 }
 
 .pane-overlay-point-mask-edge:hover,
 .pane-overlay-point-mask-edge:focus-visible {
 	opacity: 1;
-}
-
-.pane-overlay-point-mask-vertex:active,
-.pane-overlay-point-mask-edge:active {
-	cursor: grabbing;
 }
 
 .pane-overlay-point-mask-vertex:focus-visible,

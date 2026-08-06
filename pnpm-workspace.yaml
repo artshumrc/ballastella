@@ -40,11 +40,18 @@ catalog:
   # The Alignment's file format and its transformation vocabulary (ticket 07).
   #
   # `@allmaps/annotation` reads and writes the IIIF Georeference Annotation an Alignment
-  # serialises to. `@allmaps/transform` is here for two named functions and not for the solver:
-  # `transformationTypeToTypeAndOrder` and its inverse are the only correct translation between
-  # the canonical Allmaps type name (`polynomial1`) and the `type` + `options.order` pair the
-  # annotation actually carries — see `georeference-annotation.ts`, which explains why writing
-  # the literal string loses it. The solver itself is reached through `@allmaps/maplibre`.
+  # serialises to. `@allmaps/transform` is here for two things. The first is a pair of named
+  # functions: `transformationTypeToTypeAndOrder` and its inverse are the only correct
+  # translation between the canonical Allmaps type name (`polynomial1`) and the `type` +
+  # `options.order` pair the annotation actually carries — see `georeference-annotation.ts`,
+  # which explains why writing the literal string loses it.
+  #
+  # The second is the **solver**, in `core`, for the fold warning (ticket 08). ADR-0013 makes that
+  # warning continuous and independent of the overlay, and a warning read out of a WebGL layer's
+  # triangulation exists only while a layer does, only in a browser, and only after the style has
+  # loaded — which is not when a student placing their fourth point needs it. So `distortion.ts`
+  # constructs a `GcpTransformer` directly. The renderer reaches the same solver for itself,
+  # through `@allmaps/maplibre`; this is a second caller of one library, not a second solver.
   #
   # Both exact, no range specifier, for the reason at the top of this block: these two decide
   # whether an Alignment written today still means the same thing after a beta bump, which is

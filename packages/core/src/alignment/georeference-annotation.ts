@@ -146,13 +146,38 @@ export function toRendererDocument(alignment: Alignment): unknown {
 			width: alignment.image.width,
 			height: alignment.image.height
 		},
-		gcps: alignment.controlPoints.map((point) => ({
-			resource: [point.resource.x, point.resource.y],
-			geo: [point.geo.lng, point.geo.lat]
-		})),
-		resourceMask: alignment.resourceMask.map((point) => [point.x, point.y]),
+		gcps: toRendererControlPoints(alignment),
+		resourceMask: toRendererResourceMask(alignment),
 		transformation: transformationTypeToTypeAndOrder(alignment.transformationType)
 	};
+}
+
+/**
+ * One Control Point as `@allmaps/*` states it: an image pixel paired with a place on the earth.
+ *
+ * The tuples are mutable because upstream's `Gcp` is, and this value is handed straight to it.
+ */
+export type RendererControlPoint = { resource: [number, number]; geo: [number, number] };
+
+/**
+ * The Alignment's Control Points in the shape `@allmaps/*` speaks.
+ *
+ * **Exported because the renderer needs them twice and must not be told two different things.** The
+ * document built by {@link toRendererDocument} carries them, and so does the `gcps` *map option* that
+ * moves them afterwards without rebuilding the layer — see `warped-map-layer.ts`. Two call sites
+ * writing `[point.resource.x, point.resource.y]` for themselves is how a Historical Map comes to be
+ * drawn from coordinates that are not the ones in the file.
+ */
+export function toRendererControlPoints(alignment: Alignment): RendererControlPoint[] {
+	return alignment.controlPoints.map((point) => ({
+		resource: [point.resource.x, point.resource.y],
+		geo: [point.geo.lng, point.geo.lat]
+	}));
+}
+
+/** The Resource Mask as the ring `@allmaps/*` speaks, for the same reason as above. */
+export function toRendererResourceMask(alignment: Alignment): [number, number][] {
+	return alignment.resourceMask.map((point) => [point.x, point.y]);
 }
 
 /**

@@ -71,8 +71,22 @@
 	 */
 	let editingMask = $state(false);
 
-	/** Why the last mask edit did not happen, if it did not. Said, not silently ignored. */
-	let maskRefusal = $state('');
+	/**
+	 * What the last Resource Mask edit did, or why it did not happen.
+	 *
+	 * **One live region for both, because a keyboard user needs to be told either way.** An earlier
+	 * version announced only the refusal, so the reply to "Delete" was silence when it worked and a
+	 * sentence when it did not — which teaches the user that silence means failure. The handles are on
+	 * a WebGL canvas and the outline is drawn into it, so a successful move, insert, delete or reset is
+	 * otherwise visible only to someone who can see the pane. `aria-live="polite"` is ADR-0016's
+	 * mandated method for a status.
+	 */
+	let maskStatus = $state<{ kind: 'done' | 'refused'; message: string } | null>(null);
+
+	/** Say what a mask edit did. Called on the gesture end, so it is one sentence per act. */
+	const maskDone = (message: string): void => {
+		maskStatus = { kind: 'done', message };
+	};
 
 	/**
 	 * Bumped by every load, so a read that resolves late knows it has been superseded — the same
@@ -90,7 +104,7 @@
 		pairing = undefined;
 		warped = null;
 		failure = '';
-		maskRefusal = '';
+		maskStatus = null;
 		// The mask belongs to one image's pixel space, so its handles must not survive into another's.
 		// The distortion view is about *drawing* rather than about a coordinate, so it stays.
 		editingMask = false;
@@ -225,20 +239,30 @@
 				(current.canRemoveMaskVertex ? ', Delete removes it.' : '.'),
 			onmoveend: (to) => {
 				current.moveMaskVertex(index, to);
-				maskRefusal = '';
+				// Rounded, because the sentence is "the corner went where I pushed it" and not a
+				// coordinate readout — and a nudge is one screen pixel, which is a sub-pixel move when
+				// the pane is zoomed out.
+				maskDone(
+					`Resource Mask corner ${index + 1} moved to ${Math.round(to.x)}, ${Math.round(to.y)}.`
+				);
 				save(current);
 			},
 			ondelete: () => {
 				if (current.removeMaskVertex(index)) {
-					maskRefusal = '';
+					maskDone(
+						`Resource Mask corner ${index + 1} removed. ${current.resourceMask.length} corners left.`
+					);
 					save(current);
 					return;
 				}
 				// Refused rather than silently ignored: a keypress that appears to do nothing is
 				// indistinguishable from a broken handle.
-				maskRefusal =
-					`A Resource Mask needs at least ${MINIMUM_MASK_VERTICES} corners, so this one cannot ` +
-					'be removed. Move it instead, or show the whole sheet again.';
+				maskStatus = {
+					kind: 'refused',
+					message:
+						`A Resource Mask needs at least ${MINIMUM_MASK_VERTICES} corners, so this one cannot ` +
+						'be removed. Move it instead, or show the whole sheet again.'
+				};
 			}
 		}));
 
@@ -249,10 +273,15 @@
 			glyph: '+',
 			label: `Add a Resource Mask corner on the edge after corner ${index + 1}`,
 			// The affordance is activation, not dragging: a handle that both inserted and moved would
-			// make "I nudged it" and "I added one" the same gesture.
+			// make "I nudged it" and "I added one" the same gesture. The help text and the cursor say so
+			// — see the summary below and `layout.css` — because an affordance the pointer advertises and
+			// the code refuses reads as a broken handle rather than as a deliberate choice.
 			onselect: () => {
 				current.insertMaskVertexAfter(index);
-				maskRefusal = '';
+				maskDone(
+					`A Resource Mask corner was added after corner ${index + 1}. ` +
+						`${current.resourceMask.length} corners now.`
+				);
 				save(current);
 			}
 		}));
@@ -468,7 +497,7 @@
 								data-testid="mask-edit-toggle"
 								onchange={(event) => {
 									editingMask = event.currentTarget.checked;
-									maskRefusal = '';
+									maskStatus = null;
 								}}
 							/>
 							Outline the part of the sheet that is the map
@@ -482,7 +511,10 @@
 									const current = pairing;
 									if (!current) return;
 									current.resetMask();
-									maskRefusal = '';
+									maskDone(
+										'The whole sheet is the map again, with ' +
+											`${current.resourceMask.length} Resource Mask corners.`
+									);
 									save(current);
 								}}
 							>
@@ -491,14 +523,24 @@
 						{/if}
 					</div>
 
+					<!--
+						What the outline is, and what can be done to it.
+
+						**The two handles do two different things, and the text says which.** A corner is
+						dragged; a dashed handle is *activated* and adds a corner where it sits. Ticket 08's
+						own note is why — "a handle that both inserted and moved would make 'I nudged it' and
+						'I added one' the same gesture" — and an earlier version of this sentence said "drag a
+						dashed handle to add one", which is a gesture the code deliberately refuses. On a
+						teaching tool a promised gesture that does nothing reads as a broken handle.
+					-->
 					<p
 						class="text-sm opacity-70"
 						data-testid="mask-summary"
 						data-mask-vertices={pairing.resourceMask.length}
 					>
 						{#if editingMask}
-							{pairing.resourceMask.length} corners. Drag a corner to move it, or a dashed handle to add
-							one. Arrow keys move the corner you have focused; Delete removes it.
+							{pairing.resourceMask.length} corners. Drag a corner to move it. Click a dashed handle to
+							add a corner there. Arrow keys move the corner you have focused; Delete removes it.
 						{:else}
 							{pairing.resourceMask.length} corners. Everything outside the outline is left out when the
 							Historical Map is drawn over the Base Map.
@@ -506,16 +548,23 @@
 					</p>
 
 					<!--
-						Why an edit did not happen. A live region, because the refusal follows a keypress on a
-						handle the user is looking at rather than at this text.
+						What the last edit did, or why it did not happen. **One live region for both**, because
+						the alternative is what this was: a refusal announced and a success announced as
+						silence, which teaches a keyboard user that nothing said means nothing worked. The
+						handles sit on a WebGL canvas and the outline is drawn into it, so there is no other
+						signal for someone not looking at the pane. `aria-live="polite"` is ADR-0016's mandated
+						method for a status.
 					-->
 					<p
-						class="min-h-0 text-sm text-warning"
+						class="min-h-0 text-sm"
+						class:text-warning={maskStatus?.kind === 'refused'}
+						class:opacity-70={maskStatus?.kind === 'done'}
 						aria-live="polite"
 						aria-atomic="true"
-						data-testid="mask-refusal"
+						data-testid="mask-status"
+						data-mask-status={maskStatus?.kind ?? ''}
 					>
-						{maskRefusal}
+						{maskStatus?.message ?? ''}
 					</p>
 				</div>
 			{/if}

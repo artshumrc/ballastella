@@ -41,7 +41,7 @@
 	import {
 		createWarpedMapLayer,
 		showAlignment,
-		showDistortion,
+		updateAlignment,
 		type WarpedRender
 	} from '$lib/warped/warped-map-layer';
 
@@ -85,7 +85,7 @@
 		 * A working view rather than a property of the work, so it is a prop and **not** persisted
 		 * (ADR-0013): a Published Site could otherwise load colourised, and a Reader would have no way
 		 * to interpret it. Changing it updates the drawn map in place rather than rebuilding it — see
-		 * `showDistortion`.
+		 * `updateAlignment`.
 		 */
 		distortion?: DistortionView;
 		/**
@@ -201,34 +201,55 @@
 	});
 
 	/**
-	 * The warped Historical Map (ADR-0011's `fetchFn` injection point).
+	 * The drawn warped Historical Map, for the in-place updates below.
 	 *
-	 * Added once the style has loaded, because `WarpedMapLayer.onAdd` needs the map's own WebGL2
-	 * context. Rebuilt when the Alignment changes rather than diffed: `addGeoreferencedMap` is
-	 * keyed on the document's content, so a moved Control Point is a different map to the layer
-	 * and there is nothing to update in place.
+	 * `$state.raw` and set from inside the effect that owns the layer, so that anything short of
+	 * "there is no Alignment at all" can reach the same map rather than provoking a rebuild.
 	 */
-	/**
-	 * The drawn map, for the display-only updates below.
-	 *
-	 * `$state.raw` and set from inside the effect that owns the layer, so that turning the distortion
-	 * overlay on can reach the same map rather than provoking a rebuild. `addGeoreferencedMap` is
-	 * keyed on the document's content, so a rebuild throws away the tile cache — the user would watch
-	 * their Historical Map vanish and come back for a checkbox.
-	 */
-	let drawn = $state.raw<{
+	let drawnAlignment = $state.raw<{
 		layer: ReturnType<typeof createWarpedMapLayer>;
 		mapId: string;
 	} | null>(null);
 
+	/**
+	 * Whether there is an Alignment to draw at all — the **only** thing about it that requires the
+	 * layer to be built or taken off.
+	 *
+	 * A separate signal rather than the Alignment itself, and this is the load-bearing part.
+	 * `AlignmentWorkspace` passes a `$derived` over `AlignmentPairing.alignment`, which is a getter
+	 * returning a fresh object on every read — so an effect that depended on the prop was rebuilding
+	 * the whole layer on every moved Control Point, every dragged or inserted mask vertex, every mask
+	 * reset and every transformation change.
+	 *
+	 * Two things were wrong with that. It threw away every renderer and refetched every warped tile
+	 * per gesture — the exact cost this file already refuses to pay for a checkbox — on a false
+	 * premise: `gcps`, `resourceMask` and `transformationType` are map options upstream applies in
+	 * place. And it silently stopped the distortion overlay colourising, because a map *built* with a
+	 * `distortionMeasure` is never coloured by it (see `reassertDistortionMeasure`). So a student who
+	 * switched on "Colour the Historical Map by how much it is stretched" and then changed the
+	 * transformation type watched the map redraw uncoloured, with the checkbox still checked and
+	 * nothing thrown.
+	 */
+	const hasAlignment = $derived(alignment !== null);
+
+	/**
+	 * The warped Historical Map (ADR-0011's `fetchFn` injection point).
+	 *
+	 * Added once the style has loaded, because `WarpedMapLayer.onAdd` needs the map's own WebGL2
+	 * context. Built and taken off with {@link hasAlignment} and nothing else; what the map is drawn
+	 * *from* is applied in place by the effect at the bottom of this file.
+	 */
 	$effect(() => {
 		const current = map;
-		const shown = alignment;
+		const drawing = hasAlignment;
 		const readTiles = fetchTile;
-		if (!current || !shown || !readTiles) {
+		// Read untracked: the Alignment's *content* is applied in place below, so making it a
+		// dependency here is the rebuild this effect exists not to do.
+		const shown = untrack(() => alignment);
+		if (!current || !drawing || !shown || !readTiles) {
 			// Nothing to draw. Said rather than left implicit, so the page's account of what is on the
 			// Base Map cannot outlive the layer that was on it.
-			drawn = null;
+			drawnAlignment = null;
 			onwarped?.(null);
 			return;
 		}
@@ -242,10 +263,10 @@
 			current.addLayer(layer);
 			added = true;
 			unexpose = exposeWarpedLayerToBrowserTests(current, layer);
-			// The distortion view is read here rather than being a dependency of this effect: it is a
-			// display setting, and making it a dependency is exactly the rebuild this avoids.
+			// The distortion view is read untracked for the same reason the Alignment is: it is a display
+			// setting, and making it a dependency is exactly the rebuild this avoids.
 			const render = showAlignment(layer, shown, distortionNow());
-			drawn = render.status === 'drawn' ? { layer, mapId: render.mapId } : null;
+			drawnAlignment = render.status === 'drawn' ? { layer, mapId: render.mapId } : null;
 			onwarped?.(render);
 		};
 
@@ -254,7 +275,7 @@
 
 		return () => {
 			unexpose();
-			drawn = null;
+			drawnAlignment = null;
 			// `setStyle` on a theme change removes our layer along with everything else, so removing
 			// one that has already gone has to be survivable rather than an exception in a teardown.
 			if (added && current.getLayer(layer.id)) current.removeLayer(layer.id);
@@ -274,10 +295,10 @@
 	const stackStructure = $derived(
 		JSON.stringify([
 			theme.current,
-			layers.map((drawn) =>
-				isDrawnMap(drawn)
-					? [drawn.layer.id, 'map', drawn.alignment]
-					: [drawn.layer.id, 'annotation', drawn.layer.defaultStyle, drawn.features]
+			layers.map((stacked) =>
+				isDrawnMap(stacked)
+					? [stacked.layer.id, 'map', stacked.alignment]
+					: [stacked.layer.id, 'annotation', stacked.layer.defaultStyle, stacked.features]
 			)
 		])
 	);
@@ -321,15 +342,15 @@
 		void stackStructure;
 		const current = map;
 		const readTiles = fetchTile;
-		const drawn = untrack(() => layers);
-		if (!current || !readTiles || drawn.length === 0) {
+		const stackLayers = untrack(() => layers);
+		if (!current || !readTiles || stackLayers.length === 0) {
 			onstack?.({});
 			return;
 		}
 
 		let built: StackRender | undefined;
 		const attach = () => {
-			built = drawLayerStack({ map: current, layers: drawn, fetchTile: readTiles });
+			built = drawLayerStack({ map: current, layers: stackLayers, fetchTile: readTiles });
 			stack = built;
 			onstack?.(built.outcomes);
 		};
@@ -348,13 +369,14 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
-		for (const drawn of layers) {
-			if (isDrawnMap(drawn)) built.setOpacity(drawn.layer.id, drawn.layer.opacity);
+		for (const stacked of layers) {
+			if (isDrawnMap(stacked)) built.setOpacity(stacked.layer.id, stacked.layer.opacity);
 		}
 	});
 
 	/**
-	 * Read the distortion view without registering it as a dependency of the effect above.
+	 * Read the distortion view without registering it as a dependency of the effect that owns the
+	 * layer.
 	 *
 	 * A plain function over the prop, called from inside `attach`. Svelte tracks reads inside an
 	 * effect, so reading `distortion` there directly would make every toggle rebuild the layer —
@@ -363,17 +385,23 @@
 	 */
 	const distortionNow = (): DistortionView => untrack(() => distortion);
 
-	// Display only: the same map, recolourised. Runs on every change to the view *and* to the theme,
-	// because the ramp is read out of the live document — a flavour change has to repaint the overlay
-	// in the same action that repaints the interface (ADR-0016).
+	/**
+	 * The same map, redrawn from the Alignment as it now stands and coloured as the view now asks.
+	 *
+	 * **Everything that is not "is there an Alignment at all" happens here**, in place: a moved Control
+	 * Point, a dragged or inserted mask vertex, a reset mask, a changed transformation type, the
+	 * distortion overlay, and the graticule. The theme is a dependency because the ramp is read out of
+	 * the live document — a flavour change has to repaint the overlay in the same action that repaints
+	 * the interface (ADR-0016).
+	 */
 	$effect(() => {
-		const shown = drawn;
+		const shown = drawnAlignment;
 		const view = distortion;
 		const currentTheme = theme.current;
 		const forAlignment = alignment;
 		if (!shown || !forAlignment) return;
 		void currentTheme;
-		showDistortion(shown.layer, shown.mapId, forAlignment, view);
+		updateAlignment(shown.layer, shown.mapId, forAlignment, view);
 	});
 </script>
 

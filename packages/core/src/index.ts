@@ -173,9 +173,13 @@ export {
 } from './alignment/distortion.js';
 export {
 	AlignmentUnreadableError,
+	AlignmentUnwritableError,
 	parseAlignment,
 	serialiseAlignment,
-	toRendererDocument
+	toRendererControlPoints,
+	toRendererDocument,
+	toRendererResourceMask,
+	type RendererControlPoint
 } from './alignment/georeference-annotation.js';
 
 export { createImagePane } from './image-pane/iiif-image-pane';

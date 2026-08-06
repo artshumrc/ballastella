@@ -68,7 +68,13 @@
 				data-testid="distortion-toggle"
 				onchange={(event) => toggleOverlay(event.currentTarget.checked)}
 			/>
-			Colour the map by how much it is stretched
+			<!--
+				"the Historical Map", never a bare "map". CONTEXT.md lists `map` under the words to avoid
+				for a Historical Map, and this label sits beside a Base Map — so the unqualified word is
+				ambiguous exactly where the user is looking at both. The component's other five strings
+				were already qualified.
+			-->
+			Colour the Historical Map by how much it is stretched
 		</label>
 
 		<label class="label cursor-pointer gap-2 text-sm">

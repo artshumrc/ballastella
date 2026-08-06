@@ -41,7 +41,9 @@ import {
 	COMPUTED_DISTORTION_MEASURES,
 	DEFAULT_DISTORTION_VIEW,
 	MINIMUM_CONTROL_POINTS,
+	toRendererControlPoints,
 	toRendererDocument,
+	toRendererResourceMask,
 	type Alignment,
 	type DistortionView,
 	type FetchFn
@@ -84,16 +86,22 @@ export type WarpedRender =
 /**
  * Every option a warped Historical Map is given, beyond the document itself.
  *
- * Two of these carry real weight and the rest are display.
+ * **The Alignment's own three fields are here, and that is the whole of why editing one does not
+ * rebuild the layer.** `gcps`, `resourceMask` and `transformationType` are map options that win over
+ * whatever the layer read from the document (`mergeOptionsUnlessUndefined(defaults,
+ * georeferencedMapOptions, listOptions, mapOptions)`), and upstream routes each of them to a method
+ * that does the work in place: `setGcps` and `setResourceMask` are overridden by
+ * `TriangulatedWarpedMap` to re-triangulate, and `setTransformationType` re-solves. So a moved
+ * Control Point, a dragged or inserted mask vertex, a reset mask and a changed transformation type
+ * all reach the same drawn map through {@link updateAlignment} — see `BaseMapPane.svelte` for what
+ * that saves, which is every renderer and every warped tile, on every drag.
  *
  * **`transformationType` is not redundant with the document, and omitting it silently downgrades
  * the warp.** `WarpedMap` reads `georeferencedMap.transformation?.type` and ignores the order
  * beside it, so `{ type: 'polynomial', options: { order: 3 } }` — the only shape the format has for
- * a third-order polynomial — reaches the solver as plain `polynomial`, which is first order. Map
- * options win over what the layer read from the document (`mergeOptionsUnlessUndefined(defaults,
- * georeferencedMapOptions, listOptions, mapOptions)`), so passing the canonical name here is what
- * makes Higher-order (2nd) and (3rd) actually second and third order. Without it the picker would
- * offer two options that changed the file and not the map.
+ * a third-order polynomial — reaches the solver as plain `polynomial`, which is first order. Passing
+ * the canonical name here is what makes Higher-order (2nd) and (3rd) actually second and third
+ * order. Without it the picker would offer two options that changed the file and not the map.
  *
  * **`distortionMeasures` is what is COMPUTED and `distortionMeasure` is what is DISPLAYED.**
  * Conflating them is the obvious mistake (ADR-0013) and it fails silently: display a measure that
@@ -103,6 +111,8 @@ export type WarpedRender =
  */
 function mapOptionsFor(alignment: Alignment, distortion: DistortionView) {
 	return {
+		gcps: toRendererControlPoints(alignment),
+		resourceMask: toRendererResourceMask(alignment),
 		transformationType: alignment.transformationType,
 		distortionMeasures: [...COMPUTED_DISTORTION_MEASURES],
 		distortionMeasure: distortion.measure ?? undefined,
@@ -150,6 +160,7 @@ export function showAlignment(
 		if (typeof mapId !== 'string' || mapId === '') {
 			return { status: 'refused', reason: 'the renderer accepted the Alignment but named no map' };
 		}
+		reassertDistortionMeasure(layer, mapId, distortion);
 		return { status: 'drawn', mapId };
 	} catch (cause) {
 		return { status: 'refused', reason: cause instanceof Error ? cause.message : String(cause) };
@@ -157,16 +168,64 @@ export function showAlignment(
 }
 
 /**
- * Change what the drawn map is colourised with, without rebuilding it.
+ * Say the displayed distortion measure again, because a map built with one is not colourised by it.
  *
- * Turning the overlay on must not re-add the map: `addGeoreferencedMap` is keyed on the document's
- * content, so a rebuild discards the tile cache and the user watches their Historical Map disappear
- * and come back for a display toggle. `setMapOptions` reaches the same options in place.
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * A THIRD UPSTREAM DEFECT: `distortionMeasure` PASSED AT CONSTRUCTION IS NEVER APPLIED
+ *
+ * `WarpedMap.applyOptions` has two branches. Its `stage: 'init'` branch — the one
+ * `addGeoreferencedMap` runs — assigns `gcps`, `resourceMask`, `transformationType`, both
+ * projections and the visibility fields, and **never assigns `this.distortionMeasure`**
+ * (`@allmaps/render/dist/maps/WarpedMap.js`, `applyOptions`). The assignment lives only in
+ * `setDistortionMeasure`, which only the `else` branch calls, and only for an option that *changed*.
+ *
+ * The consequence is silent and total. `TriangulatedWarpedMap.updateTrianglePointsDistortion` reads
+ * the **field**, not the option — `if (!this.distortionMeasure || !distortions) return 0` — so every
+ * triangle point gets 0, and `WebGL2Renderer` sets `u_distortion` from the same field, so the shader
+ * is told there is nothing to colour. Meanwhile `getMapOptions(mapId).distortionMeasure` reports the
+ * measure faithfully, the checkbox stays checked, and the `<select>` still names it. Measured against
+ * the pinned, patched build:
+ *
+ *     at init                          option = log2sigma | field = undefined | worst distortion 0
+ *     after setMapOptions, same value  field = undefined                     | worst distortion 0
+ *     after clearing, then setting     field = log2sigma                     | worst distortion 0.15
+ *
+ * The middle row is why this cannot be fixed by simply saying it again: `objectDifference` compares
+ * the merged options against `this.options`, which already holds the measure, so a same-value
+ * `setMapOptions` returns `{}` and `setDistortionMeasure` is never reached. It has to be cleared
+ * first, which routes through the `else` branch twice and leaves the field assigned.
+ *
+ * `BaseMapPane` no longer rebuilds the layer for an Alignment edit, so the construction path is
+ * reached far less often — but it is still reached whenever a theme change takes the layer off the
+ * map, and whenever an Alignment drops below its minimum Control Point count and comes back. Both
+ * are ordinary, and in both the user had the overlay switched on.
+ *
+ * A no-op when nothing is being displayed, which is the common case and the default.
+ */
+function reassertDistortionMeasure(
+	layer: WarpedMapLayer,
+	mapId: string,
+	distortion: DistortionView
+): void {
+	if (distortion.measure === null) return;
+	layer.setMapOptions(mapId, { distortionMeasure: undefined });
+	layer.setMapOptions(mapId, { distortionMeasure: distortion.measure });
+}
+
+/**
+ * Change what the drawn map is drawn from, and how it is coloured, without rebuilding it.
+ *
+ * **This is the whole Alignment, not only the display view.** `gcps`, `resourceMask` and
+ * `transformationType` are map options upstream applies in place (see {@link mapOptionsFor}), so a
+ * moved Control Point, an outlined mask and a changed transformation type all arrive here rather
+ * than through a rebuild. `addGeoreferencedMap` is keyed on the document's content, so re-adding
+ * would mint a new map, discard every renderer and refetch every warped tile — once per drag, which
+ * is the shape ADR-0017 rule 1 exists to prevent.
  *
  * Deliberately silent about a map id the layer has forgotten — a theme change calls `setStyle`,
- * which takes our layer off with everything else, so a display update racing that is normal.
+ * which takes our layer off with everything else, so an update racing that is normal.
  */
-export function showDistortion(
+export function updateAlignment(
 	layer: WarpedMapLayer,
 	mapId: string,
 	alignment: Alignment,
@@ -175,6 +234,6 @@ export function showDistortion(
 	try {
 		layer.setMapOptions(mapId, mapOptionsFor(alignment, distortion));
 	} catch {
-		// Nothing to report: there is no map to colourise, which is not a failure of colourising.
+		// Nothing to report: there is no map to update, which is not a failure of updating one.
 	}
 }

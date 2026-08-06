@@ -313,8 +313,13 @@
 				type: 'fill',
 				source: MASK_SOURCE,
 				filter: ['==', ['geometry-type'], 'Polygon'],
-				// Deliberately not black: on a dark theme a black scrim over a dark scan is invisible, and
-				// what has to read is *that the margin is excluded* rather than that it is darker.
+				// Black at 45%, with the white dashed outline below carrying the meaning. An earlier
+				// comment here claimed the colour was "deliberately not black" for a dark theme, sitting
+				// directly above `#000000` — the reasoning was right and the code never followed it, which
+				// is worse than either alone. What actually makes the exclusion read on a dark scan is the
+				// **outline**, not the scrim: a dashed white line is visible over any scan, where a scrim of
+				// any colour is only visible against its opposite. So the scrim is a plain dim and the
+				// outline is the signal.
 				paint: { 'fill-color': '#000000', 'fill-opacity': 0.45 }
 			});
 			current.addLayer({
