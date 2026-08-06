@@ -7,6 +7,7 @@
 	import MirrorMap from '$lib/remote-iiif/MirrorMap.svelte';
 	import { MirrorMap as MirrorMapJob } from '$lib/remote-iiif/mirror-map.svelte.js';
 	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
+	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import UndoControl from '$lib/undo/UndoControl.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
@@ -78,6 +79,26 @@
 	 * that the first one's `busy` guard cannot see.
 	 */
 	const mirror = new MirrorMapJob(() => session);
+
+	/**
+	 * The app's one online signal, so a referenced Historical Map can say why it is not there.
+	 *
+	 * ADR-0012's offline claim has one honest exception, and this is where it has to be said: a
+	 * referenced Historical Map's tiles are on somebody else's server, so with no connection there is
+	 * nothing to draw and no amount of caching would change that (fence 2 — a partially cached remote
+	 * pyramid renders *with holes*, which reads as corruption). Ticket 17's degradation contract is the
+	 * shape of the answer: say so, name the host, and leave the rest of the Project working.
+	 *
+	 * Read from `InstalledApp` rather than by adding a second `online`/`offline` listener here, because
+	 * two sources of truth for "is there a network" would eventually disagree — and this is the same
+	 * signal the update prompt uses to know whether taking an update is possible.
+	 */
+	const installedApp = useInstalledApp();
+
+	/** The hosts a Reader — or the author, right now — cannot reach. Named, never counted. */
+	const unreachableHosts = $derived([
+		...new Set(origins.referenced.map((image) => new URL(image.service).hostname))
+	]);
 </script>
 
 {#if recovering}
@@ -301,6 +322,30 @@
 				network connection to see them, and they stop working if the library reorganises. An offline
 				copy fixes both, at the cost of the bytes.
 			</p>
+
+			<!--
+				SPEC story 8's one honest exception, said rather than left as a blank pane. Naming the host
+				is the whole point: "this Historical Map is not here" is unactionable, and "nothing can be
+				fetched from gallica.bnf.fr while you are offline" tells an author both why and what to do
+				about it before their next trip to the archive. ADR-0012 fence 2 is why the answer is a
+				message and not a cache: a partially cached remote pyramid renders *with holes*, which reads
+				as corruption rather than as absence.
+			-->
+			{#if !installedApp.online}
+				<div
+					role="alert"
+					class="mt-4 alert max-w-prose flex-col items-start alert-warning"
+					data-testid="referenced-offline"
+				>
+					<p>
+						There is no connection, so nothing can be fetched from {unreachableHosts.join(', ')}.
+						These Historical Maps stay blank until there is one. Everything else in this Project —
+						its own Historical Maps, its Alignments, and its Annotations — is unaffected and still
+						saves.
+					</p>
+				</div>
+			{/if}
+
 			<ul class="mt-4 flex flex-col gap-2" aria-label="Historical Maps referenced by this Project">
 				{#each origins.referenced as image (image.imageId)}
 					<li class="flex flex-wrap items-center gap-3">

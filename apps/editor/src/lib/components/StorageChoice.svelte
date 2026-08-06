@@ -1,4 +1,6 @@
 <script lang="ts">
+	import InstallOffer from '$lib/pwa/InstallOffer.svelte';
+
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
 	/**
@@ -64,6 +66,15 @@
 			granting a folder is a decision it will not make for you. Installing Ballastella as an application
 			is what stops it asking.
 		</p>
+	{/if}
+
+	<!--
+		The offer that sentence above has been making since ticket 12, now actually reachable (SPEC
+		story 6, ADR-0012). Here rather than in a banner: the permission question is asked on this
+		screen, and this is the answer to it.
+	-->
+	{#if storage.canChooseFolder}
+		<InstallOffer />
 	{/if}
 
 	{#if storage.problem}

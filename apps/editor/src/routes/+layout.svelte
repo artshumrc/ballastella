@@ -1,7 +1,10 @@
 <script lang="ts">
 	import './layout.css';
 	import { refuseUnroutedImageServiceRequests } from '@ballastella/core';
+	import { asset } from '$app/paths';
 	import favicon from '$lib/assets/favicon.svg';
+	import UpdatePrompt from '$lib/pwa/UpdatePrompt.svelte';
+	import { provideInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import { provideWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	let { children } = $props();
@@ -38,7 +41,40 @@
 	 * prerendering, where there is no page to guard and nothing has gone wrong.
 	 */
 	$effect(() => refuseUnroutedImageServiceRequests());
+
+	/**
+	 * The app shell as an installed application, and its version (ADR-0012).
+	 *
+	 * Here for the same reason the Workspace is: the layout mounts once for the whole app, so the
+	 * registration happens once rather than per route — and `resolveDeploymentAsset`, which is what
+	 * finds `service-worker.js` without writing a leading slash, is only correct while `base` and
+	 * `document.baseURI` still describe the same page, which is on mount and not after a client-side
+	 * navigation.
+	 *
+	 * `setContext` has to run during initialisation; the registration inside it is in the effect,
+	 * because a module body also runs while prerendering, where there is no navigator to register with.
+	 */
+	const installedApp = provideInstalledApp();
+
+	$effect(() => installedApp.start());
 </script>
 
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
+<svelte:head>
+	<link rel="icon" href={favicon} />
+	<!--
+		ADR-0006: `asset()` prefixes with the base path, which `paths.relative` makes relative to the
+		page being rendered — so the prerendered `/base-map` carries `../manifest.webmanifest` and the
+		prerendered `/` carries `./manifest.webmanifest`, and the same build is installable from a
+		domain root and from a project subdirectory. The manifest's own `start_url` and `scope` are
+		`"."`, resolved by the browser against the manifest's URL, so they land on the deployment's root
+		wherever that is.
+	-->
+	<link rel="manifest" href={asset('/manifest.webmanifest')} />
+	<meta name="theme-color" content="#134e4a" />
+</svelte:head>
 {@render children()}
+<!--
+	Outside `children()` so that it is present on every route, including the two panes a scholar is
+	mid-alignment in. It renders a fixed-position region and inserts nothing into the page's flow.
+-->
+<UpdatePrompt />
