@@ -42,7 +42,7 @@
 		type StackRender,
 		type WarpedRender
 	} from '@ballastella/core/render';
-	import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
+	import { LngLatBounds, Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount, untrack } from 'svelte';
 
@@ -60,6 +60,7 @@
 		alignment = null,
 		layers = [],
 		distortion = DEFAULT_DISTORTION_VIEW,
+		fitTo = [],
 		fetchTile,
 		popupAnnotation = null,
 		popupAt = null,
@@ -98,6 +99,20 @@
 		 * `updateAlignment`.
 		 */
 		distortion?: DistortionView;
+		/**
+		 * Places on the earth to bring into view **once**, or empty to leave the view alone.
+		 *
+		 * Fitted on *array identity* and not on contents, which is the whole of the contract: the page
+		 * hands over a new array exactly when it wants a fit, and every render in between — including
+		 * every dragged Control Point, which changes the coordinates — leaves the view where the user put
+		 * it. A pane that refitted whenever the points moved would snap the map back under a drag in
+		 * progress, which is why this is not a `$derived` of the Control Points.
+		 *
+		 * The deployment default is what a pane with nothing to fit shows (ADR-0020). Ticket 09 computes
+		 * the fit from the whole Project's content; this is the Alignment's own Control Points, which is
+		 * the answer the alignment route can give today.
+		 */
+		fitTo?: readonly GeoPoint[];
 		/**
 		 * Where the aligned Historical Map's tiles are read from (ADR-0011). Required for anything to
 		 * be drawn warped, since a locally stored pyramid has no URL.
@@ -336,6 +351,31 @@
 
 	$effect(() => {
 		overlayLayer?.update(overlayPoints);
+	});
+
+	/**
+	 * The array {@link fitTo} was last honoured for. A plain `let`, so writing it here does not make
+	 * this effect its own dependency.
+	 */
+	let fitted: readonly GeoPoint[] | null = null;
+
+	/**
+	 * Bring {@link fitTo} into view, once per array the page hands over.
+	 *
+	 * `maxZoom` because a single Control Point is a zero-area box, which `fitBounds` would otherwise
+	 * answer with the maximum zoom the style allows — a street corner, from which the rest of the
+	 * Alignment is off-screen and the user cannot tell the map moved from the map being broken.
+	 * `animate: false` because this is where the view *starts*, not somewhere it travels to: an
+	 * animation would still be flying when the first click lands.
+	 */
+	$effect(() => {
+		const current = map;
+		const wanted = fitTo;
+		if (!current || wanted.length === 0 || wanted === fitted) return;
+		fitted = wanted;
+		const bounds = new LngLatBounds();
+		for (const point of wanted) bounds.extend([point.lng, point.lat]);
+		current.fitBounds(bounds, { padding: 64, maxZoom: 15, animate: false });
 	});
 
 	/**

@@ -51,6 +51,19 @@ const foldWarning = (page: Page) => page.getByTestId('fold-warning');
 const distortionControls = (page: Page) => page.getByTestId('distortion-controls');
 const distortionToggle = (page: Page) => page.getByTestId('distortion-toggle');
 const gridToggle = (page: Page) => page.getByTestId('grid-toggle');
+const checkToggle = (page: Page) => page.getByTestId('check-alignment-toggle');
+
+/**
+ * Open "Check this alignment" (ticket 03).
+ *
+ * The overlay, its measure and the graticule live behind one disclosure since ticket 03, and they are
+ * *not rendered* while it is closed rather than merely hidden — so every test below that reaches for
+ * one of them has to open it first, and the tests that assert one is absent must not open it.
+ */
+async function openCheck(page: Page): Promise<void> {
+	await checkToggle(page).click();
+	await expect(distortionControls(page)).toBeVisible();
+}
 const maskToggle = (page: Page) => page.getByTestId('mask-edit-toggle');
 const maskSummary = (page: Page) => page.getByTestId('mask-summary');
 const maskStatus = (page: Page) => page.getByTestId('mask-status');
@@ -362,7 +375,10 @@ test.describe('distortion (ADR-0013)', () => {
 		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
 		expect(await warpedTiles(page)).toBeGreaterThan(0);
 
-		// **Off by default**: a colourised map is not what you want while placing Control Points.
+		// **Off by default**: a colourised map is not what you want while placing Control Points — and
+		// since ticket 03 the controls are not even on the page until "Check this alignment" is opened.
+		await expect(distortionControls(page)).toHaveCount(0);
+		await openCheck(page);
 		await expect(distortionToggle(page)).not.toBeChecked();
 		await expect(distortionControls(page)).toHaveAttribute('data-distortion-measure', '');
 		let drawn = await drawnMap(page);
@@ -441,6 +457,7 @@ test.describe('distortion (ADR-0013)', () => {
 		await waitForStored(page, imageId, 6);
 		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
 
+		await openCheck(page);
 		await distortionToggle(page).check();
 		await expect.poll(async () => (await drawnMap(page))?.distortionMeasure).toBe('log2sigma');
 		await expect.poll(() => worstDistortion(page)).toBeGreaterThan(0);
@@ -524,6 +541,7 @@ test.describe('distortion (ADR-0013)', () => {
 		await makePairs(page, 4);
 		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
 
+		await openCheck(page);
 		await expect(gridToggle(page)).not.toBeChecked();
 		expect((await drawnMap(page))?.renderGrid).toBe(false);
 
@@ -551,6 +569,7 @@ test.describe('distortion (ADR-0013)', () => {
 		const before = await storedProjectFile(page);
 		expect(before).not.toBeNull();
 
+		await openCheck(page);
 		await distortionToggle(page).check();
 		await gridToggle(page).check();
 		await page.getByTestId('distortion-measure').selectOption('signDetJ');
@@ -598,10 +617,12 @@ test.describe('the fold warning (ADR-0013)', () => {
 		await expect(foldWarning(page)).toContainText('mirrored');
 		await expect(foldWarning(page)).toHaveAttribute('data-fold-kind', 'mirrored');
 
-		// **With the overlay off.** The whole criterion: the warning is not a consequence of anything
-		// being colourised.
-		await expect(distortionToggle(page)).not.toBeChecked();
-		await expect(distortionControls(page)).toHaveAttribute('data-distortion-measure', '');
+		// **With the overlay off, and with "Check this alignment" never opened.** The whole criterion:
+		// the warning is not a consequence of anything being colourised, and since ticket 03 that is the
+		// stronger statement it looks like — the overlay's controls are not on the page at all.
+		await expect(checkToggle(page)).toHaveAttribute('aria-expanded', 'false');
+		await expect(distortionControls(page)).toHaveCount(0);
+		await expect(distortionToggle(page)).toHaveCount(0);
 		expect((await drawnMap(page))?.distortionMeasure).toBeUndefined();
 
 		// It is an alert, not a polite region: the user is in the middle of making this mistake and the
@@ -680,6 +701,10 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		// commit exactly once, on pointer-up (ADR-0017 rule 1).
 		await watchWrites(page);
 		const corner = maskVertices(page).first();
+		// The scroll {@link dragBy} documents, needed here too now that the workspace is a route with a
+		// header above it (ticket 03): `page.mouse` takes viewport coordinates and does no actionability
+		// check, so a handle below the fold gets a drag that lands on nothing and reports no error.
+		await corner.scrollIntoViewIfNeeded();
 		const box = await corner.boundingBox();
 		if (!box) throw new Error('the Resource Mask corner has no box to drag');
 		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);

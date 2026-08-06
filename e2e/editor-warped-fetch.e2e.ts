@@ -124,6 +124,11 @@ async function projectWithImage(page: Page): Promise<string> {
 	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
 	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
 
+	// Both panes are the `/align/` route since ticket 03. The id is read above, before the click: the
+	// Historical Maps list is on the Project page and this leaves it.
+	await page.getByTestId('align-historical-map').click();
+	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
+
 	await expect(historicalMap(page)).toBeVisible();
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 	return imageId;

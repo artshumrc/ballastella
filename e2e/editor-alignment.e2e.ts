@@ -105,6 +105,12 @@ async function ingestAndOpen(page: Page): Promise<string> {
 	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
 	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
 
+	// **The workspace is a route of its own since ticket 03**, so getting to it is a navigation and no
+	// longer a scroll. The id is read above, before the click: the Historical Maps list is on the
+	// Project page and this leaves it.
+	await page.getByTestId('align-historical-map').click();
+	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
+
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
 	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and
@@ -349,24 +355,50 @@ test.describe('Control Point pairing', () => {
 		expect(await storedAlignment(page, imageId)).toBe(afterPairs);
 	});
 
+	/**
+	 * A mis-started pair costs nothing — **and "nothing" is counted, not inferred**.
+	 *
+	 * There is an `alignments/<id>.json` here from the moment the Historical Map was added: the starter
+	 * Alignment, zero Control Points, the whole sheet as the Resource Mask (ADR-0023). So the old
+	 * assertion — no file at all — has nothing left to say, and byte-identity replaced it.
+	 *
+	 * **Byte-identity alone is weaker than what it replaced**, which is the reason for the write count
+	 * beside it. "No file" could only be satisfied by no write; "the same bytes" is equally satisfied by
+	 * an idempotent rewrite, and a rewrite is exactly the trace this criterion is about — in a Workspace
+	 * kept in git or Dropbox it is a change to sync, whatever the bytes say. The counter restores the
+	 * property the absence assertion used to carry.
+	 */
 	test('Escape after the first click of the very first pair writes nothing at all', async ({
 		page
 	}) => {
 		const imageId = await start(page);
 		// The starter Alignment adding the Historical Map wrote: zero Control Points, over the whole
-		// sheet (ADR-0023). It is the file this test now measures *against* — before this ticket there
+		// sheet (ADR-0023). It is the file this test now measures *against* — before ticket 02 there
 		// was no file at all here, and "no file" was the assertion.
 		const starter = await storedAlignment(page, imageId);
 		expect(starter).not.toBeNull();
+		expect(JSON.parse(starter as string).body.features).toEqual([]);
+		// Reset here rather than at the top of the test, so what is counted is the mis-started pair and
+		// not the add that preceded it.
+		await watchWrites(page);
 
 		await clickAt(historicalMap(page), 0.4, 0.4);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await page.keyboard.press('Escape');
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
 
-		// **Byte-identical, not merely still empty.** A mis-started pair must cost nothing, and a
-		// rewrite of the same Alignment would be a trace on disk — in a Workspace kept in git or
-		// Dropbox, a change to sync.
+		// **Settled first, because what is asserted is a write that must not happen.** `writeAlignment`
+		// records the write *after* the commit resolves, so reading the counter the moment the pending
+		// state clears is reading it before a write that is on its way — which is a green run for the
+		// very defect this is here to catch. A fixed wait rather than a signal, for the same reason:
+		// there is no event for "no write happened". Comfortably longer than ADR-0017's 400 ms debounce
+		// and the OPFS commit behind it.
+		await page.waitForTimeout(2000);
+
+		// Not one write, and the bytes agree. The two assertions fail on different mutations, which is
+		// why both are here: a write of different content fails the second, a write of the same content
+		// fails only the first.
+		expect(await writes(page)).toEqual([]);
 		expect(await storedAlignment(page, imageId)).toBe(starter);
 	});
 
@@ -707,8 +739,10 @@ test.describe('the Alignment on disk', () => {
 		const coordinatesBefore = await page.getByTestId('control-point-row').allInnerTexts();
 		await waitForStored(page, imageId, 3);
 
+		// A reload of the alignment route itself: the route is addressed by `?p=` and `?layer=`, so it
+		// comes back on the same Historical Map without going through the Project page (ticket 03).
 		await page.reload();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 		await expect(page.getByTestId('image-pane')).toBeVisible();
 
 		// The pairs come back, on both panes, with the same numbers in the same order.

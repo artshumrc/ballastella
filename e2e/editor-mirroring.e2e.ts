@@ -1159,8 +1159,11 @@ test.describe('a copied Historical Map, once it is copied', () => {
 				service('images.test', 'florida')
 			);
 
-			// The pane drew the copy, tile by tile, out of the Project — with no network at all.
+			// The pane drew the copy, tile by tile, out of the Project — with no network at all. The pane
+			// is `/align/` since ticket 03, and reaching it offline is part of what that asserts.
 			const imageId = generateId(service('images.test', 'florida'));
+			await page.getByTestId('align-historical-map').click();
+			await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 			await expect
 				.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
 					timeout: 30_000

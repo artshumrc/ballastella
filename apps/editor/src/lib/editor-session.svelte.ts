@@ -766,10 +766,16 @@ export class EditorSession {
 	/**
 	 * Read one Historical Map's Alignment, or start a new one over the whole image.
 	 *
-	 * A Historical Map nobody has placed yet has no Alignment, which is the ordinary first case rather
-	 * than a failure, so a missing file comes back as a fresh Alignment rather than as an error — and
-	 * **nothing is written here**. ADR-0010: merely opening last year's Project must not modify a single
-	 * byte of it, so the file appears only when the user makes their first Control Point.
+	 * A missing file comes back as a fresh Alignment rather than as an error — and **nothing is written
+	 * here**, which is ADR-0010: merely opening last year's Project, or opening the alignment view over
+	 * one of its maps, must not modify a single byte of it.
+	 *
+	 * **When the file appears is the add, not the first Control Point** (ADR-0023). Every Historical Map
+	 * in a Project has had a starter Alignment on disk since the moment it was added, because a map
+	 * Layer whose `alignments/<id>.json` is absent is a Project `assertReferencesPresent` refuses. So the
+	 * missing-file branch below is no longer the ordinary first case; it is a Workspace whose Alignment
+	 * has been deleted or was written by an older build, and answering with a starter is what lets the
+	 * user carry on rather than meeting an error over a map they can see.
 	 *
 	 * **Read from the Workspace, so it is the same Alignment whichever Project asked** (ADR-0023). That
 	 * is the accepted risk of the move stated as code: refining it moves every Project that draws this
@@ -929,6 +935,33 @@ export class EditorSession {
 	}
 
 	/**
+	 * The open Project's map Layer for one Historical Map, or `undefined`.
+	 *
+	 * **A lookup and nothing else.** Since ADR-0023 a map that is in a Project always already has its
+	 * Layer — adding the map is what made it, and made its starter Alignment with it — so the question
+	 * "which Layer of this Project draws this map?" has an answer in memory and never needs a write to
+	 * produce one. An earlier draft of the `/align/` route asked the same question with a method that
+	 * *created* the Layer when there was none, by routing `readAlignment` into `writeAlignment`; for a
+	 * map already aligned in another Project that rewrote a Workspace-shared `alignments/<id>.json`
+	 * through `serialiseAlignment`, dropping every field of a third-party Georeference Annotation that
+	 * `Alignment` does not model (SPEC story 60). Merely opening a view is not a write, and this cannot
+	 * become one.
+	 *
+	 * **`undefined` is a real answer, not a gap to fill.** `images` lists the *Workspace's* Historical
+	 * Maps (ADR-0023), so a Project can be shown a map it does not draw — and putting a map into a
+	 * Project is adding it, a different gesture with its own affordance, rather than something a link
+	 * should do on the way past.
+	 *
+	 * The one implementation of this question, so `#addMapLayer` and `ProjectView` cannot drift into two
+	 * answers about what counts as "this Project already draws that map".
+	 */
+	mapLayerFor(imageId: string): MapLayer | undefined {
+		return this.openProject?.layers.find(
+			(layer): layer is MapLayer => layer.kind === 'map' && layer.imageId === imageId
+		);
+	}
+
+	/**
 	 * Put a `kind: 'map'` Layer in the stack for a Historical Map the user has just added (ADR-0023).
 	 *
 	 * **The one thing in the application that creates a map Layer.** An Alignment write does not, which
@@ -983,10 +1016,10 @@ export class EditorSession {
 	}): Promise<MapLayerAdded | null> {
 		const { imageId } = fields;
 		const directory = this.openDirectory;
-		const drawnAlready = (project: ProjectFile): MapLayer | undefined =>
-			project.layers.find(
-				(layer): layer is MapLayer => layer.kind === 'map' && layer.imageId === imageId
-			);
+		// {@link mapLayerFor}, which reads the *live* `openProject` — which is exactly what each of the
+		// three questions below wants, and the reason they are three questions rather than one snapshot
+		// consulted three times.
+		const drawnAlready = (): MapLayer | undefined => this.mapLayerFor(imageId);
 
 		const before = this.openProject;
 		if (!directory || !before) return null;
@@ -1011,7 +1044,7 @@ export class EditorSession {
 		// added by another gesture in that window.
 		const drawn = this.openProject;
 		if (!drawn) return null;
-		const already = drawnAlready(drawn);
+		const already = drawnAlready();
 		if (already) return { layer: already, alignment };
 
 		const name = fields.name || (await this.#imageLabel(imageId)) || imageId;
@@ -1021,7 +1054,7 @@ export class EditorSession {
 		if (!project || this.openDirectory !== directory) return null;
 		// Asked a third time as well: two adds of the same map in flight together must produce one
 		// Layer, not two rows over one pyramid.
-		const raced = drawnAlready(project);
+		const raced = drawnAlready();
 		if (raced) return { layer: raced, alignment };
 
 		const layer = newMapLayer({ id: crypto.randomUUID(), name, imageId });

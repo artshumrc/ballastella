@@ -718,6 +718,9 @@ test.describe('publishing a Workspace', () => {
 		});
 		await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
 		const imageId = (await page.getByRole('listitem').first().innerText()).trim();
+		// The pane that reads through the shim is the `/align/` route since ticket 03, so this is where
+		// `ballastellaServedTiles` is filled from.
+		await page.getByTestId('align-historical-map').click();
 		await expect
 			.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
 				timeout: 30_000
@@ -760,6 +763,7 @@ test.describe('publishing a Workspace', () => {
 		await page.reload();
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await page.getByTestId('align-historical-map').click();
 		await expect
 			.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
 				timeout: 30_000

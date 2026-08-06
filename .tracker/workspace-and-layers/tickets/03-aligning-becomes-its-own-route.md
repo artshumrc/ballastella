@@ -68,3 +68,51 @@ For the fold-warning and disclosure criteria, break each behaviour and confirm t
 ## Blocked by
 
 - Ticket 01
+
+## Implementation notes
+
+**Pressing Align writes the Alignment, and that is what creates the Layer.** The route is keyed by
+Layer id, and a Historical Map nobody has aligned has no Layer in this Project — so something had to
+turn "this map" into "the Layer that draws it". `EditorSession.ensureMapLayerFor` does it by routing
+`newAlignment` through the existing `writeAlignment`, which writes `alignments/<id>.json` and *then*
+calls `#ensureMapLayer`. Writing the Alignment first is not incidental: `assertReferencesPresent`
+requires it for every map Layer, `editor-layers.e2e.ts` has a test named for that invariant, and a
+Layer created beside no Alignment is a Project this build exports and then refuses to import — the gap
+ticket 01's review deferred to ticket 02. The visible consequence is that
+`alignments/<id>.json` now appears when Align is pressed rather than at the first Control Point;
+`editor-alignment.e2e.ts`'s "Escape … writes no Alignment at all" was rewritten to assert the criterion
+it was actually about (a mis-started pair writes nothing) as byte-identity rather than as absence.
+
+**The `removedMapLayers` tombstone is honoured by Align, not lifted.** A map whose Layer was deleted
+gets a named refusal on the Project page rather than a silently recreated Layer. Re-adding a Workspace
+map to a Project is SPEC story 23 and ticket 06's affordance, and making Align an exception would put
+the resurrection this tombstone exists to prevent behind a button instead of behind a write.
+
+**`#ensureMapLayer`'s creation path is now unreachable from the interface**, and two tests changed
+shape because of it. Every Alignment write is preceded by an Align click that already made the Layer,
+so the method's early return is what runs. `editor-undo.e2e.ts`'s resurrection-trap test now asserts
+that Align refuses (in this session and in a later one, so the *file* is what carries the tombstone),
+and its "two Alignment writes in flight" test is now a regression guard rather than a reproduction —
+the delayed `manifest.json` read widens the window inside `ensureMapLayerFor` instead. **Ticket 02
+should decide whether `#ensureMapLayer` survives at all**: once a Layer is created when a map is added,
+nothing is left for it to do.
+
+**`BaseMapPane` gained a `fitTo` prop, fitted on array identity rather than on contents.** The page
+hands over a new array exactly when it wants a fit — once, in `AlignmentWorkspace.loadAlignment` — so a
+dragged Control Point cannot pull the earth out from under the pointer. Ticket 09's Project-content fit
+is a second caller of the same prop.
+
+**Closing "Check this alignment" resets the distortion view.** Not in the contract, but the alternative
+is a Historical Map left colourised with the only control that turns it off no longer on the page. The
+cost is that reopening starts from the default rather than the last measure.
+
+**The header's way-back link is inside `{#if session !== null}`.** SvelteKit throws on
+`url.searchParams` while prerendering, and the header renders outside the route's state chain, so
+reading `?p=` there killed the build. `session` is `null` in exactly the same condition, and every
+named state below the header carries its own way back.
+
+**Two e2e helpers needed a `scrollIntoViewIfNeeded`-shaped fix.** The route's header and its
+screen-reader explainer make the page ~120px taller than `ProjectView` was, which pushed a Resource
+Mask handle below the fold — `page.mouse` takes viewport coordinates and does no actionability check,
+so the drag landed on nothing and reported no error. `dragBy` already documents this hazard; the one
+inline drag in `editor-alignment-refinement.e2e.ts` now takes the same precaution.

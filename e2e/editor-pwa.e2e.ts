@@ -294,7 +294,10 @@ test.describe('the web app manifest and the service worker scope', () => {
 				// Fence 1: the shell cache is the hashed build assets and the entry HTML, and that is the
 				// whole list.
 				const shell = pathsOf(names[1] as string);
-				const entryHtml = ['/', '/base-map', '/image-pane', '/layers'];
+				// `/align` is here because aligning is a route of its own since ticket 03, and it is the
+				// route SPEC story 8 is actually about: a scholar in a reading room with no wifi placing
+				// Control Points. An entry page missing from this list is a page that 404s offline.
+				const entryHtml = ['/', '/align', '/base-map', '/image-pane', '/layers'];
 				expect(shell.length, 'nothing was precached').toBeGreaterThan(10);
 				for (const path of shell) {
 					expect(
@@ -478,6 +481,12 @@ test.describe('an offline working session', () => {
 		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 
+		// **Offline, and the route change is part of what is being asserted.** Aligning is `/align/`
+		// since ticket 03, so reaching it with the network off exercises the precached prerendered page
+		// and its code chunks as well as the panes themselves.
+		await page.getByTestId('align-historical-map').click();
+		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
+
 		// The user's own pyramid draws with no network, which is ADR-0011's injection layer earning its
 		// keep: a locally ingested Historical Map has no URL at all, so nothing about this pane can
 		// depend on a server being there.
@@ -522,7 +531,10 @@ test.describe('an offline working session', () => {
 		).toBeGreaterThan(0);
 
 		// And an Annotation drawn on the Layers pane, which is the other half of the ticket's offline
-		// verification — and the other thing gated on the Base Map's style having loaded.
+		// verification — and the other thing gated on the Base Map's style having loaded. Back out of
+		// the alignment route first: the Layers button is on the Project page (ticket 03).
+		await page.getByTestId('back-to-project').click();
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 		await page.getByTestId('open-layers').click();
 		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
 		await page.getByTestId('add-annotation-layer').click();
@@ -706,7 +718,9 @@ test.describe('a working session that reaches other people’s servers', () => {
 		await expect.poll(() => libraryRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(1);
 		await page.getByTestId('unwarped-close').click();
 
-		// A Control Point pair, so that this is a working session and not a tour.
+		// A Control Point pair, so that this is a working session and not a tour. On `/align/` since
+		// ticket 03.
+		await page.getByTestId('align-historical-map').click();
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
 			'true',
@@ -802,6 +816,8 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 		await expect(page.getByTestId('referenced-image-host')).toHaveText('gallica.example.test');
+		// The Project's *own* Historical Map still aligns, on `/align/` (ticket 03).
+		await page.getByTestId('align-historical-map').click();
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
 			'true',
@@ -988,6 +1004,9 @@ test.describe('an update, and who decides when', () => {
 		// "mid-alignment" in the most literal sense story 9 has, because the pending half lives only in
 		// the page and any reload at all would lose it.
 		await startProjectWithMap(page);
+		// Mid-alignment now means on the alignment route (ticket 03), which is also the sharper form of
+		// this test: an update that reloaded would take the pending half *and* the route with it.
+		await page.getByTestId('align-historical-map').click();
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
 			'true',

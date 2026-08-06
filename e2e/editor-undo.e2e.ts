@@ -142,6 +142,9 @@ const rowText = (page: Page, ordinal: number): Promise<string> =>
  */
 async function openWorkspace(page: Page): Promise<void> {
 	await page.goto('/?p=amsterdam-1625');
+	// Aligning is `/align/?p=…&layer=…` since ticket 03, and it is entered by the button rather than by
+	// a hand-written URL: the route is keyed by Layer id, which this test has no other way to learn.
+	await page.getByTestId('align-historical-map').click();
 	await waitForSurface(page);
 	await expect(page.getByTestId('pairing-status')).toContainText('Control Point');
 }
@@ -157,6 +160,11 @@ async function openWorkspace(page: Page): Promise<void> {
  * @param resuming how many Control Points the rebuilt pairing must show before it is safe to click
  */
 async function throughLayersAndBack(page: Page, resuming: number): Promise<void> {
+	// Out of the alignment route, through the Project page, to the Layers pane and back again. Three
+	// in-app links rather than two since ticket 03, and still not one reload — which is the whole of
+	// the helper: the undo record has to survive the workspace being destroyed and rebuilt.
+	await page.getByTestId('back-to-project').click();
+	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 	await page.getByTestId('open-layers').click();
 	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
@@ -164,6 +172,8 @@ async function throughLayersAndBack(page: Page, resuming: number): Promise<void>
 	});
 
 	await page.getByTestId('back-to-project').click();
+	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await page.getByTestId('align-historical-map').click();
 	await waitForSurface(page);
 	// **The rows are the barrier, not the pane.** `pairing` is `undefined` until the pyramid has been
 	// read and the Alignment after it, and the status line reads "…your first Control Point" in the
@@ -557,55 +567,26 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
  * write, in this session or a later one, touches the Layer stack at all.**
  */
 test.describe('a deleted map Layer does not come back (the resurrection trap)', () => {
-	test('survives an Alignment write, and survives one in a later session', async ({ page }) => {
-		test.setTimeout(150_000);
-		const imageId = await alignedProject(page);
-		await openLayers(page, 1);
-
-		await layerRows(page).first().getByTestId('layer-delete').click();
-		await expect(layerRows(page)).toHaveCount(0);
-		await saved(page);
-		// Nothing anywhere in the document records the deletion — the Layer is simply not there, which is
-		// the whole of ADR-0023's claim that there is nothing left to tombstone.
-		expect((await projectJson(page)).layers).toEqual([]);
-
-		// Back to the alignment workspace and an Alignment write — the exact gesture that resurrected the
-		// Layer before this was designed out.
-		//
-		// A **fourth** pair, because the three `alignedProject` made are still on disk: deleting the Layer
-		// leaves the Historical Map and its Alignment where they are (ADR-0023, SPEC story 67), so
-		// `makePairs` reopens onto the pairing already done rather than onto an empty Alignment.
-		await openWorkspace(page);
-		await makePairs(page, 4);
-		await waitForStored(page, imageId, 4);
-		await saved(page);
-
-		expect((await projectJson(page)).layers).toEqual([]);
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (0)');
-
-		// **And in a later session**, which is the half a purely in-memory guard could never survive: a
-		// reload throws away everything the running page knew.
-		await openWorkspace(page);
-		await makePairs(page, 5);
-		await waitForStored(page, imageId, 5);
-		await saved(page);
-
-		expect((await projectJson(page)).layers).toEqual([]);
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (0)');
-
-		// **And moving one, not only adding one.** A moved Control Point writes the Alignment too, and it
-		// is the gesture a user is most likely to make on a map whose Layer they have just taken out of
-		// the stack. The keyboard nudge is the same one gesture the move-undo test uses.
-		const movedFrom = await storedAlignment(page, imageId);
-		await imagePoints(page).first().focus();
-		await page.keyboard.press('Shift+ArrowRight');
-		await saved(page);
-		// The barrier with teeth: the Alignment on disk really is a different file, so what follows is a
-		// claim about an Alignment write that *happened* rather than one that may still be pending.
-		await expect.poll(() => storedAlignment(page, imageId)).not.toBe(movedFrom);
-
-		expect((await projectJson(page)).layers).toEqual([]);
-	});
+	/*
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE TEST THAT USED TO BE FIRST HERE, AND WHY THERE IS NOTHING LEFT FOR IT TO DRIVE
+	 *
+	 * "Delete the map Layer, then write the Alignment again" was the reproduction. Ticket 02 closed it
+	 * in the model — only adding a Historical Map makes a Layer — and ticket 03 closed the *gesture* as
+	 * well: aligning is `/align/?p=…&layer=…`, keyed by Layer id, so a Historical Map with no Layer in
+	 * this Project has no alignment view to be on. There is no click sequence that writes an Alignment
+	 * for a map this Project does not draw, so the test could only be kept by driving something the
+	 * interface does not offer.
+	 *
+	 * What it asserted is still asserted, by the two tests below: the stack survives an Alignment write
+	 * with the Layer restored, and a whole pairing session leaves `project.json` byte for byte.
+	 *
+	 * **What is genuinely no longer covered end to end** is the cross-Project form, which *is* reachable
+	 * and is new with ADR-0023: two Projects draw one Workspace map, the Layer is deleted in Project A,
+	 * and Project B goes on aligning it. Nothing should reach Project A's stack. It is left here as a
+	 * named gap rather than a test, because it needs a second Project with a second ingest and belongs
+	 * beside the other Workspace-sharing specs rather than in the undo file.
+	 */
 
 	/**
 	 * And undoing the deletion has to leave the *opposite* invariant in place: one Layer, the original
@@ -650,6 +631,13 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 	 * it ever was; there is simply nothing in it any more. Byte identity is what makes that a real
 	 * assertion rather than a count that a rewrite of the same content would satisfy — ADR-0010, and
 	 * the reason `updatedAt` must not move for an edit that is not to the document.
+	 *
+	 * **The delayed read is honestly inert, and the assertion is not.** Nothing on the pairing path
+	 * reads `manifest.json` any more, so `delayReadsOf` widens a window that no longer has anything in
+	 * it; it is kept because it costs one line and because a future re-introduction of a read there is
+	 * precisely what this should catch. What carries the test is the byte comparison, which goes red
+	 * the moment anything at all writes `project.json` during a pairing session — that is the claim,
+	 * and it is the claim ticket 03 could most easily have broken by making the route create a Layer.
 	 */
 	test('a whole pairing session leaves project.json byte-identical', async ({ page }) => {
 		test.setTimeout(120_000);
@@ -672,8 +660,12 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		await page.waitForTimeout(3000);
 		await saved(page);
 
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
 		expect(await readProjectFile(page, 'project.json')).toBe(before);
+		// And the count the interface shows agrees. On the Project page since ticket 03: this test now
+		// runs on `/align/`, which has no Layer count on it, so the trip back is what puts the assertion
+		// in front of the number a user would actually read.
+		await page.getByTestId('back-to-project').click();
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
 	});
 });
 
