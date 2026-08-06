@@ -53,11 +53,46 @@ export const MEASURED_DECODE_CEILING_PIXELS = 528_006_700;
  *   limit; on a tablet with 4 GiB the allocation fails long before the cap does, and SPEC story
  *   22 is about the machine a scholar actually has.
  * - Safari is unmeasured, and it is the browser whose limits are historically lowest.
- * - The two outcomes are not symmetric. Routing an image to the streaming tiler that the decode
- *   path could have handled costs time. Routing one the other way costs the user their ingest,
- *   partway through, with an out-of-memory failure that reads as the tool being broken.
+ * - **Where the streaming tiler can run**, the two outcomes are not symmetric. Routing an image to
+ *   it that the decode path could have handled costs time. Routing one the other way costs the
+ *   user their ingest, partway through, with an out-of-memory failure that reads as the tool being
+ *   broken.
  *
  * A 2^28-pixel image is a 16384×16384 scan, comfortably above anything a camera produces and
  * above most library derivatives; the pyramid for one is around 4 700 tiles.
+ *
+ * ## The asymmetry does not hold on a static host, which is where the app actually runs
+ *
+ * That third argument is the one this number was chosen on, and on GitHub Pages it is false. npm
+ * publishes only the threaded `wasm-vips`, so the streaming tiler refuses before it loads
+ * (`StreamingTilerUnavailableError`), and **both directions cost the user their ingest** — one
+ * with an out-of-memory failure, the other with a refusal. The conservative direction is still the
+ * better failure, because a refusal names what is wrong and an OOM does not; but it is no longer
+ * free, and it costs the ingest for images the browser demonstrably handles. A 300-megapixel scan
+ * is refused here although both measured engines decoded 528.
+ *
+ * So this number is **conservative for a case that currently cannot be served either way**, and it
+ * is left alone deliberately rather than raised, for two reasons: raising it would trade a legible
+ * refusal for a dead tab on exactly the machines SPEC story 22 is about, and the blocker is
+ * expected to be resolved rather than lived with (ticket 05 lists four options, and the choice is
+ * not an implementer's).
+ *
+ * **Ticket 05's option 3 — "cap ingest at the decode ceiling" — is a different number from this
+ * one, and choosing it means changing this constant.** This threshold exists to decide *which of
+ * two tilers runs*. A cap exists to decide *whether ingest is possible at all*, and the honest
+ * value for that is derived from {@link MEASURED_DECODE_CEILING_PIXELS} with a margin for the
+ * machine and the browser — nearer 2^29 than 2^28 on the measurements above, and it would want
+ * Safari measured first. Shipping option 3 while leaving 2^28 in place would refuse half the
+ * images the cap is meant to admit.
+ *
+ * ## What this threshold does not cover
+ *
+ * Routing reads the container's header (`readImageHeader`, in `image-header.ts`), and one it does
+ * not know
+ * — AVIF, JPEG XL, an SVG — falls through with `undefined` and is handed to `createImageBitmap`
+ * **at any declared size**. For those formats the ceiling is enforced by the decoder refusing,
+ * which both measured engines do promptly and without attempting the allocation, so the outcome is
+ * a decode error rather than a dead tab. It is nonetheless a different failure from the one above:
+ * the message says the file could not be read, not that it is too large.
  */
 export const STREAMING_TILER_THRESHOLD_PIXELS = 268_435_456;
