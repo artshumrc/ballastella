@@ -29,6 +29,26 @@ it('exposes the image pane projection to both apps', () => {
 	);
 });
 
+// The tiler, reachable through the barrel and *without* dragging `wasm-vips` in with it. That
+// second half is the ADR-0019 boundary: `apps/viewer` imports this barrel, so an import of
+// `wasm-vips` anywhere under `src` would put a 5 MB WebAssembly module in the published reader's
+// dependency graph with nothing to make it loud.
+it('exposes the tiler, and takes libvips only as an injected loader', () => {
+	expect(Object.keys(core)).toEqual(
+		expect.arrayContaining([
+			'MEASURED_DECODE_CEILING_PIXELS',
+			'STREAMING_TILER_THRESHOLD_PIXELS',
+			'buildImageInfo',
+			'ingestImageFile',
+			'openDecodeAndCropSource',
+			'planPyramid',
+			'streamingTiler'
+		])
+	);
+	// Curried on the loader: calling it does not load anything.
+	expect(typeof core.streamingTiler(async () => ({}) as core.VipsModule)).toBe('function');
+});
+
 // The apps import from '@ballastella/core', never from a file inside it, so the entry point
 // is the contract. ADR-0020 has the published viewer carrying the catalog too, so this edge
 // has to hold for both apps.

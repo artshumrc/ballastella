@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   default:
+    '@allmaps/id':
+      specifier: 1.0.0-beta.38
+      version: 1.0.0-beta.38
     '@allmaps/iiif-parser':
       specifier: 1.0.0-beta.48
       version: 1.0.0-beta.48
@@ -63,6 +66,9 @@ catalogs:
     vitest:
       specifier: ^4.1.10
       version: 4.1.10
+    wasm-vips:
+      specifier: 0.0.18
+      version: 0.0.18
 
 importers:
 
@@ -119,6 +125,9 @@ importers:
       pmtiles:
         specifier: 'catalog:'
         version: 4.4.1
+      wasm-vips:
+        specifier: 'catalog:'
+        version: 0.0.18
     devDependencies:
       '@maplibre/maplibre-gl-style-spec':
         specifier: 'catalog:'
@@ -193,6 +202,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@allmaps/id':
+        specifier: 'catalog:'
+        version: 1.0.0-beta.38
       '@allmaps/iiif-parser':
         specifier: 'catalog:'
         version: 1.0.0-beta.48
@@ -218,8 +230,15 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(@vitest/browser-playwright@4.1.10)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
+      wasm-vips:
+        specifier: 'catalog:'
+        version: 0.0.18
 
 packages:
+
+  '@allmaps/id@1.0.0-beta.38':
+    resolution: {integrity: sha512-POedcGDJxqpxI9UicmQF5DxfzgsBFIT5ZyKyaJCJ6Kf9P6j6RX7iPhrUEpDG1HQGOQDbwIu7rwMWf8KjHhHh1g==}
+    engines: {node: '>=v19.0.0'}
 
   '@allmaps/iiif-parser@1.0.0-beta.48':
     resolution: {integrity: sha512-4wjmhbmIqT8gjA9ukJWSzpIU0AhSN8pJHPcOpN2QjBUqJ6Qo262wlJML7iEwqWY4s7yR4TfqI6CASmscUHf4bg==}
@@ -1613,6 +1632,10 @@ packages:
       jsdom:
         optional: true
 
+  wasm-vips@0.0.18:
+    resolution: {integrity: sha512-AJyCvxZj/3qceKNnh+YyEobu/IaJFoPN7x7SxyyHmYBS3kASMqJqxQEuN0ZHKQDWsCJ8armfx4Tq3uKrNc+nMA==}
+    engines: {node: '>=17.0.0'}
+
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
     engines: {node: '>= 8'}
@@ -1654,6 +1677,8 @@ packages:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
+
+  '@allmaps/id@1.0.0-beta.38': {}
 
   '@allmaps/iiif-parser@1.0.0-beta.48':
     dependencies:
@@ -2836,6 +2861,8 @@ snapshots:
       '@vitest/browser-playwright': 4.1.10(playwright@1.62.1)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))(vitest@4.1.10)
     transitivePeerDependencies:
       - msw
+
+  wasm-vips@0.0.18: {}
 
   which@2.0.2:
     dependencies:

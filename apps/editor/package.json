@@ -13,7 +13,8 @@
 	"dependencies": {
 		"@ballastella/core": "workspace:*",
 		"maplibre-gl": "catalog:",
-		"pmtiles": "catalog:"
+		"pmtiles": "catalog:",
+		"wasm-vips": "catalog:"
 	},
 	"devDependencies": {
 		"@maplibre/maplibre-gl-style-spec": "catalog:",

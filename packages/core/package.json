@@ -11,6 +11,7 @@
 		"test": "playwright install chromium firefox && vitest run"
 	},
 	"dependencies": {
+		"@allmaps/id": "catalog:",
 		"@allmaps/iiif-parser": "catalog:",
 		"@maplibre/maplibre-gl-style-spec": "catalog:",
 		"@protomaps/basemaps": "catalog:"
@@ -20,6 +21,7 @@
 		"@vitest/browser-playwright": "catalog:",
 		"playwright": "catalog:",
 		"typescript": "catalog:",
-		"vitest": "catalog:"
+		"vitest": "catalog:",
+		"wasm-vips": "catalog:"
 	}
 }
