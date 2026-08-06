@@ -29,12 +29,16 @@ import {
 	newAlignment,
 	newAnnotationLayer,
 	newMapLayer,
+	normaliseCanonicalUrl,
 	emptyCollection,
 	openDecodeAndCropSource,
 	parseAlignment,
 	parseAnnotations,
 	partitionByLocalCopy,
+	planPublish,
 	projectFilePath,
+	publishSite,
+	readPublishedSite,
 	readImageLabel,
 	readProjectZip,
 	referencedImage,
@@ -47,12 +51,16 @@ import {
 	setLayerVisible,
 	setMapLayerOpacity,
 	sourceOf,
+	// Aliased: the session has a method of the same name, and the two doing different amounts of work
+	// under one word is how a later edit calls the wrong one.
+	stampCanonicalUrl as stampProjectImages,
 	streamingTiler,
 	toDirectoryName,
 	workspaceSize,
 	type Alignment,
 	type AnnotationCollection,
 	type AnnotationLayer,
+	type Bytes,
 	type FetchFn,
 	type IngestProgress,
 	type IngestedImage,
@@ -64,11 +72,15 @@ import {
 	type ProjectStore,
 	type ProjectSummary,
 	type ProjectZip,
+	type PublishPlan,
+	type PublishedSite,
 	type ReferencedImage,
 	type RemoteImageService,
 	type SaveState,
 	type SimpleStyle,
 	type TransferProgress,
+	type ViewerBundle,
+	type ViewerBundleFile,
 	type WorkspaceSize
 } from '@ballastella/core';
 
@@ -831,6 +843,110 @@ export class EditorSession {
 	 */
 	async workspaceBytes(): Promise<WorkspaceSize> {
 		return workspaceSize(this.#store);
+	}
+
+	/**
+	 * What publishing would write into this Workspace, and everything the user must read first
+	 * (ticket 16; ADR-0006, ADR-0008).
+	 *
+	 * **Writes nothing.** Two of the three required warnings are questions rather than reports — the
+	 * Base Map's size has to be stated *before* it is added (ADR-0020) and the ~1 GB hosting cliff is
+	 * a decision (ADR-0008) — so the plan is a separate step the dialog shows before its button does
+	 * anything.
+	 */
+	async planPublish(options: {
+		bundle: ViewerBundle;
+		includeBaseMap: boolean;
+	}): Promise<PublishPlan> {
+		return planPublish(this.#store, {
+			bundle: options.bundle,
+			projects: await this.#workspace.listProjects(),
+			includeBaseMap: options.includeBaseMap
+		});
+	}
+
+	/**
+	 * Write the Published Site (SPEC stories 78–81).
+	 *
+	 * Everything pending is flushed first, for the same reason exporting a zip flushes: publishing a
+	 * Project whose last edit is still inside the autosave debounce would put a site on the web that
+	 * is missing the change the user just made — and unlike an export, they may not look at it again
+	 * for a week (ADR-0017 rule 1).
+	 *
+	 * `readAsset` comes from the app rather than from here, because where this deployment serves the
+	 * viewer's files from is `$lib/publish/viewer-bundle-source`'s business and must stay relative
+	 * (ADR-0006).
+	 */
+	async publish(options: {
+		plan: PublishPlan;
+		readAsset: (file: ViewerBundleFile) => Promise<Bytes>;
+		onProgress?: (progress: { files: number; totalFiles: number; path: string | null }) => void;
+	}): Promise<PublishedSite> {
+		await this.flush();
+		const site = await publishSite({
+			store: this.#store,
+			plan: options.plan,
+			readAsset: options.readAsset,
+			...(options.onProgress ? { onProgress: options.onProgress } : {})
+		});
+		// The Project list on screen is what the site now claims, so a stale list would make the
+		// staleness notice wrong in the direction that matters.
+		this.projects = await this.#workspace.listProjects();
+		return site;
+	}
+
+	/** The record the Published Site carries about itself, or `null` if there is no site yet. */
+	async readPublishedSite(): Promise<PublishedSite | null> {
+		return readPublishedSite(this.#store);
+	}
+
+	/**
+	 * Stamp every Historical Map in the Workspace with a canonical address (SPEC story 92).
+	 *
+	 * Opt-in, and the **only** thing publishing does that writes a Project's own files: it rewrites
+	 * each `info.json`'s `id` from the ADR-0004 placeholder to `<url>/<project>/images/<image-id>`, so
+	 * that the tiles become a real, citable IIIF endpoint Allmaps, Theseus, and OpenSeadragon can
+	 * consume directly.
+	 *
+	 * `info.json` first and `project.json` second, the same order every other write here follows: the
+	 * document's record of the address must never claim a stamp that the images do not carry. A
+	 * failure part way through leaves some images stamped and the Project unstamped, which the next
+	 * publish repairs by stamping all of them again — idempotent, because the address does not depend
+	 * on what was there before.
+	 *
+	 * A Project this build cannot open is skipped rather than rewritten (ADR-0010).
+	 */
+	async stampCanonicalUrl(url: string): Promise<{ projects: number; images: number }> {
+		const stamped = normaliseCanonicalUrl(url);
+		if (stamped === '') {
+			// Through core's own refusal, so the sentence a user reads is written in one place.
+			await stampProjectImages(this.#store, '', url, []);
+		}
+		await this.flush();
+
+		let projects = 0;
+		let images = 0;
+		for (const summary of await this.#workspace.listProjects()) {
+			if (summary.problem !== null) continue;
+			const ingested = await listIngestedImages(this.#store, summary.directory);
+			const stamp = await stampProjectImages(
+				this.#store,
+				summary.directory,
+				stamped,
+				ingested.map((image) => image.imageId)
+			);
+			const file = await this.#workspace.readProject(summary.directory);
+			if (file.canonicalUrl !== stamp.url) {
+				await this.#workspace.writeProject(summary.directory, { ...file, canonicalUrl: stamp.url });
+			}
+			projects += 1;
+			images += stamp.images.length;
+			if (this.openDirectory === summary.directory && this.openProject) {
+				this.openProject = { ...this.openProject, canonicalUrl: stamp.url };
+			}
+		}
+		this.projects = await this.#workspace.listProjects();
+		return { projects, images };
 	}
 
 	/**
