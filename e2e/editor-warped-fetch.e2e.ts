@@ -264,4 +264,3 @@ test.describe('warped rendering reads through the ProjectStore', () => {
 		expect(consoleErrors.filter((text) => text.includes('unset.invalid'))).toEqual([]);
 	});
 });
-

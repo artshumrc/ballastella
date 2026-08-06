@@ -65,8 +65,16 @@
 		fetchTile?: FetchFn;
 		/** A place on the earth the user clicked. */
 		onclickpoint?: (point: GeoPoint) => void;
-		/** What the warped renderer did with the current Alignment, for the page to surface. */
-		onwarped?: (render: WarpedRender) => void;
+		/**
+		 * What the warped renderer did with the current Alignment, for the page to surface.
+		 *
+		 * `null` means nothing is being drawn — no Alignment, or the layer has just been taken off.
+		 * Reported rather than left to the page to infer, because the page cannot see the layer's
+		 * lifecycle: an Alignment that drops back below the minimum Control Point count removes the
+		 * layer here, and without this the page would go on claiming the Historical Map was drawn from
+		 * points the user had just deleted.
+		 */
+		onwarped?: (render: WarpedRender | null) => void;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -167,7 +175,12 @@
 		const current = map;
 		const shown = alignment;
 		const readTiles = fetchTile;
-		if (!current || !shown || !readTiles) return;
+		if (!current || !shown || !readTiles) {
+			// Nothing to draw. Said rather than left implicit, so the page's account of what is on the
+			// Base Map cannot outlive the layer that was on it.
+			onwarped?.(null);
+			return;
+		}
 
 		const layer = createWarpedMapLayer(readTiles);
 		let unexpose = () => undefined as void;
@@ -189,6 +202,7 @@
 			// `setStyle` on a theme change removes our layer along with everything else, so removing
 			// one that has already gone has to be survivable rather than an exception in a teardown.
 			if (added && current.getLayer(layer.id)) current.removeLayer(layer.id);
+			onwarped?.(null);
 		};
 	});
 </script>

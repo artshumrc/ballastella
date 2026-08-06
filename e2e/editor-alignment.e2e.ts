@@ -121,8 +121,35 @@ type AlignmentWrite = { path: string; controlPoints: number };
 declare global {
 	interface Window {
 		ballastellaAlignmentWrites?: AlignmentWrite[];
+		ballastellaWarped?: {
+			map: { fitBounds(bounds: unknown, options?: unknown): void };
+			layer: {
+				getBounds(): unknown;
+				/** Upstream internals, optional all the way down so a version bump fails loudly. */
+				renderer?: { tileCache?: { getCachedTiles?(): unknown[] } };
+			};
+		};
 	}
 }
+
+/**
+ * How many warped tiles have arrived **and decoded**.
+ *
+ * `CacheableTile.isCachedTile()` is `data !== undefined`, and `data` is the ImageData the tile worker
+ * produced — so this counts tiles that made it all the way through the ADR-0011 shim rather than
+ * tiles that were merely asked for. It is the honest signal for "the Historical Map renders warped":
+ * the failure this path used to have was an error `@allmaps/render` logged and swallowed, so a check
+ * for an absence of console errors went green while the map rendered blank.
+ */
+const warpedTiles = async (page: Page): Promise<number> =>
+	page.evaluate(async () => {
+		const warped = window.ballastellaWarped;
+		if (!warped) return -1;
+		// Bring the warped map into view, or the renderer has no reason to ask for a tile.
+		warped.map.fitBounds(warped.layer.getBounds(), { animate: false });
+		await new Promise((resolve) => setTimeout(resolve, 3000));
+		return (warped.layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
+	});
 
 const historicalMap = (page: Page) => page.getByTestId('image-pane');
 const baseMap = (page: Page) => page.getByTestId('base-map-pane');
@@ -143,6 +170,7 @@ const basePoints = (page: Page) =>
 	baseMap(page).locator('[data-testid="pane-overlay-point-control-point"]');
 
 const rows = (page: Page) => page.getByTestId('control-point-row');
+const warpedStatus = (page: Page) => page.getByTestId('warped-status');
 
 /** Click at a fraction across a pane, so the same helper works for both canvases. */
 async function clickAt(target: Locator, fx: number, fy: number): Promise<void> {
@@ -486,6 +514,53 @@ test.describe('Control Point pairing', () => {
 	});
 });
 
+test.describe('the warped Historical Map', () => {
+	test('appears over the Base Map on the third pair, and not before', async ({ page }) => {
+		await start(page);
+
+		// Two pairs is one short of what `polynomial1` can be solved with (ADR-0013), and the user is
+		// told what is missing rather than being shown an empty Base Map.
+		await makePair(page, 0.3, 0.3);
+		await makePair(page, 0.6, 0.35);
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', '');
+		await expect(warpedStatus(page)).toContainText('1 more Control Point');
+		expect(
+			await page.evaluate(() => Boolean(window.ballastellaWarped)),
+			'the renderer must not be asked for an under-determined solve'
+		).toBe(false);
+
+		// The third pair is the one that makes the map appear.
+		await makePair(page, 0.45, 0.7);
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expect(warpedStatus(page)).toContainText('from 3 Control Points');
+
+		// Asserted as tiles that arrived *and decoded*, not as an absence of console errors: the
+		// failure this path used to have was an error `@allmaps/render` logged and swallowed, so a
+		// console-only check went green while the map rendered blank. It works because of
+		// `patches/@allmaps__render@1.0.0-beta.83.patch`; `scripts/check-allmaps-patch.mjs` guards it.
+		expect(
+			await warpedTiles(page),
+			'no warped tile reached the renderer through the ProjectStore shim'
+		).toBeGreaterThan(0);
+	});
+
+	test('is withdrawn again when a pair is deleted and there are too few', async ({ page }) => {
+		await start(page);
+		await makePair(page, 0.3, 0.3);
+		await makePair(page, 0.6, 0.35);
+		await makePair(page, 0.45, 0.7);
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+
+		// Back below the minimum. The map has to come off rather than stay drawn from a solve that is
+		// no longer supported by the Control Points on screen — which would be a Historical Map placed
+		// by points the user has deleted.
+		await page.getByTestId('control-point-delete').first().click();
+		await expect(rows(page)).toHaveCount(2);
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', '');
+		await expect(warpedStatus(page)).toContainText('1 more Control Point');
+	});
+});
+
 test.describe('the Alignment on disk', () => {
 	test('is a valid Georeference Annotation naming the image and the transformation', async ({
 		page
@@ -562,7 +637,9 @@ test.describe('the Alignment on disk', () => {
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 	});
 
-	test('restores every pair and its ordinal across a reload', async ({ page }) => {
+	test('restores every pair, its ordinal, and the warped render across a reload', async ({
+		page
+	}) => {
 		const imageId = await start(page);
 		await makePair(page, 0.3, 0.3);
 		await makePair(page, 0.55, 0.45);
@@ -588,6 +665,16 @@ test.describe('the Alignment on disk', () => {
 		// And the coordinates are the ones that were stored, not merely three points in some order.
 		// Ordinals are the position in the file, so this is what "stable across reload" means.
 		expect(await page.getByTestId('control-point-row').allInnerTexts()).toEqual(coordinatesBefore);
+
+		// **And the warped render comes back too**, which is the other half of the criterion. Nothing
+		// about the warped layer is persisted — it is rebuilt from the Alignment that was read off
+		// disk — so this is what says the whole path survives a reload rather than only the Control
+		// Points that feed it.
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		expect(
+			await warpedTiles(page),
+			'the Historical Map did not render warped after a reload'
+		).toBeGreaterThan(0);
 	});
 
 	test('surfaces an Alignment that is there and cannot be read, rather than silently emptying it', async ({
