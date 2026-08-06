@@ -43,18 +43,60 @@ describe('createSyntheticProjection', () => {
 		expect(south).toBeGreaterThan(-windowSpan);
 	});
 
-	it('keeps Mercator distortion across the window under two parts per million', () => {
+	it('draws the image at an exactly uniform scale, with no stretch anywhere', () => {
+		const { resourceToSynthetic } = createSyntheticProjection(fixture);
+
+		// The rendered scale is what a contributor will worry about, so assert on it directly
+		// rather than on sec(latitude). MapLibre's screen transform is affine in Mercator at
+		// pitch 0 and a raster tile's texture is interpolated linearly across its Mercator cell,
+		// so "how much is the image stretched on screen" *is* "how much does the Mercator
+		// distance per image pixel vary". Answer: not at all — bit-identical, not merely close,
+		// because `resourceToSynthetic` is linear in Mercator by construction.
+		const mercatorY = (lat: number) =>
+			(180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))) / 360;
+		const stepAt = (y: number) =>
+			mercatorY(resourceToSynthetic({ x: 0, y: y + 1 }).lat) -
+			mercatorY(resourceToSynthetic({ x: 0, y }).lat);
+
+		const atTop = stepAt(0);
+		for (let y = 0; y < fixture.height; y++) {
+			expect(stepAt(y)).toBe(atTop);
+		}
+	});
+
+	it('keeps degrees of latitude within two parts per million of Mercator y', () => {
 		const projection = createSyntheticProjection(fixture);
 
-		// Mercator stretches north-south by sec(latitude). The image is drawn linearly in
-		// Mercator space, so this never enters the round-trip; it is the amount by which the
-		// bottom of the image is stretched relative to the top on screen.
+		// sec(latitude) is *not* an on-screen stretch — see the test above. It is how far degrees
+		// of latitude have parted company with Mercator y over this window, and the only reason
+		// to bound it is to record how small the window is. What it would cost to get wrong is
+		// asserted below, in image pixels, which is the unit that means something here.
 		const [, south] = projection.bounds;
-		const distortion = 1 / Math.cos((south * Math.PI) / 180) - 1;
+		const parting = 1 / Math.cos((south * Math.PI) / 180) - 1;
 
-		expect(distortion).toBeLessThan(2e-6);
-		// …and, in image pixels over this fixture, invisible.
-		expect(distortion * fixture.height).toBeLessThan(0.01);
+		expect(parting).toBeLessThan(2e-6);
+
+		// The cost of conflating the two: a `resourceToSynthetic` whose latitude was linear in
+		// image y instead of linear in Mercator. Two orders of magnitude past the tolerance, and
+		// the reason the mapping is defined in Mercator — asserted so that "the distortion is
+		// negligible" can never be read as "so degrees would have done".
+		const north = projection.resourceToSynthetic({ x: 0, y: 0 }).lat;
+		const bottom = projection.resourceToSynthetic({ x: 0, y: fixture.height }).lat;
+		let worstLinearInDegrees = 0;
+
+		for (let step = 0; step <= 1000; step++) {
+			const fraction = step / 1000;
+			const linearLat = north + (bottom - north) * fraction;
+			const trueY = projection.syntheticToResource({ lng: 0, lat: linearLat }).y;
+
+			worstLinearInDegrees = Math.max(
+				worstLinearInDegrees,
+				Math.abs(trueY - fraction * fixture.height)
+			);
+		}
+
+		expect(worstLinearInDegrees).toBeGreaterThan(20 * ROUND_TRIP_TOLERANCE_PX);
+		expect(worstLinearInDegrees).toBeLessThan(1e-4);
 	});
 
 	it('maps equal distances in x and y to equal distances in Mercator space', () => {

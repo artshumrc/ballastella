@@ -30,12 +30,25 @@
 //    test can assert on equality rather than on a tolerance, and it keeps every coordinate
 //    the pane produces a small number either side of zero, where float64 has the most room.
 //
-// 3. **Mercator distortion is negligible.** The window spans 360 / 2**12 = 0.087890625° of
-//    longitude. Mercator stretches north-south by sec(latitude), so the bottom edge of the
-//    window is stretched about 1.2 parts per million relative to the top: 0.0014 image
-//    pixels over this fixture, 0.08 over a 65 536-pixel scan. It never enters the
-//    round-trip, which inverts the same transcendental exactly; it is only how much the
-//    bottom of the image is stretched on screen.
+// 3. **Degrees of latitude have barely parted company with Mercator y.** The window spans
+//    360 / 2**12 = 0.087890625°. Over that span sec(latitude) — the Mercator scale factor —
+//    reaches 1 + 1.2e-6 at the window's south edge, and 1 + 2.0e-7 at the bottom of this
+//    fixture's image.
+//
+//    **This is not an on-screen stretch, and there is none.** Image pixels are linear in
+//    Mercator by construction below, MapLibre's screen transform is affine in Mercator at
+//    pitch 0, and each raster tile's texture is interpolated linearly across its Mercator
+//    cell — so the rendered scale is exactly uniform, not nearly. Measured: the Mercator-y
+//    step per image pixel is bit-identical at every row of the fixture.
+//
+//    What the number bounds is how wrong you would be to treat degrees of latitude as
+//    interchangeable with Mercator y — which is the temptation this window's smallness
+//    invites, and the reason the mapping is defined in Mercator instead. Made linear in
+//    degrees, `resourceToSynthetic` would be off by up to 2.2e-5 image pixels over the
+//    fixture's height and 3.1e-4 over the whole window, and would fail the tile-origin
+//    identity in `iiif-image-pane.test.ts` by 3.1e-4 px against a 1e-6 tolerance. Done in
+//    Mercator, as here, it costs nothing at all: the number never enters the round-trip and
+//    never reaches the screen.
 //
 // 4. **There is zoom headroom left.** The binding ceiling is not on map zoom. MapLibre's
 //    `maxZoom` option is unvalidated in v5 — 25 and 30 are both accepted, verified against
@@ -51,8 +64,10 @@
 //    for 256-pixel tiles, four million for 512, far past anything real. It is checked below
 //    rather than left to MapLibre, because the failure is silent where it is diagnosable here.
 //
-// A shallower window zoom (a larger window) buys nothing and costs distortion; a deeper one
-// costs map zoom levels. Twelve is the middle of that trade.
+// A shallower window zoom (a larger window) buys nothing and moves degrees of latitude
+// further from Mercator y; a deeper one costs precision, because the window's coordinates sit
+// that many more bits below the leading bit of 0.5 — see `ROUND_TRIP_TOLERANCE_PX`. Twelve is
+// the middle of that trade.
 //
 // **Do not "clean up" `WINDOW_TILE_ZOOM`.** Changing it changes every lng/lat the pane
 // produces. Alignments are stored as image pixels so committed work survives, but the value
@@ -64,9 +79,9 @@
 //
 // Image pixels map linearly onto normalised Web Mercator coordinates, and only then to
 // lng/lat. That is deliberate twice over: MapLibre draws Mercator linearly on screen, so a
-// linear-in-Mercator image is drawn undistorted, and the XYZ grid is uniform in Mercator, so
-// the tiles land on cell boundaries. Latitude is therefore *not* linear in image y, which is
-// exactly where the 1.2 ppm in (3) comes from.
+// linear-in-Mercator image is drawn at an exactly uniform scale, and the XYZ grid is uniform in
+// Mercator, so the tiles land on cell boundaries. Latitude is therefore *not* linear in image
+// y, and the gap between the two is the number quantified in (3).
 
 /** A point in image pixel space — the IIIF Georeference Extension's "resource" coordinates. */
 export type ResourcePoint = { x: number; y: number };
@@ -151,9 +166,30 @@ const WINDOW_FRACTION = 2 ** -WINDOW_TILE_ZOOM;
  */
 const WINDOW_ORIGIN = 0.5;
 
-// MapLibre's own conversions, kept in the form MapLibre writes them so that our arithmetic
-// and the arithmetic inside the map agree to the bit. A rearrangement that is algebraically
-// identical is not necessarily identical in float64, and the click path runs through both.
+// MapLibre's own conversions, from `maplibre-gl/src/geo/mercator_coordinate.ts`.
+//
+// The first three are transcribed expression for expression, so they agree with the arithmetic
+// inside the map to the bit. That matters for `mercatorXFromLng` and `mercatorYFromLat` in
+// particular: the click path is MapLibre's `event.lngLat` — produced by *its*
+// `lngFromMercatorX`/`latFromMercatorY` — straight into `syntheticToResource`, so those two are
+// composed with MapLibre's own inverses on every click.
+//
+// `latFromMercatorY` below is deliberately *not* MapLibre's arrangement. MapLibre writes
+// `360 / Math.PI * Math.atan(Math.exp(y2 * Math.PI / 180)) - 90`; this is the algebraically
+// identical `(180 / Math.PI) * (2 * atan(exp(…)) - Math.PI / 2)`, and in float64 the two differ
+// by up to 7.5e-15° across the window. Keeping the rearrangement is a measured choice, not an
+// oversight:
+//
+//   * it is the better-conditioned form here, because it never subtracts 90 from a number very
+//     close to 90 — this window sits at latitude ~0, which is where that cancellation is worst;
+//   * it inverts `mercatorYFromLat` *exactly* over the window (zero error at every one of
+//     200 000 samples), where MapLibre's form is out by one ulp;
+//   * substituting MapLibre's form doubles the fixture's worst round-trip error, 4.7e-10 →
+//     9.3e-10 px.
+//
+// And nothing composes this function with MapLibre's `mercatorYfromLat`, so the divergence has
+// nowhere to show up: it is only ever used to *emit* a latitude, which MapLibre then re-projects
+// with its own forward transform.
 const mercatorXFromLng = (lng: number) => (180 + lng) / 360;
 const mercatorYFromLat = (lat: number) =>
 	(180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))) / 360;
