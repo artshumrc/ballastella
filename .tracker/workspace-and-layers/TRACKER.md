@@ -35,7 +35,7 @@ Last updated: 2026-08-06
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Not Started | 02, 04 | 14–17, 20 |
 | 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Not Started | 02, 05 | 21–30, 33, 36, 106 |
 | 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Not Started | 06 | 31, 32, 39, 40, 56, 80, 81 |
-| 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | In Progress | 01 | 23, 63, 64, 65, 98 |
+| 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | In Progress | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Not Started | 09 | 74, 102, 103 |
 | 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Not Started | 08, 10 | 6, 69–73, 75–79, 97, 99 |

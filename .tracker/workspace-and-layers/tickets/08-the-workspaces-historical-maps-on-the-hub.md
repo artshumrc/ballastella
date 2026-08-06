@@ -48,16 +48,16 @@ Demonstrable end to end: from the hub, see three Historical Maps with sizes; one
 
 ## Acceptance criteria
 
-- [ ] The hub lists every Historical Map in the Workspace with its label and its size.
-- [ ] Each entry says whether its tiles are in this Workspace or names the host they are on.
-- [ ] Each entry names the Projects that use it, and says plainly when none do.
-- [ ] Deleting a map used by two Projects is refused, and the message names both Projects.
-- [ ] Deleting an unused map removes its pyramid, its `remote.json`, and its Alignment, and nothing else.
-- [ ] Deletion confirms through a `<dialog>` opened with `showModal()`, closable by Escape, with focus restored afterwards.
-- [ ] Rendering the list issues no `read` calls against any pyramid — assert with a spy on `ProjectStore#read`.
-- [ ] The publish size warning names the byte weight of Historical Maps no Project uses, and that figure is zero when every map is in use.
-- [ ] A Workspace with no Historical Maps shows a sentence naming the next action.
-- [ ] The list and its controls are fully keyboard-operable.
+- [x] The hub lists every Historical Map in the Workspace with its label and its size.
+- [x] Each entry says whether its tiles are in this Workspace or names the host they are on.
+- [x] Each entry names the Projects that use it, and says plainly when none do.
+- [x] Deleting a map used by two Projects is refused, and the message names both Projects.
+- [x] Deleting an unused map removes its pyramid, its `remote.json`, and its Alignment, and nothing else.
+- [x] Deletion confirms through a `<dialog>` opened with `showModal()`, closable by Escape, with focus restored afterwards.
+- [x] Rendering the list issues no `read` calls against any pyramid — assert with a spy on `ProjectStore#read`.
+- [x] The publish size warning names the byte weight of Historical Maps no Project uses, and that figure is zero when every map is in use.
+- [x] A Workspace with no Historical Maps shows a sentence naming the next action.
+- [x] The list and its controls are fully keyboard-operable.
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check
@@ -72,3 +72,30 @@ The refusal criterion is the one that must not pass vacuously: assert the pyrami
 ## Blocked by
 
 - Ticket 01
+
+## Implementation notes
+
+Merged from `main` at `1bdc171` (ticket 01 merged). Three commits.
+
+### What the consolidation became
+
+`packages/core/src/project/historical-maps.ts` is the new home. The **rule** is `tileLocation({ infoJson, remoteJson })` and there is now exactly one of it; what differs between call sites is only the *observation* of its two inputs, and that genuinely does differ by backend:
+
+- a store that can list walks `images/` once (`historicalMapFiles`), which is what the editor and publishing use;
+- a store that cannot — ADR-0006's HTTP adapter — asks for the two files by name and reads the 404, which is the viewer's `readMapLayer`, unchanged in behaviour and now handing its two booleans to the same function.
+
+The five spellings the review named are gone: `publish.ts`'s private `referencedImageIds` is `referencedHistoricalMaps`; `partitionByLocalCopy` **moved** out of `remote-iiif/referenced-image.ts` into this module (moved rather than delegating, because the reverse import would have made a cycle) and now routes through `tileLocation`; `readMapLayer` calls `tileLocation`; the editor's `layers/+page.svelte` takes `session.referencedImageIds` instead of building a set of its own; the viewer's `+page.svelte` projection is a three-state read of `documents`, which is viewer-only state, and it now consumes an observation the shared rule produced rather than making one.
+
+Mutating `tileLocation` to answer `'in-workspace'` for both files turns six tests red across three files — the hub, publishing, and the referenced-image suite — which is the evidence that the single rule is genuinely load-bearing rather than a wrapper.
+
+### Judgement calls worth a reviewer's attention
+
+- **The list reads one small document per map** — `manifest.json` for a local copy, `remote.json` for a referenced one — because an image id is a random identifier (ADR-0015) and a reclaim list naming maps after hashes is unusable. The no-`read` criterion is asserted as written: the spy sees only `project.json` and those two records, and **never** a tile or an `info.json`. `unusedHistoricalMapBytes`, which publishing calls on every plan, skips the labels entirely and issues `size` calls only for the directories of maps nothing draws — usually none, so it is cheaper than `workspaceSize`.
+- **A map's stated size includes its Alignment**, so the figure beside Delete is exactly what the Workspace total drops by.
+- **Delete on an in-use map produces the refusal immediately, with no confirmation dialog.** A dialog asking "are you sure?" about something that will not happen is a lie. Only a map nothing draws reaches `<dialog>`. Either way the decision is core's, taken from the Projects' documents at the moment of the deletion rather than from the list on screen.
+- **An image directory holding neither file is not a Historical Map** — the tiles of an interrupted ingest, consistent with `listIngestedImages`. It is not listed, not deletable, and not counted in the unused-bytes figure.
+
+### Left for someone else
+
+- **`ProjectHub.svelte`'s Delete Project dialog still says "Its Historical Maps, Alignments, and Annotations go with it."** ADR-0023 made that false — they are the Workspace's and survive — and it now sits a few lines above a list saying the opposite. Not changed here because "do not change how Projects are created, renamed, deleted, or published" is out of scope for this ticket. It is a one-sentence copy fix for whoever owns that dialog next.
+- **`playwright.config.ts` pins the preview servers to fixed ports 4173/4174 with `reuseExistingServer: !CI`.** With several agent worktrees on one machine, a run silently reuses *another worktree's* server and tests that worktree's build — which presents as tests failing for no visible reason, or as `ERR_CONNECTION_REFUSED` when the other run finishes and kills the server. Verified by reading `/proc/<pid>/cwd` for the listener. Making the ports env-overridable would fix it; not done here because the config is shared and three sibling tickets are in flight.
