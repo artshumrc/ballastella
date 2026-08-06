@@ -28,21 +28,38 @@ import { Marker, type LngLatLike, type Map as MapLibreMap } from 'maplibre-gl';
  * `mask-vertex` and `mask-edge` are the Resource Mask's handles, on the image pane only: the mask
  * is in image pixel space, so it has no meaning on the Base Map. A vertex can be moved and
  * removed; an edge handle sits at the midpoint of an edge and adds a vertex there.
+ *
+ * `annotation-vertex`, `annotation-edge`, and `annotation-draft` are ticket 10's, on the Base Map
+ * only — an Annotation is on real geography. The first two are the same pair of affordances the mask
+ * has, for the same reason: an Annotation's vertex is the same object to a keyboard as a Control
+ * Point or a mask corner, so it arrives on this seam rather than inside a WebGL drawing library that
+ * cannot be focused. `annotation-draft` is a vertex of a shape still being placed — it has no
+ * identity to move or delete yet, so it is drawn and not operable.
  */
 export type OverlayPointKind =
-	'reference' | 'reported' | 'control-point' | 'mask-vertex' | 'mask-edge';
+	| 'reference'
+	| 'reported'
+	| 'control-point'
+	| 'mask-vertex'
+	| 'mask-edge'
+	| 'annotation-vertex'
+	| 'annotation-edge'
+	| 'annotation-draft';
 
 /**
  * The kinds a user can operate: focusable `<button>`s, draggable, arrow-key movable, Delete-able.
  *
- * A set rather than a comparison, because there are now three of them and the list is the whole of
+ * A set rather than a comparison, because there are now five of them and the list is the whole of
  * the distinction. Anything not here is a label — `aria-hidden`, `pointer-events: none`, so clicks
- * reach the map underneath.
+ * reach the map underneath. `annotation-draft` is deliberately absent: a vertex of a shape still
+ * being placed must not swallow the very next click, which is the click that places the next one.
  */
 const INTERACTIVE_KINDS: ReadonlySet<OverlayPointKind> = new Set<OverlayPointKind>([
 	'control-point',
 	'mask-vertex',
-	'mask-edge'
+	'mask-edge',
+	'annotation-vertex',
+	'annotation-edge'
 ]);
 
 /** How far one arrow-key press moves a point, in screen pixels. */
@@ -215,9 +232,20 @@ export function createOverlayPointLayer<TPoint>(
 			element.textContent =
 				point.ordinal === undefined ? (point.glyph ?? '') : String(point.ordinal);
 			element.setAttribute('aria-label', point.label);
-			// The selected state is what links the two panes, so it has to be announced and not merely
-			// drawn: a screen-reader user selecting point 7 needs to be told which point is current.
-			element.setAttribute('aria-pressed', point.selected ? 'true' : 'false');
+			if (point.kind === 'control-point') {
+				// The selected state is what links the two panes, so it has to be announced and not merely
+				// drawn: a screen-reader user selecting point 7 needs to be told which point is current
+				// (ADR-0022 contract 4).
+				//
+				// **Only for a Control Point, because only a Control Point is a toggle.** A Resource Mask
+				// corner and an edge handle are never `selected` — one is dragged and one inserts a vertex
+				// — so `aria-pressed` on them announced "Resource Mask corner 1 of 4 … toggle button, not
+				// pressed" and would have gone on saying "not pressed" for ever. A state that cannot
+				// change is not a state; it is a promise of a second behaviour the handle does not have.
+				element.setAttribute('aria-pressed', point.selected ? 'true' : 'false');
+			} else {
+				element.removeAttribute('aria-pressed');
+			}
 			element.removeAttribute('aria-hidden');
 			element.removeAttribute('title');
 		} else {
@@ -300,9 +328,47 @@ export function createOverlayPointLayer<TPoint>(
 		return handle;
 	};
 
+	/**
+	 * Put the keyboard somewhere sensible after the handle it was on has been removed.
+	 *
+	 * **Without this, Delete on a focused Control Point or the last Resource Mask corner drops focus
+	 * to `<body>`** — and from there the arrow keys pan the map instead of moving the next handle, so
+	 * the keyboard path ends after exactly one deletion. CONTRIBUTING makes focus management a
+	 * criterion of every change that adds UI, and a delete gesture is where it is most obviously owed:
+	 * the user is working through a set of points and expects to still be in the set afterwards.
+	 *
+	 * The next handle of the same kind, in drawing order, or the previous one if the removed handle was
+	 * last. Same kind because the kinds are different jobs — landing on a mask corner after deleting a
+	 * Control Point would be a silent change of task — and the map's own canvas as the last resort,
+	 * because MapLibre gives it a `tabindex`, a role and an accessible name, so it is a place the user
+	 * can be told they are in.
+	 */
+	const restoreFocus = (
+		removedKey: string,
+		removedKind: OverlayPointKind,
+		orderBefore: readonly string[]
+	): void => {
+		const survivingOfSameKind = (keys: readonly string[]): HTMLElement | undefined => {
+			for (const key of keys) {
+				const handle = handles.get(key);
+				if (handle && handle.current.kind === removedKind) return handle.element;
+			}
+			return undefined;
+		};
+
+		const at = orderBefore.indexOf(removedKey);
+		const after = at < 0 ? [] : orderBefore.slice(at + 1);
+		const before = at < 0 ? [] : orderBefore.slice(0, at).reverse();
+		const next = survivingOfSameKind(after) ?? survivingOfSameKind(before);
+		(next ?? map.getCanvas()).focus();
+	};
+
 	return {
 		update(points) {
 			const seen = new Set<string>();
+			// Drawing order, which is also tab order, taken before anything is reconciled — the handle
+			// that is about to go is where "the next one" has to be counted from.
+			const orderBefore = [...handles.keys()];
 
 			points.forEach((point, index) => {
 				const key = point.key ?? `${point.kind}:${index}`;
@@ -318,11 +384,18 @@ export function createOverlayPointLayer<TPoint>(
 			});
 
 			// A point whose key has gone is a coordinate claim that is no longer true.
+			let hadFocus: { key: string; kind: OverlayPointKind } | undefined;
 			for (const [key, handle] of handles) {
 				if (seen.has(key)) continue;
+				// Read before the element leaves the document, because afterwards there is nothing to ask.
+				if (handle.element.contains(document.activeElement)) {
+					hadFocus = { key, kind: handle.current.kind };
+				}
 				handle.marker.remove();
 				handles.delete(key);
 			}
+
+			if (hadFocus) restoreFocus(hadFocus.key, hadFocus.kind, orderBefore);
 		},
 
 		destroy() {

@@ -9,6 +9,7 @@ import {
 	parseProjectFile,
 	type ProjectFile
 } from '../project/project-file.js';
+import { REFERENCED_IMAGE_FILE } from '../remote-iiif/referenced-image.js';
 import { isTempPath, type Bytes } from '../store/project-store.js';
 import type { ProjectFileSource, TransferFile } from './transfer.js';
 
@@ -429,14 +430,25 @@ function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<stri
 		}
 	}
 
-	// An image directory without its `info.json` is a heap of tiles no IIIF client can open
-	// (ADR-0006's layout), so the pyramid is missing whether or not any Layer has been wired to it
-	// yet. This is the other half of the pair: the loop above catches an image a Layer names and the
-	// archive does not carry, and this one catches an image the archive carries incompletely.
+	// An image directory that describes itself as neither is a heap of files no client can open
+	// (ADR-0006's layout), so the image is missing whether or not any Layer has been wired to it yet.
+	// This is the other half of the pair: the loop above catches an image a Layer names and the archive
+	// does not carry, and this one catches an image the archive carries incompletely.
+	//
+	// **Two ways to be describable, because there are two kinds of image.** A local copy has the
+	// `info.json` that makes its pyramid readable; a referenced image (ticket 14) has `remote.json`
+	// instead, because its tiles *and* its `info.json` are on somebody else's server. Requiring
+	// `info.json` of both meant a Project with a referenced Historical Map could be exported and then
+	// refused on the way back in — the same "a scholar cannot import their own export" this whole
+	// function exists to prevent, arriving from the other direction.
 	for (const directory of [...imageDirectories].sort()) {
 		const info = `${directory}/info.json`;
-		if (!present.has(info))
-			missing(info, `the image directory “${directory}” needs to be readable`);
+		if (present.has(info) || present.has(`${directory}/${REFERENCED_IMAGE_FILE}`)) continue;
+		missing(
+			info,
+			`the image directory “${directory}” needs it, or ${REFERENCED_IMAGE_FILE} if its tiles are ` +
+				`on another server, to be readable at all`
+		);
 	}
 }
 

@@ -40,17 +40,54 @@ catalog:
   # The Alignment's file format and its transformation vocabulary (ticket 07).
   #
   # `@allmaps/annotation` reads and writes the IIIF Georeference Annotation an Alignment
-  # serialises to. `@allmaps/transform` is here for two named functions and not for the solver:
-  # `transformationTypeToTypeAndOrder` and its inverse are the only correct translation between
-  # the canonical Allmaps type name (`polynomial1`) and the `type` + `options.order` pair the
-  # annotation actually carries — see `georeference-annotation.ts`, which explains why writing
-  # the literal string loses it. The solver itself is reached through `@allmaps/maplibre`.
+  # serialises to. `@allmaps/transform` is here for two things. The first is a pair of named
+  # functions: `transformationTypeToTypeAndOrder` and its inverse are the only correct
+  # translation between the canonical Allmaps type name (`polynomial1`) and the `type` +
+  # `options.order` pair the annotation actually carries — see `georeference-annotation.ts`,
+  # which explains why writing the literal string loses it.
+  #
+  # The second is the **solver**, in `core`, for the fold warning (ticket 08). ADR-0013 makes that
+  # warning continuous and independent of the overlay, and a warning read out of a WebGL layer's
+  # triangulation exists only while a layer does, only in a browser, and only after the style has
+  # loaded — which is not when a student placing their fourth point needs it. So `distortion.ts`
+  # constructs a `GcpTransformer` directly. The renderer reaches the same solver for itself,
+  # through `@allmaps/maplibre`; this is a second caller of one library, not a second solver.
   #
   # Both exact, no range specifier, for the reason at the top of this block: these two decide
   # whether an Alignment written today still means the same thing after a beta bump, which is
   # the migration event ADR-0010 names and the fixture round-trip in ticket 07 guards.
   '@allmaps/annotation': 1.0.0-beta.37
   '@allmaps/transform': 1.0.0-beta.52
+
+  # The Allmaps community alignment lookup (ticket 14, ADR-0015): `fetchAnnotationsFromApi`
+  # asks `annotations.allmaps.org` whether anyone has already georeferenced the resource the
+  # user is adding. Exact for the reason at the top of this block, and because the *shape* of
+  # what that API returns is what `@allmaps/annotation` then has to read.
+  #
+  # It reaches the network through the page's own `fetch` and takes no injection point, so the
+  # ADR-0015 "off means no request" rule is enforced by not calling it — see
+  # `packages/core/src/remote-iiif/community-alignments.ts`, which names the seam, and
+  # `EditorSession.fetchCommunityAnnotations`, which is the only call site.
+  #
+  # A dependency of `apps/editor` and **not** of `@ballastella/core`, for the same reason
+  # `wasm-vips` is: core names the seam and the app supplies the implementation. It pulls
+  # `lodash-es`, `@turf/rewind`, and `svg-parser` behind it, and ADR-0019 is explicit that
+  # tree-shaking is not a boundary — every published site ships the viewer bundle, and a reader
+  # never asks Allmaps anything.
+  '@allmaps/stdlib': 1.0.0-beta.41
+
+  # triiiceratops: Manifest and Collection browsing, canvas selection, and unwarped viewing
+  # (ADR-0018, ticket 14). Imported from its `./svelte` export as an ordinary Svelte component,
+  # never as the web component — the OpenSeadragon `TileSource` ADR-0011 requires is natural as
+  # a prop and awkward as an attribute.
+  #
+  # Exact, no range specifier, for the same reason as `@allmaps/*`: it is pre-1.0, we maintain
+  # it, and it carries `manifesto.js` — the second IIIF parser in the bundle, whose only
+  # contract with the first is the URI boundary in ADR-0018. A release that changed how a
+  # canvas's image service URI is reported would move that boundary silently.
+  #
+  # `apps/editor` only. `apps/viewer` gains it at ticket 17, if story 85 needs it.
+  triiiceratops: 1.0.0-rc.35
 
   # `@allmaps/maplibre` is the ADR-0011 injection point for warped rendering: `fetchFn` on
   # `WarpedMapLayer` is how a locally stored pyramid reaches it (ticket 06). Wired now, used in
@@ -64,7 +101,10 @@ catalog:
   # host their own instance". It is a dependency of `apps/editor` and never of `@ballastella/core`
   # or `apps/viewer` (ADR-0019) — core takes the module through an injected loader — and it is
   # reached only by dynamic import, so it is fetched when the streaming path is taken and not
-  # before. The artefact is compiled libvips, LGPL-2.1-or-later; see THIRD-PARTY-NOTICES.md.
+  # before. The artefact is compiled libvips, **LGPLv3** — the package's own notices say so, via
+  # the "any later version" clause of LGPLv2.1 — plus twenty other bundled libraries with
+  # attribution obligations of their own, including aom's patent licence. Read
+  # THIRD-PARTY-NOTICES.md before bumping this pin: a new version can change that list.
   'wasm-vips': 0.0.18
 
   # UI (ADR-0016: daisyUI is the only UI dependency)
@@ -93,6 +133,30 @@ catalog:
   '@protomaps/basemaps': ^5.7.2
   maplibre-gl: ^5.24.0
   pmtiles: ^4.4.1
+
+  # NOTE: `terra-draw` is deliberately **not** here, and this is now the third ticket to decline it —
+  # ticket 07 for the Control Point pairing, ticket 08 for the Resource Mask, and ticket 10 for
+  # Annotation drawing. ADR-0005 says all drawing goes through it, so the ADR and the code now
+  # disagree; that is recorded as an open question for a human in the tracker rather than decided
+  # here. The reasons are in `apps/editor/src/lib/annotations/drawing.svelte.ts`.
+
+  # The Annotation `description` rendering pipeline (ADR-0009): `marked` parses the Markdown,
+  # DOMPurify sanitises the HTML it produced, and the order is not negotiable — sanitising before
+  # parsing is a known bypass shape, because a parser downstream of the sanitiser can reconstruct
+  # markup out of text the sanitiser already cleared as inert.
+  #
+  # Both are direct dependencies of `@ballastella/core` **and of both apps**. Core is where the one
+  # function that owns both stages lives, so that the order cannot be reversed by a later edit; the
+  # apps declare them because ADR-0018 is explicit that `dompurify` arriving in triiiceratops' tree
+  # explains why it costs nothing extra to install and is *not* permission to import it undeclared —
+  # pnpm's isolated `node_modules` exists to prevent exactly that, and a transitive dependency can be
+  # dropped or majored by its parent without warning.
+  #
+  # `marked` over `markdown-it` and `remark` on bundle size, because the renderer ships in
+  # `apps/viewer` too and ADR-0019 requires that build to stay lean. The parser is not the security
+  # boundary — DOMPurify is.
+  dompurify: ^3.4.13
+  marked: ^18.0.9
 
   # Zip export and import (ticket 13, ADR-0001: the only way in and out for Firefox, Safari,
   # and iPad).

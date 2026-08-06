@@ -12,9 +12,13 @@
 	},
 	"dependencies": {
 		"@allmaps/maplibre": "catalog:",
+		"@allmaps/stdlib": "catalog:",
 		"@ballastella/core": "workspace:*",
+		"dompurify": "catalog:",
 		"maplibre-gl": "catalog:",
+		"marked": "catalog:",
 		"pmtiles": "catalog:",
+		"triiiceratops": "catalog:",
 		"wasm-vips": "catalog:"
 	},
 	"devDependencies": {

@@ -1,3 +1,5 @@
+import { fetchAnnotationsFromApi } from '@allmaps/stdlib';
+
 import {
 	Autosave,
 	OpfsProjectStore,
@@ -15,25 +17,36 @@ import {
 	exportProjectZip,
 	imageIdFromAlignmentRef,
 	imageManifestPath,
+	imageModeOf,
 	ingestImageFile,
 	installFlushOnHide,
 	listIngestedImages,
+	listReferencedImages,
 	moveLayer,
 	newAlignment,
 	newAnnotationLayer,
 	newMapLayer,
+	emptyCollection,
 	openDecodeAndCropSource,
 	parseAlignment,
+	parseAnnotations,
 	projectFilePath,
 	readImageLabel,
 	readProjectZip,
+	referencedImage,
+	referencedImageStorePath,
 	renameLayer,
 	serialiseAlignment,
+	serialiseAnnotations,
+	serialiseReferencedAlignment,
+	serialiseReferencedImage,
 	setLayerVisible,
 	setMapLayerOpacity,
+	sourceOf,
 	streamingTiler,
 	toDirectoryName,
 	type Alignment,
+	type AnnotationCollection,
 	type AnnotationLayer,
 	type FetchFn,
 	type IngestProgress,
@@ -44,12 +57,16 @@ import {
 	type ProjectStore,
 	type ProjectSummary,
 	type ProjectZip,
+	type ReferencedImage,
+	type RemoteImageService,
 	type SaveState,
+	type SimpleStyle,
 	type TransferProgress
 } from '@ballastella/core';
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
-import { loadLibvips } from './ingest/libvips-loader.js';
+import { recordAnnotationWrite } from './annotations/browser-test-handle.js';
+import { libvipsUnavailableReason, loadLibvips } from './ingest/libvips-loader.js';
 import { saveFile } from './save-file.js';
 
 /**
@@ -161,10 +178,30 @@ export class EditorSession {
 	 * disappears when there is nothing to report instead of sitting at 100% forever.
 	 */
 	images = $state<IngestedImage[]>([]);
+	/**
+	 * The Historical Maps this Project **references** rather than holds (ticket 14, ADR-0007).
+	 *
+	 * A separate list from {@link images} and disjoint from it: a local copy has an `info.json` in the
+	 * Project and a referenced image has a `remote.json` instead, because its tiles and its
+	 * description are both on somebody else's server. Together they are the Project's Historical Maps.
+	 * Keeping them apart is what makes `imageMode` a fact about where bytes are rather than a flag
+	 * somebody has to remember to set.
+	 */
+	referencedImages = $state<ReferencedImage[]>([]);
+	/**
+	 * Referenced images whose `remote.json` will not parse, by id and reason.
+	 *
+	 * Surfaced rather than swallowed, for the same reason {@link alignmentError} is: the Project has a
+	 * Layer that names an image nothing can draw, and drawing nothing while saying nothing is how a
+	 * user concludes the tool lost their work.
+	 */
+	referencedImageErrors = $state<{ imageId: string; reason: string }[]>([]);
 	ingest = $state<IngestProgress | null>(null);
 	/** The name of the file being ingested, for the progress message (SPEC story 23). */
 	ingestLabel = $state('');
 	ingestError = $state('');
+	/** Not `$state`: nothing renders it, and `cancelIngest` is the only reader. */
+	#ingestAbort: AbortController | null = null;
 
 	/**
 	 * Why the Historical Map's stored Alignment could not be read, if it could not.
@@ -409,6 +446,8 @@ export class EditorSession {
 		this.openProject = null;
 		this.projectProblem = null;
 		this.images = [];
+		this.referencedImages = [];
+		this.referencedImageErrors = [];
 		this.ingestError = '';
 		// The hub is what a null `?p=` shows, and it needs the list. Listing here rather than on
 		// every mutation is what keeps typing a Project name from walking the whole Workspace once
@@ -423,8 +462,13 @@ export class EditorSession {
 			this.status = 'ready';
 			this.unreachableDetail = '';
 			// A read, like everything else on this path: `listIngestedImages` looks for `info.json`
-			// files and writes nothing (ADR-0010).
+			// files and writes nothing (ADR-0010). `listReferencedImages` looks for `remote.json`, which
+			// is the same walk of the same directory and is where the other kind of Historical Map is.
 			this.images = await listIngestedImages(this.#store, directory);
+			const referenced = await listReferencedImages(this.#store, directory);
+			if (generation !== this.#openGeneration) return;
+			this.referencedImages = referenced.images;
+			this.referencedImageErrors = referenced.unreadable;
 		} catch (cause) {
 			if (generation !== this.#openGeneration) return;
 			const problem = describeProblem(cause, directory);
@@ -478,6 +522,12 @@ export class EditorSession {
 			fraction: 0
 		};
 
+		// A gigapixel scan is thousands of tiles and minutes of work, and picking the wrong file is
+		// ordinary. `ingestImageFile` has taken a signal and cleaned up after itself since it was
+		// written; nothing supplied one, so the claim was in a comment and not in the app.
+		const controller = new AbortController();
+		this.#ingestAbort = controller;
+
 		try {
 			await ingestImageFile({
 				store: this.#store,
@@ -485,17 +535,33 @@ export class EditorSession {
 				file,
 				openDecodeAndCrop: openDecodeAndCropSource,
 				openStreaming: streamingTiler(loadLibvips),
+				// Asked before the module is imported, so an over-threshold image on a static host is
+				// refused with the reason it cannot be tiled rather than with a claim about the file.
+				streamingTilerUnavailableReason: libvipsUnavailableReason,
 				onProgress: (progress) => {
 					this.ingest = progress;
-				}
+				},
+				signal: controller.signal
 			});
 			this.images = await listIngestedImages(this.#store, directory);
 		} catch (cause) {
-			this.ingestError = cause instanceof Error ? cause.message : String(cause);
+			// A cancellation is not a failure and must not be reported as one: the user asked for it,
+			// and the job has already removed the tiles it had written.
+			this.ingestError = controller.signal.aborted
+				? ''
+				: cause instanceof Error
+					? cause.message
+					: String(cause);
 		} finally {
+			this.#ingestAbort = null;
 			this.ingest = null;
 			this.ingestLabel = '';
 		}
+	}
+
+	/** Stop the ingest in progress, if there is one. Leaves the Project as it was. */
+	cancelIngest(): void {
+		this.#ingestAbort?.abort();
 	}
 
 	/**
@@ -625,6 +691,125 @@ export class EditorSession {
 			layers: addLayer(project.layers, newMapLayer({ id: crypto.randomUUID(), name, alignmentRef }))
 		};
 		await this.#write(directory);
+	}
+
+	/**
+	 * Add a Historical Map that stays on somebody else's server (SPEC stories 16–20, 25, 29).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE ORDER OF THE THREE WRITES, WHICH IS NOT ARBITRARY
+	 *
+	 *   1. `images/<id>/remote.json` — where the tiles are, and the provenance.
+	 *   2. `alignments/<id>.json`, only when the user is importing a community Alignment.
+	 *   3. `project.json`, gaining the Layer that references both.
+	 *
+	 * `project.json` is **last**, and it is the same discipline `addAnnotationLayer` follows and the
+	 * same one ticket 13's importer follows: a Layer whose references name files that do not exist is
+	 * a Project that `assertReferencesPresent` refuses. Written the other way round, a failure between
+	 * the writes would leave a Layer in the stack that nothing can draw and that no later action would
+	 * repair. Written this way, a failure leaves an orphaned `remote.json` — a file nothing reads,
+	 * which the next add overwrites.
+	 *
+	 * `imageMode: 'referenced'` is derived from the source rather than typed in, so the Layer's claim
+	 * and where its tiles actually come from cannot be written independently.
+	 *
+	 * The Alignment, when there is one, is serialised with the **remote service** as its
+	 * `resource.id`, not the ADR-0004 placeholder. For a referenced image that is both what makes the
+	 * file resolvable by Allmaps (ADR-0007, SPEC story 91) and what makes the warped Layer render at
+	 * all — `@allmaps/maplibre` fetches tiles from that `id`.
+	 *
+	 * @returns the Layer, or `null` when nothing could be written
+	 */
+	async addReferencedMap(fields: {
+		service: RemoteImageService;
+		label: string;
+		partOf: string;
+		canvas: string;
+		rights: string;
+		attribution: string;
+		/** A community Alignment to import, or `null` to start from scratch (ADR-0015). */
+		alignment: Alignment | null;
+	}): Promise<MapLayer | null> {
+		const directory = this.openDirectory;
+		const project = this.openProject;
+		if (!directory || !project) return null;
+
+		const { service } = fields;
+		const record = referencedImage({
+			imageId: service.imageId,
+			service: service.uri,
+			label: fields.label,
+			partOf: fields.partOf,
+			canvas: fields.canvas,
+			rights: fields.rights,
+			attribution: fields.attribution,
+			width: service.width,
+			height: service.height
+		});
+		const source = sourceOf(record);
+
+		try {
+			await this.#autosave.commit(
+				referencedImageStorePath(directory, record.imageId),
+				serialiseReferencedImage(record)
+			);
+			if (fields.alignment) {
+				await this.#autosave.commit(
+					alignmentStorePath(directory, record.imageId),
+					serialiseReferencedAlignment(
+						{ ...fields.alignment, imageId: record.imageId },
+						record.service
+					)
+				);
+			}
+		} catch (cause) {
+			this.saveError = cause instanceof Error ? cause.message : String(cause);
+			return null;
+		}
+
+		const alignmentRef = alignmentPath(record.imageId);
+		const existing = project.layers.find(
+			(layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef
+		);
+		// Adding the same remote resource twice is one Layer, not two. `generateId(uri)` is
+		// deterministic, so the second add lands on the same image id — which is a feature (a whole
+		// class adding the same map produces one Layer each, and a colleague's Project agrees) and
+		// would otherwise be a duplicate Layer over the same tiles.
+		if (existing && existing.kind === 'map') {
+			this.referencedImages = [
+				...this.referencedImages.filter((image) => image.imageId !== record.imageId),
+				record
+			];
+			return existing;
+		}
+
+		const layer = newMapLayer({
+			id: crypto.randomUUID(),
+			name: record.label || record.imageId,
+			alignmentRef,
+			imageMode: imageModeOf(source)
+		});
+		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
+		await this.#write(directory);
+		if (this.saveError !== '') return null;
+		this.referencedImages = [...this.referencedImages, record];
+		return layer;
+	}
+
+	/**
+	 * Ask `annotations.allmaps.org` whether anyone has already aligned this image.
+	 *
+	 * The seam is here because this is the only place the app talks to `@ballastella/core` and to the
+	 * `@allmaps/*` packages, and because it is the *only* call site — `findCommunityAlignments`
+	 * returns before reaching it when the setting is off, so "off means no request" is structural
+	 * rather than a flag threaded through a third party's code.
+	 *
+	 * `fetchAnnotationsFromApi` reaches the network through the page's own `fetch` and offers no
+	 * injection point, which is why it cannot be routed through the ADR-0011 shim and why the request
+	 * is counted by `recordRemoteRequest` at the caller instead.
+	 */
+	async fetchCommunityAnnotations(image: Parameters<typeof fetchAnnotationsFromApi>[0]) {
+		return fetchAnnotationsFromApi(image);
 	}
 
 	/** What the user calls one Historical Map, or `''` when its manifest cannot be read. */
@@ -784,6 +969,117 @@ export class EditorSession {
 			if (cause instanceof PathNotFoundError) return null;
 			throw cause;
 		}
+	}
+
+	/**
+	 * One Annotation Layer's Annotations, as the model (ticket 10).
+	 *
+	 * Beside {@link readLayerFeatures} rather than replacing it, and the difference is the point: that
+	 * one parses as JSON and no further, because the Layer stack draws a `FeatureCollection` without
+	 * interpreting it. This one is for *editing*, which needs the Annotations themselves.
+	 *
+	 * A Layer with no file yet reads as an empty collection rather than as a failure, because that is
+	 * the ordinary state of a Layer somebody has only just added — and **nothing is written here**
+	 * (ADR-0010).
+	 */
+	async readAnnotations(layer: AnnotationLayer): Promise<AnnotationCollection> {
+		const directory = this.openDirectory;
+		if (!directory || layer.geojsonRef === '') return emptyCollection();
+		try {
+			return parseAnnotations(await this.#store.read(`${directory}/${layer.geojsonRef}`), {
+				path: layer.geojsonRef
+			});
+		} catch (cause) {
+			if (cause instanceof PathNotFoundError) return emptyCollection();
+			// A file that is there and unreadable must say so, for the same reason `readAlignment`
+			// surfaces it: drawing nothing quietly would hide Annotations the user made, and the next
+			// save would overwrite them.
+			throw cause;
+		}
+	}
+
+	/**
+	 * Write one Annotation Layer's Annotations (SPEC stories 57–66).
+	 *
+	 * **Through the same {@link Autosave} as everything else**, so ADR-0017's per-file debounce, its
+	 * flush-on-hide, and its save state are one mechanism rather than one per file kind. There is no
+	 * bespoke save path here, and in particular no `onblur`-rewrites-on-focus-and-leave shape — the
+	 * one ticket 02 shipped and had to remove, because ADR-0010 is explicit that merely looking at an
+	 * old Project must not modify files.
+	 *
+	 * `debounce` is for text being typed into the title and description fields (rule 2). A drawn
+	 * shape, a moved vertex, a colour chosen, and a deletion are all discrete acts or the end of a
+	 * gesture, so they are written now (rule 1) — which is what lets the vertex test assert the
+	 * *number* of writes rather than merely that one happened.
+	 *
+	 * **`project.json` is deliberately not touched.** An Annotation is content; the Layer that
+	 * references it already exists, and its name, visibility, and position are display state that has
+	 * no business in a portability document (ADR-0002). Stamping `updatedAt` on the document for every
+	 * vertex nudge is also exactly what `#ensureMapLayer` exists to avoid on the Alignment path.
+	 */
+	async writeAnnotations(
+		layer: AnnotationLayer,
+		collection: AnnotationCollection,
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory) return;
+		const path = annotationStorePath(directory, layer.id);
+		const bytes = serialiseAnnotations(collection);
+		if (options.debounce) {
+			// Rule 2's per-file timer. Nothing is recorded for this path: the write happens on the timer
+			// rather than here, and the counter exists to assert that a *gesture* costs one write.
+			this.#autosave.queue(path, bytes);
+			return;
+		}
+		try {
+			await this.#autosave.commit(path, bytes);
+			this.saveError = '';
+			// After the write resolved, so an attempt the store refused is not counted as one that
+			// happened. This is what lets the vertex test assert the number of writes.
+			recordAnnotationWrite(path, collection.annotations.length);
+		} catch (cause) {
+			this.saveError = cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	/**
+	 * Whether an Annotation Layer has bytes waiting inside their debounce window.
+	 *
+	 * Asked by the commit-on-blur path, so that tabbing through a title field is *looking* rather than
+	 * an edit — the same guard {@link commitProjectName} and {@link commitLayerEdit} both carry, and the
+	 * reason it exists is ADR-0010: merely opening last year's Project must not modify a byte of it.
+	 */
+	hasPendingAnnotationWrite(layer: AnnotationLayer): boolean {
+		const directory = this.openDirectory;
+		if (!directory) return false;
+		return this.#autosave.hasPendingWrite(annotationStorePath(directory, layer.id));
+	}
+
+	/**
+	 * Record an Annotation Layer's default style (ADR-0002, ADR-0009).
+	 *
+	 * On the **Layer**, in `project.json`, and not on the Annotations — which is what lets a whole
+	 * Layer be restyled in bulk and is why nothing stamps defaults onto a feature at creation time.
+	 * Debounced, because a colour input is dragged.
+	 */
+	async setLayerDefaultStyle(
+		id: string,
+		style: SimpleStyle,
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		await this.#changeLayers((layers) => {
+			const at = layers.findIndex((layer) => layer.id === id && layer.kind === 'annotation');
+			// The array it was given when nothing changed, so `#changeLayers` can skip the write on
+			// reference equality — the discipline every operation in `layer.ts` follows, and what keeps a
+			// control that reports its current value from rewriting `project.json`.
+			if (at === -1) return layers;
+			const layer = layers[at] as AnnotationLayer;
+			if (JSON.stringify(layer.defaultStyle) === JSON.stringify(style)) return layers;
+			const next = [...layers];
+			next[at] = { ...layer, defaultStyle: style };
+			return next;
+		}, options);
 	}
 
 	/**

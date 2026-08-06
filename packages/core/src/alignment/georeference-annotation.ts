@@ -44,7 +44,7 @@
 // `straight` is never written, and cannot be: it is unreachable from
 // `TransformationType`, which excludes it.
 
-import { generateAnnotation, parseAnnotation } from '@allmaps/annotation';
+import { generateAnnotation, parseAnnotation, validateAnnotation } from '@allmaps/annotation';
 import {
 	transformationTypeToTypeAndOrder,
 	typeAndOrderToTransformationType
@@ -76,6 +76,29 @@ export class AlignmentUnreadableError extends Error {
 	}
 }
 
+/**
+ * The bytes this module was about to write are not a document upstream would read back.
+ *
+ * **Refusing the write is the point.** Autosave fires on every gesture end, and the failure this
+ * guards is not "one save was lost" but "the entire Alignment, including every Control Point, is
+ * unreachable on the next open" — silently, with the file sitting there looking fine. Refusing
+ * leaves the last good file on disk and puts the reason in front of the user, which is the only
+ * outcome of the three in which nothing is lost.
+ *
+ * Two concrete holes are already plugged upstream of this — a mask vertex below 1e-6 written in
+ * exponential notation, and a fractional image dimension in an `<svg width>` — and both were found
+ * by reading upstream's regexes rather than by anything failing. This is the guard for the next one.
+ */
+export class AlignmentUnwritableError extends Error {
+	constructor(imageId: string, reason: string) {
+		super(
+			`The Alignment for “${imageId}” was not saved, because it would not have been readable ` +
+				`again: ${reason}`
+		);
+		this.name = 'AlignmentUnwritableError';
+	}
+}
+
 /** The transformation types this codebase can hold, for narrowing what upstream hands back. */
 const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
 	'helmert',
@@ -86,6 +109,76 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
 	'thinPlateSpline',
 	'linear'
 ];
+
+/**
+ * The Alignment in the in-memory document shape `@allmaps/*` consumes.
+ *
+ * Exported for `@allmaps/maplibre`, whose `addGeoreferencedMap` takes this rather than a
+ * serialised annotation. It is here, in the one module that owns the format's vocabulary, so that
+ * the renderer's caller can pass an `Alignment` and never assemble a `GeoreferencedMap` of its own
+ * — two places building this object is how the *stored* Alignment and the *rendered* one come to
+ * disagree, which is a Historical Map drawn somewhere other than where it was saved.
+ *
+ * **Named for what the caller wants, not for what the format calls it.** CONTEXT.md confines
+ * `GeoreferencedMap` to the module that reads and writes the format, and this function is exported
+ * across that boundary — so the name that travels says "the document a renderer takes" and the
+ * format's own vocabulary stays behind this file.
+ *
+ * **The renderer must still be told the transformation type separately, and this object cannot
+ * carry it.** `WarpedMap` reads `georeferencedMap.transformation?.type` and nothing else — the
+ * order beside it is ignored — so `{ type: 'polynomial', options: { order: 3 } }` reaches the
+ * solver as plain `polynomial`, which is first order. Everything up to `polynomial1` is therefore
+ * right by accident, and second and third order are silently downgraded. The fix is the layer's
+ * own `transformationType` map option, which wins over what it read from the document; see
+ * `warped-map-layer.ts`. Nothing can be done about it here, because the field this object writes
+ * is the field the format defines.
+ */
+export function toRendererDocument(alignment: Alignment): unknown {
+	return {
+		'@context': 'https://schemas.allmaps.org/map/2/context.json',
+		type: 'GeoreferencedMap',
+		resource: {
+			// The ADR-0004 placeholder, on purpose. It is what a locally stored pyramid's `info.json`
+			// declares, and it is the routing key the ADR-0011 injection layer matches on — so the
+			// Alignment names its image exactly the way every other consumer of that image does.
+			id: imageServiceId(alignment.imageId),
+			type: 'ImageService3',
+			width: alignment.image.width,
+			height: alignment.image.height
+		},
+		gcps: toRendererControlPoints(alignment),
+		resourceMask: toRendererResourceMask(alignment),
+		transformation: transformationTypeToTypeAndOrder(alignment.transformationType)
+	};
+}
+
+/**
+ * One Control Point as `@allmaps/*` states it: an image pixel paired with a place on the earth.
+ *
+ * The tuples are mutable because upstream's `Gcp` is, and this value is handed straight to it.
+ */
+export type RendererControlPoint = { resource: [number, number]; geo: [number, number] };
+
+/**
+ * The Alignment's Control Points in the shape `@allmaps/*` speaks.
+ *
+ * **Exported because the renderer needs them twice and must not be told two different things.** The
+ * document built by {@link toRendererDocument} carries them, and so does the `gcps` *map option* that
+ * moves them afterwards without rebuilding the layer — see `warped-map-layer.ts`. Two call sites
+ * writing `[point.resource.x, point.resource.y]` for themselves is how a Historical Map comes to be
+ * drawn from coordinates that are not the ones in the file.
+ */
+export function toRendererControlPoints(alignment: Alignment): RendererControlPoint[] {
+	return alignment.controlPoints.map((point) => ({
+		resource: [point.resource.x, point.resource.y],
+		geo: [point.geo.lng, point.geo.lat]
+	}));
+}
+
+/** The Resource Mask as the ring `@allmaps/*` speaks, for the same reason as above. */
+export function toRendererResourceMask(alignment: Alignment): [number, number][] {
+	return alignment.resourceMask.map((point) => [point.x, point.y]);
+}
 
 /**
  * Serialise an Alignment as a IIIF Georeference Annotation.
@@ -105,49 +198,23 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
  * ADR-0008 applies to a Project, and minting a second identifier would create something that can
  * disagree with the filename.
  */
-/**
- * The Alignment in the in-memory document shape `@allmaps/*` consumes.
- *
- * Exported for `@allmaps/maplibre`, whose `addGeoreferencedMap` takes this rather than a
- * serialised annotation. It is here, in the one module that owns the format's vocabulary, so that
- * the renderer's caller can pass an `Alignment` and never assemble a `GeoreferencedMap` of its own
- * — two places building this object is how the *stored* Alignment and the *rendered* one come to
- * disagree, which is a Historical Map drawn somewhere other than where it was saved.
- *
- * **The renderer must still be told the transformation type separately, and this object cannot
- * carry it.** `WarpedMap` reads `georeferencedMap.transformation?.type` and nothing else — the
- * order beside it is ignored — so `{ type: 'polynomial', options: { order: 3 } }` reaches the
- * solver as plain `polynomial`, which is first order. Everything up to `polynomial1` is therefore
- * right by accident, and second and third order are silently downgraded. The fix is the layer's
- * own `transformationType` map option, which wins over what it read from the document; see
- * `warped-map-layer.ts`. Nothing can be done about it here, because the field this object writes
- * is the field the format defines.
- */
-export function toGeoreferencedMap(alignment: Alignment): unknown {
-	return {
-		'@context': 'https://schemas.allmaps.org/map/2/context.json',
-		type: 'GeoreferencedMap',
-		resource: {
-			// The ADR-0004 placeholder, on purpose. It is what a locally stored pyramid's `info.json`
-			// declares, and it is the routing key the ADR-0011 injection layer matches on — so the
-			// Alignment names its image exactly the way every other consumer of that image does.
-			id: imageServiceId(alignment.imageId),
-			type: 'ImageService3',
-			width: alignment.image.width,
-			height: alignment.image.height
-		},
-		gcps: alignment.controlPoints.map((point) => ({
-			resource: [point.resource.x, point.resource.y],
-			geo: [point.geo.lng, point.geo.lat]
-		})),
-		resourceMask: alignment.resourceMask.map((point) => [point.x, point.y]),
-		transformation: transformationTypeToTypeAndOrder(alignment.transformationType)
-	};
-}
-
 export function serialiseAlignment(alignment: Alignment): Bytes {
-	const annotation = generateAnnotation(toGeoreferencedMap(alignment));
+	const annotation = generateAnnotation(toRendererDocument(alignment));
 	rewriteResourceMaskInPlainDecimal(annotation, alignment.resourceMask);
+	// **The write path checks its own output, with upstream's own validator.** `generateAnnotation`
+	// does not: it will happily emit a `polygon points` attribute or an `<svg width>` that
+	// `Annotation1Schema` then refuses, and the two known instances of that were both found by
+	// reading regexes rather than by anything failing. Since a refused document takes the whole
+	// Alignment down on the *next open* rather than at the save, and since the mask now travels
+	// through a bespoke string encoder, the cheap thing is to ask before the bytes leave.
+	try {
+		validateAnnotation(annotation);
+	} catch (cause) {
+		throw new AlignmentUnwritableError(
+			alignment.imageId,
+			cause instanceof Error ? cause.message : String(cause)
+		);
+	}
 	return new TextEncoder().encode(`${JSON.stringify(annotation, null, '\t')}\n`);
 }
 
@@ -260,7 +327,29 @@ export function parseAlignment(bytes: Uint8Array, options: { imageId: string }):
 		);
 	}
 
-	const image = { width, height };
+	// ─────────────────────────────────────────────────────────────────────────────────────
+	// THE IMAGE'S PIXEL DIMENSIONS ARE FORCED TO WHOLE PIXELS, AND THAT IS NOT COSMETIC
+	//
+	// **Exactly the same landmine as the sub-1e-6 mask vertex, on a field this module copies rather
+	// than computes.** The two halves of it, measured against the pinned
+	// `@allmaps/annotation@1.0.0-beta.37`:
+	//
+	//   * `Source2Schema` validates `width` and `height` as `z.number().positive()` — a *fractional*
+	//     dimension parses happily.
+	//   * The SVG selector `generateAnnotation` writes is validated against
+	//     `^<svg\s+width="\d+"\s+height="\d+"\s*>…` — **integers only** — and one of the accepted
+	//     branches is `<svg>` with no dimensions at all, which is what lets a document carrying a
+	//     fractional `resource.width` past the reader in the first place.
+	//
+	// So a colleague's Alignment with a fractional image width is readable here, and would be
+	// re-written by us as `<svg width="5120.25" …>`: a file upstream refuses **entirely**, taking
+	// every Control Point with it, silently, on the *next* open rather than on the save.
+	//
+	// Rounded rather than refused, because refusing costs the user everything to protect a field
+	// nothing is placed by: an image is a whole number of pixels, no Control Point or mask vertex
+	// moves, and the only things derived from these numbers are the *fallback* Resource Mask and the
+	// renderer's full-image extent. The map itself is placed by the Control Points.
+	const image = { width: Math.round(width), height: Math.round(height) };
 
 	return {
 		imageId,

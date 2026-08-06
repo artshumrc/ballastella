@@ -253,9 +253,11 @@ Local tiles have no URL. Each consumer uses its own documented extension point, 
 
 ### Map stack
 
-MapLibre GL for both panes; `terra-draw` with its MapLibre adapter for all drawing — Control Points, Resource Masks, and Annotations (ADR-0005). The image pane maps image pixel space into a synthetic geographic window, since MapLibre is Web Mercator only.
+MapLibre GL for both panes. The image pane maps image pixel space into a synthetic geographic window, since MapLibre is Web Mercator only.
 
-Control Point **pairing is ours**; no drawing library has a concept of linked markers across two maps.
+**Control Points and Resource Masks are drawn on the panes' own `overlayPoints` seam, as real `<button>` elements; `terra-draw` with its MapLibre adapter is for Annotations** — see [ADR-0005](../../docs/adr/0005-maplibre-and-terra-draw.md)'s amendment of 2026-08-06, which records why and is **awaiting human ratification**. The short version is keyboard reach: `terra-draw` edits inside WebGL layers, a canvas cannot be focused per feature, and both "every pairing action is achievable by keyboard" and an arrow-key-editable mask need an element per point.
+
+Control Point **pairing is ours** regardless; no drawing library has a concept of linked markers across two maps.
 
 ```
 ControlPoint = { id, ordinal, resource: Point, geo: Point }
@@ -456,7 +458,17 @@ Stories **95 and 96** (keyboard reach, announced guidance and status) are the ex
 
 ### Stories only partly delivered
 
-None. Every story is covered by the acceptance criteria of the tickets listed against it.
+**Story 22 — "a scan far too large for the browser to decode is still tiled".** Delivered only up to
+the `createImageBitmap` decode ceiling. Above it, ingest is *refused* rather than routed to the
+streaming tiler, because `wasm-vips` cannot run on a static host: npm publishes only the threaded
+build, which needs `SharedArrayBuffer` and therefore COOP/COEP headers that GitHub Pages cannot send —
+the very reason [ADR-0003](../../docs/adr/0003-every-image-is-tiled-client-side.md) mandates the
+single-threaded build, of which no published artefact exists. See open question 3 in
+[TRACKER.md](./TRACKER.md). The refusal is deliberate and legible rather than a silent partial pyramid,
+and everything at or below the ceiling works; but the story as written is not met, and the measured
+ceiling (528,006,700 px, threshold 2^28) is roughly half the range the story implies.
+
+Every other story is covered by the acceptance criteria of the tickets listed against it.
 
 Story 62 was the last entry here, and it was closed by **amending the story rather than adding a criterion**: footnotes are deferred past v1 (see Out of Scope), leaving emphasis and links, which ticket 10 asserts. That gap also surfaced a missing decision — nothing named the Markdown renderer, only the sanitiser — now recorded in ADR-0009 and ticket 10. This section is kept deliberately: the next scope change will want it.
 

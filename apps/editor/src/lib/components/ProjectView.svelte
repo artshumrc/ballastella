@@ -3,6 +3,8 @@
 	import { resolveBaseMap } from '@ballastella/core';
 
 	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
+	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
+	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -42,6 +44,17 @@
 	 * wrong folder, which is a pane of somebody else's map rather than an error.
 	 */
 	const imageServiceFetch = $derived(session.imageServiceFetch());
+
+	/**
+	 * Which referenced Historical Map is being read unwarped, by image id. `''` for none.
+	 *
+	 * Only one at a time: each `TriiiceratopsViewer` is an OpenSeadragon instance with its own WebGL
+	 * or canvas drawer, and the page already carries two MapLibre contexts.
+	 */
+	let unwarpedImageId = $state('');
+	const unwarped = $derived(
+		session.referencedImages.find((image) => image.imageId === unwarpedImageId) ?? null
+	);
 </script>
 
 {#if recovering}
@@ -167,6 +180,19 @@
 					max="1"
 					aria-label="Preparing {session.ingestLabel}"
 				></progress>
+				<!--
+					A real button, beside the bar and reachable by tab (stories 95 and 96). A gigapixel
+					scan is thousands of tiles and several minutes; picking the wrong file and having no
+					way out of it is the thing `ingest.ts` claimed to support and the app never wired up.
+					The job cleans up after itself, so cancelling leaves the Project as it was.
+				-->
+				<button
+					type="button"
+					class="btn mt-2 btn-sm"
+					aria-label="Cancel preparing {session.ingestLabel}"
+					onclick={() => session.cancelIngest()}
+					disabled={ingest.phase === 'done'}>Cancel</button
+				>
 			{/if}
 		</div>
 
@@ -224,6 +250,61 @@
 			</p>
 		{/if}
 	</section>
+
+	<!--
+		Adding a Historical Map from a library's IIIF endpoint (ticket 14). A section of its own next to
+		the file input, because the two are the same act — bringing a map in — reached from two
+		different kinds of source, and what differs afterwards is only whether the tiles are ours.
+	-->
+	<AddRemoteMap {session} />
+
+	<!--
+		The Historical Maps this Project references rather than holds (SPEC story 29). Listed apart from
+		the local ones and labelled, because it is what decides whether a Published Site needs the
+		network and whether the work survives the library reorganising — which is a thing a scholar has
+		to be able to see, not a field in a file.
+	-->
+	{#if session.referencedImages.length > 0}
+		<section class="mt-10" aria-labelledby="referenced-maps-heading">
+			<h3 id="referenced-maps-heading" class="text-lg font-semibold">Referenced Historical Maps</h3>
+			<p class="mt-1 max-w-prose text-sm opacity-70">
+				These stay on the library's server. A reader of a Published Site of this Project needs a
+				network connection to see them.
+			</p>
+			<ul class="mt-4 flex flex-col gap-2" aria-label="Historical Maps referenced by this Project">
+				{#each session.referencedImages as image (image.imageId)}
+					<li class="flex flex-wrap items-center gap-3">
+						<span data-testid="referenced-image-label">{image.label || image.imageId}</span>
+						<code class="text-xs opacity-70" data-testid="referenced-image-host"
+							>{new URL(image.service).hostname}</code
+						>
+						<button
+							class="btn btn-sm"
+							type="button"
+							data-testid="view-unwarped"
+							aria-pressed={unwarpedImageId === image.imageId}
+							onclick={() =>
+								(unwarpedImageId = unwarpedImageId === image.imageId ? '' : image.imageId)}
+						>
+							View unwarped
+						</button>
+					</li>
+				{/each}
+			</ul>
+
+			{#if session.referencedImageErrors.length > 0}
+				<div role="alert" class="mt-4 alert max-w-prose flex-col items-start alert-warning">
+					{#each session.referencedImageErrors as failure (failure.imageId)}
+						<p>{failure.reason}</p>
+					{/each}
+				</div>
+			{/if}
+
+			{#if unwarped}
+				<UnwarpedView image={unwarped} onclose={() => (unwarpedImageId = '')} />
+			{/if}
+		</section>
+	{/if}
 
 	<p class="mt-6"><a class="link" href={resolve('/')}>Back to all Projects</a></p>
 {:else}

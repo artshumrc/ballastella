@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
 	IMAGE_HEIGHT,
@@ -53,6 +53,39 @@ const distortionToggle = (page: Page) => page.getByTestId('distortion-toggle');
 const gridToggle = (page: Page) => page.getByTestId('grid-toggle');
 const maskToggle = (page: Page) => page.getByTestId('mask-edit-toggle');
 const maskSummary = (page: Page) => page.getByTestId('mask-summary');
+const maskStatus = (page: Page) => page.getByTestId('mask-status');
+
+/**
+ * Drag `handle` by `(dx, dy)` screen pixels in `steps` moves, committing on pointer-up.
+ *
+ * The scroll is not decoration. `page.mouse` takes viewport coordinates and does no actionability
+ * check of its own, so a handle below the fold gets a drag that lands on nothing and reports no
+ * error — and switching the distortion overlay on adds a `<select>` and a paragraph above the panes,
+ * which is enough to push them off a 720-pixel viewport.
+ */
+async function dragBy(
+	page: Page,
+	handle: Locator,
+	dx: number,
+	dy: number,
+	steps = 10
+): Promise<void> {
+	await handle.scrollIntoViewIfNeeded();
+	const box = await handle.boundingBox();
+	if (!box) throw new Error('the handle has no box to drag');
+	const fromX = box.x + box.width / 2;
+	const fromY = box.y + box.height / 2;
+	await page.mouse.move(fromX, fromY);
+	await page.mouse.down();
+	for (let step = 1; step <= steps; step += 1) {
+		await page.mouse.move(fromX + (dx * step) / steps, fromY + (dy * step) / steps);
+	}
+	await page.mouse.up();
+}
+
+/** How far from zero the *displayed* distortion measure is at the triangulated points. */
+const worstDistortion = async (page: Page): Promise<number> =>
+	(await drawnMap(page))?.worstDistortion ?? -1;
 
 /** Every `<option>` in the picker, disabled or not, as `[value, text]`. */
 const options = (page: Page) =>
@@ -381,6 +414,108 @@ test.describe('distortion (ADR-0013)', () => {
 		expect(thrown, 'the renderer refused a ramp colour, so nothing was painted').toEqual([]);
 	});
 
+	// **The test that was missing, and the reason it was missing is instructive.** Every distortion
+	// assertion above is made on a map that has just been built, and the overlay is switched on
+	// *afterwards* — which is the one order in which the renderer applies the measure. Edit the
+	// Alignment while it is on and, before this, the map came back uncoloured with the checkbox still
+	// checked, the `<select>` still naming the measure, `data-distortion-measure` still `log2sigma`,
+	// and `getMapOptions(mapId).distortionMeasure` still reporting it. Nothing threw, so the
+	// `pageerror` watch could not help either.
+	//
+	// Two defects in one. `BaseMapPane` rebuilt the whole warped layer whenever the Alignment prop
+	// changed — and `AlignmentWorkspace` passes a `$derived` over a getter that returns a fresh object
+	// on every read, so *every* edit rebuilt it. And `WarpedMap.applyOptions` never assigns
+	// `this.distortionMeasure` in its `stage: 'init'` branch, while `trianglePointsDistortion` and the
+	// shader both read the field — so a map built with a measure is never coloured by it.
+	//
+	// So this drives the four edits a user actually makes, and asserts after each that the map is
+	// still being coloured *and* that it is the same drawn map rather than a rebuilt one.
+	test('goes on colourising after every kind of Alignment edit, without rebuilding the map', async ({
+		page
+	}) => {
+		const thrown: string[] = [];
+		page.on('pageerror', (error) => thrown.push(`${error.name}: ${error.message}`));
+
+		const imageId = await start(page);
+		await makePairs(page, 6);
+		await waitForStored(page, imageId, 6);
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+
+		await distortionToggle(page).check();
+		await expect.poll(async () => (await drawnMap(page))?.distortionMeasure).toBe('log2sigma');
+		await expect.poll(() => worstDistortion(page)).toBeGreaterThan(0);
+
+		const drawnBefore = await drawnMap(page);
+		const mapId = drawnBefore?.mapId;
+		expect(mapId, 'there has to be a drawn map to keep').toBeTruthy();
+		const tilesBefore = await warpedTiles(page);
+		expect(tilesBefore).toBeGreaterThan(0);
+
+		/**
+		 * The overlay is *still* colourising, and it is still the same map.
+		 *
+		 * `worstDistortion` is `trianglePointsDistortion`, which is what the shader reads — zero
+		 * everywhere means nothing is painted, whatever the options say. The map id is a checksum of the
+		 * document the layer was given, so an unchanged id is proof that nothing was re-added: every
+		 * renderer and every warped tile survived the edit.
+		 */
+		const stillColouring = async (what: string): Promise<void> => {
+			await expect.poll(() => worstDistortion(page), { message: what }).toBeGreaterThan(0);
+			// The interface still claims the overlay is on, which is the half that never broke — and is
+			// exactly why the failure was invisible.
+			await expect(distortionToggle(page)).toBeChecked();
+			await expect(distortionControls(page)).toHaveAttribute(
+				'data-distortion-measure',
+				'log2sigma'
+			);
+			expect((await drawnMap(page))?.mapId, `${what}: the layer was rebuilt`).toBe(mapId);
+		};
+
+		// 1. Changing how the map is stretched. ADR-0013's named pedagogical use: a student switches on
+		//    "Colour the Historical Map by how much it is stretched" and then tries another type.
+		await picker(page).selectOption('projective');
+		await expect.poll(async () => (await drawnMap(page))?.transformationType).toBe('projective');
+		await stillColouring('after changing the transformation type');
+
+		// 2. Moving a Control Point — and the renderer is solving from where it now is, which is the
+		//    other half of not rebuilding: the map has to follow the edit, in place.
+		const movedBefore = (await drawnMap(page))?.gcps[0]?.resource ?? [];
+		await dragBy(page, imagePoints(page).first(), 40, 24);
+		await expect
+			.poll(async () => (await drawnMap(page))?.gcps[0]?.resource?.[0])
+			.not.toBe(movedBefore[0]);
+		await stillColouring('after moving a Control Point');
+
+		// 3. Deleting a pair. Six down to five is still above `projective`'s minimum of four, so the map
+		//    stays drawn and this is an edit rather than a teardown.
+		await page.getByTestId('control-point-delete').last().click();
+		await expect(rows(page)).toHaveCount(5);
+		await expect.poll(async () => (await drawnMap(page))?.gcps.length).toBe(5);
+		await stillColouring('after deleting a Control Point pair');
+
+		// 4. Every mask edit: drag a corner, insert one, and reset the whole outline.
+		await maskToggle(page).check();
+		await expect(maskVertices(page)).toHaveCount(4);
+
+		await dragBy(page, maskVertices(page).first(), 60, 40);
+		await expect.poll(async () => (await drawnMap(page))?.resourceMask?.[0]?.[0]).not.toBe(0);
+		await stillColouring('after dragging a Resource Mask corner');
+
+		await maskEdges(page).first().click();
+		await expect.poll(async () => (await drawnMap(page))?.resourceMask.length).toBe(5);
+		await stillColouring('after inserting a Resource Mask corner');
+
+		await page.getByTestId('mask-reset').click();
+		await expect.poll(async () => (await drawnMap(page))?.resourceMask.length).toBe(4);
+		await stillColouring('after showing the whole sheet again');
+
+		// And the tiles are still there, which is the cost the rebuild was paying: a rebuild discards
+		// the cache and refetches every warped tile, once per gesture.
+		expect(await warpedTiles(page)).toBeGreaterThan(0);
+
+		expect(thrown, 'nothing may throw while all of that is drawn').toEqual([]);
+	});
+
 	test('toggles the warped graticule', async ({ page }) => {
 		const thrown: string[] = [];
 		page.on('pageerror', (error) => thrown.push(`${error.name}: ${error.message}`));
@@ -573,8 +708,10 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 			.toBe(5);
 		const writtenPoints = maskPointsAttribute((await storedAlignment(page, imageId)) as string);
 		expect(writtenPoints.startsWith('0,0 ')).toBe(false);
-		// Plain decimal throughout: exponential notation matches no branch of upstream's polygon regex
-		// and would make the *entire* Alignment unreadable on the next open.
+		// Plain decimal, which is what upstream's polygon regex accepts. Kept here because it is what
+		// the file must always be, but note that **none of these coordinates is anywhere near 1e-6**, so
+		// this assertion alone would go on passing with the notation fix deleted. The test that actually
+		// drives a coordinate under the threshold is the next one.
 		expect(writtenPoints).not.toMatch(/e[+-]/);
 
 		// The warped render is narrowed to it. Measured on the **convex hull of what the renderer is
@@ -607,6 +744,80 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		await expect.poll(async () => (await drawnMap(page))?.resourceMask.length).toBe(5);
 	});
 
+	// **A Resource Mask vertex below 1e-6, reached only by editing, and only through the real UI.**
+	//
+	// This is the one that makes ticket 07's note 3 more than a hypothesis. `Number#toString` switches
+	// to exponential notation below 1e-6, upstream's `polygon points` regex is `-?\d+(\.\d+)?` — plain
+	// decimal only — and `parseAnnotation` then throws on the *selector*, which takes the whole
+	// Alignment down: every Control Point becomes unreachable, silently, on the next open.
+	//
+	// The gesture is ordinary. A dashed handle inserts a vertex at the midpoint of its edge, so
+	// activating the handle on the edge that leaves the image origin halves that edge's far end each
+	// time. Thirty activations take 700 image pixels to 6.51925802230835e-7 — which `String()` writes in
+	// exponential notation, so this is the real thing and not a stand-in for it.
+	//
+	// Driven by `Enter` on the focused handle rather than by clicking, for two reasons: it is the
+	// keyboard path the mask is required to have, and the handle converges on the corner it is halving
+	// towards, so after a dozen halvings a click is hit-testing two overlapping 15-pixel buttons.
+	//
+	// Deliberately two Control Point pairs and not three, so nothing is drawn warped. The claim is about
+	// the bytes and the reload, and a mask of thirty-four vertices re-triangulated thirty times is a lot
+	// of renderer work to make that claim through.
+	test('writes a Resource Mask vertex below 1e-6 in plain decimal, and reads it back', async ({
+		page
+	}) => {
+		const imageId = await start(page);
+		await makePairs(page, 2);
+		await maskToggle(page).check();
+		await expect(maskVertices(page)).toHaveCount(4);
+		await expect(maskEdges(page)).toHaveCount(4);
+
+		// The edge that leaves the image origin. Its handle keeps its element across inserts — the
+		// handles are keyed by index and this one stays index 0 — so focus survives all thirty presses.
+		const originEdge = maskEdges(page).first();
+		await originEdge.focus();
+		await expect(originEdge).toBeFocused();
+
+		const HALVINGS = 30;
+		for (let done = 0; done < HALVINGS; done += 1) {
+			await page.keyboard.press('Enter');
+			await expect(maskSummary(page)).toHaveAttribute('data-mask-vertices', String(5 + done));
+		}
+
+		// 700 / 2**30, which is 6.51925802230835e-7 — under the threshold, and non-zero.
+		const tiny = IMAGE_WIDTH / 2 ** HALVINGS;
+		expect(String(tiny), 'the value has to be one JavaScript writes exponentially').toMatch(/e-/);
+		expect(tiny).toBeLessThan(1e-6);
+
+		await expect
+			.poll(async () => {
+				const written = await storedAlignment(page, imageId);
+				return written === null ? -1 : maskPointsAttribute(written).split(' ').length;
+			})
+			.toBe(4 + HALVINGS);
+
+		const writtenPoints = maskPointsAttribute((await storedAlignment(page, imageId)) as string);
+		// The value is there, in plain decimal, with every significant digit — the notation changed and
+		// the number did not.
+		expect(writtenPoints).toContain('0.000000651925802230835,0');
+		// And nothing anywhere in the attribute is exponential. **This is the assertion that fails if
+		// the notation fix is removed**, because now there is a coordinate that provokes it.
+		expect(writtenPoints).not.toMatch(/e[+-]/);
+
+		// **The disaster this prevents, asserted directly**: the Alignment is still readable, so the
+		// Control Points are still there. An exponential vertex does not cost the vertex; it costs the
+		// whole file, and it costs it on reopening rather than on saving.
+		const storedBefore = await storedAlignment(page, imageId);
+		await page.reload();
+		await waitForSurface(page);
+
+		await expect(page.getByTestId('alignment-failure')).toHaveCount(0);
+		await expect(rows(page)).toHaveCount(2);
+		await expect(maskSummary(page)).toHaveAttribute('data-mask-vertices', String(4 + HALVINGS));
+		// Byte-identical, which says the value survived the round trip exactly rather than approximately.
+		expect(await storedAlignment(page, imageId)).toBe(storedBefore);
+	});
+
 	test('is operable by keyboard, and refuses to go below three corners', async ({ page }) => {
 		const imageId = await start(page);
 		await makePairs(page, 3);
@@ -621,6 +832,14 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		await expect(corner).toBeFocused();
 		await expect(corner).toHaveAttribute('aria-label', /Resource Mask corner 1 of 4/);
 
+		// **`aria-pressed` belongs to a toggle, and neither mask handle is one.** It was set for every
+		// interactive kind, so a screen reader announced "Resource Mask corner 1 of 4 … toggle button,
+		// not pressed" — for ever, since neither kind is ever `selected`.
+		await expect(corner).not.toHaveAttribute('aria-pressed', /.*/);
+		await expect(maskEdges(page).first()).not.toHaveAttribute('aria-pressed', /.*/);
+		// And a Control Point still has it, because that is what it was added for (ADR-0022 contract 4).
+		await expect(imagePoints(page).first()).toHaveAttribute('aria-pressed', /true|false/);
+
 		const before = await corner.boundingBox();
 		await watchWrites(page);
 		await page.keyboard.press('Shift+ArrowRight');
@@ -628,10 +847,19 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		const after = await corner.boundingBox();
 		expect((after?.x ?? 0) - (before?.x ?? 0)).toBeGreaterThan(5);
 
+		// **A successful move is announced.** The handles sit on a WebGL canvas and the outline is drawn
+		// into it, so without this a keyboard user is told when an edit fails and nothing when it works
+		// — which teaches them that silence means failure.
+		await expect(maskStatus(page)).toHaveAttribute('aria-live', 'polite');
+		await expect(maskStatus(page)).toHaveAttribute('data-mask-status', 'done');
+		await expect(maskStatus(page)).toContainText('corner 1 moved');
+
 		// Delete takes a corner out…
 		await maskVertices(page).first().focus();
 		await page.keyboard.press('Delete');
 		await expect(maskVertices(page)).toHaveCount(3);
+		await expect(maskStatus(page)).toHaveAttribute('data-mask-status', 'done');
+		await expect(maskStatus(page)).toContainText('3 corners left');
 
 		// …and then refuses, with the reason said. A keypress that silently does nothing is
 		// indistinguishable from a broken handle, and upstream refuses a ring of fewer than three
@@ -639,14 +867,171 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		await maskVertices(page).first().focus();
 		await page.keyboard.press('Delete');
 		await expect(maskVertices(page)).toHaveCount(3);
-		await expect(page.getByTestId('mask-refusal')).toContainText('at least 3 corners');
+		await expect(maskStatus(page)).toHaveAttribute('data-mask-status', 'refused');
+		await expect(maskStatus(page)).toContainText('at least 3 corners');
 
 		// The recovery, which matters because undo is a later slice.
 		await page.getByTestId('mask-reset').click();
 		await expect(maskVertices(page)).toHaveCount(4);
+		await expect(maskStatus(page)).toContainText('whole sheet');
 		await expect
 			.poll(async () => maskPointsAttribute((await storedAlignment(page, imageId)) as string))
 			.toBe(`0,0 ${IMAGE_WIDTH},0 ${IMAGE_WIDTH},${IMAGE_HEIGHT} 0,${IMAGE_HEIGHT}`);
+	});
+
+	// **Deleting the handle the keyboard is on must not end the keyboard path.** `overlay-points.ts`
+	// removed a handle without asking whether it held focus, so Delete on the *last* Resource Mask
+	// corner dropped focus to `<body>` — and from there the arrow keys pan the map instead of moving
+	// the next corner. CONTRIBUTING makes focus management a criterion of every change that adds UI.
+	//
+	// The last corner specifically, because the mask's handles are keyed by index: deleting corner 1 of
+	// 4 leaves keys 0–2, so the focused element survives and is repainted as its neighbour. Only the
+	// highest index actually loses its element, which is why this was invisible.
+	test('keeps the keyboard on a Resource Mask corner after deleting the one it was on', async ({
+		page
+	}) => {
+		const imageId = await start(page);
+		await makePairs(page, 3);
+		await waitForStored(page, imageId, 3);
+		await maskToggle(page).check();
+		await expect(maskVertices(page)).toHaveCount(4);
+
+		const last = maskVertices(page).last();
+		await last.focus();
+		await expect(last).toBeFocused();
+		await expect(last).toHaveAttribute('aria-label', /Resource Mask corner 4 of 4/);
+
+		await page.keyboard.press('Delete');
+		await expect(maskVertices(page)).toHaveCount(3);
+
+		// Still on a corner, and on the one before it — not on `<body>`, and not on the map canvas.
+		await expect(maskVertices(page).last()).toBeFocused();
+		await expect(maskVertices(page).last()).toHaveAttribute(
+			'aria-label',
+			/Resource Mask corner 3 of 3/
+		);
+
+		// And the keyboard still moves *the corner* rather than panning the map — which is the thing the
+		// dropped focus actually cost, and which a bounding box cannot tell apart: a panned map moves the
+		// handle on screen too. What distinguishes them is the file. Panning writes nothing.
+		const storedBefore = maskPointsAttribute((await storedAlignment(page, imageId)) as string);
+		await page.keyboard.press('Shift+ArrowRight');
+		await expect
+			.poll(async () => maskPointsAttribute((await storedAlignment(page, imageId)) as string))
+			.not.toBe(storedBefore);
+	});
+
+	// The same rule for a Control Point, where every delete loses the element: the keys are the pair's
+	// own ids, so nothing is renumbered into the focused handle's place.
+	test('keeps the keyboard on a Control Point after deleting the pair it was on', async ({
+		page
+	}) => {
+		const imageId = await start(page);
+		await makePairs(page, 3);
+		await waitForStored(page, imageId, 3);
+
+		const second = imagePoints(page).nth(1);
+		await second.focus();
+		await expect(second).toBeFocused();
+		await expect(second).toHaveAttribute('aria-label', /Control Point 2, Historical Map half/);
+
+		await page.keyboard.press('Delete');
+		await expect(imagePoints(page)).toHaveCount(2);
+
+		// The next half in drawing order, which after renumbering is the one now called point 2.
+		await expect(imagePoints(page).nth(1)).toBeFocused();
+		await expect(imagePoints(page).nth(1)).toHaveAttribute(
+			'aria-label',
+			/Control Point 2, Historical Map half/
+		);
+
+		// Arrow keys move the Control Point, not the map. Read off the list, which states the image pixel
+		// the pair claims — a panned map moves the handle on screen without moving the point.
+		const listedBefore = await rows(page).allInnerTexts();
+		await page.keyboard.press('Shift+ArrowRight');
+		await expect.poll(async () => (await rows(page).allInnerTexts())[1]).not.toBe(listedBefore[1]);
+	});
+
+	// **The help text and the cursor have to describe the gesture the handle actually has.** A dashed
+	// handle carries only `onselect`, so `paint` calls `setDraggable(false)` and dragging it does
+	// nothing — which is the right design (ticket 08: "a handle that both inserted and moved would make
+	// 'I nudged it' and 'I added one' the same gesture"). The text said "drag a dashed handle to add
+	// one" and the CSS gave it `cursor: grab` and `grabbing`, so the interface advertised the one
+	// gesture the code refuses. On a teaching tool that reads as a broken handle.
+	test('promises only the gestures the mask handles actually have', async ({ page }) => {
+		await start(page);
+		await makePairs(page, 3);
+		await maskToggle(page).check();
+		await expect(maskVertices(page)).toHaveCount(4);
+
+		await expect(maskSummary(page)).toContainText('Drag a corner to move it');
+		await expect(maskSummary(page)).toContainText('Click a dashed handle to add a corner there');
+		// Never "drag … to add", in either order of words.
+		await expect(maskSummary(page)).not.toContainText(/drag[^.]*\bto add\b/i);
+
+		const cursorOf = (testid: string) =>
+			page.evaluate((id) => {
+				const element = document.querySelector(`[data-testid="${id}"]`);
+				return element ? getComputedStyle(element).cursor : '';
+			}, testid);
+
+		// A corner is dragged, so it says so; an edge handle is activated, so it says *that*. Read as a
+		// computed style rather than as a class, because the promise the user sees is the cursor.
+		expect(await cursorOf('pane-overlay-point-mask-vertex')).toBe('grab');
+		expect(await cursorOf('pane-overlay-point-mask-edge')).toBe('pointer');
+		// `grabbing` on `:active` is the other half of the same false promise, so the rule must be gone
+		// from the dashed handle entirely rather than only from its resting state.
+		const activeCursors = await page.evaluate(() => {
+			// Flattened, because Tailwind 4 wraps authored CSS in `@layer` and a top-level walk of
+			// `cssRules` would find nothing and report an empty list — which would pass for the wrong
+			// reason.
+			const flatten = (rules: CSSRuleList): CSSRule[] =>
+				[...rules].flatMap((rule) => [
+					rule,
+					...('cssRules' in rule ? flatten((rule as CSSGroupingRule).cssRules) : [])
+				]);
+			return [...document.styleSheets]
+				.flatMap((sheet) => {
+					try {
+						return flatten(sheet.cssRules);
+					} catch {
+						return [];
+					}
+				})
+				.filter(
+					(rule): rule is CSSStyleRule =>
+						rule instanceof CSSStyleRule &&
+						rule.selectorText.includes('pane-overlay-point-mask-edge') &&
+						rule.selectorText.includes(':active')
+				)
+				.map((rule) => rule.style.cursor);
+		});
+		expect(activeCursors).not.toContain('grabbing');
+		// The walk has to be able to see the rules at all, or the assertion above is vacuous: the
+		// *corner* keeps its `grabbing` on `:active`, so finding that is the control.
+		const vertexActiveCursors = await page.evaluate(() => {
+			const flatten = (rules: CSSRuleList): CSSRule[] =>
+				[...rules].flatMap((rule) => [
+					rule,
+					...('cssRules' in rule ? flatten((rule as CSSGroupingRule).cssRules) : [])
+				]);
+			return [...document.styleSheets]
+				.flatMap((sheet) => {
+					try {
+						return flatten(sheet.cssRules);
+					} catch {
+						return [];
+					}
+				})
+				.filter(
+					(rule): rule is CSSStyleRule =>
+						rule instanceof CSSStyleRule &&
+						rule.selectorText.includes('pane-overlay-point-mask-vertex') &&
+						rule.selectorText.includes(':active')
+				)
+				.map((rule) => rule.style.cursor);
+		});
+		expect(vertexActiveCursors).toContain('grabbing');
 	});
 
 	// The mask is in image pixel space and belongs to the image pane only (ticket 08, out of scope:

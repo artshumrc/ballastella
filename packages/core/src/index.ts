@@ -128,6 +128,68 @@ export type {
 	SyntheticProjection
 } from './image-pane/synthetic-projection';
 
+// Annotations (CONTEXT.md, Annotation; ADR-0009). Note this is a **different thing** from the
+// Georeference Annotation below: that is the IIIF document an Alignment serialises to, and these are
+// the scholarly content a user places on the map. `geojson.js` is the only module here permitted
+// GeoJSON's own vocabulary — `Feature`, `FeatureCollection` — for the same reason.
+//
+// Both apps: the editor draws and edits them, and the published viewer renders them and their
+// popups through the very same `renderAnnotationPopup` (ADR-0019), which is what makes ticket 17's
+// assertion that the same payload is inert in a Published Site mean anything at all.
+export {
+	DASHED_DASHARRAY,
+	DOTTED_DASHARRAY,
+	MARKER_SIZES,
+	SIMPLESTYLE_DEFAULTS,
+	SIMPLESTYLE_PROPERTIES,
+	addAnnotation,
+	dashArrayFor,
+	emptyCollection,
+	findAnnotation,
+	lineStyleOf,
+	newAnnotation,
+	removeAnnotation,
+	resolveStyle,
+	setGeometry,
+	setLineStyle,
+	setStyle,
+	setText,
+	simpleStyleViolations,
+	type Annotation,
+	type AnnotationCollection,
+	type AnnotationGeometry,
+	type AnnotationProperties,
+	type DrawnGeometryType,
+	type ForeignGeometry,
+	type LineStringGeometry,
+	type LineStyle,
+	type PointGeometry,
+	type PolygonGeometry,
+	type ResolvedStyle
+} from './annotation/annotation.js';
+export {
+	AnnotationsUnreadableError,
+	parseAnnotations,
+	serialiseAnnotations
+} from './annotation/geojson.js';
+// The `description` pipeline: `marked` → DOMPurify → insert, in one function so the order cannot be
+// reversed by a later edit (ADR-0009). **The one place in this epic where a bug is a security
+// vulnerability rather than a defect.**
+export {
+	DescriptionRendererUnavailableError,
+	isDescriptionRendererSupported,
+	renderAnnotationPopup,
+	renderDescription,
+	type AnnotationText
+} from './annotation/markdown.js';
+export {
+	ANNOTATION_ID_PROPERTY,
+	LINE_STYLES,
+	LINE_STYLE_PROPERTY,
+	mapLibreDashArray,
+	toRenderCollection
+} from './annotation/render.js';
+
 // The Alignment (CONTEXT.md, Align / Alignment). `georeference-annotation.js` is the only module
 // in the codebase permitted the words "Georeference Annotation" and `GeoreferencedMap`; nothing
 // above it needs them, so nothing above it names them.
@@ -179,9 +241,13 @@ export {
 } from './alignment/distortion.js';
 export {
 	AlignmentUnreadableError,
+	AlignmentUnwritableError,
 	parseAlignment,
 	serialiseAlignment,
-	toGeoreferencedMap
+	toRendererControlPoints,
+	toRendererDocument,
+	toRendererResourceMask,
+	type RendererControlPoint
 } from './alignment/georeference-annotation.js';
 
 export { createImagePane } from './image-pane/iiif-image-pane';
@@ -191,6 +257,7 @@ export type {
 	ImagePaneTileBase,
 	XyzTile
 } from './image-pane/iiif-image-pane';
+export { padTileToCell } from './image-pane/pad-tile-to-cell.js';
 
 // The injection layer (ADR-0011): the one `ProjectStore` → `Response` shim every consumer of a
 // stored pyramid resolves through. Free of the tiler and of `wasm-vips`, because `apps/viewer`
@@ -203,6 +270,80 @@ export {
 	type FetchFn,
 	type StoreImageFetchOptions
 } from './injection/store-image-fetch.js';
+export {
+	storedPyramidTileSource,
+	type OpenSeadragonTileContext,
+	type OpenSeadragonTileSource,
+	type StoredPyramidTileSourceOptions
+} from './injection/openseadragon-tile-source.js';
+
+// Remote IIIF ingest (ticket 14; ADR-0007, ADR-0015, ADR-0018). Free of triiiceratops and of
+// OpenSeadragon: the parser boundary is a string, and the OpenSeadragon tile source above is
+// duck-typed, so `apps/viewer` gains neither by depending on this package (ADR-0019).
+export {
+	COMMUNITY_ALIGNMENT_DISCLOSURE,
+	COMMUNITY_ALIGNMENT_HOST,
+	MAX_COMMUNITY_ALIGNMENTS,
+	findCommunityAlignments,
+	type CommunityAlignment,
+	type CommunityAlignmentOffer,
+	type FetchCommunityAnnotations
+} from './remote-iiif/community-alignments.js';
+export {
+	RemoteImageUnusableError,
+	measureTileWithImageBitmap,
+	probeRemoteImageService,
+	type MeasureTile,
+	type RemoteImageProbe,
+	type RemoteProbeStage
+} from './remote-iiif/cors-probe.js';
+export {
+	DESCRIPTION_LIMITS,
+	describeRemoteResource,
+	imageServiceOf,
+	type DescribedCanvas,
+	type DescribedField,
+	type DescribedItem,
+	type DescribedResource
+} from './remote-iiif/describe-resource.js';
+export {
+	MAX_REMOTE_IMAGE_PIXELS,
+	acceptRemoteImageService,
+	readRemoteImageService,
+	type RemoteImageService
+} from './remote-iiif/image-service.js';
+export {
+	ParserBoundaryError,
+	imageServiceUriCrossingBoundary
+} from './remote-iiif/parser-boundary.js';
+export {
+	REFERENCED_IMAGE_FILE,
+	ReferencedImageUnreadableError,
+	imageModeOf,
+	isReferenced,
+	listReferencedImages,
+	localCopySource,
+	parseReferencedImage,
+	referencedRendererDocument,
+	referencedImage,
+	referencedImagePath,
+	referencedImageStorePath,
+	serialiseReferencedAlignment,
+	serialiseReferencedImage,
+	sourceOf,
+	tileBaseFor,
+	type HistoricalMapSource,
+	type ReferencedImage
+} from './remote-iiif/referenced-image.js';
+export {
+	REMOTE_IIIF_LIMITS,
+	RemoteIiifRejectedError,
+	readRemoteIiifResource,
+	remoteIiifUrl,
+	type RemoteIiifKind,
+	type RemoteIiifLimits,
+	type RemoteIiifResource
+} from './remote-iiif/remote-resource.js';
 
 export * from './base-map';
 export * from './theme';
@@ -215,10 +356,14 @@ export {
 	STREAMING_TILER_THRESHOLD_PIXELS
 } from './tiler/decode-ceiling.js';
 export { openDecodeAndCropSource } from './tiler/decode-and-crop-tiler.js';
-export { readImageHeader, type ImageHeader } from './tiler/image-header.js';
+export {
+	readImageHeader,
+	readImageHeaderFromBlob,
+	type ImageHeader
+} from './tiler/image-header.js';
 export { buildImageManifest, readImageLabel, type ImageManifest } from './tiler/image-manifest.js';
 export {
-	NoStreamingTilerError,
+	StreamingTilerUnavailableError,
 	UnreadableImageError,
 	ingestImageFile,
 	listIngestedImages,

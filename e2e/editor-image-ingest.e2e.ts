@@ -66,6 +66,27 @@ function gradientPng(width: number, height: number): Buffer {
 	]);
 }
 
+/**
+ * A PNG with a real signature and IHDR and no image data at all.
+ *
+ * The routing decision is made from the header (`readImageHeader`) precisely so that a scan above
+ * the decode ceiling is never handed to a decoder, so a header is all a test of that decision
+ * needs — and it is all it can afford: 20000 × 15000 of actual pixels is 300 MB in this process
+ * before it is even sent.
+ */
+function pngHeaderOnly(width: number, height: number): Buffer {
+	const ihdr = Buffer.alloc(13);
+	ihdr.writeUInt32BE(width, 0);
+	ihdr.writeUInt32BE(height, 4);
+	ihdr[8] = 8; // bit depth
+	ihdr[9] = 0; // greyscale
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		chunk('IHDR', ihdr),
+		chunk('IEND', Buffer.alloc(0))
+	]);
+}
+
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
@@ -238,6 +259,84 @@ test.describe('adding a Historical Map from a file', () => {
 
 		const files = await filesIn(page, 'amsterdam-1625');
 		expect(Object.keys(files)).toEqual(['project.json']);
+	});
+
+	test('a user can stop an ingest, and nothing is left behind', async ({ page }) => {
+		// `ingestImageFile` has taken an `AbortSignal` and cleaned up after itself since it was
+		// written, and `ingest.ts` said the job "can be cancelled" — but nothing in the app supplied a
+		// signal, so a scholar who picked the wrong four-thousand-tile scan had no way out of it. The
+		// unit tests covered the mechanism and could not see that it was unreachable.
+		//
+		// 2600 × 2600 is 171 tiles: long enough that the button is on screen to be clicked, short
+		// enough not to dominate the suite.
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+
+		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+			name: 'la-floride.png',
+			mimeType: 'image/png',
+			buffer: gradientPng(2600, 2600)
+		});
+
+		// Named for what it cancels rather than just "Cancel", which tells a screen-reader user
+		// nothing when it is one of several buttons on the page (ADR-0016, story 96).
+		const cancel = page.getByRole('button', { name: 'Cancel preparing la-floride.png' });
+		await expect(cancel).toBeVisible();
+		await expect(cancel).toBeEnabled();
+		await cancel.click();
+
+		// The job ends, and it ends without an error: the user asked for this.
+		await expect(page.getByRole('progressbar')).toHaveCount(0, { timeout: 30_000 });
+		await expect(page.getByRole('alert')).toHaveCount(0);
+
+		// And the Project is as it was. The tiles already written are removed, which matters because
+		// a Workspace is a folder in git or Dropbox (ADR-0008) and litter in it is the user's problem.
+		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
+		expect(Object.keys(await filesIn(page, 'amsterdam-1625'))).toEqual(['project.json']);
+	});
+
+	test('refuses a scan above the decode ceiling by naming the deployment, not the file', async ({
+		page
+	}) => {
+		// **The refusal a scholar on GitHub Pages actually meets, asserted on the shipped path.**
+		//
+		// `apps/editor` always supplies a streaming tiler, so the "this build has no streaming tiler"
+		// refusal that `@ballastella/core` unit-tests is unreachable here. What happens instead is
+		// that the tiler exists and cannot run: npm publishes only the threaded `wasm-vips`, which
+		// needs a cross-origin isolated document, and no static host sends COOP/COEP — which is
+		// exactly the state this preview server is in, so no header stubbing is needed to reach it.
+		//
+		// It used to arrive wrapped in "This file could not be read as an image … a TIFF or JPEG 2000
+		// archival master needs to be converted first", about a perfectly valid PNG. SPEC's *On the
+		// audience* makes that a defect: the error must name what is wrong and what to do.
+		const requested: string[] = [];
+		page.on('request', (request) => requested.push(request.url()));
+
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+
+		// 20000 × 15000 is 300 megapixels, above the 268 megapixel routing threshold.
+		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+			name: 'archival-master.png',
+			mimeType: 'image/png',
+			buffer: pngHeaderOnly(20_000, 15_000)
+		});
+
+		const alert = page.getByRole('alert');
+		await expect(alert).toContainText('300 megapixels');
+		await expect(alert).toContainText('Cross-Origin-Embedder-Policy');
+		await expect(alert).toContainText('convert it to a IIIF pyramid outside the browser');
+		await expect(alert, 'the refusal blames the file instead of the deployment').not.toContainText(
+			'could not be read as an image'
+		);
+
+		// Nothing added, and nothing fetched: the decision is made from the header, so neither a
+		// decoder nor 5 MB of WebAssembly is ever reached.
+		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
+		expect(Object.keys(await filesIn(page, 'amsterdam-1625'))).toEqual(['project.json']);
+		expect(requested.filter((url) => /vips/i.test(url))).toEqual([]);
 	});
 
 	test('shows an image that was already in the Project when it is opened', async ({ page }) => {

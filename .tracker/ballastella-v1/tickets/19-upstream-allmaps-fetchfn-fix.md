@@ -93,6 +93,12 @@ decimal notation with every significant digit kept), so no patch is needed, but 
 either widen the regex or serialise defensively. Ticket 08 makes the mask editable, which is what
 makes this reachable in practice.
 
+**Three more, found by ticket 14 against live services — these are the ones with the widest blast radius beyond this project.**
+
+- **`@allmaps/iiif-parser`'s `getDefaultTileset` is one scale factor short.** `length: maxExponent` should be `maxExponent + 1`. Measured against `api.digitale-sammlungen.de`, so this is a real service, not a constructed case.
+- **`@allmaps/stdlib`'s `fetchAnnotationsFromApi` fans out one third-party request per canvas.** It answers 404 for "nothing found" and then issues a request per canvas — so pasting a Manifest that nobody has georeferenced turns one paste into one request per page, against someone else's infrastructure. That is exactly the load ADR-0015 worries about. Ticket 14 avoids it by looking up only the selected image. Its `?url=` is also unencoded, and its error path assumes a JSON body.
+- **`triiiceratops` ignores `manifestJson` unless `manifestId` is passed beside it**, with the log that would explain the silence disabled by default.
+
 **A fourth, found by ticket 08: `typeAndOrderToTransformationType` has unreachable branches.** It tests
 `type === 'polynomial'` in its first branch *before* looking at the order, so its order-2 and order-3
 branches can never run and both `polynomial2` and `polynomial3` come back as `polynomial1`. The

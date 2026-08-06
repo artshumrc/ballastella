@@ -243,12 +243,15 @@ readable; what makes a `'referenced'` image usable is ticket 14's to say, and a 
 record would be a third answer. That the image exists in the archive at all is this check's business and
 cannot be waived; what is inside it is the owning ticket's.
 
-**Left for ticket 13 or 14, and visible only now that both have landed:** the pre-existing structural
-check requires every `images/<id>/` in an archive to carry an `info.json`, which a referenced image has
-no reason to have. So exporting a Project with a remote referenced Historical Map and importing it again
-is refused with "the image directory needs to be readable". That check predates this slice and the fix
-belongs with whoever owns what a referenced image's directory contains — this note is the record that it
-is now reachable.
+**And an image directory now has two ways to be describable, which is what made the above safe to
+require.** The pre-existing structural check asked for an `info.json` in *every* `images/<id>/`, and a
+referenced image (ticket 14) has neither tiles nor an `info.json` locally — its record is `remote.json`,
+because its `info.json` is on somebody else's server. So a Project with a remote referenced Historical
+Map could be exported and was then **refused on the way back in**, which is the same "a scholar cannot
+import their own export" the Layer checks exist to prevent, arriving from the other direction. Verified
+before it was changed, not assumed. `info.json` **or** `remote.json` now satisfies it, and a directory
+that is neither is still refused naming both ways out. This was found at the merge seam with ticket 14
+rather than by either ticket on its own.
 
 What is **not** established, and should not be:
 

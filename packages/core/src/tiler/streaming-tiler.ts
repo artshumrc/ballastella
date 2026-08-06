@@ -2,9 +2,29 @@
 //
 // The decode-and-crop path holds the whole image decoded, at about 4 bytes per pixel, and above
 // `STREAMING_TILER_THRESHOLD_PIXELS` that allocation is what kills the tab. libvips does not
-// hold the image: it reads a horizontal band, uses it, and moves on. So this path's memory is
-// one band of the source — `imageWidth × tileSize × scaleFactor × 3` bytes — regardless of how
-// large the scan is.
+// hold the image: it reads a horizontal band, uses it, and moves on.
+//
+// ## Where the bound actually comes from, because the obvious reading of it is wrong
+//
+// A band is materialised per **row of tiles**, so the tempting formula is "one band of the
+// source", `imageWidth × tileSize × scaleFactor × 3` bytes. That is not a bound at all. At the
+// coarsest level `planPyramid` emits a single tile whose region is the entire image
+// (`tileSize × scaleFactor ≥ imageHeight` by construction — that is what "coarsest" means), so a
+// band measured in *source* rows is the whole scan: 60000 × 24000 × 3 is 4.32 GB, above wasm32's
+// entire address space, and `vips_image_copy_memory` is eager. That re-creates the very
+// out-of-memory failure the routing threshold exists to prevent.
+//
+// So the band is reduced to the tile row's **output** height before it is materialised, not
+// after. Every tile in a row shares that row's `region.height` and its `size.height`, so one
+// vertical resize serves the whole row, and what lands in memory is
+// `imageWidth × size.height × bands` — at most `imageWidth × tileSize × bands`, independent of
+// the scan's height and of the scale factor. libvips' own reduction window sits on top of that
+// and is likewise a function of the width and the scale factor, not of the height.
+// `streaming-tiler.test.ts` measures the peak on libvips' allocation counter at two heights of
+// one width, because a formula in a comment is exactly how this went wrong the first time.
+//
+// The horizontal axis needs no such treatment: a tile's region is at most `tileSize × scaleFactor`
+// wide, but it is cropped out of an already-reduced band, so nothing full-resolution is held.
 //
 // **libvips' own `dzsave layout=iiif3` is deliberately not used.** It decides its own tile
 // geometry and builds each level by halving the level above it, which is not the same thing as
@@ -107,29 +127,66 @@ export const streamingTiler =
 			sourceScaleFactor = undefined;
 		};
 
-		/** The band of source rows tile `tile` sits in, in memory and safe to read at random. */
+		/**
+		 * The band tile `tile` sits in, **already reduced to the tile row's output height**, in
+		 * memory and safe to read at random.
+		 *
+		 * Reduced before it is materialised, which is where the memory bound comes from: see this
+		 * file's header. The vertical scale is the one every tile in the row needs — they share
+		 * `region.height` and `size.height` — so doing it once per row is not an approximation of
+		 * doing it per tile, it is the same operation hoisted.
+		 */
 		const bandFor = (tile: PlannedTile): VipsImage => {
-			const bandHeight = tile.region.height;
+			const sourceHeight = tile.region.height;
+			const bandHeight = tile.size.height;
 			const top = tile.region.y;
 
 			if (band && band.scaleFactor === tile.scaleFactor && band.top === top) {
 				return band.image;
 			}
 
+			// Read before the band is released, or it is always `undefined` and the rewind below
+			// never happens.
+			const previousTop = band?.top;
 			releaseBand();
 
 			// A new level, or a band behind the one the sequential source is on: start the source
 			// again. Reading forward is free; reading backward is what a sequential source refuses.
-			const rewind = sourceScaleFactor !== tile.scaleFactor || (band?.top ?? -1) > top;
+			const rewind = sourceScaleFactor !== tile.scaleFactor || (previousTop ?? -1) > top;
 			if (!source || rewind) {
 				releaseSource();
 				source = openSource();
 				sourceScaleFactor = tile.scaleFactor;
 			}
 
-			const strip = source.crop(0, top, dimensions.width, bandHeight);
+			const strip = source.crop(0, top, dimensions.width, sourceHeight);
 			try {
-				band = { scaleFactor: tile.scaleFactor, top, image: strip.copyMemory() };
+				// `vscale` given as size ÷ region rather than 1 ÷ scaleFactor, for the reason
+				// `PlannedTile.size` sets out: a ragged bottom-margin row is an exact resize of its
+				// region's full extent onto the tile's full extent, not a 1 ÷ scaleFactor reduction
+				// padded up to whole pixels.
+				const reduced =
+					bandHeight === sourceHeight
+						? undefined
+						: strip.resize(1, {
+								vscale: bandHeight / sourceHeight,
+								kernel: vips.Kernel.lanczos3
+							});
+				try {
+					const materialised = (reduced ?? strip).copyMemory();
+					if (materialised.height !== bandHeight) {
+						materialised.delete();
+						throw new Error(
+							`libvips reduced a band of ${sourceHeight} source rows to ` +
+								`${materialised.height} rows, not the ${bandHeight} IIIF says this row of tiles ` +
+								`is served at. A tile whose bytes disagree with its own URL is unreadable by ` +
+								`every IIIF client, including this app's own image pane.`
+						);
+					}
+					band = { scaleFactor: tile.scaleFactor, top, image: materialised };
+				} finally {
+					reduced?.delete();
+				}
 			} finally {
 				strip.delete();
 			}
@@ -143,16 +200,17 @@ export const streamingTiler =
 			async encodeTile(tile: PlannedTile) {
 				const { region, size } = tile;
 				const strip = bandFor(tile);
-				const cropped = strip.crop(region.x, 0, region.width, region.height);
+				// The band is already at the tile's served height, so the crop is in band rows.
+				const cropped = strip.crop(region.x, 0, region.width, size.height);
 
 				try {
-					// Scale factors given as size ÷ region, not as 1 ÷ scaleFactor. `vips_resize`
-					// computes its output size as `rint(input × scale)`, so these land on exactly
-					// `size.width` × `size.height` and map the region's full extent onto the tile's full
-					// extent — IIIF `size=w,h` semantics, which `PlannedTile.size` explains the image
-					// pane depends on.
+					// Horizontal scale given as size ÷ region, not as 1 ÷ scaleFactor. `vips_resize`
+					// computes its output size as `rint(input × scale)`, so this lands on exactly
+					// `size.width` and maps the region's full extent onto the tile's full extent — IIIF
+					// `size=w,h` semantics, which `PlannedTile.size` explains the image pane depends on.
+					// `vscale: 1` because the vertical axis was settled when the band was built.
 					const resized = cropped.resize(size.width / region.width, {
-						vscale: size.height / region.height,
+						vscale: 1,
 						kernel: vips.Kernel.lanczos3
 					});
 

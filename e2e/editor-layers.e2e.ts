@@ -395,6 +395,15 @@ const stackBuilds = (page: Page): Promise<number> =>
 	page.evaluate(() => window.ballastellaLayerStack?.builds ?? -1);
 
 /**
+ * How long {@link warpedTiles} waits for the first decoded tile.
+ *
+ * Generous, and it costs nothing when the tiles are there: the poll returns on the first non-zero
+ * answer. A test that calls `warpedTiles` more than once therefore has to allow for this twice, which
+ * is what the `test.setTimeout` calls beside each of its callers are for.
+ */
+const WARPED_TILE_WAIT_MS = 30_000;
+
+/**
  * How many warped tiles have arrived **and decoded** for one Layer.
  *
  * `CacheableTile.isCachedTile()` is `data !== undefined`, and `data` is the ImageData the tile worker
@@ -402,23 +411,28 @@ const stackBuilds = (page: Page): Promise<number> =>
  * tiles that were merely asked for.
  */
 const warpedTiles = (page: Page, layerId: string): Promise<number> =>
-	page.evaluate(async (id) => {
-		const stack = window.ballastellaLayerStack;
-		const layer = stack?.warped[id];
-		if (!stack || !layer) return -1;
-		// Bring the warped map into view, or the renderer has no reason to ask for a tile.
-		stack.map.fitBounds(layer.getBounds(), { animate: false });
-		// Polled rather than slept for a fixed period. A stack rebuilt by a reorder starts its fetching
-		// again from nothing, and a fixed three seconds was enough for that on an idle machine and not on
-		// a loaded one — so this answered 0 for a renderer that was working perfectly and the positive
-		// assertions built on it flaked. Polling is also *faster* whenever the tiles are there: it
-		// returns on the first non-zero answer rather than always waiting out the clock.
-		const count = () => (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
-		for (let waited = 0; waited < 10_000 && count() === 0; waited += 200) {
-			await new Promise((resolve) => setTimeout(resolve, 200));
-		}
-		return count();
-	}, layerId);
+	page.evaluate(
+		async ([id, ceiling]) => {
+			const stack = window.ballastellaLayerStack;
+			const layer = stack?.warped[id as string];
+			if (!stack || !layer) return -1;
+			// Bring the warped map into view, or the renderer has no reason to ask for a tile.
+			stack.map.fitBounds(layer.getBounds(), { animate: false });
+			// **Polled, not slept for, and still the same assertion.** `getCachedTiles()` is the honest
+			// signal — a cached tile is bytes that arrived *and* decoded through the ADR-0011 shim, which is
+			// what the `@allmaps/render` patch made possible — so what changed is the waiting, not what is
+			// being asked. A fixed three seconds and one look was enough on an idle machine and not on a
+			// loaded one, and a stack rebuilt by a reorder starts its fetching again from nothing: it
+			// answered 0 for a renderer that was working perfectly, and every positive assertion built on it
+			// flaked. A longer fixed sleep would be the same defect, slower.
+			const count = () => (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
+			for (let waited = 0; waited < ceiling && count() === 0; waited += 200) {
+				await new Promise((resolve) => setTimeout(resolve, 200));
+			}
+			return count();
+		},
+		[layerId, WARPED_TILE_WAIT_MS] as const
+	);
 
 const warpedOpacity = (page: Page, layerId: string): Promise<number> =>
 	page.evaluate((id) => window.ballastellaLayerStack?.warped[id]?.getOpacity() ?? -1, layerId);
@@ -651,6 +665,7 @@ test.describe('showing and hiding a Layer (SPEC story 50)', () => {
 	test('draws the Historical Map warped, and takes it off the map when hidden', async ({
 		page
 	}) => {
+		test.setTimeout(30_000 + WARPED_TILE_WAIT_MS);
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 		const layerId = (await rowIds(page))[0] as string;
@@ -845,6 +860,8 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	test('an Annotation Layer above a map Layer draws above it, and moving it down reverses that', async ({
 		page
 	}) => {
+		// Two waits for decoded tiles, either of which may take the full ceiling on a loaded machine.
+		test.setTimeout(30_000 + 2 * WARPED_TILE_WAIT_MS);
 		const { annotationId, mapId } = await stackWithBothKinds(page);
 
 		// Both are genuinely rendering: the Historical Map has decoded tiles, and the Annotation
@@ -903,6 +920,7 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	 * covered. Asserted through `getLayersOrder()` and `queryRenderedFeatures`, not pixels.
 	 */
 	test('an opaque annotation above a map Layer still draws above it', async ({ page }) => {
+		test.setTimeout(30_000 + WARPED_TILE_WAIT_MS);
 		const { annotationId, mapId } = await stackWithBothKinds(page, {
 			fill: '#aa0000',
 			'fill-opacity': 1
