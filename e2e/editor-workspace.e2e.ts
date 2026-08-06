@@ -274,17 +274,30 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 });
 
 test.describe('flushing on hide (ADR-0017 rule 3)', () => {
-	// The page's clock is frozen for these, and that is what makes them tests of the flush rather
-	// than of the debounce. The app's window is 400 ms and `expect.poll` waits five seconds, so with
-	// real timers the debounce fired well inside the poll and the assertion passed with
-	// `installFlushOnHide` deleted altogether — rule 3 is the closed-laptop path, the one nobody
-	// notices is missing until an afternoon is gone. Frozen, the app's timer can never fire, so the
-	// listener is the only thing that can put anything on disk.
-	//
-	// Installed before the first navigation, because a clock installed into an already-running page
-	// does not reliably reach the timers it has already created.
+	/**
+	 * Hold back the app's own debounce, so that only a flush can put bytes on disk.
+	 *
+	 * This is what makes the test below about rule 3 rather than about rule 2. Rule 3 is the write
+	 * the timer has *not yet reached* — the closed laptop — and the app's window is 400 ms while
+	 * `expect.poll` waits five seconds, so with the timer live it fired well inside the poll and the
+	 * assertion passed with `installFlushOnHide` deleted altogether. Verified both ways.
+	 *
+	 * Swallowing long timers rather than freezing the clock: Playwright's `clock` also replaces
+	 * `Date` and `performance`, and a frozen clock stopped the flush from completing at all. Only
+	 * timers at or beyond the debounce are dropped, and the save indicator's own 400 ms dwell goes
+	 * with them — which is why this describe asserts files rather than the indicator.
+	 */
+	const holdBackTheDebounce = (page: Page) =>
+		page.addInitScript(() => {
+			const real = window.setTimeout;
+			window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) =>
+				typeof delay === 'number' && delay >= 400
+					? 0
+					: real(handler as never, delay, ...args)) as typeof window.setTimeout;
+		});
+
 	test.beforeEach(async ({ page }) => {
-		await page.clock.install();
+		await holdBackTheDebounce(page);
 		await page.goto('./');
 		await emptyWorkspace(page);
 		await page.reload();
@@ -298,6 +311,11 @@ test.describe('flushing on hide (ADR-0017 rule 3)', () => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByLabel('Project name')).toBeVisible();
+		// Wait for the view to settle before typing. The field appears as soon as the Project has been
+		// read, but opening is driven by an effect over the URL that can run again, and a keystroke
+		// landing while it is re-reading is dropped — see the note on `EditorSession.open`. An idle
+		// indicator means nothing is in flight, so this test is about rule 3 and not about that race.
+		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
 
 		await page.getByLabel('Project name').fill('Half a keystroke ago');
 		// Still only in memory: the debounce window cannot close, so nothing has been written yet.
@@ -431,7 +449,8 @@ test.describe('opening a Project and closing it (ADR-0010)', () => {
 		// The hash has to reach into subdirectories, or "every file is byte-identical" is a claim
 		// about `project.json` alone. The nested `images/info.json` stands in for the pyramid a real
 		// Project is mostly made of — thousands of files, all of them untouched by merely looking.
-		expect(Object.keys(before)).toEqual(['images/info.json', 'project.json']);
+		// Sorted, because OPFS promises no enumeration order.
+		expect(Object.keys(before).sort()).toEqual(['images/info.json', 'project.json']);
 
 		await page.goto('./?p=amsterdam-1625');
 		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();

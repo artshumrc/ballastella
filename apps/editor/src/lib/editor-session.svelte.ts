@@ -43,6 +43,8 @@ export type ProjectProblem =
 export class EditorSession {
 	readonly #workspace: Workspace;
 	readonly #autosave: Autosave;
+	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
+	#openGeneration = 0;
 
 	status = $state<WorkspaceStatus>('loading');
 	/** The underlying failure, shown beneath "Workspace not reachable" so it is diagnosable. */
@@ -134,9 +136,22 @@ export class EditorSession {
 	 * Reads and nothing else. Opening last year's work must leave every byte of it alone
 	 * (ADR-0010), so there is no write anywhere on this path — not a stamped `updatedAt`, not a
 	 * normalised field.
+	 *
+	 * **Idempotent, and immune to a read that arrives late.** Opening is driven by an effect over
+	 * the URL, which can run more than once for one navigation, and the naive version blanked
+	 * {@link openProject} and re-read it every time. An edit typed inside that window was dropped
+	 * silently — `typeProjectName` saw no open Project and returned — and the field snapped back to
+	 * the name on disk with nothing to say it had happened. Losing a keystroke is a small thing;
+	 * losing it invisibly, in the one component whose whole job is not losing work, is not.
 	 */
 	async open(directory: string | null): Promise<void> {
+		// Already showing it. Re-opening the same Project can only discard what is in memory.
+		if (directory !== null && directory === this.openDirectory && this.openProject !== null) {
+			return;
+		}
+		const generation = ++this.#openGeneration;
 		await this.flush();
+		if (generation !== this.#openGeneration) return;
 		this.openDirectory = directory;
 		this.openProject = null;
 		this.projectProblem = null;
@@ -146,10 +161,14 @@ export class EditorSession {
 		if (directory === null) return this.refresh();
 
 		try {
-			this.openProject = await this.#workspace.readProject(directory);
+			const file = await this.#workspace.readProject(directory);
+			// A later `open` has already moved on; this read is stale and would clobber it.
+			if (generation !== this.#openGeneration) return;
+			this.openProject = file;
 			this.status = 'ready';
 			this.unreachableDetail = '';
 		} catch (cause) {
+			if (generation !== this.#openGeneration) return;
 			const problem = describeProblem(cause, directory);
 			if (problem) {
 				this.projectProblem = problem;
