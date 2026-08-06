@@ -72,3 +72,41 @@ For each criterion above, break the behaviour and confirm the test goes red befo
 ## Blocked by
 
 - Ticket 01
+
+## Implementation notes
+
+Five things worth knowing, none of them a deviation from the contract.
+
+**The list of the Workspace's Historical Maps is now refreshed *after* the Layer is written, not
+before.** `ingestImage` used to set `images` the moment the pyramid was complete; the add now has a
+second half — the starter Alignment and the Layer — and listing the map before that half finished made
+it look added while the file input beside it was still disabled. Picking a second file inside that
+window did nothing at all, silently, which is what `editor-stored-image-pane.e2e.ts`'s two-image test
+caught.
+
+**`#writeStarterAlignment` never writes over an Alignment that already exists**, and on the referenced
+path that is load-bearing rather than tidy. A remote resource's image id is `generateId(uri)`, so the
+same map re-added — or added by a second Project — lands on the same id, and an unconditional write
+would blank an afternoon of Control Points. `#hasAlignment` answers **true** for any failure that is
+not `PathNotFoundError`, which is the safe direction of that trade.
+
+**"Not aligned" overrides what the warped renderer reports, rather than being merged with it.** A map
+Layer with one Control Point of three now *has* an Alignment, so it is a Layer the renderer could be
+handed, and it would refuse it with a count of its own — "2 more Control Points and this Layer will be
+drawn". Taking that answer would mean a hidden Layer and a visible one saying different things about
+the same unplaced map, so the Layers route computes one sentence from `canSolve` for every map Layer
+and does not hand an unaligned one to the map at all. The renderer's shortfall message is still what
+the *alignment workspace* shows, where it is about the map in front of you.
+
+**The Layers route reads every map Layer's Alignment, including hidden ones — but still not on a
+rename or an opacity drag.** `documentKey` is computed from a new `readable` list (every map Layer,
+plus the visible Annotation Layers) instead of from `shown`. A map Layer's visibility is deliberately
+*not* in the key: its Alignment is read either way, so ticking one costs no read. A hidden Annotation
+Layer is still not read, because nothing asks a question of its file that the stack does not.
+
+**The dedicated-ports problem, for whoever verifies this.** `playwright.config.ts` hardcodes 4173/4174
+with `reuseExistingServer`, and several worktrees of this repository were being built on one machine at
+once — so a run here silently drove *another branch's* build, and produced failures that made no sense
+against this diff. Everything below was verified against a throwaway config on ports 4573/4574 with
+`reuseExistingServer: false`. If a full-suite run reports failures that reproduce nowhere in isolation,
+check `ss -ltnp | grep 417` before believing them.

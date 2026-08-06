@@ -349,20 +349,25 @@ test.describe('Control Point pairing', () => {
 		expect(await storedAlignment(page, imageId)).toBe(afterPairs);
 	});
 
-	test('Escape after the first click of the very first pair writes no Alignment at all', async ({
+	test('Escape after the first click of the very first pair writes nothing at all', async ({
 		page
 	}) => {
 		const imageId = await start(page);
+		// The starter Alignment adding the Historical Map wrote: zero Control Points, over the whole
+		// sheet (ADR-0023). It is the file this test now measures *against* — before this ticket there
+		// was no file at all here, and "no file" was the assertion.
+		const starter = await storedAlignment(page, imageId);
+		expect(starter).not.toBeNull();
 
 		await clickAt(historicalMap(page), 0.4, 0.4);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await page.keyboard.press('Escape');
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
 
-		// **No file, not an empty one.** A mis-started pair must cost nothing, and an
-		// `alignments/<id>.json` carrying zero pairs would be a trace on disk — and, in a Workspace
-		// kept in git or Dropbox, a change to sync.
-		expect(await storedAlignment(page, imageId)).toBeNull();
+		// **Byte-identical, not merely still empty.** A mis-started pair must cost nothing, and a
+		// rewrite of the same Alignment would be a trace on disk — in a Workspace kept in git or
+		// Dropbox, a change to sync.
+		expect(await storedAlignment(page, imageId)).toBe(starter);
 	});
 
 	test('dragging a half moves the pair and writes exactly once, on pointer-up', async ({

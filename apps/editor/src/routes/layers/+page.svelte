@@ -18,6 +18,7 @@
 	import {
 		addAnnotation,
 		baseMapFallbackNotice,
+		canSolve,
 		findAnnotation,
 		insertAnnotationAt,
 		newAnnotation,
@@ -87,26 +88,49 @@
 	);
 
 	/**
-	 * What requires the referenced documents to be read again: which Layers are drawn, and out of which
+	 * The Layers whose own file is read: **every** map Layer, and the Annotation Layers being drawn.
+	 *
+	 * Wider than {@link shown} on purpose, and the difference is one word of ADR-0023: "not aligned
+	 * yet" is derived from the Alignment's Control Points rather than stored, so a map Layer that is
+	 * hidden has to have its Alignment read too or the sidebar cannot say anything true about it. The
+	 * cost is named in the ADR and accepted.
+	 *
+	 * An Annotation Layer that is hidden is *not* read, because nothing asks a question of its file
+	 * that the stack does not: its row says "no Annotations in this Layer yet" from the document the
+	 * map needed anyway, and reading a hidden one would be a store read with nothing behind it.
+	 */
+	const readable = $derived(
+		layers.filter(
+			(layer): layer is MapLayer | AnnotationLayer =>
+				layer.kind === 'map' || (layer.visible && layer.kind === 'annotation')
+		)
+	);
+
+	/**
+	 * What requires the referenced documents to be read again: which Layers are read, and out of which
 	 * files. **Not** the name and not the opacity, which are display state and must not cost a read of
 	 * the store — a rename that re-read every Alignment would make the cheapest edit in the application
 	 * one of the most expensive.
 	 *
 	 * **A string, and the effect below reads nothing else that is tracked.** Deriveds compare by
-	 * reference and `shown` is a fresh array from `.filter()` on every change to `layers`, so an effect
-	 * that reads `shown` has `layers` as its real dependency however carefully it computes a key first.
-	 * That is what this guard used to be: the key was computed, discarded with `void`, and `shown` read
-	 * on the next line — so a rename cost a re-read of every Alignment, and one drag of the opacity
-	 * slider at `step="0.05"` cost twenty of them per Layer.
+	 * reference and `readable` is a fresh array from `.filter()` on every change to `layers`, so an
+	 * effect that reads `readable` has `layers` as its real dependency however carefully it computes a
+	 * key first. That is what this guard used to be: the key was computed, discarded with `void`, and
+	 * the list read on the next line — so a rename cost a re-read of every Alignment, and one drag of
+	 * the opacity slider at `step="0.05"` cost twenty of them per Layer.
+	 *
+	 * **A map Layer's visibility is deliberately not in the key.** Its Alignment is read whether it is
+	 * shown or not, so showing and hiding one changes nothing about which files to open; putting it in
+	 * would make the visibility checkbox cost a re-read of every document on the page.
 	 */
 	const documentKey = $derived(
 		JSON.stringify(
-			shown.map((layer) => [layer.id, layer.kind === 'map' ? layer.imageId : layer.geojsonRef])
+			readable.map((layer) => [layer.id, layer.kind === 'map' ? layer.imageId : layer.geojsonRef])
 		)
 	);
 
 	/**
-	 * Each drawn Layer's document, by Layer id: an `Alignment`, or a parsed `FeatureCollection`.
+	 * Each read Layer's document, by Layer id: an `Alignment`, or a parsed `FeatureCollection`.
 	 *
 	 * Plain records rather than `Map`s, and `$state.raw` rather than `$state`: nothing here is mutated
 	 * in place — a load replaces the whole record — which is what makes a mutable reactive collection
@@ -119,16 +143,17 @@
 	let generation = 0;
 
 	$effect(() => {
-		// The two tracked dependencies: which files to read, and the session to read them from. `shown`
-		// is read *untracked*, so a rename or a dragged slider — neither of which changes which Layers
-		// are drawn or out of which files — cannot reach the store at all. See {@link documentKey}.
+		// The two tracked dependencies: which files to read, and the session to read them from.
+		// `readable` is read *untracked*, so a rename or a dragged slider — neither of which changes
+		// which Layers are read or out of which files — cannot reach the store at all. See
+		// {@link documentKey}.
 		void documentKey;
 		// Editing an Annotation replaces the collection in `documents` without changing `documentKey`,
 		// so this must not also re-read on every edit — it would race the write and snap the map back to
 		// the bytes on disk. `reloadAt` is bumped only where a fresh read is genuinely wanted.
 		void reloadAt;
 		const current = session;
-		const wanted = untrack(() => shown);
+		const wanted = untrack(() => readable);
 		if (!current) return;
 		const mine = ++generation;
 		void (async () => {
@@ -161,9 +186,11 @@
 		shown.flatMap((layer): DrawnLayer[] => {
 			const document = documents[layer.id];
 			if (layer.kind === 'map') {
-				// A map Layer with no Alignment yet is not handed to the map at all: there is nothing to
-				// place it by, and `showAlignment` would have to refuse it a second time.
-				if (document === undefined) return [];
+				// A map Layer that is not aligned yet is not handed to the map at all: there is nothing to
+				// place it by, and `showAlignment` would only refuse it a second time, in words that
+				// disagree with what its hidden twin would say. Its Alignment exists from the moment the
+				// Historical Map was added (ADR-0023), so the test is the Control Points and not the file.
+				if (document === undefined || notAligned.has(layer.id)) return [];
 				return [
 					{
 						layer,
@@ -218,25 +245,69 @@
 	let rendered = $state.raw<Readonly<Record<string, DrawnOutcome>>>({});
 
 	/**
-	 * What the list says about each Layer: what the map reported, plus the Layers the map never got.
+	 * What a map Layer with too few Control Points says about itself (SPEC stories 18, 34, 35).
 	 *
-	 * A map Layer with no Alignment file yet is the ordinary first state of a Historical Map somebody
-	 * has only just brought in, so it is a sentence rather than an error.
+	 * One sentence for every unaligned map Layer, whichever way it got here, because the state is one
+	 * state: adding a Historical Map now puts a Layer in the stack straight away with a starter
+	 * Alignment beside it (ADR-0023), so "not aligned yet" is the ordinary first thing a Layer says
+	 * rather than a fault.
+	 */
+	const NOT_ALIGNED = 'Not aligned yet, so there is nothing to draw.';
+
+	/**
+	 * The map Layers that cannot be placed on the earth yet, by Layer id.
+	 *
+	 * **Derived, never stored** (ADR-0023): the test is `canSolve`, which is `controlPoints.length >=
+	 * MINIMUM_CONTROL_POINTS[transformationType]` and is the same number the transformation picker
+	 * gates on. A boolean written when the map was added would be wrong for a *partly* aligned map —
+	 * one or two points, below the solvable minimum — which is exactly the state a scholar interrupted
+	 * half way leaves behind.
+	 *
+	 * Computed over {@link readable} rather than {@link shown}, so a hidden Layer's answer is the same
+	 * answer. It has to be: the sentence is about the Historical Map's placement, and a Layer does not
+	 * become aligned by being ticked.
+	 *
+	 * A Layer with no Alignment at all counts as not aligned rather than as missing. That is a
+	 * hand-edited or half-written Workspace now — every add writes the file — and "not aligned yet" is
+	 * both true of it and the thing the user can act on.
+	 */
+	const notAligned = $derived(
+		new Set(
+			readable
+				.filter((layer) => layer.kind === 'map')
+				.filter((layer) => {
+					const document = documents[layer.id];
+					return document === undefined || !canSolve(document as Alignment);
+				})
+				.map((layer) => layer.id)
+		)
+	);
+
+	/**
+	 * What the list says about each Layer: what the map reported, and what the map was never asked.
+	 *
+	 * **An unaligned map Layer's sentence wins over the renderer's**, which is why that loop comes
+	 * first. A Layer with one Control Point of two is handed to the map — it has an Alignment now — and
+	 * the warped renderer refuses it with a count of its own; taking that answer would mean a hidden
+	 * Layer and a visible one saying different things about the same unplaced map.
+	 *
+	 * A file that is there and cannot be read wins over both, because it is the only one of the three
+	 * that means work the user made is not on screen.
 	 */
 	const outcomes = $derived.by((): Readonly<Record<string, DrawnOutcome>> => {
 		const merged: Record<string, DrawnOutcome> = { ...rendered };
+		for (const layer of readable) {
+			if (notAligned.has(layer.id)) {
+				merged[layer.id] = { status: 'refused', reason: NOT_ALIGNED };
+				continue;
+			}
+			if (merged[layer.id] || documents[layer.id] !== undefined) continue;
+			if (layer.kind === 'annotation') {
+				merged[layer.id] = { status: 'refused', reason: 'No Annotations in this Layer yet.' };
+			}
+		}
 		for (const [id, reason] of Object.entries(unreadable)) {
 			merged[id] = { status: 'refused', reason };
-		}
-		for (const layer of shown) {
-			if (merged[layer.id] || documents[layer.id] !== undefined) continue;
-			merged[layer.id] = {
-				status: 'refused',
-				reason:
-					layer.kind === 'map'
-						? 'Not aligned yet, so there is nothing to draw.'
-						: 'No Annotations in this Layer yet.'
-			};
 		}
 		return merged;
 	});

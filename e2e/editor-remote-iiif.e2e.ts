@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import zlib from 'node:zlib';
 
 /**
@@ -351,8 +352,14 @@ const writeFile = (page: Page, directory: string, path: string, body: string): P
 		[directory, path, body]
 	);
 
-/** One JSON file out of OPFS. `''` as the directory reads from the Workspace root (ADR-0023). */
-const readJson = (page: Page, directory: string, path: string): Promise<unknown> =>
+/**
+ * One file out of OPFS, as text. `''` as the directory reads from the Workspace root (ADR-0023).
+ *
+ * The bytes rather than the parse, for the assertions whose claim is that *nothing was written*: a
+ * document re-serialised to say the same thing is equal as JSON and different as a file, and
+ * `updatedAt` is the field that tells them apart.
+ */
+const readText = (page: Page, directory: string, path: string): Promise<string> =>
 	page.evaluate(
 		async ([directory, path]) => {
 			const root = await navigator.storage.getDirectory();
@@ -362,10 +369,14 @@ const readJson = (page: Page, directory: string, path: string): Promise<unknown>
 				handle = await handle.getDirectoryHandle(segment);
 			}
 			const file = await handle.getFileHandle(segments[segments.length - 1] as string);
-			return JSON.parse(await (await file.getFile()).text());
+			return (await file.getFile()).text();
 		},
 		[directory, path]
 	);
+
+/** One JSON file out of OPFS. `''` as the directory reads from the Workspace root (ADR-0023). */
+const readJson = async (page: Page, directory: string, path: string): Promise<unknown> =>
+	JSON.parse(await readText(page, directory, path));
 
 async function createProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('button', { name: 'New Project' }).click();
@@ -519,6 +530,186 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 			'data-image-mode',
 			'referenced'
 		);
+	});
+
+	/**
+	 * The defect ticket 01's review found, and the round trip that proves it is closed.
+	 *
+	 * A referenced map added **without** a community Alignment used to write `images/<id>/remote.json`
+	 * and the Layer, and nothing else — while `layerReferences` requires `alignments/<id>.json` for
+	 * every map Layer. So this build exported a zip it then refused to import, by name, and the only
+	 * way to see it was to add a map and not align it. ADR-0023's starter Alignment closes it.
+	 *
+	 * Driven all the way round — export, an empty Workspace, import — rather than by asserting the file
+	 * exists, because the file existing is what the *previous* test in this file already asserts on the
+	 * community path. What was broken is the pair of them agreeing.
+	 */
+	test('a map added without an Alignment exports to a zip this build imports back', async ({
+		page
+	}) => {
+		await installFixtureHosts(page);
+		await openNewProject(page);
+
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('remote-add')).toBeVisible();
+		// No community Alignment was offered — the fixture API answers with none unless asked to — so
+		// this is the unaligned case rather than one that happens to have three Control Points.
+		await expect(page.getByTestId('community-offer')).toHaveCount(0);
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const imageId = generateId(service('images.test', 'florida'));
+		const alignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
+			body: { features: unknown[] };
+			target: { source: { id: string }; selector: { value: string } };
+		};
+		// The starter Alignment: no Control Points, the whole sheet, and the Library's service as its
+		// `resource.id` — the same address the community one carries, for the same reason (ADR-0007).
+		expect(alignment.body.features).toEqual([]);
+		expect(alignment.target.selector.value).toBe(
+			`<svg width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}"><polygon points="0,0 ${IMAGE_WIDTH},0 ${IMAGE_WIDTH},${IMAGE_HEIGHT} 0,${IMAGE_HEIGHT}" /></svg>`
+		);
+		expect(alignment.target.source.id).toBe(service('images.test', 'florida'));
+
+		// Export it, from the hub.
+		await page.goto('/');
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		const download = page.waitForEvent('download');
+		await page.getByRole('button', { name: /^Export/ }).click();
+		const saved = await download;
+		expect(saved.suggestedFilename()).toBe('amsterdam-1625.zip');
+		// Read back and handed to the input by name: `download.path()` is a temporary file with a random
+		// basename, and the importer derives the folder it offers from the name it is given.
+		const zip = await readFile(await saved.path());
+
+		// A Workspace with nothing in it, so the import cannot be satisfied by what is already there.
+		await emptyWorkspace(page);
+		await page.reload();
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
+
+		await page.getByRole('button', { name: 'Import Project…' }).click();
+		await page
+			.getByRole('dialog', { name: 'Import Project' })
+			.getByLabel('Project zip')
+			.setInputFiles({
+				name: 'amsterdam-1625.zip',
+				mimeType: 'application/zip',
+				buffer: zip
+			});
+		await page.getByRole('button', { name: 'Import Project', exact: true }).click();
+
+		// **Accepted, not refused.** The refusal this closes says the zip "is missing
+		// “alignments/<id>.json”, which the Layer … needs to be drawn", so its absence is the assertion.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		await expect(page.getByText('is missing')).toHaveCount(0);
+		const imported = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
+			layers: { kind: string; imageId: string }[];
+		};
+		expect(imported.layers).toEqual([expect.objectContaining({ kind: 'map', imageId })]);
+		expect(
+			((await readJson(page, '', `alignments/${imageId}.json`)) as { body: { features: [] } }).body
+				.features
+		).toEqual([]);
+	});
+
+	/**
+	 * SPEC story 68, the second half: adding a Historical Map the Project already draws is a no-op on
+	 * the stack — not a duplicate row, and not a refusal.
+	 *
+	 * The referenced path is where this can be driven at all: `generateId(uri)` is deterministic, so
+	 * the second add lands on the same image id, where a local file's random id (ADR-0015) makes two
+	 * adds legitimately two Historical Maps.
+	 *
+	 * Byte identity on `project.json`, so "unchanged" covers the Layer's id, its position, its name,
+	 * **and** `updatedAt` — a re-add that rewrote the document to say the same thing would pass a count
+	 * and fail this.
+	 */
+	test('adding the same referenced map again leaves the stack byte-identical', async ({ page }) => {
+		await installFixtureHosts(page);
+		await openNewProject(page);
+
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const before = await readText(page, 'amsterdam-1625', 'project.json');
+		expect(JSON.parse(before).layers).toHaveLength(1);
+		// The user renames it, so a Layer that came back rebuilt rather than untouched is visible.
+		await page.getByTestId('open-layers').click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await page.getByTestId('layer-name').fill('The Florida coast, as drawn in 1657');
+		await page.getByTestId('layer-name').blur();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		const renamed = await readText(page, 'amsterdam-1625', 'project.json');
+
+		// Back to the Project, and add the very same canvas again.
+		await page.goto('/?p=amsterdam-1625');
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('remote-add')).toBeVisible();
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+
+		// One Layer, the same one, with the name the user gave it — and not one byte written.
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		// A fixed wait, because what is being asserted is a write that must **not** happen: reading the
+		// file the moment the add returns would go green against an implementation whose write was still
+		// in flight. Long enough for ADR-0017's sub-second debounce and the write behind it.
+		await page.waitForTimeout(2000);
+		expect(await readText(page, 'amsterdam-1625', 'project.json')).toBe(renamed);
+	});
+
+	/**
+	 * "Remove the Layer, add the same map again, and it comes back — which today it silently does not."
+	 *
+	 * The behaviour ticket 02 names as the demonstrable one, and it is the *other* side of the deleted
+	 * tombstone. `ProjectFile.removedMapLayers` recorded the image ids whose Layer the user had removed
+	 * and was consulted on every Alignment write; a re-add had to remember to lift it, and anything
+	 * that forgot made a deletion permanent through the affordance built to reverse it. With the record
+	 * gone there is nothing to lift and nothing to forget.
+	 *
+	 * **Across a reload**, because that is where a record in the file — rather than in memory — would
+	 * still have been waiting.
+	 */
+	test('a deleted map Layer comes back when the same map is added again', async ({ page }) => {
+		await installFixtureHosts(page);
+		await openNewProject(page);
+
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		const imageId = generateId(service('images.test', 'florida'));
+
+		await page.goto('/layers?p=amsterdam-1625');
+		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await page.getByTestId('layer-delete').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(0);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		expect(
+			((await readJson(page, 'amsterdam-1625', 'project.json')) as { layers: unknown[] }).layers
+		).toEqual([]);
+
+		// A reload, so nothing the running page was holding can be what makes this work.
+		await page.goto('/?p=amsterdam-1625');
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('remote-add')).toBeVisible();
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const back = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
+			layers: { kind: string; imageId: string; name: string }[];
+		};
+		expect(back.layers).toEqual([
+			expect.objectContaining({ kind: 'map', imageId, name: 'Chart of the Florida coast' })
+		]);
 	});
 
 	test('offers the community alignments it found, and importing one produces a working Alignment', async ({
