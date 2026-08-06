@@ -237,9 +237,13 @@ export function newAnnotationLayer(fields: {
  * **The only place that knows drawing runs the other way from the list.** Everything else — the
  * file, the array, the UI, `order` itself — reads top-first, so "above in the list" and "above on the
  * map" are the same word (ADR-0002: an annotation Layer above a map Layer draws above it).
+ *
+ * Generic over what a stack entry is, because a renderer holds the stack with each Layer's documents
+ * already read and must not have to unwrap them to ask this one question — which is how a second
+ * reversal, agreeing with this one until somebody edits one of them, gets written.
  */
-export function drawingOrder(layers: readonly Layer[]): readonly Layer[] {
-	return [...layers].reverse();
+export function drawingOrder<T>(stack: readonly T[]): readonly T[] {
+	return [...stack].reverse();
 }
 
 /** The Layer with this id, or `undefined`. */
@@ -381,14 +385,20 @@ export function parseLayers(raw: unknown): readonly Layer[] {
 	return renumber(read.map(({ layer }) => layer));
 }
 
+/** The fields every Layer has, which are read into {@link LayerCommon} rather than carried. */
+const COMMON_KEYS: readonly string[] = ['kind', 'id', 'name', 'visible', 'order'];
+
 function parseLayer(record: Readonly<Record<string, unknown>>, id: string): Layer {
-	const { kind, id: _id, name, visible, order: _order, ...rest } = record;
+	const kind = record['kind'];
+	const rest = Object.fromEntries(
+		Object.entries(record).filter(([key]) => !COMMON_KEYS.includes(key))
+	);
 	const common = {
 		id,
-		name: readString(name, ''),
+		name: readString(record['name'], ''),
 		// Absent reads as visible: the Layer is in the stack, and a Project whose Layers all vanished
 		// because a field was missing looks exactly like a Project that lost its content.
-		visible: visible !== false,
+		visible: record['visible'] !== false,
 		order: 0
 	};
 

@@ -85,6 +85,21 @@
 		/>
 	</label>
 
+	<!--
+		The Project's Layer stack over its Base Map (ticket 09). A pane of its own, because the stack is
+		the whole Project composed rather than one Historical Map being aligned — and the Layer count
+		here is what tells a user there is something to go and see.
+	-->
+	<p class="mt-6">
+		<a
+			class="btn btn-sm"
+			data-testid="open-layers"
+			href="{resolve('/layers')}?p={session.openDirectory}"
+		>
+			Layers ({session.openProject.layers.length})
+		</a>
+	</p>
+
 	<dl class="mt-6 text-sm opacity-70">
 		<dt class="font-medium">Folder</dt>
 		<dd><code>{session.openDirectory}</code></dd>

@@ -6,24 +6,38 @@ import {
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
 	Workspace,
+	addLayer,
+	alignmentPath,
 	alignmentStorePath,
+	annotationStorePath,
 	createStoreImageFetch,
+	emptyAnnotationCollection,
 	exportProjectZip,
+	imageIdFromAlignmentRef,
 	ingestImageFile,
 	installFlushOnHide,
 	listIngestedImages,
+	moveLayer,
 	newAlignment,
+	newAnnotationLayer,
+	newMapLayer,
 	openDecodeAndCropSource,
 	parseAlignment,
 	projectFilePath,
 	readProjectZip,
+	renameLayer,
 	serialiseAlignment,
+	setLayerVisible,
+	setMapLayerOpacity,
 	streamingTiler,
 	toDirectoryName,
 	type Alignment,
+	type AnnotationLayer,
 	type FetchFn,
 	type IngestProgress,
 	type IngestedImage,
+	type Layer,
+	type MapLayer,
 	type ProjectFile,
 	type ProjectStore,
 	type ProjectSummary,
@@ -538,10 +552,12 @@ export class EditorSession {
 	 * The debounce is for text being typed; there is no such thing here.
 	 *
 	 * Routed through the same {@link Autosave} as `project.json` so that rule 2's per-file debounce
-	 * and rule 5's save state are one mechanism rather than one per file kind. It writes a different
-	 * file, though: **nothing here touches `project.json`.** The Layer that will reference this
-	 * Alignment arrives in ticket 09, and stamping `updatedAt` now would be a write with nothing
-	 * behind it — and a second writer of the document this class holds the only copy of.
+	 * and rule 5's save state are one mechanism rather than one per file kind.
+	 *
+	 * It also brings the Layer that draws this Alignment into existence, once — see
+	 * {@link #ensureMapLayer}. Aligning a Historical Map is what puts it in the stack; nothing else
+	 * does, and the *second* Control Point must not rewrite `project.json`, or every pairing click
+	 * would stamp a fresh `updatedAt` on the document.
 	 */
 	async writeAlignment(alignment: Alignment): Promise<void> {
 		const directory = this.openDirectory;
@@ -555,6 +571,179 @@ export class EditorSession {
 			recordAlignmentWrite(path, alignment.controlPoints.length);
 		} catch (cause) {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
+		}
+		await this.#ensureMapLayer(directory, alignment.imageId);
+	}
+
+	/**
+	 * Put a `kind: 'map'` Layer in the stack for this Historical Map, if it is not there already.
+	 *
+	 * **Idempotent, and that is the whole of it.** This runs on every Alignment write — which is
+	 * every completed pair and every released drag — so a version that appended, or that rewrote the
+	 * document to say the same thing, would stamp a fresh `updatedAt` on `project.json` hundreds of
+	 * times during one alignment. The Layer is recognised by its `alignmentRef`, because that is the
+	 * Layer's link to this image and there is one Layer per Alignment in this slice.
+	 *
+	 * The name starts as the image id, which is derived from the file the user chose. SPEC story 54 is
+	 * that they can then rename it, so the list describes their argument rather than their filenames.
+	 */
+	async #ensureMapLayer(directory: string, imageId: string): Promise<void> {
+		const project = this.openProject;
+		if (!project) return;
+		const alignmentRef = alignmentPath(imageId);
+		if (
+			project.layers.some((layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef)
+		) {
+			return;
+		}
+		this.openProject = {
+			...project,
+			layers: addLayer(
+				project.layers,
+				newMapLayer({ id: crypto.randomUUID(), name: imageId, alignmentRef })
+			)
+		};
+		await this.#write(directory);
+	}
+
+	/**
+	 * Add an empty Annotation Layer to the stack (SPEC stories 55 and 56).
+	 *
+	 * Its `FeatureCollection` is written **before** the Layer that references it, and with the same
+	 * discipline as `orderForWriting` in the zip importer: a Layer whose `geojsonRef` names nothing is
+	 * a Project that ticket 13's import refuses, so the reference must never exist without its file.
+	 * Drawing into it is ticket 10.
+	 *
+	 * @returns the Layer, or `null` when it could not be created
+	 */
+	async addAnnotationLayer(name: string): Promise<AnnotationLayer | null> {
+		const directory = this.openDirectory;
+		const project = this.openProject;
+		if (!directory || !project) return null;
+		const layer = newAnnotationLayer({ id: crypto.randomUUID(), name });
+		try {
+			await this.#autosave.commit(
+				annotationStorePath(directory, layer.id),
+				emptyAnnotationCollection()
+			);
+		} catch (cause) {
+			this.saveError = cause instanceof Error ? cause.message : String(cause);
+			return null;
+		}
+		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
+		await this.#write(directory);
+		return layer;
+	}
+
+	/**
+	 * Rename a Layer (SPEC story 54). Coalesced per file, so a name typed one character at a time is
+	 * one write and not twelve (ADR-0017 rule 2).
+	 *
+	 * **Only `project.json` changes.** The name is display state and has no business in the Alignment
+	 * or the GeoJSON, which are portability documents that stand on their own (ADR-0002).
+	 */
+	async typeLayerName(id: string, name: string): Promise<void> {
+		await this.#changeLayers((layers) => renameLayer(layers, id, name), { debounce: true });
+	}
+
+	/** SPEC story 50. A discrete act, so it is written now rather than debounced. */
+	async showLayer(id: string, visible: boolean): Promise<void> {
+		await this.#changeLayers((layers) => setLayerVisible(layers, id, visible));
+	}
+
+	/**
+	 * SPEC story 51. Debounced, because dragging a range input is a continuous gesture and
+	 * {@link commitLayerEdit} is what commits it on release (ADR-0017 rule 1).
+	 */
+	async dragLayerOpacity(id: string, opacity: number): Promise<void> {
+		await this.#changeLayers((layers) => setMapLayerOpacity(layers, id, opacity), {
+			debounce: true
+		});
+	}
+
+	/** Move a Layer to a position in the stack, 0 being the top (SPEC stories 52 and 53). */
+	async moveLayerTo(id: string, toIndex: number): Promise<void> {
+		await this.#changeLayers((layers) => moveLayer(layers, id, toIndex));
+	}
+
+	/**
+	 * The edit is over — the field lost focus, Enter was pressed, or the slider was released.
+	 *
+	 * **A no-op when nothing is waiting to be written**, which is the same guard
+	 * {@link commitProjectName} carries and for the same reason: `writeProject` stamps a fresh
+	 * `updatedAt`, and ADR-0010 is explicit that merely looking at an old Project must not modify
+	 * files. Tabbing through a Layer's name field is looking.
+	 */
+	async commitLayerEdit(): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory || !this.openProject) return;
+		if (!this.#autosave.hasPendingWrite(projectFilePath(directory))) return;
+		await this.#write(directory);
+	}
+
+	/**
+	 * Apply `change` to the Layer stack and write the document.
+	 *
+	 * One funnel for every Layer mutation, so that reordering, renaming, and toggling are ordinary
+	 * mutations of the one in-memory `project.json` — coalescing and flushing like every other edit
+	 * rather than each inventing a save path of its own (ADR-0017). It also means there is exactly one
+	 * place where "no such Layer" is a no-op rather than a write of an unchanged document.
+	 */
+	async #changeLayers(
+		change: (layers: readonly Layer[]) => readonly Layer[],
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		const directory = this.openDirectory;
+		const project = this.openProject;
+		if (!directory || !project) return;
+		const layers = change(project.layers);
+		// Reference equality: every operation in `layer.ts` returns the array it was given when it
+		// changed nothing, so a move that hit the end of the stack costs no write at all.
+		if (layers === project.layers) return;
+		this.openProject = { ...project, layers };
+		await this.#write(directory, options);
+	}
+
+	/**
+	 * One map Layer's Alignment as stored, or `null` when there is no file yet.
+	 *
+	 * Read through the Layer's own `alignmentRef`, because that is what the Layer references — and
+	 * without the Historical Map's pyramid, which the stack does not load: the Alignment carries the
+	 * image's pixel dimensions itself, so a Layer can be drawn from the two files it names.
+	 *
+	 * A file that is there and unreadable throws, for the same reason {@link readAlignment} surfaces
+	 * it: silently drawing nothing would hide an Alignment the user made.
+	 */
+	async readLayerAlignment(layer: MapLayer): Promise<Alignment | null> {
+		const directory = this.openDirectory;
+		const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
+		if (!directory || imageId === null) return null;
+		try {
+			return parseAlignment(await this.#store.read(`${directory}/${layer.alignmentRef}`), {
+				imageId
+			});
+		} catch (cause) {
+			if (cause instanceof PathNotFoundError) return null;
+			throw cause;
+		}
+	}
+
+	/**
+	 * One Annotation Layer's `FeatureCollection` as stored, or `null` when there is no file.
+	 *
+	 * Parsed as JSON and no further: what the features mean, how they are styled, and how a
+	 * description's Markdown is sanitised are ticket 10's, and this slice draws them without
+	 * interpreting them.
+	 */
+	async readLayerFeatures(layer: AnnotationLayer): Promise<unknown> {
+		const directory = this.openDirectory;
+		if (!directory || layer.geojsonRef === '') return null;
+		try {
+			const bytes = await this.#store.read(`${directory}/${layer.geojsonRef}`);
+			return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+		} catch (cause) {
+			if (cause instanceof PathNotFoundError) return null;
+			throw cause;
 		}
 	}
 
