@@ -8,6 +8,7 @@ import {
 	ProjectDirectoryCollisionError,
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
+	ReservedDirectoryNameError,
 	UndoSlot,
 	Workspace,
 	addLayer,
@@ -132,10 +133,19 @@ export interface PendingImport {
 	readonly collision: string;
 }
 
-/** Why the Project named in `?p=` cannot be shown. */
+/**
+ * Why the Project named in `?p=` cannot be shown, or why the one that was asked for was not made.
+ *
+ * `'reserved-name'` is the second of those and the only one that is about a Project which does not
+ * exist yet: ADR-0023 keeps `images/`, `alignments/`, and `base-map/` for the Workspace itself, and a
+ * scholar typing "Images" has done nothing wrong — `toDirectoryName` is what turned it into a
+ * collision. It is a problem with the *name*, so it is rendered on the hub beside the list, and never
+ * as an unreachable Workspace: the Workspace is right there and every other Project must stay visible.
+ */
 export type ProjectProblem =
 	| { readonly kind: 'format-too-new' | 'unreadable'; readonly message: string }
-	| { readonly kind: 'missing'; readonly message: string };
+	| { readonly kind: 'missing'; readonly message: string }
+	| { readonly kind: 'reserved-name'; readonly message: string };
 
 /**
  * Everything the editor knows about the user's workspace, and the only place the app talks to
@@ -471,6 +481,16 @@ export class EditorSession {
 			this.transferError = cause instanceof Error ? cause.message : String(cause);
 			return null;
 		}
+	}
+
+	/**
+	 * Put down a refusal the user has now had a chance to act on.
+	 *
+	 * Called when the New Project dialog is opened again, so that a refused name is not still being
+	 * complained about over the attempt to replace it. A successful {@link #mutate} clears it too.
+	 */
+	dismissProjectProblem(): void {
+		this.projectProblem = null;
 	}
 
 	/** Abandon a prepared import. Nothing was written, so there is nothing to undo. */
@@ -1674,6 +1694,10 @@ export class EditorSession {
 			this.projects = await this.#workspace.listProjects();
 			this.status = 'ready';
 			this.unreachableDetail = '';
+			// A refused name that has since been accepted is no longer a problem, and an alert about a
+			// Project that now exists is worse than none — it says the action failed while its result is
+			// in the list underneath it.
+			this.projectProblem = null;
 			return result;
 		} catch (cause) {
 			// A Project that another tab deleted, or one from a newer version, is a problem with
@@ -1744,6 +1768,14 @@ function describeProblem(cause: unknown, directory: string | null): ProjectProbl
 	}
 	if (cause instanceof ProjectFileUnreadableError) {
 		return { kind: 'unreadable', message: cause.message };
+	}
+	// A name the Workspace itself needs (ADR-0023). Nothing was created and nothing is wrong with the
+	// Workspace, so this must not become "Workspace not reachable" — which is what it was before this
+	// case existed, and which replaced the hub, and every Project in it, with a data-loss scare over a
+	// name the user can simply change. The message names the reservation, which is the acceptance
+	// criterion: "reserved" without saying what is reserved leaves nothing to act on.
+	if (cause instanceof ReservedDirectoryNameError) {
+		return { kind: 'reserved-name', message: cause.message };
 	}
 	return null;
 }

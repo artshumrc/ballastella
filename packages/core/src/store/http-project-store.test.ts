@@ -108,7 +108,7 @@ describe('the HTTP ProjectStore adapter', () => {
 				fetch: async () => new Response(jpeg, { status: 200 })
 			});
 
-			expect(await store.read('p/images/a/0,0,256,256/256,256/0/default.jpg')).toEqual(jpeg);
+			expect(await store.read('images/a/0,0,256,256/256,256/0/default.jpg')).toEqual(jpeg);
 		});
 
 		it('returns bytes backed by a plain ArrayBuffer, which is what every parser here takes', async () => {
@@ -201,7 +201,7 @@ describe('the HTTP ProjectStore adapter', () => {
 			});
 
 			const failure: unknown = await store
-				.read('p/images/a/info.json')
+				.read('images/a/info.json')
 				.catch((cause: unknown) => cause);
 			// Narrowed rather than cast, so a `read` that resolved would fail here instead of reading
 			// properties off bytes.

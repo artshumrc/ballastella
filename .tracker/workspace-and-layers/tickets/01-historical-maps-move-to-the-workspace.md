@@ -130,3 +130,49 @@ decision of its own.
 archive to carry it would refuse an archive for a reason nobody could act on. A foreign Layer's `imageId`
 is likewise not interpreted: this build cannot know that an unknown kind's `imageId` names a Historical
 Map, and guessing would refuse archives over a guess.
+
+**The fence's exemptions are narrower than the contract above says, and it has a per-line opt-out.**
+The contract names four *directories and files*; `check-workspace-rooted-paths.mjs` exempts five
+**files**, because `packages/core/src/store/` and `packages/core/src/injection/` as prefixes exempted
+those modules' tests too — including `injection/store-image-fetch.test.ts`, which is the test guarding
+the one function the fence exists for. The fence also caught nothing written as a plain string literal
+until review, which is precisely how a test fixture spells it; widening it to that spelling turned up
+three stale Project-rooted fixtures and four deliberate decoys. The decoys keep their paths and carry
+`// project-rooted-path-is-the-fixture: <reason>`, honoured for one line and listed in the check's own
+output. A positive control runs before the scan, so a pattern that stops matching fails the check
+rather than printing the same success line as a clean tree.
+
+## Deferred from review
+
+Three things the review of this ticket found and this ticket is deliberately not fixing. The first two
+are pre-existing and belong with the ticket that changes the code around them; the third is a decision
+a person has to make.
+
+**A Historical Map added with no community Alignment references an Alignment that does not exist.**
+`addReferencedMap` writes `alignments/<image-id>.json` only when the user chose a community Alignment
+(`apps/editor/src/lib/editor-session.svelte.ts`, in the `if (fields.alignment)` branch), while
+`layerReferences` in `packages/core/src/transfer/import-project-zip.ts` requires
+`alignmentPath(imageId)` for *every* map Layer. A Project holding such a map therefore exports a zip
+that this same build refuses to import. Pre-existing — the shapes changed in this ticket, the gap did
+not — and it closes in **ticket 02**, whose contract already writes a starter Alignment when a map is
+added, for exactly this reason. Noted there.
+
+**"Is this Historical Map referenced rather than copied?" now has five implementations.**
+`referencedImageIds` in `packages/core/src/publish/publish.ts`, `partitionByLocalCopy` in
+`packages/core/src/remote-iiif/referenced-image.ts`, `readMapLayer`'s 404 probe in
+`apps/viewer/src/lib/project-documents.ts`, and the derived sets in
+`apps/editor/src/routes/layers/+page.svelte` and `apps/viewer/src/routes/+page.svelte`. All five ask
+the same question of the same directory and can disagree. One `referencedHistoricalMaps(store)` in
+core would serve all of them. Left alone here because this ticket was already rewriting four of the
+five and a sixth rewrite is not what makes it correct; **ticket 08** is where it belongs, since it
+adds a core function that reads exactly this and must not become the sixth. Noted there.
+
+**ADR-0010 needs amending, or `exportProjectZip` needs restructuring — a human decision.**
+`packages/core/src/transfer/export-project-zip.ts` used to document that `project.json` "is required to
+exist here but is deliberately never parsed (ADR-0010)". It is now parsed, through `parseLayers`, which
+is how the shared material a Layer references is found. The rewritten comment argues the case — `parseLayers`
+never throws and has no `formatVersion` opinion, so a Project from the future still exports, which is the
+property the original rule was protecting — but **the ADR itself was not amended, and this ticket did not
+amend it.** Either ADR-0010 records that export may parse the Layer stack and why that does not weaken the
+forward-only rule, or the export is restructured so no parse is needed (gathering the shared material from
+the Workspace by some other route). Not a code fix; it needs whoever owns the ADR.

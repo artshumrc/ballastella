@@ -57,7 +57,18 @@ export class ProjectDirectoryCollisionError extends Error {
  * *publish* time, and by then the Project exists and holds a semester's work; the only remedy on offer
  * is a rename, and the folder has already been sitting in the middle of the images.
  */
-export const RESERVED_DIRECTORY_NAMES: readonly string[] = ['images', 'alignments', 'base-map'];
+export const RESERVED_DIRECTORY_NAMES: readonly string[] = [
+	// From the constants rather than spelled again: `imageDirectory` and `alignmentPath` are built from
+	// these two, so a rename that missed this list would leave the Workspace writing its shared material
+	// into a directory a Project is allowed to be created in — which is the collision this list exists
+	// to refuse, arriving by the one route it could not see.
+	IMAGE_DIRECTORY,
+	ALIGNMENT_DIRECTORY,
+	// A literal because there is no constant to take it from: `base-map/` is written by publishing
+	// (`VIEWER_FILE_PATHS`) and read by the catalog's archive paths (ADR-0020, ADR-0025), neither of
+	// which names a directory on its own.
+	'base-map'
+];
 
 /**
  * A Project was asked for under a name the Workspace itself needs.

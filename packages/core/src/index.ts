@@ -56,6 +56,10 @@ export {
 } from './project/project-file.js';
 export {
 	ProjectDirectoryCollisionError,
+	// Exported because the editor has to recognise it: `createProject` throws it at the one moment a
+	// user can be told, and a refusal the app cannot name is rendered as an unreachable Workspace.
+	RESERVED_DIRECTORY_NAMES,
+	ReservedDirectoryNameError,
 	Workspace,
 	toDirectoryName,
 	type ProjectSummary,

@@ -246,6 +246,7 @@ describe('every referenced image a Project records', () => {
 			'images/a8eb9e9cf936cc3d/info.json': '{}',
 			// A Project directory that happens to hold something shaped like an image. Not a Historical Map
 			// of this Workspace, and not looked at (ADR-0023).
+			// project-rooted-path-is-the-fixture: the decoy `listReferencedImages` must not report
 			'amsterdam-1625/images/decoy/remote.json': `{"service":"${SERVICE}","width":1,"height":1}`
 		});
 

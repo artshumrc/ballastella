@@ -476,6 +476,7 @@ describe('ingestImageFile', () => {
 		// And a Project directory that happens to contain something shaped like a pyramid. It is not a
 		// Historical Map of this Workspace, and `listIngestedImages` no longer looks inside a Project at
 		// all (ADR-0023) — which is what stops one Project's leftovers being listed as Workspace material.
+		// project-rooted-path-is-the-fixture: the decoy `listIngestedImages` must not report
 		await store.write('some-project/images/decoy/info.json', new Uint8Array([1]));
 
 		expect(await listIngestedImages(store)).toEqual([

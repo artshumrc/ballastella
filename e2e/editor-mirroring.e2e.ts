@@ -500,10 +500,27 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
 	await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
 }
 
-/** Open the offline-copy dialog for the only referenced map on the page. */
+/**
+ * Open the offline-copy dialog for the only referenced map on the page, and wait until it has
+ * finished filling itself in.
+ *
+ * **The second wait is not belt-and-braces.** The dialog opens in the frame the button is pressed —
+ * deliberately, so the gesture is answered — while `prepare` is still re-reading the service's
+ * `info.json`, and until that resolves there is no plan: `mirror-start` is disabled, the size and the
+ * notes are not on the page, and `job.start()` returns `false` without doing anything. Every test
+ * below that reaches for a control or asserts the *absence* of a note was therefore racing one HTTP
+ * request. It surfaced as the keyboard test failing 2 runs in 9: focus went to a disabled button,
+ * Enter did nothing, and Cancel was never rendered to receive it.
+ *
+ * `data-step` is the dialog's own account of which step it is on, so this waits for the state the
+ * test needs rather than for a duration. `'deciding'` is reached whether the plan is a refusal or a
+ * costing, which is why it is the wait rather than "the Copy button is enabled" — the refusal tests
+ * need a settled dialog with that button still disabled.
+ */
 async function openMirrorDialog(page: Page): Promise<void> {
 	await page.getByTestId('mirror-open').click();
 	await expect(page.getByRole('dialog', { name: 'Make an offline copy' })).toBeVisible();
+	await expect(page.getByTestId('mirror-status')).toHaveAttribute('data-step', 'deciding');
 }
 
 /**

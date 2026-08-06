@@ -145,7 +145,22 @@
 			update is read as a sentence rather than as the digits that changed, and the sentence carries
 			the same numbers the bar does.
 		-->
-		<div aria-live="polite" aria-atomic="true" class="mt-4 min-h-6">
+		<!--
+			`data-step` is the dialog saying which step it is on, in the ADR-0007 sense: `prepare` is a
+			request, so the dialog is on screen — rights statement and all — for as long as that request
+			takes, with the size, the notes, and the Copy button still to arrive. Read by the browser
+			suite, which otherwise has only "the dialog is visible" to wait for and so samples a dialog
+			that is still filling in: `mirror-start` is disabled while `step === 'preparing'`, and a test
+			that pressed it then watched nothing happen. The same pattern as `data-transfer` on the hub's
+			status line.
+		-->
+		<div
+			aria-live="polite"
+			aria-atomic="true"
+			class="mt-4 min-h-6"
+			data-testid="mirror-status"
+			data-step={job.step}
+		>
 			{#if job.progress}
 				<p class="text-sm" data-testid="mirror-progress">{job.progressMessage}</p>
 				<progress

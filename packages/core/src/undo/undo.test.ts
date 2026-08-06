@@ -376,7 +376,9 @@ describe('a deleted Layer', () => {
  * `e2e/editor-undo.e2e.ts`, which assert the restored file byte-for-byte against the deleted one.
  */
 describe('a deletion reversed through the slot, after it reached storage (ADR-0017)', () => {
-	const path = 'amsterdam-1625/alignments/floride-1657.json';
+	// At the Workspace root: an Alignment is shared by every Project (ADR-0023), so undoing its
+	// deletion puts the bytes back where every Project reads them from.
+	const path = 'alignments/floride-1657.json';
 	// Deliberately *not* what `serialiseAlignment` would produce: a colleague's file, with fields this
 	// build carries rather than understands. A record that held a parsed Alignment would restore
 	// something merely equivalent, and the byte-identity criterion would fail on exactly this file.

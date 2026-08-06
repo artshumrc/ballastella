@@ -41,9 +41,15 @@ async function storeWithTile(): Promise<MemoryProjectStore> {
 	await store.write('images/abc123/info.json', bytes('{"id":"x"}'));
 	await store.write('images/abc123/0,0,256,256/256,256/0/default.jpg', bytes('tile bytes'));
 	// The decoy. If any of the assertions below can be satisfied by a Project-rooted resolution, they
-	// come back as these bytes rather than as a failure to find anything.
-	await store.write('amsterdam-1625/images/abc123/info.json', bytes('{"id":"the wrong map"}'));
+	// come back as these bytes rather than as a failure to find anything. Both paths are the specimen
+	// `check-workspace-rooted-paths.mjs` refuses, seeded here on purpose, so both carry its pragma.
 	await store.write(
+		// project-rooted-path-is-the-fixture: the decoy pyramid the shim must never resolve to
+		'amsterdam-1625/images/abc123/info.json',
+		bytes('{"id":"the wrong map"}')
+	);
+	await store.write(
+		// project-rooted-path-is-the-fixture: the decoy tile, whose bytes name the wrong rooting
 		'amsterdam-1625/images/abc123/0,0,256,256/256,256/0/default.jpg',
 		bytes('the wrong tile')
 	);

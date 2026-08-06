@@ -66,15 +66,13 @@ describe('Autosave', () => {
 
 	describe('committing on gesture end (rule 1)', () => {
 		it('writes immediately and cancels the pending debounce', async () => {
-			autosave.queue('p/alignments/one.json', utf8.encode('mid-drag'));
-			await autosave.commit('p/alignments/one.json', utf8.encode('pointer-up'));
+			autosave.queue('alignments/one.json', utf8.encode('mid-drag'));
+			await autosave.commit('alignments/one.json', utf8.encode('pointer-up'));
 
-			expect(writes).toEqual(['p/alignments/one.json']);
+			expect(writes).toEqual(['alignments/one.json']);
 			await vi.advanceTimersByTimeAsync(DEBOUNCE * 2);
-			expect(writes).toEqual(['p/alignments/one.json']);
-			expect(new TextDecoder().decode(await store.read('p/alignments/one.json'))).toBe(
-				'pointer-up'
-			);
+			expect(writes).toEqual(['alignments/one.json']);
+			expect(new TextDecoder().decode(await store.read('alignments/one.json'))).toBe('pointer-up');
 		});
 	});
 
