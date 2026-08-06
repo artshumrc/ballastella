@@ -8,9 +8,9 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: 08 is in progress. Tickets 01–07, 12, and 13 are merged; ticket 05 is green but is `Needs Human Validation or Intervention` (open question 3). Ticket 09 is also unblocked and could run beside 08.
+Current ticket: 08, 10, and 14 are in progress. Tickets 01–07, 09, 12, and 13 are merged; ticket 05 is green but is `Needs Human Validation or Intervention` (open question 3).
 
-The tree runs **543 unit tests and 104 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
+The tree runs **607 unit tests and 121 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
@@ -36,12 +36,12 @@ Last updated: 2026-08-06
 | 06 | [06-injection-layer-local-tiles-to-renderers.md](./tickets/06-injection-layer-local-tiles-to-renderers.md) | Completed | 03, 05 | 31 |
 | 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | Completed | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
 | 08 | [08-alignment-refinement.md](./tickets/08-alignment-refinement.md) | In Progress | 07 | 39, 40, 41, 42, 43, 44, 45, 46, 47 |
-| 09 | [09-layers.md](./tickets/09-layers.md) | In Progress | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
-| 10 | [10-annotations.md](./tickets/10-annotations.md) | Not Started | 09 | *55*, *56*, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, *94* |
+| 09 | [09-layers.md](./tickets/09-layers.md) | Completed | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
+| 10 | [10-annotations.md](./tickets/10-annotations.md) | In Progress | 09 | *55*, *56*, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, *94* |
 | 11 | [11-single-level-undo.md](./tickets/11-single-level-undo.md) | Not Started | 08, 10 | 38 |
 | 12 | [12-file-system-access-adapter.md](./tickets/12-file-system-access-adapter.md) | Completed | 02 | 1, 2, 3, *4*, *7* |
 | 13 | [13-zip-export-and-import.md](./tickets/13-zip-export-and-import.md) | Completed | 02 | 5, 13, 14, *56*, *87*, *93*, *94* |
-| 14 | [14-remote-iiif-ingest.md](./tickets/14-remote-iiif-ingest.md) | Not Started | 09 | 16, 17, 18, 19, 20, 24, 25, 26, 48 |
+| 14 | [14-remote-iiif-ingest.md](./tickets/14-remote-iiif-ingest.md) | In Progress | 09 | 16, 17, 18, 19, 20, 24, 25, 26, 48 |
 | 15 | [15-mirroring-offline-copies.md](./tickets/15-mirroring-offline-copies.md) | Not Started | 05, 14 | *15*, 27, 28 |
 | 16 | [16-publish.md](./tickets/16-publish.md) | Not Started | 09, 10 | *15*, *29*, 78, 79, 80, 81, *82*, *87*, 88, 89, 90, 92, *93*, 99, *101* |
 | 17 | [17-viewer-read-only-exploration.md](./tickets/17-viewer-read-only-exploration.md) | Not Started | 16 | 70, 71, *72*, *77*, *82*, 83, 84, 85, 86, *98* |
