@@ -195,6 +195,15 @@ async function importZip(
 	await page.getByRole('button', { name: 'Import Project', exact: true }).click();
 }
 
+/**
+ * The hub's transfer line, addressed by its own attribute rather than by `getByRole('status')`.
+ *
+ * The hub has more than one live region — the Historical Maps list announces a deletion from one of
+ * its own — so a bare role lookup is a strict mode violation rather than an assertion. The role is
+ * still what a screen reader gets; see `ProjectHub.svelte`.
+ */
+const transferStatus = (page: Page) => page.locator('[data-transfer]');
+
 test.beforeEach(async ({ page }) => {
 	await page.goto('./');
 	await emptyWorkspace(page);
@@ -221,7 +230,7 @@ test.describe('exporting a Project as a zip (SPEC story 5)', () => {
 		expect(new TextDecoder().decode(entries['project.json'])).toBe(projectJson());
 
 		// Progress is announced, not merely drawn (SPEC story 96).
-		await expect(page.getByRole('status')).toHaveText(/Exported Amsterdam 1625: 5 files\./);
+		await expect(transferStatus(page)).toHaveText(/Exported Amsterdam 1625: 5 files\./);
 	});
 
 	test('says so when an export fails, rather than blanking the status line', async ({ page }) => {
@@ -262,7 +271,7 @@ test.describe('exporting a Project as a zip (SPEC story 5)', () => {
 		await page.keyboard.press('Enter');
 		await download;
 
-		await expect(page.getByRole('status')).toHaveText(/Exported/);
+		await expect(transferStatus(page)).toHaveText(/Exported/);
 		await expect(exportButton).toBeFocused();
 	});
 
@@ -292,7 +301,7 @@ test.describe('importing a Project zip (SPEC story 13)', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		await expect(page.getByRole('dialog', { name: 'Import Project' })).toBeHidden();
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(projectFiles());
-		await expect(page.getByRole('status')).toHaveText(/Imported Amsterdam 1625: 5 files\./);
+		await expect(transferStatus(page)).toHaveText(/Imported Amsterdam 1625: 5 files\./);
 	});
 
 	test('takes the folder name from the file name, not from the display name', async ({ page }) => {
