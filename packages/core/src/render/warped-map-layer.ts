@@ -1,5 +1,13 @@
 // Warped rendering's half of the injection layer (ADR-0011).
 //
+// **In `core` rather than in either app, because both draw the same warped Historical Maps.** The
+// editor draws one being aligned and a Project's whole stack; the Published Site draws that same
+// stack for a Reader (ticket 17). Two copies of the rules below would be two answers to "what
+// document and which options does upstream get?" — and every one of the three upstream defects
+// documented here fails *silently*, so the copies would agree right up to the day one of them was
+// edited and the other rendered blank. `apps/viewer` therefore imports this rather than reimplementing
+// it, which is the same argument ADR-0019 makes for `renderAnnotationPopup` and `toRenderCollection`.
+//
 // `@allmaps/maplibre` renders a Historical Map onto the Base Map from a IIIF Georeference
 // Annotation, and it reaches the image's tiles by building URLs from the `id` in `info.json` —
 // which for a locally ingested pyramid is the `https://unset.invalid/<image-id>` placeholder
@@ -8,7 +16,7 @@
 // the layer's documented `fetchFn` option is handed the same `ProjectStore` shim the image pane's
 // MapLibre source gets, and the placeholder resolves out of the store.
 //
-// This module is the editor's boundary for the file format's vocabulary. `addGeoreferencedMap` is
+// This module is the render layer's boundary for the file format's vocabulary. `addGeoreferencedMap` is
 // upstream's method name so the word is unavoidable at this one call, exactly as `Marker` is in the
 // overlay layer; it goes no further, and everything above this file passes an `Alignment`
 // (CONTEXT.md — "Georeference Annotation" appears only where the format is read and written).
@@ -37,20 +45,21 @@
 // and the page has to be able to say "one more point and the map appears".
 
 import { WarpedMapLayer } from '@allmaps/maplibre';
+import { MINIMUM_CONTROL_POINTS, type Alignment } from '../alignment/alignment.js';
 import {
 	COMPUTED_DISTORTION_MEASURES,
 	DEFAULT_DISTORTION_VIEW,
-	MINIMUM_CONTROL_POINTS,
-	referencedRendererDocument,
+	type DistortionView
+} from '../alignment/distortion.js';
+import {
 	toRendererControlPoints,
 	toRendererDocument,
-	toRendererResourceMask,
-	type Alignment,
-	type DistortionView,
-	type FetchFn
-} from '@ballastella/core';
+	toRendererResourceMask
+} from '../alignment/georeference-annotation.js';
+import type { FetchFn } from '../injection/store-image-fetch.js';
+import { referencedRendererDocument } from '../remote-iiif/referenced-image.js';
 
-import { distortionRamp } from './distortion-ramp';
+import { distortionRamp } from './distortion-ramp.js';
 
 /**
  * A `WarpedMapLayer` that reads its tiles through `fetchTile`.

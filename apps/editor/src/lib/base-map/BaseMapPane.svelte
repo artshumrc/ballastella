@@ -26,32 +26,33 @@
 		type DistortionView,
 		type FetchFn
 	} from '@ballastella/core';
+	// The browser-only render layer, on a subpath of its own because this barrel's own is Node-safe
+	// and this is not — see the note at the bottom of `packages/core/src/index.ts`.
+	import {
+		annotationLayerIds,
+		createWarpedMapLayer,
+		drawLayerStack,
+		isDrawnMap,
+		registerPmtilesProtocol,
+		showAlignment,
+		showAnnotationPopup,
+		updateAlignment,
+		type DrawnLayer,
+		type DrawnOutcome,
+		type StackRender,
+		type WarpedRender
+	} from '@ballastella/core/render';
 	import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount, untrack } from 'svelte';
 
-	import { showAnnotationPopup } from '$lib/annotations/annotation-popup';
-	import {
-		annotationLayerIds,
-		drawLayerStack,
-		isDrawnMap,
-		type DrawnLayer,
-		type DrawnOutcome,
-		type StackRender
-	} from '$lib/layers/stack-layers';
+	import { exposeLayerStackToBrowserTests } from '$lib/layers/browser-test-handle';
 	import { createOverlayPointLayer, type OverlayPointLayer } from '$lib/overlay/overlay-points';
 	import { theme } from '$lib/theme.svelte';
 	import { exposeWarpedLayerToBrowserTests } from '$lib/warped/browser-test-handle';
-	import {
-		createWarpedMapLayer,
-		showAlignment,
-		updateAlignment,
-		type WarpedRender
-	} from '$lib/warped/warped-map-layer';
 
 	import { exposeBaseMapToBrowserTests } from './browser-test-handle';
 	import { resolveDeploymentAsset } from './deployment-assets';
-	import { registerPmtilesProtocol } from './pmtiles-protocol';
 
 	let {
 		entryId,
@@ -534,7 +535,15 @@
 
 		let built: StackRender | undefined;
 		const attach = () => {
-			built = drawLayerStack({ map: current, layers: stackLayers, fetchTile: readTiles });
+			built = drawLayerStack({
+				map: current,
+				layers: stackLayers,
+				fetchTile: readTiles,
+				// The Playwright handle stays in this app rather than in `core`, which is why
+				// `drawLayerStack` takes it as a seam — a `declare global` on `Window` inside core would
+				// put the editor's test scaffolding into a published Reader's bundle.
+				onBuilt: exposeLayerStackToBrowserTests
+			});
 			stack = built;
 			onstack?.(built.outcomes);
 		};

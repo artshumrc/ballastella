@@ -1,12 +1,18 @@
 // An Annotation's popup on the Base Map (SPEC story 67).
 //
-// **The rendering is not here.** `renderAnnotationPopup` in `@ballastella/core` builds the HTML,
-// escaping the title and sanitising the description, and this module only puts the result on the map.
-// That split is the whole reason ticket 17 can assert the same payload is inert in a Published Site:
-// the viewer imports the same function, and there is no second place where a `description` becomes
-// HTML (ADR-0009).
+// **The rendering is not here.** `renderAnnotationPopup` in `../annotation/markdown.ts` builds the
+// HTML, escaping the title and sanitising the description, and this module only puts the result on the
+// map. That split is the whole reason ticket 17 can assert the same payload is inert in a Published
+// Site: the viewer draws its popups with this very function, and there is no second place where a
+// `description` becomes HTML (ADR-0009).
+//
+// **There is one `setHTML` call in this repository and it is below.** That is why this module is in
+// `core` rather than duplicated per app: a second copy would be a second place for an edit to reach
+// for `setDOMContent`, an interpolation, or a "just add a class" that reintroduced markup assembly
+// outside the sanitiser — on the origin a Reader's browser trusts.
 
-import { renderAnnotationPopup, type Annotation } from '@ballastella/core';
+import type { Annotation } from '../annotation/annotation.js';
+import { renderAnnotationPopup } from '../annotation/markdown.js';
 import { Popup, type Map as MapLibreMap } from 'maplibre-gl';
 
 /** A popup on the map, and the way to take it off again. */

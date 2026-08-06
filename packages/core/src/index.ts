@@ -439,6 +439,17 @@ export {
 export * from './base-map';
 export * from './theme';
 
+// NOTE: `src/render/` is deliberately **not** re-exported here. It is reached as
+// `@ballastella/core/render`, because everything in it is browser-only and this barrel is not.
+//
+// Not a style preference — measured. `render/pmtiles-protocol.ts` imports `addProtocol` from
+// `maplibre-gl` as a *value*, and both apps' root layouts import this barrel, so re-exporting the
+// directory made every prerendered page evaluate `maplibre-gl` in Node: `SyntaxError: The requested
+// module 'maplibre-gl' does not provide an export named 'addProtocol'`, and `pnpm -r build` failed on
+// the editor's first route with a 500. A subpath keeps the barrel Node-safe — which is what
+// `publish.test.ts` and every other Seam 1 test depend on — and makes "this module needs a browser"
+// legible at the import site.
+
 // The tiler (ADR-0003). `wasm-vips` is deliberately absent: `streamingTiler` takes the module
 // through a loader the consumer supplies, so nothing here imports it and `apps/viewer` cannot
 // acquire it by depending on this package (ADR-0019).

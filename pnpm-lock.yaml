@@ -268,6 +268,9 @@ importers:
       '@allmaps/iiif-parser':
         specifier: 'catalog:'
         version: 1.0.0-beta.48
+      '@allmaps/maplibre':
+        specifier: 'catalog:'
+        version: 1.0.0-beta.43
       '@allmaps/transform':
         specifier: 'catalog:'
         version: 1.0.0-beta.52
@@ -283,9 +286,15 @@ importers:
       fflate:
         specifier: 'catalog:'
         version: 0.8.3
+      maplibre-gl:
+        specifier: 'catalog:'
+        version: 5.24.0
       marked:
         specifier: 'catalog:'
         version: 18.0.9
+      pmtiles:
+        specifier: 'catalog:'
+        version: 4.4.1
     devDependencies:
       '@allmaps/types':
         specifier: 'catalog:'
