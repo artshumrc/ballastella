@@ -136,9 +136,9 @@ describe('Autosave', () => {
 
 		it('keeps the newest bytes when an edit arrives while the store is failing', async () => {
 			vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('quota exceeded'));
-			const failing = autosave.commit('p/project.json', utf8.encode('first')).catch(
-				() => undefined
-			);
+			const failing = autosave
+				.commit('p/project.json', utf8.encode('first'))
+				.catch(() => undefined);
 			autosave.queue('p/project.json', utf8.encode('second'));
 			await failing;
 

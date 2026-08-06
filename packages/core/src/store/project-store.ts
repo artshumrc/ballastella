@@ -54,6 +54,21 @@ export interface ProjectStore {
 	 * for free from directory metadata.
 	 */
 	size(path: StorePath): Promise<number>;
+
+	/**
+	 * Remove every half-finished atomic write under `prefix`.
+	 *
+	 * A write interrupted between its two steps — a tab that died, a laptop that closed — leaves a
+	 * temporary file that **nothing else here can reach**: the suffix is reserved, so `write` and
+	 * `delete` refuse it and `list` never reports it. Without this, deleting a Project leaves its
+	 * directory on disk forever, holding bytes that are excluded from the `list` + `size` totals
+	 * tickets 15 and 16 need for ADR-0008's ~1 GB hosting warning; in ticket 12's real folder it is
+	 * a stray dotfile the user commits to their repository.
+	 *
+	 * Deliberately a removal and nothing else. It does not list the litter and does not write, so
+	 * it gives no caller a way to put bytes at a path `list` would hide.
+	 */
+	reclaimAbandonedWrites(prefix: string): Promise<void>;
 }
 
 /** Rejected from `read` and `size` when nothing is stored at the path. */

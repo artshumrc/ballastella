@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Autosave } from '../autosave/autosave.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
+import { TEMP_PATH_SUFFIX } from '../store/project-store.js';
 import { ProjectFormatTooNewError } from './project-file.js';
 import { Workspace, toDirectoryName } from './workspace.js';
 
@@ -248,6 +249,22 @@ describe('Workspace', () => {
 
 			expect(await store.list('')).toEqual([`${kept.directory}/project.json`]);
 			expect((await workspace.listProjects()).map((p) => p.directory)).toEqual([kept.directory]);
+		});
+
+		it('takes the half-finished writes with it, so nothing survives on disk', async () => {
+			const doomed = await workspace.createProject('Amsterdam 1625');
+			// What a tab that died between the two steps of an atomic write leaves. `list` cannot
+			// report it and `delete` cannot be handed it, so before `reclaimAbandonedWrites` the
+			// "deleted" Project's directory survived permanently — outside the `list` + `size` totals
+			// tickets 15 and 16 need, and in ticket 12's real folder a dotfile committed to git.
+			store.plant(
+				`${doomed.directory}/.project.json.abandoned${TEMP_PATH_SUFFIX}`,
+				new TextEncoder().encode('half a document')
+			);
+
+			await workspace.deleteProject(doomed.directory);
+
+			expect([...store.snapshot().keys()]).toEqual([]);
 		});
 	});
 

@@ -1,6 +1,56 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { InvalidPathError, PathNotFoundError, type ProjectStore } from './project-store.js';
+import {
+	InvalidPathError,
+	PathNotFoundError,
+	TEMP_PATH_SUFFIX,
+	type ProjectStore,
+	type StorePath
+} from './project-store.js';
+
+/** Where a write can fail. Both are states only the storage layer can put the store into. */
+export type WriteStep = 'bytes' | 'rename';
+
+/**
+ * One backend, plus the three things the suite needs that the public interface cannot give it.
+ *
+ * Each of these is supplied by the backend's own test file rather than reached for inside the
+ * suite. That is the difference that matters: the suite knows nothing structural about any
+ * backend, so ticket 12's adapter passes it unchanged by providing a fixture, not by having to
+ * inherit from a particular base class.
+ */
+export interface StoreUnderTest {
+	readonly store: ProjectStore;
+
+	/**
+	 * Every path the backend actually holds, sorted, temporary files included.
+	 *
+	 * `list` filters the reserved suffix **by construction**, so a "no litter" assertion made
+	 * through `list` passes whether or not the cleanup exists. This is the backend's own view.
+	 */
+	everyStoredPath(): Promise<StorePath[]>;
+
+	/**
+	 * Make the next `write` fail at `step`, and only that one.
+	 *
+	 * `'bytes'` is the temporary file failing to land — a full disk, which Chromium reports from
+	 * `close()`. `'rename'` is the move into place failing, which is the step ADR-0017 rule 4 is
+	 * actually about. No public API can produce either, and each backend has its own honest way to
+	 * inject them: the in-memory double has a documented fault switch alongside `unreachable()`,
+	 * and the OPFS adapter is interrupted by patching the browser API it calls.
+	 */
+	failNextWrite(step: WriteStep): void;
+
+	/**
+	 * Put a half-finished atomic write at `path` — what a tab that died between the two steps of a
+	 * write leaves behind.
+	 *
+	 * There is deliberately no way to do this through the interface: the suffix is reserved, so
+	 * `write` refuses it, `list` never reports it, and `delete` cannot be handed it. That is why
+	 * `reclaimAbandonedWrites` exists, and why this has to come from the fixture.
+	 */
+	plantAbandonedWrite(path: StorePath): Promise<void>;
+}
 
 /**
  * The behaviour every {@link ProjectStore} backend owes its callers, run against each of
@@ -13,18 +63,20 @@ import { InvalidPathError, PathNotFoundError, type ProjectStore } from './projec
  * the interface (ADR-0001).
  *
  * @param name how the backend is described in test output
- * @param createStore a fresh, empty store per test
+ * @param createStore a fresh, empty {@link StoreUnderTest} per test
  */
 export function describeProjectStore(
 	name: string,
-	createStore: () => Promise<ProjectStore> | ProjectStore
+	createStore: () => Promise<StoreUnderTest> | StoreUnderTest
 ): void {
 	describe(name, () => {
+		let subject: StoreUnderTest;
 		let store: ProjectStore;
 		const utf8 = new TextEncoder();
 
 		beforeEach(async () => {
-			store = await createStore();
+			subject = await createStore();
+			store = subject.store;
 		});
 
 		describe('reading and writing', () => {
@@ -150,32 +202,91 @@ export function describeProjectStore(
 		describe('atomic writes (ADR-0017 rule 4)', () => {
 			const first = utf8.encode('{"formatVersion":1,"name":"Amsterdam 1625"}');
 			const second = utf8.encode('{"formatVersion":1,"name":"Amsterdam 1626"}');
+			const abandoned = `p/.project.json.abandoned${TEMP_PATH_SUFFIX}`;
 
-			it('leaves the previous contents intact and parseable when a write is interrupted', async () => {
+			const steps: [string, WriteStep][] = [
+				['the bytes never land', 'bytes'],
+				['the move into place fails', 'rename']
+			];
+
+			it('leaves the previous contents intact and parseable when the move into place fails', async () => {
 				await store.write('p/project.json', first);
-				const interrupted = interruptTheRename(store);
+				subject.failNextWrite('rename');
 
-				await expect(store.write('p/project.json', second)).rejects.toThrow('storage went away');
+				await expect(store.write('p/project.json', second)).rejects.toThrow();
 
-				expect(interrupted).toHaveBeenCalledOnce();
 				const survivor = new TextDecoder().decode(await store.read('p/project.json'));
 				expect(JSON.parse(survivor)).toEqual({ formatVersion: 1, name: 'Amsterdam 1625' });
 			});
 
-			it('leaves no litter behind when a write is interrupted', async () => {
+			it.each(steps)('leaves no litter behind when %s', async (_description, step) => {
 				await store.write('p/project.json', first);
-				interruptTheRename(store);
+				subject.failNextWrite(step);
 				await store.write('p/project.json', second).catch(() => undefined);
 
-				expect(await store.list('')).toEqual(['p/project.json']);
+				// The backend's own view, not `list`'s: `list` filters the reserved suffix by
+				// construction, so through `list` this assertion passes with no cleanup at all.
+				expect(await subject.everyStoredPath()).toEqual(['p/project.json']);
 				expect(await store.size('p/project.json')).toBe(first.byteLength);
 			});
 
-			it('creates nothing at all when the very first write to a path is interrupted', async () => {
-				interruptTheRename(store);
+			it.each(steps)(
+				'creates nothing at all when the very first write to a path fails and %s',
+				async (_description, step) => {
+					subject.failNextWrite(step);
+					await store.write('p/project.json', first).catch(() => undefined);
+
+					expect(await subject.everyStoredPath()).toEqual([]);
+				}
+			);
+
+			it('recovers next time, rather than being poisoned by the failure', async () => {
+				subject.failNextWrite('rename');
 				await store.write('p/project.json', first).catch(() => undefined);
 
-				expect(await store.list('')).toEqual([]);
+				await store.write('p/project.json', second);
+
+				expect(await store.read('p/project.json')).toEqual(second);
+				expect(await subject.everyStoredPath()).toEqual(['p/project.json']);
+			});
+
+			it('reclaims a half-finished write left behind by a crashed tab', async () => {
+				await store.write('p/project.json', first);
+				await subject.plantAbandonedWrite(abandoned);
+
+				// `list` cannot report it and `delete` cannot be handed it, so without a sweep a
+				// "deleted" Project's directory survives on disk forever — outside the `list` + `size`
+				// totals tickets 15 and 16 need for the ~1 GB hosting warning, and in ticket 12's real
+				// folder a stray dotfile the user commits to their git repository.
+				expect(await store.list('')).toEqual(['p/project.json']);
+				expect(await subject.everyStoredPath()).toEqual([abandoned, 'p/project.json']);
+
+				await store.reclaimAbandonedWrites('p/');
+
+				expect(await subject.everyStoredPath()).toEqual(['p/project.json']);
+			});
+
+			it('reclaims only litter, and only under the prefix it was given', async () => {
+				await store.write('p/project.json', first);
+				await store.write('q/project.json', second);
+				const elsewhere = `q/.project.json.abandoned${TEMP_PATH_SUFFIX}`;
+				await subject.plantAbandonedWrite(abandoned);
+				await subject.plantAbandonedWrite(elsewhere);
+
+				await store.reclaimAbandonedWrites('p/');
+
+				expect(await subject.everyStoredPath()).toEqual([
+					'p/project.json',
+					elsewhere,
+					'q/project.json'
+				]);
+			});
+
+			it('gives a caller no way to reach a reserved path itself', async () => {
+				// `reclaimAbandonedWrites` removes; it neither lists nor writes. A caller that could
+				// name a temporary path could put Project data somewhere `list` hides it.
+				await expect(store.write(abandoned, first)).rejects.toThrow(InvalidPathError);
+				await expect(store.delete(abandoned)).rejects.toThrow(InvalidPathError);
 			});
 		});
 
@@ -194,21 +305,4 @@ export function describeProjectStore(
 			});
 		});
 	});
-}
-
-/**
- * Break the rename half of the next temp-file write.
- *
- * Reaching for a protected member is deliberate and is the only way to assert rule 4 without
- * fault-injection hooks in shipping code: the requirement is about what survives when the
- * *second* step of the write fails, and no public API can produce that failure. The member is
- * declared on `TempFileWriteStore`, so every backend fails in the same place.
- */
-function interruptTheRename(store: ProjectStore) {
-	const internals = store as unknown as {
-		renameTempFile: (from: string, to: string) => Promise<void>;
-	};
-	return vi
-		.spyOn(internals, 'renameTempFile')
-		.mockRejectedValueOnce(new Error('storage went away'));
 }

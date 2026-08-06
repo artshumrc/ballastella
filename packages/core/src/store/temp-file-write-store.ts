@@ -27,12 +27,18 @@ export abstract class TempFileWriteStore implements ProjectStore {
 	async write(path: string, bytes: Bytes): Promise<void> {
 		const destination = assertStorePath(path);
 		const temp = tempPathFor(destination);
-		await this.writeBytes(temp, bytes);
 		try {
+			await this.writeBytes(temp, bytes);
 			await this.renameTempFile(temp, destination);
 		} catch (cause) {
 			// The destination still holds whatever it held before; drop the orphan so a failed
 			// write leaves the store exactly as it was.
+			//
+			// Both steps are inside the guard. `writeBytes` used to sit outside it, and a quota
+			// failure part way through it still leaves the temporary file created — one that nothing
+			// can then reach, because the suffix is reserved: `list` hides it, `delete` refuses it,
+			// and deleting the Project walks `list`. The result was a "deleted" Project whose
+			// directory survived on disk permanently.
 			await this.deletePath(temp).catch(() => undefined);
 			throw cause;
 		}
@@ -50,6 +56,14 @@ export abstract class TempFileWriteStore implements ProjectStore {
 	async size(path: string): Promise<number> {
 		// Never `read`. See ProjectStore#size.
 		return this.byteLength(assertStorePath(path));
+	}
+
+	async reclaimAbandonedWrites(prefix: string): Promise<void> {
+		// One implementation for every backend, like `write` itself: the litter is created here, so
+		// reclaiming it belongs here too rather than being each adapter's problem to remember.
+		for (const path of await this.listPaths(prefix)) {
+			if (isTempPath(path) && path.startsWith(prefix)) await this.deletePath(path);
+		}
 	}
 
 	/** Rejects with {@link PathNotFoundError} when the path holds nothing. */

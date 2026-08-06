@@ -14,6 +14,7 @@ import { TempFileWriteStore } from './temp-file-write-store.js';
 export class MemoryProjectStore extends TempFileWriteStore {
 	readonly #files = new Map<StorePath, Bytes>();
 	#unreachable: Error | undefined;
+	#failNextWriteStep: 'bytes' | 'rename' | undefined;
 
 	/** Fails every operation with `cause` — the unreachable workspace of ADR-0008. */
 	static unreachable(cause: Error = new Error('Workspace not reachable')): MemoryProjectStore {
@@ -27,6 +28,30 @@ export class MemoryProjectStore extends TempFileWriteStore {
 		return new Map([...this.#files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 	}
 
+	/**
+	 * Fail the next `write` at `step`, and only that one.
+	 *
+	 * A documented fault switch alongside {@link unreachable}, for the same reason: what survives a
+	 * write that fails half way through is the whole of ADR-0017 rule 4, and no public API can
+	 * produce that failure. Having it here rather than as a spy on a protected member inside the
+	 * shared adapter suite is what lets the suite stay ignorant of how any backend is built —
+	 * `'bytes'` is the temporary file never landing, `'rename'` is the move into place failing.
+	 */
+	failNextWrite(step: 'bytes' | 'rename'): void {
+		this.#failNextWriteStep = step;
+	}
+
+	/**
+	 * Put `bytes` at `path` with no validation, including at a reserved temporary path.
+	 *
+	 * For tests that need the store in a state only a crashed tab can produce. There is
+	 * deliberately no way to do this through {@link ProjectStore}, which is exactly why an
+	 * abandoned write cannot be cleaned up with `delete` and `reclaimAbandonedWrites` exists.
+	 */
+	plant(path: StorePath, bytes: Bytes): void {
+		this.#files.set(path, bytes.slice());
+	}
+
 	protected async readBytes(path: StorePath): Promise<Bytes> {
 		this.#assertReachable();
 		const bytes = this.#files.get(path);
@@ -38,11 +63,13 @@ export class MemoryProjectStore extends TempFileWriteStore {
 
 	protected async writeBytes(path: StorePath, bytes: Bytes): Promise<void> {
 		this.#assertReachable();
+		this.#failIfArmed('bytes');
 		this.#files.set(path, bytes.slice());
 	}
 
 	protected async renameTempFile(from: StorePath, to: StorePath): Promise<void> {
 		this.#assertReachable();
+		this.#failIfArmed('rename');
 		const bytes = this.#files.get(from);
 		if (!bytes) throw new PathNotFoundError(from);
 		this.#files.set(to, bytes);
@@ -68,5 +95,11 @@ export class MemoryProjectStore extends TempFileWriteStore {
 
 	#assertReachable(): void {
 		if (this.#unreachable) throw this.#unreachable;
+	}
+
+	#failIfArmed(step: 'bytes' | 'rename'): void {
+		if (this.#failNextWriteStep !== step) return;
+		this.#failNextWriteStep = undefined;
+		throw new Error(`storage went away while the write was at the ${step} step`);
 	}
 }

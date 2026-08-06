@@ -163,6 +163,11 @@ export class Workspace {
 		for (const path of await this.#store.list(`${directory}/`)) {
 			await this.#store.delete(path);
 		}
+		// Everything in it includes the half-finished writes `list` cannot report and `delete`
+		// cannot be handed. Without this a "deleted" Project's directory survives on disk
+		// permanently, holding bytes that are also missing from the totals tickets 15 and 16 warn
+		// from — and in ticket 12's real folder, a stray dotfile the user commits to git.
+		await this.#store.reclaimAbandonedWrites(`${directory}/`);
 	}
 
 	async #summarise(directory: string): Promise<ProjectSummary> {
