@@ -703,29 +703,47 @@ describe('rejecting a zip before writing anything', () => {
 		await nothingWritten();
 	});
 
-	// A `'referenced'` image's tiles are on somebody else's server by design (ADR-0007), so there is
-	// no local pyramid for the archive to be missing.
-	it('looks for no local pyramid for a referenced image', async () => {
+	// The exemption that must not exist yet. Nothing in this build produces a `'referenced'` image —
+	// ticket 14 is what will — and nothing in it draws one either: the renderer never consults
+	// `imageMode` and reads every map Layer's tiles out of `images/<id>/`. So until ticket 14 lands the
+	// word's only reachable effect is to make an archive's own author decide that the image check does
+	// not apply to them, and the map then renders blank with the network working perfectly. An
+	// exemption keyed on untrusted input is exactly what this criterion exists to catch.
+	const referencedLayer = {
+		id: 'l1',
+		name: 'A map on somebody else’s server',
+		visible: true,
+		order: 0,
+		kind: 'map',
+		opacity: 1,
+		alignmentRef: 'alignments/amsterdam-1625.json',
+		imageMode: 'referenced'
+	};
+
+	it('refuses a referenced image outright, because nothing here can draw one yet', async () => {
 		const files = projectFiles();
 		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
-		files['project.json'] = projectJson({
-			layers: [
-				{
-					id: 'l1',
-					name: 'A map on somebody else’s server',
-					visible: true,
-					order: 0,
-					kind: 'map',
-					opacity: 1,
-					alignmentRef: 'alignments/amsterdam-1625.json',
-					imageMode: 'referenced'
-				}
-			]
-		});
+		files['project.json'] = projectJson({ layers: [referencedLayer] });
 
-		await expect(attemptImport(buildZip(files))).resolves.toMatchObject({
-			directory: 'amsterdam-1625'
-		});
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('unsupported-image-mode');
+		// Named by the Layer, and by what the reader would otherwise get.
+		expect(failure.message).toContain('A map on somebody else’s server');
+		await nothingWritten();
+	});
+
+	// And it is refused whether or not the pyramid happens to be there, so the refusal is about what
+	// this build can draw rather than about which files the archive brought.
+	it('refuses a referenced image even when the archive carries its pyramid', async () => {
+		const files = projectFiles();
+		files['project.json'] = projectJson({ layers: [referencedLayer] });
+
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure.reason).toBe('unsupported-image-mode');
+		await nothingWritten();
 	});
 
 	// The honest limit of following the link by path. An `alignmentRef` that does not follow the

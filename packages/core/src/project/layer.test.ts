@@ -283,6 +283,35 @@ describe('reading the layers array', () => {
 		expect(parseLayers(undefined)).toEqual([]);
 		expect(parseLayers({ layers: 'nope' })).toEqual([]);
 	});
+
+	// A Layer's id is how the list addresses it: the keyed `{#each}` that draws the stack, the
+	// `stackLayerId` MapLibre gets, the record the read documents are kept in, and every one of the
+	// operations above. A second Layer claiming an id already taken is therefore not a Layer with a
+	// damaged field but one that cannot be addressed at all — and the keyed list raises a hard error
+	// on the duplicate, out of a parser whose stated contract is that it never throws.
+	it('keeps the first Layer with an id and drops a later one claiming it again', () => {
+		const layers = parseLayers([
+			{ id: 'twice', kind: 'map', name: 'The original', order: 0 },
+			{ id: 'other', kind: 'annotation', name: 'Beside it', order: 1 },
+			{ id: 'twice', kind: 'map', name: 'The impostor', order: 2 }
+		]);
+
+		expect(layers.map((layer) => [layer.id, layer.name])).toEqual([
+			['twice', 'The original'],
+			['other', 'Beside it']
+		]);
+	});
+
+	// Sorting happens after the duplicate is dropped, so which one survives is decided by the file's
+	// own order rather than by whichever `order` number the impostor happened to carry.
+	it('drops the duplicate by the file’s order, not by the order field it claims', () => {
+		const layers = parseLayers([
+			{ id: 'twice', kind: 'map', name: 'The original', order: 9 },
+			{ id: 'twice', kind: 'map', name: 'The impostor', order: 0 }
+		]);
+
+		expect(layers.map((layer) => [layer.id, layer.name])).toEqual([['twice', 'The original']]);
+	});
 });
 
 // ADR-0014 records image-space annotation as the expected next feature and asks that the
@@ -369,14 +398,34 @@ describe('writing the layers array', () => {
 		expect(serialiseLayers(parseLayers([raw]))[0]).toEqual(raw);
 	});
 
-	it('lets a field this build edits win over a stale copy carried beside it', () => {
-		const carried = parseLayers([
-			{ id: 'x', kind: 'map', name: 'Real', order: 0, unknownFields: { name: 'Stale' } }
+	// What actually keeps `serialiseLayer`'s spread order safe: **no field this build writes can ever
+	// end up in `unknownFields`**, so there is no collision for the spread order to resolve. That is
+	// `COMMON_KEYS` plus each kind's own destructuring, and it is the invariant rather than the spread
+	// order — reverse the spread and nothing changes; drop a key from `COMMON_KEYS`, or add a field to
+	// a kind without destructuring it, and this goes red.
+	it('never carries a field it writes itself, so unknownFields cannot shadow one', () => {
+		const written = serialiseLayers([
+			mapLayer(),
+			annotationLayer({ order: 1 }),
+			...parseLayers([{ id: 'l-cartouche', kind: 'image-annotation', order: 2 }])
 		]);
 
-		expect(serialiseLayers(renameLayer(carried, 'x', 'Renamed'))[0]).toMatchObject({
-			name: 'Renamed'
-		});
+		for (const record of written) {
+			const parsed = parseLayers([record])[0];
+			expect(Object.keys(parsed?.unknownFields ?? {})).toEqual([]);
+		}
+	});
+
+	// The same claim from the other side, and the case that would actually bite: a field a future
+	// author adds to `LayerCommon` and forgets to add to `COMMON_KEYS` is carried, and then the
+	// carried copy is spread back over the one this build edits.
+	it('carries nothing whose name a serialised Layer already uses', () => {
+		for (const layer of [mapLayer(), annotationLayer(), ...parseLayers([{ id: 'f', kind: 'z' }])]) {
+			const record = serialiseLayers([layer])[0] as Record<string, unknown>;
+			const carried = Object.keys(parseLayers([record])[0]?.unknownFields ?? {});
+
+			expect(carried.filter((key) => key in record)).toEqual([]);
+		}
 	});
 });
 

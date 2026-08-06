@@ -26,7 +26,9 @@ export type ProjectZipRejection =
 	/** The archive declares more entries, or more bytes, than a Project is allowed to hold. */
 	| 'too-large'
 	/** `project.json` names a file, or an image directory needs one, that is not in the archive. */
-	| 'missing-reference';
+	| 'missing-reference'
+	/** A map Layer claims an `imageMode` this build cannot draw — see {@link assertDrawableImages}. */
+	| 'unsupported-image-mode';
 
 /**
  * A zip that will not be imported, with a message for the person who was handed it.
@@ -237,6 +239,9 @@ export async function readProjectZip(
 	// refusal on this path says, is that nothing arrived.
 	const project = reendFormatRefusal(() => parseProjectFile(manifest));
 
+	// Before the reference check, so the reason a reader is given is the real one rather than a
+	// missing `info.json` that follows from it.
+	assertDrawableImages(project);
 	assertReferencesPresent(project, new Set(paths));
 
 	const ordered = orderForWriting(paths);
@@ -356,6 +361,36 @@ function layerReferences(layer: Layer): readonly string[] {
 }
 
 /**
+ * Refuse a zip carrying a map Layer whose image this build cannot draw.
+ *
+ * **Only `'referenced'`, and only until ticket 14 lands.** A referenced image's tiles are on somebody
+ * else's server (ADR-0007), and nothing in this build produces one or reads one: the renderer never
+ * consults `imageMode` at all and asks the ADR-0011 shim for every map Layer's tiles out of
+ * `images/<id>/`. So a `'referenced'` Layer would draw blank with the network working perfectly.
+ *
+ * Refused **here** rather than exempted in {@link layerReferences}, which is where it used to be, and
+ * that is the whole point of this function. `imageMode` comes out of a `project.json` another person
+ * wrote, so an exemption keyed on it is an archive author deciding that the image check does not apply
+ * to their archive: a zip with no `images/` directory at all and one word changed imported cleanly and
+ * then showed a reader nothing. A refusal cannot be turned off from inside the file.
+ *
+ * Ticket 14 is what lifts this, and it has to lift it together with the renderer — a referenced image
+ * that imports but does not draw is the same blank map arriving by a longer route.
+ */
+function assertDrawableImages(project: ProjectFile): void {
+	for (const layer of project.layers) {
+		if (layer.kind !== 'map' || layer.imageMode !== 'referenced') continue;
+		throw new ProjectZipRejectedError(
+			'unsupported-image-mode',
+			`The Layer “${layer.name || layer.id}” in ${PROJECT_FILE_NAME} says its Historical Map is ` +
+				`held on another server rather than copied into the Project. This version of Ballastella ` +
+				`can only draw a Historical Map whose tiles are in the Project, so importing this would ` +
+				`give you a Layer that stays blank however good your connection is.`
+		);
+	}
+}
+
+/**
  * Refuse a zip whose `project.json` points at files it does not carry.
  *
  * **What this establishes.** Every file a Layer names is in the archive: its Alignment or its
@@ -374,7 +409,9 @@ function layerReferences(layer: Layer): readonly string[] {
  * check that a pyramid is *complete* — a tile that is missing is a blank square, not a lost map, and
  * only the tiler knows which tiles a level should have.
  *
- * A `'referenced'` image (ticket 14) claims no local pyramid at all, so none is looked for.
+ * Every map Layer that reaches here claims a local pyramid, because {@link assertDrawableImages} has
+ * already refused the one `imageMode` that would not — so nothing an archive says can turn the image
+ * half of this check off.
  */
 function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<string>): void {
 	const missing = (reference: string, why: string): never => {

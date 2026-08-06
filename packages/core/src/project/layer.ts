@@ -9,7 +9,7 @@
 
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import type { Bytes } from '../store/project-store.js';
-import { imageInfoPath } from '../tiler/pyramid.js';
+import { imageInfoPath } from './image-files.js';
 
 /**
  * The simplestyle-spec 1.1.0 styling properties, plus ADR-0009's one extension.
@@ -187,6 +187,12 @@ export function imageIdFromAlignmentRef(alignmentRef: string): string | null {
  *
  * `null` for a `'referenced'` image, whose tiles are on somebody else's server by design (ADR-0007),
  * and for a reference that does not name an image — see {@link imageIdFromAlignmentRef}.
+ *
+ * **Neither `null` is an exemption from validation.** Ticket 13's importer refuses a `'referenced'`
+ * Layer outright before it gets here (`assertDrawableImages`), precisely because `imageMode` comes out
+ * of a file somebody else wrote; and an `alignmentRef` that names no image id names no Alignment this
+ * app would read either, so there is no directory to guess at. Both are recorded as limits on ticket
+ * 09 rather than left to be inferred from here.
  */
 export function mapLayerImageInfoPath(layer: MapLayer): string | null {
 	if (layer.imageMode === 'referenced') return null;
@@ -360,24 +366,31 @@ const carried = (rest: Record<string, unknown>): { unknownFields?: Record<string
  * empty, a missing `visible` as visible, an out-of-range `opacity` is clamped. A `kind` this build
  * does not know becomes a {@link ForeignLayer} and survives the round trip intact.
  *
- * Two things are dropped, because there is nothing of the user's to keep in them: an element that is
- * not an object at all, and one with no usable `id`. Without an id a Layer cannot be shown, named,
- * reordered, or referenced by anything — so carrying it would mean carrying a row the app can
- * neither draw nor address. Both can only come from a hand-edited or damaged file.
+ * Three things are dropped, because there is nothing of the user's to keep in any of them: an element
+ * that is not an object at all, one with no usable `id`, and one whose `id` a Layer earlier in the
+ * file has already taken. An id is how a Layer is *addressed* — by the keyed list that draws the
+ * stack, by the MapLibre layer id, by the record the read documents are kept in, and by every
+ * operation above — so a Layer without one, or with one that is not its own, is a row this app can
+ * neither draw nor point at. The duplicate is the sharper of the two: a keyed list given the same key
+ * twice raises a hard error, which is precisely what this function promises never to do. All three can
+ * only come from a hand-edited or damaged file.
  *
  * The stack is sorted by `order` and renumbered from it, so the array position and the stored number
  * agree from the first read. Sorting is stable on the file's own order, which is what a file written
- * by this app already carries.
+ * by this app already carries — and it happens *after* the duplicate is dropped, so which of the two
+ * survives is decided by the file's own order rather than by the `order` the impostor claims.
  */
 export function parseLayers(raw: unknown): readonly Layer[] {
 	if (!Array.isArray(raw)) return [];
 
+	const seen = new Set<string>();
 	const read: { layer: Layer; at: number; order: number }[] = [];
 	for (const [at, element] of raw.entries()) {
 		const record = readRecord(element);
 		if (record === null) continue;
 		const id = readString(record['id'], '');
-		if (id === '') continue;
+		if (id === '' || seen.has(id)) continue;
+		seen.add(id);
 		read.push({ layer: parseLayer(record, id), at, order: readNumber(record['order'], at) });
 	}
 
@@ -442,8 +455,14 @@ function parseLayer(record: Readonly<Record<string, unknown>>, id: string): Laye
 /**
  * Write one Layer back.
  *
- * `unknownFields` last, so a field this build does know always wins over a stale copy of itself, and
- * a {@link ForeignLayer}'s carried fields cannot overwrite the four this build edits.
+ * **What keeps a carried field from shadowing an edited one is `carried` upstream, not the spread
+ * order here.** `unknownFields` is spread last — so were a collision ever possible the stale copy
+ * would win — and it is safe only because {@link COMMON_KEYS} plus each kind's own destructuring mean
+ * no key this function writes can ever reach `unknownFields` in the first place. `layer.test.ts`
+ * asserts that invariant directly, because it is the thing a future author breaks: add a field to
+ * {@link LayerCommon} without adding it to `COMMON_KEYS`, or to a kind without destructuring it out,
+ * and the carried copy starts winning over the edited one. `unknownFields` is nonetheless kept last
+ * so that a {@link ForeignLayer}'s fields are written in the order the file had them.
  */
 function serialiseLayer(layer: Layer): Record<string, unknown> {
 	const common = {
