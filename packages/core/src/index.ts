@@ -235,9 +235,13 @@ export {
 } from './alignment/distortion.js';
 export {
 	AlignmentUnreadableError,
+	AlignmentUnwritableError,
 	parseAlignment,
 	serialiseAlignment,
-	toGeoreferencedMap
+	toRendererControlPoints,
+	toRendererDocument,
+	toRendererResourceMask,
+	type RendererControlPoint
 } from './alignment/georeference-annotation.js';
 
 export { createImagePane } from './image-pane/iiif-image-pane';
@@ -314,7 +318,7 @@ export {
 	listReferencedImages,
 	localCopySource,
 	parseReferencedImage,
-	referencedGeoreferencedMap,
+	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,
 	referencedImageStorePath,

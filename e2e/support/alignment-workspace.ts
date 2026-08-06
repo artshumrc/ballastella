@@ -329,6 +329,10 @@ export const drawnMap = (page: Page) =>
 			distortionColor3: options.distortionColor3 as string | undefined,
 			renderGridColor: options.renderGridColor as string | undefined,
 			resourceMask: (options.resourceMask ?? []) as number[][],
+			// The Control Points the renderer is solving from, in its own vocabulary. Read because
+			// "a moved Control Point reaches the drawn map without rebuilding it" is a claim about what
+			// the renderer was told, and the renderer's account of that is the only honest one.
+			gcps: (options.gcps ?? []) as { resource: number[]; geo: number[] }[],
 			// How far from zero the *displayed* measure is at the triangulated points. Zero everywhere
 			// means nothing is being colourised, whatever the options claim.
 			worstDistortion: distortion.reduce(

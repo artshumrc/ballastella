@@ -253,9 +253,11 @@ Local tiles have no URL. Each consumer uses its own documented extension point, 
 
 ### Map stack
 
-MapLibre GL for both panes; `terra-draw` with its MapLibre adapter for all drawing — Control Points, Resource Masks, and Annotations (ADR-0005). The image pane maps image pixel space into a synthetic geographic window, since MapLibre is Web Mercator only.
+MapLibre GL for both panes. The image pane maps image pixel space into a synthetic geographic window, since MapLibre is Web Mercator only.
 
-Control Point **pairing is ours**; no drawing library has a concept of linked markers across two maps.
+**Control Points and Resource Masks are drawn on the panes' own `overlayPoints` seam, as real `<button>` elements; `terra-draw` with its MapLibre adapter is for Annotations** — see [ADR-0005](../../docs/adr/0005-maplibre-and-terra-draw.md)'s amendment of 2026-08-06, which records why and is **awaiting human ratification**. The short version is keyboard reach: `terra-draw` edits inside WebGL layers, a canvas cannot be focused per feature, and both "every pairing action is achievable by keyboard" and an arrow-key-editable mask need an element per point.
+
+Control Point **pairing is ours** regardless; no drawing library has a concept of linked markers across two maps.
 
 ```
 ControlPoint = { id, ordinal, resource: Point, geo: Point }

@@ -1,3 +1,4 @@
+import { parseAnnotation, validateAnnotation } from '@allmaps/annotation';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 
@@ -407,11 +408,20 @@ test.describe('Control Point pairing', () => {
 		await makePair(page, 0.3, 0.3);
 		await makePair(page, 0.65, 0.6);
 
+		// The colour a highlighted half is actually drawn in, read off the element rather than inferred
+		// from a class name. **ADR-0022 contract 4 is about what the user can see** — "this is what makes
+		// a set of twenty points comprehensible" — and `data-selected` is a test attribute: an earlier
+		// version of this test asserted only that and `aria-pressed`, so the class that does the drawing
+		// could have been dropped two lines away in `overlay-points.ts` and this stayed green.
+		const background = (point: Locator) =>
+			point.evaluate((element) => getComputedStyle(element).backgroundColor);
+
 		// Clear the selection completing the second pair left behind, so what follows is about the
 		// click under test rather than about which pair was made last.
 		await page.getByTestId('control-point-select').nth(1).click();
 		await expect(imagePoints(page).nth(0)).toHaveAttribute('data-selected', 'false');
 		await expect(basePoints(page).nth(0)).toHaveAttribute('data-selected', 'false');
+		const unselectedColour = await background(imagePoints(page).nth(0));
 
 		// Select point 1 by clicking its **image** half; its **earth** half must light up too. That
 		// cross-pane link is the piece no drawing library provides (ADR-0022 contract 4).
@@ -423,11 +433,26 @@ test.describe('Control Point pairing', () => {
 		// Announced, not merely drawn: a screen-reader user has to be told which point is current.
 		await expect(imagePoints(page).nth(0)).toHaveAttribute('aria-pressed', 'true');
 
+		// **Visibly** highlighted, on both panes: the selected class is on, and it is painting.
+		await expect(imagePoints(page).nth(0)).toHaveClass(/pane-overlay-point-selected/);
+		await expect(basePoints(page).nth(0)).toHaveClass(/pane-overlay-point-selected/);
+		await expect(imagePoints(page).nth(1)).not.toHaveClass(/pane-overlay-point-selected/);
+		const selectedColour = await background(imagePoints(page).nth(0));
+		expect(selectedColour, 'a highlight nobody can see is not a highlight').not.toBe(
+			unselectedColour
+		);
+		expect(await background(basePoints(page).nth(0))).toBe(selectedColour);
+		expect(await background(imagePoints(page).nth(1))).toBe(unselectedColour);
+
 		// And the other way round, from the Base Map half of point 2.
 		await basePoints(page).nth(1).click();
 		await expect(imagePoints(page).nth(1)).toHaveAttribute('data-selected', 'true');
 		await expect(basePoints(page).nth(1)).toHaveAttribute('data-selected', 'true');
 		await expect(imagePoints(page).nth(0)).toHaveAttribute('data-selected', 'false');
+		await expect(imagePoints(page).nth(1)).toHaveClass(/pane-overlay-point-selected/);
+		await expect(imagePoints(page).nth(0)).not.toHaveClass(/pane-overlay-point-selected/);
+		expect(await background(imagePoints(page).nth(1))).toBe(selectedColour);
+		expect(await background(imagePoints(page).nth(0))).toBe(unselectedColour);
 	});
 
 	test('deleting removes both halves, never one', async ({ page }) => {
@@ -574,6 +599,30 @@ test.describe('the Alignment on disk', () => {
 		const written = await storedAlignment(page, 'amsterdam-1625', imageId);
 		expect(written, 'no Alignment was written').not.toBeNull();
 		const document = JSON.parse(written as string);
+
+		// ─────────────────────────────────────────────────────────────────────────────────────
+		// **UPSTREAM SAYS SO, ABOUT THE BYTES THE RUNNING APP WROTE.**
+		//
+		// The criterion is "`alignments/<image-id>.json` is a valid Georeference Annotation, parseable
+		// by `@allmaps/annotation`" — and this test used to answer it by checking eight fields by hand.
+		// Eight hand-written fields are eight of the dozens `Annotation1Schema` validates, and the two
+		// upstream regexes that have already bitten this slice — the `polygon points` number pattern and
+		// `<svg width="\d+">` — are not among them. Every other test that asks upstream operates on
+		// serialiser output built in-process; nothing asked it about what landed in OPFS.
+		//
+		// So the validator and the parser run here, in Node, on the file the app wrote. The field
+		// assertions below stay, because they say *which* Alignment this is rather than that it is one.
+		expect(
+			() => validateAnnotation(document),
+			'upstream refused the file the app wrote'
+		).not.toThrow();
+		const parsed = parseAnnotation(document);
+		expect(parsed).toHaveLength(1);
+		// And it parses into the Alignment that was made, not merely into something.
+		expect(parsed[0]?.gcps).toHaveLength(3);
+		expect(parsed[0]?.resourceMask).toHaveLength(4);
+		expect(parsed[0]?.resource.width).toBe(700);
+		expect(parsed[0]?.transformation).toStrictEqual({ type: 'polynomial', options: { order: 1 } });
 
 		expect(document.type).toBe('Annotation');
 		expect(document.motivation).toBe('georeferencing');

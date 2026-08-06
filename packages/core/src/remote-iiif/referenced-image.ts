@@ -42,7 +42,7 @@
 // service's URI is not our address; it is the citation, and it is the intent.
 
 import type { Alignment } from '../alignment/alignment.js';
-import { serialiseAlignment, toGeoreferencedMap } from '../alignment/georeference-annotation.js';
+import { serialiseAlignment, toRendererDocument } from '../alignment/georeference-annotation.js';
 import type { ImagePaneTileBase } from '../image-pane/iiif-image-pane.js';
 import type { ImageMode } from '../project/layer.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
@@ -311,7 +311,7 @@ export const imageModeOf = (source: HistoricalMapSource): ImageMode => source.im
  * The in-memory `GeoreferencedMap` for a referenced image: the Alignment, with the remote service
  * as its `resource.id`.
  *
- * `toGeoreferencedMap` writes the ADR-0004 placeholder, which is right for a stored pyramid and
+ * `toRendererDocument` writes the ADR-0004 placeholder, which is right for a stored pyramid and
  * wrong here — `@allmaps/maplibre` fetches tiles from that `id`, so left alone a referenced image
  * renders by asking the injection layer for a pyramid the Project does not contain: a blank warped
  * Layer, which is the same silent failure ticket 06 spent a patch on.
@@ -320,14 +320,14 @@ export const imageModeOf = (source: HistoricalMapSource): ImageMode => source.im
  * resolved at load time from wherever the tiles are really served — and the address comes from
  * `remote.json`.
  */
-export function referencedGeoreferencedMap(alignment: Alignment, service: string): unknown {
-	const map = toGeoreferencedMap(alignment) as { resource?: { id?: unknown } };
+export function referencedRendererDocument(alignment: Alignment, service: string): unknown {
+	const map = toRendererDocument(alignment) as { resource?: { id?: unknown } };
 	if (typeof map.resource?.id !== 'string') {
-		// Not defensive padding. `toGeoreferencedMap` is upstream of this in the same package, and if
+		// Not defensive padding. `toRendererDocument` is upstream of this in the same package, and if
 		// its shape changes the substitution would silently stop happening — leaving the placeholder
 		// in a document handed to the renderer, which draws nothing and logs nothing.
 		throw new Error(
-			`toGeoreferencedMap no longer produces resource.id, so a referenced image's remote address ` +
+			`toRendererDocument no longer produces resource.id, so a referenced image's remote address ` +
 				`cannot be substituted into it. Fix this rather than the caller: without the substitution ` +
 				`a referenced Historical Map renders blank.`
 		);

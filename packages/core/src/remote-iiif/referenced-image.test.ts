@@ -12,7 +12,7 @@ import {
 	isReferenced,
 	localCopySource,
 	parseReferencedImage,
-	referencedGeoreferencedMap,
+	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,
 	serialiseReferencedAlignment,
@@ -191,10 +191,10 @@ describe('the record beside a referenced image', () => {
 
 describe('an Alignment of a referenced image', () => {
 	it('names the remote service in the document it hands the renderer', () => {
-		// `toGeoreferencedMap` writes the ADR-0004 placeholder, which is right for a stored pyramid and
+		// `toRendererDocument` writes the ADR-0004 placeholder, which is right for a stored pyramid and
 		// blank-map wrong here: `@allmaps/maplibre` fetches tiles from that `id`, so left alone a
 		// referenced image asks the injection layer for a pyramid the Project does not contain.
-		const map = referencedGeoreferencedMap(alignment(), SERVICE) as {
+		const map = referencedRendererDocument(alignment(), SERVICE) as {
 			resource: { id: string; width: number; height: number };
 		};
 
@@ -247,7 +247,7 @@ describe('an Alignment of a referenced image', () => {
 	});
 
 	it('trims a trailing slash, so one service cannot produce two addresses', () => {
-		const map = referencedGeoreferencedMap(alignment(), `${SERVICE}/`) as {
+		const map = referencedRendererDocument(alignment(), `${SERVICE}/`) as {
 			resource: { id: string };
 		};
 		expect(map.resource.id).toBe(SERVICE);

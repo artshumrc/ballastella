@@ -39,6 +39,7 @@ import {
 } from './alignment.js';
 import {
 	AlignmentUnreadableError,
+	AlignmentUnwritableError,
 	parseAlignment,
 	serialiseAlignment
 } from './georeference-annotation.js';
@@ -48,14 +49,48 @@ const fixture = (name: string): Uint8Array =>
 
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
-/** Every committed fixture, and which Historical Map each one aligns. */
+/**
+ * Every committed fixture, and which Historical Map each one aligns.
+ *
+ * **`allmaps-shaped` is in this list, and that is the point of the list.** It exists precisely
+ * because it is a document *we did not write* — `id`, `created`, `modified`, `partOf`, `provider`,
+ * `_allmaps`, and a polygon that repeats its closing vertex (SPEC story 91) — so it is the only
+ * fixture that can answer "does a document from another producer, read and re-written by us, come
+ * back out something upstream still accepts?" That is the migration event ADR-0010 names, arriving
+ * from the direction this fixture was built for, and leaving it out of the guarantees meant nothing
+ * asserted it.
+ *
+ * `byteIdentical` is the one guarantee it cannot carry, and should not: we deliberately write no
+ * `id`, no timestamps, and no `_allmaps`, so our output is a *different document* that has to mean
+ * the same thing. Everything else — upstream's validator, exact Control Points and Resource Mask,
+ * exactly-zero coordinate movement, and idempotence over five passes — applies to every fixture.
+ */
 const FIXTURES = [
-	{ name: 'floride-1657', imageId: 'floride-1657', controlPoints: 6, maskVertices: 4 },
-	{ name: 'awkward-coordinates', imageId: 'awkward-coordinates', controlPoints: 5, maskVertices: 6 }
+	{
+		name: 'floride-1657',
+		imageId: 'floride-1657',
+		controlPoints: 6,
+		maskVertices: 4,
+		byteIdentical: true
+	},
+	{
+		name: 'awkward-coordinates',
+		imageId: 'awkward-coordinates',
+		controlPoints: 5,
+		maskVertices: 6,
+		byteIdentical: true
+	},
+	{
+		name: 'allmaps-shaped',
+		imageId: 'allmaps-shaped',
+		controlPoints: 4,
+		maskVertices: 4,
+		byteIdentical: false
+	}
 ] as const;
 
 describe('the committed fixture Alignments round-trip', () => {
-	for (const { name, imageId, controlPoints, maskVertices } of FIXTURES) {
+	for (const { name, imageId, controlPoints, maskVertices, byteIdentical } of FIXTURES) {
 		describe(name, () => {
 			it('parses into the Control Points and Resource Mask the document carries', () => {
 				const alignment = parseAlignment(fixture(name), { imageId });
@@ -86,10 +121,17 @@ describe('the committed fixture Alignments round-trip', () => {
 			// Byte-identity, which is stronger than value-identity and is what pins the fixture. If an
 			// upstream bump changes how the document is written, the committed bytes stop matching and
 			// this fails — which is precisely the alarm ADR-0010 asks for on an Allmaps upgrade.
-			it('re-serialises to the committed bytes exactly', () => {
-				const alignment = parseAlignment(fixture(name), { imageId });
-				expect(text(serialiseAlignment(alignment))).toBe(text(fixture(name)));
-			});
+			//
+			// Not asked of a document another producer wrote, and only there: our writer deliberately
+			// emits no `id`, no timestamps and no `_allmaps`, so byte-identity against a foreign
+			// document would be asserting that we echo fields we have decided not to keep. Not
+			// registered at all rather than skipped, so the suite carries no permanently pending test.
+			if (byteIdentical) {
+				it('re-serialises to the committed bytes exactly', () => {
+					const alignment = parseAlignment(fixture(name), { imageId });
+					expect(text(serialiseAlignment(alignment))).toBe(text(fixture(name)));
+				});
+			}
 
 			it('stays a valid Georeference Annotation after a round-trip', () => {
 				const alignment = parseAlignment(fixture(name), { imageId });
@@ -170,14 +212,35 @@ describe('persistence spends none of the coordinate pipeline’s precision headr
 	// and 1.49e-8 px on a 60000 × 24000 one. Since the file is exact to the bit (asserted above),
 	// the composite must land on those same figures; if it ever exceeds them, serialisation has
 	// started quantising something.
+	//
+	// **`worstAtMost` is the assertion, not `ROUND_TRIP_TOLERANCE_PX`.** Held only against the 1e-6
+	// tolerance, this test would stay green through three orders of magnitude of degradation — at the
+	// 65,536-px synthetic window the headroom is roughly 67×, so "within tolerance" says almost
+	// nothing about whether anything moved. The figures below are the measured error with about five
+	// times' room for engine and architecture variation, which is enough to absorb a different
+	// machine and not enough to absorb a regression. The ceiling of the window itself is guarded
+	// elsewhere — `createSyntheticProjection` refuses a pyramid it cannot hold — not here.
+	//
+	// `toBeGreaterThan(0)` is the other half, and it is not ceremony: sampling on the binary grid
+	// makes this measurement read exactly 0 for a reason that has nothing to do with correctness,
+	// which is the pitfall ticket 03's review recorded. A 0 here means the samples stopped being
+	// off-grid, not that the pipeline became exact.
 	it.each([
-		{ label: 'a small pyramid', tileWidth: 256, maxScaleFactor: 4, width: 700, height: 500 },
+		{
+			label: 'a small pyramid',
+			tileWidth: 256,
+			maxScaleFactor: 4,
+			width: 700,
+			height: 500,
+			worstAtMost: 1e-9
+		},
 		{
 			label: 'the largest window',
 			tileWidth: 256,
 			maxScaleFactor: 256,
 			width: 60000,
-			height: 24000
+			height: 24000,
+			worstAtMost: 5e-8
 		}
 	])('round-trips a stored Control Point through $label within tolerance', (pyramid) => {
 		const projection = createSyntheticProjection({
@@ -226,6 +289,10 @@ describe('persistence spends none of the coordinate pipeline’s precision headr
 			worst = Math.max(worst, Math.abs(returned.x - original.x), Math.abs(returned.y - original.y));
 		});
 
+		// Pinned to what was measured, then restated against the pipeline's own budget — so a
+		// regression fails on the pin rather than being absorbed by the 1e-6 headroom.
+		expect(worst).toBeGreaterThan(0);
+		expect(worst).toBeLessThan(pyramid.worstAtMost);
 		expect(worst).toBeLessThan(ROUND_TRIP_TOLERANCE_PX);
 	});
 });
@@ -593,10 +660,22 @@ describe('a half-pair never reaches the file (ADR-0022)', () => {
 
 		const back = parseAlignment(new TextEncoder().encode(written), { imageId: 'floride-1657' });
 		expect(back.controlPoints).toHaveLength(3);
+
 		// The pending half's own coordinate is nowhere in the document, not merely absent from the
-		// parsed result.
-		expect(written).not.toContain('70');
-		expect(written).not.toContain('80');
+		// parsed result. Asserted against the *`resourceCoords` that were written*, and not as a
+		// substring scan of the whole file: `not.toContain('70')` was true by luck of which other
+		// numbers happen to appear — `851`, a longitude, a mask vertex — and would have gone on
+		// passing with `[70, 80]` written as `[70.0, 80]` or split across a reformat.
+		const document = JSON.parse(written) as {
+			body: { features: { properties: { resourceCoords: [number, number] } }[] };
+		};
+		const coordinates = document.body.features.map((feature) => feature.properties.resourceCoords);
+		expect(coordinates).toStrictEqual([
+			[10, 20],
+			[30, 40],
+			[50, 60]
+		]);
+		expect(coordinates).not.toContainEqual([70, 80]);
 	});
 });
 
@@ -624,17 +703,93 @@ describe('reading an Alignment written by Allmaps itself (SPEC story 91)', () =>
 		expect(alignment.resourceMask.at(-1)).toStrictEqual({ x: 296, y: 3914 });
 	});
 
-	it('round-trips from the second generation on', () => {
-		// Not byte-identical to the fixture, and it should not be: we deliberately write no `id`,
-		// no timestamps, and no `_allmaps`. What has to hold is that nothing the *model* carries
-		// moves once it has been through our writer once.
-		const first = parseAlignment(fixture('allmaps-shaped'), { imageId });
-		const second = parseAlignment(serialiseAlignment(first), { imageId });
-		const third = parseAlignment(serialiseAlignment(second), { imageId });
+	// The round-trip guarantees themselves — upstream's validator on our output, exact Control Points
+	// and Resource Mask, exactly-zero coordinate movement, and five passes — are in `FIXTURES` above,
+	// which this document is a member of. It is a member because it is the *only* fixture that can
+	// answer them for a producer other than us, which is the direction ADR-0010's migration event
+	// arrives from.
 
-		expect(second.controlPoints).toStrictEqual(first.controlPoints);
-		expect(second.resourceMask).toStrictEqual(first.resourceMask);
-		expect(third).toStrictEqual(second);
+	// **The same landmine as the sub-1e-6 mask vertex, on a field we copy rather than compute.**
+	// `Source2Schema` validates `width` as `z.number().positive()`, so a fractional one parses
+	// happily; the SVG selector's own regex is `width="\d+"` — **integers only** — and a document
+	// whose selector omits the dimensions altogether (`<svg>`, an accepted branch) sails past the
+	// reader. Put those together and a foreign Alignment with a fractional image width is readable
+	// by us, re-written by us as `<svg width="5120.5" …>`, and then refused by upstream *entirely*,
+	// taking every Control Point with it. Measured against the pinned `@allmaps/annotation@1.0.0-beta.37`.
+	it('re-writes a foreign document with a fractional image width into one upstream still accepts', () => {
+		const document = JSON.parse(text(fixture('allmaps-shaped')));
+		document.target.source.width = 5120.25;
+		document.target.source.height = 4096.75;
+		// The selector without dimensions, which upstream accepts and which is what makes the
+		// fractional source dimensions reachable at all.
+		document.target.selector.value =
+			'<svg><polygon points="312,204 4832,196 4844,3902 296,3914" /></svg>';
+
+		const alignment = parseAlignment(new TextEncoder().encode(JSON.stringify(document)), {
+			imageId
+		});
+		// The Control Points are the user's labour and none of them moved.
+		expect(alignment.controlPoints).toHaveLength(4);
+		expect(alignment.controlPoints[0]?.resource).toStrictEqual({ x: 1204, y: 892 });
+		expect(alignment.resourceMask[0]).toStrictEqual({ x: 312, y: 204 });
+
+		const written = text(serialiseAlignment(alignment));
+		// Integers, because that is the only thing the format's own regex accepts — rounded to the
+		// nearest, in both directions, so no coordinate is implied to be somewhere it is not.
+		expect(alignment.image).toStrictEqual({ width: 5120, height: 4097 });
+		expect(written).toContain('width=\\"5120\\" height=\\"4097\\"');
+		expect(() => validateAnnotation(JSON.parse(written))).not.toThrow();
+		expect(parseAnnotation(JSON.parse(written))).toHaveLength(1);
+
+		// And it is still readable by us, with everything the user made intact.
+		const back = parseAlignment(new TextEncoder().encode(written), { imageId });
+		expect(back.controlPoints).toStrictEqual(alignment.controlPoints);
+		expect(back.resourceMask).toStrictEqual(alignment.resourceMask);
+	});
+});
+
+describe('the write path checks its own output', () => {
+	// **Nothing else on the write path did.** `validateAnnotation` appeared only in tests, while the
+	// failure mode is "the entire Alignment, including every Control Point, is unreachable on the next
+	// open", autosave fires on every gesture end, and the Resource Mask now travels through a bespoke
+	// string encoder into an attribute upstream validates with a regex. Two concrete holes are plugged
+	// upstream of this — the sub-1e-6 vertex and the fractional image dimension — and both were found
+	// by *reading* upstream's regexes. This is the guard for the third one.
+	const threePairs = collectControlPoints([
+		{ id: 'a', resource: { x: 10, y: 20 }, geo: { lng: 4.1, lat: 52.1 } },
+		{ id: 'b', resource: { x: 30, y: 40 }, geo: { lng: 4.2, lat: 52.2 } },
+		{ id: 'c', resource: { x: 50, y: 60 }, geo: { lng: 4.3, lat: 52.3 } }
+	]);
+
+	it('refuses to write an Alignment upstream would not read back, rather than writing it', () => {
+		// A fractional image dimension: the one shape the domain type still permits and the format
+		// does not, since `<svg width="…">` is validated as `\d+`. Reachable in memory — an `Alignment`
+		// carries whatever pixel dimensions it was built with — and not reachable through
+		// `parseAlignment`, which rounds. So this is the guard firing on the class of defect rather
+		// than on a live instance of it.
+		const alignment: Alignment = {
+			...newAlignment('floride-1657', { width: 1200.5, height: 851 }),
+			controlPoints: threePairs
+		};
+
+		expect(() => serialiseAlignment(alignment)).toThrow(AlignmentUnwritableError);
+		// The message says which Historical Map and that nothing was saved, because the user's next
+		// question is whether they have lost the Control Points they just placed. They have not: the
+		// last good file is still on disk, which is the whole reason this refuses rather than writes.
+		expect(() => serialiseAlignment(alignment)).toThrow(/floride-1657/);
+		expect(() => serialiseAlignment(alignment)).toThrow(/was not saved/);
+	});
+
+	it('lets a well-formed Alignment through untouched', () => {
+		// The guard must not be a tax on the ordinary case: the same Alignment with whole pixels
+		// writes, and writes exactly what it wrote before the guard existed.
+		const alignment: Alignment = {
+			...newAlignment('floride-1657', { width: 1200, height: 851 }),
+			controlPoints: threePairs
+		};
+
+		expect(() => serialiseAlignment(alignment)).not.toThrow();
+		expect(() => validateAnnotation(JSON.parse(text(serialiseAlignment(alignment))))).not.toThrow();
 	});
 });
 

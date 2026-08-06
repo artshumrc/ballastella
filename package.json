@@ -18,6 +18,7 @@
 		"format": "prettier --write ."
 	},
 	"devDependencies": {
+		"@allmaps/annotation": "catalog:",
 		"@eslint/js": "^10.0.1",
 		"@playwright/test": "^1.62.1",
 		"@types/node": "^26.1.2",

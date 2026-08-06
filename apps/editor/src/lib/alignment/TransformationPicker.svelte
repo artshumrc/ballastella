@@ -168,6 +168,26 @@
 		{chosen?.guidance ?? ''}
 	</p>
 
+	{#if value === 'helmert'}
+		<!--
+			**The one place the fold warning cannot help, said where the choice is made.** A similarity has
+			no reflection to fit, so a least-squares solve over two swapped Control Points comes back
+			unmirrored rather than folded and `detectFold` correctly reports nothing. That is right
+			mathematics and not a defect — but it is a *silence*, and a student who has learnt to trust
+			"this Alignment is mirrored" under Standard will read the same silence here as "no mistake".
+			So the limit is stated beside the option rather than only in a comment.
+
+			Not folded into the option's own guidance text, because that string is ADR-0013's table and is
+			asserted verbatim; this is a note about the consequence of the choice, like the advanced one
+			below it.
+		-->
+		<p class="max-w-prose text-sm opacity-70" data-testid="transformation-simple-note">
+			Simple cannot turn the Historical Map over, so it is the one choice where the "this Alignment
+			is mirrored" warning cannot appear. Under Simple, two swapped Control Points show up as a
+			badly placed Historical Map rather than as a warning.
+		</p>
+	{/if}
+
 	{#if advancedShown}
 		<p class="max-w-prose text-sm opacity-70" data-testid="transformation-advanced-note">
 			Higher-order transformations bend the map more freely, and need many well-spread Control

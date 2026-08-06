@@ -199,9 +199,39 @@ describe('the fold check', () => {
 		expect(() => detectFold(collinear)).not.toThrow();
 	});
 
-	it('samples only inside the Resource Mask, so a fold in an excluded margin is not reported', () => {
+	// **The case the title promises**, which the mirrored set cannot demonstrate: a fold that exists
+	// in a margin and nowhere else. A margin is the part of the sheet the user has excluded, so a
+	// warning about it would send them to look at something the Alignment does not draw.
+	//
+	// Built as a local fold placed deliberately in the left margin — the four well-behaved corners
+	// plus one Control Point at image (15, 50) sent to a longitude nowhere near the sheet — and then
+	// measured twice: once with the mask as the whole sheet, where the warning appears and names the
+	// left, and once with the left margin outlined out of the map, where it is gone entirely.
+	it('does not report a fold that lies only in a margin the mask excludes', () => {
+		const withMargin = alignmentOf([...UPRIGHT, [15, 50, -2, 0.5]] as const, 'thinPlateSpline');
+
+		const whole = detectFold(withMargin);
+		expect(whole, 'the fold has to be there before excluding it can mean anything').not.toBeNull();
+		expect(whole?.kind).toBe('local');
+		expect(whole?.where).toContain('left');
+
+		// The same Alignment, with the left third of the sheet outlined out of the map. Nothing about
+		// the Control Points changes — only which part of the sheet is sampled.
+		const withoutMargin = detectFold({
+			...withMargin,
+			resourceMask: [
+				{ x: 40, y: 0 },
+				{ x: 100, y: 0 },
+				{ x: 100, y: 100 },
+				{ x: 40, y: 100 }
+			]
+		});
+		expect(withoutMargin).toBeNull();
+	});
+
+	it('samples inside the Resource Mask rather than across the whole image', () => {
 		// The mirrored set folds everywhere, so any mask at all yields a warning; what is asserted
-		// here is that the sample count follows the mask's area rather than the image's.
+		// here is that the sample count follows the mask's shape rather than the image's.
 		const whole = detectFold(alignmentOf(MIRRORED));
 		const narrowed = detectFold({
 			...alignmentOf(MIRRORED),
@@ -234,10 +264,12 @@ describe('the fold check', () => {
 		expect(concave?.sampleCount).toBeLessThan(whole?.sampleCount ?? 0);
 	});
 
-	// The fold check takes no view on whether anything is being drawn. It is called from the same
-	// place whether the overlay is on or off, which is what ADR-0013's "computed continuously and
-	// independent of the overlay" means in code: there is no overlay argument to pass.
-	it('takes no argument about the overlay, because it does not depend on one', () => {
-		expect(detectFold.length).toBe(1);
-	});
+	// ADR-0013's "the fold check runs continuously and warns independently of the overlay" is not
+	// asserted here, on purpose. There was a test that did `expect(detectFold.length).toBe(1)`, and it
+	// was wrong twice over: SPEC's Testing Decisions and CONTRIBUTING both rule out assertions on
+	// module structure, and it could not fail anyway — a second parameter with a default value leaves
+	// the arity at 1. The property is observable only where an overlay exists to be off, so it is
+	// asserted where it is observable: `editor-alignment-refinement.e2e.ts`, "appears for a mirrored
+	// pair set under an affine transformation, with the overlay off", which reads the *renderer's*
+	// `distortionMeasure` as `undefined` in the same breath as the visible warning.
 });
