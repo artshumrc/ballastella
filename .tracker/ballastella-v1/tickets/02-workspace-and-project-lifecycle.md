@@ -270,3 +270,15 @@ behaviour is broken. Each was verified red by breaking the behaviour deliberatel
   sweep before totalling, and whether a directory holding *only* an abandoned write (a first write
   interrupted by a crash, so there is no `project.json` and the hub cannot list it) needs surfacing
   at all.
+- **Typing immediately after a Project opens can still be lost, in a narrower window.** `open()` is
+  driven by an effect over the URL, which can run more than once for one navigation; the naive
+  version blanked `openProject` and re-read it each time, so a keystroke landing in that window was
+  dropped in silence — `typeProjectName` saw no open Project, returned, and the field snapped back
+  to the name on disk. Found while making the `pagehide` e2e non-vacuous, not by the review. `open()`
+  is now idempotent for the Project it is already showing and discards a read that resolves after a
+  later `open`, which closes the observed case. What is left is the first read of a Project the
+  session has never shown: if the user types before it resolves, the keystroke still goes nowhere.
+  Fixing that properly means either disabling the field until the document is in memory or holding
+  the keystrokes and replaying them — a UI decision, and the field is a placeholder for the real
+  editing surfaces of tickets 05–09, so it should be decided when there is something real to type
+  into.
