@@ -72,7 +72,7 @@ export class DirectoryHandleStore extends TempFileWriteStore {
 			// `abort` is what discards the swap file. Skipping it in a real folder (ticket 12) leaves
 			// a `.crswap` sibling the user can see and would have to tidy up by hand.
 			await writable.abort().catch(() => undefined);
-			throw cause;
+			throw describeWriteFailure(cause, path);
 		}
 	}
 
@@ -203,3 +203,31 @@ async function isEmpty(directory: FileSystemDirectoryHandle): Promise<boolean> {
 
 const isNotFound = (cause: unknown): boolean =>
 	cause instanceof DOMException && cause.name === 'NotFoundError';
+
+/**
+ * A failed write, described for a scholar rather than passed through as browser text.
+ *
+ * `createWritable()` on a file in a *real* folder takes an exclusive lock, so it raises
+ * `NoModificationAllowedError` when something else on the machine is holding that file: a Dropbox or
+ * iCloud daemon syncing it, an editor with it open, antivirus scanning it. That is **the
+ * characteristic failure of SPEC story 2** — pointing a Workspace at a synced folder — and OPFS
+ * cannot produce it at all, so it is a state no test in this repository can reach: every handle an
+ * automated browser can obtain comes from `navigator.storage.getDirectory()`.
+ *
+ * Undescribed, the raw message reached `saveError` verbatim, where "NoModificationAllowedError: The
+ * requested file could not be written to" is indistinguishable from a full disk and suggests nothing.
+ * Retrying is the whole remedy and it usually works within seconds, which is exactly what the user
+ * cannot guess. Anything else is passed through untouched.
+ */
+function describeWriteFailure(cause: unknown, path: StorePath): unknown {
+	if (!(cause instanceof DOMException) || cause.name !== 'NoModificationAllowedError') return cause;
+	const error = new Error(
+		`Something else on this computer is holding “${path}” open, so it could not be saved — ` +
+			`usually a sync service such as Dropbox or iCloud, an editor with the file open, or ` +
+			`antivirus scanning it. Your work has not been lost. This normally clears within a few ` +
+			`seconds; make another change to try again.`
+	);
+	error.name = 'FileLockedError';
+	error.cause = cause;
+	return error;
+}

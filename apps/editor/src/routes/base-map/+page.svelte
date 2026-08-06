@@ -6,41 +6,34 @@
 	import BaseMapPane from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
-	import { EditorSession } from '$lib/editor-session.svelte.js';
+	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
+	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 	import { theme, startTheme } from '$lib/theme.svelte';
 
 	/**
 	 * The Base Map pane over one Project.
 	 *
 	 * A Project is addressed by query parameter (ADR-0008) and is **opened, never created**: this
-	 * page reads `project.json` through {@link EditorSession} and writes the author's default back
-	 * through the same one. There is no second writer and no second in-memory copy of the
+	 * page reads `project.json` through the app's one `EditorSession` and writes the author's default
+	 * back through the same one. There is no second writer and no second in-memory copy of the
 	 * document, which is what keeps recording a Base Map from being able to drop a `name`, a
 	 * `layers` list, or a `formatVersion: 2` refusal — and ticket 07 puts this pane and the
 	 * Project view on one page, where a second writer would be a race inside one component.
+	 *
+	 * **And no second Workspace.** This page used to call `EditorSession.opfs()` while `/` went
+	 * through whichever backing the user had chosen, so a folder-Workspace author's Base Map choice
+	 * was written into the *OPFS* Project of the same name with a fresh `updatedAt`, the indicator
+	 * said "Saved", and the file in their folder was untouched (ticket 12). The Workspace now comes
+	 * from the root layout, which is the only place it is created.
 	 */
 	const openDirectory = $derived(page.url.searchParams.get('p'));
 
-	// The store is OPFS, which exists only in the browser, so the session is created after mount.
-	let session = $state<EditorSession | null>(null);
-
-	/**
-	 * Why this browser cannot hold a Workspace at all, if it cannot. Set in an effect rather than
-	 * at component scope because the answer is `false` during prerendering too, where there is no
-	 * `navigator.storage` and nothing has gone wrong.
-	 */
-	let unsupported = $state('');
+	const host = useWorkspaceHost();
+	const storage = $derived(host.storage);
+	const session = $derived(storage?.session ?? null);
 
 	$effect(() => {
 		startTheme();
-		// Read into a local rather than back out of the state it just set: an effect that reads the
-		// `$state` it writes takes a dependency on itself.
-		const reason = EditorSession.unsupportedReason();
-		unsupported = reason;
-		if (reason) return;
-		const created = EditorSession.opfs();
-		session = created;
-		return created.installFlushOnHide();
 	});
 
 	$effect(() => {
@@ -101,12 +94,12 @@
 	</header>
 
 	<div class="relative grow">
-		{#if unsupported}
+		{#if host.unsupported}
 			<div role="alert" class="m-4 alert flex-col items-start alert-warning">
 				<h2 class="font-semibold">No storage for a Workspace</h2>
-				<p>{unsupported}</p>
+				<p>{host.unsupported}</p>
 			</div>
-		{:else if session === null}
+		{:else if storage === null || session === null}
 			<p class="p-4">Starting…</p>
 		{:else if openDirectory === null}
 			<div role="alert" class="m-4 alert flex-col items-start alert-info">
@@ -117,20 +110,13 @@
 				</p>
 				<a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a>
 			</div>
-		{:else if session.status === 'unreachable'}
-			<!-- ADR-0008: a normal state with a recovery, never an error boundary. -->
-			<div role="alert" class="m-4 alert flex-col items-start alert-warning">
-				<h2 class="font-semibold">Workspace not reachable</h2>
-				<p>
-					Your Workspace could not be opened, so this Project cannot be shown. Nothing has been lost
-					— it is still wherever it was.
-				</p>
-				{#if session.unreachableDetail}
-					<p class="text-sm opacity-80">The browser reported: {session.unreachableDetail}</p>
-				{/if}
-				<button class="btn btn-sm" onclick={() => session?.open(openDirectory)}
-					>Locate Workspace again</button
-				>
+		{:else if session.status === 'unreachable' || storage.awaitingFolder}
+			<!-- ADR-0008: both of these are normal states with recoveries, never error boundaries — and
+			     "the folder is remembered but not open yet" is one this route reaches by being
+			     bookmarked, where it used to read as "Project not found". -->
+			<div class="m-4">
+				<WorkspaceRecovery {storage} />
+				<p class="mt-6"><a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a></p>
 			</div>
 		{:else if session.projectProblem}
 			<div role="alert" class="m-4 alert flex-col items-start alert-warning">

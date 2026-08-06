@@ -65,6 +65,23 @@ Creating an Alignment (ticket 07) now produces a `kind: 'map'` Layer. `kind: 'an
 - [ ] Reorder, rename, and toggle leave `alignments/*.json` and `annotations/*.geojson` byte-identical
 - [ ] Adding a hypothetical third `kind` to the union does not require changes outside the modules that render or edit Layers — demonstrated by a test fixture carrying an unknown kind, which is ignored gracefully rather than throwing
 - [ ] Every Layer control is reachable and operable by keyboard, and the list's structure and order are announced to assistive technology
+- [ ] `assertReferencesPresent` in `packages/core/src/transfer/import-project-zip.ts` follows the Layer → Alignment → image-service link, so a zip whose map Layer points at an image directory that was never included is rejected naming it — see the note below
+
+Once this ticket gives the Layer union a type, a `kind: 'map'` Layer's `alignmentRef` names its
+Alignment and the Alignment names its image service. Ticket 13 validates a Project zip before writing
+any of it, and today its image check is **structural**: every `images/<id>/` in the archive must
+contain an `info.json`. That catches an incomplete pyramid but not the case that actually loses a
+reader's map — a Layer pointing at an image directory the zip does not carry at all.
+
+Ticket 13's own note first gave the reason for deferring this as "ticket 07 defines the shape", and
+that is only half true: **ADR-0009 and the IIIF Georeference Extension already fix that
+serialisation**, so the shape has been known all along. The real reason, and the thing to weigh when
+this is picked up, is that following the link means **parsing an untrusted Annotation during
+validation** — a zip is a file another person made, and the whole design property of
+`readProjectZip` is that it interprets almost nothing before deciding to accept the archive. So this
+is not a hole waiting on a type; it is a deliberate trade to revisit. The narrow version — read only
+the one field naming the image service, from a document already parsed by the Alignment reader, and
+treat any failure as a rejection rather than an exception — is the shape to aim at.
 
 ```bash
 pnpm --filter @ballastella/core test    # union narrowing, project.json-only mutation, unknown-kind tolerance

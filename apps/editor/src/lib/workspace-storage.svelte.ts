@@ -1,3 +1,5 @@
+import { getContext, setContext } from 'svelte';
+
 import {
 	FolderPermissionDeniedError,
 	OpfsProjectStore,
@@ -104,15 +106,35 @@ export class WorkspaceStorage {
 	 * Go back to browser-managed storage.
 	 *
 	 * The folder is untouched and every Project in it stays where it is; so does every Project in
-	 * OPFS, which is why trying the folder option and changing one's mind costs nothing. The
-	 * remembered handle is dropped, because continuing to offer a folder the user has just moved
-	 * away from is nagging — choosing it again brings it back in one gesture.
+	 * OPFS, which is why trying the folder option and changing one's mind costs nothing.
+	 *
+	 * **Whether the handle is dropped depends on which of two buttons this is.** Beside "Choose
+	 * Workspace folder…" it is a deliberate switch, and dropping it is right: continuing to offer a
+	 * folder the user has just moved away from is the nagging ticket 12 rules out, and choosing it
+	 * again brings it back in one gesture. Beside "Locate Workspace folder again", when the Workspace
+	 * cannot be reached, it is the escape hatch — a user whose external drive is unplugged clicking it
+	 * to keep working — and dropping the grant there costs them a trip back through the operating
+	 * system's dialog for a folder they never gave up. Same button, two meanings, told apart by
+	 * whether the Workspace they are leaving was reachable.
 	 */
 	async useBrowserStorage(): Promise<void> {
 		this.problem = '';
-		await forgetWorkspaceFolder().catch(() => undefined);
-		this.reopenable = null;
+		if (this.session.status !== 'unreachable') {
+			await forgetWorkspaceFolder().catch(() => undefined);
+			this.reopenable = null;
+		}
 		await this.#adopt(OpfsProjectStore.open(), 'browser', '');
+	}
+
+	/**
+	 * Whether a folder from a previous visit is remembered but not open right now.
+	 *
+	 * The state a bookmarked `?p=` lands in: the Project is in the folder, the folder needs a gesture
+	 * to reopen, and browser storage does not have that Project. Said rather than silently treated as
+	 * "no such Project", and said on every route rather than only where {@link StorageChoice} is.
+	 */
+	get awaitingFolder(): boolean {
+		return this.backing === 'browser' && this.reopenable !== null;
 	}
 
 	async #adopt(store: ProjectStore, backing: WorkspaceBacking, folderName: string): Promise<void> {
@@ -132,7 +154,73 @@ export class WorkspaceStorage {
 		// Listing is left to the effect over the URL that opens the Workspace, so a swap and a
 		// navigation cannot each trigger their own walk of a Workspace with tens of thousands of
 		// tile files in it.
+		//
+		// The sweep, however, belongs here. A write interrupted between its two steps leaves a file
+		// nothing else can reach — `list` hides it, `delete` refuses it — and
+		// `reclaimAbandonedWrites` had exactly one caller in the app: deleting a Project. So a laptop
+		// that died mid-autosave left a dotfile in `~/Dropbox/maps/amsterdam-1625/` that `git add -A`
+		// commits and Dropbox syncs, and nothing removed it unless that Project was deleted outright.
+		// Adopting a Workspace is the one moment a full sweep is both cheap and expected: it costs the
+		// same walk the listing that immediately follows it already does, and the user is watching a
+		// Workspace open rather than waiting on an edit.
+		//
+		// Best-effort and swallowed. A Workspace that cannot be swept is either unreachable — which the
+		// listing is about to say properly — or holding a file it will not give up, and neither is a
+		// reason to refuse to open it.
+		await store.reclaimAbandonedWrites('').catch(() => undefined);
 	}
+}
+
+const WORKSPACE_HOST = Symbol('ballastella.workspaceHost');
+
+/**
+ * The app's one Workspace, held where every route can read it.
+ *
+ * The whole reason this exists: `/base-map/` used to call `EditorSession.opfs()` while `/` went
+ * through {@link WorkspaceStorage}, and with nothing shared between them the user's choice of
+ * backing did not cross the route boundary. A folder-Workspace user picking a Base Map wrote the
+ * *OPFS* Project of the same name — a state the folder suite deliberately creates — with a fresh
+ * `updatedAt`, the indicator said "Saved", and the file in their folder was untouched. Where there
+ * was no OPFS namesake the feature was simply absent. Ticket 07 puts that pane on the Project page,
+ * which makes it the default path rather than a corner.
+ *
+ * Provided by the root layout, which mounts once for the whole app, so a client-side navigation
+ * carries the live session — a resumed folder included — rather than resolving the backing again.
+ */
+export class WorkspaceHost {
+	/** `null` until the browser-only construction in {@link begin} has run. */
+	storage = $state<WorkspaceStorage | null>(null);
+	/**
+	 * Why this browser cannot hold a Workspace at all, or `''` when it can.
+	 *
+	 * Answered once here rather than per route: it was duplicated, and the duplicate is how the two
+	 * routes came to disagree about the Workspace in the first place.
+	 */
+	unsupported = $state('');
+
+	/** Construct the Workspace. Browser only, so call it from an effect. Returns its teardown. */
+	begin(): (() => void) | undefined {
+		// Read into a local rather than back out of the state it just set: an effect that reads the
+		// `$state` it writes takes a dependency on itself.
+		const reason = EditorSession.unsupportedReason();
+		this.unsupported = reason;
+		if (reason) return undefined;
+		const storage = new WorkspaceStorage();
+		this.storage = storage;
+		return storage.start();
+	}
+}
+
+/** Called by the root layout, once. */
+export function provideWorkspaceHost(): WorkspaceHost {
+	const host = new WorkspaceHost();
+	setContext(WORKSPACE_HOST, host);
+	return host;
+}
+
+/** The Workspace the root layout provided. Every route reads it; none creates one. */
+export function useWorkspaceHost(): WorkspaceHost {
+	return getContext<WorkspaceHost>(WORKSPACE_HOST);
 }
 
 /** A folder that would not open, described for a reader rather than for a log. */

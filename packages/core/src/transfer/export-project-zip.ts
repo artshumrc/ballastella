@@ -25,6 +25,39 @@ const ZIP_ENTRY_MTIME = new Date(1980, 0, 2, 12, 0, 0, 0);
 /** Extensions whose bytes are already compressed, so deflating them only burns CPU. */
 const ALREADY_COMPRESSED = /\.(jpe?g|png|webp|avif|gif|zip|pmtiles|woff2?)$/i;
 
+/**
+ * The most files one archive can hold, and a hard ceiling rather than a guideline.
+ *
+ * A zip counts its entries in a **sixteen-bit field**. Going past it requires the zip64 records
+ * `fflate`'s writer does not emit, and the failure is silent in the worst way: exporting 70,000 files
+ * produces an archive whose index claims `70000 & 0xffff` = 4,464 of them, and unzipping it returns
+ * 4,464 files with no error from fflate or from anything else. The user has a zip that opens, that
+ * looks plausible, and that is missing ninety-four per cent of their pyramid — on the only way out of
+ * a browser they cannot see into (ADR-0001) and on the path a librarian deposits (SPEC story 94).
+ *
+ * SPEC puts "tens of thousands of files" on a single 2 GB pyramid, so a Project with a few large
+ * archival scans reaches this without being pathological. Refusing legibly is the only honest answer
+ * until the archive can be written as zip64; a Project this large still gets out through ticket 12's
+ * folder Workspace, which is a real directory the user can copy.
+ */
+export const MAX_ZIP_ENTRIES = 65535;
+
+/** Rejected when a Project holds more files than one zip archive can index. */
+export class ProjectTooLargeToZipError extends Error {
+	readonly totalFiles: number;
+
+	constructor(directory: string, totalFiles: number) {
+		super(
+			`“${directory}” holds ${totalFiles} files, and a single zip cannot index more than ` +
+				`${MAX_ZIP_ENTRIES}. It has not been exported, because an archive written past that ` +
+				`limit would silently contain only a fraction of the Project. Move this Workspace to a ` +
+				`folder on your computer, where the Project is already an ordinary directory you can copy.`
+		);
+		this.name = 'ProjectTooLargeToZipError';
+		this.totalFiles = totalFiles;
+	}
+}
+
 export interface ExportProjectZipOptions {
 	readonly onProgress?: TransferProgressListener;
 	/**
@@ -62,6 +95,7 @@ export interface ProjectExport {
  * never parsed (ADR-0010).
  *
  * @throws PathNotFoundError when there is no Project in `directory`
+ * @throws ProjectTooLargeToZipError when the Project has more files than one zip can index
  */
 export async function exportProjectZip(
 	store: ProjectStore,
@@ -77,6 +111,9 @@ export async function exportProjectZip(
 
 	if (!paths.includes(PROJECT_FILE_NAME)) {
 		throw new PathNotFoundError(projectFilePath(directory));
+	}
+	if (paths.length > MAX_ZIP_ENTRIES) {
+		throw new ProjectTooLargeToZipError(directory, paths.length);
 	}
 
 	const sizes = await Promise.all(paths.map((relative) => store.size(prefix + relative)));
@@ -164,7 +201,7 @@ function zipStream(
 function zipEntry(relative: string): ZipPassThrough | ZipDeflate {
 	// Tiles are JPEG or PNG and a mirrored pyramid is nearly all tiles: deflating them costs real
 	// seconds per hundred megabytes and saves close to nothing. `project.json`, `info.json`,
-	// manifests, Georeference Annotations, and GeoJSON are text, where it saves most of the file.
+	// manifests, Alignments, and GeoJSON are text, where it saves most of the file.
 	const entry = ALREADY_COMPRESSED.test(relative)
 		? new ZipPassThrough(relative)
 		: new ZipDeflate(relative, { level: 6 });

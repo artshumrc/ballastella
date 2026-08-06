@@ -132,6 +132,7 @@ export async function rememberedFolderName(): Promise<string | null> {
  * choosing it again brings them back.
  */
 export async function forgetWorkspaceFolder(): Promise<void> {
+	remembered = null;
 	const database = await openDatabase();
 	if (!database) return;
 	try {
@@ -186,6 +187,7 @@ const OBJECT_STORE = 'workspace';
 const FOLDER_KEY = 'folder';
 
 async function rememberFolder(folder: FileSystemDirectoryHandle): Promise<void> {
+	remembered = folder;
 	const database = await openDatabase();
 	if (!database) return;
 	try {
@@ -195,14 +197,31 @@ async function rememberFolder(folder: FileSystemDirectoryHandle): Promise<void> 
 	}
 }
 
+/**
+ * The remembered handle, held once it has been read.
+ *
+ * Not a cache for speed — it is a cache for the **transient activation budget**.
+ * `requestPermission()` needs a user gesture, and a gesture's activation is transient: it is spent
+ * by time as well as by use. `reopenWorkspaceFolder` used to open IndexedDB, wait for a transaction,
+ * and *then* ask for permission, putting a disk round trip between the user's click and the one call
+ * that needs to be close to it. The handle is already fetched and discarded on load by
+ * `rememberedFolderName`, which is safe there because reading IndexedDB prompts for nothing, so
+ * keeping it makes the gesture path synchronous up to the permission call for free.
+ *
+ * `undefined` means "not looked yet"; `null` means "looked, and there is none".
+ */
+let remembered: FileSystemDirectoryHandle | null | undefined;
+
 async function recallFolder(): Promise<FileSystemDirectoryHandle | null> {
+	if (remembered !== undefined) return remembered;
 	const database = await openDatabase();
 	if (!database) return null;
 	try {
 		const stored = await transact(database, 'readonly', (store) => store.get(FOLDER_KEY));
 		// A handle is what we put there, but IndexedDB is user-writable storage and a stale entry
 		// from a future version of the app must not throw on load.
-		return stored instanceof FileSystemDirectoryHandle ? stored : null;
+		remembered = stored instanceof FileSystemDirectoryHandle ? stored : null;
+		return remembered;
 	} finally {
 		database.close();
 	}

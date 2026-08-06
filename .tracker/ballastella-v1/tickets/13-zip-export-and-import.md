@@ -114,13 +114,19 @@ image directories". The first two are read straight off each Layer — the epic 
 SPEC's Layer union and in ticket 09 — structurally rather than through a type, so the check works
 on today's `layers: unknown[]` and keeps working when 09 lands.
 
-**Image directories have no such key.** A map Layer reaches its image *through* its Georeference
-Annotation, whose shape ticket 07 defines and which does not exist yet. So the check implemented
-is the one that is determinable now: every `images/<id>/` in the archive must contain its
-`info.json`, without which the pyramid is a heap of tiles no IIIF client can open (ADR-0006's
-layout). **Ticket 07 or 09 should extend `assertReferencesPresent` to follow the Layer → Alignment
-→ image-service link**, which is what would catch a zip whose Layer points at an image directory
-that was never included at all.
+**Image directories have no such key.** A map Layer reaches its image *through* its Alignment. So the
+check implemented is the one that is determinable now: every `images/<id>/` in the archive must
+contain its `info.json`, without which the pyramid is a heap of tiles no IIIF client can open
+(ADR-0006's layout).
+
+**Extending `assertReferencesPresent` to follow the Layer → Alignment → image-service link is now
+item 12 on ticket 09's checklist**, where it will not be lost. The reason for the deferral recorded
+here first — "ticket 07 defines the shape" — was only half true, and the correction matters because
+it changes what the follow-up costs: ADR-0009 and the IIIF Georeference Extension already fix that
+serialisation, so the shape is known. The real reason is that following the link means **parsing an
+untrusted Annotation during validation**, which puts a parser on the path whose whole design property
+is that it inflates almost nothing and interprets nothing before it has decided to accept the
+archive. That is a decision, not a gap waiting on a type.
 
 ### 3. "Renders inert" is asserted as far as this ticket can reach
 
@@ -147,7 +153,16 @@ ticket 12's File System Access work rather than as an untested branch here.
 - Every zip entry carries a **fixed 1980 timestamp**, so an export is byte-reproducible and a
   round trip can be asserted as producing the *identical archive* rather than an equivalent one.
   It also refuses to imply that a zip carries useful times, which is the reasoning behind
-  `updatedAt` living inside `project.json`.
+  `updatedAt` living inside `project.json`. That byte-identity assertion additionally depends on
+  fflate's deflate producing the same output for the same input, which nothing promises: `fflate` is
+  `^0.8.3` in the catalog and CONTRIBUTING pins only `@allmaps/*` exactly, so **a routine fflate bump
+  can fail that one line for a reason that is not a regression here**. Said in a comment on the
+  assertion itself, next to the weaker assertion above it that is the one the ticket asks for.
+- `saveFile` revokes the download's object URL on a **macrotask**, not in the same task as
+  `link.click()`. Chromium takes its reference synchronously, so an immediate revoke is safe there
+  and Chromium is the only browser this repository's e2e runs — but Safari has historically cancelled
+  a download revoked before it began reading, which made an immediate revoke a bet placed in exactly
+  the browsers this path exists for.
 - `Workspace.importProject` writes the imported bytes verbatim and is **the one method there that
   does not stamp `updatedAt`** — importing is not editing. It writes `project.json` **last**, so
   an interrupted import leaves orphaned files rather than a Project that lists on the hub and
@@ -155,6 +170,50 @@ ticket 12's File System Access work rather than as an untested branch here.
 - Import is **not** streaming: the compressed archive is held whole and inflated in bounded
   batches (8 MB / 128 entries). The ticket asks only that *export* stream, and validating the
   whole archive before writing any of it needs random access to it. Peak memory is the compressed
-  archive plus one batch, not compressed plus fully inflated.
+  archive plus one batch, not compressed plus fully inflated — and that claim is now true for a
+  hostile archive as well as an honest one, because the batch bound was previously computed
+  entirely from fields the archive declares about itself.
+- **Untrusted input: what the archive is allowed to claim.** Every number in a zip is a claim, and
+  three of them are checked before anything is written (`PROJECT_ZIP_LIMITS`): total declared
+  uncompressed bytes (4 GB), per-entry declared bytes (256 MB), and entry count. Deflate reaches
+  nearly 1000:1 on runs of zeros, so a ten-megabyte archive can declare ten gigabytes; and fflate
+  builds each entry's output buffer *from that entry's declared size*, so a forty-kilobyte archive
+  can ask the browser for four gigabytes. On OPFS the quota eventually throws; on ticket 12's folder
+  backend there is no quota at all. The bounds are injectable so the refusals are assertable without
+  building a four-gigabyte archive.
+- **CRC-32 is verified, per batch, and a failure rolls the whole import back.** fflate never reads
+  that field and neither did we, and the declared uncompressed size was trusted as the output
+  buffer — which fflate does not grow, because the caller supplied it, so writes past its end are a
+  silent no-op and the result is clamped to exactly the declared length. An archive claiming a
+  5,000-byte file is 100 bytes long therefore yielded 100 bytes with no error, and **a length check
+  cannot catch that** because the length is what was declared. It matters most for the part of a
+  Project that is not deflated at all: tiles are JPEG, so they are stored, and a stored entry has no
+  deflate stream whose corruption could raise an error. Verifying per batch rather than inflating
+  the archive twice is the recorded decision — inflating twice doubles the slowest part of a
+  several-hundred-megabyte import and defeats the memory bound above — and it is why
+  `Workspace.importProject` rolls back. The two are one decision: verify late, and undo.
+
+### 5. Two known ceilings, both about size, both recorded rather than solved
+
+**Export refuses a Project of more than 65,535 files.** A zip counts its entries in a sixteen-bit
+field, and going past it needs the zip64 records fflate's *writer* does not emit. Measured: exporting
+70,000 entries produced an archive whose index claimed `70000 & 0xffff` = 4,464 of them, and every
+unzipper — fflate included — read it back as 4,464 files with no error. A plausible-looking zip
+missing 94% of a pyramid, on the only way out of a browser the user cannot see into and on the
+deposit path (story 94). SPEC puts "tens of thousands of files" on a single 2 GB pyramid, so a Project
+with a few large archival scans reaches this. A legible refusal, naming ticket 12's folder Workspace
+as the way out, is the honest answer; **the fix is zip64 in the writer**, which means either fflate
+gaining it or writing the central directory here.
+
+**Import holds the whole compressed archive in the JS heap** (`editor-session.svelte.ts`
+`prepareImport` reads `file.arrayBuffer()`), so a ~400 MB pyramid export cannot be re-imported on an
+iPad — the device ADR-0001 and this ticket name as the *reason* this path exists. Export was streamed
+for exactly this size; import cannot take it back. Not a criterion miss — the ticket asks only that
+export stream, and validating an archive before writing any of it needs random access to it — but a
+real ceiling. The shape of the fix: `File.slice()` gives random access to the picked file without
+ever reading it whole, so the central directory can be read from the tail and each entry's bytes
+sliced on demand; or, if validation genuinely needs a settled copy, write the archive to a quarantine
+directory in the store and move the Project's files out of it once accepted. Both are more than this
+ticket asked for and neither is speculative.
 - The per-Project row now reads Rename · Duplicate · Export · Delete, so
   `e2e/editor-workspace.e2e.ts`'s keyboard-reach loop gained `/^Export/`.

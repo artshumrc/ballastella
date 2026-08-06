@@ -288,6 +288,29 @@ export function describeProjectStore(
 				await expect(store.write(abandoned, first)).rejects.toThrow(InvalidPathError);
 				await expect(store.delete(abandoned)).rejects.toThrow(InvalidPathError);
 			});
+
+			it('treats the swap file an implementation writes beside a temporary one as litter too', async () => {
+				// Chromium's `createWritable()` creates `<name>.crswap` next to the file it is writing,
+				// so a crash during the *first* step of an atomic write leaves
+				// `<name>.ballastella-tmp.crswap` — which does not end in the reserved suffix. Left
+				// outside the machinery it was invisible to `reclaimAbandonedWrites`, which exists for
+				// exactly this, while `list` reported it **as project data**: into the size totals tickets
+				// 15 and 16 warn from, into a zip on export, and on into a colleague's Workspace.
+				//
+				// Planted here rather than provoked, because only one backend writes one and every
+				// backend owes the same answer about it. The exception path is asserted for real in
+				// `e2e/editor-folder-workspace.e2e.ts`; this is the crash path, which nothing can stage.
+				const swap = `${abandoned}.crswap`;
+				await store.write('p/project.json', first);
+				await subject.plantAbandonedWrite(swap);
+
+				expect(await store.list('')).toEqual(['p/project.json']);
+				await expect(store.write(swap, first)).rejects.toThrow(InvalidPathError);
+
+				await store.reclaimAbandonedWrites('p/');
+
+				expect(await subject.everyStoredPath()).toEqual(['p/project.json']);
+			});
 		});
 
 		describe('paths', () => {
