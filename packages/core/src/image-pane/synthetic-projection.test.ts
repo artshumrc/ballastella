@@ -152,10 +152,17 @@ describe('createSyntheticProjection', () => {
 		}
 	});
 
-	it('round-trips a dense grid, at pyramid sizes well past the fixture', () => {
-		// The documented tolerance has to hold for a real archival scan, not only for a
-		// 1200-pixel fixture, because the error scales with the window. Measured maxima are
-		// logged so the actual number is visible in CI output rather than only the headroom.
+	it('round-trips within the tolerance at every window size the pane will accept', () => {
+		// The tolerance has to hold for a real archival scan, not only for a 1200-pixel fixture,
+		// because the error is proportional to the window — see `ROUND_TRIP_TOLERANCE_PX`.
+		//
+		// Sampling matters here, and the obvious scheme hides the effect. A grid at
+		// `width * i / steps` lands on dyadic rationals, and `x / windowSize * WINDOW_FRACTION`
+		// is then an exact power-of-two scaling, so `WINDOW_ORIGIN + t` comes out exact and the
+		// one rounding this whole tolerance is about never happens. That is how the earlier
+		// version of this test logged Δy 0 for the 60000×24000 pyramid whose true worst case is
+		// 1.5e-8 — harmless for the assertion, misleading in the CI log the test exists to print.
+		// `sampleFraction` below is deliberately not a dyadic rational.
 		const pyramids = [
 			{ label: 'fixture, 1200×851, 256px tiles, coarsest scale factor 8', ...fixture },
 			{
@@ -173,19 +180,34 @@ describe('createSyntheticProjection', () => {
 				tileWidth: 512,
 				tileHeight: 512,
 				maxScaleFactor: 128
+			},
+			{
+				// The deepest pyramid `createSyntheticProjection` will accept at all: tile zoom 25,
+				// a window of 2**22 image pixels. This is where the tolerance is tightest.
+				label: 'the ceiling, 4194304×4194304, 512px tiles, coarsest scale factor 8192',
+				width: 4_194_304,
+				height: 4_194_304,
+				tileWidth: 512,
+				tileHeight: 512,
+				maxScaleFactor: 8192
 			}
 		];
 
-		const steps = 200;
+		const steps = 400;
+		const sampleFraction = (index: number) => ((index * 2_654_435_761) % 1_000_003) / 1_000_003;
 
 		for (const pyramid of pyramids) {
-			const { resourceToSynthetic, syntheticToResource } = createSyntheticProjection(pyramid);
+			const { resourceToSynthetic, syntheticToResource, windowSize } =
+				createSyntheticProjection(pyramid);
 			let worstX = 0;
 			let worstY = 0;
 
 			for (let i = 0; i <= steps; i++) {
 				for (let j = 0; j <= steps; j++) {
-					const point = { x: (pyramid.width * i) / steps, y: (pyramid.height * j) / steps };
+					const point = {
+						x: pyramid.width * sampleFraction(i),
+						y: pyramid.height * sampleFraction(j + steps + 1)
+					};
 					const returned = syntheticToResource(resourceToSynthetic(point));
 
 					worstX = Math.max(worstX, Math.abs(returned.x - point.x));
@@ -193,14 +215,52 @@ describe('createSyntheticProjection', () => {
 				}
 			}
 
+			const predicted = windowSize * 2 ** -42;
+
 			console.log(
 				`${pyramid.label}: worst round-trip error ` +
-					`Δx ${worstX.toExponential(2)}px, Δy ${worstY.toExponential(2)}px`
+					`Δx ${worstX.toExponential(2)}px, Δy ${worstY.toExponential(2)}px ` +
+					`(predicted ${predicted.toExponential(2)}px, ` +
+					`${(ROUND_TRIP_TOLERANCE_PX / Math.max(worstX, worstY)).toFixed(1)}× headroom)`
 			);
 
 			expect(worstX).toBeLessThan(ROUND_TRIP_TOLERANCE_PX);
 			expect(worstY).toBeLessThan(ROUND_TRIP_TOLERANCE_PX);
+			// The scaling law itself, not merely the bound: the error is one rounding of a
+			// Mercator coordinate near 0.5, so it is exactly `windowSize * 2 ** -42` and neither
+			// grows nor shrinks for any other reason. Pinning it is what makes the tolerance's
+			// headroom a statement about all supported pyramids rather than about these four.
+			expect(Math.max(worstX, worstY)).toBeLessThanOrEqual(predicted);
+			expect(Math.max(worstX, worstY)).toBeGreaterThan(predicted / 2);
 		}
+	});
+
+	it('refuses a window so large that the documented tolerance would not hold', () => {
+		// 1024-pixel tiles are legal IIIF, and at scale factor 8192 they sit at tile zoom 25 —
+		// inside MapLibre's addressing limit — but span a window of 2**23 image pixels, where
+		// `windowSize * 2 ** -42` is 1.9e-6 and the documented tolerance is 1e-6. Refused rather
+		// than silently exceeded, because `ROUND_TRIP_TOLERANCE_PX` is what every caller is
+		// promised and the overshoot would be invisible.
+		expect(() =>
+			createSyntheticProjection({
+				width: 1,
+				height: 1,
+				tileWidth: 1024,
+				tileHeight: 1024,
+				maxScaleFactor: 8192
+			})
+		).toThrow(/tolerance/i);
+
+		// Half that window is the largest that holds, and it must be accepted.
+		const largest = createSyntheticProjection({
+			width: 1,
+			height: 1,
+			tileWidth: 512,
+			tileHeight: 512,
+			maxScaleFactor: 8192
+		});
+		expect(largest.windowSize).toBe(2 ** 22);
+		expect(largest.windowSize * 2 ** -42).toBeLessThan(ROUND_TRIP_TOLERANCE_PX);
 	});
 
 	it('does not accept a transposed width and height as equivalent', () => {

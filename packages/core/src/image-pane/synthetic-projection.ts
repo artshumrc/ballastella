@@ -147,15 +147,44 @@ const MAPLIBRE_MAX_TILE_ZOOM = 25;
 /**
  * Documented round-trip tolerance, in image pixels.
  *
- * Measured over a dense grid: 4.5e-10 px worst case over the fixture pyramid, and 1.4e-8 px
- * over a 65 536-pixel window — the cost of inverting one logarithm and one exponential in
- * float64, which grows with the window because the information sits in the low bits of a
- * Mercator coordinate near 0.5. So this tolerance carries some seventy-fold headroom while
- * still being five orders of magnitude tighter than a pixel. A Control Point placed at full
- * resolution cannot move visibly when the user zooms out and back in: the stored value is
- * the lng/lat, and the conversion back is this exact.
+ * Five orders of magnitude tighter than a pixel, so a Control Point placed at full resolution
+ * cannot move visibly when the user zooms out and back in: the stored value is the lng/lat, and
+ * the conversion back is this exact.
+ *
+ * **The headroom is not a constant — it is a scaling law.** The error is proportional to the
+ * window, so quoting a single figure invites a later contributor to assume the margin they
+ * measured on a small pyramid is the margin everywhere. It is not:
+ *
+ * | window (image px)      | worst error | headroom |
+ * |------------------------|-------------|----------|
+ * | 2 048, this fixture    | 4.7e-10 px  | 2 100×   |
+ * | 65 536                 | 1.5e-8 px   | 67×      |
+ * | 131 072                | 3.0e-8 px   | 34×      |
+ * | 4 194 304, the ceiling | 9.5e-7 px   | 1.05×    |
+ *
+ * `roundTripErrorPx` below states the law, and `createSyntheticProjection` refuses any pyramid
+ * whose window would break it — so this tolerance is an invariant of every projection this
+ * module hands out, not a claim about the pyramids that happened to get measured.
+ *
+ * **Where the error comes from, since the obvious answer is wrong.** Not the transcendentals:
+ * Δx is the same size as Δy at every window, and x passes through no transcendental at all —
+ * `lngFromMercatorX` is `x * 360 - 180` and `mercatorXFromLng` is `(180 + lng) / 360`, and that
+ * pair round-trips these values exactly. Measured by isolating each step: the *entire* error is
+ * the single addition `WINDOW_ORIGIN + t` in `resourceToSynthetic`. `t` is at most 2**-12, and
+ * adding it to 0.5 rounds it to the ulp of 0.5, discarding everything below 2**-53. That is
+ * `WINDOW_TILE_ZOOM` bits of `t`, which is the one place in this file where the choice of window
+ * zoom is load-bearing for *precision* rather than for grid alignment.
  */
 export const ROUND_TRIP_TOLERANCE_PX = 1e-6;
+
+/**
+ * Worst-case round-trip error, in image pixels, for a window of `windowSize` image pixels.
+ *
+ * Half an ulp of a float64 in [0.5, 1) is 2**-54 — the rounding of `WINDOW_ORIGIN + t` — and one
+ * Mercator unit is `windowSize * 2 ** WINDOW_TILE_ZOOM` image pixels. Exact, not a fit: every
+ * measurement in the table above is this expression to three significant figures.
+ */
+const roundTripErrorPx = (windowSize: number) => windowSize * 2 ** (WINDOW_TILE_ZOOM - 54);
 
 /** Fraction of the Mercator world spanned by the window, in each direction. */
 const WINDOW_FRACTION = 2 ** -WINDOW_TILE_ZOOM;
@@ -239,6 +268,16 @@ export function createSyntheticProjection(pyramid: PyramidGeometry): SyntheticPr
 	}
 
 	const windowSize = tileWidth * maxScaleFactor;
+
+	if (roundTripErrorPx(windowSize) > ROUND_TRIP_TOLERANCE_PX) {
+		throw new Error(
+			`A window of ${windowSize} image pixels round-trips to no better than ` +
+				`${roundTripErrorPx(windowSize).toExponential(2)} image pixels, past the documented ` +
+				`tolerance of ${ROUND_TRIP_TOLERANCE_PX}. ${tileWidth}px tiles at scale factor ` +
+				`${maxScaleFactor} are past what float64 can carry through a Mercator coordinate near ` +
+				`0.5, and every caller of this projection is promised that tolerance.`
+		);
+	}
 
 	if (windowSize < width || windowSize < height) {
 		throw new Error(
