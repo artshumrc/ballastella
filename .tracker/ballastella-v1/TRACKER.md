@@ -24,15 +24,15 @@ Last updated: 2026-08-05
 | 02 | [02-workspace-and-project-lifecycle.md](./tickets/02-workspace-and-project-lifecycle.md) | Completed | 01 | *4*, *7*, 10, 11, 12, 73, 74, 75, 76, *77*, 97 |
 | 03 | [03-image-pane-synthetic-projection.md](./tickets/03-image-pane-synthetic-projection.md) | Completed | 01 | — (groundwork for 31) |
 | 04 | [04-base-map-pane-and-catalog.md](./tickets/04-base-map-pane-and-catalog.md) | Completed | 01 | 68, 69, *72*, *98*, 100, *101* |
-| 05 | [05-local-image-to-level-0-pyramid.md](./tickets/05-local-image-to-level-0-pyramid.md) | Not Started | 02 | 21, 22, 23 |
+| 05 | [05-local-image-to-level-0-pyramid.md](./tickets/05-local-image-to-level-0-pyramid.md) | In Progress | 02 | 21, 22, 23 |
 | 06 | [06-injection-layer-local-tiles-to-renderers.md](./tickets/06-injection-layer-local-tiles-to-renderers.md) | Not Started | 03, 05 | 31 |
 | 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | Not Started | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
 | 08 | [08-alignment-refinement.md](./tickets/08-alignment-refinement.md) | Not Started | 07 | 39, 40, 41, 42, 43, 44, 45, 46, 47 |
 | 09 | [09-layers.md](./tickets/09-layers.md) | Not Started | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
 | 10 | [10-annotations.md](./tickets/10-annotations.md) | Not Started | 09 | *55*, *56*, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, *94* |
 | 11 | [11-single-level-undo.md](./tickets/11-single-level-undo.md) | Not Started | 08, 10 | 38 |
-| 12 | [12-file-system-access-adapter.md](./tickets/12-file-system-access-adapter.md) | Not Started | 02 | 1, 2, 3, *4*, *7* |
-| 13 | [13-zip-export-and-import.md](./tickets/13-zip-export-and-import.md) | Not Started | 02 | 5, 13, 14, *56*, *87*, *93*, *94* |
+| 12 | [12-file-system-access-adapter.md](./tickets/12-file-system-access-adapter.md) | In Progress | 02 | 1, 2, 3, *4*, *7* |
+| 13 | [13-zip-export-and-import.md](./tickets/13-zip-export-and-import.md) | In Progress | 02 | 5, 13, 14, *56*, *87*, *93*, *94* |
 | 14 | [14-remote-iiif-ingest.md](./tickets/14-remote-iiif-ingest.md) | Not Started | 09 | 16, 17, 18, 19, 20, 24, 25, 26, 48 |
 | 15 | [15-mirroring-offline-copies.md](./tickets/15-mirroring-offline-copies.md) | Not Started | 05, 14 | *15*, 27, 28 |
 | 16 | [16-publish.md](./tickets/16-publish.md) | Not Started | 09, 10 | *15*, *29*, 78, 79, 80, 81, *82*, *87*, 88, 89, 90, 92, *93*, 99, *101* |
@@ -43,7 +43,7 @@ Stories **95 and 96** are deliberately absent from the table. Accessibility is a
 
 ## Open questions for a human
 
-Raised by the code reviews of tickets 02–04. Neither is a defect an implementer can decide away.
+Raised by the code reviews of tickets 02–04. None is a defect an implementer can decide away.
 
 1. **What is the canonical instance URL?** `BALLASTELLA_CANONICAL_URL` in `packages/core/src/project/project-file.ts` is currently `https://artshumrc.github.io/ballastella/`, derived from the git remote because nothing in the repo records one. ADR-0010 requires the format-refusal message to name a URL, and this is the one string a user reads at the moment their work is at risk. Two problems: it 404s unless Pages is enabled on that repo with no custom domain, and [ADR-0006](../../docs/adr/0006-relative-asset-paths.md) says we cannot know at build time whether a deployment lives at a subpath or a domain root — so a compile-time constant is wrong on every fork until hand-edited. Decide the value, or decide it must be deployment configuration with a guard like ADR-0020's catalog lint rule.
 
