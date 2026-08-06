@@ -8,19 +8,19 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: 07 is in progress, on the scope the upstream blocker leaves open (see open question 5). Tickets 12 and 13 are reviewed and remediated; ticket 05 is merged and green but is `Needs Human Validation or Intervention` — see open question 3.
+Current ticket: 08 is in progress. Tickets 01–07, 12, and 13 are merged; ticket 05 is green but is `Needs Human Validation or Intervention` (open question 3). Ticket 09 is also unblocked and could run beside 08.
 
-The tree runs **495 unit tests and 89 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
+The tree runs **543 unit tests and 104 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Six items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
+**Seven items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
 
 ### A note on how much to trust a green ticket
 
 Worth recording, because it has held on every ticket so far. Each implementing agent reported all acceptance criteria passing, and the code reviews then found substantive defects anyway — including data loss in tickets 02, 04, and 13, and **three of ticket 02's criteria passing vacuously** (delete the code under test and the tests stayed green). Remediation in turn refuted several reviewer claims with harder evidence, and twice found defects *neither* the implementer nor the reviewer had seen: the `open()` keystroke-dropping race in ticket 02, and fflate's 16-bit entry count in ticket 13. Reviews caught what implementers missed; remediation caught what reviewers got wrong. **Neither layer alone was sufficient on any ticket.** Treat "the agent says the criteria pass" as a weak signal, and prefer the mutation check — break the behaviour, confirm the test goes red — which is what caught the vacuous tests in every case.
 
-Last updated: 2026-08-05
+Last updated: 2026-08-06
 
 ## Ledger
 
@@ -34,8 +34,8 @@ Last updated: 2026-08-05
 | 04 | [04-base-map-pane-and-catalog.md](./tickets/04-base-map-pane-and-catalog.md) | Completed | 01 | 68, 69, *72*, *98*, 100, *101* |
 | 05 | [05-local-image-to-level-0-pyramid.md](./tickets/05-local-image-to-level-0-pyramid.md) | Needs Human Validation or Intervention | 02 | 21, 23, **22** |
 | 06 | [06-injection-layer-local-tiles-to-renderers.md](./tickets/06-injection-layer-local-tiles-to-renderers.md) | Completed | 03, 05 | 31 |
-| 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | In Progress | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
-| 08 | [08-alignment-refinement.md](./tickets/08-alignment-refinement.md) | Not Started | 07 | 39, 40, 41, 42, 43, 44, 45, 46, 47 |
+| 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | Completed | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
+| 08 | [08-alignment-refinement.md](./tickets/08-alignment-refinement.md) | In Progress | 07 | 39, 40, 41, 42, 43, 44, 45, 46, 47 |
 | 09 | [09-layers.md](./tickets/09-layers.md) | Not Started | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
 | 10 | [10-annotations.md](./tickets/10-annotations.md) | Not Started | 09 | *55*, *56*, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, *94* |
 | 11 | [11-single-level-undo.md](./tickets/11-single-level-undo.md) | Not Started | 08, 10 | 38 |
@@ -54,7 +54,7 @@ Stories **95 and 96** are deliberately absent from the table. Accessibility is a
 
 ## Open questions for a human
 
-Raised by the code reviews of tickets 02–04 and 12–13, and by tickets 05 and 06 in implementation. None is a defect an implementer can decide away.
+Raised by the code reviews of tickets 02–04 and 12–13, and by tickets 05, 06, and 07 in implementation. None is a defect an implementer can decide away.
 
 1. **What is the canonical instance URL?** `BALLASTELLA_CANONICAL_URL` in `packages/core/src/project/project-file.ts` is currently `https://artshumrc.github.io/ballastella/`, derived from the git remote because nothing in the repo records one. ADR-0010 requires the format-refusal message to name a URL, and this is the one string a user reads at the moment their work is at risk. Two problems: it 404s unless Pages is enabled on that repo with no custom domain, and [ADR-0006](../../docs/adr/0006-relative-asset-paths.md) says we cannot know at build time whether a deployment lives at a subpath or a domain root — so a compile-time constant is wrong on every fork until hand-edited. Decide the value, or decide it must be deployment configuration with a guard like ADR-0020's catalog lint rule.
 
@@ -87,6 +87,12 @@ Raised by the code reviews of tickets 02–04 and 12–13, and by tickets 05 and
    **What remains for a human is [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md): upstream the fix and delete our patch.** Until that lands, every `@allmaps/*` bump — already an ADR-0010 migration event — must re-verify the patch.
 
 6. **The two licence texts still do not ship** — now three, with LGPLv3. OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
+
+7. **[ADR-0013](../../docs/adr/0013-transformation-types.md) says to store the explicit `polynomial1`, and that string cannot be written.** Found by ticket 07 and asserted there, so nothing is broken — but the ADR now says something the code cannot do, and an ADR that contradicts the code is worse than one that is silent.
+
+   `@allmaps/annotation@1.0.0-beta.37`'s Zod enum has no `polynomial1` member, and its `.or()` fallback is unreachable dead code because `parseIfValid` always succeeds first. So `generateAnnotation` writes **no transformation at all**, and parsing a file that contains `polynomial1` returns `undefined`. Ticket 07 instead writes `{ type: 'polynomial', options: { order: 1 } }` through upstream's own `transformationTypeToTypeAndOrder`, which round-trips and reads back as exactly `polynomial1` — so the *behaviour* ADR-0013 wants holds, via a different serialisation than it names.
+
+   Reword the ADR to describe the `{ type, options.order }` form as the wire representation, or record why the literal is required and treat the upstream gap as a blocker. Do not leave the ADR reading as though the literal is what ships.
 
 ## Sequencing notes
 

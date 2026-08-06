@@ -48,6 +48,23 @@ correctly on the main thread. Only the worker path is affected, and `WebGL2Rende
 
 ## The trap: the obvious one-line fix does not work
 
+**Measured, in Chromium, against upstream's own worker rebuilt verbatim in a scratch directory
+(ticket 07):**
+
+| Attempt | Result |
+| --- | --- |
+| Unpatched | `DataCloneError` on the function |
+| `proxy(this.fetchFn)` alone | **`DataCloneError` on the `AbortSignal`** that upstream puts in `init` |
+| …and with the signal removed | `TypeError: Unserializable return value` — a `Response` is not cloneable |
+| Fetch on the main thread, hand the worker a `blob:` URL | Works |
+
+So the one-liner fails **twice** before it gets as far as the Response: `init.signal` is itself
+unclonable. Anyone proposing it should be shown this table.
+
+One more thing worth telling the maintainers, also measured: through a Comlink proxy
+`typeof response.ok === 'function'`, so `!response.ok` is *always* false and upstream's HTTP-error
+handling silently never fires. Any fix that keeps the Response behind a proxy inherits that.
+
 Wrapping it as `proxy(this.fetchFn)` looks right and fails differently. The worker does:
 
 ```js
@@ -64,7 +81,24 @@ be shown this.
 
 There is also no fix available to a *consumer*: marking the Response with `Comlink.proxy()` from
 outside would depend on symbol identity across two bundled copies of comlink, and would silently
-disable the `!response.ok` HTTP-error branch (a proxied `ok` is a Promise, which is truthy).
+disable the `!response.ok` HTTP-error branch as described above.
+
+**A second, independent upstream defect found by ticket 07, worth the same PR or its own.**
+`@allmaps/annotation@1.0.0-beta.37` carries the Resource Mask as an SVG `polygon points` string
+validated by a regex that accepts plain decimals only. `Number#toString` switches to exponential
+notation below 1e-6, so a vertex at e.g. `1.5e-7` image pixels serialises as `1.5e-7`, matches no
+branch of that regex, and makes the **entire Alignment unreadable** — not just that vertex. We work
+around it in our own code (`packages/core/src/alignment/georeference-annotation.ts` emits plain
+decimal notation with every significant digit kept), so no patch is needed, but upstream should
+either widen the regex or serialise defensively. Ticket 08 makes the mask editable, which is what
+makes this reachable in practice.
+
+**And a third, in `@allmaps/annotation`'s transformation types.** Its Zod enum has no `polynomial1`
+member and its `.or()` fallback is unreachable dead code, so `generateAnnotation` writes **no
+transformation at all** for it and parsing a file containing `polynomial1` returns `undefined`. We
+write `{ type: 'polynomial', options: { order: 1 } }` via upstream's own
+`transformationTypeToTypeAndOrder`, which round-trips and reads back as `polynomial1`. See open
+question 7 in the tracker — this one also needs an ADR-0013 wording decision on our side.
 
 ## What we did locally, and what upstream should probably do
 
