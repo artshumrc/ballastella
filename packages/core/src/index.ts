@@ -219,6 +219,7 @@ export {
 	ReferencedImageUnreadableError,
 	imageModeOf,
 	isReferenced,
+	listReferencedImages,
 	localCopySource,
 	parseReferencedImage,
 	referencedGeoreferencedMap,

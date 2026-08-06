@@ -143,6 +143,9 @@ importers:
       '@allmaps/maplibre':
         specifier: 'catalog:'
         version: 1.0.0-beta.43
+      '@allmaps/stdlib':
+        specifier: 'catalog:'
+        version: 1.0.0-beta.41
       '@ballastella/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -241,9 +244,6 @@ importers:
       '@allmaps/iiif-parser':
         specifier: 'catalog:'
         version: 1.0.0-beta.48
-      '@allmaps/stdlib':
-        specifier: 'catalog:'
-        version: 1.0.0-beta.41
       '@allmaps/transform':
         specifier: 'catalog:'
         version: 1.0.0-beta.52

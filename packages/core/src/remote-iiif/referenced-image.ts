@@ -238,6 +238,46 @@ export function parseReferencedImage(
 	});
 }
 
+/**
+ * Every referenced Historical Map in a Project, read from the records beside them.
+ *
+ * The mirror image of `listIngestedImages`, which looks for `info.json`. A referenced image has no
+ * `info.json` in the Project — its tiles and its description are both on somebody else's server —
+ * so the two lists are disjoint by construction and together they are the Project's Historical
+ * Maps. That is also why {@link mapLayerImageInfoPath} returns `null` for a referenced Layer and
+ * why ticket 13's import check is right not to look for one.
+ *
+ * A record that will not parse is **skipped rather than fatal**, and its id is returned separately:
+ * one unreadable `remote.json` must not stop the Project opening, but it must not vanish either —
+ * the caller has a Layer that names an image nothing can draw and has to be able to say so.
+ */
+export async function listReferencedImages(
+	store: {
+		list(prefix: string): Promise<readonly string[]> | readonly string[];
+		read(path: string): Promise<Uint8Array>;
+	},
+	projectDirectory: string
+): Promise<{ images: ReferencedImage[]; unreadable: { imageId: string; reason: string }[] }> {
+	const prefix = `${projectDirectory}/images/`;
+	const paths = await store.list(prefix);
+	const images: ReferencedImage[] = [];
+	const unreadable: { imageId: string; reason: string }[] = [];
+
+	for (const path of paths) {
+		if (!path.endsWith(`/${REFERENCED_IMAGE_FILE}`)) continue;
+		const imageId = path.slice(prefix.length, -`/${REFERENCED_IMAGE_FILE}`.length);
+		// A nested `images/<id>/…/remote.json` is not an image of this Project; only the top level is.
+		if (imageId === '' || imageId.includes('/')) continue;
+		try {
+			images.push(parseReferencedImage(await store.read(path), { imageId }));
+		} catch (cause) {
+			unreadable.push({ imageId, reason: message(cause) });
+		}
+	}
+
+	return { images, unreadable };
+}
+
 /** The source this record describes, for {@link tileBaseFor}. */
 export const sourceOf = (image: ReferencedImage): HistoricalMapSource => ({
 	imageMode: 'referenced',

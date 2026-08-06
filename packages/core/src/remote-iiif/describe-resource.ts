@@ -63,8 +63,23 @@ export type DescribedResource = {
 	readonly metadataDropped: number;
 	/** The `requiredStatement` — the attribution a library requires be displayed. */
 	readonly attribution: DescribedField | null;
-	/** The `rights` URI, verbatim. `''` when the document states none. */
+	/** The `rights` URI, verbatim, for display and for the record. `''` when none was stated. */
 	readonly rights: string;
+	/**
+	 * {@link rights} if and only if it is safe to put in an `href`, otherwise `''`.
+	 *
+	 * **Not the same field, and the difference is a real vulnerability.** `rights` is a string out of
+	 * a stranger's document, and Svelte does not sanitise `href`: a Manifest declaring
+	 * `"rights": "javascript:…"` would produce a link that runs script when a scholar clicks it to
+	 * read the licence. So the decision "may this be a link" is made here, beside the other
+	 * untrusted-input rules, rather than in a component where the next component would have to make
+	 * it again.
+	 *
+	 * `http` and `https` only. Every real rights statement is one of those — `creativecommons.org`,
+	 * `rightsstatements.org` — so nothing legitimate loses its link, and anything else is still shown
+	 * as text.
+	 */
+	readonly rightsLink: string;
 	readonly canvases: readonly DescribedCanvas[];
 	readonly items: readonly DescribedItem[];
 };
@@ -107,6 +122,7 @@ export function describeRemoteResource(
 		// off the document the parser kept. Read here rather than in the caller because "what the
 		// library said you may do with this" belongs with the rest of what the library said.
 		rights: readRights(source),
+		rightsLink: httpOnly(readRights(source)),
 		canvases: parsed.type === 'manifest' ? describeCanvases(parsed) : [],
 		items: parsed.type === 'collection' ? describeItems(parsed) : []
 	};
@@ -176,6 +192,22 @@ function readRights(source: unknown): string {
 		}
 	}
 	return '';
+}
+
+/**
+ * `url` if it is an `http`/`https` URL, otherwise `''`.
+ *
+ * The one place a string from a remote document becomes something a browser will navigate to. Kept
+ * separate from `remoteIiifUrl`, which throws and is about a resource this app is going to *fetch*;
+ * this is about a link a person clicks, where a refusal is a missing link and not an error.
+ */
+function httpOnly(url: string): string {
+	try {
+		const parsed = new URL(url);
+		return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? url : '';
+	} catch {
+		return '';
+	}
 }
 
 /**

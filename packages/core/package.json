@@ -14,7 +14,6 @@
 		"@allmaps/annotation": "catalog:",
 		"@allmaps/id": "catalog:",
 		"@allmaps/iiif-parser": "catalog:",
-		"@allmaps/stdlib": "catalog:",
 		"@allmaps/transform": "catalog:",
 		"@maplibre/maplibre-gl-style-spec": "catalog:",
 		"@protomaps/basemaps": "catalog:",

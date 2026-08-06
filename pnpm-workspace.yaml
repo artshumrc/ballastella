@@ -59,7 +59,14 @@ catalog:
   #
   # It reaches the network through the page's own `fetch` and takes no injection point, so the
   # ADR-0015 "off means no request" rule is enforced by not calling it — see
-  # `packages/core/src/remote-iiif/community-alignments.ts`.
+  # `packages/core/src/remote-iiif/community-alignments.ts`, which names the seam, and
+  # `EditorSession.fetchCommunityAnnotations`, which is the only call site.
+  #
+  # A dependency of `apps/editor` and **not** of `@ballastella/core`, for the same reason
+  # `wasm-vips` is: core names the seam and the app supplies the implementation. It pulls
+  # `lodash-es`, `@turf/rewind`, and `svg-parser` behind it, and ADR-0019 is explicit that
+  # tree-shaking is not a boundary — every published site ships the viewer bundle, and a reader
+  # never asks Allmaps anything.
   '@allmaps/stdlib': 1.0.0-beta.41
 
   # triiiceratops: Manifest and Collection browsing, canvas selection, and unwarped viewing
