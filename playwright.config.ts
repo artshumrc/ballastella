@@ -26,6 +26,15 @@ export default defineConfig({
 	testDir: './e2e',
 	testMatch: '**/*.e2e.ts',
 	forbidOnly: !!process.env.CI,
+	// Capped rather than left to default to one worker per core.
+	//
+	// Every worker drives a real WebGL context and the same origin's OPFS, and at the default (7
+	// here) the suite flaked in roughly one full run in three — a *different* test each time, never
+	// reproducible in isolation even at `--repeat-each=10 --workers=6`. That profile is contention,
+	// not a race in any one test. It matters because `retries` below makes CI green anyway, so a
+	// flaky suite is one that can absorb a genuine race without anyone noticing. Four costs about
+	// ten seconds of wall clock; raise it only with the flake rate measured over several full runs.
+	workers: 4,
 	retries: process.env.CI ? 1 : 0,
 	reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
 	use: { ...devices['Desktop Chrome'] },

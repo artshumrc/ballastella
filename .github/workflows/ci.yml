@@ -28,6 +28,13 @@ jobs:
       - name: Viewer dependency fence
         run: node scripts/check-viewer-deps.mjs
 
+      # `pnpm lint` runs this too; it is called out here because the thing it guards fails silently.
+      # Without the patch, warped rendering — the whole point of the application — renders blank with
+      # nothing in the console, and `@allmaps/render` arrives transitively so a bump of
+      # `@allmaps/maplibre` can move it underneath us.
+      - name: allmaps patch fence
+        run: node scripts/check-allmaps-patch.mjs
+
       - run: pnpm lint
 
       - run: pnpm check
