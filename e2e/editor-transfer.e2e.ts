@@ -176,6 +176,48 @@ test.describe('exporting a Project as a zip (SPEC story 5)', () => {
 		await expect(page.getByRole('status')).toHaveText(/Exported Amsterdam 1625: 4 files\./);
 	});
 
+	test('says so when an export fails, rather than blanking the status line', async ({ page }) => {
+		// Another tab deleting the Project, or a folder grant that lapsed. The failure was written to
+		// `transferError`, which was rendered *only* inside the import dialog — so the status region
+		// simply cleared and nothing appeared. On the path ADR-0001 makes the only way out of a browser
+		// the user cannot see into, that is indistinguishable from a click that did not register.
+		await seedProject(page, 'amsterdam-1625', projectFiles());
+		await page.reload();
+		// Listed before it is deleted, or the delete races the hub's first listing and the Export
+		// button this test is about is never rendered at all.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+
+		// Delete it underneath the open hub, the way a second tab would.
+		await page.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			await root.removeEntry('amsterdam-1625', { recursive: true });
+		});
+		await page.getByRole('button', { name: /^Export/ }).click();
+
+		const alert = page.getByRole('alert');
+		await expect(alert).toBeVisible();
+		await expect(alert).toContainText('project.json');
+	});
+
+	test('keeps the Export button focusable while an export runs (SPEC story 95)', async ({
+		page
+	}) => {
+		// `disabled` takes a pressed button out of the tab order, so focus fell to `<body>` for the
+		// length of the export and was never restored — leaving a keyboard user to tab in from the top
+		// of the page after every one.
+		await seedProject(page, 'amsterdam-1625', projectFiles());
+		await page.reload();
+
+		const download = page.waitForEvent('download');
+		const exportButton = page.getByRole('button', { name: /^Export/ });
+		await exportButton.focus();
+		await page.keyboard.press('Enter');
+		await download;
+
+		await expect(page.getByRole('status')).toHaveText(/Exported/);
+		await expect(exportButton).toBeFocused();
+	});
+
 	test('exports a Project this build refuses to open (ADR-0010)', async ({ page }) => {
 		// The Project a user most needs out of a browser they cannot see into is the one that will not
 		// open, so Export is deliberately not disabled for it.
@@ -255,6 +297,43 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		await expect(dialog).toBeHidden();
 		// Not one byte of the Project that was here, and no half-written directory beside it.
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(mine);
+		expect(await workspaceRoot(page)).toEqual(['amsterdam-1625']);
+	});
+
+	test('a different case of the same name does not overwrite the existing Project', async ({
+		page
+	}) => {
+		// The forbidden outcome of SPEC story 14, reached through the affordance built to prevent it.
+		// The field was bound straight to the input and the collision test was an exact string match,
+		// so a user correctly shown the collision, typing `Amsterdam-1625`, was told there was no
+		// collision — and on macOS/APFS or Windows `getDirectoryHandle` would then hand back the
+		// *existing* folder and overwrite their own Project with the colleague's.
+		await chooseZip(page, zipFixture(projectFiles()));
+		await page.getByRole('button', { name: 'Import Project', exact: true }).click();
+
+		const dialog = page.getByRole('dialog', { name: 'Import Project' });
+		await expect(dialog.getByRole('alert')).toContainText('already has a folder called');
+		await dialog.getByLabel('Import as folder').fill('Amsterdam-1625');
+		await page.getByRole('button', { name: 'Import under this name' }).click();
+
+		// Reported again rather than accepted, and the dialog is still open with the question in it.
+		await expect(dialog).toBeVisible();
+		await expect(dialog.getByRole('alert')).toContainText('already has a folder called');
+		expect(await workspaceRoot(page)).toEqual(['amsterdam-1625']);
+		expect(await projectContents(page, 'amsterdam-1625')).toEqual(mine);
+	});
+
+	test('the folder field cannot dead-end the dialog when it is emptied', async ({ page }) => {
+		// Once a collision was reported the error block was not rendered in that branch at all, so
+		// emptying the field and pressing the button threw `InvalidPathError` behind a dialog that
+		// showed nothing: a button that does not work and does not say why.
+		await chooseZip(page, zipFixture(projectFiles()));
+		await page.getByRole('button', { name: 'Import Project', exact: true }).click();
+
+		const dialog = page.getByRole('dialog', { name: 'Import Project' });
+		await dialog.getByLabel('Import as folder').fill('   ');
+
+		await expect(page.getByRole('button', { name: 'Import under this name' })).toBeDisabled();
 		expect(await workspaceRoot(page)).toEqual(['amsterdam-1625']);
 	});
 

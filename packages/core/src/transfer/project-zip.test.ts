@@ -509,11 +509,54 @@ describe('importing into a directory name that is taken (SPEC story 14)', () => 
 		]);
 	});
 
-	it('refuses a directory name that is not a single path segment', async () => {
+	it.each([
+		['a different case', 'amsterdam-1625', 'Amsterdam-1625'],
+		['a decomposed accent', 'amsterdam-café', 'amsterdam-café'],
+		['a precomposed accent', 'amsterdam-café', 'amsterdam-café']
+	])(
+		'reports the collision when the name differs only by %s (SPEC story 14)',
+		async (_how, existing, typed) => {
+			// The collision test was an exact string match, and the rename field handed it whatever the
+			// user typed. On macOS/APFS and on Windows the filesystem is case-insensitive — and APFS
+			// folds Unicode — so `getDirectoryHandle(typed, { create: true })` resolves to the directory
+			// that is already there. No collision was reported, and `project.json`, the GeoJSON, and
+			// every same-named tile of the user's own Project were overwritten with the colleague's:
+			// story 14's forbidden outcome, reached through the affordance built to prevent it.
+			await seed(destination, existing, {
+				'project.json': projectJson({ name: 'My own Amsterdam' }),
+				'annotations/mine.geojson': '{"type":"FeatureCollection","features":["mine"]}'
+			});
+			const mine = await contents(destination, `${existing}/`);
+
+			const failure = await target
+				.importProject(typed, await readProjectZip(archive))
+				.catch((c) => c);
+
+			expect(failure).toBeInstanceOf(ProjectDirectoryCollisionError);
+			// And the free name it offers is genuinely free, not another spelling of the taken one.
+			expect(failure.suggestion).not.toBe(typed);
+			expect(await contents(destination, `${existing}/`)).toEqual(mine);
+		}
+	);
+
+	it.each([
+		['a nested name', 'nested/name'],
+		['nothing at all', ''],
+		['a parent traversal', '..'],
+		['a current directory', '.'],
+		['a backslash separator', 'amsterdam\\1625']
+	])('refuses %s as a directory name, naming what the user gave it', async (_how, directory) => {
+		// Checked against the name itself rather than left to `assertStorePath`, which sees each path
+		// only as it is written. Left to the store, `..` and `\` failed on the *first entry inside* the
+		// Project — so the complaint named `../alignments/amsterdam-1625.json`, a file the user has
+		// never heard of, about a folder name they typed. It also failed after that entry had landed,
+		// which the rollback now undoes but should not have to.
 		const zip = await readProjectZip(archive);
 
-		await expect(target.importProject('nested/name', zip)).rejects.toBeInstanceOf(InvalidPathError);
-		await expect(target.importProject('', zip)).rejects.toBeInstanceOf(InvalidPathError);
+		const failure = await target.importProject(directory, zip).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(InvalidPathError);
+		expect(failure.path).toBe(directory);
 		expect(await destination.list('')).toEqual([]);
 	});
 });

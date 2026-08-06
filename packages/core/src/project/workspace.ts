@@ -11,6 +11,8 @@ import {
 import {
 	InvalidPathError,
 	PathNotFoundError,
+	TEMP_PATH_SUFFIX,
+	isTempPath,
 	topLevelSegment,
 	type ProjectStore
 } from '../store/project-store.js';
@@ -199,7 +201,10 @@ export class Workspace {
 	 * **The collision.** `directory` is the Project's identity (ADR-0008), and if it is taken this
 	 * throws {@link ProjectDirectoryCollisionError} *before writing anything*. Display names are not
 	 * checked at all: two Projects may share one, so a colleague's "Amsterdam 1625" must import
-	 * alongside yours rather than be refused because of it.
+	 * alongside yours rather than be refused because of it. "Taken" is decided on the folded name
+	 * (see {@link foldName}) rather than by exact string, because on the two most common filesystems
+	 * `Amsterdam-1625` *is* `amsterdam-1625` and an exact comparison there overwrites the Project it
+	 * was asked to protect.
 	 *
 	 * **The bytes are written exactly as they arrive, `project.json` included.** Unlike every other
 	 * method here it does not stamp `updatedAt`, because importing is not editing: the Project was
@@ -215,11 +220,8 @@ export class Workspace {
 		source: ProjectFileSource,
 		options: { onProgress?: TransferProgressListener } = {}
 	): Promise<ProjectSummary> {
-		if (directory.includes('/') || directory === '') {
-			throw new InvalidPathError(directory, 'must be a single directory name');
-		}
-		const taken = new Set((await this.#store.list('')).map(topLevelSegment));
-		if (taken.has(directory)) {
+		assertDirectoryName(directory);
+		if (await this.#isTaken(directory)) {
 			throw new ProjectDirectoryCollisionError(directory, await this.#unusedDirectory(directory));
 		}
 
@@ -325,17 +327,73 @@ export class Workspace {
 		}
 	}
 
+	/**
+	 * Every top-level name already in the workspace, folded for comparison.
+	 *
+	 * Not only the ones holding a Project: a new Project must not land inside a directory that is
+	 * already there for some other reason.
+	 */
+	async #takenNames(): Promise<Set<string>> {
+		const paths = await this.#store.list('');
+		return new Set(paths.map((path) => foldName(topLevelSegment(path))));
+	}
+
+	async #isTaken(directory: string): Promise<boolean> {
+		return (await this.#takenNames()).has(foldName(directory));
+	}
+
 	async #unusedDirectory(displayName: string): Promise<string> {
-		// Every existing top-level name, not only the ones holding a Project: a new Project must
-		// not land inside a directory that is already there for some other reason.
-		const taken = new Set((await this.#store.list('')).map(topLevelSegment));
+		const taken = await this.#takenNames();
 		const base = toDirectoryName(displayName);
-		if (!taken.has(base)) return base;
+		if (!taken.has(foldName(base))) return base;
 		for (let suffix = 2; ; suffix += 1) {
 			const candidate = `${base}-${suffix}`;
-			if (!taken.has(candidate)) return candidate;
+			if (!taken.has(foldName(candidate))) return candidate;
 		}
 	}
+}
+
+/**
+ * A directory name reduced to what a filesystem will actually treat as distinct.
+ *
+ * The collision check used to be an exact string comparison, and that is only correct on a
+ * case-sensitive, composition-sensitive filesystem — which the two most common ones are not. macOS's
+ * APFS and Windows' NTFS are both case-insensitive, and APFS folds Unicode composition as well, so
+ * on ticket 12's File System Access backend `getDirectoryHandle('Amsterdam-1625', { create: true })`
+ * hands back the **existing** `amsterdam-1625`. A user correctly shown a collision, typing a
+ * different case into the rename field, was told there was no collision and then had their own
+ * `project.json`, GeoJSON, and every same-named tile overwritten with their colleague's — SPEC story
+ * 14's forbidden outcome, reached through the affordance built to prevent it.
+ *
+ * Folded rather than rejected, and folded on *both* sides, because the answer has to be the same
+ * whichever spelling arrives first. NFC before case folding: `toLocaleLowerCase` on a decomposed
+ * sequence does not compose it. Deliberately conservative — two names that are distinct on ext4 are
+ * treated as colliding — because the cost of that is one offered rename, and the cost of the other
+ * way round is somebody's work.
+ */
+const foldName = (name: string): string => name.normalize('NFC').toLowerCase();
+
+/**
+ * Refuse a directory name that is not one plain folder name.
+ *
+ * Checked against the name itself rather than left to `assertStorePath`, which sees each path only as
+ * it is written: `..` and `\` failed on the *first entry inside* the Project, so the complaint named
+ * a file the user has never heard of and arrived after that file had landed.
+ */
+function assertDirectoryName(directory: string): void {
+	const reason =
+		directory === ''
+			? 'must be a single directory name'
+			: directory.includes('/')
+				? 'must be a single directory name, with no "/"'
+				: directory.includes('\\')
+					? 'must be a single directory name, with no "\\"'
+					: directory === '.' || directory === '..'
+						? 'must be a directory name rather than "." or ".."'
+						: isTempPath(directory)
+							? `must not end with the reserved ${TEMP_PATH_SUFFIX}`
+							: '';
+	if (reason) throw new InvalidPathError(directory, reason);
 }
 
 /**

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { ProjectSummary } from '@ballastella/core';
+	import { toDirectoryName, type ProjectSummary } from '@ballastella/core';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import ModalDialog from './ModalDialog.svelte';
@@ -81,6 +81,23 @@
 	};
 
 	/**
+	 * The folder the typed name would actually become.
+	 *
+	 * Through `toDirectoryName` rather than straight off the input, because a folder name is the
+	 * Project's identity (ADR-0008) and the field must not be able to produce one the Workspace
+	 * cannot hold. Bound raw, it handed `Workspace.importProject` whatever was typed: `..`, a
+	 * backslash, or — the one that mattered — a different case of the name the collision had just
+	 * reported, which on macOS and Windows is the *same folder*, so the user's own Project was
+	 * overwritten by the affordance offered to protect it (SPEC story 14).
+	 *
+	 * `''` when there is nothing usable in the field, which is what disables the button rather than
+	 * letting it throw.
+	 */
+	const importAs = $derived(
+		/[a-z0-9]/i.test(importDirectory) ? toDirectoryName(importDirectory) : ''
+	);
+
+	/**
 	 * Read the chosen zip, then write it — unless reading refused it, or the directory name it wants
 	 * is taken, in which case the dialog stays open holding the answer it needs.
 	 */
@@ -95,11 +112,15 @@
 			if (!pending) return;
 			importDirectory = pending.directory;
 		}
-		const imported = await session.confirmImport(importDirectory.trim());
+		if (!importAs) return;
+		const imported = await session.confirmImport(importAs);
 		if (imported) importing = false;
 		// A collision came back with a free name; offer it rather than making the user invent one.
 		else if (session.pendingImport) importDirectory = session.pendingImport.directory;
 	};
+
+	/** A transfer in flight, which the Export buttons must not lose focus to (SPEC story 95). */
+	const transferring = $derived(session.transfer !== null && !session.transfer.finished);
 
 	/** The announced progress line. Empty when nothing is moving, so the region says nothing. */
 	const transferMessage = $derived.by(() => {
@@ -131,6 +152,16 @@
 	<p role="status" class="mt-2 text-sm opacity-80" data-transfer={session.transfer?.kind ?? ''}>
 		{transferMessage}
 	</p>
+
+	{#if session.transferError && !importing}
+		<!-- An export that failed — another tab deleted the Project, a folder grant lapsed, a Project
+		     too large for one zip. This used to be rendered *only* inside the import dialog, so a
+		     failed export blanked the status line and said nothing at all: on the path ADR-0001 makes
+		     the only way out, indistinguishable from a click that did not register. -->
+		<div role="alert" class="mt-4 alert flex-col items-start alert-error">
+			<p>{session.transferError}</p>
+		</div>
+	{/if}
 
 	{#if session.status === 'unreachable'}
 		<!-- ADR-0008: a normal state with a recovery, never an error boundary. -->
@@ -192,10 +223,16 @@
 							<!-- Available even for a Project this build cannot open: a Project from a newer
 							     version is the one a user most needs to get out of a browser they cannot see
 							     into, and export never parses `project.json` (ADR-0010). -->
+							<!-- `aria-disabled`, not `disabled`. A `disabled` button is removed from the tab
+							     order the moment it is pressed, so a keyboard user's focus fell to `<body>`
+							     for the length of the export and was not restored when it came back —
+							     leaving them to tab in from the top of the page after every export
+							     (SPEC story 95, WCAG 2.4.3). -->
 							<button
 								class="btn btn-sm"
-								onclick={() => session.exportProject(project)}
-								disabled={session.transfer !== null && !session.transfer.finished}
+								class:btn-disabled={transferring}
+								aria-disabled={transferring}
+								onclick={() => !transferring && session.exportProject(project)}
 							>
 								Export<span class="sr-only"> {project.name}</span>
 							</button>
@@ -267,8 +304,12 @@
 			/>
 		</label>
 		<p class="mt-3 text-sm opacity-70">
-			“{session.pendingImport.name}” will be a separate Project in this folder. Two Projects may
-			share a name; the folder is what tells them apart.
+			“{session.pendingImport.name}” will be a separate Project
+			{#if importAs && importAs !== importDirectory.trim()}
+				in the folder <code>{importAs}</code>, which is what that name becomes
+			{:else}
+				in this folder
+			{/if}. Two Projects may share a name; the folder is what tells them apart.
 		</p>
 	{:else}
 		<label class="floating-label">
@@ -284,21 +325,28 @@
 			A Project zip holds one Project. It is added to this Workspace; nothing already here is
 			replaced.
 		</p>
-		{#if session.transferError}
-			<!-- The refusals: no project.json, a damaged archive, an entry that would be written outside
-			     the Project, a missing referenced file, or ADR-0010's Project from a newer version. Each
-			     one has already left the Workspace untouched. -->
-			<div role="alert" class="mt-4 alert flex-col items-start alert-error">
-				<p>{session.transferError}</p>
-			</div>
-		{/if}
+	{/if}
+	{#if session.transferError}
+		<!-- The refusals: no project.json, a damaged archive, an entry whose bytes do not match its
+		     checksum, one that would be written outside the Project, an archive that declares more than
+		     will fit, a missing referenced file, or ADR-0010's Project from a newer version. Each one has
+		     already left the Workspace untouched.
+
+		     Outside the collision branch, not inside the non-collision one. Once a collision was
+		     reported this block was not rendered at all, so emptying the folder field and pressing
+		     "Import under this name" threw and the dialog showed nothing — a dead button. -->
+		<div role="alert" class="mt-4 alert flex-col items-start alert-error">
+			<p>{session.transferError}</p>
+		</div>
 	{/if}
 	{#snippet actions()}
 		<button class="btn" onclick={cancelImporting}>Cancel</button>
 		<button
 			class="btn btn-primary"
 			onclick={runImport}
-			disabled={!session.pendingImport && !chosen?.length}
+			disabled={session.pendingImport?.collision
+				? !importAs
+				: !session.pendingImport && !chosen?.length}
 		>
 			{session.pendingImport?.collision ? 'Import under this name' : 'Import Project'}
 		</button>
