@@ -241,11 +241,18 @@ export function parseReferencedImage(
 /**
  * Every referenced Historical Map in a Project, read from the records beside them.
  *
- * The mirror image of `listIngestedImages`, which looks for `info.json`. A referenced image has no
+ * The companion of `listIngestedImages`, which looks for `info.json`. A referenced image has no
  * `info.json` in the Project — its tiles and its description are both on somebody else's server —
- * so the two lists are disjoint by construction and together they are the Project's Historical
+ * so before ticket 15 the two lists were disjoint and together they were the Project's Historical
  * Maps. That is also why {@link mapLayerImageInfoPath} returns `null` for a referenced Layer and
  * why ticket 13's import check is right not to look for one.
+ *
+ * **They are no longer disjoint, and that is mirroring working rather than a defect.** An offline copy
+ * writes a pyramid into the same directory and deliberately leaves this record where it is: the record
+ * is the citation ADR-0007 exists to protect, and a copy that deleted it would have orphaned the one
+ * thing that says where the map came from. An image in *both* lists is one that has been mirrored,
+ * which is what {@link partitionByLocalCopy} exists to say. This function answers "what does the
+ * Project record about where its images came from" and nothing about where their bytes are now.
  *
  * A record that will not parse is **skipped rather than fatal**, and its id is returned separately:
  * one unreadable `remote.json` must not stop the Project opening, but it must not vanish either —
@@ -284,6 +291,31 @@ export const sourceOf = (image: ReferencedImage): HistoricalMapSource => ({
 	imageId: image.imageId,
 	service: image.service
 });
+
+/**
+ * Split a Project's remote-origin records by whether its own pyramid is beside them (ticket 15).
+ *
+ * **The one place that answers "referenced or local copy?" from what is on disk**, rather than from
+ * what a Layer claims. That direction matters: `imageMode` in `project.json` is a claim, and mirroring
+ * is the one action that changes the answer — so if the pyramid landed and the document write that
+ * followed it did not, this says "mirrored" and the Layer says `'referenced'`, and the disagreement is
+ * repaired by the next copy rather than being permanent. The alternative — trusting the Layer — would
+ * mean an image whose tiles are right here being fetched from a library on every load.
+ *
+ * `mirrored` keeps its record for the citation, which is why it is a partition of the records rather
+ * than a removal from them: a mirrored Historical Map must still be able to say where it came from
+ * (ADR-0007, and the ticket in as many words: "mirroring must not orphan the copy").
+ */
+export function partitionByLocalCopy(
+	images: readonly ReferencedImage[],
+	ingested: readonly { readonly imageId: string }[]
+): { referenced: ReferencedImage[]; mirrored: ReferencedImage[] } {
+	const local = new Set(ingested.map((image) => image.imageId));
+	return {
+		referenced: images.filter((image) => !local.has(image.imageId)),
+		mirrored: images.filter((image) => local.has(image.imageId))
+	};
+}
 
 /**
  * The source of a Historical Map whose pyramid is in the Project.

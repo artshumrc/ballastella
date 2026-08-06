@@ -67,6 +67,26 @@ it('exposes the tiler, and takes libvips only as an injected loader', () => {
 	expect(typeof core.streamingTiler(async () => ({}) as core.VipsModule)).toBe('function');
 });
 
+// Mirroring (ticket 15) and the ADR-0008 hosting total, reachable through the same barrel. Mirroring
+// is a funnel into the tiler above rather than a second one, so the assertion that matters for
+// ADR-0019 is the one above: this adds no new dependency for `apps/viewer` to acquire.
+it('exposes mirroring and the hosting-limit total', () => {
+	expect(Object.keys(core)).toEqual(
+		expect.arrayContaining([
+			'STATIC_HOSTING_LIMIT_BYTES',
+			'assembleWithCanvas',
+			'crossesHostingLimit',
+			'describeBytes',
+			'estimateMirrorBytes',
+			'hostingLimitWarning',
+			'mirrorRemoteImage',
+			'partitionByLocalCopy',
+			'planMirror',
+			'workspaceSize'
+		])
+	);
+});
+
 // The apps import from '@ballastella/core', never from a file inside it, so the entry point
 // is the contract. ADR-0020 has the published viewer carrying the catalog too, so this edge
 // has to hold for both apps.
