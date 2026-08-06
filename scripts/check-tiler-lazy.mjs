@@ -214,6 +214,12 @@ if (builtViewer) {
 		['vips.wasm', 'the libvips WebAssembly module']
 	];
 
+	// A `vips*.wasm` emitted into the viewer would be caught by the markers below only if some chunk
+	// happened to spell its name; the file's presence is the plainer statement.
+	for (const file of filesUnder(viewerBuild, (file) => /vips/i.test(path.basename(file)))) {
+		fail(`${relative(file)} is a wasm-vips artefact in the built viewer (ADR-0019).`);
+	}
+
 	for (const file of filesUnder(viewerBuild, (file) => /\.(js|wasm)$/.test(file))) {
 		const source = readFileSync(file, 'latin1');
 		for (const [marker, what] of markers) {
