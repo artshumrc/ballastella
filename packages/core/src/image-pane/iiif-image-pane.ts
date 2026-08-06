@@ -13,6 +13,7 @@
 import { Image } from '@allmaps/iiif-parser';
 import type { ImageRequest, Region, SizeObject, TileZoomLevel } from '@allmaps/types';
 
+import { imageServiceId } from '../tiler/pyramid.js';
 import {
 	createSyntheticProjection,
 	type ResourcePoint,
@@ -82,22 +83,39 @@ export type ImagePane = {
 };
 
 /**
- * Builds the image pane's reader from a level-0 `info.json` and the base URL its tiles are
- * actually served from.
+ * Where a pyramid's tiles are really served from — the answer ADR-0004 requires at load time.
  *
- * `baseUri` is required rather than optional because of ADR-0004: `info.json` is written with
- * the deliberately unusable `https://unset.invalid/<image-id>` placeholder, and every code
- * path constructing an `Image` must set `uri` before requesting a tile. Making the caller
- * pass it means that invariant cannot be forgotten here.
+ * Two forms, and the distinction is the invariant rather than a convenience. A **string** is an
+ * absolute base the tiles are served from over HTTP, and it is refused if it is still the
+ * `unset.invalid` placeholder: a caller that passes `info.id` through has not decided anything,
+ * which is the mistake ADR-0004 is written against. `{ storedImageId }` says the tiles are in
+ * the Project's own store and are reached through the ADR-0011 injection layer, whose routing
+ * key *is* the placeholder — so the base comes out the same string, deliberately, and the shim
+ * resolves it. Forgetting and choosing therefore cannot look alike here: they are different
+ * types.
  */
-export function createImagePane(info: unknown, baseUri: string): ImagePane {
-	if (new URL(baseUri).hostname.endsWith('unset.invalid')) {
+export type ImagePaneTileBase = string | { readonly storedImageId: string };
+
+/**
+ * Builds the image pane's reader from a level-0 `info.json` and the base its tiles are actually
+ * served from.
+ *
+ * `tiles` is required rather than optional because of ADR-0004: `info.json` is written with the
+ * deliberately unusable `https://unset.invalid/<image-id>` placeholder, and every code path
+ * constructing an `Image` must set `uri` before requesting a tile. Making the caller say where
+ * they come from means that invariant cannot be forgotten here.
+ */
+export function createImagePane(info: unknown, tiles: ImagePaneTileBase): ImagePane {
+	if (typeof tiles === 'string' && new URL(tiles).hostname.endsWith('unset.invalid')) {
 		throw new Error(
 			`The image pane was given the unset.invalid placeholder as a base URI. ADR-0004: the ` +
-				`real base is resolved at load time from wherever the tiles are actually served.`
+				`real base is resolved at load time from wherever the tiles are actually served. If the ` +
+				`tiles are in the Project's own store, say so — pass { storedImageId } and reach them ` +
+				`through the ADR-0011 injection layer, which is what routes that host.`
 		);
 	}
 
+	const baseUri = typeof tiles === 'string' ? tiles : imageServiceId(tiles.storedImageId);
 	const image = Image.parse(info);
 	image.uri = baseUri.replace(/\/$/, '');
 
