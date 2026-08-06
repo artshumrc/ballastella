@@ -911,14 +911,14 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 			/Resource Mask corner 3 of 3/
 		);
 
-		// And the keyboard still moves *the corner* rather than panning the map, which is the thing the
-		// dropped focus actually cost.
-		const before = await maskVertices(page).last().boundingBox();
-		await watchWrites(page);
+		// And the keyboard still moves *the corner* rather than panning the map — which is the thing the
+		// dropped focus actually cost, and which a bounding box cannot tell apart: a panned map moves the
+		// handle on screen too. What distinguishes them is the file. Panning writes nothing.
+		const storedBefore = maskPointsAttribute((await storedAlignment(page, imageId)) as string);
 		await page.keyboard.press('Shift+ArrowRight');
-		await expect.poll(async () => (await writes(page)).length).toBe(1);
-		const after = await maskVertices(page).last().boundingBox();
-		expect((after?.x ?? 0) - (before?.x ?? 0)).toBeGreaterThan(5);
+		await expect
+			.poll(async () => maskPointsAttribute((await storedAlignment(page, imageId)) as string))
+			.not.toBe(storedBefore);
 	});
 
 	// The same rule for a Control Point, where every delete loses the element: the keys are the pair's
@@ -945,13 +945,11 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 			/Control Point 2, Historical Map half/
 		);
 
-		// Arrow keys move the Control Point, not the map.
-		const before = await imagePoints(page).nth(1).boundingBox();
-		await watchWrites(page);
+		// Arrow keys move the Control Point, not the map. Read off the list, which states the image pixel
+		// the pair claims — a panned map moves the handle on screen without moving the point.
+		const listedBefore = await rows(page).allInnerTexts();
 		await page.keyboard.press('Shift+ArrowRight');
-		await expect.poll(async () => (await writes(page)).length).toBe(1);
-		const after = await imagePoints(page).nth(1).boundingBox();
-		expect((after?.x ?? 0) - (before?.x ?? 0)).toBeGreaterThan(5);
+		await expect.poll(async () => (await rows(page).allInnerTexts())[1]).not.toBe(listedBefore[1]);
 	});
 
 	// **The help text and the cursor have to describe the gesture the handle actually has.** A dashed
@@ -983,11 +981,19 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		expect(await cursorOf('pane-overlay-point-mask-edge')).toBe('pointer');
 		// `grabbing` on `:active` is the other half of the same false promise, so the rule must be gone
 		// from the dashed handle entirely rather than only from its resting state.
-		const activeGrabbing = await page.evaluate(() =>
-			[...document.styleSheets]
+		const activeCursors = await page.evaluate(() => {
+			// Flattened, because Tailwind 4 wraps authored CSS in `@layer` and a top-level walk of
+			// `cssRules` would find nothing and report an empty list — which would pass for the wrong
+			// reason.
+			const flatten = (rules: CSSRuleList): CSSRule[] =>
+				[...rules].flatMap((rule) => [
+					rule,
+					...('cssRules' in rule ? flatten((rule as CSSGroupingRule).cssRules) : [])
+				]);
+			return [...document.styleSheets]
 				.flatMap((sheet) => {
 					try {
-						return [...sheet.cssRules];
+						return flatten(sheet.cssRules);
 					} catch {
 						return [];
 					}
@@ -998,9 +1004,34 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 						rule.selectorText.includes('pane-overlay-point-mask-edge') &&
 						rule.selectorText.includes(':active')
 				)
-				.map((rule) => rule.style.cursor)
-		);
-		expect(activeGrabbing).not.toContain('grabbing');
+				.map((rule) => rule.style.cursor);
+		});
+		expect(activeCursors).not.toContain('grabbing');
+		// The walk has to be able to see the rules at all, or the assertion above is vacuous: the
+		// *corner* keeps its `grabbing` on `:active`, so finding that is the control.
+		const vertexActiveCursors = await page.evaluate(() => {
+			const flatten = (rules: CSSRuleList): CSSRule[] =>
+				[...rules].flatMap((rule) => [
+					rule,
+					...('cssRules' in rule ? flatten((rule as CSSGroupingRule).cssRules) : [])
+				]);
+			return [...document.styleSheets]
+				.flatMap((sheet) => {
+					try {
+						return flatten(sheet.cssRules);
+					} catch {
+						return [];
+					}
+				})
+				.filter(
+					(rule): rule is CSSStyleRule =>
+						rule instanceof CSSStyleRule &&
+						rule.selectorText.includes('pane-overlay-point-mask-vertex') &&
+						rule.selectorText.includes(':active')
+				)
+				.map((rule) => rule.style.cursor);
+		});
+		expect(vertexActiveCursors).toContain('grabbing');
 	});
 
 	// The mask is in image pixel space and belongs to the image pane only (ticket 08, out of scope:
