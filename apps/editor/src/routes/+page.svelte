@@ -21,8 +21,11 @@
 	let unsupported = $state('');
 
 	$effect(() => {
-		unsupported = EditorSession.unsupportedReason();
-		if (unsupported) return;
+		// Read into a local rather than back out of the state it just set: an effect that reads the
+		// `$state` it writes takes a dependency on itself.
+		const reason = EditorSession.unsupportedReason();
+		unsupported = reason;
+		if (reason) return;
 		const created = EditorSession.opfs();
 		session = created;
 		return created.installFlushOnHide();

@@ -250,12 +250,22 @@ describe('installFlushOnHide (rule 3)', () => {
 		return { store, autosave, doc, win, uninstall };
 	};
 
+	/**
+	 * Let the listener's own `flush()` run to completion.
+	 *
+	 * The test must never call `flush()` itself. These two tests used to, which made them
+	 * assertions that `flush` works — deleting the listener bodies outright left both green, and
+	 * rule 3 is the closed-laptop path, the one nobody notices is missing until an afternoon is
+	 * gone. The debounce here is 10 s, so nothing but the listener can have written.
+	 */
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 	it('flushes on pagehide', async () => {
 		const { store, autosave, win } = setup();
 		autosave.queue('p/project.json', utf8.encode('a'));
 
 		win.fire('pagehide');
-		await autosave.flush();
+		await settle();
 
 		expect(await store.list('')).toEqual(['p/project.json']);
 	});
@@ -266,7 +276,7 @@ describe('installFlushOnHide (rule 3)', () => {
 
 		doc.visibilityState = 'hidden';
 		doc.fire('visibilitychange');
-		await autosave.flush();
+		await settle();
 
 		expect(await store.list('')).toEqual(['p/project.json']);
 	});
