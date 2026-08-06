@@ -6,17 +6,19 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 ## Current Status
 
-Overall status: `In Progress`
+Overall status: `Implementation complete — awaiting human decisions`
 
-Current ticket: 17 is the last one in progress. Tickets 01–16 and 18 are merged, reviewed where reviewed, and remediated; ticket 05 is green but is `Needs Human Validation or Intervention` (open question 3).
+Current ticket: none. **All 18 implementation tickets are merged into `main`.** Ticket 19 is human-only, and ticket 05 stands at `Needs Human Validation or Intervention` — everything in it is green, but the streaming tiler cannot run on a static host (open question 3).
 
-The tree runs **1135 unit tests (plus 15 live-network tests skipped by default) and 256 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the tiler-laziness fence (source and built bundles) all clean. The last four full e2e runs have been **clean — no failures and no flakes**, after two genuine test defects were fixed that had been masquerading as machine-load flakiness.
+Tickets 02, 03, 04, 05, 06, 07, 08, 09, 12, and 13 have been code-reviewed and their confirmed findings remediated. **Tickets 10, 11, 14, 15, 16, 17, and 18 are merged but NOT yet reviewed** — given that every reviewed ticket in this epic yielded substantive findings, that is the most valuable remaining work after the human decisions.
+
+The tree runs **1179 unit tests (plus 15 live-network tests skipped by default) and 295 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the tiler-laziness fence (source and built bundles) all clean. The last four full e2e runs have been **clean — no failures and no flakes**, after two genuine test defects were fixed that had been masquerading as machine-load flakiness.
 
 **Correction, recorded because it was reported as a passing check several times and was not one.** Ticket 05's acceptance command `grep -rl "wasm-vips" apps/editor/build/_app/immutable/entry/` prints its success message **unconditionally**: the string `wasm-vips` appears nowhere in the built output, because the bundler renames the chunk to `_app/immutable/workers/vips-es6-*.js`. It also inspects only `entry/`, not the chunks the entry statically imports. The dependency genuinely *is* lazy — the only reference is an `await import(...)` — and `e2e/editor-image-ingest.e2e.ts` asserts that soundly by watching the network. But the grep is not what establishes it, and a real static check is owed. See ticket 05's follow-ups.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Eleven items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
+**Twelve items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
 
 ### A note on how much to trust a green ticket
 
@@ -46,7 +48,7 @@ Last updated: 2026-08-06
 | 14 | [14-remote-iiif-ingest.md](./tickets/14-remote-iiif-ingest.md) | Completed | 09 | 16, 17, 18, 19, 20, 24, 25, 26, 48 |
 | 15 | [15-mirroring-offline-copies.md](./tickets/15-mirroring-offline-copies.md) | Completed | 05, 14 | *15*, 27, 28 |
 | 16 | [16-publish.md](./tickets/16-publish.md) | Completed | 09, 10 | *15*, *29*, 78, 79, 80, 81, *82*, *87*, 88, 89, 90, 92, *93*, 99, *101* |
-| 17 | [17-viewer-read-only-exploration.md](./tickets/17-viewer-read-only-exploration.md) | In Progress | 16 | 70, 71, *72*, *77*, *82*, 83, 84, 85, 86, *98* |
+| 17 | [17-viewer-read-only-exploration.md](./tickets/17-viewer-read-only-exploration.md) | Completed | 16 | 70, 71, *72*, *77*, *82*, 83, 84, 85, 86, *98* |
 | 18 | [18-pwa-manifest-and-service-worker.md](./tickets/18-pwa-manifest-and-service-worker.md) | Completed | 16 | 6, 8, 9 |
 | 19 | [19-upstream-allmaps-fetchfn-fix.md](./tickets/19-upstream-allmaps-fetchfn-fix.md) | Needs Human Validation or Intervention | 06 | — (protects 30, 32–37, 78–92) |
 
@@ -124,6 +126,18 @@ Raised by the code reviews of tickets 02–04 and 12–13, and by tickets 05, 06
 11. **Ticket 18's own ticket contradicts itself about caching the bundled Base Map, and the contradiction had to be resolved to ship.** Fence 1 and an Out-of-scope bullet say the Base Map archive must not be a service-worker cache entry; the Offline verification criteria require viewing the aligned map and drawing Annotations offline, over a bundled Base Map. Ticket 18 measured what happens with the archive left out: the MapLibre style never finishes loading, `isStyleLoaded()` stays false, `load` never fires, and **the warped map and the entire Layer stack — hence Annotation drawing — are absent offline.** It cached the archive, in a cache of its own (`ballastella-base-map-<version>`) so the shell cache is exactly fence 1's list and reversal is one list and one branch.
 
     **If you reverse it, the Range slicing must stay**: `Cache.match` ignores `Range`, and `pmtiles@4` rejects a 200 whose content-length exceeds the request — so a naive precache breaks the Base Map **online too**. Either amend the ticket or narrow the offline criteria; do not leave both statements standing.
+
+12. **A Historical Map cannot be opened unwarped from a Published Site unless the Project was published with an address.** Ticket 17's one `[~]`, and the same missing upstream capability the editor's own `UnwarpedView` already records.
+
+    `triiiceratops@1.0.0-rc.35` turns a canvas's image service into the string `` `${serviceId}/info.json` ``, and OpenSeadragon then builds every tile URL from **the fetched document's own `id`** — so nothing a Manifest says can redirect a pyramid. An unstamped `info.json` carries the ADR-0004 placeholder and every tile fails at DNS (measured: 8 × `ERR_NAME_NOT_RESOLVED`). Ticket 17 made the page refuse with an actionable sentence rather than mount a blank viewer, which is the right interim behaviour.
+
+    Three options, all a person's call: upstream a `tileSources` prop to triiiceratops (the same prop ticket 14 needed and recorded), make ticket 16's canonical stamp automatic rather than opt-in, or accept the refusal for unstamped Projects. Note the warped view is unaffected — this is only the unwarped reading of the original scan.
+
+## Review status, and why it matters here
+
+**Ten tickets have been code-reviewed; seven have not.** Reviewed and remediated: 02, 03, 04, 05, 06, 07, 08, 09, 12, 13. **Not reviewed: 10, 11, 14, 15, 16, 17, 18.**
+
+That distinction is worth acting on rather than filing. *Every single reviewed ticket in this epic produced substantive findings* — data loss in three of them, and at least one vacuously-passing acceptance criterion in every one. The unreviewed seven include the epic's one security-critical surface (ticket 10's Markdown sanitisation), the publish path a Reader depends on (16), the Reader itself (17), and the largest structural change anyone made (ticket 17's move of five render modules from `apps/editor/src/lib` into `packages/core/src/render/`, which its own author flagged as the thing to review hardest).
 
 ## Known defects, recorded rather than fixed
 
