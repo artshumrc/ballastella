@@ -8,6 +8,13 @@ import { expect, test, type Locator, type Page, type Response } from '@playwrigh
 // assert that MapLibre agrees with it once a real pointer, a real tile grid and a real zoom
 // are involved. Nothing here is a screenshot: SPEC rules out pixel comparison, and silent
 // drift is precisely what a screenshot would miss.
+//
+// Of the tests below, the two that establish something a round trip cannot are "renders the
+// fixture Historical Map and reports the pixel under the cursor" — clicking a marker placed by
+// `resourceToSynthetic` and requiring the click to come back as that marker's own pixel, which
+// composes MapLibre's project and unproject in opposite directions — and "pans by the distance
+// the pointer moved", which pins the scale against a physical distance. The zoom-stability test
+// is the ticket's acceptance criterion and bounds precision; see its own comment.
 
 /** The fixture pyramid's tile size. Guarded against the committed `info.json` in core. */
 const TILE_SIZE = 256;
@@ -220,9 +227,14 @@ test('pans by the distance the pointer moved, in image pixels', async ({ page })
 	await button(page, 'Report the pixel at the centre of the view').click();
 	const before = await reportedPixel(page);
 
+	// **This is the browser test that carries real weight.** It pins the projection's scale in
+	// screen pixels against an external quantity — the distance a physical pointer travelled —
+	// which is something no round-trip through the projection can establish about itself.
+	//
 	// At full resolution one image pixel covers one map pixel, so dragging 120 map pixels west
-	// must move the view exactly 120 image pixels east. A wrong window size would show up here
-	// as a scale factor on the drag.
+	// must move the view exactly 120 image pixels east. A wrong window size, a wrong
+	// `mapZoomFromTileZoom`, or a `WINDOW_TILE_ZOOM` changed without changing anything else all
+	// show up here as a scale factor on the drag, and nowhere else in the browser suite.
 	const centre = await centreOf(pane);
 	await page.mouse.move(centre.x, centre.y);
 	await page.mouse.down();
@@ -241,11 +253,21 @@ test('pans by the distance the pointer moved, in image pixels', async ({ page })
 test('reports the same pixel after zooming fully out and back in', async ({ page }) => {
 	const pane = await openPane(page);
 
-	// This is the test the whole ticket is for. A pixel is placed at full resolution, the view
-	// is thrown away by framing the whole image, and the pixel is then picked up again — going
-	// out through `resourceToSynthetic`, through MapLibre's transform at two different zooms,
-	// through a real pointer, and back through `syntheticToResource`. Drift anywhere in that
-	// loop lands here as a coordinate that has moved.
+	// The acceptance criterion "a point placed at maximum zoom, after zooming fully out and back
+	// in, reports the same pixel coordinate". Worth being honest about how much it proves.
+	//
+	// The marker-at-the-centre assertion below is close to a tautology: "Zoom to full resolution"
+	// calls `jumpTo({ center: resourceToSynthetic(placed) })`, so the marker is at the container
+	// centre because `jumpTo` put it there, and splicing MapLibre in does not break that because
+	// MapLibre's transform is itself a bijection. What it does catch is a marker whose placement
+	// and the map's centring disagree — a real class of bug, just a narrow one.
+	//
+	// The click at the end is the part with teeth: the pixel goes out through
+	// `resourceToSynthetic`, the view is genuinely thrown away and rebuilt at another zoom, and
+	// the pixel comes back through a real pointer, MapLibre's unproject at a different map
+	// centre, and `syntheticToResource`. It is still a round trip, so it bounds precision rather
+	// than establishing placement — for placement see the tile-origin test in
+	// `@ballastella/core`, and for scale see "pans by the distance the pointer moved" above.
 	await button(page, 'Zoom to full resolution').click();
 	expect(await mapZoom(page)).toBe(14);
 

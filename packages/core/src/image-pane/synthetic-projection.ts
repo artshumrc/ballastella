@@ -7,9 +7,30 @@
 //
 // The failure mode this file exists to prevent is silent: a mapping that is very nearly
 // right produces Control Points that drift as the user zooms, which reads as imprecision
-// rather than as a bug and would poison every Alignment made with the tool. Hence the
-// numeric round-trip assertions in `synthetic-projection.test.ts` and
-// `iiif-image-pane.test.ts`, at every zoom level the pyramid offers.
+// rather than as a bug and would poison every Alignment made with the tool.
+//
+// **What is asserted, and by which test.** Worth being exact about, because the round-trip
+// assertions are the obvious answer and they are the weakest of the four.
+//
+//   * That the two functions are mutually inverse — `synthetic-projection.test.ts`'s
+//     round-trip tests, and `iiif-image-pane.test.ts`'s per-zoom-level one. These compute
+//     f⁻¹(f(x)) == x, so they bound the arithmetic's precision and nothing else: they would
+//     pass just as well if both functions were composed with any bijection of the plane. They
+//     are also zoom-independent, because neither function takes a zoom — see below.
+//   * **That the mapping is the right one** — `iiif-image-pane.test.ts`'s "lands every tile of
+//     every zoom level on its own pixel origin". It derives each tile's north-west corner from
+//     the canonical slippy-map formulae, genuinely different algebra from anything here, and
+//     requires `syntheticToResource` to return the IIIF region origin that tile was cut at.
+//     Exact identity, error 0. This is the anchor; the round-trips are not.
+//   * That the scale is MapLibre's — `synthetic-projection.test.ts`'s "renders one image pixel
+//     per map pixel", which pins the 512-pixel-world convention as an external fact, and the
+//     browser test "pans by the distance the pointer moved", which pins it in real screen
+//     pixels through a real drag.
+//
+// **On "at every zoom level".** The round-trip is zoom-independent by design: `WINDOW_TILE_ZOOM`
+// fixes one window for the whole pyramid and neither function takes a zoom argument, so there is
+// no per-zoom behaviour for a round-trip to vary. What genuinely holds *per zoom level* is the
+// tile-origin identity above, and that is where the per-level loop earns its keep.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE WINDOW, AND WHY THESE CONSTANTS

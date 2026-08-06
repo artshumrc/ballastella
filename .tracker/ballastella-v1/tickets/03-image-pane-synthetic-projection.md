@@ -58,7 +58,7 @@ Commit a **real** fixture pyramid, not a synthetic gradient: enough zoom levels 
 - [x] The fixture pyramid renders in a MapLibre map and is pannable and zoomable to full resolution
 - [x] Tiles at every `scaleFactor` in the fixture load, including ragged edge tiles at the right and bottom margins
 - [x] `resourceToSynthetic` → `syntheticToResource` round-trips within the documented tolerance for a set of points including all four corners, the centre, and points on the ragged edges
-- [x] The round-trip assertion runs at **every** zoom level the fixture offers, not just one
+- [x] The round-trip assertion runs at **every** zoom level the fixture offers, not just one — but read this criterion as it was delivered, not as written: the projection is zoom-independent by design, so the per-level loop varies the point set, not the behaviour. What genuinely holds *per zoom level* is the tile-origin identity. See *Review follow-ups*.
 - [x] Clicking reports an image pixel coordinate that matches the visually indicated feature within the documented tolerance
 - [x] A point placed at maximum zoom, after zooming fully out and back in, reports the same pixel coordinate within tolerance
 - [x] Tile URLs are built via `getTileImageRequest`, not by string arithmetic in this slice's own code

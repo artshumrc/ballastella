@@ -128,7 +128,17 @@ describe('createSyntheticProjection', () => {
 		expect(b.lat).toBeLessThan(a.lat);
 	});
 
-	it('round-trips a point set including the corners, the centre and the ragged edges', () => {
+	it('is invertible over the corners, the centre and the ragged edges', () => {
+		// **This establishes invertibility and nothing more.** It computes f⁻¹(f(x)) == x, which
+		// is self-consistent by construction: it would pass unchanged if both functions were
+		// composed with any bijection of the plane, so it cannot tell you the mapping is the
+		// *right* one. What it does buy is a bound on the arithmetic — see
+		// `ROUND_TRIP_TOLERANCE_PX` — and that is worth having, because drift is what this pane
+		// fails by.
+		//
+		// The test that anchors the mapping to MapLibre's grid is "lands every tile of every zoom
+		// level on its own pixel origin" in `iiif-image-pane.test.ts`, which uses different
+		// algebra and asserts an exact identity.
 		const { resourceToSynthetic, syntheticToResource } = createSyntheticProjection(fixture);
 		const { width, height } = fixture;
 
@@ -326,9 +336,16 @@ describe('createSyntheticProjection', () => {
 	it('renders one image pixel per map pixel at the full-resolution map zoom', () => {
 		const projection = createSyntheticProjection(fixture);
 
-		// MapLibre's world is 512 * 2 ** mapZoom pixels across, and the window is one tile of
-		// 2 ** WINDOW_TILE_ZOOM. If this ratio is not 1 the pane is showing a resampled image
-		// at what it calls full resolution.
+		// **One of the three tests that anchor the projection to something outside itself.** The
+		// 512-pixel world is MapLibre's convention, not ours, and it is stated here as an
+		// external fact: MapLibre's world is 512 * 2 ** mapZoom pixels across, and the window is
+		// one tile of 2 ** WINDOW_TILE_ZOOM. If this ratio is not 1 the pane is showing a
+		// resampled image at what it calls full resolution — and every round-trip assertion in
+		// this file would still pass, because a uniform scale error is a bijection.
+		//
+		// The same fact is pinned in real screen pixels by the browser test "pans by the distance
+		// the pointer moved", and the mapping's *placement* by the tile-origin test in
+		// `iiif-image-pane.test.ts`.
 		const worldPixels = 512 * 2 ** projection.fullResolutionMapZoom;
 		const windowPixels = worldPixels / 2 ** WINDOW_TILE_ZOOM;
 

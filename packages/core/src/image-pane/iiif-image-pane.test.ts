@@ -151,10 +151,22 @@ describe('createImagePane tile grid', () => {
 		const { syntheticToResource } = pane.projection;
 		let worst = 0;
 
-		// This is the assertion that catches a half-tile offset or an off-by-one zoom, both of
-		// which render a pane that looks entirely plausible. The tile's north-west corner is
-		// taken from the slippy-map formulae — MapLibre's view of where the tile goes — and
-		// must come back as the image pixel that the tile's IIIF region starts at.
+		// **This is the test that proves the projection is the right one.** Not the round-trips:
+		// those compute f⁻¹(f(x)) == x, which is self-consistent by construction and would pass
+		// for any bijection of the plane. This one is an independent statement, and the only one
+		// in the suite that could fail while every round-trip still passed.
+		//
+		// `tileNorthWest` above is the canonical slippy-map form, `atan(sinh(π(1 − 2y/n)))` —
+		// genuinely different algebra from `latFromMercatorY`'s `atan(exp(…))`, and MapLibre's own
+		// view of where it will draw the tile. Requiring its output through `syntheticToResource`
+		// to equal the IIIF region the tile was cut at is what catches a half-tile offset, an
+		// off-by-one zoom, or a window that is not a whole tile — each of which renders a pane
+		// that looks entirely plausible.
+		//
+		// It is also the assertion that is genuinely per-zoom-level, because `tileZoom` and
+		// `tileGridOrigin` both vary with the level. It holds as an exact algebraic identity,
+		// error 0; a `resourceToSynthetic` made linear in degrees instead of linear in Mercator
+		// fails it by 3.1e-4 px against a 1e-6 tolerance.
 		for (const level of pane.image.tileZoomLevels) {
 			const tileZoom = pane.projection.tileZoomFromScaleFactor(level.scaleFactor);
 			const origin = pane.projection.tileGridOrigin(tileZoom);
@@ -179,7 +191,20 @@ describe('createImagePane tile grid', () => {
 		expect(worst).toBeLessThan(ROUND_TRIP_TOLERANCE_PX);
 	});
 
-	it('round-trips corners, centre and ragged edges at every zoom level the fixture offers', () => {
+	it('is invertible over corners, centre and ragged edges at every zoom level', () => {
+		// **This establishes invertibility only**, and the loop over `tileZoomLevels` varies the
+		// point set rather than the behaviour: neither `resourceToSynthetic` nor
+		// `syntheticToResource` takes a zoom argument, because `WINDOW_TILE_ZOOM` fixes one window
+		// for the whole pyramid. That is the right design — a zoom-dependent projection is how
+		// drift gets in — so this is not a gap, but it does mean the ticket's "at every zoom
+		// level" criterion is carried by the tile-origin test above, not by this one.
+		//
+		// What the per-level point sets do buy is coverage of the places a *tile geometry* error
+		// would show: each level's own ragged strip, sampled at that level's resolution.
+		//
+		// The logged worst error is 0 because every point here is an integer or a half-integer on
+		// a 2048-pixel window, so `WINDOW_ORIGIN + t` comes out exact. The real magnitudes are in
+		// `synthetic-projection.test.ts`'s window-size sweep, which samples off-grid on purpose.
 		const pane = createFixturePane();
 		const { resourceToSynthetic, syntheticToResource } = pane.projection;
 		const { width, height } = pane.image;
