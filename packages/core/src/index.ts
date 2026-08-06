@@ -211,7 +211,6 @@ export {
 } from './tiler/decode-ceiling.js';
 export { openDecodeAndCropSource } from './tiler/decode-and-crop-tiler.js';
 export {
-	IMAGE_HEADER_BYTES,
 	readImageHeader,
 	readImageHeaderFromBlob,
 	type ImageHeader
