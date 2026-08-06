@@ -14,26 +14,27 @@
 // (CONTEXT.md — "Georeference Annotation" appears only where the format is read and written).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// WHAT DOES NOT WORK, AND WHY IT IS WIRED ANYWAY
+// THE TILE PATH DEPENDS ON A LOCAL PATCH
 //
-// **`fetchFn` reaches a stored pyramid's `info.json` and cannot reach its tiles.** That is a defect
-// in `@allmaps/render@1.0.0-beta.83`, not in this repository, and there is nothing this repository
-// can pass that would work around it.
+// **`fetchFn` reaches a stored pyramid's `info.json` on the main thread, but its tiles only reach
+// the renderer because of `patches/@allmaps__render@1.0.0-beta.83.patch`.**
 //
 // `WarpedMapLayer.onAdd` builds a `WebGL2Renderer` whose tile factory is
-// `CacheableWorkerImageDataTile`. Its `fetch()` calls into a Comlink worker and passes `this.fetchFn`
-// **unproxied** — the abort callback in the very same argument list *is* wrapped in
-// `Comlink.proxy()` — so `postMessage` refuses to clone it. A function cannot cross a
-// structured-clone boundary. Verified twice for ticket 07, against the current tree: statically, in
-// `dist/tilecache/CacheableWorkerImageDataTile.js`, and in Chromium, where `addGeoreferencedMap`
-// succeeds and reports bounds while every tile fails with `DataCloneError` naming our own shim.
-// Upstream logs and swallows those errors, so **the symptom is a blank warped map with nothing
-// surfaced**.
+// `CacheableWorkerImageDataTile`. As shipped, its `fetch()` calls into a Comlink worker and passes
+// `this.fetchFn` **unproxied** — the abort callback in the very same argument list *is* wrapped in
+// `Comlink.proxy()` — so `postMessage` refuses to clone it and every tile fails with a
+// `DataCloneError` that upstream logs and swallows. The symptom was a blank warped map with nothing
+// surfaced. The patch runs a supplied `fetchFn` on the main thread, where the closure lives, and
+// hands the worker a `blob:` URL, so the JPEG decode stays off the main thread.
 //
-// So this is wired as far as it correctly can be, and no further: the Alignment is handed over, the
-// layer accepts it and computes its bounds, and {@link WarpedRender} carries the outcome up to the
-// page so that "nothing was drawn" is *said* rather than merely looking like an empty map. When the
-// upstream fix lands, the remaining work here is a version bump.
+// Two consequences for anyone reading this later. `scripts/check-allmaps-patch.mjs` runs in `pnpm
+// lint` and fails the build if the patch stops applying — that guard is not decoration, because the
+// failure it catches is silent. And ticket 19 owns getting the fix upstream and deleting the patch;
+// it is not something to attempt from here.
+//
+// {@link WarpedRender} still carries the outcome up to the page rather than logging it. That is not
+// left over from the broken state: an Alignment with two Control Points is a normal thing to render,
+// and the page has to be able to say "one more point and the map appears".
 
 import { WarpedMapLayer } from '@allmaps/maplibre';
 import {

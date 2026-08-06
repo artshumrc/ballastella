@@ -82,6 +82,9 @@ catalogs:
       specifier: 0.0.18
       version: 0.0.18
 
+patchedDependencies:
+  '@allmaps/render@1.0.0-beta.83': 243385713f5c8ece7a52461ff6adc73819ce016c56402994f56c1e7257ddf4cd
+
 importers:
 
   .:
@@ -1849,7 +1852,7 @@ snapshots:
     dependencies:
       '@allmaps/bearing': 1.0.0-beta.12
       '@allmaps/project': 1.0.0-beta.9
-      '@allmaps/render': 1.0.0-beta.83
+      '@allmaps/render': 1.0.0-beta.83(patch_hash=243385713f5c8ece7a52461ff6adc73819ce016c56402994f56c1e7257ddf4cd)
       '@allmaps/stdlib': 1.0.0-beta.41
       '@allmaps/warpedmaplayer': 1.0.0-beta.43
       maplibre-gl: 5.24.0
@@ -1864,7 +1867,7 @@ snapshots:
     transitivePeerDependencies:
       - geotiff
 
-  '@allmaps/render@1.0.0-beta.83':
+  '@allmaps/render@1.0.0-beta.83(patch_hash=243385713f5c8ece7a52461ff6adc73819ce016c56402994f56c1e7257ddf4cd)':
     dependencies:
       '@allmaps/annotation': 1.0.0-beta.37
       '@allmaps/id': 1.0.0-beta.38
@@ -1916,7 +1919,7 @@ snapshots:
   '@allmaps/warpedmaplayer@1.0.0-beta.43':
     dependencies:
       '@allmaps/project': 1.0.0-beta.9
-      '@allmaps/render': 1.0.0-beta.83
+      '@allmaps/render': 1.0.0-beta.83(patch_hash=243385713f5c8ece7a52461ff6adc73819ce016c56402994f56c1e7257ddf4cd)
       '@allmaps/stdlib': 1.0.0-beta.41
     transitivePeerDependencies:
       - geotiff

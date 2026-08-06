@@ -14,7 +14,7 @@ The tree runs **495 unit tests and 89 e2e**, with lint, typecheck, build, the AD
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Six items need a human — see [Open questions for a human](#open-questions-for-a-human).** Items 3, 4, and 5 constrain what v1 can claim. Item 5 blocks two of ticket 07's acceptance criteria; the rest of ticket 07 is unaffected.
+**Six items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
 
 ### A note on how much to trust a green ticket
 
@@ -46,6 +46,9 @@ Last updated: 2026-08-05
 | 16 | [16-publish.md](./tickets/16-publish.md) | Not Started | 09, 10 | *15*, *29*, 78, 79, 80, 81, *82*, *87*, 88, 89, 90, 92, *93*, 99, *101* |
 | 17 | [17-viewer-read-only-exploration.md](./tickets/17-viewer-read-only-exploration.md) | Not Started | 16 | 70, 71, *72*, *77*, *82*, 83, 84, 85, 86, *98* |
 | 18 | [18-pwa-manifest-and-service-worker.md](./tickets/18-pwa-manifest-and-service-worker.md) | Not Started | 16 | 6, 8, 9 |
+| 19 | [19-upstream-allmaps-fetchfn-fix.md](./tickets/19-upstream-allmaps-fetchfn-fix.md) | Needs Human Validation or Intervention | 06 | — (protects 30, 32–37, 78–92) |
+
+**Ticket 19 is human-only and must not be assigned to an agent** — it means opening a pull request against a third-party repository, engaging its maintainers, and judging which of several fixes they should accept. It is numbered as a ticket rather than left as an open question because it has steps, acceptance criteria, and a definite end: the local `@allmaps/render` patch is deleted. Without an owner that patch becomes permanent debt that every `@allmaps/*` bump silently re-risks.
 
 Stories **95 and 96** are deliberately absent from the table. Accessibility is a criterion inside every ticket that adds UI rather than a slice of its own (see Cross-cutting constraints below), so attributing them to any one ticket would be misleading in both directions. Story 97 is listed against ticket 02 because that is where the `<dialog>` + `showModal()` rule is established and asserted; later tickets reuse it. Every other story appears at least once.
 
@@ -71,13 +74,17 @@ Raised by the code reviews of tickets 02–04 and 12–13, and by tickets 05 and
 
    `exportProjectZip` now refuses with `ProjectTooLargeToZipError`, naming the folder Workspace as the way out. That is honest but it means **a legitimately large Project is un-exportable for exactly the Firefox, Safari, and iPad users for whom zip is the only way out** — the users ADR-0001 built this path for. The real fix is zip64 in the writer: either fflate gains it, or the central directory is written here. Related and also open: import holds the whole compressed archive in the JS heap, so a ~400 MB export cannot be re-imported on an iPad (recorded in ticket 13 with two fix shapes — `File.slice()`, or a quarantine directory).
 
-5. **An upstream `@allmaps/render` bug blocks warped rendering, which is ticket 07's central act.** Found by ticket 06, which is otherwise complete and green.
+5. **An upstream `@allmaps/render` bug blocked warped rendering, ticket 07's central act — now patched locally, and [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md) owns getting it upstream.** Found by ticket 06.
 
    `@allmaps/render@1.0.0-beta.83` passes `fetchFn` into a Comlink worker **unproxied** — the abort callback in the very same argument list *is* wrapped in `Comlink.proxy()` — and `postMessage` cannot clone a function. Verified in Chromium against a real ingested pyramid: `addGeoreferencedMap` succeeds and the layer reports bounds, then **every tile fails with `DataCloneError`**, naming our own ADR-0011 shim as the unclonable object. Upstream logs and swallows it, so **the symptom is a blank warped map with nothing surfaced.**
 
-   So `fetchFn` reaches a stored pyramid's `info.json` and cannot reach its tiles. There is **no workaround inside this repository**: proxying from outside the package is impossible, and would hand back a proxied `Response` that `createImageBitmap` cannot consume. `e2e/editor-warped-fetch.e2e.ts` asserts the defect deliberately — **when that test starts failing, the upstream fix has landed.**
+   **RESOLVED locally on 2026-08-06 by `patches/@allmaps__render@1.0.0-beta.83.patch`.** Tiles now arrive: `e2e/editor-warped-fetch.e2e.ts` asserts `cachedTiles > 0` — bytes fetched *and* decoded — rather than an absence of console errors, because the pre-patch failure *was* a swallowed error and a console-only check went green while the map rendered blank.
 
-   This blocks ticket 07's acceptance criteria "with 3 or more pairs, the Historical Map renders warped on the Base Map" and "reloading restores … the warped render". Everything else in ticket 07 — pairing, ordinals, persistence as a IIIF Georeference Annotation — is unaffected. The fix is one line upstream; the options (upstream PR, a local `pnpm patch`, or deferring warped render) are laid out in ticket 06.
+   Note the fix is **not** the one line it appears to be, and this is worth knowing before anyone touches it. Wrapping `fetchFn` in `proxy()` trades `DataCloneError` for `TypeError("Unserializable return value")`, because the worker's `fetchUrl` does `await fetchFn(...)` and expects a `Response` — which is not structured-cloneable either. The patch instead runs a custom `fetchFn` on the main thread, where the closure lives, and hands the worker a `blob:` URL, keeping the decode off the main thread.
+
+   `scripts/check-allmaps-patch.mjs` (in `pnpm lint` and CI) fails the build if the patch stops applying, is stale, or names a version other than the one installed — verified against all three failure modes. It exists because `@allmaps/render` arrives *transitively* through `@allmaps/maplibre`, so bumping maplibre moves render underneath us, and the failure is silent.
+
+   **What remains for a human is [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md): upstream the fix and delete our patch.** Until that lands, every `@allmaps/*` bump — already an ADR-0010 migration event — must re-verify the patch.
 
 6. **The two licence texts still do not ship** — now three, with LGPLv3. OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
 

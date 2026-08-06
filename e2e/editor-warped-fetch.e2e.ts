@@ -10,12 +10,12 @@ import zlib from 'node:zlib';
  * layer where it belongs, in the Base Map pane. Everything below is therefore asserted on the path a
  * scholar actually takes.
  *
- * Three things here a type check cannot establish: that `@allmaps/maplibre` resolves against the one
+ * Four things here a type check cannot establish: that `@allmaps/maplibre` resolves against the one
  * `maplibre-gl` copy in the page (two copies is a broken map rather than a version warning), that the
- * layer survives being added to a real map with a real WebGL2 context, and that no request escapes to
- * the placeholder host.
- *
- * And one thing that is a **deliberate assertion of an upstream defect** — see the last test.
+ * layer survives being added to a real map with a real WebGL2 context, that no request escapes to the
+ * placeholder host, and — the one this file exists for — that **tiles actually arrive and decode**
+ * through the ADR-0011 shim, which needs `patches/@allmaps__render@1.0.0-beta.83.patch`. See the last
+ * test for why that is asserted by counting cached tiles and not by an absence of console errors.
  */
 
 const crcTable = (() => {
@@ -137,6 +137,13 @@ declare global {
 			};
 			layer: {
 				getBounds(): unknown;
+				/**
+				 * Reached into so a tile can be asserted to have *arrived and decoded*, rather than
+				 * merely to have been requested — `isCachedTile()` is `data !== undefined`. Optional
+				 * all the way down because it is upstream's internals, not a contract: if a version
+				 * bump moves it, the assertion must fail loudly rather than silently read `undefined`.
+				 */
+				renderer?: { tileCache?: { getCachedTiles?(): unknown[] } };
 			};
 		};
 	}
@@ -199,16 +206,21 @@ test.describe('warped rendering reads through the ProjectStore', () => {
 		expect(requested.filter((url) => url.includes('unset.invalid'))).toEqual([]);
 	});
 
-	test('reaches the pyramid’s info.json through the shim, and cannot reach its tiles', async ({
-		page
-	}) => {
-		// **This test documents a defect in `@allmaps/render@1.0.0-beta.83`, and it will fail when
-		// that defect is fixed.** Read the expectation at the bottom before changing anything here.
+	test('reaches the pyramid’s info.json AND its tiles through the shim', async ({ page }) => {
+		// This test used to assert the opposite of its own name. `@allmaps/render@1.0.0-beta.83` passes
+		// `fetchFn` into its Comlink tile worker unproxied — the abort callback beside it *is*
+		// `Comlink.proxy()`-wrapped — so every tile failed with a `DataCloneError` that upstream logs
+		// and swallows, and the symptom was a blank warped map with nothing surfaced.
 		//
-		// Ticket 06 found it and asserted it on a dev route with a hand-built georeferenced map.
-		// Ticket 07 re-verified it against the current tree, twice — statically, in
-		// `dist/tilecache/CacheableWorkerImageDataTile.js`, and here, through the real pairing UI — and
-		// moved the assertion onto the real path so that it cannot drift away from what ships.
+		// `patches/@allmaps__render@1.0.0-beta.83.patch` fixes it, and the obvious one-line fix does
+		// **not**: the worker's `fetchUrl` does `await fetchFn(...)` and expects a `Response`, which is
+		// not structured-cloneable, so proxying the function merely trades the `DataCloneError` for
+		// `TypeError("Unserializable return value")` — still swallowed, still blank. Measured
+		// independently while this ticket was in flight, against a faithful copy of upstream's worker,
+		// and the two accounts agree. The patch instead runs the custom fetch on the main thread, where
+		// the closure lives, and hands the worker a `blob:` URL so the decode stays off the main thread.
+		// `scripts/check-allmaps-patch.mjs` fails the build if it stops applying, because this failure
+		// mode is silent.
 		const consoleErrors: string[] = [];
 		page.on('console', (message) => {
 			if (message.type() === 'error') consoleErrors.push(message.text());
@@ -222,30 +234,34 @@ test.describe('warped rendering reads through the ProjectStore', () => {
 		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
 
 		// Bring the warped map into view so tiles are actually asked for, then let the renderer work.
-		await page.evaluate(async () => {
+		const cachedTiles = await page.evaluate(async () => {
 			const warped = window.ballastellaWarped;
 			if (!warped) throw new Error('the warped layer was not exposed');
 			warped.map.fitBounds(warped.layer.getBounds(), { animate: false });
 			await new Promise((resolve) => setTimeout(resolve, 4000));
+
+			// A *cached* tile is one whose bytes arrived and decoded — `CacheableTile.isCachedTile()`
+			// is `data !== undefined`, and `data` is the ImageData the worker produced. So this counts
+			// tiles that made it all the way through the shim, not tiles that were merely requested.
+			return (warped.layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
 		});
 
-		// **The `info.json` arrived** — the Alignment was accepted and the layer has bounds, asserted
-		// above and in the previous test. That half of ADR-0011 holds.
+		// **The `info.json` arrives** — the Alignment was accepted and the layer has bounds, asserted
+		// in the previous test. That half of ADR-0011 held even before the patch.
 		//
-		// **The tiles cannot.** `@allmaps/render`'s WebGL2 renderer fetches every tile inside a Comlink
-		// worker and passes `fetchFn` across the boundary **unproxied** —
-		// `CacheableWorkerImageDataTile.fetch` wraps the abort callback beside it in `Comlink.proxy()`
-		// and does not wrap this one — so `postMessage` refuses to clone it and every tile fails with a
-		// `DataCloneError` that upstream logs and swallows. A function cannot cross a structured-clone
-		// boundary; there is nothing this repository can pass that would.
-		//
-		// So this expectation asserts the defect, deliberately, rather than leaving the slice claiming
-		// warped rendering that does not put pixels on screen. **When it starts failing, that is the
-		// upstream fix landing** — delete the expectation and assert the tiles instead.
-		const dataClone = consoleErrors.filter((text) => /DataClone|could not be cloned/i.test(text));
+		// **And so do the tiles**, which is the half that needed the patch and the half ADR-0011's
+		// whole injection story rests on. Asserted as cached tiles rather than as an absence of errors,
+		// because the pre-patch failure was precisely an error that upstream swallowed: a suite that
+		// only checked the console went green while the map rendered blank.
 		expect(
-			dataClone.length,
-			`expected @allmaps/render to fail cloning fetchFn into its tile worker; console errors were:\n${consoleErrors.join('\n')}`
+			cachedTiles,
+			'no tile reached the renderer through the ProjectStore shim — if `scripts/check-allmaps-patch.mjs` ' +
+				'is passing, look for an upstream change to how fetchFn crosses into the tile worker'
 		).toBeGreaterThan(0);
+
+		const dataClone = consoleErrors.filter((text) => /DataClone|could not be cloned/i.test(text));
+		expect(dataClone, 'fetchFn failed to cross into the tile worker').toEqual([]);
+		expect(consoleErrors.filter((text) => text.includes('unset.invalid'))).toEqual([]);
 	});
 });
+

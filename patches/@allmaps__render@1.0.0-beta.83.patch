@@ -1,0 +1,53 @@
+diff --git a/dist/tilecache/CacheableWorkerImageDataTile.js b/dist/tilecache/CacheableWorkerImageDataTile.js
+index b05aef7262a81f3d7969425774657055cd11558e..d4b06558baf24bc04d2fe0e95dcec52bdf131747 100644
+--- a/dist/tilecache/CacheableWorkerImageDataTile.js
++++ b/dist/tilecache/CacheableWorkerImageDataTile.js
+@@ -2,6 +2,7 @@ import { WarpedMapEvent, WarpedMapEventType } from "../shared/events.js";
+ import { FetchableTile } from "./FetchableTile.js";
+ import { CacheableTile } from "./CacheableTile.js";
+ import { proxy } from "comlink";
++import { fetchUrl } from "@allmaps/stdlib";
+ //#region src/tilecache/CacheableWorkerImageDataTile.ts
+ /**
+ * Class for tiles that can be cached, and whose data can be processed to its imageData using a WebWorker.
+@@ -20,8 +21,30 @@ var CacheableWorkerImageDataTile = class CacheableWorkerImageDataTile extends Ca
+ 	* @returns
+ 	*/
+ 	async fetch() {
++		// BALLASTELLA PATCH — see patches/@allmaps__render@1.0.0-beta.83.patch and ticket 06.
++		//
++		// Upstream passes `this.fetchFn` into the Comlink worker unproxied (note the abort callback
++		// in the same argument list IS proxied), and `postMessage` cannot clone a function — so every
++		// tile fails with DataCloneError, which upstream logs and swallows. The symptom is a blank
++		// warped map with nothing surfaced.
++		//
++		// Wrapping it in `proxy()` does NOT fix it: the worker's `fetchUrl` does `await fetchFn(...)`
++		// and expects a `Response`, and a Response is not structured-cloneable, so Comlink answers
++		// with TypeError("Unserializable return value") instead.
++		//
++		// So when a custom fetchFn is supplied, run it here — on the main thread, where the closure
++		// lives — and hand the worker a `blob:` URL it can fetch with plain `fetch`. The decode stays
++		// off the main thread, which is the reason this class exists. Tiles with no custom fetchFn
++		// take the original path untouched.
++		let tileUrl = this.fetchableTile.tileUrl;
++		let objectUrl;
+ 		try {
+-			this.#worker.getImageData(this.fetchableTile.tileUrl, proxy(() => this.abortController.abort()), this.fetchFn, this.fetchableTile.tile.tileZoomLevel.width, this.fetchableTile.tile.tileZoomLevel.height).then((response) => {
++			if (this.fetchFn) {
++				const response = await fetchUrl(tileUrl, { signal: this.abortController.signal }, this.fetchFn);
++				objectUrl = URL.createObjectURL(await response.blob());
++				tileUrl = objectUrl;
++			}
++			await this.#worker.getImageData(tileUrl, proxy(() => this.abortController.abort()), undefined, this.fetchableTile.tile.tileZoomLevel.width, this.fetchableTile.tile.tileZoomLevel.height).then((response) => {
+ 				this.data = response;
+ 				this.dispatchEvent(new WarpedMapEvent(WarpedMapEventType.TILEFETCHED, { tileUrl: this.fetchableTile.tileUrl }));
+ 			}).catch((err) => {
+@@ -30,6 +53,8 @@ var CacheableWorkerImageDataTile = class CacheableWorkerImageDataTile extends Ca
+ 			});
+ 		} catch (err) {
+ 			if (err instanceof Error && err.name === "AbortError") {} else this.dispatchEvent(new WarpedMapEvent(WarpedMapEventType.TILEFETCHERROR, { tileUrl: this.fetchableTile.tileUrl }));
++		} finally {
++			if (objectUrl) URL.revokeObjectURL(objectUrl);
+ 		}
+ 		return this.data;
+ 	}

@@ -107,3 +107,6 @@ catalog:
   # Also a devDependency of the repository root: the Playwright suite builds the fixture zips it
   # feeds to the file input, and reads back the ones the app downloads.
   fflate: ^0.8.3
+
+patchedDependencies:
+  '@allmaps/render@1.0.0-beta.83': patches/@allmaps__render@1.0.0-beta.83.patch
