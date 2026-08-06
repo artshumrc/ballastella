@@ -62,11 +62,7 @@ export interface ForeignGeometry {
 
 /** An Annotation's shape on the earth, or `null` — which RFC 7946 permits and geojson.io writes. */
 export type AnnotationGeometry =
-	| PointGeometry
-	| LineStringGeometry
-	| PolygonGeometry
-	| ForeignGeometry
-	| null;
+	PointGeometry | LineStringGeometry | PolygonGeometry | ForeignGeometry | null;
 
 /**
  * What an Annotation says and how it looks.

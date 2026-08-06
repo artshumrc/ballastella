@@ -28,21 +28,38 @@ import { Marker, type LngLatLike, type Map as MapLibreMap } from 'maplibre-gl';
  * `mask-vertex` and `mask-edge` are the Resource Mask's handles, on the image pane only: the mask
  * is in image pixel space, so it has no meaning on the Base Map. A vertex can be moved and
  * removed; an edge handle sits at the midpoint of an edge and adds a vertex there.
+ *
+ * `annotation-vertex`, `annotation-edge`, and `annotation-draft` are ticket 10's, on the Base Map
+ * only — an Annotation is on real geography. The first two are the same pair of affordances the mask
+ * has, for the same reason: an Annotation's vertex is the same object to a keyboard as a Control
+ * Point or a mask corner, so it arrives on this seam rather than inside a WebGL drawing library that
+ * cannot be focused. `annotation-draft` is a vertex of a shape still being placed — it has no
+ * identity to move or delete yet, so it is drawn and not operable.
  */
 export type OverlayPointKind =
-	'reference' | 'reported' | 'control-point' | 'mask-vertex' | 'mask-edge';
+	| 'reference'
+	| 'reported'
+	| 'control-point'
+	| 'mask-vertex'
+	| 'mask-edge'
+	| 'annotation-vertex'
+	| 'annotation-edge'
+	| 'annotation-draft';
 
 /**
  * The kinds a user can operate: focusable `<button>`s, draggable, arrow-key movable, Delete-able.
  *
- * A set rather than a comparison, because there are now three of them and the list is the whole of
+ * A set rather than a comparison, because there are now five of them and the list is the whole of
  * the distinction. Anything not here is a label — `aria-hidden`, `pointer-events: none`, so clicks
- * reach the map underneath.
+ * reach the map underneath. `annotation-draft` is deliberately absent: a vertex of a shape still
+ * being placed must not swallow the very next click, which is the click that places the next one.
  */
 const INTERACTIVE_KINDS: ReadonlySet<OverlayPointKind> = new Set<OverlayPointKind>([
 	'control-point',
 	'mask-vertex',
-	'mask-edge'
+	'mask-edge',
+	'annotation-vertex',
+	'annotation-edge'
 ]);
 
 /** How far one arrow-key press moves a point, in screen pixels. */

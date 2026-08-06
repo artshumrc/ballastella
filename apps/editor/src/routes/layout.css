@@ -125,6 +125,72 @@
 	outline-offset: 2px;
 }
 
+/* ─── An Annotation's vertices (ticket 10) ────────────────────────────────────────────────
+   The same two affordances the Resource Mask has, on the Base Map, and diamond rather than square
+   or round so that a third editable kind on a map is still tellable apart at a glance. A vertex is
+   focusable and arrow-key movable for the reason the other two are: it is the same object to a
+   keyboard, which is why `terra-draw` — which edits inside a WebGL layer and cannot be focused at
+   all — is not what draws these. */
+.pane-overlay-point-annotation-vertex,
+.pane-overlay-point-annotation-edge {
+	pointer-events: auto;
+	display: grid;
+	place-items: center;
+	padding: 0;
+	line-height: 1;
+	cursor: grab;
+	rotate: 45deg;
+	border-radius: 3px;
+	box-shadow: 0 1px 3px oklch(0 0 0 / 0.4);
+}
+
+.pane-overlay-point-annotation-vertex {
+	width: 15px;
+	height: 15px;
+	border: 2px solid var(--color-base-100);
+	background: var(--color-primary);
+}
+
+/* The midpoint of an edge, carrying a `+`: activating it adds a vertex there. Hollow, so it reads
+   as "somewhere a vertex could be" rather than as one that is already there. The glyph is
+   counter-rotated, or the `+` arrives as an ×. */
+.pane-overlay-point-annotation-edge {
+	width: 13px;
+	height: 13px;
+	border: 2px dashed var(--color-primary);
+	background: var(--color-base-100);
+	color: var(--color-primary);
+	font-size: 10px;
+	font-weight: 700;
+	opacity: 0.7;
+	rotate: 0deg;
+	border-radius: 9999px;
+}
+
+.pane-overlay-point-annotation-edge:hover,
+.pane-overlay-point-annotation-edge:focus-visible {
+	opacity: 1;
+}
+
+.pane-overlay-point-annotation-vertex:active,
+.pane-overlay-point-annotation-edge:active {
+	cursor: grabbing;
+}
+
+.pane-overlay-point-annotation-vertex:focus-visible,
+.pane-overlay-point-annotation-edge:focus-visible {
+	outline: 3px solid var(--color-secondary);
+	outline-offset: 3px;
+}
+
+/* A vertex of a shape still being placed. Not operable — `pointer-events` stays `none` from the
+   base rule — because the next click on it is the click that places the next vertex. */
+.pane-overlay-point-annotation-draft {
+	border: 2px solid var(--color-primary);
+	background: var(--color-base-100);
+	box-shadow: 0 0 0 1px oklch(0 0 0 / 0.35);
+}
+
 /* Selecting either half highlights its partner in the opposite pane (ADR-0022 contract 4).
    This is the rule that makes twenty points comprehensible, so it has to read at a glance and
    not only on close inspection. */

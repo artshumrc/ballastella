@@ -16,16 +16,30 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import {
+		addAnnotation,
 		baseMapFallbackNotice,
+		findAnnotation,
+		newAnnotation,
 		otherTheme,
+		removeAnnotation,
 		resolveBaseMap,
+		setGeometry,
+		setLineStyle,
+		setStyle,
+		setText,
 		type Alignment,
+		type AnnotationCollection,
+		type AnnotationGeometry,
 		type AnnotationLayer,
+		type GeoPoint,
 		type Layer,
+		type LineStyle,
 		type MapLayer
 	} from '@ballastella/core';
 
-	import BaseMapPane from '$lib/base-map/BaseMapPane.svelte';
+	import AnnotationPanel from '$lib/annotations/AnnotationPanel.svelte';
+	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
+	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
@@ -95,6 +109,10 @@
 
 	$effect(() => {
 		void documentKey;
+		// Editing an Annotation replaces the collection in `documents` without changing `documentKey`,
+		// so this must not also re-read on every edit — it would race the write and snap the map back to
+		// the bytes on disk. `reloadAt` is bumped only where a fresh read is genuinely wanted.
+		void reloadAt;
 		const current = session;
 		const wanted = shown;
 		if (!current) return;
@@ -107,7 +125,7 @@
 					const document =
 						layer.kind === 'map'
 							? await current.readLayerAlignment(layer)
-							: await current.readLayerFeatures(layer);
+							: await current.readAnnotations(layer);
 					if (document !== null) read[layer.id] = document;
 				} catch (cause) {
 					// Said, never swallowed. A Layer whose file is there and unreadable means work the user
@@ -121,6 +139,9 @@
 		})();
 	});
 
+	/** Bumped to ask for a fresh read of every Layer's document. */
+	let reloadAt = $state(0);
+
 	/** The stack as the map takes it: top first, each Layer with its document in hand. */
 	const drawn = $derived<readonly DrawnLayer[]>(
 		shown.flatMap((layer): DrawnLayer[] => {
@@ -130,7 +151,7 @@
 				// place it by, and `showAlignment` would have to refuse it a second time.
 				return document === undefined ? [] : [{ layer, alignment: document as Alignment }];
 			}
-			return [{ layer, features: document ?? null }];
+			return [{ layer, annotations: (document as AnnotationCollection | undefined) ?? null }];
 		})
 	);
 
@@ -168,12 +189,285 @@
 		Object.values(outcomes).filter((outcome) => outcome.status === 'drawn').length
 	);
 
-	const annotationLayerCount = $derived(
-		layers.filter((layer) => layer.kind === 'annotation').length
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// Annotations (ticket 10)
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	const annotationLayers = $derived(
+		layers.filter((layer): layer is AnnotationLayer => layer.kind === 'annotation')
 	);
+
+	const annotationLayerCount = $derived(annotationLayers.length);
+
+	/**
+	 * Which Annotation Layer is being drawn into.
+	 *
+	 * A **working choice, not a property of the Project**, so it is component state and is not written
+	 * anywhere: which Layer somebody happened to have selected is not part of their work, and persisting
+	 * it would mean a write on a click that changed nothing (ADR-0010, ADR-0002).
+	 */
+	let chosenLayerId = $state<string | null>(null);
+
+	/** The chosen Layer, or the topmost Annotation Layer when nothing has been chosen yet. */
+	const activeLayer = $derived<AnnotationLayer | null>(
+		annotationLayers.find((layer) => layer.id === chosenLayerId) ?? annotationLayers[0] ?? null
+	);
+
+	/**
+	 * The active Layer's Annotations.
+	 *
+	 * Read out of `documents`, which is the **one** in-memory copy: an edit replaces the entry there and
+	 * the map re-renders from it, so there is no second copy of a Layer's contents that could disagree
+	 * with what was written. That is the same rule `EditorSession` follows for `project.json`, and the
+	 * reason ticket 04's second writer destroyed a document.
+	 */
+	const activeCollection = $derived<AnnotationCollection | null>(
+		activeLayer === null
+			? null
+			: ((documents[activeLayer.id] as AnnotationCollection | undefined) ?? null)
+	);
+
+	let selectedAnnotationId = $state<string | null>(null);
+	const drawing = new AnnotationDrawing();
+
+	/**
+	 * Where the open popup is anchored, or `null` for none.
+	 *
+	 * The *place* rather than the popup, because MapLibre's `Popup` belongs inside the pane that owns
+	 * the map — the page says which Annotation is open and where, and the pane puts it on the map. A
+	 * page holding a `Popup` would be a second thing reaching into MapLibre from outside it.
+	 */
+	let popupAt = $state.raw<GeoPoint | null>(null);
+
+	/** Replace the active Layer's collection in memory and write it. */
+	async function commitAnnotations(
+		next: AnnotationCollection,
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		const current = session;
+		const layer = activeLayer;
+		if (!current || !layer) return;
+		if (next === activeCollection) return;
+		documents = { ...documents, [layer.id]: next };
+		await current.writeAnnotations(layer, next, options);
+	}
+
+	/**
+	 * A place on the earth the user asked for — a click, or Enter over the pane.
+	 *
+	 * With a drawing tool active this places a vertex; with the select tool it does nothing, and the
+	 * Annotation hit (if any) is what {@link selectAnnotation} handles. One write happens here and only
+	 * for a pin, whose gesture is complete at one point; a line and a shape are written by
+	 * {@link finishShape}, which is ADR-0017 rule 1's "the gesture is over".
+	 */
+	async function placePoint(point: GeoPoint): Promise<void> {
+		if (drawing.tool === 'select') return;
+		const finished = drawing.place(point);
+		if (finished !== null) await addDrawn(finished);
+	}
+
+	/** End a line or a shape, and keep it. */
+	async function finishShape(): Promise<void> {
+		const finished = drawing.finish();
+		if (finished !== null) await addDrawn(finished);
+	}
+
+	/** Put a finished geometry in the Layer as a new Annotation, and select it so it can be titled. */
+	async function addDrawn(geometry: AnnotationGeometry): Promise<void> {
+		const collection = activeCollection ?? { annotations: [] };
+		const annotation = newAnnotation({ id: crypto.randomUUID(), geometry });
+		selectedAnnotationId = annotation.id;
+		popupAt = null;
+		await commitAnnotations(addAnnotation(collection, annotation));
+	}
+
+	/**
+	 * Select an Annotation, and where asked, show what it says.
+	 *
+	 * The popup is the reader-facing surface (SPEC story 67) and is shown to the author too, because an
+	 * author needs to see what a reader will — it is the only place the rendered Markdown appears over
+	 * the map rather than beside it. Selecting from the list opens no popup: there is no place on the
+	 * map the user pointed at, and one appearing at an arbitrary coordinate would be worse than none.
+	 */
+	function selectAnnotation(id: string | null, at: GeoPoint | null = null): void {
+		selectedAnnotationId = id;
+		popupAt = id === null ? null : at;
+	}
+
+	const selectedAnnotation = $derived(
+		activeCollection && selectedAnnotationId
+			? (findAnnotation(activeCollection, selectedAnnotationId) ?? null)
+			: null
+	);
+
+	/**
+	 * The overlay points on the Base Map: the shape being drawn, and the selected Annotation's vertices.
+	 *
+	 * On the same seam as a Control Point and a Resource Mask corner, which is what gives every vertex a
+	 * named `<button>`, arrow-key movement, Delete, and one store write per gesture without any of it
+	 * being written here — see `drawing.svelte.ts` for why this rather than a WebGL drawing library.
+	 */
+	const annotationPoints = $derived.by((): BaseMapOverlayPoint[] => {
+		const points: BaseMapOverlayPoint[] = [];
+
+		// The vertices placed so far in the gesture in progress. Not operable: the next click on one of
+		// them is the click that places the next vertex.
+		drawing.vertices.forEach((vertex, index) => {
+			points.push({
+				key: `annotation-draft-${index}`,
+				point: vertex,
+				kind: 'annotation-draft',
+				ordinal: index + 1,
+				label: `Point ${index + 1} of the shape being drawn`
+			});
+		});
+
+		const annotation = selectedAnnotation;
+		const geometry = annotation?.geometry;
+		if (!annotation || !geometry || geometry.type === 'foreign') return points;
+		// A polygon's ring is closed (RFC 7946), so its last position repeats its first: it is drawn as
+		// one fewer handle than the ring has positions, and `reshape` closes it again. Two handles on the
+		// same spot, one of which silently had to follow the other, is the alternative.
+		const positions: readonly (readonly [number, number])[] =
+			geometry.type === 'Point'
+				? [geometry.coordinates]
+				: geometry.type === 'Polygon'
+					? (geometry.coordinates[0] ?? []).slice(0, -1)
+					: geometry.coordinates;
+
+		positions.forEach((position, index) => {
+			points.push({
+				key: `annotation-vertex-${annotation.id}-${index}`,
+				point: { lng: position[0] ?? 0, lat: position[1] ?? 0 },
+				kind: 'annotation-vertex',
+				ordinal: index + 1,
+				label:
+					`Point ${index + 1} of ${positions.length} of ${annotationName(annotation.id)}. ` +
+					'Arrow keys move it.',
+				// **Once, on gesture end.** Pointer-up, or the release of a held arrow key — never per
+				// pointer-move, which is what makes "one edit is one store write" a number the suite counts.
+				onmoveend: (to) => void reshape(index, to)
+			});
+		});
+
+		return points;
+	});
+
+	/** What an Annotation is called, for a handle's accessible name. */
+	const annotationName = (id: string): string => {
+		const collection = activeCollection;
+		const annotation = collection ? findAnnotation(collection, id) : undefined;
+		return annotation?.properties.title || 'this Annotation';
+	};
+
+	/** Move one vertex of the selected Annotation, writing once. */
+	async function reshape(index: number, to: GeoPoint): Promise<void> {
+		const collection = activeCollection;
+		const annotation = selectedAnnotation;
+		const geometry = annotation?.geometry;
+		if (!collection || !annotation || !geometry || geometry.type === 'foreign') return;
+
+		const moved: [number, number] = [to.lng, to.lat];
+		let next: AnnotationGeometry;
+		if (geometry.type === 'Point') {
+			next = { type: 'Point', coordinates: moved };
+		} else if (geometry.type === 'LineString') {
+			const positions = geometry.coordinates.map((position, at) =>
+				at === index ? moved : position
+			);
+			next = { type: 'LineString', coordinates: positions };
+		} else {
+			const ring = (geometry.coordinates[0] ?? []).slice(0, -1);
+			const positions = ring.map((position, at) => (at === index ? moved : position));
+			// Closed again, because a LinearRing whose ends differ is what other tools reject.
+			next = {
+				type: 'Polygon',
+				coordinates: [[...positions, positions[0] ?? moved], ...geometry.coordinates.slice(1)]
+			};
+		}
+		await commitAnnotations(setGeometry(collection, annotation.id, next));
+	}
+
+	/** Delete the selected Annotation (SPEC story 66). */
+	async function deleteSelected(): Promise<void> {
+		const collection = activeCollection;
+		const id = selectedAnnotationId;
+		if (!collection || !id) return;
+		selectedAnnotationId = null;
+		popupAt = null;
+		await commitAnnotations(removeAnnotation(collection, id));
+	}
+
+	/** Type into the title or the description. Coalesced per file (ADR-0017 rule 2). */
+	async function typeText(text: { title?: string; description?: string }): Promise<void> {
+		const collection = activeCollection;
+		const id = selectedAnnotationId;
+		if (!collection || !id) return;
+		await commitAnnotations(setText(collection, id, text), { debounce: true });
+	}
+
+	/**
+	 * The edit is over — a field blurred, Enter was pressed, or a slider was released.
+	 *
+	 * A no-op unless something is waiting to be written, which is the same guard `commitLayerEdit` and
+	 * `commitProjectName` both carry: tabbing through a title field is *looking*, and ADR-0010 is
+	 * explicit that merely looking at an old Project must not modify a single byte of it. Writing the
+	 * in-memory collection here regardless would reintroduce ticket 02's `onblur`-rewrites-on-focus-and-
+	 * leave shape, which had to be removed.
+	 */
+	async function commitAnnotationEdit(): Promise<void> {
+		const layer = activeLayer;
+		const collection = activeCollection;
+		if (!layer || !collection) return;
+		if (!session?.hasPendingAnnotationWrite(layer)) return;
+		await session.writeAnnotations(layer, collection);
+	}
+
+	/** Set style properties on the selected Annotation, by their exact simplestyle names. */
+	async function styleSelected(
+		style: Record<string, unknown>,
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		const collection = activeCollection;
+		const id = selectedAnnotationId;
+		if (!collection || !id) return;
+		await commitAnnotations(setStyle(collection, id, style), options);
+	}
+
+	/** Set the selected Annotation's line style. Stores the tuple; solid is its absence (ADR-0009). */
+	async function lineStyleSelected(line: LineStyle): Promise<void> {
+		const collection = activeCollection;
+		const id = selectedAnnotationId;
+		if (!collection || !id) return;
+		await commitAnnotations(setLineStyle(collection, id, line));
+	}
+
+	/** Choosing another Layer abandons a part-drawn shape and clears the selection with it. */
+	function chooseLayer(id: string): void {
+		chosenLayerId = id;
+		selectedAnnotationId = null;
+		popupAt = null;
+		drawing.cancel();
+	}
 </script>
 
 <svelte:head><title>Layers — Ballastella Editor</title></svelte:head>
+
+<!--
+	Escape abandons a part-drawn shape from anywhere on the page, and closes an open popup.
+
+	On the window rather than on the pane, for the reason ADR-0022 gives for the pending Control Point
+	half: the user may have tabbed away to the toolbar or the Annotation list, and "Escape only works if
+	you have not moved the focus" is not a cancel affordance. It abandons rather than commits, because a
+	half-drawn shape somebody walked away from is not something they asked to keep.
+-->
+<svelte:window
+	onkeydown={(event) => {
+		if (event.key !== 'Escape') return;
+		if (drawing.cancel()) return;
+		if (popupAt !== null) popupAt = null;
+	}}
+/>
 
 <div class="flex min-h-screen flex-col">
 	<header class="flex flex-wrap items-end gap-4 border-b border-base-300 bg-base-200 p-4">
@@ -255,6 +549,30 @@
 					Add an Annotation Layer
 				</button>
 
+				<hr class="my-6 border-base-300" />
+
+				<AnnotationPanel
+					layers={annotationLayers}
+					layer={activeLayer}
+					collection={activeCollection}
+					selectedId={selectedAnnotationId}
+					tool={drawing.tool}
+					status={drawing.status}
+					drawing={drawing.drawing}
+					canFinish={drawing.canFinish}
+					onchooselayer={chooseLayer}
+					onchoosetool={(tool) => drawing.choose(tool)}
+					onfinish={() => void finishShape()}
+					oncancel={() => drawing.cancel()}
+					onundovertex={() => drawing.undoVertex()}
+					onselect={(id) => selectAnnotation(id)}
+					ontext={(text) => void typeText(text)}
+					oncommit={() => void commitAnnotationEdit()}
+					onstyle={(style, options) => void styleSelected(style, options)}
+					onlinestyle={(line) => void lineStyleSelected(line)}
+					ondelete={() => void deleteSelected()}
+				/>
+
 				<p class="mt-6"><a class="link" href={resolve('/')}>Back to all Projects</a></p>
 			</div>
 
@@ -263,7 +581,20 @@
 					<BaseMapPane
 						entryId={resolution.entry.id}
 						layers={drawn}
+						overlayPoints={annotationPoints}
+						popupAnnotation={selectedAnnotation}
+						{popupAt}
 						{fetchTile}
+						onclickpoint={(point) => void placePoint(point)}
+						onclickannotation={(hit) => {
+							// Only when nothing is being drawn: with a tool in hand the click places a vertex, and
+							// the Annotation underneath is not what the user is pointing at.
+							if (drawing.tool !== 'select') return;
+							chosenLayerId = hit.layerId;
+							selectAnnotation(hit.annotationId, hit.at);
+						}}
+						onfinishshape={() => void finishShape()}
+						onpopupclose={() => (popupAt = null)}
 						onstack={(reported) => (rendered = reported)}
 					/>
 				</div>

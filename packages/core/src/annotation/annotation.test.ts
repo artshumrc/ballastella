@@ -7,6 +7,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { newAnnotationLayer, type SimpleStyle } from '../project/layer.js';
+import type { Bytes } from '../store/project-store.js';
 
 import {
 	DASHED_DASHARRAY,
@@ -37,8 +38,10 @@ import {
 	toRenderCollection
 } from './render.js';
 
-const utf8 = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
-const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
+const utf8 = (encoded: Uint8Array): string => new TextDecoder().decode(encoded);
+// Annotated as `Bytes`, which is `Uint8Array<ArrayBuffer>`: Node's `TextEncoder` is typed as returning
+// the wider `ArrayBufferLike`, so an unannotated helper infers a type the store's own does not accept.
+const bytes = (text: string): Bytes => new TextEncoder().encode(text) as Bytes;
 
 /** Ids are handed in, so every assertion about the written file is about a fixed document. */
 const counting = () => {
@@ -168,7 +171,9 @@ describe('an unchanged file serialises byte-identically', () => {
 	test('an empty Layer written at creation round-trips identically', () => {
 		// `emptyAnnotationCollection` in `layer.ts` is what ticket 09 writes when a Layer is added, and
 		// this module has to agree with it byte for byte or the first edit reformats the file.
-		const asCreated = bytes(`${JSON.stringify({ type: 'FeatureCollection', features: [] }, null, '\t')}\n`);
+		const asCreated = bytes(
+			`${JSON.stringify({ type: 'FeatureCollection', features: [] }, null, '\t')}\n`
+		);
 
 		expect(utf8(serialiseAnnotations(parseAnnotations(asCreated)))).toBe(utf8(asCreated));
 		expect(utf8(serialiseAnnotations(emptyCollection()))).toBe(utf8(asCreated));
@@ -212,7 +217,18 @@ describe('an unchanged file serialises byte-identically', () => {
 						type: 'Feature',
 						id: 'a1',
 						properties: {},
-						geometry: { type: 'MultiPolygon', coordinates: [[[[1, 2], [3, 4], [1, 2]]]] }
+						geometry: {
+							type: 'MultiPolygon',
+							coordinates: [
+								[
+									[
+										[1, 2],
+										[3, 4],
+										[1, 2]
+									]
+								]
+							]
+						}
 					}
 				]
 			},
@@ -284,7 +300,12 @@ describe('reading somebody else’s document', () => {
 				JSON.stringify({
 					type: 'FeatureCollection',
 					features: [
-						{ type: 'Feature', id: 'a1', properties: {}, geometry: { type: 'Point', coordinates: ['a', 'b'] } }
+						{
+							type: 'Feature',
+							id: 'a1',
+							properties: {},
+							geometry: { type: 'Point', coordinates: ['a', 'b'] }
+						}
 					]
 				})
 			)
@@ -343,7 +364,9 @@ describe('solid, dashed, and dotted (SPEC story 61)', () => {
 	test('solid is the absence of stroke-dasharray, not a tuple that looks continuous', () => {
 		expect(dashArrayFor('solid')).toBeUndefined();
 
-		const written = JSON.parse(utf8(serialiseAnnotations(setLineStyle(collectionOf(pin('a1')), 'a1', 'solid'))));
+		const written = JSON.parse(
+			utf8(serialiseAnnotations(setLineStyle(collectionOf(pin('a1')), 'a1', 'solid')))
+		);
 
 		expect('stroke-dasharray' in written.features[0].properties).toBe(false);
 	});
@@ -381,7 +404,12 @@ describe('solid, dashed, and dotted (SPEC story 61)', () => {
 			{
 				type: 'FeatureCollection',
 				features: [
-					{ type: 'Feature', id: 'a1', properties: { 'stroke-dasharray': [4, 2, 1, 2] }, geometry: null }
+					{
+						type: 'Feature',
+						id: 'a1',
+						properties: { 'stroke-dasharray': [4, 2, 1, 2] },
+						geometry: null
+					}
 				]
 			},
 			null,
@@ -435,7 +463,10 @@ describe('the controls write simplestyle property names exactly', () => {
 	test('no camelCase name reaches the file', () => {
 		// The failure this guards is a control written as `strokeWidth`, which would look right in the
 		// app and make the file unreadable to every other tool — the whole portability claim.
-		const styled = setStyle(collectionOf(pin('a1')), 'a1', { 'stroke-width': 3, 'fill-opacity': 0.5 });
+		const styled = setStyle(collectionOf(pin('a1')), 'a1', {
+			'stroke-width': 3,
+			'fill-opacity': 0.5
+		});
 
 		const written = utf8(serialiseAnnotations(styled));
 
@@ -525,8 +556,14 @@ describe('the render copy', () => {
 
 		const render = toRenderCollection(collection, { stroke: '#112233', 'stroke-width': 5 });
 
-		expect(render.features[0]?.['properties']).toMatchObject({ stroke: '#112233', 'stroke-width': 5 });
-		expect(render.features[1]?.['properties']).toMatchObject({ stroke: '#ff0000', 'stroke-width': 5 });
+		expect(render.features[0]?.['properties']).toMatchObject({
+			stroke: '#112233',
+			'stroke-width': 5
+		});
+		expect(render.features[1]?.['properties']).toMatchObject({
+			stroke: '#ff0000',
+			'stroke-width': 5
+		});
 	});
 
 	test('buckets each Annotation by line style, because line-dasharray is not data-driven', () => {
@@ -538,7 +575,11 @@ describe('the render copy', () => {
 
 		const render = toRenderCollection(collection, {});
 
-		expect(render.features.map((feature) => (feature['properties'] as Record<string, unknown>)[LINE_STYLE_PROPERTY])) //
+		expect(
+			render.features.map(
+				(feature) => (feature['properties'] as Record<string, unknown>)[LINE_STYLE_PROPERTY]
+			)
+		) //
 			.toEqual(['solid', 'dashed', 'dotted']);
 	});
 
@@ -570,7 +611,12 @@ describe('the render copy', () => {
 				JSON.stringify({
 					type: 'FeatureCollection',
 					features: [
-						{ type: 'Feature', id: 'a1', properties: {}, geometry: { type: 'MultiPoint', coordinates: [] } },
+						{
+							type: 'Feature',
+							id: 'a1',
+							properties: {},
+							geometry: { type: 'MultiPoint', coordinates: [] }
+						},
 						{ type: 'Feature', id: 'a2', properties: {}, geometry: null }
 					]
 				})

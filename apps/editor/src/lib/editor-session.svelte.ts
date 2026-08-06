@@ -22,18 +22,22 @@ import {
 	newAlignment,
 	newAnnotationLayer,
 	newMapLayer,
+	emptyCollection,
 	openDecodeAndCropSource,
 	parseAlignment,
+	parseAnnotations,
 	projectFilePath,
 	readImageLabel,
 	readProjectZip,
 	renameLayer,
 	serialiseAlignment,
+	serialiseAnnotations,
 	setLayerVisible,
 	setMapLayerOpacity,
 	streamingTiler,
 	toDirectoryName,
 	type Alignment,
+	type AnnotationCollection,
 	type AnnotationLayer,
 	type FetchFn,
 	type IngestProgress,
@@ -45,10 +49,12 @@ import {
 	type ProjectSummary,
 	type ProjectZip,
 	type SaveState,
+	type SimpleStyle,
 	type TransferProgress
 } from '@ballastella/core';
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
+import { recordAnnotationWrite } from './annotations/browser-test-handle.js';
 import { loadLibvips } from './ingest/libvips-loader.js';
 import { saveFile } from './save-file.js';
 
@@ -764,6 +770,117 @@ export class EditorSession {
 			if (cause instanceof PathNotFoundError) return null;
 			throw cause;
 		}
+	}
+
+	/**
+	 * One Annotation Layer's Annotations, as the model (ticket 10).
+	 *
+	 * Beside {@link readLayerFeatures} rather than replacing it, and the difference is the point: that
+	 * one parses as JSON and no further, because the Layer stack draws a `FeatureCollection` without
+	 * interpreting it. This one is for *editing*, which needs the Annotations themselves.
+	 *
+	 * A Layer with no file yet reads as an empty collection rather than as a failure, because that is
+	 * the ordinary state of a Layer somebody has only just added — and **nothing is written here**
+	 * (ADR-0010).
+	 */
+	async readAnnotations(layer: AnnotationLayer): Promise<AnnotationCollection> {
+		const directory = this.openDirectory;
+		if (!directory || layer.geojsonRef === '') return emptyCollection();
+		try {
+			return parseAnnotations(await this.#store.read(`${directory}/${layer.geojsonRef}`), {
+				path: layer.geojsonRef
+			});
+		} catch (cause) {
+			if (cause instanceof PathNotFoundError) return emptyCollection();
+			// A file that is there and unreadable must say so, for the same reason `readAlignment`
+			// surfaces it: drawing nothing quietly would hide Annotations the user made, and the next
+			// save would overwrite them.
+			throw cause;
+		}
+	}
+
+	/**
+	 * Write one Annotation Layer's Annotations (SPEC stories 57–66).
+	 *
+	 * **Through the same {@link Autosave} as everything else**, so ADR-0017's per-file debounce, its
+	 * flush-on-hide, and its save state are one mechanism rather than one per file kind. There is no
+	 * bespoke save path here, and in particular no `onblur`-rewrites-on-focus-and-leave shape — the
+	 * one ticket 02 shipped and had to remove, because ADR-0010 is explicit that merely looking at an
+	 * old Project must not modify files.
+	 *
+	 * `debounce` is for text being typed into the title and description fields (rule 2). A drawn
+	 * shape, a moved vertex, a colour chosen, and a deletion are all discrete acts or the end of a
+	 * gesture, so they are written now (rule 1) — which is what lets the vertex test assert the
+	 * *number* of writes rather than merely that one happened.
+	 *
+	 * **`project.json` is deliberately not touched.** An Annotation is content; the Layer that
+	 * references it already exists, and its name, visibility, and position are display state that has
+	 * no business in a portability document (ADR-0002). Stamping `updatedAt` on the document for every
+	 * vertex nudge is also exactly what `#ensureMapLayer` exists to avoid on the Alignment path.
+	 */
+	async writeAnnotations(
+		layer: AnnotationLayer,
+		collection: AnnotationCollection,
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory) return;
+		const path = annotationStorePath(directory, layer.id);
+		const bytes = serialiseAnnotations(collection);
+		if (options.debounce) {
+			// Rule 2's per-file timer. Nothing is recorded for this path: the write happens on the timer
+			// rather than here, and the counter exists to assert that a *gesture* costs one write.
+			this.#autosave.queue(path, bytes);
+			return;
+		}
+		try {
+			await this.#autosave.commit(path, bytes);
+			this.saveError = '';
+			// After the write resolved, so an attempt the store refused is not counted as one that
+			// happened. This is what lets the vertex test assert the number of writes.
+			recordAnnotationWrite(path, collection.annotations.length);
+		} catch (cause) {
+			this.saveError = cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	/**
+	 * Whether an Annotation Layer has bytes waiting inside their debounce window.
+	 *
+	 * Asked by the commit-on-blur path, so that tabbing through a title field is *looking* rather than
+	 * an edit — the same guard {@link commitProjectName} and {@link commitLayerEdit} both carry, and the
+	 * reason it exists is ADR-0010: merely opening last year's Project must not modify a byte of it.
+	 */
+	hasPendingAnnotationWrite(layer: AnnotationLayer): boolean {
+		const directory = this.openDirectory;
+		if (!directory) return false;
+		return this.#autosave.hasPendingWrite(annotationStorePath(directory, layer.id));
+	}
+
+	/**
+	 * Record an Annotation Layer's default style (ADR-0002, ADR-0009).
+	 *
+	 * On the **Layer**, in `project.json`, and not on the Annotations — which is what lets a whole
+	 * Layer be restyled in bulk and is why nothing stamps defaults onto a feature at creation time.
+	 * Debounced, because a colour input is dragged.
+	 */
+	async setLayerDefaultStyle(
+		id: string,
+		style: SimpleStyle,
+		options: { debounce?: boolean } = {}
+	): Promise<void> {
+		await this.#changeLayers((layers) => {
+			const at = layers.findIndex((layer) => layer.id === id && layer.kind === 'annotation');
+			// The array it was given when nothing changed, so `#changeLayers` can skip the write on
+			// reference equality — the discipline every operation in `layer.ts` follows, and what keeps a
+			// control that reports its current value from rewriting `project.json`.
+			if (at === -1) return layers;
+			const layer = layers[at] as AnnotationLayer;
+			if (JSON.stringify(layer.defaultStyle) === JSON.stringify(style)) return layers;
+			const next = [...layers];
+			next[at] = { ...layer, defaultStyle: style };
+			return next;
+		}, options);
 	}
 
 	/**

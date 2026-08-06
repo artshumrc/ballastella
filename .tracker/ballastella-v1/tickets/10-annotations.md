@@ -123,3 +123,68 @@ Success: all exit 0. The sanitisation assertion is **required**, not optional �
 ## Blocked by
 
 - Ticket 09
+
+## Decisions
+
+### `terra-draw` was declined, and that makes three tickets in a row
+
+Ticket 07 declined it for Control Point pairing, ticket 08 for the Resource Mask, and this slice for
+Annotation drawing. It has never been in the repository, so this ticket's "Where to start" was simply
+wrong about it. **ADR-0005 says all drawing and editing goes through `terra-draw`, so the ADR and the
+code now disagree** — see the open question below.
+
+Annotations are the case `terra-draw` is most obviously *for* — free-form lines and polygons over real
+geography rather than a four-corner ring — so ticket 08's four reasons were re-weighed rather than
+inherited. Three hold, one does not, and a fifth has appeared:
+
+1. **Keyboard reach, which decides it.** `terra-draw` edits inside a WebGL layer, and a WebGL layer
+   cannot be focused. "Every drawing tool and style control is reachable and operable by keyboard" is a
+   criterion of *this* ticket. The `overlayPoints` seam gives a named `<button>` per vertex with
+   arrow-key movement and Delete, already built and already asserted.
+2. **ADR-0017 rule 1.** The criterion is that a vertex edit costs *exactly one* store write — a number,
+   asserted by counting. `terra-draw`'s change events fire per coordinate; the seam's `onmoveend` fires
+   once per pointer-drag and once per arrow-key hold.
+3. **ADR-0019's cost.** Two runtime dependencies, two catalog pins, two notices, and a standing fence.
+4. ~~ADR-0005's projection rule~~ — **does not apply here.** Ticket 08's mask is in image pixel space;
+   Annotations are on real geography.
+5. **One drawing mechanism rather than two.** New, and it is what settles it now that the seam has been
+   widened twice. Adding `terra-draw` for only the third of three vertex editors would mean two keyboard
+   stories, two write-count stories, and two sets of bugs.
+
+What is lost is a rubber-band preview between clicks. It is replaced by drawing the vertices placed so
+far plus a live count in an announced status region — which is also what makes the gesture legible to a
+screen reader, where a rubber band is not.
+
+The reasoning lives in `apps/editor/src/lib/annotations/drawing.svelte.ts`.
+
+### Annotation deletion **is** in the UI, unlike ticket 09's Layer deletion
+
+Ticket 09 shipped `removeLayer` tested but deliberately kept its button out, because the button belongs
+with the single-level undo that makes it safe (ADR-0014, ticket 11). This slice ships the delete button
+anyway, and the asymmetry is deliberate on three grounds:
+
+- **The criterion requires it.** "Deleting an Annotation removes it from the file" is an acceptance
+  criterion here; ticket 09 had no equivalent for Layers.
+- **The blast radius is a different order.** Deleting a Layer destroys a whole document and every
+  Annotation in it — ADR-0017 rule 4's "not one annotation but the map of everything". Deleting one
+  Annotation destroys one shape, which the user has selected and is looking at.
+- **Its absence is the worse failure.** Drawing is an easy-to-mis-aim gesture, and with no delete a
+  misplaced shape would be permanent. "Undo last point" and Escape cover the gesture in progress;
+  deletion covers the one already committed.
+
+ADR-0014 still lists "annotation deleted" among the four actions single-level undo must cover, and
+ticket 11 should cover it.
+
+## Open question raised by this ticket, for a human
+
+**ADR-0005 mandates `terra-draw` for all drawing, and three tickets have now declined it.** This is the
+same shape as the epic's existing open question 7 about ADR-0013 — an ADR that says something the code
+does not do is worse than one that is silent. The reasons for declining are recorded above and in the
+code, and the substitute seam is real and asserted, so nothing is broken; what is needed is a decision:
+
+- reword ADR-0005 to describe the `overlayPoints` seam as the drawing mechanism, keeping `terra-draw`
+  as considered-and-rejected with the keyboard reasoning; **or**
+- decide that keyboard-inaccessible drawing is acceptable somewhere and say where, and treat the three
+  tickets' seam as the thing to be replaced.
+
+`THIRD-PARTY-NOTICES.md` has had its `terra-draw` row removed, since that file records what ships.
