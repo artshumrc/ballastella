@@ -51,6 +51,7 @@ import {
 	SiteFileUnreachableError,
 	alignmentPath,
 	imageInfoPath,
+	type ContentLayer,
 	parseAlignment,
 	parseAnnotations,
 	parseReferencedImage,
@@ -133,6 +134,29 @@ export async function readLayerDocuments(
 		})
 	);
 	return read;
+}
+
+/**
+ * The stack as `projectOpeningBounds` takes it: every Layer with whatever gives it a place on the
+ * earth (ADR-0026).
+ *
+ * **Every Layer, including the ones the Reader has hidden.** ADR-0026's fallback chain ends "…failing
+ * that, all Layers", so a Project whose Layers are all switched off still frames on the work rather
+ * than on the deployment's default — which is a different question from what is *drawn*, and is why
+ * this is not built from `drawn`.
+ *
+ * A Layer whose documents are still loading or could not be read contributes nothing. It is not an
+ * error here: the map is framed on what is known, and the Layer's own row already says what happened.
+ */
+export function toContentLayers(
+	layers: readonly Layer[],
+	documents: ReadDocuments
+): ContentLayer[] {
+	return layers.map((layer): ContentLayer => {
+		const read = documents[layer.id];
+		if (read?.status !== 'ready') return { layer };
+		return { layer, alignment: read.alignment ?? null, annotations: read.annotations ?? null };
+	});
 }
 
 async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promise<LayerDocuments> {

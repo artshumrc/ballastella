@@ -50,17 +50,17 @@ An aligned Historical Map's extent comes from **transforming its Resource Mask r
 
 ## Acceptance criteria
 
-- [ ] A Project whose Annotations are all in one city opens framed on that city.
-- [ ] A Project whose only content is one aligned Historical Map opens framed on that map's Resource Mask extent, not on its Control Points' extent.
-- [ ] A Project with one point Annotation opens at or below the zoom cap, never at maximum zoom.
-- [ ] A Project with no Layers, and a Project whose only map is unaligned, both open on `BASE_MAP_CATALOG.initialView`.
-- [ ] A Project whose content is all hidden opens framed on that content rather than on the deployment default.
-- [ ] Toggling a Layer, adding an Annotation, moving a Control Point, and renaming a Layer all leave the viewport where the user put it.
-- [ ] "Fit to this Project" re-frames on demand.
-- [ ] Opening a Project writes nothing — assert with a spy on `ProjectStore#write`.
-- [ ] A published site opens on the Project's content, framed the same way the editor frames it.
-- [ ] Reopening an alignment with Control Points lands on them.
-- [ ] Content spanning the antimeridian opens on the short way round.
+- [x] A Project whose Annotations are all in one city opens framed on that city.
+- [x] A Project whose only content is one aligned Historical Map opens framed on that map's Resource Mask extent, not on its Control Points' extent.
+- [x] A Project with one point Annotation opens at or below the zoom cap, never at maximum zoom.
+- [x] A Project with no Layers, and a Project whose only map is unaligned, both open on `BASE_MAP_CATALOG.initialView`.
+- [x] A Project whose content is all hidden opens framed on that content rather than on the deployment default.
+- [x] Toggling a Layer, adding an Annotation, moving a Control Point, and renaming a Layer all leave the viewport where the user put it.
+- [x] "Fit to this Project" re-frames on demand.
+- [x] Opening a Project writes nothing — assert with a spy on `ProjectStore#write`.
+- [x] A published site opens on the Project's content, framed the same way the editor frames it.
+- [x] Reopening an alignment with Control Points lands on them.
+- [x] Content spanning the antimeridian opens on the short way round.
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check
@@ -77,3 +77,23 @@ The "fit once" criteria are the ones that will pass vacuously if asserted by rea
 ## Blocked by
 
 - Ticket 01
+
+## Notes from the implementation
+
+- **`canSolve` and the `try`/`catch` in `alignedSheetRing` are two guards over one criterion, and each
+  alone passes the tests.** Removing either singly leaves "an unaligned Historical Map contributes
+  nothing" green — upstream throws on too few Control Points, and `canSolve` refuses them before it
+  gets the chance. Removing both together reddens it. Both are kept: the guard states this project's
+  own gate rather than depending on an upstream error, and the `catch` is now driven directly by a
+  `thinPlateSpline` Alignment whose Control Points share a pixel (`LU matrix is singular`).
+- **A degenerate solve does not always throw.** Three collinear Control Points mapped to one place
+  return latitudes of −207° and 442° for the sheet's corners. Dropping only the impossible corners
+  would leave a box built from whichever survived, so the whole sheet is declined instead.
+- **`/base-map/?p=…` is deliberately not fitted.** That route draws no Layer stack, so framing it on
+  content it does not show would be misleading; the Project screen `/layers?p=…` is what a scholar
+  opens from the hub. Ticket 04 folds the two together and is where the question is properly settled.
+- **`playwright.config.ts` pins ports 4173/4174 with `reuseExistingServer`.** With sibling worktrees
+  running on one machine a suite silently tests another worktree's build, or fails with
+  `ERR_CONNECTION_REFUSED` when that run ends. Every e2e number recorded for this ticket was taken
+  with the ports temporarily moved to 4373/4374 and the config reverted before committing. Worth a
+  ticket of its own: the ports should come from the environment.

@@ -36,7 +36,8 @@
 		type GeoPoint,
 		type Layer,
 		type LineStyle,
-		type MapLayer
+		type MapLayer,
+		type OpeningViewFit
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
 	import { untrack } from 'svelte';
@@ -45,6 +46,7 @@
 	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
+	import { fitToProjectContent, type OpeningViewOutcome } from '$lib/base-map/opening-view';
 	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import LayerList from '$lib/layers/LayerList.svelte';
@@ -247,6 +249,77 @@
 	const drawnCount = $derived(
 		Object.values(outcomes).filter((outcome) => outcome.status === 'drawn').length
 	);
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// The opening view (ADR-0026)
+	//
+	// **Not a `$derived`, and that is the whole design.** Bounds computed reactively would recompute
+	// when a Layer is toggled, an Annotation is drawn, a Control Point is moved, or a Layer is
+	// renamed — and every one of those would snatch the map away from wherever the user had put it,
+	// mid-edit. The effect below runs its body once per Project opened, guarded by a plain `let` that
+	// nothing tracks, and hands the pane a single fit object. Every later fit is a user pressing a
+	// button.
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	let openingFit = $state.raw<OpeningViewFit | null>(null);
+	let openingOutcome = $state<OpeningViewOutcome>('pending');
+
+	/**
+	 * The Project the opening view has already been settled for.
+	 *
+	 * A plain `let` rather than `$state`: it is written from inside the effect that reads it, and a
+	 * reactive one would make that effect its own dependency — which is the loop, and then the refit.
+	 */
+	let framedProject = '';
+
+	/** Whether the last framing was asked for rather than automatic, so the sentence can say so. */
+	let refitted = $state(false);
+
+	$effect(() => {
+		const directory = openDirectory;
+		const current = session;
+		const file = current?.openProject ?? null;
+		// `session.openDirectory` as well as the URL's: `open()` clears `openProject` and sets its own
+		// directory, so between a navigation and that call the URL names the new Project while the
+		// document in hand is still the old one. Framing the new Project on the old one's Layers is a
+		// plausible wrong answer that only appears when moving between Projects.
+		if (!current || directory === null || file === null) return;
+		if (current.openDirectory !== directory || framedProject === directory) return;
+		framedProject = directory;
+		openingOutcome = 'pending';
+		openingFit = null;
+		refitted = false;
+		const layers = file.layers;
+		void (async () => {
+			const fit = await fitToProjectContent(current, layers);
+			// A read that resolved after the user moved on must not move their map.
+			if (framedProject !== directory) return;
+			openingFit = fit;
+			openingOutcome = fit === null ? 'default' : 'content';
+		})();
+	});
+
+	/**
+	 * "Fit to this Project", on demand (ADR-0026).
+	 *
+	 * The affordance that covers everything the automatic fit deliberately does not: it is what a user
+	 * reaches for after panning away, after hiding a Layer, and after drawing an Annotation somewhere
+	 * new. Re-read rather than recomputed from what is in hand, because what is in hand is the
+	 * *visible* Layers' documents — this has to answer for the whole Project, hidden Layers included,
+	 * exactly as the automatic fit does.
+	 *
+	 * A fresh fit object every time, even for the same box: identity is what the pane applies on, and a
+	 * user pressing this twice has panned away in between and means it twice.
+	 */
+	async function fitToProject(): Promise<void> {
+		const current = session;
+		const file = current?.openProject ?? null;
+		if (!current || file === null) return;
+		const fit = await fitToProjectContent(current, file.layers);
+		openingFit = fit;
+		openingOutcome = fit === null ? 'default' : 'content';
+		refitted = true;
+	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Annotations (ticket 10)
@@ -779,10 +852,27 @@
 			</div>
 
 			<div>
+				<!--
+					ADR-0026's explicit control, and it is a button with words on it rather than an icon with
+					a tooltip (SPEC story 111). It exists because the automatic fit deliberately happens once:
+					everything the once-only rule gives up — coming back after panning away, reframing after
+					drawing somewhere new — is this.
+				-->
+				<div class="mb-2 flex flex-wrap items-center justify-end gap-2">
+					<button
+						type="button"
+						class="btn btn-sm"
+						data-testid="fit-to-project"
+						onclick={() => void fitToProject()}
+					>
+						Fit to this Project
+					</button>
+				</div>
 				<div class="h-[36rem] overflow-hidden rounded border border-base-300">
 					<BaseMapPane
 						entryId={resolution.entry.id}
 						layers={drawn}
+						{openingFit}
 						overlayPoints={annotationPoints}
 						popupAnnotation={selectedAnnotation}
 						{popupAt}
@@ -817,6 +907,25 @@
 					{:else}
 						{drawnCount} of {layers.length}
 						{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
+					{/if}
+				</p>
+				<!--
+					Where the map is looking and why (SPEC story 112). A WebGL canvas announces nothing about
+					what it is showing, so "the map has jumped to Boston" is otherwise available only to
+					someone who can see it — and "it did not jump, because this Project has nothing on the
+					earth yet" is the more useful of the two sentences and the one nobody would guess.
+				-->
+				<p
+					class="min-h-6 text-sm text-base-content/70"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="opening-view"
+					data-opening-view={openingOutcome}
+				>
+					{#if openingOutcome === 'content'}
+						{refitted ? 'Framed on' : 'Opened framed on'} this Project’s own content.
+					{:else if openingOutcome === 'default'}
+						This Project has nothing placed on the earth yet, so the map is on the default view.
 					{/if}
 				</p>
 			</div>

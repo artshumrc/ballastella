@@ -53,12 +53,14 @@
 		type FetchFn,
 		type GeoPoint,
 		type ImagePane,
+		type OpeningViewFit,
 		type ResourcePoint
 	} from '@ballastella/core';
 	import type { WarpedRender } from '@ballastella/core/render';
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
+	import { fitToAlignment } from '$lib/base-map/opening-view';
 	import HistoricalMapPane from '$lib/image-pane/HistoricalMapPane.svelte';
 	import type { PaneOverlayPoint } from '$lib/image-pane/ImagePane.svelte';
 
@@ -147,7 +149,29 @@
 		// The mask belongs to one image's pixel space, so its handles must not survive into another's.
 		// The distortion view is about *drawing* rather than about a coordinate, so it stays.
 		editingMask = false;
+		openingFit = null;
 	});
+
+	/**
+	 * Where the Base Map pane is framed when this Historical Map is opened (ADR-0026).
+	 *
+	 * On the Alignment's own Control Points when it has any, so that reopening a half-finished
+	 * Alignment lands where the work was left instead of somewhere that has to be navigated away from
+	 * every time; on the Project's content when it has none.
+	 *
+	 * **Once per Historical Map opened, and never in response to an edit.** Refitting as Control Points
+	 * are placed would move the earth under the very gesture that is placing them, which is the worst
+	 * place in the application for it to happen — see {@link framedImage}.
+	 */
+	let openingFit = $state.raw<OpeningViewFit | null>(null);
+
+	/**
+	 * The Historical Map the pane has already been framed for.
+	 *
+	 * A plain `let`: it is written by the code that reads it, and a reactive one would make the fit its
+	 * own dependency and then refit on every placed pair.
+	 */
+	let framedImage = '';
 
 	/**
 	 * The pyramid has been read, so the Alignment can be too.
@@ -167,12 +191,34 @@
 				// pending undo recorded before this component was last destroyed has to reverse *this*
 				// object, not the one it was recorded on.
 				live = { imageId: wanted, pairing };
+				// The Alignment **as it was read**, before the user has touched it. Framing on the pairing
+				// instead would be framing on a value that changes with every placed pair.
+				frameOn(wanted, stored, mine);
 			} catch (cause) {
 				if (mine !== generation) return;
 				failure = `The Alignment for “${wanted}” could not be opened: ${
 					cause instanceof Error ? cause.message : String(cause)
 				}`;
 			}
+		})();
+	};
+
+	/**
+	 * Frame the Base Map pane on this Historical Map's Alignment, once (ADR-0026).
+	 *
+	 * Guarded twice, and both guards earn their place. {@link framedImage} is what makes it *once per
+	 * Historical Map* — `loadAlignment` runs again whenever the pyramid is re-read, and a second fit
+	 * would put the map back where the Alignment starts after the user had panned. `generation` is the
+	 * usual stale-read guard: the user can pick another Historical Map while this read is in flight,
+	 * and framing the new one on the old one's Control Points is a coordinate claim about the wrong map.
+	 */
+	const frameOn = (wanted: string, alignment: Alignment, mine: number): void => {
+		if (framedImage === wanted) return;
+		framedImage = wanted;
+		void (async () => {
+			const fit = await fitToAlignment(session, alignment, session.openProject?.layers ?? []);
+			if (mine !== generation || framedImage !== wanted) return;
+			openingFit = fit;
 		})();
 	};
 
@@ -764,6 +810,7 @@
 					entryId={baseMapId}
 					overlayPoints={basePoints}
 					alignment={solvable}
+					{openingFit}
 					{distortion}
 					{fetchTile}
 					onclickpoint={clickBaseMap}

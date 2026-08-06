@@ -24,7 +24,8 @@
 		type Alignment,
 		type Annotation,
 		type DistortionView,
-		type FetchFn
+		type FetchFn,
+		type OpeningViewFit
 	} from '@ballastella/core';
 	// The browser-only render layer, on a subpath of its own because this barrel's own is Node-safe
 	// and this is not — see the note at the bottom of `packages/core/src/index.ts`.
@@ -59,6 +60,7 @@
 		overlayPoints = [],
 		alignment = null,
 		layers = [],
+		openingFit = null,
 		distortion = DEFAULT_DISTORTION_VIEW,
 		fetchTile,
 		popupAnnotation = null,
@@ -89,6 +91,21 @@
 		 * what, including across kinds (ADR-0002) — see `drawLayerStack`.
 		 */
 		layers?: readonly DrawnLayer[];
+		/**
+		 * Frame the map on a box, once (ADR-0026).
+		 *
+		 * **Applied once per object identity, and the page owns how many identities there are.** That
+		 * split is the whole of ADR-0026's "fit once, on open, never again": this pane cannot know
+		 * whether new bounds mean "the Project has just opened" or "a Layer was toggled", so it does not
+		 * guess — it applies exactly what it is handed, once each, and the page hands it one for the
+		 * open and one more for each press of "Fit to this Project". A page that put the bounds in a
+		 * `$derived` would produce a new object per keystroke and pull the map out from under the user;
+		 * that is a defect in the page, and it is where the once-only contract can be read.
+		 *
+		 * `null` leaves the map wherever it was constructed — `BASE_MAP_CATALOG.initialView`, the
+		 * deployment default, which is what a Project with nothing on the earth opens on.
+		 */
+		openingFit?: OpeningViewFit | null;
 		/**
 		 * What the warped Historical Map is colourised with, and whether the graticule is drawn.
 		 *
@@ -309,6 +326,35 @@
 		// One call, driven by one signal: the flavor changes in the same action that changes the
 		// interface, which is the whole of ADR-0016's "not two independent toggles that agree".
 		current.setStyle(styleFor(entryId));
+	});
+
+	/**
+	 * The last fit this pane carried out. A plain `let`, deliberately: in runes mode it is not
+	 * reactive, so recording a fit cannot re-run the effect that performed it.
+	 */
+	let fitted: OpeningViewFit | null = null;
+
+	/**
+	 * Frame the map on {@link openingFit}, once per request (ADR-0026).
+	 *
+	 * Object identity is the guard, and it has to be: `fitBounds` moves the map, MapLibre's `moveend`
+	 * is nothing this effect reads, and the *same* box asked for twice is what "Fit to this Project"
+	 * pressed twice means. Comparing coordinates instead would make the second press do nothing, which
+	 * is precisely the case a user presses it in — they have panned away and want to come back.
+	 *
+	 * `animate: false` travels inside the request, so the map lands rather than flying: there was
+	 * nothing on screen to fly from, and an animation is a second thing to wait for.
+	 */
+	$effect(() => {
+		const request = openingFit;
+		const current = map;
+		if (current === undefined || request === null || request === fitted) return;
+		fitted = request;
+		current.fitBounds(request.bounds, {
+			padding: request.padding,
+			maxZoom: request.maxZoom,
+			animate: request.animate
+		});
 	});
 
 	// Built once per map. The points themselves are updated by the effect below, so that moving one

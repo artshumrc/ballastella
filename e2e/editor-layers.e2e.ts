@@ -414,6 +414,23 @@ async function openLayers(
 	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', String(drawn), {
 		timeout: STACK_READY_MS
 	});
+	await waitForOpeningView(page);
+}
+
+/**
+ * Wait until the opening view has been settled (ADR-0026).
+ *
+ * The pane is framed on the Project's content by an asynchronous read of every Layer's documents, so
+ * a test that positions the map before that read lands has its viewport moved out from under it. This
+ * is not a workaround for a race in the app: the fit is *meant* to happen exactly once, on open, and
+ * this is how a test waits for the one time it does.
+ */
+async function waitForOpeningView(page: Page): Promise<void> {
+	await expect(page.getByTestId('opening-view')).toHaveAttribute(
+		'data-opening-view',
+		/^(content|default)$/,
+		{ timeout: STACK_READY_MS }
+	);
 }
 
 const rows = (page: Page) => page.getByTestId('layer-row');

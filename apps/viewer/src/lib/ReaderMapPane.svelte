@@ -41,7 +41,8 @@
 		type Annotation,
 		type BaseMapCatalog,
 		type FetchFn,
-		type GeoPoint
+		type GeoPoint,
+		type OpeningViewFit
 	} from '@ballastella/core';
 	import {
 		annotationLayerIds,
@@ -66,6 +67,7 @@
 		catalog,
 		bundledBaseMapAvailable,
 		layers = [],
+		openingFit = null,
 		fetchTile,
 		popupAnnotation = null,
 		popupAt = null,
@@ -104,6 +106,19 @@
 		 * map Layer draws above it.
 		 */
 		layers?: readonly DrawnLayer[];
+		/**
+		 * Frame the map on a box, once (ADR-0026).
+		 *
+		 * **The same prop, the same core function, and the same cap and padding as the editor's pane**,
+		 * which is the half ADR-0026 says is most likely to be forgotten: a Published Site that opened
+		 * on the deployment's default while the editor opened on the author's work would be two answers
+		 * to one question, and the Reader is the one who cannot tell.
+		 *
+		 * Applied once per object identity — the page owns how many identities there are, and so owns
+		 * "once, on open, never again". `null` leaves the map on the site catalog's own initial view,
+		 * which is what a Project with nothing on the earth opens on.
+		 */
+		openingFit?: OpeningViewFit | null;
 		/** Where an aligned Historical Map's tiles are read from (ADR-0011). */
 		fetchTile: FetchFn;
 		/** The Annotation whose popup is open, and where, or `null` for none (SPEC story 67). */
@@ -272,6 +287,29 @@
 		// One call, driven by one signal: the Base Map flavor changes in the same action that changes the
 		// interface, which is the whole of ADR-0016's "not two independent toggles that agree".
 		current.setStyle(styleFor(entryId));
+	});
+
+	/** The last fit carried out. A plain `let`: recording one must not re-run the effect below. */
+	let fitted: OpeningViewFit | null = null;
+
+	/**
+	 * Frame the map on {@link openingFit}, once per request (ADR-0026).
+	 *
+	 * Identity is the guard rather than the coordinates, so that "Fit to this Project" pressed twice
+	 * frames twice — which is the case a Reader presses it in, having panned away and wanting to come
+	 * back. See the editor's `BaseMapPane`, which does exactly this: the two are deliberately the same
+	 * few lines over the same core function rather than two framings that agree until one is edited.
+	 */
+	$effect(() => {
+		const request = openingFit;
+		const current = map;
+		if (current === undefined || request === null || request === fitted) return;
+		fitted = request;
+		current.fitBounds(request.bounds, {
+			padding: request.padding,
+			maxZoom: request.maxZoom,
+			animate: request.animate
+		});
 	});
 
 	/**

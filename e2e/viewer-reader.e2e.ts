@@ -46,8 +46,11 @@ type ReaderMapHandle = {
 		getLayersOrder(): string[];
 		getStyle(): { layers: Record<string, unknown>[] };
 		project(lngLat: [number, number]): { x: number; y: number };
-		jumpTo(options: { center: [number, number] }): void;
+		jumpTo(options: { center: [number, number]; zoom?: number }): void;
 		fitBounds(bounds: unknown, options?: Record<string, unknown>): void;
+		getCenter(): { lng: number; lat: number };
+		getZoom(): number;
+		getBounds(): { contains(lngLat: [number, number]): boolean };
 	};
 	warped: Record<
 		string,
@@ -1492,5 +1495,187 @@ test.describe('a Reader using a keyboard', () => {
 		await page.keyboard.press('Escape');
 		await expect(page.locator('.maplibregl-popup-content')).toHaveCount(0);
 		expect(seen.failures).toEqual([]);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// THE OPENING VIEW (ticket 09, ADR-0026)
+//
+// ADR-0026 names the Published Site as **the half most likely to be forgotten**: ticket 17 is already
+// merged, so nothing would fail if the viewer went on opening on the deployment's default while the
+// editor opened on the author's work. The Reader is the one person who could not tell.
+//
+// So these assert the same numbers `e2e/editor-opening-view.e2e.ts` asserts, from the same content,
+// through the same `projectOpeningBounds` in `@ballastella/core`: a Project whose stack is three pins
+// around Boston Common opens on Boston, four thousand miles from where this deployment's catalog would
+// otherwise put it.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** The same three pins the editor suite frames on, and the same centre. */
+const BOSTON_PINS: readonly [number, number][] = [
+	[-71.0912, 42.3601],
+	[-71.0656, 42.3554],
+	[-71.0402, 42.3522]
+];
+const BOSTON_CENTRE = { lng: -71.0657, lat: 42.35615 };
+/** The deployment default, which is what a Project with nothing on the earth must open on. */
+const DEPLOYMENT_VIEW = { lng: 4.9041, lat: 52.3676, zoom: 13 };
+
+/**
+ * A Project whose whole stack is one Annotation Layer of pins, wherever the test wants them.
+ *
+ * **The Layer is present even when there are no pins**, which is what makes "nothing on the earth"
+ * assertable at all: the Reader's map handle is published by `drawLayerStack`, so a Project with an
+ * empty `layers` array never builds a stack and never exposes a map to ask where it is looking. An
+ * Annotation Layer with no Annotations in it is the ordinary shape of that case anyway — an author
+ * who has made a Layer and not yet drawn in it.
+ */
+function pinnedProject(pins: readonly [number, number][]): SiteFiles {
+	return oneProject({
+		annotations: pins.map((coordinates, index) =>
+			annotation({ id: `1111111${index}-1111-4111-8111-111111111111`, coordinates })
+		),
+		// The stack replaced outright, so the Amsterdam Historical Map the fixture also carries cannot
+		// stretch the box across the Atlantic and make "it framed on Boston" unassertable.
+		projectOverrides: {
+			layers: [
+				{
+					kind: 'annotation',
+					id: ANNOTATION_LAYER_ID,
+					name: 'Pins',
+					visible: true,
+					order: 0,
+					geojsonRef: `annotations/${ANNOTATION_LAYER_ID}.geojson`,
+					defaultStyle: {}
+				}
+			]
+		}
+	});
+}
+
+/** Wait until the page has settled its opening view, so the map is not sampled mid-fit. */
+async function openingSettled(page: Page): Promise<void> {
+	await expect(page.getByTestId('opening-view')).toHaveAttribute(
+		'data-opening-view',
+		/^(content|default)$/,
+		{ timeout: 30_000 }
+	);
+}
+
+const readerViewport = (page: Page) =>
+	page.evaluate(() => ({
+		lng: window.ballastellaReaderMap!.map.getCenter().lng,
+		lat: window.ballastellaReaderMap!.map.getCenter().lat,
+		zoom: window.ballastellaReaderMap!.map.getZoom()
+	}));
+
+const readerShowing = (page: Page, pins: readonly [number, number][]) =>
+	page.evaluate(
+		(points) =>
+			points.every((point) => window.ballastellaReaderMap!.map.getBounds().contains(point)),
+		pins as [number, number][]
+	);
+
+test.describe('a Published Site opens on the Project’s content', () => {
+	let site: { sites: StaticSite[]; directory: string; close(): Promise<void> } | null = null;
+
+	test.afterEach(async () => {
+		await site?.close();
+		site = null;
+	});
+
+	test('frames on the work, at both base paths, exactly as the editor frames it', async ({
+		page
+	}) => {
+		site = await published(pinnedProject(BOSTON_PINS));
+		const seen = watch(page);
+
+		// Both base paths, because ADR-0006's whole claim is that one build serves a domain root and a
+		// subdirectory — and the opening view is computed from documents reached by relative path.
+		for (const served of site.sites) {
+			await page.goto(served.url + '?p=amsterdam-1625');
+			await mapReady(page);
+			await openingSettled(page);
+
+			const at = await readerViewport(page);
+			expect(at.lng, `at ${served.prefix || '/'}`).toBeCloseTo(BOSTON_CENTRE.lng, 3);
+			expect(at.lat, `at ${served.prefix || '/'}`).toBeCloseTo(BOSTON_CENTRE.lat, 3);
+			// Not the deployment default, which is the answer a viewer that never adopted the shared
+			// function gives — and which looks like a perfectly working map.
+			expect(Math.abs(at.lng - DEPLOYMENT_VIEW.lng)).toBeGreaterThan(50);
+			expect(await readerShowing(page, BOSTON_PINS)).toBe(true);
+		}
+
+		// And says where it is looking, in an announced live region (SPEC story 112).
+		await expect(page.getByTestId('opening-view')).toContainText('this Project’s own content');
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('caps the zoom on a Project whose only content is one pin', async ({ page }) => {
+		site = await published(pinnedProject([BOSTON_PINS[1]!]));
+
+		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
+		await mapReady(page);
+		await openingSettled(page);
+
+		const at = await readerViewport(page);
+		expect(at.lng).toBeCloseTo(BOSTON_PINS[1]![0], 4);
+		expect(at.zoom).toBeLessThanOrEqual(16);
+		expect(at.zoom).toBeCloseTo(16, 4);
+	});
+
+	test('opens on the deployment default when the Project has nothing on the earth', async ({
+		page
+	}) => {
+		site = await published(pinnedProject([]));
+
+		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
+		await mapReady(page);
+		await openingSettled(page);
+
+		const at = await readerViewport(page);
+		expect(at.lng).toBeCloseTo(DEPLOYMENT_VIEW.lng, 4);
+		expect(at.lat).toBeCloseTo(DEPLOYMENT_VIEW.lat, 4);
+		expect(at.zoom).toBeCloseTo(DEPLOYMENT_VIEW.zoom, 4);
+		await expect(page.getByTestId('opening-view')).toContainText('default view');
+	});
+
+	test('does not move the map when a Reader hides a Layer, and re-frames when asked', async ({
+		page
+	}) => {
+		site = await published(pinnedProject(BOSTON_PINS));
+
+		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
+		await mapReady(page);
+		await openingSettled(page);
+
+		// Somewhere the content is not, so any refit at all reads as a move.
+		const parked = { lng: 2.3522, lat: 48.8566, zoom: 11 };
+		await page.evaluate(
+			(at) => window.ballastellaReaderMap!.map.jumpTo({ center: [at.lng, at.lat], zoom: at.zoom }),
+			parked
+		);
+
+		// Hidden, then shown again. The handle is republished by `drawLayerStack`, so it is gone while the
+		// only Layer is off — which is why the viewport is read after the Layer comes back rather than
+		// in between. What is being asserted is unaffected: a refit on either toggle would have moved the
+		// map, and the pane's own map is never rebuilt by a stack rebuild.
+		await page.getByTestId('reader-layer-visible').first().uncheck();
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '0');
+		await page.getByTestId('reader-layer-visible').first().check();
+		await mapReady(page);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
+
+		const at = await readerViewport(page);
+		expect(at.lng).toBeCloseTo(parked.lng, 6);
+		expect(at.lat).toBeCloseTo(parked.lat, 6);
+		expect(at.zoom).toBeCloseTo(parked.zoom, 6);
+
+		// The explicit control, with words on it, is what covers everything the once-only fit does not.
+		await page.getByRole('button', { name: 'Fit to this Project' }).click();
+		await expect
+			.poll(async () => (await readerViewport(page)).lat)
+			.toBeCloseTo(BOSTON_CENTRE.lat, 3);
+		expect((await readerViewport(page)).lng).toBeCloseTo(BOSTON_CENTRE.lng, 3);
 	});
 });
