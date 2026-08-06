@@ -92,6 +92,9 @@ async function openProject(page: Page, name: string): Promise<void> {
 	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 }
 
+/** How long a freshly ingested pyramid may take to decode every tile of its first view. */
+const TILES_READY_MS = 20_000;
+
 /** Bring in one Historical Map and wait for its pyramid and both panes to be ready. */
 async function ingestAndOpen(page: Page): Promise<string> {
 	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
@@ -103,9 +106,15 @@ async function ingestAndOpen(page: Page): Promise<string> {
 	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
 
 	await expect(page.getByTestId('image-pane')).toBeVisible();
+	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
+	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and
+	// not on one running four workers that each drive a real WebGL context and the same origin's OPFS
+	// (see `playwright.config.ts` on contention). Too short a wait here reads as a failure of whatever
+	// the test went on to do, which is the reason `editor-layers.e2e.ts` waits 20 seconds for its stack.
 	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 		'data-tiles-loaded',
-		'true'
+		'true',
+		{ timeout: TILES_READY_MS }
 	);
 	// The pairing status only renders once the Alignment has been read, so waiting for it is waiting
 	// for the whole surface to be live rather than for a timeout.

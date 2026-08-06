@@ -63,18 +63,45 @@ export async function emptyWorkspace(page: Page): Promise<void> {
 	});
 }
 
-/** One file of a Project, straight out of OPFS. */
+/**
+ * One file of a Project, straight out of OPFS.
+ *
+ * **Retried, because the app writes atomically** — a temp file, then `move()` over the destination
+ * (ADR-0017 rule 4) — so a read that lands inside that window throws instead of returning stale bytes:
+ * a `NotFoundError` while the destination is momentarily gone, or a failure to read it as it is
+ * replaced. That is transient by construction, and it propagates out of `expect.poll`, whose retry
+ * covers a failed assertion rather than a callback that throws. `editor-workspace.ts`'s
+ * `readProjectName` carries the same fix, for the same window, after this was the flakiest test in the
+ * suite.
+ *
+ * A fix to the read and not to any assertion: the bytes on disk are still what is compared, and a file
+ * that is really missing still fails — with the last failure named, so a persistent problem does not
+ * read as a slow one.
+ */
 export const readProjectFile = (page: Page, path: string, directory = PROJECT_DIRECTORY) =>
 	page.evaluate(
 		async ([directory, path]) => {
-			const root = await navigator.storage.getDirectory();
-			let handle = await root.getDirectoryHandle(directory as string);
-			const segments = (path as string).split('/');
-			for (const segment of segments.slice(0, -1)) {
-				handle = await handle.getDirectoryHandle(segment);
+			let lastFailure: unknown;
+			for (let attempt = 0; attempt < 20; attempt += 1) {
+				try {
+					const root = await navigator.storage.getDirectory();
+					let handle = await root.getDirectoryHandle(directory as string);
+					const segments = (path as string).split('/');
+					for (const segment of segments.slice(0, -1)) {
+						handle = await handle.getDirectoryHandle(segment);
+					}
+					const file = await handle.getFileHandle(segments.at(-1) as string);
+					return await (await file.getFile()).text();
+				} catch (cause) {
+					lastFailure = cause;
+					await new Promise((resolve) => setTimeout(resolve, 25));
+				}
 			}
-			const file = await handle.getFileHandle(segments.at(-1) as string);
-			return (await file.getFile()).text();
+			throw new Error(
+				`${directory}/${path} could not be read in 20 attempts — the last failure was ` +
+					`${lastFailure instanceof Error ? `${lastFailure.name}: ${lastFailure.message}` : String(lastFailure)}. ` +
+					'A transient failure here is the atomic-replace window; a persistent one is not.'
+			);
 		},
 		[directory, path]
 	);
