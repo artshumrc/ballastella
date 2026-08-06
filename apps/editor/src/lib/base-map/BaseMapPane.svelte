@@ -138,7 +138,10 @@
 		const layer = createOverlayPointLayer<GeoPoint>({
 			map: current,
 			toLngLat: (point) => point,
-			fromLngLat: (lngLat) => ({ lng: lngLat.lng, lat: lngLat.lat })
+			fromLngLat: (lngLat) => ({ lng: lngLat.lng, lat: lngLat.lat }),
+			// The place on the earth each point claims to be at, for the browser tests — the Base Map's
+			// counterpart to the image pane's pixel coordinates.
+			datasetFor: (point) => ({ lng: String(point.lng), lat: String(point.lat) })
 		});
 		overlayLayer = layer;
 
@@ -193,5 +196,11 @@
 <!--
 	MapLibre gives the canvas `tabindex="0"`, a `role`, and an accessible name, and handles arrow-key
 	panning and +/- zooming itself, so the pane is keyboard operable without anything added here.
+
+	The testid names this container specifically because MapLibre appends overlay points *into* it,
+	and both panes' points use identical markup — so telling one pane's Control Points from the
+	other's is a question about which container they are in. Distinguishing them by anything else
+	(canvas order, negation against the image pane's testid) is the kind of selector that passes until
+	the layout moves.
 -->
-<div bind:this={container} class="h-full w-full"></div>
+<div bind:this={container} class="h-full w-full" data-testid="base-map-pane"></div>

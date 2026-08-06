@@ -214,7 +214,12 @@
 			// The synthetic geography stays inside this component: the layer only ever sees the image
 			// pixels this pane speaks, and converts through these two (ADR-0005).
 			toLngLat: (point) => pane.resourceToSynthetic(point),
-			fromLngLat: (lngLat) => pane.syntheticToResource(lngLat)
+			fromLngLat: (lngLat) => pane.syntheticToResource(lngLat),
+			// The image pixel each point claims to be at, for the browser tests. A reference point
+			// states its pixel, the test clicks it, and the pane has to report the same pixel back —
+			// which goes out through `resourceToSynthetic` and comes back through `syntheticToResource`,
+			// two different directions rather than one function inverted by its own inverse.
+			datasetFor: (point) => ({ resourceX: String(point.x), resourceY: String(point.y) })
 		});
 		overlayLayer = layer;
 

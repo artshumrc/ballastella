@@ -4,15 +4,18 @@ import zlib from 'node:zlib';
 /**
  * ADR-0011's second injection point, in a real browser: `new WarpedMapLayer({ fetchFn })`.
  *
- * Nothing is warped here and nothing is meant to be — there is no Alignment in the app until
- * ticket 07. What this asserts is the wiring, and it asserts three things that a type check
- * cannot: that `@allmaps/maplibre` resolves against the one `maplibre-gl` copy in the page
- * (two copies is a broken map rather than a version warning), that the layer survives being
- * added to a real map with a real WebGL2 context, and that it sends nothing to the placeholder
- * host on its own.
+ * Ticket 06 asserted this on a bare `/warped` dev route, because no Alignment existed and the layer
+ * had nothing to hold. **Ticket 07 deleted that route and this file now drives the real thing** — a
+ * Historical Map ingested the ordinary way, three Control Points paired by clicking, and the warped
+ * layer where it belongs, in the Base Map pane. Everything below is therefore asserted on the path a
+ * scholar actually takes.
  *
- * See `editor-warped-fetch.e2e.ts`'s last test for the limit of what this can establish, and the
- * ticket comment on `@allmaps/render`'s worker boundary for why that limit matters to ticket 07.
+ * Three things here a type check cannot establish: that `@allmaps/maplibre` resolves against the one
+ * `maplibre-gl` copy in the page (two copies is a broken map rather than a version warning), that the
+ * layer survives being added to a real map with a real WebGL2 context, and that no request escapes to
+ * the placeholder host.
+ *
+ * And one thing that is a **deliberate assertion of an upstream defect** — see the last test.
  */
 
 const crcTable = (() => {
@@ -63,15 +66,6 @@ function gradientPng(width: number, height: number): Buffer {
 	]);
 }
 
-async function createProject(page: Page, name: string): Promise<void> {
-	await page.getByRole('button', { name: 'New Project' }).click();
-	await page.getByRole('dialog', { name: 'New Project' }).getByLabel('Project name').fill(name);
-	await page
-		.getByRole('dialog', { name: 'New Project' })
-		.getByRole('button', { name: 'Create' })
-		.click();
-}
-
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
 		const root = await navigator.storage.getDirectory();
@@ -81,15 +75,67 @@ async function emptyWorkspace(page: Page): Promise<void> {
 	});
 }
 
+async function createProject(page: Page, name: string): Promise<void> {
+	await page.getByRole('button', { name: 'New Project' }).click();
+	await page.getByRole('dialog', { name: 'New Project' }).getByLabel('Project name').fill(name);
+	await page
+		.getByRole('dialog', { name: 'New Project' })
+		.getByRole('button', { name: 'Create' })
+		.click();
+}
+
+const historicalMap = (page: Page) => page.getByTestId('image-pane');
+const baseMap = (page: Page) => page.getByTestId('base-map-pane');
+const warpedStatus = (page: Page) => page.getByTestId('warped-status');
+
+async function clickAt(page: Page, which: 'image' | 'base', fx: number, fy: number): Promise<void> {
+	const target = which === 'image' ? historicalMap(page) : baseMap(page);
+	const box = await target.boundingBox();
+	if (!box) throw new Error('the pane has no box to click in');
+	await target.click({ position: { x: box.width * fx, y: box.height * fy } });
+}
+
+async function makePair(page: Page, fx: number, fy: number): Promise<void> {
+	const before = await page.getByTestId('control-point-row').count();
+	await clickAt(page, 'image', fx, fy);
+	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
+	await clickAt(page, 'base', fx, fy);
+	await expect(page.getByTestId('control-point-row')).toHaveCount(before + 1);
+}
+
+/**
+ * A Project with one ingested Historical Map, on its own page with both panes live.
+ *
+ * @returns the image id the tiler minted
+ */
+async function projectWithImage(page: Page): Promise<string> {
+	await page.goto('/');
+	await emptyWorkspace(page);
+	await page.reload();
+	await createProject(page, 'Amsterdam 1625');
+	await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+
+	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+		name: 'la-floride.png',
+		mimeType: 'image/png',
+		buffer: gradientPng(700, 500)
+	});
+	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
+
+	await expect(historicalMap(page)).toBeVisible();
+	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
+	return imageId;
+}
+
 declare global {
 	interface Window {
 		ballastellaWarped?: {
 			map: {
 				fitBounds(bounds: unknown, options?: unknown): void;
-				once(event: string, handler: () => void): void;
 			};
 			layer: {
-				addGeoreferencedMap(map: unknown): string | Error;
 				getBounds(): unknown;
 			};
 		};
@@ -97,7 +143,7 @@ declare global {
 }
 
 test.describe('warped rendering reads through the ProjectStore', () => {
-	test('adds a WarpedMapLayer built with the Project’s fetchFn, and asks the network for nothing', async ({
+	test('adds no warped layer below the minimum Control Point count, and asks the network for nothing', async ({
 		page
 	}) => {
 		const requested: string[] = [];
@@ -107,117 +153,95 @@ test.describe('warped rendering reads through the ProjectStore', () => {
 			if (message.type() === 'error') consoleErrors.push(message.text());
 		});
 
-		await page.goto('/');
-		await emptyWorkspace(page);
-		await page.reload();
-		await createProject(page, 'Amsterdam 1625');
+		await projectWithImage(page);
 
-		await page.goto('./warped/?p=amsterdam-1625');
-		await expect(page.getByRole('heading', { level: 1, name: 'Warped rendering' })).toBeVisible();
+		// Two pairs: one short of what `polynomial1` can be solved with (ADR-0013).
+		await makePair(page, 0.3, 0.3);
+		await makePair(page, 0.6, 0.5);
 
-		const status = page.getByTestId('warped-status');
-		await expect(status).toContainText('Warped map layer added');
-		await expect(status).toContainText('amsterdam-1625');
-		// MapLibre gave the layer an id, which it only does once `onAdd` has run against the map's
-		// own WebGL2 context — the point at which two MapLibre copies, or a worker the bundler
-		// could not see, would have failed instead.
-		await expect(status).not.toHaveAttribute('data-layer-id', '');
+		// The renderer is never asked for an under-determined solve, and the user is told what is
+		// missing rather than being shown an empty Base Map.
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', '');
+		await expect(warpedStatus(page)).toContainText(
+			'1 more Control Point and the Historical Map will be drawn'
+		);
+		await expect(page.evaluate(() => Boolean(window.ballastellaWarped))).resolves.toBe(false);
 
-		// The layer holds no maps, so it must not have gone looking for tiles.
+		// Nothing has gone looking for tiles at the placeholder host.
 		expect(requested.filter((url) => url.includes('unset.invalid'))).toEqual([]);
 		expect(consoleErrors.filter((text) => /unset\.invalid|DataClone/i.test(text))).toEqual([]);
+	});
+
+	test('accepts the Alignment and reports bounds once there are three pairs, with nothing fetched from the network', async ({
+		page
+	}) => {
+		const requested: string[] = [];
+		page.on('request', (request) => requested.push(request.url()));
+
+		await projectWithImage(page);
+		await makePair(page, 0.3, 0.3);
+		await makePair(page, 0.6, 0.35);
+		await makePair(page, 0.45, 0.7);
+
+		// The layer took the Alignment. That means `info.json` was fetched **through our shim** on the
+		// main thread — `WarpedMap` loads the image information there — so that half of ADR-0011 holds
+		// against a locally stored pyramid with no URL.
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expect(warpedStatus(page)).toContainText('from 3 Control Points');
+
+		// MapLibre gave the layer an id and the layer has bounds, which it only does once `onAdd` has
+		// run against the map's own WebGL2 context — the point at which two MapLibre copies, or a
+		// worker the bundler could not see, would have failed instead.
+		const bounds = await page.evaluate(() => window.ballastellaWarped?.layer.getBounds() ?? null);
+		expect(bounds, 'the warped layer reported no bounds').not.toBeNull();
+
+		// Still nothing to the placeholder host: every byte came out of OPFS.
+		expect(requested.filter((url) => url.includes('unset.invalid'))).toEqual([]);
 	});
 
 	test('reaches the pyramid’s info.json through the shim, and cannot reach its tiles', async ({
 		page
 	}) => {
 		// **This test documents a defect in `@allmaps/render@1.0.0-beta.83`, and it will fail when
-		// that defect is fixed.** Read the expectations at the bottom before changing anything here.
+		// that defect is fixed.** Read the expectation at the bottom before changing anything here.
 		//
-		// It is in this slice rather than in ticket 07 because it is about the injection layer, not
-		// about warped rendering: the question is whether the `fetchFn` ADR-0011 chose as the
-		// injection point for `@allmaps/maplibre` actually delivers bytes. Answering it needs a
-		// georeferenced map, which the app cannot make until Alignments exist, so the suite supplies
-		// one through the dev route's test handle.
+		// Ticket 06 found it and asserted it on a dev route with a hand-built georeferenced map.
+		// Ticket 07 re-verified it against the current tree, twice — statically, in
+		// `dist/tilecache/CacheableWorkerImageDataTile.js`, and here, through the real pairing UI — and
+		// moved the assertion onto the real path so that it cannot drift away from what ships.
 		const consoleErrors: string[] = [];
 		page.on('console', (message) => {
 			if (message.type() === 'error') consoleErrors.push(message.text());
 		});
 		page.on('pageerror', (error) => consoleErrors.push(`${error.name}: ${error.message}`));
 
-		await page.goto('/');
-		await emptyWorkspace(page);
-		await page.reload();
-		await createProject(page, 'Amsterdam 1625');
-		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await projectWithImage(page);
+		await makePair(page, 0.3, 0.3);
+		await makePair(page, 0.6, 0.35);
+		await makePair(page, 0.45, 0.7);
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
 
-		// A pyramid in the Project, made the ordinary way, so what follows is asserted against real
-		// stored tiles rather than a fixture.
-		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
-			name: 'la-floride.png',
-			mimeType: 'image/png',
-			buffer: gradientPng(700, 500)
-		});
-		await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
-		const imageId = (await page.getByRole('listitem').first().innerText()).trim();
-
-		await page.goto('./warped/?p=amsterdam-1625');
-		await expect(page.getByTestId('warped-status')).toContainText('Warped map layer added');
-
-		const outcome = await page.evaluate(async (imageId) => {
+		// Bring the warped map into view so tiles are actually asked for, then let the renderer work.
+		await page.evaluate(async () => {
 			const warped = window.ballastellaWarped;
-			if (!warped) return { error: 'the warped layer was not exposed' };
-
-			// A four-point georeferenced map over the whole image, placed somewhere in Amsterdam. The
-			// numbers are arbitrary: what is being exercised is the fetch path, not the transform.
-			const added = warped.layer.addGeoreferencedMap({
-				type: 'GeoreferencedMap',
-				resource: {
-					id: `https://unset.invalid/${imageId}`,
-					type: 'ImageService3',
-					width: 700,
-					height: 500
-				},
-				gcps: [
-					{ resource: [0, 0], geo: [4.88, 52.38] },
-					{ resource: [700, 0], geo: [4.92, 52.38] },
-					{ resource: [700, 500], geo: [4.92, 52.36] },
-					{ resource: [0, 500], geo: [4.88, 52.36] }
-				],
-				resourceMask: [
-					[0, 0],
-					[700, 0],
-					[700, 500],
-					[0, 500]
-				]
-			});
-
-			if (added instanceof Error) return { error: `${added.name}: ${added.message}` };
-
-			// Bring it into view so tiles are actually asked for, then let the renderer work.
+			if (!warped) throw new Error('the warped layer was not exposed');
 			warped.map.fitBounds(warped.layer.getBounds(), { animate: false });
 			await new Promise((resolve) => setTimeout(resolve, 4000));
-			return { mapId: added };
-		}, imageId);
+		});
 
-		expect(outcome.error, 'the georeferenced map was rejected').toBeUndefined();
-		expect(outcome.mapId).toBeTruthy();
-
-		// **The `info.json` arrived.** `WarpedMap` loads the image information on the main thread, so
-		// our shim is called and the pyramid is found: adding the map at all would have failed
-		// otherwise, and the layer has bounds to fit. That half of ADR-0011 holds.
+		// **The `info.json` arrived** — the Alignment was accepted and the layer has bounds, asserted
+		// above and in the previous test. That half of ADR-0011 holds.
 		//
-		// **The tiles cannot.** `@allmaps/render`'s WebGL2 renderer fetches every tile inside a
-		// Comlink worker and passes `fetchFn` across the boundary **unproxied** —
-		// `CacheableWorkerImageDataTile.fetch` wraps the abort callback beside it in
-		// `Comlink.proxy()` and does not wrap this one — so `postMessage` refuses to clone it and
-		// every tile fails with a `DataCloneError` logged and swallowed. A function cannot cross a
-		// structured-clone boundary; there is nothing this repository can pass that would.
+		// **The tiles cannot.** `@allmaps/render`'s WebGL2 renderer fetches every tile inside a Comlink
+		// worker and passes `fetchFn` across the boundary **unproxied** —
+		// `CacheableWorkerImageDataTile.fetch` wraps the abort callback beside it in `Comlink.proxy()`
+		// and does not wrap this one — so `postMessage` refuses to clone it and every tile fails with a
+		// `DataCloneError` that upstream logs and swallows. A function cannot cross a structured-clone
+		// boundary; there is nothing this repository can pass that would.
 		//
-		// So this expectation asserts the defect, deliberately, rather than leaving the slice
-		// claiming an injection point that does not carry bytes. **When it starts failing, that is
-		// the upstream fix landing** — delete the expectation, and assert the tiles instead.
+		// So this expectation asserts the defect, deliberately, rather than leaving the slice claiming
+		// warped rendering that does not put pixels on screen. **When it starts failing, that is the
+		// upstream fix landing** — delete the expectation and assert the tiles instead.
 		const dataClone = consoleErrors.filter((text) => /DataClone|could not be cloned/i.test(text));
 		expect(
 			dataClone.length,

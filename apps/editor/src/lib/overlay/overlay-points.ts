@@ -74,6 +74,17 @@ export interface OverlayPointLayerOptions<TPoint> {
 	toLngLat: (point: TPoint) => LngLatLike;
 	/** Which of this pane's points a place in the pane is. */
 	fromLngLat: (lngLat: { lng: number; lat: number }) => TPoint;
+	/**
+	 * The point's own coordinates as `data-` attributes, for the Playwright suite.
+	 *
+	 * Per pane rather than per point, because only the pane knows what its coordinates are called.
+	 * It is how ticket 03's browser tests establish something a round trip cannot: a reference point
+	 * states the image pixel it claims to be at, the test clicks it, and the pane has to report that
+	 * same pixel back — the point is *drawn* through `resourceToSynthetic` and MapLibre's project,
+	 * and the click returns through MapLibre's unproject and `syntheticToResource`, which is two
+	 * different directions rather than one function inverted by its own inverse.
+	 */
+	datasetFor?: (point: TPoint) => Record<string, string>;
 }
 
 export interface OverlayPointLayer<TPoint> {
@@ -115,7 +126,7 @@ interface Handle<TPoint> {
 export function createOverlayPointLayer<TPoint>(
 	options: OverlayPointLayerOptions<TPoint>
 ): OverlayPointLayer<TPoint> {
-	const { map, toLngLat, fromLngLat } = options;
+	const { map, toLngLat, fromLngLat, datasetFor } = options;
 	const handles = new Map<string, Handle<TPoint>>();
 
 	/** The point a handle currently sits at, read back out of MapLibre. */
@@ -138,6 +149,57 @@ export function createOverlayPointLayer<TPoint>(
 		// The same commit point a pointer-up takes. A held arrow key repeats `keydown` many times
 		// and fires `keyup` once, so this is one store write per key-hold rather than per repeat.
 		handle.current.onmoveend?.(positionOf(handle));
+	};
+
+	const paint = (handle: Handle<TPoint>, point: OverlayPoint<TPoint>): void => {
+		handle.current = point;
+		const { element } = handle;
+		const interactive = point.kind === 'control-point';
+
+		// Set here rather than at construction so it cannot go stale: only a point that has somewhere
+		// to report a move to can be picked up, and a point that stops being movable stops being
+		// draggable in the same update.
+		handle.marker.setDraggable(Boolean(point.onmoveend));
+
+		// Toggled one class at a time rather than assigned as a whole `className`, because **MapLibre
+		// puts its own classes on this element** — `maplibregl-marker` and an anchor class — and it
+		// does so inside `new Marker(...)`, before this ever runs. Overwriting `className` wiped them,
+		// which cost the element `position: absolute` and left every point laid out in the container's
+		// normal flow: horizontally it happened to land near the right answer, vertically it was tens
+		// of pixels out, and the visible symptom was Control Points that did not sit where they were
+		// placed. Ticket 03 got away with assigning it because it assigned once, before construction.
+		element.classList.add('pane-overlay-point', `pane-overlay-point-${point.kind}`);
+		element.classList.toggle('pane-overlay-point-selected', Boolean(point.selected));
+		element.classList.toggle('pane-overlay-point-pending', Boolean(point.pending));
+		element.dataset.testid = `pane-overlay-point-${point.kind}`;
+		element.dataset.selected = point.selected ? 'true' : 'false';
+		element.dataset.pending = point.pending ? 'true' : 'false';
+
+		if (point.ordinal === undefined) delete element.dataset.ordinal;
+		else element.dataset.ordinal = String(point.ordinal);
+
+		for (const [name, value] of Object.entries(datasetFor?.(point.point) ?? {})) {
+			element.dataset[name] = value;
+		}
+
+		if (interactive) {
+			// The ordinal is *in the element*, as text, so it is visible without hovering and is read
+			// out as part of the point's name. ADR-0022 wants "look at point 7" to work over a
+			// student's shoulder and in a written comment, which a tooltip does not serve.
+			element.textContent = point.ordinal === undefined ? '' : String(point.ordinal);
+			element.setAttribute('aria-label', point.label);
+			// The selected state is what links the two panes, so it has to be announced and not merely
+			// drawn: a screen-reader user selecting point 7 needs to be told which point is current.
+			element.setAttribute('aria-pressed', point.selected ? 'true' : 'false');
+			element.removeAttribute('aria-hidden');
+			element.removeAttribute('title');
+		} else {
+			// Unchanged from ticket 03. A native `title` is a tooltip, which CONTRIBUTING says is not an
+			// information channel — compliant only because the element is `aria-hidden` and the same
+			// text is in the page as visible prose, so this is a mouse convenience on decoration.
+			element.title = point.label;
+			element.setAttribute('aria-hidden', 'true');
+		}
 	};
 
 	const create = (point: OverlayPoint<TPoint>): Handle<TPoint> => {
@@ -203,49 +265,12 @@ export function createOverlayPointLayer<TPoint>(
 			handle.current.onmoveend?.(positionOf(handle));
 		});
 
+		// Painted before it is added, so MapLibre measures an element that already has its size. The
+		// `center` anchor is applied from the element's own dimensions, and an unstyled element has
+		// none — the point would then be offset by half its own width and height for good.
+		paint(handle, point);
 		handle.marker.setLngLat(toLngLat(point.point)).addTo(map);
 		return handle;
-	};
-
-	const paint = (handle: Handle<TPoint>, point: OverlayPoint<TPoint>): void => {
-		handle.current = point;
-		const { element } = handle;
-		const interactive = point.kind === 'control-point';
-
-		// Set here rather than at construction so it cannot go stale: only a point that has somewhere
-		// to report a move to can be picked up, and a point that stops being movable stops being
-		// draggable in the same update.
-		handle.marker.setDraggable(Boolean(point.onmoveend));
-
-		element.className =
-			`pane-overlay-point pane-overlay-point-${point.kind}` +
-			(point.selected ? ' pane-overlay-point-selected' : '') +
-			(point.pending ? ' pane-overlay-point-pending' : '');
-		element.dataset.testid = `pane-overlay-point-${point.kind}`;
-		element.dataset.selected = point.selected ? 'true' : 'false';
-		element.dataset.pending = point.pending ? 'true' : 'false';
-
-		if (point.ordinal === undefined) delete element.dataset.ordinal;
-		else element.dataset.ordinal = String(point.ordinal);
-
-		if (interactive) {
-			// The ordinal is *in the element*, as text, so it is visible without hovering and is read
-			// out as part of the point's name. ADR-0022 wants "look at point 7" to work over a
-			// student's shoulder and in a written comment, which a tooltip does not serve.
-			element.textContent = point.ordinal === undefined ? '' : String(point.ordinal);
-			element.setAttribute('aria-label', point.label);
-			// The selected state is what links the two panes, so it has to be announced and not merely
-			// drawn: a screen-reader user selecting point 7 needs to be told which point is current.
-			element.setAttribute('aria-pressed', point.selected ? 'true' : 'false');
-			element.removeAttribute('aria-hidden');
-			element.removeAttribute('title');
-		} else {
-			// Unchanged from ticket 03. A native `title` is a tooltip, which CONTRIBUTING says is not an
-			// information channel — compliant only because the element is `aria-hidden` and the same
-			// text is in the page as visible prose, so this is a mouse convenience on decoration.
-			element.title = point.label;
-			element.setAttribute('aria-hidden', 'true');
-		}
 	};
 
 	return {
@@ -255,13 +280,13 @@ export function createOverlayPointLayer<TPoint>(
 			points.forEach((point, index) => {
 				const key = point.key ?? `${point.kind}:${index}`;
 				seen.add(key);
-				let handle = handles.get(key);
+				const handle = handles.get(key);
 				if (!handle) {
-					handle = create(point);
-					handles.set(key, handle);
-				} else if (!handle.moving) {
-					handle.marker.setLngLat(toLngLat(point.point));
+					// `create` paints on the way in, so there is nothing left to do for a new point.
+					handles.set(key, create(point));
+					return;
 				}
+				if (!handle.moving) handle.marker.setLngLat(toLngLat(point.point));
 				paint(handle, point);
 			});
 

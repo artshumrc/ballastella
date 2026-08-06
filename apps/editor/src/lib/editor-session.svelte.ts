@@ -32,6 +32,7 @@ import {
 	type TransferProgress
 } from '@ballastella/core';
 
+import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
 import { loadLibvips } from './ingest/libvips-loader.js';
 import { saveFile } from './save-file.js';
 
@@ -545,12 +546,13 @@ export class EditorSession {
 	async writeAlignment(alignment: Alignment): Promise<void> {
 		const directory = this.openDirectory;
 		if (!directory) return;
+		const path = alignmentStorePath(directory, alignment.imageId);
 		try {
-			await this.#autosave.commit(
-				alignmentStorePath(directory, alignment.imageId),
-				serialiseAlignment(alignment)
-			);
+			await this.#autosave.commit(path, serialiseAlignment(alignment));
 			this.saveError = '';
+			// After the write resolved, so an attempt the store refused is not counted as one that
+			// happened. This is what lets the drag test assert the *number* of writes.
+			recordAlignmentWrite(path, alignment.controlPoints.length);
 		} catch (cause) {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
 		}
