@@ -188,11 +188,13 @@ export function imageIdFromAlignmentRef(alignmentRef: string): string | null {
  * `null` for a `'referenced'` image, whose tiles are on somebody else's server by design (ADR-0007),
  * and for a reference that does not name an image — see {@link imageIdFromAlignmentRef}.
  *
- * **Neither `null` is an exemption from validation.** Ticket 13's importer refuses a `'referenced'`
- * Layer outright before it gets here (`assertDrawableImages`), precisely because `imageMode` comes out
- * of a file somebody else wrote; and an `alignmentRef` that names no image id names no Alignment this
- * app would read either, so there is no directory to guess at. Both are recorded as limits on ticket
- * 09 rather than left to be inferred from here.
+ * **Neither `null` is an exemption from validation, and this function must not be the only thing asked.**
+ * `imageMode` comes out of a `project.json` somebody else wrote, so a validator that stopped here would
+ * be letting the author of an archive decide that the image check did not apply to them —
+ * `assertReferencesPresent` therefore also requires that a map Layer's image *directory* is in the
+ * archive, whatever `imageMode` says. The other `null`, for a reference that names no image id, is a
+ * real limit: such a reference names no Alignment this app would write either, and guessing which
+ * directory it meant would be inventing an authority. Both are recorded on ticket 09.
  */
 export function mapLayerImageInfoPath(layer: MapLayer): string | null {
 	if (layer.imageMode === 'referenced') return null;

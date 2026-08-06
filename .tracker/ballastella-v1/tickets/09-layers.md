@@ -224,16 +224,25 @@ What is now established: every file a Layer names is in the archive — its Alig
 for every map Layer the `info.json` that makes its pyramid readable.
 
 **Nothing in the archive can turn the image check off.** The first version exempted
-`imageMode: 'referenced'` from it — "a referenced image claims no local pyramid, so none is looked for"
-— which is an exemption keyed on a field out of a `project.json` another person wrote. Ticket 14 does not
-exist, so no legitimate archive can carry `'referenced'` today, and the renderer does not consult
-`imageMode` at all: it asks the ADR-0011 shim for every map Layer's tiles out of `images/<id>/`. So the
-word's only reachable effect was that a zip with `project.json`, `alignments/x.json`, no `images/`
-directory whatsoever and one word changed imported cleanly and then showed a reader nothing, with the
-network working perfectly. `assertDrawableImages` now **refuses** `'referenced'` outright, naming the
-Layer and saying that this version can only draw a Historical Map whose tiles are in the Project.
-**Ticket 14 lifts that refusal, and must lift it together with the renderer** — a referenced image that
-imports but does not draw is the same blank map arriving by a longer route.
+`imageMode: 'referenced'` from it — "a referenced image claims no local pyramid, so none is looked for" —
+and that is an exemption keyed on a field out of a `project.json` another person wrote. The renderer does
+not consult `imageMode` at all: it asks the ADR-0011 shim for every map Layer's tiles out of
+`images/<id>/`. So a zip with `project.json`, `alignments/x.json`, **no `images/` directory whatsoever**
+and one word changed imported cleanly and then showed a reader nothing, with the network working
+perfectly. `assertReferencesPresent` now also requires that a map Layer's image **directory** is in the
+archive, whatever `imageMode` says.
+
+A directory rather than a named file, deliberately. `info.json` is what makes a mirrored pyramid
+readable; what makes a `'referenced'` image usable is ticket 14's to say, and a third kind of image
+record would be a third answer. That the image exists in the archive at all is this check's business and
+cannot be waived; what is inside it is the owning ticket's.
+
+**Left for ticket 13 or 14, and visible only now that both have landed:** the pre-existing structural
+check requires every `images/<id>/` in an archive to carry an `info.json`, which a referenced image has
+no reason to have. So exporting a Project with a remote referenced Historical Map and importing it again
+is refused with "the image directory needs to be readable". That check predates this slice and the fix
+belongs with whoever owns what a referenced image's directory contains — this note is the record that it
+is now reachable.
 
 What is **not** established, and should not be:
 
