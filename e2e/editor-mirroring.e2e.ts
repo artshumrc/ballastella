@@ -473,22 +473,26 @@ function watchRequests(page: Page): {
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * WHY THE WAY IN IS A PARAMETER, WHICH IS NOT A CONVENIENCE
  *
- * **Two independent defects in this pane make each of the two routes to it work for exactly one of the
- * two cases below.** Neither is caused by mirroring; both were found by this ticket trying to measure
- * the same thing twice, and both are recorded on it.
+ * **Two independent defects in this pane once made each of the two routes to it work for exactly one of
+ * the two cases below.** Neither was caused by mirroring; both were found by this ticket trying to
+ * measure the same thing twice, and both are fixed — but the parameter stays, because the reason the
+ * defects survived so long is that every test used one route or the other and never both.
  *
- *   `'link'` — a client-side navigation. Works for a `'referenced'` Layer, which is how
- *     `editor-remote-iiif.e2e.ts` asserts one renders. **Leaves the stack undrawn once the Project page
- *     has a local Historical Map on it** — `window.ballastellaLayerStack` is never set at all —
- *     reproduced with a plain ingested PNG and no remote IIIF anywhere.
+ *   `'link'` — a client-side navigation. **Left the stack undrawn once the Project page had a local
+ *     Historical Map on it**: the pane being left removed its map and then asked it for a layer, and the
+ *     exception abandoned the mount of the pane being navigated to. Its regression test is
+ *     `editor-layers.e2e.ts`, "draws the stack when the pane is reached by the link from the Project
+ *     page", which needs a local Historical Map and so belongs there rather than here.
  *
- *   `'load'` — a fresh page load, which is what `editor-layers.e2e.ts` does. Works for a local copy.
- *     **A `'referenced'` Layer draws nothing**: the stack is built before `remote.json` has been read,
- *     so the Layer is handed `service: ''` and asks the injection shim for a pyramid the Project does
- *     not contain, and the redraw when the record arrives does not happen.
+ *   `'load'` — a fresh page load. **A `'referenced'` Layer drew nothing**: the stack was built before
+ *     `remote.json` had been read, so the Layer was handed `service: ''` and asked the injection shim
+ *     for a pyramid the Project does not contain, and the remote service was not part of what the pane
+ *     rebuilds the stack for. Its regression test is `editor-remote-iiif.e2e.ts`, which now draws a
+ *     referenced Layer through **both** routes.
  *
- * So a referenced Layer is measured through the link and a copied one through a load. Everything else
- * about the two measurements is identical, which is what the comparison needs.
+ * Here a referenced Layer is still measured through the link and a copied one through a load, which is
+ * now a choice rather than a constraint. Everything else about the two measurements is identical, which
+ * is what the comparison needs.
  */
 async function drawTheStack(page: Page, via: 'link' | 'load'): Promise<void> {
 	if (via === 'link') await page.getByTestId('open-layers').click();

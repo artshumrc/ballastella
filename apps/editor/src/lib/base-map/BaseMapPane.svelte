@@ -166,6 +166,28 @@
 	let overlayLayer = $state.raw<OverlayPointLayer<GeoPoint> | undefined>(undefined);
 
 	/**
+	 * Whether this pane's map has been taken down, so that nothing asks a removed map anything.
+	 *
+	 * **A removed map answers nothing, and asking it throws.** `Map#remove` calls `setStyle(null)`,
+	 * which deletes the map's `style`; every method that reads it — `getLayer` included, which is the
+	 * guard the teardowns below use before taking a layer off — then fails with
+	 * `TypeError: Cannot read properties of undefined (reading 'getLayer')`.
+	 *
+	 * That mattered far beyond a noisy console. Svelte destroys a component's effects **in the order
+	 * they were created**, and `onMount` is registered above every effect in this file, so its teardown
+	 * removed the map before the effects that had put layers on it let go. An exception thrown while
+	 * Svelte is destroying one page abandons the rest of that synchronous flush — including the *mount*
+	 * of the page being navigated to. So clicking through from the Project page to the Layers pane, once
+	 * the Project page had a local Historical Map and therefore a warped layer to take off, produced a
+	 * Layers pane containing no MapLibre map at all: no Base Map, no Layer stack, and nothing logged
+	 * beyond one `TypeError` from a page the user had already left.
+	 *
+	 * A plain `let` rather than `$state`, deliberately: it is read only inside teardowns, and nothing may
+	 * re-run because a map was removed.
+	 */
+	let removed = false;
+
+	/**
 	 * What the map is currently painted with. A plain `let`, deliberately: in runes mode it is not
 	 * reactive, so the effect below can read and write it without becoming its own dependency.
 	 */
@@ -276,6 +298,8 @@
 
 		return () => {
 			unexpose();
+			// Said *before* the map goes, because everything that reads it runs afterwards.
+			removed = true;
 			created.remove();
 			map = undefined;
 		};
@@ -396,26 +420,42 @@
 			drawnAlignment = null;
 			// `setStyle` on a theme change removes our layer along with everything else, so removing
 			// one that has already gone has to be survivable rather than an exception in a teardown.
-			if (added && current.getLayer(layer.id)) current.removeLayer(layer.id);
+			// And a map that has itself been removed took the layer with it *and* cannot be asked —
+			// `getLayer` on one throws, which is what {@link removed} exists for.
+			if (!removed && added && current.getLayer(layer.id)) current.removeLayer(layer.id);
 			onwarped?.(null);
 		};
 	});
 
 	/**
 	 * What about the Layer stack requires it to be rebuilt: which Layers draw, in what order, and from
-	 * which documents.
+	 * which documents **and which image services**.
 	 *
 	 * **Opacity is deliberately absent.** A rebuild throws away every renderer and refetches every
 	 * tile, and opacity is dragged — so including it would make a continuous gesture the most
 	 * expensive thing in the application, which is the shape ADR-0017 rule 1 exists to prevent. The
 	 * theme is present because `setStyle` takes our layers off the map with everything else.
+	 *
+	 * **`service` is present, and its absence was a defect.** Where a `'referenced'` Layer's tiles come
+	 * from is not a display setting and cannot be applied in place: `@allmaps/maplibre` builds every tile
+	 * URL from the document it was handed, so the remote address versus the ADR-0004 placeholder is a
+	 * different document and therefore a different drawn map (see `showAlignment`). The page resolves it
+	 * from the Project's `remote.json` records, which are read *after* `project.json` — so on a fresh
+	 * load of the Layers pane the stack was built from `service: ''`, asked the injection shim for a
+	 * pyramid a referenced image does not have locally, and rendered blank; the record arriving a moment
+	 * later changed this key not at all, so nothing was redrawn. This is the same shape as the Base Map
+	 * style that has not finished loading — built before its inputs were ready — and the other half of
+	 * that answer is {@link whenStyleLoaded}, which waits rather than rebuilds because a style is a
+	 * precondition of attaching at all rather than something the stack is built *from*.
+	 *
+	 * For a local copy `service` is always `''`, so nothing about the ordinary case rebuilds more often.
 	 */
 	const stackStructure = $derived(
 		JSON.stringify([
 			theme.current,
 			layers.map((stacked) =>
 				isDrawnMap(stacked)
-					? [stacked.layer.id, 'map', stacked.alignment]
+					? [stacked.layer.id, 'map', stacked.alignment, stacked.service ?? '']
 					: [stacked.layer.id, 'annotation', stacked.layer.defaultStyle, stacked.annotations]
 			)
 		])
@@ -520,7 +560,9 @@
 
 		return () => {
 			stopWaiting();
-			built?.destroy();
+			// `mapIsGone` for the same reason the warped layer's teardown checks it: a removed map has no
+			// style to answer `getLayer`, and the throw would abandon the rest of Svelte's destroy.
+			built?.destroy({ mapIsGone: removed });
 			stack = undefined;
 			onstack?.({});
 		};
