@@ -16,6 +16,8 @@ export type ProjectZipRejection =
 	| 'unsupported-compression'
 	/** An entry's bytes do not match the CRC-32 the archive carries for it. */
 	| 'damaged-entry'
+	/** The archive declares more entries, or more bytes, than a Project is allowed to hold. */
+	| 'too-large'
 	/** `project.json` names a file, or an image directory needs one, that is not in the archive. */
 	| 'missing-reference';
 
@@ -61,6 +63,59 @@ const BATCH_BYTES = 8 * 1024 * 1024;
 const BATCH_ENTRIES = 128;
 
 /**
+ * What an archive is allowed to declare about itself.
+ *
+ * A zip is a file another person made, and every number in it is a claim rather than a fact. Two of
+ * those claims are dangerous on their own, before a single byte has been inflated:
+ *
+ * - **Deflate reaches nearly 1000:1** on the runs of zeros a bomb is made of — a megabyte of them
+ *   compresses to about a kilobyte, measured — so a ten-megabyte archive can honestly declare ten
+ *   gigabytes and `importProject` would write every one of them. On OPFS the quota throws part way
+ *   through; on ticket 12's File System Access backend **there is no quota at all**, and the folder
+ *   was granted for one purpose.
+ * - **The declared size of one entry becomes fflate's output buffer**, so a forty-kilobyte archive
+ *   whose single entry claims four gigabytes asks the browser for four gigabytes. This is what makes
+ *   "peak memory is the compressed archive plus one batch" true for a hostile archive as well as an
+ *   honest one, which is the case a bound exists for.
+ *
+ * The numbers are generous rather than tight, because refusing a real Project is its own failure:
+ * SPEC's largest is a 2 GB pyramid and ADR-0008's whole-workspace hosting budget is about 1 GB, so
+ * four gigabytes leaves a Project twice the largest one contemplated. `entryBytes` is sized for
+ * ticket 15's mirrored `full/max` image, which is the only single file in ADR-0006's layout that can
+ * be large at all; everything else is a tile, a manifest, or JSON.
+ */
+export interface ProjectZipLimits {
+	/** Total declared uncompressed bytes across every entry. */
+	readonly totalBytes: number;
+	/** Declared uncompressed bytes of any one entry. */
+	readonly entryBytes: number;
+	/** How many entries the archive may hold. */
+	readonly entries: number;
+}
+
+export const PROJECT_ZIP_LIMITS: ProjectZipLimits = {
+	totalBytes: 4 * 1024 * 1024 * 1024,
+	entryBytes: 256 * 1024 * 1024,
+	entries: 65535
+};
+
+export interface ReadProjectZipOptions {
+	/**
+	 * Bounds to apply instead of {@link PROJECT_ZIP_LIMITS}. Injectable for the same reason
+	 * `exportProjectZip`'s `excluded` is: the refusals are then assertable without building a
+	 * four-gigabyte archive to provoke one.
+	 */
+	readonly limits?: Partial<ProjectZipLimits>;
+}
+
+/** Bytes as a figure a person reads, for a refusal that has to name the number. */
+function describeBytes(bytes: number): string {
+	const gigabytes = bytes / (1024 * 1024 * 1024);
+	if (gigabytes >= 1) return `${Number(gigabytes.toFixed(1))} GB`;
+	return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+/**
  * Read and validate a Project zip. **Writes nothing, and reaches no store.**
  *
  * Every check in ticket 13's table happens here, before the caller has anything it could write:
@@ -78,7 +133,11 @@ const BATCH_ENTRIES = 128;
  * @throws ProjectFileUnreadableError when `project.json` is not readable JSON
  * @throws ProjectFormatTooNewError for a Project from a newer version of the app (ADR-0010)
  */
-export async function readProjectZip(archive: Bytes): Promise<ProjectZip> {
+export async function readProjectZip(
+	archive: Bytes,
+	options: ReadProjectZipOptions = {}
+): Promise<ProjectZip> {
+	const limits = { ...PROJECT_ZIP_LIMITS, ...options.limits };
 	// Read before anything is inflated, because an archive whose index cannot be walked is one whose
 	// entries cannot be checked against it, and importing unverifiable bytes is the thing this
 	// refuses to do.
@@ -89,6 +148,16 @@ export async function readProjectZip(archive: Bytes): Promise<ProjectZip> {
 			'The index at the end of this zip could not be read, so what is inside it cannot be ' +
 				'checked. If it came from a large archive — over four gigabytes, or more than 65,535 ' +
 				'files — this copy of Ballastella cannot read it.'
+		);
+	}
+
+	// Answered from the index rather than by enumerating, so an archive claiming millions of entries
+	// costs one comparison rather than a million.
+	if (checksums.size > limits.entries) {
+		throw new ProjectZipRejectedError(
+			'too-large',
+			`This zip holds ${checksums.size} files. A Project may hold at most ${limits.entries}, ` +
+				`so this is not one.`
 		);
 	}
 
@@ -121,8 +190,25 @@ export async function readProjectZip(archive: Bytes): Promise<ProjectZip> {
 					`matched against it, so its contents cannot be checked.`
 			);
 		}
+		if (entry.originalSize > limits.entryBytes) {
+			throw new ProjectZipRejectedError(
+				'too-large',
+				`“${entry.name}” in this zip says it is ${describeBytes(entry.originalSize)} once ` +
+					`unpacked. No file in a Project is larger than ${describeBytes(limits.entryBytes)}, ` +
+					`so this archive is not one — or is not what it says it is.`
+			);
+		}
 		paths.push(entry.name);
 		totalBytes += entry.originalSize;
+	}
+
+	if (totalBytes > limits.totalBytes) {
+		throw new ProjectZipRejectedError(
+			'too-large',
+			`This zip says it unpacks to ${describeBytes(totalBytes)}. Ballastella will not import a ` +
+				`Project larger than ${describeBytes(limits.totalBytes)}, because a compressed archive ` +
+				`can claim far more than it holds and there would be no way back once your disk was full.`
+		);
 	}
 
 	const manifest = extracted[PROJECT_FILE_NAME];

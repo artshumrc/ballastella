@@ -243,6 +243,11 @@ export class EditorSession {
 		this.pendingImport = null;
 		try {
 			const zip = await readProjectZip(new Uint8Array(await file.arrayBuffer()));
+			const shortfall = await storageShortfall(zip.totalBytes);
+			if (shortfall) {
+				this.transferError = shortfall;
+				return;
+			}
 			const base = file.name.replace(/\.zip$/i, '');
 			// `toDirectoryName` always returns something usable, so ask separately whether the file name
 			// had anything in it to work from before trusting what it produced.
@@ -462,6 +467,39 @@ export class EditorSession {
 			return null;
 		}
 	}
+}
+
+/**
+ * Why this Project will not fit, or `''` when it will or when nobody can say.
+ *
+ * Asked **before the import is offered**, not discovered part way through it. A zip declares how
+ * much it unpacks to, and browser-managed storage will say how much room is left, so the one moment
+ * this is worth asking is while nothing has been written and cancelling costs nothing — running out
+ * of room mid-import is a rollback and a wasted wait even when it is handled cleanly.
+ *
+ * Only browser-managed storage answers: `navigator.storage.estimate()` describes the origin's quota,
+ * which is the OPFS Workspace. A folder Workspace (ticket 12) is on the user's own disk with no
+ * quota to ask about, so nothing is claimed — a silent pass rather than a guess against the wrong
+ * number, since ticket 13's import bound is what stands between an untrusted archive and that disk.
+ */
+async function storageShortfall(needed: number): Promise<string> {
+	if (typeof navigator === 'undefined' || !navigator.storage?.estimate) return '';
+	let free: number;
+	try {
+		const { quota, usage } = await navigator.storage.estimate();
+		if (typeof quota !== 'number' || typeof usage !== 'number') return '';
+		free = quota - usage;
+	} catch {
+		// A browser that will not answer is not a browser that has said no.
+		return '';
+	}
+	if (needed <= free) return '';
+	const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
+	return (
+		`This Project needs about ${mb(needed)}, and this browser has about ${mb(Math.max(free, 0))} ` +
+		`left for Ballastella. Free some space, or put your Workspace in a folder on your computer, ` +
+		`and try again. Nothing has been imported.`
+	);
 }
 
 /**

@@ -51,15 +51,20 @@ export {
 } from './store/workspace-folder.js';
 
 export {
+	MAX_ZIP_ENTRIES,
+	ProjectTooLargeToZipError,
 	exportProjectZip,
 	type ExportProjectZipOptions,
 	type ProjectExport
 } from './transfer/export-project-zip.js';
 export {
+	PROJECT_ZIP_LIMITS,
 	ProjectZipRejectedError,
 	readProjectZip,
 	type ProjectZip,
-	type ProjectZipRejection
+	type ProjectZipLimits,
+	type ProjectZipRejection,
+	type ReadProjectZipOptions
 } from './transfer/import-project-zip.js';
 export type {
 	ProjectFileSource,

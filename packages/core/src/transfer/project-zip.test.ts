@@ -5,8 +5,13 @@ import { ProjectFormatTooNewError, ProjectFileUnreadableError } from '../project
 import { ProjectDirectoryCollisionError, Workspace } from '../project/workspace.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { InvalidPathError, type Bytes, type StorePath } from '../store/project-store.js';
-import { exportProjectZip } from './export-project-zip.js';
-import { ProjectZipRejectedError, readProjectZip } from './import-project-zip.js';
+import { MAX_ZIP_ENTRIES, exportProjectZip } from './export-project-zip.js';
+import {
+	PROJECT_ZIP_LIMITS,
+	ProjectZipRejectedError,
+	readProjectZip,
+	type ReadProjectZipOptions
+} from './import-project-zip.js';
 import type { TransferProgress } from './transfer.js';
 import { createViewerFileFilter } from './viewer-files.js';
 
@@ -267,6 +272,29 @@ describe('exporting a Project as a zip', () => {
 		expect(zip.paths).toContain('annotations/warehouses.geojson');
 	});
 
+	it('refuses a Project with more files than a zip can index, rather than losing most of them', async () => {
+		// A zip's entry count is a sixteen-bit field, and going past it needs the zip64 records fflate's
+		// writer does not emit. Measured: exporting 70,000 entries produces an archive whose index
+		// claims 70000 & 0xffff = 4,464 of them, and unzipping it — with fflate or anything else —
+		// returns 4,464 files with no error anywhere. Silent, on the only way out for a Firefox, Safari,
+		// or iPad user (ADR-0001) and on the deposit path (SPEC story 94), so a legible refusal is the
+		// only honest answer until the archive can be written as zip64.
+		//
+		// SPEC puts "tens of thousands of files" on a single 2 GB pyramid, so this is reachable by a
+		// Project with a few large archival scans in it, not only by a pathological one.
+		const many: Record<string, string> = { 'project.json': projectJson() };
+		for (let tile = 0; tile <= MAX_ZIP_ENTRIES; tile += 1) {
+			many[`images/amsterdam-1625/${tile}/default.jpg`] = 't';
+		}
+		many['images/amsterdam-1625/info.json'] = '{}';
+		const crowded = new MemoryProjectStore();
+		await seed(crowded, 'amsterdam-1625', many);
+
+		await expect(exportProjectZip(crowded, 'amsterdam-1625')).rejects.toThrow(
+			/too many files|65,?535/
+		);
+	});
+
 	it('leaves the Project untouched, including one from a newer version of the app', async () => {
 		// The Project a user most needs to get out of a browser they cannot see into is the one this
 		// build refuses to open, so export must not parse `project.json` at all (ADR-0010).
@@ -501,8 +529,11 @@ describe('rejecting a zip before writing anything', () => {
 	 * claim being tested is "nothing was written", and a test that never offers the implementation a
 	 * store would pass just as happily against one that writes first and complains afterwards.
 	 */
-	const attemptImport = (archive: Bytes, directory = 'amsterdam-1625') =>
-		readProjectZip(archive).then((zip) => target.importProject(directory, zip));
+	const attemptImport = (
+		archive: Bytes,
+		directory = 'amsterdam-1625',
+		options?: ReadProjectZipOptions
+	) => readProjectZip(archive, options).then((zip) => target.importProject(directory, zip));
 
 	/** Every rejection has to leave the Workspace exactly as it was, so each case asserts this. */
 	const nothingWritten = async () => expect(await destination.list('')).toEqual([]);
@@ -661,6 +692,78 @@ describe('rejecting a zip before writing anything', () => {
 		);
 		// `project.json` is written last, so the half-written directory is not a listed Project.
 		expect((await target.listProjects()).map((p) => p.directory)).toEqual([]);
+	});
+
+	it('refuses an archive that declares more bytes than a Project could hold', async () => {
+		// Deflate reaches nearly 1000:1 on runs of zeros — a megabyte of them compresses to about a
+		// kilobyte, measured — so a ten-megabyte archive can declare ten gigabytes. Nothing bounded the
+		// declared total, and `importProject` wrote every byte of it: on OPFS the quota eventually
+		// throws part way through, and on ticket 12's File System Access backend there is no quota at
+		// all, so a zip a student was handed fills the disk from a folder granted for one purpose.
+		// Seventeen tiles each declaring just under the per-entry bound: no single entry is out of
+		// order, and together they claim more than four gigabytes. That is the shape of the attack —
+		// the total is what a disk runs out of, and nothing was summing it.
+		const tiles: Record<string, string> = { ...projectFiles() };
+		const claimed = PROJECT_ZIP_LIMITS.entryBytes - 1;
+		const names: string[] = [];
+		for (let tile = 0; tile < 17; tile += 1) {
+			const name = `images/amsterdam-1625/${tile},0,256,256/256,256/0/default.jpg`;
+			tiles[name] = 'a tile';
+			names.push(name);
+		}
+		let archive = buildZip(tiles);
+		for (const name of names) {
+			archive = patchCentralDirectory(archive, name, 'uncompressedSize', claimed);
+		}
+
+		const failure = await attemptImport(archive).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('too-large');
+		// The message has to say what is wrong and what the number is, not merely "too large".
+		expect(failure.message).toMatch(/gigabyte|GB/i);
+		expect(failure.message).toContain('Nothing has been imported.');
+		await nothingWritten();
+	});
+
+	it('refuses a single entry that declares more bytes than any Project file has', async () => {
+		// This is the allocation, not only the disk: fflate builds the output buffer from the declared
+		// size, so a forty-kilobyte archive whose one entry claims four gigabytes asks the browser for
+		// four gigabytes. The bound is what makes the "one batch" memory claim true for a hostile
+		// archive as well as an honest one.
+		const archive = patchCentralDirectory(
+			buildZip(projectFiles()),
+			'annotations/warehouses.geojson',
+			'uncompressedSize',
+			PROJECT_ZIP_LIMITS.entryBytes + 1
+		);
+
+		const failure = await attemptImport(archive).catch((c) => c);
+
+		expect(failure.reason).toBe('too-large');
+		expect(failure.message).toContain('annotations/warehouses.geojson');
+		await nothingWritten();
+	});
+
+	it('refuses an archive with more entries than it will accept', async () => {
+		// The count is checked before the entries are walked, so an archive claiming millions of them
+		// costs one comparison rather than a million.
+		const failure = await attemptImport(buildZip(projectFiles()), 'amsterdam-1625', {
+			limits: { entries: 3 }
+		}).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('too-large');
+		expect(failure.message).toContain('3');
+		await nothingWritten();
+	});
+
+	it('accepts an archive inside every bound, so the bounds are not simply refusing everything', async () => {
+		await expect(
+			attemptImport(buildZip(projectFiles()), 'amsterdam-1625', {
+				limits: { entries: 6, entryBytes: 1024, totalBytes: 4096 }
+			})
+		).resolves.toMatchObject({ directory: 'amsterdam-1625' });
 	});
 
 	it('rejects a deflated entry whose bytes do not match the checksum the zip carries', async () => {
