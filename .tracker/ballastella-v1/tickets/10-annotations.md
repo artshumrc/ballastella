@@ -132,6 +132,63 @@ Success: all exit 0. The sanitisation assertion is **required**, not optional �
 
 - Ticket 09
 
+## What the sanitisation assertions actually check
+
+Recorded here because the tracker calls this the one place in the epic where a bug is a security
+vulnerability rather than a defect, and because "DOMPurify is in the pipeline" is not an assertion.
+
+**Three render surfaces show untrusted text, and all three are asserted:**
+
+| Surface | Where | How it is safe | Asserted in |
+| --- | --- | --- | --- |
+| The Annotation's name in the list | `AnnotationPanel.svelte` | Svelte interpolates it as **text**; the DOM never parses it as markup | `e2e/editor-annotations.e2e.ts`, "inert in the Annotation's name in the list" |
+| The description preview | `AnnotationEditor.svelte` | `{@html}` of `renderDescription`'s output — DOMPurify's own | same file, "inert in the description preview" |
+| The popup on the map | `annotation-popup.ts` → `renderAnnotationPopup` | title escaped, description sanitised, **whole assembly sanitised again** | same file, "inert in the popup on the map" |
+
+A fourth test asks the same questions of the **whole document**, so a fifth surface added later
+without a test of its own still has something looking at it. The popup covers both of a feature's text
+fields at once, which matters because a `title` looks like a label rather than like a stranger's prose
+and is the field most likely to be missed.
+
+**What each asserts, on the live DOM rather than on the pipeline:** no `<script>`, no `<img>`, no
+`<svg>`, no `<iframe>`, no attribute beginning `on`, no `id`, and no `javascript:` or `data:` URL in
+any `href`/`src`/`action`. Plus `window.__xss` was never set, no `<img src=x>` reached the document, no
+`<script>` anywhere contains the payload, and the `pageerror` and `dialog` probes ticket 13 left are
+carried forward on every rendering test.
+
+**And, before any of that, that the surface rendered at all.** The payload carries legitimate prose
+with emphasis in the same string, and each test asserts the prose is present *before* asserting the
+markup is absent. This is not belt-and-braces: a surface that renders nothing passes every security
+assertion perfectly, and rendering nothing is exactly what `{@html}` does when Svelte has adopted
+prerendered nodes for it — which the viewer's page did until it was caught. Note also that the
+payload's own characters do **not** survive in the description: DOMPurify removes a disallowed element
+rather than escaping it, so an assertion looking for `onerror` there would have been asserting the
+wrong behaviour.
+
+**Proved by mutation in the running app too.** With `sanitise` changed to return its input unchanged
+and the editor rebuilt, `pnpm exec playwright test e2e/editor-annotations.e2e.ts --grep untrusted`
+gives:
+
+- **the description preview: FAILS** (a `<script>` element in the preview, `Expected: 0 Received: 1`)
+- **the popup on the map: FAILS**
+- **the Annotation's name in the list: still PASSES** — and that is correct rather than a gap. That
+  surface's safety does not come from DOMPurify at all: Svelte interpolates a title as **text**, so the
+  DOM never parses it as markup, and breaking the sanitiser cannot affect it. What would break it is
+  somebody turning that interpolation into `{@html}`, which is why the test exists and why the comment
+  above it in `AnnotationPanel.svelte` says so. Worth knowing that the three surfaces are safe for two
+  different reasons, because a reader who assumes one mechanism protects all three will eventually
+  "simplify" the wrong one.
+
+**Proved by mutation, twice, at the unit level** (`markdown.browser.test.ts`, Chromium and Firefox):
+
+- `sanitise` changed to return its input unchanged → **32 of 154 tests fail.**
+- the pipeline reversed to sanitise-then-parse → **4 fail, and they are the right 4**: the payloads
+  written in *Markdown* syntax, `[click](javascript:…)` and the `data:` link. That is ADR-0009's named
+  bypass exactly — the sanitiser sees inert text and passes it, and the parser downstream builds
+  `<a href="javascript:…">` out of it. 148 tests still passed, which is why the order has a test whose
+  *only* job is the order, and why an `<img onerror>` cannot be the payload that proves it: DOMPurify
+  removes that one in either order.
+
 ## Decisions
 
 ### `terra-draw` was declined, and that makes three tickets in a row

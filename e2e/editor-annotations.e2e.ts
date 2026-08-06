@@ -32,7 +32,7 @@ import {
 	selectAnnotation,
 	paintProperty,
 	projectJson,
-	renderedAnnotationLayers,
+	waitForPaintedAnnotations,
 	startAnnotating,
 	storedAnnotations,
 	watchAnnotationWrites,
@@ -135,9 +135,9 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 			[0.6, 0.85]
 		]);
 
-		const painted = await renderedAnnotationLayers(page);
 		const stored = await storedAnnotations(page, layerId);
 		const [pin, line, shape] = stored.features.map((feature) => feature.id);
+		const painted = await waitForPaintedAnnotations(page, [pin!, line!, shape!]);
 
 		expect(painted[pin!]).toContain(`ballastella-layer-${layerId}-point`);
 		expect(painted[line!]).toContain(`ballastella-layer-${layerId}-line-solid`);
@@ -848,7 +848,7 @@ test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
 		);
 		await reopenLayers(page);
 
-		const painted = await renderedAnnotationLayers(page);
+		const painted = await waitForPaintedAnnotations(page, ['certain', 'conjectural', 'guessed']);
 
 		expect(painted['certain']).toContain(`ballastella-layer-${layerId}-line-solid`);
 		expect(painted['conjectural']).toContain(`ballastella-layer-${layerId}-line-dashed`);
@@ -962,8 +962,11 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 		expect(layer.defaultStyle).toEqual({ stroke: '#112233', 'stroke-dasharray': [8, 4] });
 
 		// Both Annotations now draw with it, and both are in the dashed bucket.
-		const painted = await renderedAnnotationLayers(page);
 		const stored = await storedAnnotations(page, layerId);
+		const painted = await waitForPaintedAnnotations(
+			page,
+			stored.features.map((feature) => feature.id)
+		);
 		for (const feature of stored.features) {
 			expect(painted[feature.id]).toContain(`ballastella-layer-${layerId}-line-dashed`);
 			// And nothing was stamped into the file: that is what makes the next bulk change possible.

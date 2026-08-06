@@ -328,7 +328,16 @@ export async function drawShape(
 	await expect(page.getByRole('status')).toHaveText('Saved');
 }
 
-/** The MapLibre layers that painted an Annotation, keyed by the Annotation's own id. */
+/**
+ * The **distinct** MapLibre layers that painted an Annotation, keyed by the Annotation's own id.
+ *
+ * Deduplicated, and that is not tidying. `queryRenderedFeatures` returns a geometry **once per tile it
+ * spans**, so one line long enough to cross a tile boundary comes back two or three times from the same
+ * layer. Counting those as separate layers made "exactly one line layer painted this" fail
+ * intermittently — depending on where the viewport happened to put the tile seams, which is precisely
+ * the kind of assertion that passes on a developer's machine and fails in CI. The question being asked
+ * is *which* layers painted it, and that is a set.
+ */
 export const renderedAnnotationLayers = (page: Page) =>
 	page.evaluate(() => {
 		const stack = (window as unknown as StackWindow).ballastellaLayerStack;
@@ -337,10 +346,38 @@ export const renderedAnnotationLayers = (page: Page) =>
 		for (const feature of stack.map.queryRenderedFeatures()) {
 			const id = feature.properties?.['ballastella:id'];
 			if (typeof id !== 'string') continue;
-			(byId[id] ??= []).push(feature.layer.id);
+			const seen = (byId[id] ??= []);
+			if (!seen.includes(feature.layer.id)) seen.push(feature.layer.id);
 		}
 		return byId;
 	});
+
+/**
+ * Wait until every one of `annotationIds` has been painted, then return what painted each.
+ *
+ * **Polled rather than sampled once.** `queryRenderedFeatures` answers about the frame that has been
+ * drawn, so asking too early returns nothing — and nothing is indistinguishable from "the Annotation is
+ * not on the map", which is a flake in the direction that hides a defect. Re-centring the map already
+ * waits for `idle`, but `idle` can fire before a GeoJSON source has finished parsing, and the suite runs
+ * four workers each driving a real WebGL context (see `playwright.config.ts` on contention).
+ *
+ * The assertion is still on what MapLibre reports it drew; only the *timing* is tolerant.
+ */
+export async function waitForPaintedAnnotations(
+	page: Page,
+	annotationIds: readonly string[]
+): Promise<Record<string, string[]>> {
+	await expect
+		.poll(
+			async () => {
+				const painted = await renderedAnnotationLayers(page);
+				return annotationIds.every((id) => (painted[id] ?? []).length > 0);
+			},
+			{ timeout: 20_000 }
+		)
+		.toBe(true);
+	return renderedAnnotationLayers(page);
+}
 
 /** One MapLibre paint property of one of the stack's layers. */
 export const paintProperty = (page: Page, layerId: string, name: string) =>
