@@ -48,16 +48,16 @@ Switching between an OPFS workspace and a folder workspace must not lose the OPF
 
 ## Acceptance criteria
 
-- [ ] On Chromium desktop, choosing a folder makes it the Workspace, and Projects created there appear as real files with the layout ADR-0008 specifies
-- [ ] The adapter passes ticket 02's shared adapter test suite **with no changes to the suite**
-- [ ] On a browser lacking the API, the option is absent and OPFS continues to work with no error
-- [ ] One grant covers every Project in the workspace — no second prompt when switching Projects
-- [ ] The handle is persisted in IndexedDB and the Workspace resumes on return, via a user gesture rather than an automatic call
-- [ ] Declining permission produces an explanation and a way to retry — not a silent fallback
-- [ ] A workspace whose folder has been moved or deleted shows "Workspace not reachable" with a locate-again action
-- [ ] An interrupted `project.json` write leaves the previous contents intact and parseable
-- [ ] Switching to a folder workspace and back leaves the OPFS workspace's Projects intact
-- [ ] A Project created in a folder workspace can be read by the OPFS adapter after being copied in by hand — proving the layout is backend-independent
+- [x] On Chromium desktop, choosing a folder makes it the Workspace, and Projects created there appear as real files with the layout ADR-0008 specifies
+- [x] The adapter passes ticket 02's shared adapter test suite **with no changes to the suite**
+- [x] On a browser lacking the API, the option is absent and OPFS continues to work with no error
+- [x] One grant covers every Project in the workspace — no second prompt when switching Projects
+- [x] The handle is persisted in IndexedDB and the Workspace resumes on return, via a user gesture rather than an automatic call
+- [x] Declining permission produces an explanation and a way to retry — not a silent fallback
+- [x] A workspace whose folder has been moved or deleted shows "Workspace not reachable" with a locate-again action
+- [x] An interrupted `project.json` write leaves the previous contents intact and parseable
+- [x] Switching to a folder workspace and back leaves the OPFS workspace's Projects intact
+- [x] A Project created in a folder workspace can be read by the OPFS adapter after being copied in by hand — proving the layout is backend-independent
 
 ```bash
 pnpm --filter @ballastella/core test    # shared adapter suite runs against all three adapters
@@ -70,3 +70,65 @@ Success: all exit 0. Playwright must grant and revoke the file-system permission
 ## Blocked by
 
 - Ticket 02
+
+## Implementation notes
+
+Recorded on completion. Status in `TRACKER.md` is the orchestrator's to set; this ticket needs
+no human decision, but the last note below is worth one human minute before release.
+
+### The shared adapter suite ran with literally zero changes
+
+`packages/core/src/store/project-store-suite.ts` and `project-store.ts` are byte-identical to
+what ticket 02's remediation left. Nothing needed widening, because there was nothing to widen: a
+picked `FileSystemDirectoryHandle` and the OPFS root are the *same interface*. So the byte path
+was extracted into `store/directory-handle-store.ts` and both backends now inherit it —
+`OpfsProjectStore` keeps only `open()` and `isSupported()`, and `FileSystemAccessProjectStore`
+adds only the folder's name and handle. ADR-0001's bet paid off exactly as written.
+
+Two of ticket 02's files did move, neither in what it asserts:
+
+- `opfs-project-store.ts` lost its body to `directory-handle-store.ts`.
+- `opfs-project-store.browser.test.ts` now imports its fixture from
+  `store/directory-handle-fixture.ts` instead of declaring it inline. Same fault injection, same
+  assertions; the FSA suite needs the identical injection, and the alternative was duplicating
+  sixty lines of it.
+
+### The grant is deliberately not in the store
+
+`store/workspace-folder.ts` owns the picker, the permission query, and the IndexedDB persistence.
+A store that checked permission per operation would put a possible dialog inside autosave and
+reintroduce the prompt-per-Project friction ADR-0008's workspace model exists to remove. The
+handle goes in IndexedDB because it is the only browser storage that will hold one — it is
+serialisable but not stringifiable, so `localStorage` cannot.
+
+### What the tests genuinely assert, and what they simulate
+
+Stated plainly, because an adapter tested only against a fake handle has not been tested.
+
+**Real.** Every file operation, in both Chromium and Firefox, against a genuine
+`FileSystemDirectoryHandle` — real `createWritable`, real `move`, real `removeEntry`, real
+`NotFoundError` when the directory is genuinely deleted. The handle's round trip through
+`structuredClone` into IndexedDB and back across a page reload. The user gesture: the e2e asserts
+`navigator.userActivation.isActive` *inside* the picker and permission calls, from a real click
+and from a real keypress, so "resumption must never be an automatic call on load" is asserted and
+not assumed. The `move`-less fallback, entered by hiding `move` the way Safari does.
+
+**Simulated, because no automation can do otherwise.** `showDirectoryPicker()` opens an
+operating-system dialog and waits for a person; Playwright has no file-system equivalent of
+`grantPermissions`, and neither does Vitest browser mode. So the picker is stubbed and hands back
+a real handle obtained from OPFS, and `queryPermission`/`requestPermission` are scripted per test
+so that *declined* and *lapsed* can be exercised at all. What is therefore unasserted is the
+dialog itself and the fact that the directory is one the user could open in Finder — not the
+storage, and not the app's sequencing around it.
+
+**One consequence worth a human minute before release.** Chromium's `createWritable()` on a file
+in a *real* folder creates a visible `<name>.crswap` sibling, which `abort()`/`close()` remove.
+Nothing in CI can confirm that in a folder the OS owns rather than in OPFS. Open a real folder
+once, interrupt a save, and look for leftover `.crswap` or `.ballastella-tmp` files — in a git
+working tree those are litter the user commits.
+
+### Noticed, not fixed (ticket 02's, out of scope here)
+
+`ProjectView` renders "Opening…" indefinitely when the Workspace becomes unreachable while `?p=`
+names a Project; only the hub renders ADR-0008's "Workspace not reachable". Reachable today by
+opening a Project link and then deleting the folder.
