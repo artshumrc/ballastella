@@ -571,6 +571,8 @@
 					onstyle={(style, options) => void styleSelected(style, options)}
 					onlinestyle={(line) => void lineStyleSelected(line)}
 					ondelete={() => void deleteSelected()}
+					onlayerstyle={(style, options) =>
+						void (activeLayer && session.setLayerDefaultStyle(activeLayer.id, style, options))}
 				/>
 
 				<p class="mt-6"><a class="link" href={resolve('/')}>Back to all Projects</a></p>

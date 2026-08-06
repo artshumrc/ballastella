@@ -93,22 +93,30 @@ Drawing tools: point, line, polygon, with vertex editing after drawing. Per ADR-
 
 ## Acceptance criteria
 
-- [ ] Points, lines, and polygons can be drawn on the Base Map and appear in the correct Annotation Layer
-- [ ] Vertices can be edited after drawing, and an edit produces **exactly one** store write, on gesture end
-- [ ] `title` and `description` are editable and persist
-- [ ] Markdown in `description` renders with emphasis and links, and the editor shows a live preview while typing
-- [ ] A `description` containing `<img src=x onerror=alert(1)>` and a `javascript:` link renders inert — asserted, not assumed
-- [ ] Sanitisation runs **after** parsing: a payload that survives `marked` but not `dompurify` is inert, proving the order — a sanitise-then-parse implementation fails this and passes a naive "is it escaped" test
-- [ ] Footnote syntax (`[^1]`) renders as literal text, producing no anchors, no ids, and no broken markup
-- [ ] The sanitised renderer is exported from `core` and imported by both apps — not reimplemented in the viewer
-- [ ] `marked` and `dompurify` are catalog entries and direct dependencies of both apps, with accurate `THIRD-PARTY-NOTICES.md` entries
-- [ ] Colour, opacity, and width controls write simplestyle property names exactly
-- [ ] Solid, dashed, and dotted render distinctly; solid is the **absence** of `stroke-dasharray`; dashed and dotted store tuples
-- [ ] A Layer `defaultStyle` applies to features lacking their own properties, and a feature property overrides it
-- [ ] Features created with default styling carry **no** style properties in the written file
-- [ ] The written file is valid GeoJSON and validates against simplestyle property names and value types
-- [ ] Deleting an Annotation removes it from the file
-- [ ] Every drawing tool and style control is reachable and operable by keyboard, and the toolbar's active tool is announced
+- [x] Points, lines, and polygons can be drawn on the Base Map and appear in the correct Annotation Layer
+- [x] Vertices can be edited after drawing, and an edit produces **exactly one** store write, on gesture end
+- [x] `title` and `description` are editable and persist
+- [x] Markdown in `description` renders with emphasis and links, and the editor shows a live preview while typing
+- [x] A `description` containing `<img src=x onerror=alert(1)>` and a `javascript:` link renders inert — asserted, not assumed
+- [x] Sanitisation runs **after** parsing: a payload that survives `marked` but not `dompurify` is inert, proving the order — a sanitise-then-parse implementation fails this and passes a naive "is it escaped" test
+- [x] Footnote syntax (`[^1]`) renders as literal text, producing no anchors, no ids, and no broken markup
+- [x] The sanitised renderer is exported from `core` and imported by both apps — not reimplemented in the viewer
+- [x] `marked` and `dompurify` are catalog entries and direct dependencies of both apps, with accurate `THIRD-PARTY-NOTICES.md` entries
+- [x] Colour, opacity, and width controls write simplestyle property names exactly
+- [x] Solid, dashed, and dotted render distinctly; solid is the **absence** of `stroke-dasharray`; dashed and dotted store tuples
+- [x] A Layer `defaultStyle` applies to features lacking their own properties, and a feature property overrides it
+- [x] Features created with default styling carry **no** style properties in the written file
+- [x] The written file is valid GeoJSON and validates against simplestyle property names and value types
+- [x] Deleting an Annotation removes it from the file
+- [x] Every drawing tool and style control is reachable and operable by keyboard, and the toolbar's active tool is announced
+- [~] **The geojson.io portability spot-check was not performed.** It is a manual step against a
+      third-party site, and this environment has no way to drive it. What *is* asserted, and is most of
+      what the spot-check would find: the document is a `FeatureCollection` of `Feature`s with
+      RFC 7946 geometries, a Polygon's ring is closed (an open ring is the single most common reason
+      another tool rejects hand-built GeoJSON, and geojson.io itself would draw it happily while
+      PostGIS and shapely refuse it), every property name written is one simplestyle 1.1.0 defines,
+      and every value is of the type and in the range the spec gives. A human should still open one in
+      geojson.io and record the outcome.
 
 ```bash
 pnpm --filter @ballastella/core test    # simplestyle conformance, precedence, dasharray tuples, sanitisation

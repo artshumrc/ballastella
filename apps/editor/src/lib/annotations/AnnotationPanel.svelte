@@ -7,11 +7,16 @@
 	// about one Layer's content — and because a stack row that expanded into a style editor would make
 	// the list unreadable at four Layers.
 
-	import type {
-		Annotation,
-		AnnotationCollection,
-		AnnotationLayer,
-		LineStyle
+	import {
+		LINE_STYLES,
+		SIMPLESTYLE_DEFAULTS,
+		dashArrayFor,
+		lineStyleOf,
+		type Annotation,
+		type AnnotationCollection,
+		type AnnotationLayer,
+		type LineStyle,
+		type SimpleStyle
 	} from '@ballastella/core';
 
 	import AnnotationEditor from './AnnotationEditor.svelte';
@@ -37,7 +42,8 @@
 		oncommit,
 		onstyle,
 		onlinestyle,
-		ondelete
+		ondelete,
+		onlayerstyle
 	}: {
 		/** Every Annotation Layer in the Project, so one can be chosen to draw into. */
 		layers: readonly AnnotationLayer[];
@@ -60,6 +66,15 @@
 		onstyle: (style: Record<string, unknown>, options?: { debounce?: boolean }) => void;
 		onlinestyle: (line: LineStyle) => void;
 		ondelete: () => void;
+		/**
+		 * Change the **Layer's** default style, which every Annotation in it that says nothing of its own
+		 * takes (ADR-0002, ADR-0009).
+		 *
+		 * This is what makes precedence worth having rather than merely correct: it is how a whole Layer
+		 * is restyled in one action, which is the reason ADR-0009 forbids stamping defaults onto each
+		 * feature at creation time. It lives on the Layer in `project.json`, never in the GeoJSON.
+		 */
+		onlayerstyle: (style: SimpleStyle, options?: { debounce?: boolean }) => void;
 	} = $props();
 
 	const annotations = $derived<readonly Annotation[]>(collection?.annotations ?? []);
@@ -132,6 +147,57 @@
 	/>
 
 	{#if layer !== null}
+		<!--
+			The Layer's own default style. Two controls only — a colour and a line style — because this is
+			the bulk-restyle affordance rather than a second full style editor: it exists so that "make every
+			conjectural route in this Layer dashed" is one action, which is the whole reason ADR-0009 keeps
+			defaults off the features. Anything an Annotation sets for itself still wins (precedence is
+			resolved in `core`, once, for both apps).
+		-->
+		<fieldset class="rounded border border-base-300 p-3">
+			<legend class="px-1 text-sm font-semibold">This Layer's default style</legend>
+			<div class="flex flex-col gap-2">
+				<label class="flex items-center justify-between gap-2 text-sm">
+					<span>Line and pin colour</span>
+					<input
+						type="color"
+						class="h-8 w-16"
+						value={layer.defaultStyle.stroke ?? SIMPLESTYLE_DEFAULTS.stroke}
+						data-testid="layer-default-stroke"
+						oninput={(event) =>
+							onlayerstyle(
+								{ ...layer.defaultStyle, stroke: event.currentTarget.value },
+								{ debounce: true }
+							)}
+						onchange={() => oncommit()}
+					/>
+				</label>
+
+				<label class="flex items-center justify-between gap-2 text-sm">
+					<span>Line style</span>
+					<select
+						class="select select-sm"
+						value={lineStyleOf(layer.defaultStyle['stroke-dasharray'])}
+						data-testid="layer-default-line-style"
+						onchange={(event) => {
+							const dash = dashArrayFor(event.currentTarget.value as LineStyle);
+							// Solid is the property being **absent**, so it is deleted rather than set to
+							// something that looks continuous (ADR-0009) — the same rule the per-Annotation
+							// control follows.
+							const rest = Object.fromEntries(
+								Object.entries(layer.defaultStyle).filter(([key]) => key !== 'stroke-dasharray')
+							) as SimpleStyle;
+							onlayerstyle(dash === undefined ? rest : { ...rest, 'stroke-dasharray': dash });
+						}}
+					>
+						{#each LINE_STYLES as style (style)}
+							<option value={style}>{style}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
+		</fieldset>
+
 		{#if annotations.length === 0}
 			<p class="text-sm opacity-70" data-testid="annotation-list-empty">
 				Nothing in this Layer yet.

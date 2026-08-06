@@ -12,25 +12,43 @@ import { createHash } from 'node:crypto';
 export const PROJECT_NAME = 'Amsterdam 1625';
 export const PROJECT_DIRECTORY = 'amsterdam-1625';
 
+/**
+ * The live map, as this file needs to question it.
+ *
+ * A local type reached through a cast rather than a `declare global`, because
+ * `editor-layers.e2e.ts` already augments `Window.ballastellaLayerStack` with the subset *it* needs,
+ * and TypeScript requires every declaration of the same property to be identical. Two files each
+ * declaring the shape they use is the shape that cannot be made to agree; a cast per call site can.
+ * Ticket 11 will meet the same wall, and the real fix is one shared declaration — worth doing when a
+ * third file needs it, rather than churning a green suite now.
+ *
+ * These are all real `maplibre-gl` methods; the handle is the map itself (`layers/browser-test-handle.ts`).
+ */
+export interface StackMap {
+	getLayer(id: string): unknown;
+	getPaintProperty(layerId: string, name: string): unknown;
+	queryRenderedFeatures(
+		point?: unknown,
+		options?: unknown
+	): { layer: { id: string }; properties: Record<string, unknown> }[];
+	getCenter(): { lng: number; lat: number };
+	setCenter(lngLat: [number, number]): void;
+	setZoom(zoom: number): void;
+	once(event: string, listener: () => void): unknown;
+	isMoving(): boolean;
+}
+
+/**
+ * The window as this file reads it.
+ *
+ * Applied as a cast at each `page.evaluate` boundary rather than through a helper, because the body of
+ * an `evaluate` is serialised and sent to the browser — it cannot close over anything defined out
+ * here, so a shared accessor would be `undefined` at the only place it was needed.
+ */
+export type StackWindow = { ballastellaLayerStack?: { map: StackMap; builds: number } };
+
 declare global {
 	interface Window {
-		ballastellaLayerStack?: {
-			map: {
-				getLayersOrder(): string[];
-				getLayer(id: string): unknown;
-				getPaintProperty(layerId: string, name: string): unknown;
-				queryRenderedFeatures(
-					point?: unknown,
-					options?: unknown
-				): { layer: { id: string }; properties: Record<string, unknown> }[];
-				project(lngLat: [number, number]): { x: number; y: number };
-				getCenter(): { lng: number; lat: number };
-				getCanvas(): { width: number; height: number };
-				setCenter(lngLat: [number, number]): void;
-				setZoom(zoom: number): void;
-			};
-			builds: number;
-		};
 		ballastellaAnnotationWrites?: { path: string; annotations: number }[];
 	}
 }
@@ -195,9 +213,23 @@ export async function startAnnotating(page: Page): Promise<string> {
  * enough apart in degrees to be told apart by a hit test.
  */
 export async function centreOnAmsterdam(page: Page): Promise<void> {
-	await page.evaluate(() => {
-		window.ballastellaLayerStack?.map.setCenter([4.9, 52.37]);
-		window.ballastellaLayerStack?.map.setZoom(10);
+	await page.evaluate(async () => {
+		const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
+		if (!map) return;
+		map.setCenter([4.9, 52.37]);
+		map.setZoom(10);
+		// **Wait for the map to settle before returning.** `setCenter` only schedules a render, so
+		// `queryRenderedFeatures` immediately afterwards asks about a frame that has not been drawn and
+		// answers with nothing — which reads exactly like "the Annotation is not on the map". That is a
+		// flake in the direction that hides a defect, so it is waited on rather than tolerated.
+		//
+		// Raced against a deadline because `idle` does not fire when the view did not actually change —
+		// re-centring on the coordinates the map is already at is a no-op, and waiting for ever on it
+		// would turn a passing test into a timeout.
+		await Promise.race([
+			new Promise<void>((resolve) => map.once('idle', () => resolve())),
+			new Promise<void>((resolve) => setTimeout(resolve, 3000))
+		]);
 	});
 }
 
@@ -224,9 +256,13 @@ export async function openLayers(page: Page, directory = PROJECT_DIRECTORY): Pro
  */
 export async function waitForStack(page: Page): Promise<void> {
 	await expect
-		.poll(() => page.evaluate(() => window.ballastellaLayerStack !== undefined), {
-			timeout: 30_000
-		})
+		.poll(
+			() =>
+				page.evaluate(() => (window as unknown as StackWindow).ballastellaLayerStack !== undefined),
+			{
+				timeout: 30_000
+			}
+		)
 		.toBe(true);
 }
 
@@ -295,7 +331,7 @@ export async function drawShape(
 /** The MapLibre layers that painted an Annotation, keyed by the Annotation's own id. */
 export const renderedAnnotationLayers = (page: Page) =>
 	page.evaluate(() => {
-		const stack = window.ballastellaLayerStack;
+		const stack = (window as unknown as StackWindow).ballastellaLayerStack;
 		if (!stack) return {};
 		const byId: Record<string, string[]> = {};
 		for (const feature of stack.map.queryRenderedFeatures()) {
@@ -310,7 +346,7 @@ export const renderedAnnotationLayers = (page: Page) =>
 export const paintProperty = (page: Page, layerId: string, name: string) =>
 	page.evaluate(
 		([layerId, name]) => {
-			const map = window.ballastellaLayerStack?.map;
+			const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
 			if (!map || !map.getLayer(layerId as string)) return null;
 			return map.getPaintProperty(layerId as string, name as string) ?? null;
 		},

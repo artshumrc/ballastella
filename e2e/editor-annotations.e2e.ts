@@ -36,7 +36,8 @@ import {
 	startAnnotating,
 	storedAnnotations,
 	watchAnnotationWrites,
-	writeProjectFile
+	writeProjectFile,
+	type StackWindow
 } from './support/annotations';
 
 /**
@@ -245,10 +246,13 @@ test.describe('editing a vertex costs exactly one write, on gesture end (ADR-001
 		const before = await storedAnnotations(page, layerId);
 		await watchAnnotationWrites(page);
 
-		// `down`/`up` rather than `press`, so this is one hold with repeats inside it rather than five
-		// separate presses — the keyboard's equivalent of a drag.
+		// A genuine **hold**: repeated `down` with a single `up` at the end, which is what a held key
+		// produces. `press` would be wrong here and measurably so — it sends a `keyup` each time, and
+		// each `keyup` is a legitimate end of gesture, so five presses are five writes and the app is
+		// right to make them. What this asserts is the other case: many `keydown` repeats inside one
+		// hold, ending in one `keyup`, cost one write.
 		await page.keyboard.down('ArrowRight');
-		for (let repeat = 0; repeat < 5; repeat += 1) await page.keyboard.press('ArrowRight');
+		for (let repeat = 0; repeat < 5; repeat += 1) await page.keyboard.down('ArrowRight');
 		await page.keyboard.up('ArrowRight');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
@@ -371,14 +375,34 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 
 test.describe('a description is untrusted, and this is asserted not assumed (ADR-0009)', () => {
 	/**
+	 * Prose that **must survive**, carried in the same value as the attack.
+	 *
+	 * This is the anti-vacuous half, and it is not decoration. A surface that renders *nothing* passes
+	 * every "no script, no handler, no dangerous URL" assertion perfectly — and rendering nothing is
+	 * exactly what a `{@html}` does when Svelte has adopted prerendered nodes for it, which this app did
+	 * until it was found. So each surface has to be shown to be **live** before its emptiness of markup
+	 * means anything, and the way to show that is legitimate content in the same string.
+	 *
+	 * It also asserts the sanitiser is not simply deleting everything: emphasis inside a value that also
+	 * contains an attack still renders.
+	 */
+	const PROSE = 'The **west** quay, per the survey.';
+
+	/**
 	 * The payload ticket 13 proved reaches storage byte-identical, plus a `javascript:` link.
 	 *
 	 * The `javascript:` link is written in **Markdown** syntax deliberately: it contains no HTML, so a
 	 * sanitise-then-parse implementation passes it through as inert text and then reconstructs an
 	 * `<a href="javascript:…">` out of it. That is the bypass ADR-0009 names, and it is the payload that
 	 * distinguishes the two possible orders — an `<img onerror>` is removed in either.
+	 *
+	 * Note what the correct outcome *is*, because it is not "the text is escaped": DOMPurify **removes**
+	 * a disallowed element rather than escaping it, so `onerror` does not survive anywhere in the
+	 * rendered description as text either. That is right — there was never anything to show — and it is
+	 * why {@link PROSE} rather than the payload's own characters is what proves the surface rendered.
 	 */
 	const PAYLOAD =
+		`${PROSE}` +
 		'<img src=x onerror="window.__xss=1">' +
 		'<script>window.__xss=1</script>' +
 		'[click](javascript:window.__xss=1)' +
@@ -425,12 +449,22 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		}, selector);
 	}
 
-	/** Nothing executed, and nothing from the payload reached the document at large. */
+	/**
+	 * Nothing executed, and nothing from the payload reached the document at large.
+	 *
+	 * `injectedScript` looks for the payload's *own* text inside a `<script>` rather than for any script
+	 * element: the app legitimately ships its own, so `querySelector('script')` is true on every page
+	 * and would have made this probe report an injection on a page with none. That mistake is worth
+	 * leaving a note about, because it fails in the safe direction — a probe that cries wolf gets
+	 * loosened, and the loosening is where the real check gets lost.
+	 */
 	async function nothingRan(page: Page) {
 		return page.evaluate(() => ({
 			ran: '__xss' in window,
 			injectedImage: document.querySelector('img[src="x"]') !== null,
-			injectedScript: document.querySelector('script[src], script:not([type])') !== null
+			injectedScript: [...document.querySelectorAll('script')].some((script) =>
+				(script.textContent ?? '').includes('__xss')
+			)
 		}));
 	}
 
@@ -482,8 +516,11 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		expect(inert.svgs).toBe(0);
 		expect(inert.handlers).toEqual([]);
 		expect(inert.executableUrls).toEqual([]);
-		// The payload's text is shown, so the row is not silently blank either.
+		// The row is not silently blank: a title is inserted as *text*, so the payload's own characters
+		// survive there as characters — which is the correct outcome for a title and different from the
+		// description, where DOMPurify removes the elements outright.
 		expect(inert.text).toContain('onerror');
+		expect(inert.text).toContain('The **west** quay');
 		expect(await nothingRan(page)).toEqual({
 			ran: false,
 			injectedImage: false,
@@ -503,8 +540,11 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		expect(inert.missing).toBe(false);
 		// **First**, that something rendered at all. A blank preview passes every assertion below it, and
 		// blank is exactly what a `{@html}` adopted from prerendered output looks like — so the anti-
-		// vacuous assertion comes before the security ones rather than after them.
-		expect(inert.text).toContain('onerror');
+		// vacuous assertion comes before the security ones rather than after them. The prose proves the
+		// surface is live; the payload's own characters do not survive here, because DOMPurify removes a
+		// disallowed element rather than escaping it.
+		expect(inert.text).toContain('The west quay, per the survey.');
+		await expect(page.getByTestId('annotation-preview').locator('strong')).toHaveText('west');
 		expect(inert.scripts).toBe(0);
 		expect(inert.images).toBe(0);
 		expect(inert.svgs).toBe(0);
@@ -538,8 +578,11 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		expect(inert.ids).toBe(0);
 		expect(inert.handlers).toEqual([]);
 		expect(inert.executableUrls).toEqual([]);
-		// Both the title and the description are in this popup, so this one assertion covers both fields.
+		// Both the title and the description are in this popup, so these cover both fields: the title's
+		// characters survive as text, and the description's prose renders with its emphasis.
 		expect(inert.text).toContain('onerror');
+		expect(inert.text).toContain('The west quay, per the survey.');
+		await expect(page.locator('.maplibregl-popup-content strong')).toHaveText('west');
 		expect(await nothingRan(page)).toEqual({
 			ran: false,
 			injectedImage: false,
@@ -558,12 +601,46 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		await clickAt(baseMap(page), 0.5, 0.5);
 		await expect(page.locator('.maplibregl-popup')).toBeVisible();
 
-		const inert = await inertWithin(page, 'body');
-		expect(inert.missing).toBe(false);
-		expect(inert.scripts).toBe(0);
-		expect(inert.images).toBe(0);
-		expect(inert.handlers).toEqual([]);
-		expect(inert.executableUrls).toEqual([]);
+		// Asked of the whole document, but **only about the payload** — not "are there any scripts", which
+		// is true of every page the app serves, nor "are there any inline event handlers", which MapLibre's
+		// own controls may legitimately have. The question here is whether anything the payload asked for
+		// exists anywhere, and the payload is specific enough to ask about directly.
+		const traces = await page.evaluate(() => {
+			const all = [...document.querySelectorAll('*')];
+			return {
+				payloadScripts: [...document.querySelectorAll('script')].filter((script) =>
+					(script.textContent ?? '').includes('__xss')
+				).length,
+				payloadImages: document.querySelectorAll('img[src="x"], img[onerror]').length,
+				payloadSvgs: document.querySelectorAll('svg[onload]').length,
+				xssHandlers: all.flatMap((element) =>
+					[...element.attributes]
+						.filter(
+							(attribute) =>
+								attribute.name.toLowerCase().startsWith('on') && attribute.value.includes('__xss')
+						)
+						.map((attribute) => `${element.tagName}.${attribute.name}`)
+				),
+				// `javascript:` anywhere, and `data:` only where it could carry markup. Any `data:` at all
+				// would be wrong here: the app's own favicon is a `data:image/svg+xml` link in `<head>`, and
+				// a check that flagged it would be a probe that cries wolf — which is how a real check gets
+				// loosened away.
+				xssUrls: all
+					.flatMap((element) => [element.getAttribute('href'), element.getAttribute('src')])
+					.filter(
+						(value): value is string =>
+							value !== null && /^(javascript:|data:text\/html|data:.*script)/i.test(value)
+					)
+			};
+		});
+
+		expect(traces).toEqual({
+			payloadScripts: 0,
+			payloadImages: 0,
+			payloadSvgs: 0,
+			xssHandlers: [],
+			xssUrls: []
+		});
 		expect(await nothingRan(page)).toEqual({
 			ran: false,
 			injectedImage: false,
@@ -832,7 +909,7 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 		await reopenLayers(page);
 
 		const styles = await page.evaluate(() => {
-			const map = window.ballastellaLayerStack?.map;
+			const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
 			const out: Record<string, Record<string, unknown>> = {};
 			for (const feature of map?.queryRenderedFeatures() ?? []) {
 				const id = feature.properties?.['ballastella:id'];
@@ -855,6 +932,47 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 		expect(failures).toEqual([]);
 	});
 
+	test('the Layer’s default style is set from the UI, restyles in bulk, and stays out of the GeoJSON', async ({
+		page
+	}) => {
+		// The bulk-restyle affordance, which is the reason precedence exists at all (ADR-0009): setting a
+		// default has to reach every Annotation that says nothing of its own, in one action, **without
+		// touching their file**. The last part is ADR-0002 — display state lives on the Layer in
+		// `project.json` and never in the portability document.
+		const failures = watchFailures(page);
+		const layerId = await startAnnotating(page);
+		await drawShape(page, 'line', [
+			[0.3, 0.35],
+			[0.7, 0.4]
+		]);
+		await drawShape(page, 'line', [
+			[0.3, 0.6],
+			[0.7, 0.65]
+		]);
+		const before = await hashesUnder(page, 'annotations/');
+
+		await page.getByTestId('layer-default-stroke').fill('#112233');
+		await page.getByTestId('layer-default-line-style').selectOption('dashed');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// It landed on the Layer, as a tuple and not a keyword.
+		const layer = (await projectJson(page)).layers.find(
+			(one: { id: string }) => one.id === layerId
+		);
+		expect(layer.defaultStyle).toEqual({ stroke: '#112233', 'stroke-dasharray': [8, 4] });
+
+		// Both Annotations now draw with it, and both are in the dashed bucket.
+		const painted = await renderedAnnotationLayers(page);
+		const stored = await storedAnnotations(page, layerId);
+		for (const feature of stored.features) {
+			expect(painted[feature.id]).toContain(`ballastella-layer-${layerId}-line-dashed`);
+			// And nothing was stamped into the file: that is what makes the next bulk change possible.
+			expect(feature.properties).toEqual({});
+		}
+		expect(await hashesUnder(page, 'annotations/')).toEqual(before);
+		expect(failures).toEqual([]);
+	});
+
 	test('simplestyle’s own defaults apply where neither says anything', async ({ page }) => {
 		const failures = watchFailures(page);
 		const layerId = await startAnnotating(page);
@@ -865,7 +983,7 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 		const id = (await storedAnnotations(page, layerId)).features[0]!.id;
 
 		const drawnWith = await page.evaluate((id) => {
-			const map = window.ballastellaLayerStack?.map;
+			const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
 			for (const feature of map?.queryRenderedFeatures() ?? []) {
 				if (feature.properties?.['ballastella:id'] === id) return feature.properties;
 			}
