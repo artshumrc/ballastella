@@ -21,6 +21,12 @@
 // Project's Layer still claiming the library. So the answer is read the way it is written: an `info.json`
 // of ours means the tiles are on this site, and only a `remote.json` means they are on a Library's server.
 //
+// **The rule itself is core's `tileLocation` and this module does not restate it.** What is local here
+// is only the *observation*: the editor answers the same two booleans by walking `images/` once, and a
+// static host makes that impossible, so this asks for the two files by name and reads the 404. Two
+// observers, one rule — see `packages/core/src/project/historical-maps.ts` for why that seam exists and
+// what happened when it did not.
+//
 // `info.json` is asked for first because a local copy is the common case and that request costs nothing
 // extra — `@allmaps/maplibre` fetches the same file from `resource.id` to draw the map, so the probe hits
 // the same cache entry. Only a referenced map pays a 404 for the question.
@@ -49,6 +55,7 @@ import {
 	parseAnnotations,
 	parseReferencedImage,
 	referencedImagePath,
+	tileLocation,
 	type Alignment,
 	type AnnotationCollection,
 	type AnnotationLayer,
@@ -149,10 +156,11 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 	// A local copy needs no address: its tiles are files of this site, and ADR-0011's shim resolves the
 	// `unset.invalid` placeholder in its `info.json` against them. The presence of that file is what says
 	// so — see the module comment on why this is a probe and not a flag.
-	let referenced = false;
+	const observed = { infoJson: false, remoteJson: false };
 	let service = '';
 	try {
 		await store.read(imageInfoPath(imageId));
+		observed.infoJson = true;
 	} catch (cause) {
 		// A host that did not answer is not a map held elsewhere, and asking a second question of a site
 		// that is not there would only repeat the same failure under a worse sentence.
@@ -163,7 +171,7 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 			const record = parseReferencedImage(await store.read(referencedImagePath(imageId)), {
 				imageId
 			});
-			referenced = true;
+			observed.remoteJson = true;
 			service = record.service;
 		} catch (second) {
 			// **Not `service: ''`.** See the module comment: `''` here is a blank warped Layer reported as
@@ -175,6 +183,10 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 			);
 		}
 	}
+
+	// The two observations, handed to the one rule. Both `false` is unreachable here — the second read
+	// failing is a `return` above — so this is `'in-workspace'` or `'referenced'` and never `null`.
+	const referenced = tileLocation(observed) === 'referenced';
 
 	// ── And where on the earth it goes ──────────────────────────────────────────────────────────
 	try {

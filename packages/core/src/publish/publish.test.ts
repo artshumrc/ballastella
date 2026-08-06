@@ -222,6 +222,46 @@ describe('planning a publish', () => {
 		expect(warning?.message).toContain('999 MB');
 	});
 
+	it('names the byte weight of the Historical Maps no Project uses (SPEC story 98)', async () => {
+		// Publishing is additive: those maps are already in the directory the site is written into and
+		// cannot be left out of it. So the ADR-0008 warning has to say how much of the drop is dead
+		// weight, or the user is told they are stuck when they are one deletion from not being.
+		await store.write('images/nobody/info.json', encode('{"id":"https://unset.invalid/nobody"}'));
+		await store.write(
+			'images/nobody/big.jpg',
+			new Uint8Array(STATIC_HOSTING_LIMIT_BYTES - 1_000_000)
+		);
+
+		const planned = await plan({ includeBaseMap: true });
+		const warning = planned.warnings.find((entry) => entry.kind === 'hosting-limit');
+
+		expect(planned.unusedHistoricalMaps.maps).toBe(1);
+		expect(planned.unusedHistoricalMaps.bytes).toBeGreaterThan(STATIC_HOSTING_LIMIT_BYTES - 1e6);
+		expect(warning?.message).toContain('999 MB of Historical Maps no Project uses');
+	});
+
+	it('reports zero unused weight, and says nothing about it, when every map is in use', async () => {
+		await store.write('images/mine/info.json', encode('{"id":"https://unset.invalid/mine"}'));
+		await store.write(
+			'images/mine/big.jpg',
+			new Uint8Array(STATIC_HOSTING_LIMIT_BYTES - 1_000_000)
+		);
+		const file = await workspace.readProject('amsterdam-1625');
+		await workspace.writeProject('amsterdam-1625', {
+			...file,
+			layers: [newMapLayer({ id: 'l1', name: 'Mine', imageId: 'mine' })]
+		});
+
+		const planned = await plan({ includeBaseMap: true });
+
+		expect(planned.unusedHistoricalMaps).toEqual({ bytes: 0, maps: 0 });
+		// The warning is still there — the cliff is still crossed — so this is not passing because the
+		// message is absent.
+		const warning = planned.warnings.find((entry) => entry.kind === 'hosting-limit');
+		expect(warning?.message).toContain('GitHub Pages');
+		expect(warning?.message).not.toContain('no Project uses');
+	});
+
 	it('says nothing about the hosting limit for a Workspace nowhere near it', async () => {
 		await store.write('images/x/small.jpg', new Uint8Array(1000));
 

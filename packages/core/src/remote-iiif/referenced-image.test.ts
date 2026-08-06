@@ -4,6 +4,7 @@ import { newAlignment, type Alignment } from '../alignment/alignment';
 import { parseAlignment, serialiseAlignment } from '../alignment/georeference-annotation';
 import { createImagePane } from '../image-pane/iiif-image-pane';
 import { createStoreImageFetch } from '../injection/store-image-fetch';
+import { partitionByLocalCopy } from '../project/historical-maps';
 import { imageInfoPath } from '../project/image-files';
 import { MemoryProjectStore } from '../store/memory-project-store';
 import { imageServiceId } from '../tiler/pyramid';
@@ -12,7 +13,6 @@ import {
 	isReferenced,
 	listReferencedImages,
 	parseReferencedImage,
-	partitionByLocalCopy,
 	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,

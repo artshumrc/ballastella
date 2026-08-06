@@ -42,6 +42,25 @@ export {
 	imageInfoPath,
 	imageManifestPath
 } from './project/image-files.js';
+// ADR-0023's derived answer, in one place: which Historical Maps the Workspace holds, whether each
+// one's tiles are here or on a Library's server, who draws it, and what deleting it takes. Both apps
+// — the viewer reaches only for `tileLocation`, because a static host cannot list a directory and its
+// half of the observation is a 404 probe.
+export {
+	HistoricalMapInUseError,
+	deleteHistoricalMap,
+	historicalMapFiles,
+	historicalMapUsage,
+	listWorkspaceHistoricalMaps,
+	partitionByLocalCopy,
+	referencedHistoricalMaps,
+	tileLocation,
+	unusedHistoricalMapBytes,
+	type HistoricalMapFiles,
+	type HistoricalMapUser,
+	type TileLocation,
+	type WorkspaceHistoricalMap
+} from './project/historical-maps.js';
 export {
 	BALLASTELLA_CANONICAL_URL,
 	CURRENT_FORMAT_VERSION,
@@ -404,7 +423,6 @@ export {
 	isReferenced,
 	listReferencedImages,
 	parseReferencedImage,
-	partitionByLocalCopy,
 	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,
