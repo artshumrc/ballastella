@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { alignmentPath } from '../alignment/alignment.js';
+import { imageDirectory, imageInfoPath } from './image-files.js';
 import { parseProjectFile, serialiseProjectFile, newProjectFile } from './project-file.js';
 import {
 	addLayer,
@@ -7,9 +9,6 @@ import {
 	drawingOrder,
 	emptyAnnotationCollection,
 	findLayer,
-	imageIdFromAlignmentRef,
-	LOCAL_COPY,
-	mapLayerImageInfoPath,
 	moveLayer,
 	moveLayerDown,
 	moveLayerUp,
@@ -27,7 +26,7 @@ import {
 } from './layer.js';
 
 const mapLayer = (fields: Partial<MapLayer> = {}): MapLayer => ({
-	...newMapLayer({ id: 'l-map', name: 'La Floride', alignmentRef: 'alignments/floride-1657.json' }),
+	...newMapLayer({ id: 'l-map', name: 'La Floride', imageId: 'floride-1657' }),
 	...fields
 });
 
@@ -65,13 +64,27 @@ describe('the Layer union (ADR-0002)', () => {
 		expect(opacities).toEqual([0.25, null]);
 	});
 
-	it('gives a locally ingested image a local copy, never a remote reference', () => {
-		// Settled here rather than left ambiguous for every image that exists at the time this slice
-		// lands: only ticket 14's remote resources are `'referenced'`.
-		expect(newMapLayer({ id: 'a', name: 'n', alignmentRef: 'alignments/x.json' }).imageMode).toBe(
-			LOCAL_COPY
-		);
-		expect(LOCAL_COPY).not.toBe('referenced');
+	// ADR-0023: the Workspace owns where a Historical Map sits on the earth, so a map Layer names the
+	// image and carries nothing else about it. The two fields that are gone are named explicitly because
+	// their absence *is* the contract: `alignmentRef` was a second name for a derivable path, and
+	// `imageMode` was a claim that could disagree with the bytes on disk.
+	it('names one Workspace Historical Map and claims nothing else about it', () => {
+		const layer = newMapLayer({ id: 'a', name: 'n', imageId: 'floride-1657' });
+
+		expect(layer.imageId).toBe('floride-1657');
+		expect(Object.keys(layer).sort()).toEqual([
+			'id',
+			'imageId',
+			'kind',
+			'name',
+			'opacity',
+			'order',
+			'visible'
+		]);
+		// @ts-expect-error ADR-0023 deleted the stored Alignment reference; the path is derived from imageId
+		expect(layer.alignmentRef).toBeUndefined();
+		// @ts-expect-error ADR-0023 deleted the stored image mode; it is observed from the files instead
+		expect(layer.imageMode).toBeUndefined();
 	});
 
 	it('derives an Annotation Layer’s file from its id, so the two cannot drift', () => {
@@ -200,8 +213,7 @@ describe('reading the layers array', () => {
 				visible: false,
 				order: 0,
 				opacity: 0.6,
-				alignmentRef: 'alignments/floride-1657.json',
-				imageMode: 'referenced'
+				imageId: 'floride-1657'
 			},
 			{
 				kind: 'annotation',
@@ -221,8 +233,7 @@ describe('reading the layers array', () => {
 			visible: false,
 			order: 0,
 			opacity: 0.6,
-			alignmentRef: 'alignments/floride-1657.json',
-			imageMode: 'referenced'
+			imageId: 'floride-1657'
 		});
 		expect(layers[1]).toMatchObject({
 			kind: 'annotation',
@@ -258,9 +269,8 @@ describe('reading the layers array', () => {
 		['a missing opacity', { id: 'x', kind: 'map' }, { opacity: 1 }],
 		['an out-of-range opacity', { id: 'x', kind: 'map', opacity: 40 }, { opacity: 1 }],
 		['a NaN opacity', { id: 'x', kind: 'map', opacity: Number.NaN }, { opacity: 1 }],
-		['a missing alignmentRef', { id: 'x', kind: 'map' }, { alignmentRef: '' }],
-		['an unknown imageMode', { id: 'x', kind: 'map', imageMode: 'wat' }, { imageMode: LOCAL_COPY }],
-		['a missing imageMode', { id: 'x', kind: 'map' }, { imageMode: LOCAL_COPY }],
+		['a missing imageId', { id: 'x', kind: 'map' }, { imageId: '' }],
+		['a non-string imageId', { id: 'x', kind: 'map', imageId: 7 }, { imageId: '' }],
 		['a non-object defaultStyle', { id: 'x', kind: 'annotation', defaultStyle: 3 }, {}]
 	])('survives %s', (_description, raw, expected) => {
 		expect(parseLayers([raw])[0]).toMatchObject(expected);
@@ -390,8 +400,7 @@ describe('writing the layers array', () => {
 			visible: true,
 			order: 0,
 			opacity: 1,
-			alignmentRef: 'alignments/floride-1657.json',
-			imageMode: LOCAL_COPY,
+			imageId: 'floride-1657',
 			blendMode: 'multiply'
 		};
 
@@ -429,28 +438,30 @@ describe('writing the layers array', () => {
 	});
 });
 
-describe('the Layer → Alignment → image link', () => {
-	it.each([
-		['alignments/floride-1657.json', 'floride-1657'],
-		['alignments/a.json', 'a'],
-		['alignments/nested/x.json', null],
-		['alignments/.json', null],
-		['alignments/x.geojson', null],
-		['annotations/x.json', null],
-		['', null]
-	])('reads %s as %s', (reference, expected) => {
-		expect(imageIdFromAlignmentRef(reference)).toBe(expected);
+describe('the Layer → Historical Map link (ADR-0023)', () => {
+	// Both Workspace paths come out of the one field, so there is no second name to disagree with the
+	// first — and both are complete store paths, with no Project directory anywhere in them. That last
+	// part is what `scripts/check-workspace-rooted-paths.mjs` enforces, and its failure mode is a pane
+	// of somebody else's map rather than an error.
+	it('derives the Alignment and the pyramid from the image id alone', () => {
+		const layer = mapLayer();
+
+		expect(alignmentPath(layer.imageId)).toBe('alignments/floride-1657.json');
+		expect(imageInfoPath(layer.imageId)).toBe('images/floride-1657/info.json');
+		expect(imageDirectory(layer.imageId)).toBe('images/floride-1657');
 	});
 
-	it('names the info.json a local copy needs', () => {
-		expect(mapLayerImageInfoPath(mapLayer())).toBe('images/floride-1657/info.json');
-	});
+	// Two Projects referencing the same image is the behaviour ADR-0023 exists for, and at the level of
+	// the model it is this: two Layers, different ids, different display state, one image id — and
+	// therefore one Alignment path and one pyramid.
+	it('lets two Projects name the same Historical Map with their own display state', () => {
+		const mine = newMapLayer({ id: 'l-1', name: 'My reading', imageId: 'floride-1657' });
+		const theirs = newMapLayer({ id: 'l-2', name: 'Course copy', imageId: 'floride-1657' });
 
-	// A `'referenced'` image's tiles are on somebody else's server by design (ADR-0007), so there is
-	// no local pyramid to look for.
-	it('claims no local image for a remote reference', () => {
-		expect(mapLayerImageInfoPath(mapLayer({ imageMode: 'referenced' }))).toBeNull();
-		expect(mapLayerImageInfoPath(mapLayer({ alignmentRef: 'somewhere/else.txt' }))).toBeNull();
+		expect(mine.id).not.toBe(theirs.id);
+		expect(mine.name).not.toBe(theirs.name);
+		expect(alignmentPath(mine.imageId)).toBe(alignmentPath(theirs.imageId));
+		expect(imageDirectory(mine.imageId)).toBe(imageDirectory(theirs.imageId));
 	});
 });
 

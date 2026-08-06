@@ -691,7 +691,10 @@ test.describe('a working session that reaches other people’s servers', () => {
 				label: 'Carte de la Floride',
 				width: REFERENCED_WIDTH,
 				height: REFERENCED_HEIGHT
-			})
+			}),
+			// The Workspace root: a referenced Historical Map belongs to the Workspace like any other, so
+			// its record sits beside every other map's rather than inside one Project (ADR-0023).
+			''
 		);
 		await page.reload();
 		await expect(page.getByTestId('referenced-image-host')).toHaveText(LIBRARY);
@@ -770,7 +773,9 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 				label: 'Carte de la Floride',
 				width: 700,
 				height: 500
-			})
+			}),
+			// The Workspace root (ADR-0023).
+			''
 		);
 		await page.reload();
 		await expect(page.getByTestId('referenced-image-host')).toHaveText('gallica.example.test');

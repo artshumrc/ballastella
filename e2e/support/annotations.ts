@@ -85,7 +85,8 @@ export const readProjectFile = (page: Page, path: string, directory = PROJECT_DI
 			for (let attempt = 0; attempt < 20; attempt += 1) {
 				try {
 					const root = await navigator.storage.getDirectory();
-					let handle = await root.getDirectoryHandle(directory as string);
+					// `''` reads from the Workspace root (ADR-0023): an Alignment and a pyramid belong there.
+					let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 					const segments = (path as string).split('/');
 					for (const segment of segments.slice(0, -1)) {
 						handle = await handle.getDirectoryHandle(segment);
@@ -116,7 +117,11 @@ export const writeProjectFile = (
 	page.evaluate(
 		async ([directory, path, text]) => {
 			const root = await navigator.storage.getDirectory();
-			let handle = await root.getDirectoryHandle(directory as string, { create: true });
+			// `''` writes at the Workspace root (ADR-0023): a pyramid and an Alignment belong there.
+			let handle =
+				directory === ''
+					? root
+					: await root.getDirectoryHandle(directory as string, { create: true });
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
 				handle = await handle.getDirectoryHandle(segment, { create: true });
@@ -139,7 +144,9 @@ export async function hashesUnder(
 		async ([directory, prefix]) => {
 			const out: [string, number[]][] = [];
 			const root = await navigator.storage.getDirectory();
-			const project = await root.getDirectoryHandle(directory as string);
+			// `''` walks the Workspace root, which is where a Historical Map's pyramid and its Alignment now
+			// live (ADR-0023) — shared by every Project, so not under any one of them.
+			const project = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const walk = async (handle: FileSystemDirectoryHandle, at: string): Promise<void> => {
 				for await (const [name, entry] of handle.entries()) {
 					const path = at === '' ? name : `${at}/${name}`;

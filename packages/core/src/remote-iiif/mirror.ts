@@ -369,8 +369,6 @@ const FETCH_SHARE = 0.3;
 
 export type MirrorOptions = {
 	readonly store: ProjectStore;
-	/** The Project directory the copy is written into (ADR-0008). */
-	readonly projectDirectory: string;
 	readonly service: RemoteImageService;
 	/** What to call this Historical Map. The library's label, normally. */
 	readonly label?: string;
@@ -424,10 +422,10 @@ export type AssembleImage = (
 ) => Promise<Blob>;
 
 /**
- * Copy a referenced remote Historical Map into the Project as local tiles.
+ * Copy a referenced remote Historical Map into the Workspace as local tiles.
  *
  * **Writes nothing until the pixels are in hand**, and then writes only through
- * `ingestImageFile` — so a copy that fails or is cancelled leaves the Project exactly as it was, the
+ * `ingestImageFile` — so a copy that fails or is cancelled leaves the Workspace exactly as it was, the
  * Layer still `'referenced'`, and the map still rendering from the library. That is not this
  * function's own discipline: `ingestImageFile` writes `info.json` last and removes what it wrote on
  * failure, and everything here happens before it or is delegated to it.
@@ -437,7 +435,7 @@ export type AssembleImage = (
  * says where this map came from.
  */
 export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorResult> {
-	const { store, projectDirectory, service, fetch, assemble, signal } = options;
+	const { store, service, fetch, assemble, signal } = options;
 	const limits: MirrorLimits = { ...MIRROR_LIMITS, ...options.limits };
 	const plan = options.plan ?? planMirror(service, options);
 	const host = plan.host;
@@ -510,10 +508,9 @@ export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorR
 
 	const result = await ingestImageFile({
 		store,
-		projectDirectory,
 		file: source,
 		// The whole reason ingest takes an id: mirroring must not change it. ADR-0015's `generateId(uri)`
-		// is what every Alignment in this Project names and what `annotations.allmaps.org` keys the image
+		// is what every Alignment in the Workspace names and what `annotations.allmaps.org` keys the image
 		// on, so a copy that minted a fresh one would break both while looking like it had worked.
 		imageId: service.imageId,
 		...(options.label === undefined ? {} : { label: options.label }),

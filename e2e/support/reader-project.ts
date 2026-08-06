@@ -1,5 +1,10 @@
-// One Project as a Published Site carries it: a `project.json`, an Alignment, an Annotation Layer, and
-// a level-0 pyramid.
+// One Project as a Published Site carries it: a `project.json` and an Annotation Layer inside the
+// Project directory, and — at the **Workspace root**, shared by every Project (ADR-0023) — an Alignment
+// and a level-0 pyramid.
+//
+// Every path here is written out literally rather than through `core`'s path helpers. That is deliberate:
+// this suite's job is to assert the layout the application produces, and a fixture built from the same
+// functions the application builds its paths with would agree with itself however wrong both were.
 //
 // The Alignment is a **real** IIIF Georeference Annotation — the exact bytes `serialiseAlignment`
 // writes for four Control Points over a 700 × 500 image — so `@allmaps/maplibre` solves and draws it
@@ -128,7 +133,13 @@ export type ProjectFixture = {
 	name?: string;
 	/** The Annotations in the Annotation Layer. */
 	annotations?: unknown[];
-	/** `'referenced'` puts the Historical Map on somebody else's server (ADR-0007). */
+	/**
+	 * `'referenced'` puts the Historical Map on somebody else's server (ADR-0007).
+	 *
+	 * **Not written into `project.json`** — ADR-0023 deleted that field. It decides which *files* the
+	 * fixture lays down, which is where the answer now lives: `'referenced'` writes a `remote.json` and no
+	 * `info.json`, and `'mirrored'` writes the pyramid. That is exactly the observation the app makes.
+	 */
 	imageMode?: 'mirrored' | 'referenced';
 	/** The remote service a `'referenced'` image claims, or `undefined` to write no `remote.json`. */
 	remoteService?: string;
@@ -180,23 +191,26 @@ export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 					visible: true,
 					order: 1,
 					opacity: 0.8,
-					alignmentRef: `alignments/${IMAGE_ID}.json`,
-					imageMode
+					imageId: IMAGE_ID
 				}
 			],
 			baseMap: fixture.baseMap === undefined ? null : fixture.baseMap,
 			...(fixture.projectOverrides ?? {})
 		}),
-		[`${directory}/alignments/${IMAGE_ID}.json`]: alignmentJson(),
+		// At the Workspace root, shared by every Project (ADR-0023).
+		[`alignments/${IMAGE_ID}.json`]: alignmentJson(),
 		[`${directory}/annotations/${ANNOTATION_LAYER_ID}.geojson`]: asJson({
 			type: 'FeatureCollection',
 			features: fixture.annotations ?? [annotation({ title: 'A warehouse' })]
 		})
 	};
 
-	if (!fixture.withoutPyramid) {
-		files[`${directory}/images/${IMAGE_ID}/info.json`] = infoJson(fixture.canonicalImageServiceId);
-		files[`${directory}/images/${IMAGE_ID}/manifest.json`] = asJson({
+	// **`info.json` present or absent is what says whether the tiles are here** (ADR-0023). A referenced
+	// Historical Map has neither a pyramid nor an `info.json` of ours; a local copy has both. Nothing in
+	// `project.json` claims either, so a fixture cannot lie about it to the app.
+	if (!fixture.withoutPyramid && imageMode !== 'referenced') {
+		files[`images/${IMAGE_ID}/info.json`] = infoJson(fixture.canonicalImageServiceId);
+		files[`images/${IMAGE_ID}/manifest.json`] = asJson({
 			'@context': 'http://iiif.io/api/presentation/3/context.json',
 			id: `https://unset.invalid/${IMAGE_ID}/manifest.json`,
 			type: 'Manifest',
@@ -211,12 +225,12 @@ export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 		// or the fixture dimensions ever change.
 		const jpeg = tileJpeg();
 		for (const cell of PYRAMID_TILES) {
-			files[`${directory}/images/${IMAGE_ID}/${cell}`] = jpeg;
+			files[`images/${IMAGE_ID}/${cell}`] = jpeg;
 		}
 	}
 
 	if (imageMode === 'referenced' && fixture.remoteService !== undefined) {
-		files[`${directory}/images/${IMAGE_ID}/remote.json`] = asJson({
+		files[`images/${IMAGE_ID}/remote.json`] = asJson({
 			service: fixture.remoteService,
 			label: 'Blaeu’s plan, from the library',
 			partOf: '',

@@ -61,7 +61,6 @@ describe('ingestImageFile', () => {
 	it('writes a complete pyramid, an info.json and a manifest.json', async () => {
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'amsterdam-1625',
 			file: imageFile(1200, 851, 'la-floride.jpg'),
 			openDecodeAndCrop: stubTiler({ width: 1200, height: 851 })
 		});
@@ -69,9 +68,11 @@ describe('ingestImageFile', () => {
 		expect(result.tileCount).toBe(29);
 		expect(result.width).toBe(1200);
 		expect(result.tiler).toBe('decode-and-crop');
-		expect(result.directory).toBe(`amsterdam-1625/images/${result.imageId}`);
+		// At the Workspace root, shared by every Project (ADR-0023): a scan is prepared once and any
+		// number of Projects can draw it.
+		expect(result.directory).toBe(`images/${result.imageId}`);
 
-		const paths = await store.list('amsterdam-1625/');
+		const paths = await store.list('images/');
 		expect(paths).toHaveLength(31);
 		expect(paths).toContain(result.infoPath);
 		expect(paths).toContain(result.manifestPath);
@@ -84,10 +85,34 @@ describe('ingestImageFile', () => {
 		expect(info.id).toBe(`https://unset.invalid/${result.imageId}`);
 	});
 
+	// ADR-0023, and the criterion in as many words: adding a Historical Map writes
+	// `images/<image-id>/info.json` at the Workspace root and **no bytes inside any Project directory**.
+	// A pyramid is prepared once and shared, so a copy landing inside the Project that happened to be open
+	// is the whole failure the move exists to end.
+	it('writes nothing inside any Project directory', async () => {
+		await store.write(
+			'amsterdam-1625/project.json',
+			new TextEncoder().encode('{"formatVersion":1}')
+		);
+		await store.write('boston-1775/project.json', new TextEncoder().encode('{"formatVersion":1}'));
+
+		const result = await ingestImageFile({
+			store,
+			file: imageFile(600, 400, 'la-floride.jpg'),
+			openDecodeAndCrop: stubTiler({ width: 600, height: 400 })
+		});
+
+		expect(result.infoPath).toBe(`images/${result.imageId}/info.json`);
+		// Every path written is under `images/`, and the two Project directories hold only what they held.
+		expect((await store.list('')).filter((path) => !path.startsWith('images/'))).toEqual([
+			'amsterdam-1625/project.json',
+			'boston-1775/project.json'
+		]);
+	});
+
 	it('writes exactly the tile getTileImageRequest describes, at every path', async () => {
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(1200, 851),
 			openDecodeAndCrop: stubTiler({ width: 1200, height: 851 })
 		});
@@ -110,7 +135,6 @@ describe('ingestImageFile', () => {
 		// SPEC story 21, ADR-0003. 1632 × 1224 is a phone photograph, and it still gets four levels.
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(1632, 1224, 'photo.jpg'),
 			openDecodeAndCrop: stubTiler({ width: 1632, height: 1224 })
 		});
@@ -130,7 +154,6 @@ describe('ingestImageFile', () => {
 			const progress: IngestProgress[] = [];
 			await ingestImageFile({
 				store: local,
-				projectDirectory: 'p',
 				file: imageFile(600, 400),
 				openDecodeAndCrop: stubTiler({ width: 600, height: 400 }),
 				openStreaming: stubTiler({ width: 600, height: 400 }),
@@ -167,7 +190,6 @@ describe('ingestImageFile', () => {
 
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			// 30000 × 20000 is 600 megapixels: above the measured decode ceiling in every browser
 			// measured, and well above the threshold.
 			file: imageFile(30_000, 20_000),
@@ -185,7 +207,6 @@ describe('ingestImageFile', () => {
 
 		await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(4000, 3000),
 			openDecodeAndCrop: stubTiler({ width: 4000, height: 3000 }, decode),
 			openStreaming: stubTiler({ width: 4000, height: 3000 }, log)
@@ -204,7 +225,6 @@ describe('ingestImageFile', () => {
 
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(40_000, 30_000),
 			openDecodeAndCrop,
 			openStreaming: stubTiler({ width: 40_000, height: 30_000 })
@@ -218,7 +238,6 @@ describe('ingestImageFile', () => {
 		await expect(
 			ingestImageFile({
 				store,
-				projectDirectory: 'p',
 				file: imageFile(40_000, 30_000),
 				openDecodeAndCrop: stubTiler({ width: 40_000, height: 30_000 })
 			})
@@ -243,7 +262,6 @@ describe('ingestImageFile', () => {
 
 		const failure = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(20_000, 15_000, 'archival-master.jpg'),
 			openDecodeAndCrop: stubTiler(
 				{ width: 20_000, height: 15_000 },
@@ -275,7 +293,6 @@ describe('ingestImageFile', () => {
 
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(20_000, 15_000),
 			openDecodeAndCrop: stubTiler(
 				{ width: 20_000, height: 15_000 },
@@ -296,7 +313,6 @@ describe('ingestImageFile', () => {
 		await expect(
 			ingestImageFile({
 				store,
-				projectDirectory: 'p',
 				file: new File([new Uint8Array([1, 2, 3]) as BlobPart], 'notes.txt'),
 				openDecodeAndCrop: async () => {
 					throw new Error('The source image could not be decoded.');
@@ -313,7 +329,6 @@ describe('ingestImageFile', () => {
 		// TIFF, which is why the streaming path exists at all.
 		const failure = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(20_000, 15_000, 'master.tif'),
 			openDecodeAndCrop: stubTiler({ width: 20_000, height: 15_000 }),
 			openStreaming: async () => {
@@ -343,7 +358,6 @@ describe('ingestImageFile', () => {
 
 		const result = await ingestImageFile({
 			store: recording,
-			projectDirectory: 'p',
 			file: imageFile(600, 400),
 			openDecodeAndCrop: stubTiler({ width: 600, height: 400 })
 		});
@@ -360,7 +374,6 @@ describe('ingestImageFile', () => {
 		await expect(
 			ingestImageFile({
 				store,
-				projectDirectory: 'p',
 				file: imageFile(1200, 851),
 				openDecodeAndCrop: async () => ({
 					dimensions: { width: 1200, height: 851 },
@@ -383,7 +396,6 @@ describe('ingestImageFile', () => {
 		await expect(
 			ingestImageFile({
 				store,
-				projectDirectory: 'p',
 				file: imageFile(1200, 851),
 				openDecodeAndCrop: async () => {
 					let count = 0;
@@ -407,7 +419,6 @@ describe('ingestImageFile', () => {
 		await expect(
 			ingestImageFile({
 				store,
-				projectDirectory: 'p',
 				file: imageFile(600, 400),
 				openDecodeAndCrop: async () => ({
 					dimensions: { width: 600, height: 400 },
@@ -424,7 +435,6 @@ describe('ingestImageFile', () => {
 	it('labels the Historical Map with the file the user picked', async () => {
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(600, 400, 'Blaeu — Amsterdam, 1625.tif'),
 			openDecodeAndCrop: stubTiler({ width: 600, height: 400 })
 		});
@@ -436,13 +446,11 @@ describe('ingestImageFile', () => {
 	it('gives each ingested image its own random id (@allmaps/id)', async () => {
 		const first = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(600, 400),
 			openDecodeAndCrop: stubTiler({ width: 600, height: 400 })
 		});
 		const second = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(600, 400),
 			openDecodeAndCrop: stubTiler({ width: 600, height: 400 })
 		});
@@ -456,21 +464,23 @@ describe('ingestImageFile', () => {
 	it('lists only images whose ingest finished', async () => {
 		const first = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(600, 400),
 			openDecodeAndCrop: stubTiler({ width: 600, height: 400 })
 		});
 
 		// A pyramid interrupted before its `info.json`: tiles on disk, no image.
 		await store.write(
-			`p/images/half-finished/0,0,256,256/256,256/0/default.jpg`,
+			'images/half-finished/0,0,256,256/256,256/0/default.jpg',
 			new Uint8Array([1])
 		);
+		// And a Project directory that happens to contain something shaped like a pyramid. It is not a
+		// Historical Map of this Workspace, and `listIngestedImages` no longer looks inside a Project at
+		// all (ADR-0023) — which is what stops one Project's leftovers being listed as Workspace material.
+		await store.write('some-project/images/decoy/info.json', new Uint8Array([1]));
 
-		expect(await listIngestedImages(store, 'p')).toEqual([
+		expect(await listIngestedImages(store)).toEqual([
 			{ imageId: first.imageId, directory: first.directory, infoPath: first.infoPath }
 		]);
-		expect(await listIngestedImages(store, 'other')).toEqual([]);
 	});
 
 	it('trusts the decoder over the header for the dimensions it writes', async () => {
@@ -480,7 +490,6 @@ describe('ingestImageFile', () => {
 		// would be cut from an image that is not that shape.
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: imageFile(4000, 3000),
 			openDecodeAndCrop: stubTiler({ width: 3000, height: 4000 })
 		});

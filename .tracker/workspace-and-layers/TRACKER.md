@@ -6,9 +6,9 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 ## Current Status
 
-Overall status: `Not Started`
+Overall status: `In Progress`
 
-Current ticket: none. The spec is written, its seams are agreed, and **all fifteen tickets exist and are unstarted.** Tickets 01, 08, and 09 depend only on 01 or on nothing, so 01 is the only thing that can start today.
+Current ticket: none. **01 is complete**, so 02, 03, 08, and 09 are all unblocked and can run beside one another.
 
 This epic follows [`ballastella-v1`](../ballastella-v1/TRACKER.md), whose implementation is complete and merged. Two things carry across and should be read before any ticket is written:
 
@@ -28,7 +28,7 @@ Last updated: 2026-08-06
 
 | Number | Filename | Status | Depends On | Fulfills |
 | --- | --- | --- | --- | --- |
-| 01 | [01-historical-maps-move-to-the-workspace.md](./tickets/01-historical-maps-move-to-the-workspace.md) | Not Started | — | 61, 62, 66, 67 |
+| 01 | [01-historical-maps-move-to-the-workspace.md](./tickets/01-historical-maps-move-to-the-workspace.md) | Completed | — | 61, 62, 66, 67 |
 | 02 | [02-a-layer-is-created-when-a-map-is-added.md](./tickets/02-a-layer-is-created-when-a-map-is-added.md) | Not Started | 01 | 18, 34, 35, 68 |
 | 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | Not Started | 01 | 37, 38, 41–55, 57–60 |
 | 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Not Started | 03 | 1, 2, 3, 10–13, 109, 110 |

@@ -283,14 +283,17 @@ const READ_RETRY_MS = 25;
  * a write that never happens still fails, and a file that is genuinely absent still reads as absent.
  * Only a read that collided with an atomic replace is forgiven, and only for as long as one can last.
  */
-export const storedAlignment = (page: Page, imageId: string, directory = PROJECT_DIRECTORY) =>
+export const storedAlignment = (page: Page, imageId: string) =>
 	page.evaluate(
-		async ([directory, imageId, attempts, retryMs]) => {
+		async ([imageId, attempts, retryMs]) => {
 			for (let attempt = 0; attempt < (attempts as number); attempt += 1) {
 				try {
 					const root = await navigator.storage.getDirectory();
-					const project = await root.getDirectoryHandle(directory as string);
-					const alignments = await project.getDirectoryHandle('alignments');
+					// **At the Workspace root, and it takes no Project directory** (ADR-0023). One Alignment per
+					// Historical Map, shared by every Project that draws it — so there is no per-Project copy
+					// this could be asked for, and a helper that still took one would be asserting about a file
+					// the application no longer writes.
+					const alignments = await root.getDirectoryHandle('alignments');
 					const handle = await alignments.getFileHandle(`${imageId}.json`);
 					return await (await handle.getFile()).text();
 				} catch {
@@ -299,7 +302,7 @@ export const storedAlignment = (page: Page, imageId: string, directory = PROJECT
 			}
 			return null;
 		},
-		[directory, imageId, READ_ATTEMPTS, READ_RETRY_MS] as const
+		[imageId, READ_ATTEMPTS, READ_RETRY_MS] as const
 	);
 
 /** `project.json` as it sits in OPFS, or `null`. Retried — see {@link storedAlignment}. */

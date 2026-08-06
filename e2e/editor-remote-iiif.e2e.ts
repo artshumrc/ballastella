@@ -333,11 +333,12 @@ async function emptyWorkspace(page: Page): Promise<void> {
 }
 
 /** Overwrite a file in a Project, the way a hand-edit or a half-finished write would leave it. */
+/** Overwrite one file in OPFS. `''` as the directory writes at the Workspace root (ADR-0023). */
 const writeFile = (page: Page, directory: string, path: string, body: string): Promise<void> =>
 	page.evaluate(
 		async ([directory, path, body]) => {
 			const root = await navigator.storage.getDirectory();
-			let handle = await root.getDirectoryHandle(directory as string);
+			let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
 				handle = await handle.getDirectoryHandle(segment);
@@ -350,11 +351,12 @@ const writeFile = (page: Page, directory: string, path: string, body: string): P
 		[directory, path, body]
 	);
 
+/** One JSON file out of OPFS. `''` as the directory reads from the Workspace root (ADR-0023). */
 const readJson = (page: Page, directory: string, path: string): Promise<unknown> =>
 	page.evaluate(
 		async ([directory, path]) => {
 			const root = await navigator.storage.getDirectory();
-			let handle = await root.getDirectoryHandle(directory as string);
+			let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
 				handle = await handle.getDirectoryHandle(segment);
@@ -482,11 +484,12 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		const imageId = generateId(service('images.test', 'florida'));
 		expect(imageId).toMatch(/^[0-9a-f]{16}$/);
 
-		const record = (await readJson(
-			page,
-			'amsterdam-1625',
-			`images/${imageId}/remote.json`
-		)) as Record<string, unknown>;
+		// At the Workspace root: a referenced Historical Map belongs to the Workspace like any other, so
+		// adding the same remote resource from a second Project reaches the record already here (ADR-0023).
+		const record = (await readJson(page, '', `images/${imageId}/remote.json`)) as Record<
+			string,
+			unknown
+		>;
 		expect(record.service).toBe(service('images.test', 'florida'));
 		expect(record.label).toBe('Chart of the Florida coast');
 		expect(record.partOf).toBe('https://library.test/iiif/atlas/manifest.json');
@@ -497,20 +500,25 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		expect(record.attribution).toBe('Provided by the Example Library');
 
 		const project = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
-			layers: { kind: string; name: string; imageMode: string; alignmentRef: string }[];
+			layers: { kind: string; name: string; imageId: string }[];
 		};
 		expect(project.layers).toHaveLength(1);
 		expect(project.layers[0]).toMatchObject({
 			kind: 'map',
 			name: 'Chart of the Florida coast',
-			imageMode: 'referenced',
-			alignmentRef: `alignments/${imageId}.json`
+			imageId
 		});
 
-		// No pyramid was written. A referenced image has no `info.json` in the Project, which is exactly
-		// what ticket 09's `mapLayerImageInfoPath` returns `null` for and what ticket 13's import check
-		// is right not to look for.
-		await expect(readJson(page, 'amsterdam-1625', `images/${imageId}/info.json`)).rejects.toThrow();
+		// **No pyramid was written, and that is the whole record of it** (ADR-0023). A referenced image has
+		// no `info.json` of ours; `remote.json` sitting there without one is what says the tiles are on a
+		// Library's server, so nothing in `project.json` claims it and nothing could disagree.
+		await expect(readJson(page, '', `images/${imageId}/info.json`)).rejects.toThrow();
+		// And the badge on the Layer says so, read off those files rather than off the document.
+		await page.getByTestId('open-layers').click();
+		await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
+			'data-image-mode',
+			'referenced'
+		);
 	});
 
 	test('offers the community alignments it found, and importing one produces a working Alignment', async ({
@@ -542,7 +550,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
 
 		const imageId = generateId(service('images.test', 'florida'));
-		const alignment = (await readJson(page, 'amsterdam-1625', `alignments/${imageId}.json`)) as {
+		const alignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
 			target: { source: { id: string }; selector: { value: string } };
 			body: { features: unknown[]; transformation: { type: string; options: { order: number } } };
 		};
@@ -801,7 +809,7 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const broken = generateId(service('images.test', 'approaches'));
-		await writeFile(page, 'amsterdam-1625', `images/${broken}/remote.json`, '{"label":"corrupt"}');
+		await writeFile(page, '', `images/${broken}/remote.json`, '{"label":"corrupt"}');
 
 		await page.goto('/?p=amsterdam-1625');
 		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();

@@ -229,37 +229,33 @@ const writes = (page: Page) => page.evaluate(() => window.ballastellaAlignmentWr
  * window is a race, and one that would fail as "a pair was lost across reload" — the exact bug this
  * suite is meant to be able to detect.
  */
-const waitForStored = async (
-	page: Page,
-	directory: string,
-	imageId: string,
-	count: number
-): Promise<void> => {
+const waitForStored = async (page: Page, imageId: string, count: number): Promise<void> => {
 	await expect
 		.poll(async () => {
-			const written = await storedAlignment(page, directory, imageId);
+			const written = await storedAlignment(page, imageId);
 			if (written === null) return -1;
 			return (JSON.parse(written).body?.features ?? []).length;
 		})
 		.toBe(count);
 };
 
-/** The Alignment as it sits in OPFS, or `null` when there is no such file. */
-const storedAlignment = (page: Page, directory: string, imageId: string) =>
-	page.evaluate(
-		async ([directory, imageId]) => {
-			const root = await navigator.storage.getDirectory();
-			try {
-				const project = await root.getDirectoryHandle(directory as string);
-				const alignments = await project.getDirectoryHandle('alignments');
-				const handle = await alignments.getFileHandle(`${imageId}.json`);
-				return await (await handle.getFile()).text();
-			} catch {
-				return null;
-			}
-		},
-		[directory, imageId] as const
-	);
+/**
+ * The Alignment as it sits in OPFS, or `null` when there is no such file.
+ *
+ * At the **Workspace** root and taking no Project directory (ADR-0023): one Alignment per Historical
+ * Map, shared by every Project that draws it.
+ */
+const storedAlignment = (page: Page, imageId: string) =>
+	page.evaluate(async (imageId) => {
+		const root = await navigator.storage.getDirectory();
+		try {
+			const alignments = await root.getDirectoryHandle('alignments');
+			const handle = await alignments.getFileHandle(`${imageId}.json`);
+			return await (await handle.getFile()).text();
+		} catch {
+			return null;
+		}
+	}, imageId);
 
 async function start(page: Page): Promise<string> {
 	await page.goto('/');
@@ -331,8 +327,8 @@ test.describe('Control Point pairing', () => {
 		// simply that an empty Alignment stays empty.
 		await makePair(page, 0.3, 0.3);
 		await makePair(page, 0.6, 0.5);
-		await waitForStored(page, 'amsterdam-1625', imageId, 2);
-		const afterPairs = await storedAlignment(page, 'amsterdam-1625', imageId);
+		await waitForStored(page, imageId, 2);
+		const afterPairs = await storedAlignment(page, imageId);
 		expect(afterPairs).not.toBeNull();
 
 		await clickAt(historicalMap(page), 0.8, 0.7);
@@ -350,7 +346,7 @@ test.describe('Control Point pairing', () => {
 		// Nothing left on disk either. The file is byte-identical to before the mis-started pair,
 		// which is stronger than "it still has two pairs": it says the pending half provoked no
 		// write at all rather than a write that happened to exclude it.
-		expect(await storedAlignment(page, 'amsterdam-1625', imageId)).toBe(afterPairs);
+		expect(await storedAlignment(page, imageId)).toBe(afterPairs);
 	});
 
 	test('Escape after the first click of the very first pair writes no Alignment at all', async ({
@@ -366,7 +362,7 @@ test.describe('Control Point pairing', () => {
 		// **No file, not an empty one.** A mis-started pair must cost nothing, and an
 		// `alignments/<id>.json` carrying zero pairs would be a trace on disk — and, in a Workspace
 		// kept in git or Dropbox, a change to sync.
-		expect(await storedAlignment(page, 'amsterdam-1625', imageId)).toBeNull();
+		expect(await storedAlignment(page, imageId)).toBeNull();
 	});
 
 	test('dragging a half moves the pair and writes exactly once, on pointer-up', async ({
@@ -376,7 +372,7 @@ test.describe('Control Point pairing', () => {
 		await makePair(page, 0.4, 0.4);
 		// The pair's own write has to have landed before the counter is reset, or it lands inside the
 		// window under test and reads as a write during the drag.
-		await waitForStored(page, 'amsterdam-1625', imageId, 1);
+		await waitForStored(page, imageId, 1);
 
 		const half = imagePoints(page).first();
 		const before = await half.boundingBox();
@@ -492,7 +488,7 @@ test.describe('Control Point pairing', () => {
 	}) => {
 		const imageId = await start(page);
 		await makePair(page, 0.4, 0.4);
-		await waitForStored(page, 'amsterdam-1625', imageId, 1);
+		await waitForStored(page, imageId, 1);
 
 		// The pending prompt is in a live region, so it reaches assistive technology rather than only
 		// the screen. `aria-atomic`, so it is read as a sentence and not as the words that changed.
@@ -603,9 +599,9 @@ test.describe('the Alignment on disk', () => {
 		await makePair(page, 0.3, 0.3);
 		await makePair(page, 0.55, 0.45);
 		await makePair(page, 0.75, 0.65);
-		await waitForStored(page, 'amsterdam-1625', imageId, 3);
+		await waitForStored(page, imageId, 3);
 
-		const written = await storedAlignment(page, 'amsterdam-1625', imageId);
+		const written = await storedAlignment(page, imageId);
 		expect(written, 'no Alignment was written').not.toBeNull();
 		const document = JSON.parse(written as string);
 
@@ -666,7 +662,7 @@ test.describe('the Alignment on disk', () => {
 		// A half-made pair, and then a write provoked by something else — a drag of an existing point.
 		// This is the case ADR-0022 warns about: autosave fires constantly, so a naive serialiser
 		// would fail on the first click of every pair.
-		await waitForStored(page, 'amsterdam-1625', imageId, 3);
+		await waitForStored(page, imageId, 3);
 		await clickAt(historicalMap(page), 0.85, 0.2);
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await expect(imagePoints(page)).toHaveCount(4);
@@ -683,7 +679,7 @@ test.describe('the Alignment on disk', () => {
 
 		// Three pairs written, not four and not an error: the pending half was skipped.
 		expect((await writes(page))[0]?.controlPoints).toBe(3);
-		const document = JSON.parse((await storedAlignment(page, 'amsterdam-1625', imageId)) as string);
+		const document = JSON.parse((await storedAlignment(page, imageId)) as string);
 		expect(document.body.features).toHaveLength(3);
 		// Every written feature has both halves, which is the invariant a half-pair would break.
 		for (const feature of document.body.features) {
@@ -704,7 +700,7 @@ test.describe('the Alignment on disk', () => {
 		await makePair(page, 0.75, 0.65);
 
 		const coordinatesBefore = await page.getByTestId('control-point-row').allInnerTexts();
-		await waitForStored(page, 'amsterdam-1625', imageId, 3);
+		await waitForStored(page, imageId, 3);
 
 		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
@@ -740,21 +736,18 @@ test.describe('the Alignment on disk', () => {
 	}) => {
 		const imageId = await start(page);
 		await makePair(page, 0.3, 0.3);
-		await waitForStored(page, 'amsterdam-1625', imageId, 1);
+		await waitForStored(page, imageId, 1);
 
 		// Corrupt the file behind the app's back, the way a bad sync or a half-finished write would.
-		await page.evaluate(
-			async ([directory, id]) => {
-				const root = await navigator.storage.getDirectory();
-				const project = await root.getDirectoryHandle(directory as string);
-				const alignments = await project.getDirectoryHandle('alignments');
-				const handle = await alignments.getFileHandle(`${id}.json`);
-				const writable = await handle.createWritable();
-				await writable.write('{ not an annotation');
-				await writable.close();
-			},
-			['amsterdam-1625', imageId] as const
-		);
+		await page.evaluate(async (id) => {
+			const root = await navigator.storage.getDirectory();
+			// At the Workspace root (ADR-0023).
+			const alignments = await root.getDirectoryHandle('alignments');
+			const handle = await alignments.getFileHandle(`${id}.json`);
+			const writable = await handle.createWritable();
+			await writable.write('{ not an annotation');
+			await writable.close();
+		}, imageId);
 
 		await page.reload();
 

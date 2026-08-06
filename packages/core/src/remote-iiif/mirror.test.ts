@@ -352,7 +352,6 @@ const mirror = async (service: RemoteImageService, overrides: Record<string, unk
 		host,
 		result: await mirrorRemoteImage({
 			store,
-			projectDirectory: 'amsterdam-1625',
 			service,
 			fetch: host.fetch,
 			assemble: stubAssemble(),
@@ -382,7 +381,6 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 		const local = new MemoryProjectStore();
 		const ingested = await ingestImageFile({
 			store: local,
-			projectDirectory: 'amsterdam-1625',
 			file: new File([jpegHeader(700, 500) as BlobPart], 'chart.jpg', { type: 'image/jpeg' }),
 			openDecodeAndCrop: stubTiler({ width: 700, height: 500 })
 		});
@@ -410,7 +408,7 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 
 		expect(result.imageId).toBe(service.imageId);
 		expect(result.ingest.imageId).toBe(service.imageId);
-		expect(await store.list(`amsterdam-1625/images/${service.imageId}/`)).not.toHaveLength(0);
+		expect(await store.list(`images/${service.imageId}/`)).not.toHaveLength(0);
 	});
 
 	it('writes the unset.invalid placeholder as the pyramid id, never the remote service', async () => {
@@ -435,7 +433,6 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 		await expect(
 			mirrorRemoteImage({
 				store,
-				projectDirectory: 'amsterdam-1625',
 				service,
 				fetch: host.fetch,
 				assemble: stubAssemble(),
@@ -460,7 +457,6 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 		await expect(
 			mirrorRemoteImage({
 				store,
-				projectDirectory: 'amsterdam-1625',
 				service,
 				fetch: host.fetch,
 				assemble: stubAssemble(),
@@ -501,7 +497,6 @@ describe('mirrorRemoteImage: the level-0 path', () => {
 
 		const result = await mirrorRemoteImage({
 			store,
-			projectDirectory: 'amsterdam-1625',
 			service,
 			fetch: host.fetch,
 			assemble: stubAssemble(log),
@@ -528,7 +523,6 @@ describe('mirrorRemoteImage: the level-0 path', () => {
 		await expect(
 			mirrorRemoteImage({
 				store,
-				projectDirectory: 'amsterdam-1625',
 				service,
 				fetch: host.fetch,
 				// The real `assemble` decodes each piece and compares; this measures the bytes that actually
@@ -563,7 +557,6 @@ describe('mirrorRemoteImage: the level-0 path', () => {
 		await expect(
 			mirrorRemoteImage({
 				store,
-				projectDirectory: 'amsterdam-1625',
 				service,
 				fetch: host.fetch,
 				assemble: stubAssemble(),
@@ -583,7 +576,6 @@ describe('mirrorRemoteImage: progress and cancellation', () => {
 
 		await mirrorRemoteImage({
 			store,
-			projectDirectory: 'amsterdam-1625',
 			service,
 			fetch: host.fetch,
 			assemble: stubAssemble(),
@@ -614,7 +606,6 @@ describe('mirrorRemoteImage: progress and cancellation', () => {
 		await expect(
 			mirrorRemoteImage({
 				store,
-				projectDirectory: 'amsterdam-1625',
 				service,
 				fetch,
 				assemble: stubAssemble(),
@@ -639,7 +630,6 @@ describe('mirrorRemoteImage: progress and cancellation', () => {
 		await expect(
 			mirrorRemoteImage({
 				store,
-				projectDirectory: 'amsterdam-1625',
 				service,
 				fetch: host.fetch,
 				assemble: stubAssemble(),

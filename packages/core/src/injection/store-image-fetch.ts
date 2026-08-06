@@ -33,6 +33,14 @@ import {
 import { imageDirectory } from '../project/image-files.js';
 import { IMAGE_SERVICE_PLACEHOLDER_ORIGIN } from '../tiler/pyramid.js';
 
+// **The placeholder resolves at the Workspace root, and takes no Project directory** (ADR-0023).
+// A Historical Map's pyramid is shared by every Project that references it, so there is one answer to
+// "where are this image's tiles" and it does not depend on which Project is open. That change is the
+// riskiest in ADR-0023 precisely because its failure mode is not an error: rooted at the wrong place,
+// the shim answers with *somebody else's map*, at the right size, in the right pane. Hence
+// `scripts/check-workspace-rooted-paths.mjs`, which refuses any module outside this layer that builds
+// an image or Alignment path from a Project directory.
+
 /**
  * A `fetch` drop-in. Structurally identical to `@allmaps/types`' `FetchFn`, which is what
  * `new WarpedMapLayer({ fetchFn })` takes, and declared here so `@ballastella/core` does not
@@ -101,8 +109,6 @@ export type StoreImageFetchOptions = {
 	 * to give. See {@link ReadOnlyProjectStore}.
 	 */
 	readonly store: ReadOnlyProjectStore;
-	/** The Project directory whose `images/` the placeholder resolves against (ADR-0008). */
-	readonly projectDirectory: string;
 	/**
 	 * Where everything that is *not* the placeholder host goes. Defaults to the page's own
 	 * `fetch`, and is injected so that the pass-through half of the rule can be asserted.
@@ -128,8 +134,12 @@ const notFound = (detail: string) =>
 	new Response(detail, { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
 /**
- * A `fetch` that answers the placeholder host from one Project's store, and leaves every other
- * host alone.
+ * A `fetch` that answers the placeholder host from the Workspace's Historical Maps, and leaves every
+ * other host alone.
+ *
+ * **Workspace-rooted, and it takes no Project directory** (ADR-0023). One instance therefore serves
+ * every Project, which is what makes two Projects referencing the same `imageId` draw the same pyramid
+ * from the same bytes.
  *
  * The pass-through is the half that is easy to get wrong and matters as much: a remote
  * referenced image (ticket 14) must keep working through the ordinary network path, so the
@@ -144,7 +154,6 @@ const notFound = (detail: string) =>
  */
 export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn {
 	const { store } = options;
-	const projectDirectory = assertStorePath(options.projectDirectory);
 	const passThrough = options.fetch ?? ((input, init) => fetch(input, init));
 
 	return async (input, init) => {
@@ -179,7 +188,7 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 
 		let path: StorePath;
 		try {
-			path = assertStorePath(`${projectDirectory}/${imageDirectory(imageId)}/${rest.join('/')}`);
+			path = assertStorePath(`${imageDirectory(imageId)}/${rest.join('/')}`);
 		} catch {
 			// Not a path this store could hold, so there is nothing there — said as a 404 rather
 			// than as a throw, and without a read, so a malformed request cannot become a probe.

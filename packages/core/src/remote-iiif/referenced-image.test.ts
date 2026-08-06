@@ -9,10 +9,8 @@ import { MemoryProjectStore } from '../store/memory-project-store';
 import { imageServiceId } from '../tiler/pyramid';
 import {
 	ReferencedImageUnreadableError,
-	imageModeOf,
 	isReferenced,
 	listReferencedImages,
-	localCopySource,
 	parseReferencedImage,
 	partitionByLocalCopy,
 	referencedRendererDocument,
@@ -39,6 +37,15 @@ const record = () =>
 		height: 3622
 	});
 
+/**
+ * The local half of the union, written out.
+ *
+ * ADR-0023 deleted the local-copy constructor along with the stored image mode it existed to derive.
+ * The union itself stays — it is how a pane is told where to fetch from — but nothing constructs the
+ * local half from a Layer any more, because a Layer no longer claims which half it is.
+ */
+const mirroredSource = { imageMode: 'mirrored', imageId: 'local-1234' } as const;
+
 const alignment = (): Alignment => ({
 	...newAlignment('a8eb9e9cf936cc3d', { width: 2781, height: 3622 }),
 	controlPoints: [
@@ -50,21 +57,16 @@ const alignment = (): Alignment => ({
 
 describe('where a Historical Map’s tiles come from', () => {
 	it('sends a local copy through the injection layer and a reference to its own host', () => {
-		// The whole distinction. `{ storedImageId }` means "in this Project, reach it through the
+		// The whole distinction. `{ storedImageId }` means "in this Workspace, reach it through the
 		// ADR-0011 shim"; a string means "served over HTTP from here". They are different *types*, so
 		// getting them the wrong way round is a compile error rather than a blank pane.
-		expect(tileBaseFor(localCopySource('local-1234'))).toEqual({ storedImageId: 'local-1234' });
+		expect(tileBaseFor(mirroredSource)).toEqual({ storedImageId: 'local-1234' });
 		expect(tileBaseFor(sourceOf(record()))).toBe(SERVICE);
 	});
 
-	it('agrees with the Layer’s imageMode, because both come from the one source', () => {
-		// A Layer that says `'referenced'` while its tiles resolve into the store — or the reverse —
-		// is a Layer that claims a local pyramid it does not have, which is what ticket 13's import
-		// check refuses. Derived from one value so the two cannot be written independently.
-		expect(imageModeOf(localCopySource('local-1234'))).toBe('mirrored');
-		expect(imageModeOf(sourceOf(record()))).toBe('referenced');
+	it('says which of the two a source is, and nothing stores that answer', () => {
 		expect(isReferenced(sourceOf(record()))).toBe(true);
-		expect(isReferenced(localCopySource('local-1234'))).toBe(false);
+		expect(isReferenced(mirroredSource)).toBe(false);
 	});
 
 	it('is asserted by ticket 03’s own guard: a local base as a string is refused', () => {
@@ -86,7 +88,7 @@ describe('where a Historical Map’s tiles come from', () => {
 			/unset\.invalid placeholder as a base URI/
 		);
 		// The same document, through the answer `tileBaseFor` gives for a local copy: accepted.
-		expect(() => createImagePane(info, tileBaseFor(localCopySource('local-1234')))).not.toThrow();
+		expect(() => createImagePane(info, tileBaseFor(mirroredSource))).not.toThrow();
 	});
 
 	it('leaves a remote request alone in the ADR-0011 shim, which is the half that is easy to break', async () => {
@@ -94,11 +96,9 @@ describe('where a Historical Map’s tiles come from', () => {
 		// the shim's own header says this is the half that matters as much — so it is asserted here,
 		// against the base `tileBaseFor` actually produces, rather than assumed.
 		const store = new MemoryProjectStore();
-		await store.write('amsterdam-1625/project.json', new TextEncoder().encode('{}'));
 		const seen: string[] = [];
 		const fetch = createStoreImageFetch({
 			store,
-			projectDirectory: 'amsterdam-1625',
 			fetch: async (input) => {
 				seen.push(String(input));
 				return new Response('remote tile', { status: 200 });
@@ -114,13 +114,10 @@ describe('where a Historical Map’s tiles come from', () => {
 
 	it('answers a local copy out of the store through the same shim', async () => {
 		const store = new MemoryProjectStore();
-		await store.write(
-			`amsterdam-1625/${imageInfoPath('local-1234')}`,
-			new TextEncoder().encode('{"width":1200}')
-		);
+		// At the Workspace root (ADR-0023). `imageInfoPath` is already the whole store path.
+		await store.write(imageInfoPath('local-1234'), new TextEncoder().encode('{"width":1200}'));
 		const fetch = createStoreImageFetch({
 			store,
-			projectDirectory: 'amsterdam-1625',
 			fetch: async () => {
 				throw new Error('a local copy must never reach the network');
 			}
@@ -128,7 +125,7 @@ describe('where a Historical Map’s tiles come from', () => {
 
 		// `createImagePane` resolves `{ storedImageId }` to the placeholder base, which is the shim's
 		// routing key — so the URL a local copy's pane asks for is this one.
-		const base = tileBaseFor(localCopySource('local-1234'));
+		const base = tileBaseFor(mirroredSource);
 		expect(base).toEqual({ storedImageId: 'local-1234' });
 
 		const response = await fetch(`${imageServiceId('local-1234')}/info.json`);
@@ -138,9 +135,13 @@ describe('where a Historical Map’s tiles come from', () => {
 
 describe('the record beside a referenced image', () => {
 	it('lives where a local pyramid’s own files live, so mirroring is a re-tiling job', () => {
-		// Ticket 15 writes a pyramid into this same directory and flips the Layer's `imageMode`; the
-		// record of where the image came from stays, which is the canonical citation ADR-0007 protects.
+		// An offline copy writes a pyramid into this same directory and the record of where the image came
+		// from stays, which is the canonical citation ADR-0007 protects. It is also — since ADR-0023 —
+		// what *says* the image is referenced at all, so the two files sitting side by side is the whole
+		// state machine.
 		expect(referencedImagePath('a8eb9e9cf936cc3d')).toBe('images/a8eb9e9cf936cc3d/remote.json');
+		// A store path, complete: no Project directory in it.
+		expect(referencedImagePath('a8eb9e9cf936cc3d').startsWith('images/')).toBe(true);
 	});
 
 	it('round-trips, keeping the provenance a scholar cannot recover later', () => {
@@ -209,7 +210,7 @@ describe('every referenced image a Project records', () => {
 	const project = async (files: Record<string, string>) => {
 		const store = new MemoryProjectStore();
 		for (const [path, body] of Object.entries(files)) {
-			await store.write(`amsterdam-1625/${path}`, new TextEncoder().encode(body));
+			await store.write(path, new TextEncoder().encode(body));
 		}
 		return store;
 	};
@@ -225,7 +226,7 @@ describe('every referenced image a Project records', () => {
 			'images/eeee1111eeee1111/remote.json': 'this is not JSON'
 		});
 
-		const { images, unreadable } = await listReferencedImages(store, 'amsterdam-1625');
+		const { images, unreadable } = await listReferencedImages(store);
 
 		expect(images.map((image) => image.imageId)).toEqual(['a8eb9e9cf936cc3d']);
 		expect(unreadable.map((failure) => failure.imageId).sort()).toEqual([
@@ -238,14 +239,17 @@ describe('every referenced image a Project records', () => {
 		expect(noAddress?.reason).toContain('nowhere to fetch its tiles from');
 	});
 
-	it('reads only the Project’s own images, not a remote.json nested below one', async () => {
+	it('reads only the Workspace’s own images, not a remote.json nested below one', async () => {
 		const store = await project({
 			'images/a8eb9e9cf936cc3d/remote.json': `{"service":"${SERVICE}","width":1,"height":1}`,
-			'images/a8eb9e9cf936cc3d/tiles/remote.json': 'not an image of this Project',
-			'images/a8eb9e9cf936cc3d/info.json': '{}'
+			'images/a8eb9e9cf936cc3d/tiles/remote.json': 'not a Historical Map',
+			'images/a8eb9e9cf936cc3d/info.json': '{}',
+			// A Project directory that happens to hold something shaped like an image. Not a Historical Map
+			// of this Workspace, and not looked at (ADR-0023).
+			'amsterdam-1625/images/decoy/remote.json': `{"service":"${SERVICE}","width":1,"height":1}`
 		});
 
-		const { images, unreadable } = await listReferencedImages(store, 'amsterdam-1625');
+		const { images, unreadable } = await listReferencedImages(store);
 
 		expect(images.map((image) => image.imageId)).toEqual(['a8eb9e9cf936cc3d']);
 		expect(unreadable).toEqual([]);
@@ -317,7 +321,7 @@ describe('an Alignment of a referenced image', () => {
 	});
 });
 
-describe('a Historical Map that has been copied offline (ticket 15)', () => {
+describe('a Historical Map that has been copied offline', () => {
 	const other = () =>
 		referencedImage({
 			imageId: 'ffff0000ffff0000',
@@ -326,11 +330,10 @@ describe('a Historical Map that has been copied offline (ticket 15)', () => {
 			height: 10
 		});
 
-	it('is told apart from a referenced one by the pyramid being there, not by what a Layer claims', () => {
-		// `imageMode` in `project.json` is a claim; this is the fact. The two disagree only in the window
-		// between a copy's pyramid landing and the document write that follows it, and the fact is the one
-		// worth believing — the alternative is an image whose tiles are right here being fetched from a
-		// library on every load.
+	it('is told apart from a referenced one by the pyramid being there, and by nothing else', () => {
+		// ADR-0023: there is no longer a claim in `project.json` for this to be the better of two answers
+		// than. It is the only answer, so a copy can no longer be half-recorded and the whole "finish the
+		// offline copy" repair path is gone with the state it repaired.
 		const split = partitionByLocalCopy([record(), other()], [{ imageId: 'a8eb9e9cf936cc3d' }]);
 
 		expect(split.mirrored.map((image) => image.imageId)).toEqual(['a8eb9e9cf936cc3d']);
@@ -346,16 +349,16 @@ describe('a Historical Map that has been copied offline (ticket 15)', () => {
 		expect(mirrored?.attribution).toBe('Library of Congress, Geography and Map Division');
 	});
 
-	it('reaches its tiles through the injection layer once its Layer says so', () => {
+	it('reaches its tiles through the injection layer once the pyramid is beside it', () => {
 		// The transition the `HistoricalMapSource` union was shaped for, in one assertion: the same image
-		// id, and a base that has stopped being a URL on somebody else's host.
+		// id, and a base that has stopped being a URL on somebody else's host. What decides which side of
+		// it a map is on is `partitionByLocalCopy` reading the folder, not a field anybody wrote.
 		const before = sourceOf(record());
-		const after = localCopySource(record().imageId);
+		const after = { imageMode: 'mirrored', imageId: record().imageId } as const;
 
-		expect(imageModeOf(before)).toBe('referenced');
-		expect(imageModeOf(after)).toBe('mirrored');
 		expect(tileBaseFor(before)).toBe(SERVICE);
 		expect(tileBaseFor(after)).toEqual({ storedImageId: 'a8eb9e9cf936cc3d' });
+		expect(isReferenced(before)).toBe(true);
 		expect(isReferenced(after)).toBe(false);
 	});
 });

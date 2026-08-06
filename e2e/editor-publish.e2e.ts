@@ -141,8 +141,7 @@ const projectFiles = (
 					order: 0,
 					kind: 'map',
 					opacity: 0.8,
-					alignmentRef: 'alignments/aaa.json',
-					imageMode: fields.referenced ? 'referenced' : 'mirrored'
+					imageId: 'aaa'
 				},
 				{
 					id: 'l2',
@@ -159,23 +158,46 @@ const projectFiles = (
 		null,
 		'\t'
 	)}\n`,
-	[`${directory}/alignments/aaa.json`]: '{"type":"Annotation","id":"aaa"}',
 	[`${directory}/annotations/l2.geojson`]: '{"type":"FeatureCollection","features":[]}',
-	[`${directory}/images/aaa/info.json`]: `${JSON.stringify(
-		{
-			'@context': 'http://iiif.io/api/image/3/context.json',
-			id: 'https://unset.invalid/aaa',
-			type: 'ImageService3',
-			protocol: 'http://iiif.io/api/image',
-			profile: 'level0',
-			width: 1024,
-			height: 768,
-			tiles: [{ width: 256, height: 256, scaleFactors: [1, 2, 4] }]
-		},
-		null,
-		'\t'
-	)}\n`,
-	[`${directory}/images/aaa/0,0,256,256/256,256/0/default.jpg`]: 'stands in for a tile'
+	// At the Workspace root, shared by every Project (ADR-0023) — so these paths carry no Project name and
+	// are written once however many Projects the fixture lays down.
+	'alignments/aaa.json': '{"type":"Annotation","id":"aaa"}',
+	...(fields.referenced
+		? {
+				// A referenced Historical Map has no `info.json` of ours: `remote.json` beside a missing one is
+				// what says the tiles are on a Library's server (ADR-0023), and nothing in `project.json` does.
+				'images/aaa/remote.json': `${JSON.stringify(
+					{
+						service: 'https://tile.loc.gov/image-services/iiif/service:gmd:sheet',
+						label: 'Blaeu’s plan, from the library',
+						partOf: '',
+						canvas: '',
+						rights: '',
+						attribution: '',
+						width: 1024,
+						height: 768
+					},
+					null,
+					'\t'
+				)}\n`
+			}
+		: {
+				'images/aaa/info.json': `${JSON.stringify(
+					{
+						'@context': 'http://iiif.io/api/image/3/context.json',
+						id: 'https://unset.invalid/aaa',
+						type: 'ImageService3',
+						protocol: 'http://iiif.io/api/image',
+						profile: 'level0',
+						width: 1024,
+						height: 768,
+						tiles: [{ width: 256, height: 256, scaleFactors: [1, 2, 4] }]
+					},
+					null,
+					'\t'
+				)}\n`,
+				'images/aaa/0,0,256,256/256,256/0/default.jpg': 'stands in for a tile'
+			})
 });
 
 /** Open the editor on an empty Workspace holding exactly `files`. */
@@ -349,13 +371,18 @@ test.describe('publishing a Workspace', () => {
 		const hashes = (files: Record<string, string>) =>
 			Object.fromEntries(
 				Object.entries(files)
-					.filter(([relative]) => relative.startsWith('amsterdam-1625/'))
+					.filter(
+						([relative]) =>
+							relative.startsWith('amsterdam-1625/') ||
+							relative.startsWith('images/') ||
+							relative.startsWith('alignments/')
+					)
 					.map(([relative, base64]) => [relative, sha256(base64)])
 			);
 		expect(hashes(after)).toEqual(hashes(before));
 
 		// No pyramid was duplicated: the tile exists exactly once in the whole Workspace.
-		const tile = sha256(before['amsterdam-1625/images/aaa/0,0,256,256/256,256/0/default.jpg']!);
+		const tile = sha256(before['images/aaa/0,0,256,256/256,256/0/default.jpg']!);
 		expect(Object.values(after).filter((base64) => sha256(base64) === tile)).toHaveLength(1);
 	});
 
@@ -524,7 +551,11 @@ test.describe('publishing a Workspace', () => {
 		await page.goto(`${root.url}?p=amsterdam-1625`);
 
 		await expect(page.getByTestId('project-needs-network')).toContainText('Blaeu’s plan');
-		expect(root.failures).toEqual([]);
+		// **One expected 404, and it is named rather than filtered out of the way.** A published site has no
+		// directory listing, so the viewer asks whether a Historical Map has an `info.json` of its own and
+		// reads the answer off the status (ADR-0023) — a referenced map has none, and that is how the site
+		// learns its tiles are on a Library's server. Every *other* failed request is still fatal here.
+		expect(root.failures).toEqual([{ path: `/images/${'aaa'}/info.json`, status: 404 }]);
 	});
 
 	test('names the hosting limit when the Workspace is about to cross it', async ({ page }) => {
@@ -534,9 +565,9 @@ test.describe('publishing a Workspace', () => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 		await page.evaluate(async () => {
 			const root = await navigator.storage.getDirectory();
-			const images = await (
-				await (await root.getDirectoryHandle('amsterdam-1625')).getDirectoryHandle('images')
-			).getDirectoryHandle('aaa');
+			// At the Workspace root: the ~1 GB budget is the Workspace's, shared by every Project that
+			// publishes together (ADR-0008, ADR-0023).
+			const images = await (await root.getDirectoryHandle('images')).getDirectoryHandle('aaa');
 			const handle = await images.getFileHandle('huge.jpg', { create: true });
 			const writable = await handle.createWritable();
 			await writable.write({ type: 'truncate', size: 999_000_000 });
@@ -567,8 +598,14 @@ test.describe('publishing a Workspace', () => {
 		// from a port of its own, so a `takeWorkspace` after the `goto` reads an empty Workspace and every
 		// byte-identity assertion below passes vacuously. That is exactly how this test first passed.
 		const after = await takeWorkspace(page);
-		const amsterdam = Object.keys(firstProject).filter((path) =>
-			path.startsWith('amsterdam-1625/')
+		// The first Project's own files **and** the shared Historical Map it draws (ADR-0023). Scoped to
+		// `amsterdam-1625/` alone this would be two files — `project.json` and one GeoJSON — and the claim
+		// "publishing wrote nothing of the user's" would stop covering the pyramid, which is most of it.
+		const amsterdam = Object.keys(firstProject).filter(
+			(path) =>
+				path.startsWith('amsterdam-1625/') ||
+				path.startsWith('images/') ||
+				path.startsWith('alignments/')
 		);
 		expect(amsterdam.length).toBeGreaterThan(3);
 		for (const relative of amsterdam) {
@@ -694,13 +731,13 @@ test.describe('publishing a Workspace', () => {
 		);
 
 		const taken = await takeWorkspace(page);
-		const directory = Object.keys(taken)
-			.find((path) => path.endsWith('/project.json'))!
-			.replace('/project.json', '');
 		const info = JSON.parse(
-			Buffer.from(taken[`${directory}/images/${imageId}/info.json`]!, 'base64').toString('utf8')
+			Buffer.from(taken[`images/${imageId}/info.json`]!, 'base64').toString('utf8')
 		);
-		expect(info.id).toBe(`https://scholar.example/atlas/${directory}/images/${imageId}`);
+		// **No Project directory in the address** (ADR-0023). A Historical Map is shared, so it answers at
+		// one citable endpoint however many Projects draw it — and a stamp naming one of them would 404 for
+		// every tile the moment that Project was renamed or deleted.
+		expect(info.id).toBe(`https://scholar.example/atlas/images/${imageId}`);
 		// Every other field of the document survived the stamp, so the pyramid is still describable.
 		expect(info).toMatchObject({
 			type: 'ImageService3',
@@ -708,9 +745,10 @@ test.describe('publishing a Workspace', () => {
 			width: 600,
 			height: 400
 		});
+		// The Project still records the address it was stamped for, so a later publish can offer it back.
+		const projectFile = Object.keys(taken).find((path) => path.endsWith('/project.json'))!;
 		expect(
-			JSON.parse(Buffer.from(taken[`${directory}/project.json`]!, 'base64').toString('utf8'))
-				.canonicalUrl
+			JSON.parse(Buffer.from(taken[projectFile]!, 'base64').toString('utf8')).canonicalUrl
 		).toBe('https://scholar.example/atlas');
 
 		// Load-time override wins (ADR-0004): the stamped Project still opens here, and the pane still

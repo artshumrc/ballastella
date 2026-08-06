@@ -25,6 +25,7 @@
 	let {
 		layers,
 		outcomes,
+		referencedImageIds,
 		onshow,
 		onopacity,
 		onunwarped
@@ -33,6 +34,16 @@
 		layers: readonly Layer[];
 		/** What became of each Layer on the map, keyed by Layer id. */
 		outcomes: Readonly<Record<string, DrawnOutcome>>;
+		/**
+		 * The Historical Maps this site does not hold its own tiles for, by image id.
+		 *
+		 * **Passed in rather than read off the Layer, because ADR-0023 deleted the field that claimed it.**
+		 * Whether the tiles are on this site is a fact about the site's files — an `info.json` of ours, or
+		 * only a `remote.json` — and only the page that reads them can say. A Layer whose documents have
+		 * not arrived is in neither state and is absent from this set, so the badge never says "needs the
+		 * network" about a map nothing has looked for yet.
+		 */
+		referencedImageIds: ReadonlySet<string>;
 		onshow: (id: string, visible: boolean) => void;
 		onopacity: (id: string, opacity: number) => void;
 		/** Read this Historical Map on its own, unwarped (SPEC story 85). */
@@ -136,16 +147,20 @@
 								Whether this Historical Map's tiles are bytes in this site or on somebody else's server
 								(SPEC story 29). The Reader is the person who meets the consequence — on a train, or
 								after the library reorganises — so it is said here and not only warned about at publish
-								time. `imageMode` in words, never a colour alone.
+								time. In words, never a colour alone.
+
+								Read from `referencedImageIds`, which is what this site's files say, rather than from the
+								Layer, which no longer claims anything about it (ADR-0023).
 							-->
+							{@const referenced = referencedImageIds.has(layer.imageId)}
 							<span
 								class="badge badge-sm"
-								class:badge-success={layer.imageMode !== 'referenced'}
-								class:badge-warning={layer.imageMode === 'referenced'}
+								class:badge-success={!referenced}
+								class:badge-warning={referenced}
 								data-testid="reader-layer-image-mode"
-								data-image-mode={layer.imageMode}
+								data-image-mode={referenced ? 'referenced' : 'mirrored'}
 							>
-								{layer.imageMode === 'referenced'
+								{referenced
 									? 'Held on another server — needs the network'
 									: 'In this site — no network needed'}
 							</span>

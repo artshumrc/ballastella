@@ -35,7 +35,13 @@ async function workspaceRoot(page: Page): Promise<string[]> {
 	});
 }
 
-/** Every file in a Project directory, recursively, as text. Subdirectories included. */
+/**
+ * A Workspace as one Project's archive sees it: the Project's own files, plus the shared material at
+ * the Workspace root, keyed by archive path.
+ *
+ * The inverse of {@link seedProject}, so `toEqual(projectFiles())` still means "every file arrived with
+ * these bytes" after an import that hoisted half of them.
+ */
 async function projectContents(page: Page, directory: string): Promise<Record<string, string>> {
 	return page.evaluate(async (directory) => {
 		const files: Record<string, string> = {};
@@ -52,11 +58,29 @@ async function projectContents(page: Page, directory: string): Promise<Record<st
 		};
 		const root = await navigator.storage.getDirectory();
 		await walk(await root.getDirectoryHandle(directory), '');
+		for (const shared of ['images', 'alignments']) {
+			try {
+				await walk(await root.getDirectoryHandle(shared), `${shared}/`);
+			} catch {
+				// A Workspace with no Historical Maps has neither directory, which is ordinary.
+			}
+		}
 		return files;
 	}, directory);
 }
 
-/** Write a Project straight into OPFS, bypassing the app. */
+/**
+ * Write a Project straight into OPFS, bypassing the app.
+ *
+ * The shared material goes to the Workspace root and the Project's own files inside `directory`, which
+ * is the split `Workspace.importProject` performs (ADR-0023) — so a seeded Workspace is one the
+ * application could really have produced. `images/<id>/…` and `alignments/<id>.json` are the shared
+ * halves; the archive's own paths did not change, which is why the split has to be applied on both
+ * sides, here and in {@link projectContents}.
+ *
+ * The predicate is written out inside the `page.evaluate` rather than shared with that function: the
+ * body is serialised and sent to the browser, so it cannot close over anything defined out here.
+ */
 async function seedProject(
 	page: Page,
 	directory: string,
@@ -64,10 +88,13 @@ async function seedProject(
 ): Promise<void> {
 	await page.evaluate(
 		async ([directory, files]) => {
+			const shared = (path: string) => path.startsWith('images/') || path.startsWith('alignments/');
 			const root = await navigator.storage.getDirectory();
 			for (const [path, text] of Object.entries(files as Record<string, string>)) {
 				const segments = path.split('/');
-				let handle = await root.getDirectoryHandle(directory as string, { create: true });
+				let handle = shared(path)
+					? root
+					: await root.getDirectoryHandle(directory as string, { create: true });
 				for (const segment of segments.slice(0, -1)) {
 					handle = await handle.getDirectoryHandle(segment, { create: true });
 				}
@@ -96,6 +123,19 @@ const projectJson = (overrides: Record<string, unknown> = {}) =>
 					order: 0,
 					geojsonRef: 'annotations/warehouses.geojson',
 					defaultStyle: {}
+				},
+				// A map Layer, because since ADR-0023 an export gathers the Workspace Historical Maps a
+				// Project's **Layers reference** — a Workspace can hold maps no Project uses, and a Project
+				// bundle must not carry a stranger's pyramid. Without this the archive would legitimately hold
+				// no `images/`, and every assertion below about a self-contained zip would be vacuous.
+				{
+					id: 'l2',
+					kind: 'map',
+					name: 'The 1625 plan',
+					visible: true,
+					order: 1,
+					opacity: 1,
+					imageId: 'amsterdam-1625'
 				}
 			],
 			baseMap: null,
@@ -105,10 +145,18 @@ const projectJson = (overrides: Record<string, unknown> = {}) =>
 		'\t'
 	)}\n`;
 
-/** A Project with a nested pyramid, so "every file" means more than `project.json`. */
+/**
+ * A Project's whole archive, so "every file" means more than `project.json`.
+ *
+ * These are archive paths, and ADR-0023 changed none of them — what changed is where they come from
+ * and go to in a Workspace: `images/` and `alignments/` are the Workspace's and sit at its root, while
+ * `project.json` and `annotations/` stay inside the Project directory. {@link seedProject} and
+ * {@link projectContents} are the two places that split.
+ */
 const projectFiles = (overrides: Record<string, string> = {}): Record<string, string> => ({
 	'project.json': projectJson(),
 	'annotations/warehouses.geojson': '{"type":"FeatureCollection","features":[]}',
+	'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"amsterdam-1625"}',
 	'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
 	'images/amsterdam-1625/0,0,256,256/256,256/0/default.jpg': 'stands in for a tile',
 	...overrides
@@ -173,7 +221,7 @@ test.describe('exporting a Project as a zip (SPEC story 5)', () => {
 		expect(new TextDecoder().decode(entries['project.json'])).toBe(projectJson());
 
 		// Progress is announced, not merely drawn (SPEC story 96).
-		await expect(page.getByRole('status')).toHaveText(/Exported Amsterdam 1625: 4 files\./);
+		await expect(page.getByRole('status')).toHaveText(/Exported Amsterdam 1625: 5 files\./);
 	});
 
 	test('says so when an export fails, rather than blanking the status line', async ({ page }) => {
@@ -244,7 +292,7 @@ test.describe('importing a Project zip (SPEC story 13)', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		await expect(page.getByRole('dialog', { name: 'Import Project' })).toBeHidden();
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(projectFiles());
-		await expect(page.getByRole('status')).toHaveText(/Imported Amsterdam 1625: 4 files\./);
+		await expect(page.getByRole('status')).toHaveText(/Imported Amsterdam 1625: 5 files\./);
 	});
 
 	test('takes the folder name from the file name, not from the display name', async ({ page }) => {
@@ -255,7 +303,9 @@ test.describe('importing a Project zip (SPEC story 13)', () => {
 		// The list first, so the import has certainly finished before OPFS is read: a bare
 		// `expect(await …)` on storage does not retry, and it read an empty Workspace.
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
-		expect(await workspaceRoot(page)).toEqual(['assignment-3']);
+		// `images` and `alignments` are the Workspace's own, hoisted out of the archive (ADR-0023), so the
+		// root holds them beside the Project rather than the Project holding them.
+		expect(await workspaceRoot(page)).toEqual(['alignments', 'assignment-3', 'images']);
 	});
 
 	test('a shared display name alone does not block the import', async ({ page }) => {
@@ -265,7 +315,33 @@ test.describe('importing a Project zip (SPEC story 13)', () => {
 		await importZip(page, zipFixture(projectFiles()));
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(2);
-		expect(await workspaceRoot(page)).toEqual(['amsterdam-1625', 'my-amsterdam']);
+		expect(await workspaceRoot(page)).toEqual([
+			'alignments',
+			'amsterdam-1625',
+			'images',
+			'my-amsterdam'
+		]);
+	});
+
+	// ADR-0023's deduplication, and the direction that cannot lose work: the Workspace's own copy of a
+	// Historical Map is what every existing Project is already drawn by, so a colleague's archive of the
+	// same map must change nothing about it.
+	test('leaves a Historical Map the Workspace already has untouched', async ({ page }) => {
+		await seedProject(page, 'mine', {
+			...projectFiles(),
+			// The same image id, different bytes — which makes "untouched" a claim about content.
+			'images/amsterdam-1625/info.json': '{"width":1,"height":1}'
+		});
+		await page.reload();
+
+		await importZip(page, zipFixture(projectFiles(), 'assignment-3.zip'));
+
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(2);
+		// One pyramid, and it is still the one that was there.
+		const contents = await projectContents(page, 'assignment-3');
+		expect(contents['images/amsterdam-1625/info.json']).toBe('{"width":1,"height":1}');
+		// And the Project itself holds only its own files.
+		expect(await workspaceRoot(page)).toEqual(['alignments', 'assignment-3', 'images', 'mine']);
 	});
 });
 
@@ -297,7 +373,7 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		await expect(dialog).toBeHidden();
 		// Not one byte of the Project that was here, and no half-written directory beside it.
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(mine);
-		expect(await workspaceRoot(page)).toEqual(['amsterdam-1625']);
+		expect(await workspaceRoot(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
 	});
 
 	test('a different case of the same name does not overwrite the existing Project', async ({
@@ -319,7 +395,7 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		// Reported again rather than accepted, and the dialog is still open with the question in it.
 		await expect(dialog).toBeVisible();
 		await expect(dialog.getByRole('alert')).toContainText('already has a folder called');
-		expect(await workspaceRoot(page)).toEqual(['amsterdam-1625']);
+		expect(await workspaceRoot(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(mine);
 	});
 
@@ -334,7 +410,7 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		await dialog.getByLabel('Import as folder').fill('   ');
 
 		await expect(page.getByRole('button', { name: 'Import under this name' })).toBeDisabled();
-		expect(await workspaceRoot(page)).toEqual(['amsterdam-1625']);
+		expect(await workspaceRoot(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
 	});
 
 	test('imports under a new folder name, leaving the existing Project alone', async ({ page }) => {
@@ -346,7 +422,12 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		await page.getByRole('button', { name: 'Import under this name' }).click();
 
 		await expect(dialog).toBeHidden();
-		expect(await workspaceRoot(page)).toEqual(['amsterdam-1625', 'amsterdam-1625-colleague']);
+		expect(await workspaceRoot(page)).toEqual([
+			'alignments',
+			'amsterdam-1625',
+			'amsterdam-1625-colleague',
+			'images'
+		]);
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(mine);
 		expect(await projectContents(page, 'amsterdam-1625-colleague')).toEqual(projectFiles());
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625', exact: true })).toBeVisible();
@@ -375,7 +456,7 @@ test.describe('a zip that is refused, with nothing written', () => {
 		// The dialog is still open, so the message is not a flash the user can miss.
 		await expect(page.getByRole('dialog', { name: 'Import Project' })).toBeVisible();
 		// And the Workspace is exactly as it was: no new folder, and the existing Project untouched.
-		expect(await workspaceRoot(page)).toEqual(['boston-1775']);
+		expect(await workspaceRoot(page)).toEqual(['alignments', 'boston-1775', 'images']);
 		expect(await projectContents(page, 'boston-1775')).toEqual(mine);
 	};
 
@@ -439,7 +520,7 @@ test.describe('a zip that is refused, with nothing written', () => {
 			'climbs out of the Project directory'
 		);
 		// Nothing anywhere in the Workspace, which is the whole of what the origin's OPFS can hold.
-		expect(await workspaceRoot(page)).toEqual(['boston-1775']);
+		expect(await workspaceRoot(page)).toEqual(['alignments', 'boston-1775', 'images']);
 	});
 });
 

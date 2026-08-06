@@ -12,21 +12,17 @@ import {
 	Workspace,
 	addLayer,
 	alignmentPath,
-	alignmentStorePath,
 	annotationStorePath,
 	assembleWithCanvas,
 	createStoreImageFetch,
 	emptyAnnotationCollection,
 	exportProjectZip,
-	imageIdFromAlignmentRef,
 	imageManifestPath,
-	imageModeOf,
 	ingestImageFile,
 	insertLayerAt,
 	installFlushOnHide,
 	listIngestedImages,
 	listReferencedImages,
-	localCopySource,
 	mirrorRemoteImage,
 	moveLayer,
 	isControlPointUndo,
@@ -47,7 +43,7 @@ import {
 	readImageLabel,
 	readProjectZip,
 	referencedImage,
-	referencedImageStorePath,
+	referencedImagePath,
 	removeLayer,
 	renameLayer,
 	serialiseAlignment,
@@ -56,10 +52,9 @@ import {
 	serialiseReferencedImage,
 	setLayerVisible,
 	setMapLayerOpacity,
-	sourceOf,
 	// Aliased: the session has a method of the same name, and the two doing different amounts of work
 	// under one word is how a later edit calls the wrong one.
-	stampCanonicalUrl as stampProjectImages,
+	stampCanonicalUrl as stampWorkspaceImages,
 	streamingTiler,
 	toDirectoryName,
 	workspaceSize,
@@ -172,7 +167,7 @@ export class EditorSession {
 	 */
 	readonly #undo = new UndoSlot();
 	/**
-	 * The Alignments a map Layer is being made for right now, claimed synchronously.
+	 * The Historical Maps a map Layer is being made for right now, by image id, claimed synchronously.
 	 *
 	 * {@link #ensureMapLayer} is a check-then-act across an `await`, so two Alignment writes in flight
 	 * could each see no Layer and each add one — two rows, two `WarpedMapLayer`s fetching the same
@@ -229,24 +224,27 @@ export class EditorSession {
 	undoable = $state<UndoRecord | null>(null);
 
 	/**
-	 * The Historical Maps in the open Project, and the ingest running now if one is.
+	 * The Historical Maps **the Workspace** holds, and the ingest running now if one is (ADR-0023).
+	 *
+	 * Not the open Project's: a pyramid is shared, so `images/` has one answer whichever Project is
+	 * open, and which of these a Project *draws* is its Layer stack rather than a second list.
 	 *
 	 * `ingest` is `null` between jobs rather than a finished-looking value, so the progress region
 	 * disappears when there is nothing to report instead of sitting at 100% forever.
 	 */
 	images = $state<IngestedImage[]>([]);
 	/**
-	 * The Historical Maps this Project **references** rather than holds (ticket 14, ADR-0007).
+	 * The Historical Maps the Workspace **references** rather than holds (ADR-0007, ADR-0023).
 	 *
-	 * A separate list from {@link images}: a local copy has an `info.json` in the Project and a
+	 * A separate list from {@link images}: a local copy has an `info.json` of ours beside it and a
 	 * referenced image has a `remote.json` instead, because its tiles and its description are both on
-	 * somebody else's server. Keeping them apart is what makes `imageMode` a fact about where bytes are
-	 * rather than a flag somebody has to remember to set.
+	 * somebody else's server. Keeping them apart is what makes "referenced or local copy?" an
+	 * observation of the files rather than a flag in `project.json` that could disagree with them.
 	 *
-	 * The two lists were disjoint until ticket 15. An image that has been copied offline appears in
-	 * **both** — its pyramid is here and its `remote.json` stays, because that record is the citation
-	 * ADR-0007 protects — so this is the list of everything the Project knows an origin for, and
-	 * {@link remoteOrigins} is what says which are still fetched from the library.
+	 * An image that has been copied offline appears in **both** — its pyramid is here and its
+	 * `remote.json` stays, because that record is the citation ADR-0007 protects — so this is the list of
+	 * everything the Workspace knows an origin for, and {@link remoteOrigins} is what says which are
+	 * still fetched from the library.
 	 */
 	referencedImages = $state<ReferencedImage[]>([]);
 	/**
@@ -257,24 +255,6 @@ export class EditorSession {
 	 * user concludes the tool lost their work.
 	 */
 	referencedImageErrors = $state<{ imageId: string; reason: string }[]>([]);
-	/**
-	 * Offline copies whose pyramid is in the folder but whose `project.json` never caught up, by image
-	 * id (ticket 15).
-	 *
-	 * Three ordinary things leave this state, and {@link mirrorImage} names all three: the session
-	 * moving to another Project while the copy ran, the Alignment rewrite throwing, and the
-	 * `project.json` write failing. In every one of them the pyramid has landed — `ingestImageFile`
-	 * writes `info.json` last, so a directory that has one is complete — and the document still says
-	 * `'referenced'`.
-	 *
-	 * It used to be **permanent and self-contradicting**: `remoteOrigins` reads the disk, so the Project
-	 * page listed the map under "Offline copies" and stopped offering the copy, while the Layers pane
-	 * reads `imageMode` and kept handing the renderer the library's address. The copied bytes sat unused
-	 * and a Published Site of it still needed the network — the exact failure this ticket exists to
-	 * prevent. {@link open} now corrects the open document in memory so nothing on screen disagrees, and
-	 * this list is what {@link finishInterruptedCopy} finishes on disk.
-	 */
-	unfinishedCopies = $state<string[]>([]);
 	ingest = $state<IngestProgress | null>(null);
 	/** The name of the file being ingested, for the progress message (SPEC story 23). */
 	ingestLabel = $state('');
@@ -509,9 +489,7 @@ export class EditorSession {
 	 *
 	 * Reads and nothing else. Opening last year's work must leave every byte of it alone
 	 * (ADR-0010), so there is no write anywhere on this path — not a stamped `updatedAt`, not a
-	 * normalised field. {@link #reconcileLocalCopies} corrects the document *in memory* for the same
-	 * reason ADR-0010 migrates in memory: what is on screen must be true, and the file is rewritten by
-	 * the user's first actual change rather than by having been looked at.
+	 * normalised field.
 	 *
 	 * **Idempotent, and immune to a read that arrives late.** Opening is driven by an effect over
 	 * the URL, which can run more than once for one navigation, and the naive version blanked
@@ -539,7 +517,6 @@ export class EditorSession {
 		this.images = [];
 		this.referencedImages = [];
 		this.referencedImageErrors = [];
-		this.unfinishedCopies = [];
 		this.ingestError = '';
 		// The hub is what a null `?p=` shows, and it needs the list. Listing here rather than on
 		// every mutation is what keeps typing a Project name from walking the whole Workspace once
@@ -556,12 +533,16 @@ export class EditorSession {
 			// A read, like everything else on this path: `listIngestedImages` looks for `info.json`
 			// files and writes nothing (ADR-0010). `listReferencedImages` looks for `remote.json`, which
 			// is the same walk of the same directory and is where the other kind of Historical Map is.
-			this.images = await listIngestedImages(this.#store, directory);
-			const referenced = await listReferencedImages(this.#store, directory);
+			//
+			// Both walk the **Workspace's** `images/` rather than this Project's, because that is where the
+			// pyramids are (ADR-0023). Nothing is reconciled afterwards: which of these a Layer draws is the
+			// Layer's `imageId`, and whether the tiles are local is read off the files, so there is no
+			// stored claim left that could disagree with the folder.
+			this.images = await listIngestedImages(this.#store);
+			const referenced = await listReferencedImages(this.#store);
 			if (generation !== this.#openGeneration) return;
 			this.referencedImages = referenced.images;
 			this.referencedImageErrors = referenced.unreadable;
-			this.#reconcileLocalCopies();
 		} catch (cause) {
 			if (generation !== this.#openGeneration) return;
 			const problem = describeProblem(cause, directory);
@@ -589,64 +570,18 @@ export class EditorSession {
 	}
 
 	/**
-	 * Make the open document agree with the folder about which Historical Maps have been copied
-	 * (ticket 15).
-	 *
-	 * **In memory, and only in memory.** ADR-0010's consequence is the rule and also the precedent:
-	 * "migrate in memory on open; write back only on the user's first actual change", because opening a
-	 * Project in a git repository or a Dropbox folder must not produce a diff nobody asked for. So this
-	 * corrects the Layer and records the image in {@link unfinishedCopies}; the file catches up either
-	 * with the next edit — every write of `project.json` goes through the corrected document — or with
-	 * {@link finishInterruptedCopy}, which is the user asking for it and is what also puts the Alignment
-	 * right.
-	 *
-	 * The direction is the one that cannot go wrong, and it is the same one `partitionByLocalCopy`
-	 * takes: a pyramid in the folder is a fact, `imageMode` is a claim, and mirroring is the single
-	 * action that can leave the two disagreeing. Narrow on purpose — only a Layer that says
-	 * `'referenced'` while its `remote.json` sits beside an `info.json` of ours is touched, which is
-	 * exactly the half-committed copy and nothing else.
-	 */
-	#reconcileLocalCopies(): void {
-		const project = this.openProject;
-		if (!project) return;
-
-		const copied = this.remoteOrigins.mirrored.map((image) => image.imageId);
-		// Paired with the `alignmentRef` they were found by, because that is what the rewrite below
-		// matches on: the two passes must agree about which Layers are meant. Arrays rather than a `Map`
-		// — the lint rule would ask for a `SvelteMap`, and this is a local the length of the
-		// referenced-image list rather than anything that renders.
-		const behind: { alignmentRef: string; imageId: string }[] = [];
-		for (const layer of project.layers) {
-			if (layer.kind !== 'map' || layer.imageMode !== 'referenced') continue;
-			const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
-			if (imageId === null || !copied.includes(imageId)) continue;
-			behind.push({ alignmentRef: layer.alignmentRef, imageId });
-		}
-
-		this.unfinishedCopies = behind.map((entry) => entry.imageId);
-		if (behind.length === 0) return;
-
-		this.openProject = {
-			...project,
-			layers: project.layers.map((layer) => {
-				if (layer.kind !== 'map') return layer;
-				const entry = behind.find((candidate) => candidate.alignmentRef === layer.alignmentRef);
-				return entry === undefined
-					? layer
-					: { ...layer, imageMode: imageModeOf(localCopySource(entry.imageId)) };
-			})
-		};
-	}
-
-	/**
 	 * Add a Historical Map from a file on the user's computer (SPEC stories 21, 22, 23).
+	 *
+	 * **The pyramid lands in the Workspace, not in the Project** (ADR-0023), so the map this adds is
+	 * available to every Project from the moment it is prepared. The open Project is still required,
+	 * because the gesture that reaches here is inside one and the Layer that draws the map is made when
+	 * the user aligns it.
 	 *
 	 * Deliberately not routed through {@link #mutate} or {@link Autosave}. A pyramid is thousands of
 	 * immutable files written once, not a document edited repeatedly, so coalescing writes would only
 	 * add a buffer the size of the image; and ADR-0017's autosave rules are about an edit that is
-	 * ending, which this is not. It also must not touch `project.json`: the Layer that refers to this
-	 * image arrives in ticket 09, and stamping `updatedAt` now would be a write with nothing behind
-	 * it.
+	 * ending, which this is not. It also must not touch `project.json`: stamping `updatedAt` for a write
+	 * that did not change the document would be a write with nothing behind it.
 	 *
 	 * The two tilers are handed in from here — the one place in the app that knows both that
 	 * `wasm-vips` exists and that it must not be fetched until it is needed (ADR-0019).
@@ -674,7 +609,6 @@ export class EditorSession {
 		try {
 			await ingestImageFile({
 				store: this.#store,
-				projectDirectory: directory,
 				file,
 				openDecodeAndCrop: openDecodeAndCropSource,
 				openStreaming: streamingTiler(loadLibvips),
@@ -686,7 +620,7 @@ export class EditorSession {
 				},
 				signal: controller.signal
 			});
-			this.images = await listIngestedImages(this.#store, directory);
+			this.images = await listIngestedImages(this.#store);
 		} catch (cause) {
 			// A cancellation is not a failure and must not be reported as one: the user asked for it,
 			// and the job has already removed the tiles it had written.
@@ -708,29 +642,36 @@ export class EditorSession {
 	}
 
 	/**
-	 * A `fetch` that answers the open Project's stored pyramids, or `null` when none is open.
+	 * A `fetch` that answers the Workspace's stored pyramids.
 	 *
 	 * The ADR-0011 injection layer, handed out from here because this is the only place the app
 	 * talks to `@ballastella/core` and the only place that holds the store. Every consumer of a
 	 * Historical Map's bytes takes this one function: the image pane's MapLibre source through
 	 * `addProtocol`, `@allmaps/maplibre` through its `fetchFn` option, and OpenSeadragon's
-	 * `TileSource` at ticket 14. Requests to any other host pass straight through to the network,
-	 * so a remote referenced image keeps working unchanged.
+	 * `TileSource`. Requests to any other host pass straight through to the network, so a remote
+	 * referenced image keeps working unchanged.
+	 *
+	 * **No longer nullable, because it no longer depends on a Project being open** (ADR-0023). The
+	 * pyramids are the Workspace's, so one shim serves every Project — which is exactly what makes two
+	 * Projects referencing the same `imageId` draw the same bytes. The version that took a
+	 * `projectDirectory` is the change SPEC calls the riskiest in the epic: rooted at a Project, this
+	 * function answers a request for one map with *another map's* tiles, and nothing raises.
 	 */
-	imageServiceFetch(): FetchFn | null {
-		const directory = this.openDirectory;
-		return directory === null
-			? null
-			: createStoreImageFetch({ store: this.#store, projectDirectory: directory });
+	imageServiceFetch(): FetchFn {
+		return createStoreImageFetch({ store: this.#store });
 	}
 
 	/**
 	 * Read one Historical Map's Alignment, or start a new one over the whole image.
 	 *
-	 * A Project with no Alignment for an image is the ordinary first case, not a failure, so a
-	 * missing file comes back as a fresh Alignment rather than as an error — and **nothing is
-	 * written here**. ADR-0010: merely opening last year's Project must not modify a single byte of
-	 * it, so the file appears only when the user makes their first Control Point.
+	 * A Historical Map nobody has placed yet has no Alignment, which is the ordinary first case rather
+	 * than a failure, so a missing file comes back as a fresh Alignment rather than as an error — and
+	 * **nothing is written here**. ADR-0010: merely opening last year's Project must not modify a single
+	 * byte of it, so the file appears only when the user makes their first Control Point.
+	 *
+	 * **Read from the Workspace, so it is the same Alignment whichever Project asked** (ADR-0023). That
+	 * is the accepted risk of the move stated as code: refining it moves every Project that draws this
+	 * map, published ones included.
 	 *
 	 * A file that exists and cannot be read is a different matter and is surfaced: it means an
 	 * Alignment the user made is not being shown, and silently replacing it with an empty one would
@@ -740,12 +681,9 @@ export class EditorSession {
 		imageId: string,
 		image: { width: number; height: number }
 	): Promise<Alignment> {
-		const directory = this.openDirectory;
 		this.alignmentError = '';
-		if (!directory) return newAlignment(imageId, image);
-
 		try {
-			const bytes = await this.#store.read(alignmentStorePath(directory, imageId));
+			const bytes = await this.#store.read(alignmentPath(imageId));
 			return parseAlignment(bytes, { imageId });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return newAlignment(imageId, image);
@@ -771,17 +709,17 @@ export class EditorSession {
 	 * would stamp a fresh `updatedAt` on the document.
 	 *
 	 * **The Layer is made only when the Alignment reached storage**, which is why the call is inside
-	 * the `try` and not after it. A Layer whose `alignmentRef` names a file that is not there is a
-	 * Project ticket 13's import refuses by name — `assertReferencesPresent` says the Layer "needs it
-	 * to be drawn" — so a quota failure or a folder whose permission was revoked mid-session would
-	 * have left a scholar unable to import their own export. The same discipline
+	 * the `try` and not after it. A map Layer whose Alignment is not there is a Project ticket 13's
+	 * import refuses by name — `assertReferencesPresent` says the Layer "needs it to be drawn" — so a
+	 * quota failure or a folder whose permission was revoked mid-session would have left a scholar unable
+	 * to import their own export. The same discipline
 	 * {@link addAnnotationLayer} keeps for `geojsonRef`: the reference must never exist without its
 	 * file.
 	 */
 	async writeAlignment(alignment: Alignment): Promise<void> {
 		const directory = this.openDirectory;
 		if (!directory) return;
-		const path = alignmentStorePath(directory, alignment.imageId);
+		const path = alignmentPath(alignment.imageId);
 		try {
 			await this.#autosave.commit(path, serialiseAlignment(alignment));
 			this.saveError = '';
@@ -800,8 +738,8 @@ export class EditorSession {
 	 * **Idempotent, and that is the whole of it.** This runs on every Alignment write — which is
 	 * every completed pair and every released drag — so a version that appended, or that rewrote the
 	 * document to say the same thing, would stamp a fresh `updatedAt` on `project.json` hundreds of
-	 * times during one alignment. The Layer is recognised by its `alignmentRef`, because that is the
-	 * Layer's link to this image and there is one Layer per Alignment in this slice.
+	 * times during one alignment. The Layer is recognised by its `imageId`, which is the Layer's whole
+	 * link to the Historical Map (ADR-0023) and the key the tombstone is kept under too.
 	 *
 	 * The name starts as the file the user picked, which is the only place that is recorded — an image
 	 * id is a random identifier (ADR-0015), so naming the Layer from it would name it after a hash.
@@ -815,6 +753,9 @@ export class EditorSession {
 	 * nothing was undone and a Layer was legitimately created. The second half of the key is
 	 * `ProjectFile.removedMapLayers`, which is in the file rather than in memory because the write that
 	 * would resurrect the Layer can happen in a later session. Undoing the deletion lifts it.
+	 *
+	 * The tombstone and the claim are both keyed on the **image id**, which is the one thing a map Layer
+	 * carries about its Historical Map (ADR-0023).
 	 *
 	 * **And two Alignment writes in flight must not each add one.** The two questions are asked either
 	 * side of an `await`, so this claims the Alignment in {@link #placingMapLayers} synchronously before
@@ -831,33 +772,29 @@ export class EditorSession {
 	 * taken again afterwards, against the document as it is now.
 	 */
 	async #ensureMapLayer(directory: string, imageId: string): Promise<void> {
-		const alignmentRef = alignmentPath(imageId);
 		const settled = (project: ProjectFile): boolean =>
-			project.layers.some((layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef) ||
-			project.removedMapLayers.includes(alignmentRef);
+			project.layers.some((layer) => layer.kind === 'map' && layer.imageId === imageId) ||
+			project.removedMapLayers.includes(imageId);
 
 		const before = this.openProject;
 		if (!before || settled(before)) return;
-		if (this.#placingMapLayers.has(alignmentRef)) return;
-		this.#placingMapLayers.add(alignmentRef);
+		if (this.#placingMapLayers.has(imageId)) return;
+		this.#placingMapLayers.add(imageId);
 
 		try {
-			const name = (await this.#imageLabel(directory, imageId)) || imageId;
+			const name = (await this.#imageLabel(imageId)) || imageId;
 
 			const project = this.openProject;
 			if (!project || settled(project)) return;
 			this.openProject = {
 				...project,
-				layers: addLayer(
-					project.layers,
-					newMapLayer({ id: crypto.randomUUID(), name, alignmentRef })
-				)
+				layers: addLayer(project.layers, newMapLayer({ id: crypto.randomUUID(), name, imageId }))
 			};
 			await this.#write(directory);
 		} finally {
 			// Released whatever happened, so a write the store refused does not leave the Layer
 			// permanently unmakeable — the next completed pair tries again.
-			this.#placingMapLayers.delete(alignmentRef);
+			this.#placingMapLayers.delete(imageId);
 		}
 	}
 
@@ -878,8 +815,9 @@ export class EditorSession {
 	 * repair. Written this way, a failure leaves an orphaned `remote.json` — a file nothing reads,
 	 * which the next add overwrites.
 	 *
-	 * `imageMode: 'referenced'` is derived from the source rather than typed in, so the Layer's claim
-	 * and where its tiles actually come from cannot be written independently.
+	 * **Nothing records that the map is referenced, because nothing has to** (ADR-0023). `remote.json`
+	 * without an `info.json` beside it *is* the record, so there is no claim in `project.json` that could
+	 * disagree with the folder — and the whole "finish the interrupted copy" repair path went with it.
 	 *
 	 * The Alignment, when there is one, is serialised with the **remote service** as its
 	 * `resource.id`, not the ADR-0004 placeholder. For a referenced image that is both what makes the
@@ -914,16 +852,14 @@ export class EditorSession {
 			width: service.width,
 			height: service.height
 		});
-		const source = sourceOf(record);
-
 		try {
 			await this.#autosave.commit(
-				referencedImageStorePath(directory, record.imageId),
+				referencedImagePath(record.imageId),
 				serialiseReferencedImage(record)
 			);
 			if (fields.alignment) {
 				await this.#autosave.commit(
-					alignmentStorePath(directory, record.imageId),
+					alignmentPath(record.imageId),
 					serialiseReferencedAlignment(
 						{ ...fields.alignment, imageId: record.imageId },
 						record.service
@@ -935,9 +871,8 @@ export class EditorSession {
 			return null;
 		}
 
-		const alignmentRef = alignmentPath(record.imageId);
 		const existing = project.layers.find(
-			(layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef
+			(layer) => layer.kind === 'map' && layer.imageId === record.imageId
 		);
 		// Adding the same remote resource twice is one Layer, not two. `generateId(uri)` is
 		// deterministic, so the second add lands on the same image id — which is a feature (a whole
@@ -954,8 +889,7 @@ export class EditorSession {
 		const layer = newMapLayer({
 			id: crypto.randomUUID(),
 			name: record.label || record.imageId,
-			alignmentRef,
-			imageMode: imageModeOf(source)
+			imageId: record.imageId
 		});
 		this.openProject = {
 			...project,
@@ -963,7 +897,7 @@ export class EditorSession {
 			// Adding this map again is the user asking for it, so the tombstone a previous deletion left
 			// (ticket 11) is lifted rather than obeyed — it exists to stop an *Alignment write* recreating
 			// a Layer nobody asked for, not to make a deletion permanent.
-			removedMapLayers: project.removedMapLayers.filter((ref) => ref !== alignmentRef)
+			removedMapLayers: project.removedMapLayers.filter((id) => id !== record.imageId)
 		};
 		await this.#write(directory);
 		if (this.saveError !== '') return null;
@@ -972,18 +906,13 @@ export class EditorSession {
 	}
 
 	/**
-	 * The Historical Maps this Project still fetches from a library, and the ones it has copied
-	 * (ticket 15).
+	 * The Historical Maps **the Workspace** still fetches from a library, and the ones it has copied.
 	 *
-	 * Split on **whether the pyramid is there**, not on what a Layer's `imageMode` claims. That is the
-	 * direction that cannot go wrong: a copy whose pyramid landed and whose `project.json` write did not
-	 * shows here as copied — whereas trusting the claim would mean an image whose tiles are in this
-	 * folder being fetched from a library on every load.
-	 *
-	 * Which is also why it is not the whole answer. Being right about the disk while the document is
-	 * wrong is a disagreement, and {@link unfinishedCopies} is the other half of saying it: this getter
-	 * says where the bytes are, that list says which Layers have not caught up, and
-	 * {@link finishInterruptedCopy} is how the user ends the disagreement.
+	 * Split on **whether the pyramid is there**, which is now the only thing there is to split on
+	 * (ADR-0023): the stored `imageMode` is gone, so this is not merely the more reliable of two answers
+	 * but the whole answer. A copy whose pyramid landed and whose `project.json` write did not used to be
+	 * a lasting disagreement with a repair button behind it; there is nothing left to disagree, so the
+	 * repair path is deleted rather than kept as dead code that lies.
 	 */
 	get remoteOrigins(): { referenced: ReferencedImage[]; mirrored: ReferencedImage[] } {
 		return partitionByLocalCopy(this.referencedImages, this.images);
@@ -1059,16 +988,21 @@ export class EditorSession {
 	/**
 	 * Stamp every Historical Map in the Workspace with a canonical address (SPEC story 92).
 	 *
-	 * Opt-in, and the **only** thing publishing does that writes a Project's own files: it rewrites
-	 * each `info.json`'s `id` from the ADR-0004 placeholder to `<url>/<project>/images/<image-id>`, so
-	 * that the tiles become a real, citable IIIF endpoint Allmaps, Theseus, and OpenSeadragon can
-	 * consume directly.
+	 * Opt-in, and the **only** thing publishing does that writes the user's own files: it rewrites
+	 * each `info.json`'s `id` from the ADR-0004 placeholder to `<url>/images/<image-id>`, so that the
+	 * tiles become a real, citable IIIF endpoint Allmaps, Theseus, and OpenSeadragon can consume
+	 * directly.
 	 *
-	 * `info.json` first and `project.json` second, the same order every other write here follows: the
-	 * document's record of the address must never claim a stamp that the images do not carry. A
-	 * failure part way through leaves some images stamped and the Project unstamped, which the next
-	 * publish repairs by stamping all of them again — idempotent, because the address does not depend
-	 * on what was there before.
+	 * **The images are stamped once for the whole Workspace, and then every Project records the
+	 * address** (ADR-0023). The pyramids are shared, so there is one address per Historical Map — the
+	 * per-Project version wrote `<url>/<project>/images/<id>`, a citation that broke the moment a second
+	 * Project used the map. `images` therefore counts Historical Maps and not Project-image pairs.
+	 *
+	 * `info.json` first and `project.json` second, the same order every other write here follows: a
+	 * document's record of the address must never claim a stamp the images do not carry. A failure part
+	 * way through leaves some images stamped and some Projects unstamped, which the next publish repairs
+	 * by stamping all of them again — idempotent, because the address does not depend on what was there
+	 * before.
 	 *
 	 * A Project this build cannot open is skipped rather than rewritten (ADR-0010).
 	 */
@@ -1076,70 +1010,65 @@ export class EditorSession {
 		const stamped = normaliseCanonicalUrl(url);
 		if (stamped === '') {
 			// Through core's own refusal, so the sentence a user reads is written in one place.
-			await stampProjectImages(this.#store, '', url, []);
+			await stampWorkspaceImages(this.#store, url, []);
 		}
 		await this.flush();
 
+		const ingested = await listIngestedImages(this.#store);
+		const stamp = await stampWorkspaceImages(
+			this.#store,
+			stamped,
+			ingested.map((image) => image.imageId)
+		);
+
 		let projects = 0;
-		let images = 0;
 		for (const summary of await this.#workspace.listProjects()) {
 			if (summary.problem !== null) continue;
-			const ingested = await listIngestedImages(this.#store, summary.directory);
-			const stamp = await stampProjectImages(
-				this.#store,
-				summary.directory,
-				stamped,
-				ingested.map((image) => image.imageId)
-			);
 			const file = await this.#workspace.readProject(summary.directory);
 			if (file.canonicalUrl !== stamp.url) {
 				await this.#workspace.writeProject(summary.directory, { ...file, canonicalUrl: stamp.url });
 			}
 			projects += 1;
-			images += stamp.images.length;
 			if (this.openDirectory === summary.directory && this.openProject) {
 				this.openProject = { ...this.openProject, canonicalUrl: stamp.url };
 			}
 		}
 		this.projects = await this.#workspace.listProjects();
-		return { projects, images };
+		return { projects, images: stamp.images.length };
 	}
 
 	/**
-	 * Copy a referenced Historical Map into this Project as local tiles (SPEC stories 27, 28).
+	 * Copy a referenced Historical Map into the Workspace as local tiles (SPEC stories 27, 28).
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * THE ORDER OF THE THREE WRITES, WHICH IS THE SAME DISCIPLINE `addReferencedMap` FOLLOWS
+	 * TWO WRITES NOW, WHERE THERE WERE THREE
 	 *
 	 *   1. the pyramid, through `mirrorRemoteImage` → `ingestImageFile`, whose `info.json` lands last
 	 *      and is therefore the completion marker for the whole directory;
-	 *   2. `alignments/<id>.json`, rewritten to name the ADR-0004 placeholder instead of the library;
-	 *   3. `project.json`, whose Layer stops saying `'referenced'`.
+	 *   2. `alignments/<id>.json`, rewritten to name the ADR-0004 placeholder instead of the library.
 	 *
-	 * **`project.json` is last, and step 2 is not optional.** The stored Alignment of a referenced
-	 * image names the remote service as its `resource.id` (ticket 14), which is what made it resolvable
-	 * by Allmaps and what made the warped Layer render at all. Left alone after a copy it would keep
-	 * sending `@allmaps/maplibre` to the library for tiles that are now in this folder — so the copy
-	 * would work, the map would draw, and mirroring would have bought nothing at all. It is also what
-	 * ticket 16 will publish, and a self-contained site whose Alignment points at a stranger's server
-	 * is not self-contained.
+	 * **`project.json` is not touched at all, and that is ADR-0023 rather than an omission.** The third
+	 * write existed to flip a Layer's `imageMode` from `'referenced'` to a local copy. There is no such
+	 * field: `remote.json` beside an `info.json` of ours *is* the record that the tiles are here, so
+	 * making the copy is the whole of recording it, and every Project that draws this map sees it at
+	 * once rather than only the one that happened to be open.
 	 *
-	 * A failure before step 1 finishes leaves the Layer `'referenced'` and still rendering from the
-	 * library, which is the state it was in.
+	 * That also removes the half-committed state the repair path existed for. The pyramid landing and a
+	 * document write failing afterwards used to leave a Layer claiming the library while the tiles sat
+	 * unused — permanent, self-contradicting, and greeted on next open by a "Finish the offline copy"
+	 * button. With one derived answer there is nothing left to finish.
 	 *
-	 * **A failure after it is a half-committed copy, and the recovery is real rather than promised.**
-	 * The pyramid is in the folder and the document still says `'referenced'`, which is reachable three
-	 * ways: the session moving to another Project while the copy ran (the `return false` below), the
-	 * Alignment rewrite throwing, and the `project.json` write failing. That state used to be permanent
-	 * — `remoteOrigins` reads the disk, so the map moved to "Offline copies" and the copy could not be
-	 * started again — and it now ends in {@link unfinishedCopies}, is corrected on screen by
-	 * `#reconcileLocalCopies` when the Project is next opened, and is completed on disk by
-	 * {@link finishInterruptedCopy}, which redoes steps 2 and 3 without fetching anything.
+	 * **Step 2 is not optional.** The stored Alignment of a referenced image names the remote service as
+	 * its `resource.id`, which is what made it resolvable by Allmaps and what made the warped Layer
+	 * render at all. Left alone after a copy it would keep sending `@allmaps/maplibre` to the library for
+	 * tiles that are now in this folder — so the copy would work, the map would draw, and mirroring would
+	 * have bought nothing. It is also what publishing serves, and a self-contained site whose Alignment
+	 * points at a stranger's server is not self-contained.
 	 *
-	 * `imageMode` is derived from the source rather than typed in, so the Layer's claim and where its
-	 * tiles actually come from cannot be written independently.
+	 * A failure before step 1 finishes leaves the map still fetched from the library, which is the state
+	 * it was in.
 	 *
-	 * @returns `true` when the copy landed and the Layer now says so
+	 * @returns `true` when the copy landed and the Alignment names this Workspace's own tiles
 	 */
 	async mirrorImage(options: {
 		image: ReferencedImage;
@@ -1149,18 +1078,14 @@ export class EditorSession {
 		onProgress?: (progress: MirrorProgress) => void;
 		signal?: AbortSignal;
 	}): Promise<boolean> {
-		const directory = this.openDirectory;
-		const fetch = this.imageServiceFetch();
-		if (!directory || !this.openProject || !fetch) return false;
 		const { image, service, plan } = options;
 
 		await mirrorRemoteImage({
 			store: this.#store,
-			projectDirectory: directory,
 			service,
 			plan,
 			label: image.label || image.imageId,
-			fetch,
+			fetch: this.imageServiceFetch(),
 			assemble: assembleWithCanvas,
 			openDecodeAndCrop: openDecodeAndCropSource,
 			openStreaming: streamingTiler(loadLibvips),
@@ -1168,52 +1093,26 @@ export class EditorSession {
 			...(options.signal ? { signal: options.signal } : {})
 		});
 
-		// A later `open` has moved the session to another Project while this ran. The pyramid landed in
-		// the right folder — `directory` was captured — but writing this session's `project.json` now
-		// would write the wrong document, so the two writes that follow the pyramid are left undone.
-		// Reopening that Project finds them: `#reconcileLocalCopies` puts the Layer right on screen and
-		// lists the image in `unfinishedCopies`, and `finishInterruptedCopy` is how the user completes it.
-		if (this.openDirectory !== directory) return false;
-
-		return this.#recordLocalCopy(directory, image.imageId);
+		// No check that the session is still on the Project it started from. The pyramid and the Alignment
+		// both belong to the Workspace, so neither write depends on which Project is open — which is what
+		// used to make "the user navigated away mid-copy" one of the three routes into a half-committed
+		// copy.
+		return this.#recordLocalCopy(image.imageId);
 	}
 
 	/**
-	 * Finish an offline copy whose pyramid landed but whose document writes did not (ticket 15).
+	 * Rewrite a copied map's Alignment to name this Workspace's own tiles rather than the library.
 	 *
-	 * The repair the two comments above used to promise and nothing implemented. It fetches nothing —
-	 * the expensive half is already in the folder, and `ingestImageFile` writes `info.json` last, so a
-	 * directory that has one is a complete pyramid — and does exactly the two writes that were missed,
-	 * in the same order: the Alignment, then `project.json`.
+	 * The second of {@link mirrorImage}'s two writes, kept as its own method because it is the only part
+	 * of a copy that touches a document the user made.
 	 *
-	 * Idempotent, which matters because one of the three ways in leaves the Alignment already rewritten:
-	 * re-serialising a document that already names the ADR-0004 placeholder produces the same bytes.
+	 * Idempotent: re-serialising an Alignment that already names the ADR-0004 placeholder produces the
+	 * same bytes, so a copy repeated over a map already copied changes nothing.
 	 *
-	 * @returns `true` when the Layer now says it is a local copy
+	 * @returns `true` when the Alignment names the placeholder and the pyramid is on disk
 	 */
-	async finishInterruptedCopy(imageId: string): Promise<boolean> {
-		const directory = this.openDirectory;
-		if (!directory || !this.openProject) return false;
-		// The pyramid has to actually be there. Without this the button would rewrite an Alignment away
-		// from the library for an image whose tiles are still only on it — a blank Layer, from a control
-		// whose whole purpose is to stop one.
-		if (!this.images.some((image) => image.imageId === imageId)) return false;
-
-		try {
-			return await this.#recordLocalCopy(directory, imageId);
-		} catch (cause) {
-			this.saveError = cause instanceof Error ? cause.message : String(cause);
-			return false;
-		}
-	}
-
-	/**
-	 * The two writes that turn a pyramid on disk into a Layer that says so — steps 2 and 3 of
-	 * {@link mirrorImage}, shared with {@link finishInterruptedCopy} so that finishing an interrupted
-	 * copy cannot drift from finishing a fresh one.
-	 */
-	async #recordLocalCopy(directory: string, imageId: string): Promise<boolean> {
-		const path = alignmentStorePath(directory, imageId);
+	async #recordLocalCopy(imageId: string): Promise<boolean> {
+		const path = alignmentPath(imageId);
 		try {
 			// Re-serialised from the parsed Alignment rather than string-edited: `serialiseAlignment` is
 			// the one writer of that document, and it is what puts the placeholder back.
@@ -1221,41 +1120,19 @@ export class EditorSession {
 				path,
 				serialiseAlignment(parseAlignment(await this.#store.read(path), { imageId }))
 			);
+			this.saveError = '';
 		} catch (cause) {
 			// No Alignment yet is the ordinary case for a map nobody has placed. Anything else is not:
-			// leaving an Alignment that points at the library would undo the whole copy.
-			if (!(cause instanceof PathNotFoundError)) throw cause;
-		}
-
-		this.images = await listIngestedImages(this.#store, directory);
-
-		const alignmentRef = alignmentPath(imageId);
-		const project = this.openProject;
-		if (!project) return false;
-		const imageMode = imageModeOf(localCopySource(imageId));
-		this.openProject = {
-			...project,
-			layers: project.layers.map((layer) =>
-				layer.kind === 'map' && layer.alignmentRef === alignmentRef
-					? { ...layer, imageMode }
-					: layer
-			)
-		};
-		await this.#write(directory);
-		if (this.saveError !== '') {
-			// The pyramid is in the folder and the document is not: the half-committed state, reached
-			// without leaving the page. Listed now rather than only on the next open, because the map has
-			// already moved to "Offline copies" — `remoteOrigins` reads the disk — and a row that says it is
-			// copied while nothing offers to finish it is the contradiction this list exists to end.
-			if (!this.unfinishedCopies.includes(imageId)) {
-				this.unfinishedCopies = [...this.unfinishedCopies, imageId];
+			// leaving an Alignment that points at the library would undo the whole copy, so it is reported
+			// and the copy is not claimed to have landed.
+			if (!(cause instanceof PathNotFoundError)) {
+				this.saveError = cause instanceof Error ? cause.message : String(cause);
+				return false;
 			}
-			return false;
 		}
-		// Only once the document on disk agrees. Dropped any earlier and the offer to finish the copy
-		// would disappear while the state it repairs is still there.
-		this.unfinishedCopies = this.unfinishedCopies.filter((id) => id !== imageId);
-		return true;
+
+		this.images = await listIngestedImages(this.#store);
+		return this.images.some((image) => image.imageId === imageId);
 	}
 
 	/**
@@ -1275,9 +1152,9 @@ export class EditorSession {
 	}
 
 	/** What the user calls one Historical Map, or `''` when its manifest cannot be read. */
-	async #imageLabel(directory: string, imageId: string): Promise<string> {
+	async #imageLabel(imageId: string): Promise<string> {
 		try {
-			const bytes = await this.#store.read(`${directory}/${imageManifestPath(imageId)}`);
+			const bytes = await this.#store.read(imageManifestPath(imageId));
 			return readImageLabel(JSON.parse(new TextDecoder().decode(bytes)));
 		} catch {
 			// A Layer named after its image id is a poor name; a failed Alignment write is worse.
@@ -1411,6 +1288,11 @@ export class EditorSession {
 	 * way round, a failure between the two steps would leave exactly that. This way the worst
 	 * intermediate state is a file nothing references — bytes, not breakage.
 	 *
+	 * **Steps 2 and 4 do nothing for a map Layer, and that is ADR-0023** (SPEC story 67). Its Historical
+	 * Map and its Alignment belong to the Workspace and may be drawn by other Projects, so removing the
+	 * Layer must leave both where they are — `layerFileRef` answers `''` for a map Layer, which is where
+	 * that decision lives. Only an Annotation Layer has a file of this Project's to take with it.
+	 *
 	 * The tombstone is the whole reason a delete button can exist at all: see
 	 * `ProjectFile.removedMapLayers` and {@link #ensureMapLayer}. Without it, deleting a map Layer and
 	 * then touching one Control Point creates a *new* Layer with a fresh id at the top of the stack,
@@ -1455,8 +1337,8 @@ export class EditorSession {
 			...project,
 			layers: removeLayer(project.layers, id),
 			removedMapLayers:
-				layer.kind === 'map' && !project.removedMapLayers.includes(layer.alignmentRef)
-					? [...project.removedMapLayers, layer.alignmentRef]
+				layer.kind === 'map' && !project.removedMapLayers.includes(layer.imageId)
+					? [...project.removedMapLayers, layer.imageId]
 					: project.removedMapLayers
 		};
 		await this.#write(directory);
@@ -1483,6 +1365,9 @@ export class EditorSession {
 	 * re-serialisation of a parsed model would be merely equivalent, and ticket 09 asserts these files
 	 * survive display-state edits byte-for-byte.
 	 *
+	 * A map Layer has no file to put back — its Historical Map and its Alignment were never removed
+	 * (ADR-0023) — so for one of those this is only the stack and the tombstone.
+	 *
 	 * The tombstone is lifted with the Layer, so the two can never both be true.
 	 */
 	async #restoreLayer(record: UndoRecord): Promise<void> {
@@ -1508,10 +1393,18 @@ export class EditorSession {
 		// The array it was given means a Layer with this id is already back — `parseLayers` drops a
 		// duplicate id, so writing one would produce a document whose next read loses one of the two.
 		if (layers === project.layers) return;
+		// **Keyed on the image id, not on `layerFileRef`.** That helper answers `''` for a map Layer now
+		// (ADR-0023: a map Layer has no file of this Project's), so using it here would leave the tombstone
+		// standing — and `#ensureMapLayer` would then refuse to remake the Layer the user had just restored,
+		// which is the deletion becoming permanent through the affordance built to reverse it.
+		const tombstone = record.layer.kind === 'map' ? record.layer.imageId : '';
 		this.openProject = {
 			...project,
 			layers,
-			removedMapLayers: project.removedMapLayers.filter((ref) => ref !== layerFileRef(record.layer))
+			removedMapLayers:
+				tombstone === ''
+					? project.removedMapLayers
+					: project.removedMapLayers.filter((id) => id !== tombstone)
 		};
 		await this.#write(directory);
 	}
@@ -1557,21 +1450,21 @@ export class EditorSession {
 	/**
 	 * One map Layer's Alignment as stored, or `null` when there is no file yet.
 	 *
-	 * Read through the Layer's own `alignmentRef`, because that is what the Layer references — and
-	 * without the Historical Map's pyramid, which the stack does not load: the Alignment carries the
-	 * image's pixel dimensions itself, so a Layer can be drawn from the two files it names.
+	 * Read from the Workspace by the Layer's `imageId` (ADR-0023) — and without the Historical Map's
+	 * pyramid, which the stack does not load: the Alignment carries the image's pixel dimensions itself,
+	 * so a Layer can be drawn from the one file it names.
+	 *
+	 * A Layer whose `imageId` is `''` names no Historical Map — a hand-edited or damaged document — and
+	 * answers `null` rather than reading `alignments/.json`.
 	 *
 	 * A file that is there and unreadable throws, for the same reason {@link readAlignment} surfaces
 	 * it: silently drawing nothing would hide an Alignment the user made.
 	 */
 	async readLayerAlignment(layer: MapLayer): Promise<Alignment | null> {
-		const directory = this.openDirectory;
-		const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
-		if (!directory || imageId === null) return null;
+		const { imageId } = layer;
+		if (imageId === '') return null;
 		try {
-			return parseAlignment(await this.#store.read(`${directory}/${layer.alignmentRef}`), {
-				imageId
-			});
+			return parseAlignment(await this.#store.read(alignmentPath(imageId)), { imageId });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return null;
 			throw cause;

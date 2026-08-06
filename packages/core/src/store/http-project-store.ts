@@ -19,8 +19,9 @@
 //     `publish/publish.ts`). So `list` is not merely unimplemented, it is **unanswerable** — and an
 //     implementation returning `[]` would be a lie in the worst direction, since every caller reads
 //     an empty list as "there is nothing there" rather than as "I cannot see". A Reader's page
-//     therefore follows the references it is given — a Layer's `alignmentRef` and `geojsonRef`, and
-//     `images/<id>/` derived from the Alignment's own path — which are all named in `project.json`.
+//     therefore follows the references it is given — a map Layer's `imageId` and an Annotation Layer's
+//     `geojsonRef`, with `alignments/<id>.json` and `images/<id>/` derived from the image id — all of
+//     which are named in `project.json`.
 //   * **`size`.** Excused by the ticket in as many words: nothing a Reader does needs it, the
 //     hosting-limit warnings belong to the editor, and it would cost one `HEAD` per file.
 //

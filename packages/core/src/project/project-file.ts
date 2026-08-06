@@ -58,7 +58,7 @@ export interface ProjectFile {
 	 */
 	readonly baseMap: string | null;
 	/**
-	 * The map Layers the user has deleted, by the `alignmentRef` each one drew.
+	 * The map Layers the user has deleted, by the **image id** each one drew (ADR-0023).
 	 *
 	 * **A tombstone, and the only thing that stops a deleted map Layer coming back** (ticket 11).
 	 * Aligning a Historical Map is what puts it in the stack, and the app makes that true by ensuring
@@ -202,7 +202,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		// as no tombstones at all. The cost of losing one is a Layer that comes back; the cost of
 		// throwing here is a Project that cannot be opened.
 		removedMapLayers: Array.isArray(removedMapLayers)
-			? removedMapLayers.filter((ref): ref is string => typeof ref === 'string' && ref !== '')
+			? removedMapLayers.filter((id): id is string => typeof id === 'string' && id !== '')
 			: [],
 		// Anything that is not a usable address reads as unstamped rather than as an error, which is
 		// the same tolerance every other field here gets: a `project.json` is a document somebody

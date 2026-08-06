@@ -19,7 +19,6 @@
 		addAnnotation,
 		baseMapFallbackNotice,
 		findAnnotation,
-		imageIdFromAlignmentRef,
 		insertAnnotationAt,
 		newAnnotation,
 		otherTheme,
@@ -102,7 +101,7 @@
 	 */
 	const documentKey = $derived(
 		JSON.stringify(
-			shown.map((layer) => [layer.id, layer.kind === 'map' ? layer.alignmentRef : layer.geojsonRef])
+			shown.map((layer) => [layer.id, layer.kind === 'map' ? layer.imageId : layer.geojsonRef])
 		)
 	);
 
@@ -165,34 +164,50 @@
 				// A map Layer with no Alignment yet is not handed to the map at all: there is nothing to
 				// place it by, and `showAlignment` would have to refuse it a second time.
 				if (document === undefined) return [];
-				return [{ layer, alignment: document as Alignment, service: remoteServiceFor(layer) }];
+				return [
+					{
+						layer,
+						alignment: document as Alignment,
+						referenced: referencedImageIds.has(layer.imageId),
+						service: remoteServiceFor(layer)
+					}
+				];
 			}
 			return [{ layer, annotations: (document as AnnotationCollection | undefined) ?? null }];
 		})
 	);
 
 	/**
-	 * Where a `'referenced'` Layer's tiles are served from, or `''` for a local copy (ticket 14).
+	 * The Workspace Historical Maps whose tiles are on somebody else's server, by image id.
 	 *
-	 * Keyed off `imageMode` rather than off "is there a record for this image", so this answers `''` for
-	 * a local copy and only for a local copy — a referenced Layer is never accidentally handed a service
-	 * because some other image happened to have a record.
+	 * **An observation of the folder, which is the only place the answer lives** (ADR-0023): an image
+	 * directory with an `info.json` of ours has its tiles here, one with only a `remote.json` does not.
+	 * `MapLayer` used to carry an `imageMode` saying it, and a claim in `project.json` outlived the
+	 * offline copy that made it false — so this pane kept handing the renderer a library's address for
+	 * tiles already in the folder.
+	 */
+	const referencedImageIds = $derived(
+		new Set((session?.remoteOrigins.referenced ?? []).map((image) => image.imageId))
+	);
+
+	/**
+	 * Where a referenced Layer's tiles are served from, or `''` for a local copy.
 	 *
-	 * **`''` on a `'referenced'` Layer renders blank, and is not refused.** `showAlignment` builds the
-	 * ADR-0004 placeholder document from it, the renderer accepts that and names a map, and the pane
-	 * reports the Layer as drawn while the injection shim looks for a pyramid a referenced image by
-	 * definition does not have locally. That used to be reachable on every fresh load of this pane,
-	 * because `remote.json` is listed after `project.json` and the stack was not rebuilt when the record
-	 * arrived — see `stackStructure` in `BaseMapPane.svelte`, which now depends on the service. What is
-	 * left is a Layer whose `remote.json` really is missing or unreadable, which is a hand-edited or
-	 * half-written Project; telling that apart from "not read yet" needs a signal `EditorSession` does
-	 * not expose, and is recorded on ticket 09 rather than guessed at here.
+	 * Keyed off {@link referencedImageIds} rather than off "is there a record for this image", so this
+	 * answers `''` for a local copy and only for a local copy — a mirrored map keeps its `remote.json`
+	 * for the citation (ADR-0007), and handing its address to the renderer would send it back to the
+	 * library for tiles that are right here.
+	 *
+	 * **`''` on a referenced Layer renders blank, and `showAlignment` refuses it** rather than drawing
+	 * nothing and reporting it drawn — see the `referenced` field passed beside this one. Reaching that
+	 * refusal needs a Layer whose `remote.json` really is missing or unreadable, which is a hand-edited or
+	 * half-written Workspace.
 	 */
 	const remoteServiceFor = (layer: MapLayer): string => {
-		if (layer.imageMode !== 'referenced') return '';
-		const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
+		if (!referencedImageIds.has(layer.imageId)) return '';
 		return (
-			(session?.referencedImages ?? []).find((image) => image.imageId === imageId)?.service ?? ''
+			(session?.referencedImages ?? []).find((image) => image.imageId === layer.imageId)?.service ??
+			''
 		);
 	};
 
@@ -702,6 +717,7 @@
 				<LayerList
 					{layers}
 					{outcomes}
+					{referencedImageIds}
 					ontypename={(id, name) => session.typeLayerName(id, name)}
 					oncommit={() => session.commitLayerEdit()}
 					onshow={(id, visible) => session.showLayer(id, visible)}

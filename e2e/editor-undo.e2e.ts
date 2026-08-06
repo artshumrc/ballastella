@@ -468,7 +468,10 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		await saved(page);
 
 		const [annotationLayer, mapLayer] = (await rowIds(page)) as [string, string];
-		const before = await hashesUnder(page, 'alignments/');
+		// At the Workspace root (ADR-0023), which is what makes the claim below a claim about ADR-0023
+		// rather than about undo: deleting the Layer must leave the Historical Map and its Alignment where
+		// they are, because another Project may be drawing them (SPEC story 67).
+		const before = await hashesUnder(page, 'alignments/', '');
 		expect(before).toHaveLength(1);
 		const layersBefore = (await projectJson(page)).layers;
 		expect(await stackOrder(page)).toContain(`ballastella-layer-${mapLayer}`);
@@ -481,8 +484,13 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		// below cannot be satisfied by a revert to the last saved state.
 		const during = await projectJson(page);
 		expect(during.layers.map((layer: { id: string }) => layer.id)).toEqual([annotationLayer]);
-		expect(during.removedMapLayers).toEqual([layersBefore[1].alignmentRef]);
-		expect(await hashesUnder(page, 'alignments/')).toEqual([]);
+		// The tombstone is keyed on the image id, which is the one thing a map Layer carries about its
+		// Historical Map (ADR-0023).
+		expect(during.removedMapLayers).toEqual([layersBefore[1].imageId]);
+		// **And the Alignment is still there.** It belongs to the Workspace and may place this map for
+		// another Project, so a Layer delete takes nothing with it — which is the opposite of what this
+		// assertion said before ADR-0023.
+		expect(await hashesUnder(page, 'alignments/', '')).toEqual(before);
 		// Off the map, asked of MapLibre: there is no longer a layer that could paint it.
 		await expect.poll(() => stackOrder(page)).not.toContain(`ballastella-layer-${mapLayer}`);
 
@@ -491,8 +499,9 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		await expect(layerRows(page)).toHaveCount(2);
 		await saved(page);
 
-		// The file, byte for byte — the criterion — and the entry, field for field, at its own position.
-		expect(await hashesUnder(page, 'alignments/')).toEqual(before);
+		// The Alignment, still byte for byte what it was — untouched throughout — and the entry back,
+		// field for field, at its own position.
+		expect(await hashesUnder(page, 'alignments/', '')).toEqual(before);
 		expect((await projectJson(page)).layers).toEqual(layersBefore);
 		// The tombstone is lifted with the Layer, so the two can never both be true.
 		expect((await projectJson(page)).removedMapLayers).toBeUndefined();
@@ -553,18 +562,22 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		test.setTimeout(150_000);
 		const imageId = await alignedProject(page);
 		await openLayers(page, 1);
-		const deletedRef = (await projectJson(page)).layers[0].alignmentRef;
+		const deletedImageId = (await projectJson(page)).layers[0].imageId;
 
 		await layerRows(page).first().getByTestId('layer-delete').click();
 		await expect(layerRows(page)).toHaveCount(0);
 		await saved(page);
-		expect((await projectJson(page)).removedMapLayers).toEqual([deletedRef]);
+		expect((await projectJson(page)).removedMapLayers).toEqual([deletedImageId]);
 
 		// Back to the alignment workspace and an Alignment write — the exact gesture that resurrected the
 		// Layer before the tombstone existed.
+		//
+		// A **fourth** pair, because the three `alignedProject` made are still on disk: deleting the Layer
+		// leaves the Historical Map and its Alignment where they are now (ADR-0023, SPEC story 67), so
+		// `makePairs` reopens onto the pairing already done rather than onto an empty Alignment.
 		await openWorkspace(page);
-		await makePairs(page, 1);
-		await waitForStored(page, imageId, 1);
+		await makePairs(page, 4);
+		await waitForStored(page, imageId, 4);
 		await saved(page);
 
 		expect((await projectJson(page)).layers).toEqual([]);
@@ -573,8 +586,8 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		// **And in a later session**, which is the half that needs the record to be in the file rather
 		// than in memory: a reload throws away everything the running page knew.
 		await openWorkspace(page);
-		await makePairs(page, 2);
-		await waitForStored(page, imageId, 2);
+		await makePairs(page, 5);
+		await waitForStored(page, imageId, 5);
 		await saved(page);
 
 		expect((await projectJson(page)).layers).toEqual([]);
@@ -604,8 +617,8 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		expect((await projectJson(page)).layers).toEqual([layerBefore]);
 
 		await openWorkspace(page);
-		// The restored Alignment is readable, so the workspace resumes the three pairs rather than
-		// starting from nothing — the property byte-identity is *for*.
+		// The Alignment was never removed — it is the Workspace's, not this Project's (ADR-0023) — so the
+		// workspace resumes the three pairs rather than starting from nothing.
 		await expect(controlPointRows(page)).toHaveCount(3);
 		await makePairs(page, 4);
 		await waitForStored(page, imageId, 4);

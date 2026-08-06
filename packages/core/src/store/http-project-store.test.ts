@@ -262,11 +262,13 @@ describe('the HTTP ProjectStore adapter', () => {
 			const store = createHttpProjectStore({
 				resolve: (path) => `https://scholar.example/atlas/${path}`,
 				fetch: serving({
-					'https://scholar.example/atlas/amsterdam-1625/images/aaa/info.json': '{"width":1024}'
+					// At the site root, because a published pyramid is the Workspace's rather than a Project's
+					// (ADR-0023) — one `images/<id>/` served to every Project of the site.
+					'https://scholar.example/atlas/images/aaa/info.json': '{"width":1024}'
 				}).fetch
 			});
 
-			const readTile = createStoreImageFetch({ store, projectDirectory: 'amsterdam-1625' });
+			const readTile = createStoreImageFetch({ store });
 			const response = await readTile('https://unset.invalid/aaa/info.json');
 
 			expect(response.status).toBe(200);

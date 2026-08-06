@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	alignmentPath,
-	alignmentStorePath,
+	ALIGNMENT_DIRECTORY,
 	canSolve,
 	collectControlPoints,
 	fullImageResourceMask,
@@ -52,11 +52,14 @@ describe('a new Alignment', () => {
 });
 
 describe('where an Alignment lives', () => {
-	it('is one file per Historical Map, under the Project (ADR-0008)', () => {
+	// ADR-0023: one Alignment per Historical Map, at the **Workspace** root, so that "where is this map
+	// on the earth" has one answer whichever Projects draw it. The path is complete — there is no
+	// Project-rooted spelling of it any more, which is what makes two Projects reading the same image id
+	// read the same file rather than two that drift apart.
+	it('is one file per Historical Map, at the Workspace root (ADR-0023)', () => {
 		expect(alignmentPath('floride-1657')).toBe('alignments/floride-1657.json');
-		expect(alignmentStorePath('amsterdam-1625', 'floride-1657')).toBe(
-			'amsterdam-1625/alignments/floride-1657.json'
-		);
+		expect(alignmentPath('floride-1657').startsWith(`${ALIGNMENT_DIRECTORY}/`)).toBe(true);
+		expect(alignmentPath('floride-1657')).not.toContain('amsterdam-1625');
 	});
 });
 

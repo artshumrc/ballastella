@@ -1,7 +1,8 @@
 import { unzip, type UnzipFileInfo, type Unzipped } from 'fflate';
 
-import { imageDirectory } from '../project/image-files.js';
-import { imageIdFromAlignmentRef, mapLayerImageInfoPath, type Layer } from '../project/layer.js';
+import { alignmentPath } from '../alignment/alignment.js';
+import { IMAGE_DIRECTORY, imageDirectory } from '../project/image-files.js';
+import type { Layer } from '../project/layer.js';
 import {
 	BALLASTELLA_CANONICAL_URL,
 	PROJECT_FILE_NAME,
@@ -330,28 +331,28 @@ function assertSafeEntryName(name: string): void {
  * are collected — from the union rather than by reading key names off an untyped object, so a kind
  * added later has to say here what it points at.
  *
- * A {@link ForeignLayer} — a kind this build has never heard of — is still asked about the two
- * reference names this application owns, because a Layer that carries an `alignmentRef` means by it
- * what every other Layer means. Nothing else about it is interpreted, which is the forward tolerance
- * ADR-0014 asks of the Layer list itself.
+ * A {@link ForeignLayer} — a kind this build has never heard of — is still asked about `geojsonRef`,
+ * because a Layer that carries one means by it what every other Layer means. Nothing else about it is
+ * interpreted, which is the forward tolerance ADR-0014 asks of the Layer list itself.
  */
 function layerReferences(layer: Layer): readonly string[] {
 	switch (layer.kind) {
-		// **The Layer → Alignment → image link, followed without opening the Alignment.** An
-		// Alignment's identity is its path, which is exactly why `parseAlignment` takes the image id
-		// from the caller and never from the document's own `resource.id`; `mapLayerImageInfoPath`
-		// reads it the same way. So the image a map Layer draws is named by `alignmentRef` itself, and
-		// **no untrusted Annotation is parsed during validation** — which was the real reason ticket 13
-		// deferred this, and the property `readProjectZip` is built on: it interprets nothing but
-		// `project.json` before deciding to accept the archive.
-		case 'map': {
-			const info = mapLayerImageInfoPath(layer);
-			return info === null ? [layer.alignmentRef] : [layer.alignmentRef, info];
-		}
+		// **Both derived from the one `imageId`, and nothing is opened to derive them** (ADR-0023). The
+		// Alignment is `alignments/<image-id>.json` and the pyramid is `images/<image-id>/`, so a map
+		// Layer's references are computed rather than read out of the document — which removes the class
+		// of archive that named an Alignment and an image that disagreed. **No untrusted Annotation is
+		// parsed during validation**, which is the property `readProjectZip` is built on: it interprets
+		// nothing but `project.json` before deciding to accept the archive.
+		case 'map':
+			return layer.imageId === '' ? [] : [alignmentPath(layer.imageId)];
 		case 'annotation':
 			return [layer.geojsonRef];
+		// A kind this build has never heard of is still asked about `geojsonRef`, because a Layer
+		// carrying one means by it what every other Layer means. It is **not** asked about `imageId`:
+		// this build cannot know that a foreign kind's `imageId` names a Historical Map at all, and
+		// refusing an archive over a guess is refusing it for a reason nobody can act on.
 		case 'foreign':
-			return ['alignmentRef', 'geojsonRef']
+			return ['geojsonRef']
 				.map((key) => layer.unknownFields?.[key])
 				.filter((reference): reference is string => typeof reference === 'string');
 	}
@@ -360,26 +361,21 @@ function layerReferences(layer: Layer): readonly string[] {
 /**
  * Refuse a zip whose `project.json` points at files it does not carry.
  *
- * **What this establishes.** Every file a Layer names is in the archive: its Alignment or its
- * GeoJSON, and — for a map Layer whose image is a local copy — the `info.json` that makes its
- * pyramid readable at all. That last one is the case that actually loses a reader's map: a Layer
- * pointing at an image directory the zip does not carry, which the structural check below cannot see
- * because there is no directory there to check. And for **every** map Layer, whatever its `imageMode`,
- * that its image directory is in the archive at all — see the loop below for why that has to be a
- * separate claim.
+ * **What this establishes.** Every file a Layer names is in the archive: a map Layer's Alignment or an
+ * Annotation Layer's GeoJSON. And for **every** map Layer, that its image directory is in the archive at
+ * all — a Layer pointing at an image directory the zip does not carry is the case that actually loses a
+ * reader's map, and the structural check below cannot see it because there is no directory there to
+ * check.
  *
  * **What it does not establish, deliberately.** Nothing here opens an Alignment or a
- * `FeatureCollection`. The image is found through the Alignment's *path*, which is where its identity
- * lives; the document's own `resource.id` is not consulted, exactly as `parseAlignment` does not
- * consult it. So this cannot catch an Alignment whose contents name a different image service than
- * its filename does — and it should not try, because the filename is the authority in the reader too,
- * and because parsing a stranger's Annotation to decide whether to accept an archive would give up
- * the one property this whole path has: it interprets nothing but `project.json`. It also does not
- * check that a pyramid is *complete* — a tile that is missing is a blank square, not a lost map, and
- * only the tiler knows which tiles a level should have.
- *
- * What it also does not check is *which* file makes a `'referenced'` image usable — ticket 14 owns
- * that. The directory has to be there; what is in it is that ticket's contract.
+ * `FeatureCollection`. Both paths are derived from the Layer's `imageId`, and an Alignment's identity is
+ * its path rather than its own `resource.id`, exactly as `parseAlignment` reads it. So this cannot catch
+ * an Alignment whose contents name a different image service than its filename does — and it should not
+ * try, because the filename is the authority in the reader too, and because parsing a stranger's
+ * Annotation to decide whether to accept an archive would give up the one property this whole path has:
+ * it interprets nothing but `project.json`. It also does not check that a pyramid is *complete* — a tile
+ * that is missing is a blank square, not a lost map, and only the tiler knows which tiles a level should
+ * have.
  */
 function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<string>): void {
 	const missing = (reference: string, why: string): never => {
@@ -392,7 +388,7 @@ function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<stri
 	const imageDirectories = new Set<string>();
 	for (const path of present) {
 		const segments = path.split('/');
-		if (segments[0] === 'images' && segments.length > 2) {
+		if (segments[0] === IMAGE_DIRECTORY && segments.length > 2) {
 			imageDirectories.add(`${segments[0]}/${segments[1]}`);
 		}
 	}
@@ -408,20 +404,19 @@ function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<stri
 			}
 		}
 
-		// **And the archive carries *something* for a map Layer's image, whatever `imageMode` says.**
-		// This is the half that must not be skippable from inside the file. `mapLayerImageInfoPath`
-		// answers `null` for a `'referenced'` image, correctly — its tiles are on somebody else's server
-		// (ADR-0007) — but on its own that made `imageMode` an exemption from the image check granted by
-		// the author of the archive: a zip with `project.json`, an Alignment, no `images/` directory
-		// whatsoever and one word changed imported cleanly and then drew nothing, because the renderer
-		// never consults `imageMode` and asks the ADR-0011 shim for every map Layer's tiles out of
-		// `images/<id>/`. A directory rather than a named file, because *what* a referenced image keeps
-		// there is ticket 14's to say and a future kind of image record would be a third answer; that the
-		// image exists in the archive at all is this check's business and cannot be waived.
+		// **And the archive carries an image directory for every map Layer, with no way to be excused
+		// from it.** There used to be one: `imageMode` said whether the Layer claimed a local pyramid, so
+		// a zip with `project.json`, an Alignment, no `images/` directory whatsoever and one word changed
+		// imported cleanly and then drew nothing — the renderer never consulted `imageMode` and asked the
+		// ADR-0011 shim for every map Layer's tiles out of `images/<id>/` regardless. ADR-0023 removed the
+		// field, so the exemption is now unrepresentable rather than merely unhonoured.
+		//
+		// A directory rather than a named file, because *what* a referenced image keeps there is
+		// `remote.json`'s business and a future kind of image record would be a third answer; that the
+		// image exists in the archive at all is this check's business.
 		if (layer.kind !== 'map') continue;
-		const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
-		if (imageId === null) continue;
-		const directory = imageDirectory(imageId);
+		if (layer.imageId === '') continue;
+		const directory = imageDirectory(layer.imageId);
 		if (!imageDirectories.has(directory)) {
 			missing(
 				`${directory}/`,
@@ -435,12 +430,14 @@ function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<stri
 	// This is the other half of the pair: the loop above catches an image a Layer names and the archive
 	// does not carry, and this one catches an image the archive carries incompletely.
 	//
-	// **Two ways to be describable, because there are two kinds of image.** A local copy has the
-	// `info.json` that makes its pyramid readable; a referenced image (ticket 14) has `remote.json`
-	// instead, because its tiles *and* its `info.json` are on somebody else's server. Requiring
-	// `info.json` of both meant a Project with a referenced Historical Map could be exported and then
-	// refused on the way back in — the same "a scholar cannot import their own export" this whole
-	// function exists to prevent, arriving from the other direction.
+	// **Two ways to be describable, because there are two kinds of image, and this is now the *only*
+	// place that distinction is asked about.** A local copy has the `info.json` that makes its pyramid
+	// readable; a referenced image has `remote.json` instead, because its tiles *and* its `info.json` are
+	// on somebody else's server. That is exactly the observation ADR-0023 replaced the stored `imageMode`
+	// with — so the per-Layer half of this check no longer needs to know which kind a Layer is, and the
+	// question is asked once, of the archive's own files. Requiring `info.json` of both would mean a
+	// Project with a referenced Historical Map could be exported and then refused on the way back in —
+	// the same "a scholar cannot import their own export" this whole function exists to prevent.
 	for (const directory of [...imageDirectories].sort()) {
 		const info = `${directory}/info.json`;
 		if (present.has(info) || present.has(`${directory}/${REFERENCED_IMAGE_FILE}`)) continue;

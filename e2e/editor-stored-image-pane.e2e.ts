@@ -503,8 +503,8 @@ test.describe('a Historical Map read from the Project', () => {
 		await page.evaluate(
 			async ([imageId]) => {
 				const root = await navigator.storage.getDirectory();
-				const project = await root.getDirectoryHandle('amsterdam-1625');
-				const images = await project.getDirectoryHandle('images');
+				// The pyramid is the Workspace's, shared by every Project (ADR-0023).
+				const images = await root.getDirectoryHandle('images');
 				const directory = await images.getDirectoryHandle(imageId as string);
 				const handle = await directory.getFileHandle('info.json');
 				const info = JSON.parse(await (await handle.getFile()).text());

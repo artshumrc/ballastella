@@ -231,7 +231,7 @@ export function withTransformationType(
  * and its transformation type (CONTEXT.md, Align / Alignment).
  */
 export interface Alignment {
-	/** Which Historical Map of the Project this aligns. Its identity is its file path. */
+	/** Which Historical Map of the Workspace this aligns. Its identity is its file path. */
 	readonly imageId: string;
 	/** The image's pixel dimensions, which the Resource Mask and the renderer are both in terms of. */
 	readonly image: { readonly width: number; readonly height: number };
@@ -248,15 +248,25 @@ export interface Alignment {
 	readonly transformationType: TransformationType;
 }
 
-/** Where a Project keeps one Historical Map's Alignment, relative to the Project (ADR-0008). */
+/**
+ * Where the **Workspace** keeps one Historical Map's Alignment (ADR-0023).
+ *
+ * At the Workspace root rather than inside a Project, because "where is this map on the earth" has to
+ * have one answer. The rejected shape copied the Alignment into each Project, and *N* answers drift:
+ * a referenced map's Alignment records the Library's service as its `resource.id`, so one offline copy
+ * left every other Project naming a Library whose tiles were already on disk.
+ */
 export const ALIGNMENT_DIRECTORY = 'alignments';
 
-/** The Alignment's path within its Project. Its identity, the same way a Project's is its folder. */
+/**
+ * The Alignment's path in the Workspace. A store path, complete — nothing prefixes a Project
+ * directory onto it, and `scripts/check-workspace-rooted-paths.mjs` refuses anything that does.
+ *
+ * The path is the Alignment's identity, the same way a Project's is its folder, which is why
+ * `parseAlignment` takes the image id from the caller and never from the document's own
+ * `resource.id`.
+ */
 export const alignmentPath = (imageId: string): string => `${ALIGNMENT_DIRECTORY}/${imageId}.json`;
-
-/** The Alignment's path within the Workspace. */
-export const alignmentStorePath = (projectDirectory: string, imageId: string): string =>
-	`${projectDirectory}/${alignmentPath(imageId)}`;
 
 /**
  * The whole image, clockwise from its top-left corner.

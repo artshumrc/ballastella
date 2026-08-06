@@ -467,18 +467,21 @@ test.describe('opening a Project and closing it (ADR-0010)', () => {
 		await page.evaluate(async () => {
 			const root = await navigator.storage.getDirectory();
 			const project = await root.getDirectoryHandle('amsterdam-1625');
-			const images = await project.getDirectoryHandle('images', { create: true });
-			const file = await images.getFileHandle('info.json', { create: true });
+			// `annotations/` rather than `images/`: since ADR-0023 a pyramid is the Workspace's and is not
+			// inside a Project at all, so a nested fixture under the Project has to be one of the Project's
+			// own files or the claim below would be about a file the application never puts there.
+			const annotations = await project.getDirectoryHandle('annotations', { create: true });
+			const file = await annotations.getFileHandle('l-notes.geojson', { create: true });
 			const writable = await file.createWritable();
-			await writable.write('{"width":1}');
+			await writable.write('{"type":"FeatureCollection","features":[]}');
 			await writable.close();
 		});
 		const before = await hashProject(page, 'amsterdam-1625');
 		// The hash has to reach into subdirectories, or "every file is byte-identical" is a claim
-		// about `project.json` alone. The nested `images/info.json` stands in for the pyramid a real
-		// Project is mostly made of — thousands of files, all of them untouched by merely looking.
-		// Sorted, because OPFS promises no enumeration order.
-		expect(Object.keys(before).sort()).toEqual(['images/info.json', 'project.json']);
+		// about `project.json` alone. The nested `annotations/l-notes.geojson` stands in for the
+		// Annotations a real Project holds — untouched by merely looking. Sorted, because OPFS promises no
+		// enumeration order.
+		expect(Object.keys(before).sort()).toEqual(['annotations/l-notes.geojson', 'project.json']);
 
 		await page.goto('./?p=amsterdam-1625');
 		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();

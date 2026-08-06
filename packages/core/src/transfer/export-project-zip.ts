@@ -1,5 +1,8 @@
 import { Zip, ZipDeflate, ZipPassThrough } from 'fflate';
 
+import { alignmentPath } from '../alignment/alignment.js';
+import { imageDirectory } from '../project/image-files.js';
+import { parseLayers } from '../project/layer.js';
 import { PROJECT_FILE_NAME, projectFilePath } from '../project/project-file.js';
 import { PathNotFoundError, type ProjectStore, type StorePath } from '../store/project-store.js';
 import type { TransferProgressListener } from './transfer.js';
@@ -89,10 +92,19 @@ export interface ProjectExport {
 /**
  * Export one Project as a zip, rooted at the Project directory.
  *
+ * **The archive's shape did not change, and the Workspace's did** (ADR-0023). A Project directory now
+ * holds only `project.json` and `annotations/`, so the `images/<id>/` and `alignments/<id>.json` its
+ * map Layers reference are gathered out of the **Workspace** and written at the same archive paths they
+ * always occupied. An export is therefore still self-contained and still imports into a Workspace that
+ * has never seen the map — which is what makes `project-zip.test.ts`'s round trip a round trip.
+ *
  * Reads and nothing else. Exporting a Project must not modify it, including a Project from a
  * newer version of the app — which is exactly the Project a user most needs to get out of a
- * browser they cannot see into, so `project.json` is required to *exist* here but is deliberately
- * never parsed (ADR-0010).
+ * browser they cannot see into. So the Layer stack is read through `parseLayers`, which never throws
+ * and has no `formatVersion` opinion, rather than through `parseProjectFile`, which refuses a document
+ * from the future (ADR-0010). A `project.json` that will not even parse as JSON exports as itself with
+ * no shared material gathered: getting the bytes out still works, which is the property that matters
+ * here, and an unopenable document is refused on the way back in by `parseProjectFile` regardless.
  *
  * @throws PathNotFoundError when there is no Project in `directory`
  * @throws ProjectTooLargeToZipError when the Project has more files than one zip can index
@@ -104,27 +116,90 @@ export async function exportProjectZip(
 ): Promise<ProjectExport> {
 	const excluded = options.excluded ?? isViewerFile;
 	const prefix = `${directory}/`;
-	const paths = (await store.list(prefix))
+	const own = (await store.list(prefix))
 		.map((path) => path.slice(prefix.length))
-		.filter((relative) => !excluded(relative))
-		.sort();
+		.filter((relative) => !excluded(relative));
 
-	if (!paths.includes(PROJECT_FILE_NAME)) {
+	if (!own.includes(PROJECT_FILE_NAME)) {
 		throw new PathNotFoundError(projectFilePath(directory));
 	}
-	if (paths.length > MAX_ZIP_ENTRIES) {
-		throw new ProjectTooLargeToZipError(directory, paths.length);
+
+	// The Project's own files keep their Project-relative names; the shared material keeps the archive
+	// path it has always had, which happens to be its Workspace path too. Held as pairs rather than as
+	// one prefix plus a list, because the two halves now come from different places in the store.
+	const entries: { readonly archivePath: string; readonly storePath: StorePath }[] = [
+		...own.map((relative) => ({
+			archivePath: relative,
+			storePath: (prefix + relative) as StorePath
+		})),
+		...(await sharedEntries(store, directory))
+	];
+	entries.sort((a, b) => a.archivePath.localeCompare(b.archivePath));
+
+	if (entries.length > MAX_ZIP_ENTRIES) {
+		throw new ProjectTooLargeToZipError(directory, entries.length);
 	}
 
-	const sizes = await Promise.all(paths.map((relative) => store.size(prefix + relative)));
+	const sizes = await Promise.all(entries.map((entry) => store.size(entry.storePath)));
 	const totalBytes = sizes.reduce((sum, size) => sum + size, 0);
 
 	return {
 		fileName: `${directory}.zip`,
-		totalFiles: paths.length,
+		totalFiles: entries.length,
 		totalBytes,
-		body: zipStream(store, prefix, paths, totalBytes, options.onProgress)
+		body: zipStream(store, entries, totalBytes, options.onProgress)
 	};
+}
+
+/**
+ * The Workspace files this Project's map Layers reference, at the archive paths they belong at.
+ *
+ * One `list` per referenced Historical Map rather than one walk of `images/`, because a Workspace can
+ * hold maps no Project uses (ADR-0023) and an export must not carry a stranger's pyramid — that is the
+ * difference between a Project bundle and a Workspace backup.
+ *
+ * A Layer whose image is not in the Workspace contributes nothing rather than failing: export is the
+ * way out of a browser, so it does not refuse. The archive is then missing that image and
+ * `assertReferencesPresent` says so on the way back in, naming the Layer — which is where a user can
+ * act on it.
+ */
+async function sharedEntries(
+	store: ProjectStore,
+	directory: string
+): Promise<{ archivePath: string; storePath: StorePath }[]> {
+	let layers;
+	try {
+		const raw: unknown = JSON.parse(
+			new TextDecoder('utf-8', { fatal: true }).decode(await store.read(projectFilePath(directory)))
+		);
+		layers = parseLayers((raw as { layers?: unknown } | null)?.layers);
+	} catch {
+		return [];
+	}
+
+	const imageIds = [
+		...new Set(
+			layers.flatMap((layer) =>
+				layer.kind === 'map' && layer.imageId !== '' ? [layer.imageId] : []
+			)
+		)
+	];
+
+	const found: { archivePath: string; storePath: StorePath }[] = [];
+	for (const imageId of imageIds) {
+		for (const path of await store.list(`${imageDirectory(imageId)}/`)) {
+			found.push({ archivePath: path, storePath: path as StorePath });
+		}
+		const alignment = alignmentPath(imageId);
+		try {
+			await store.size(alignment as StorePath);
+			found.push({ archivePath: alignment, storePath: alignment as StorePath });
+		} catch (cause) {
+			// A Historical Map nobody has placed yet has no Alignment, which is ordinary.
+			if (!(cause instanceof PathNotFoundError)) throw cause;
+		}
+	}
+	return found;
 }
 
 /**
@@ -136,8 +211,7 @@ export async function exportProjectZip(
  */
 function zipStream(
 	store: ProjectStore,
-	prefix: string,
-	paths: readonly string[],
+	entries: readonly { readonly archivePath: string; readonly storePath: StorePath }[],
 	totalBytes: number,
 	onProgress: TransferProgressListener | undefined
 ): ReadableStream<Uint8Array> {
@@ -155,7 +229,7 @@ function zipStream(
 	const report = (path: string | null) =>
 		onProgress?.({
 			files: next,
-			totalFiles: paths.length,
+			totalFiles: entries.length,
 			bytes: bytesDone,
 			totalBytes,
 			path
@@ -170,21 +244,21 @@ function zipStream(
 			// Everything fflate has already handed us goes out before another file is read, so the
 			// queue never holds more than one file's worth of the archive.
 			while (pending.length === 0 && !ended) {
-				const relative = paths[next];
-				if (relative === undefined) {
+				const source = entries[next];
+				if (source === undefined) {
 					// The central directory, which is what makes the archive readable at all.
 					zip.end();
 					ended = true;
 					report(null);
 					continue;
 				}
-				const bytes = await store.read((prefix + relative) as StorePath);
-				const entry = zipEntry(relative);
+				const bytes = await store.read(source.storePath);
+				const entry = zipEntry(source.archivePath);
 				zip.add(entry);
 				entry.push(bytes, true);
 				next += 1;
 				bytesDone += bytes.length;
-				report(relative);
+				report(source.archivePath);
 			}
 			if (failure) throw failure;
 			const chunk = pending.shift();
