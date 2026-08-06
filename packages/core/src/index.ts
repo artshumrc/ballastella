@@ -26,8 +26,10 @@ export {
 	type ProjectSummary,
 	type WorkspaceOptions
 } from './project/workspace.js';
+export { DirectoryHandleStore, type DirectoryResolver } from './store/directory-handle-store.js';
+export { FileSystemAccessProjectStore } from './store/file-system-access-project-store.js';
 export { MemoryProjectStore } from './store/memory-project-store.js';
-export { OpfsProjectStore, type DirectoryResolver } from './store/opfs-project-store.js';
+export { OpfsProjectStore } from './store/opfs-project-store.js';
 export {
 	InvalidPathError,
 	PathNotFoundError,
@@ -38,6 +40,15 @@ export {
 	type StorePath
 } from './store/project-store.js';
 export { TempFileWriteStore } from './store/temp-file-write-store.js';
+export {
+	FolderPermissionDeniedError,
+	chooseWorkspaceFolder,
+	forgetWorkspaceFolder,
+	grantWorkspaceFolder,
+	isFolderWorkspaceSupported,
+	rememberedFolderName,
+	reopenWorkspaceFolder
+} from './store/workspace-folder.js';
 
 export {
 	exportProjectZip,

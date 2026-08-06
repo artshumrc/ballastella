@@ -1,8 +1,13 @@
 import { expect, it } from 'vitest';
 
+import {
+	everyPathIn,
+	failNextDirectoryHandleWrite,
+	plantAbandonedWriteIn,
+	scratchDirectory
+} from './directory-handle-fixture.js';
 import { OpfsProjectStore } from './opfs-project-store.js';
-import { describeProjectStore, type WriteStep } from './project-store-suite.js';
-import { pathSegments, TEMP_PATH_SUFFIX, type StorePath } from './project-store.js';
+import { describeProjectStore } from './project-store-suite.js';
 
 /**
  * Real OPFS in a real browser. `*.browser.test.ts` files run in the browser project of
@@ -12,84 +17,17 @@ import { pathSegments, TEMP_PATH_SUFFIX, type StorePath } from './project-store.
  * Each store gets its own directory rather than the OPFS root, so tests do not see each
  * other's files. The app uses `OpfsProjectStore.open()`, whose root *is* the OPFS root —
  * asserted below, because that is the layout ADR-0008 specifies.
- */
-const scratchDirectory = async (label: string): Promise<FileSystemDirectoryHandle> => {
-	const root = await navigator.storage.getDirectory();
-	return root.getDirectoryHandle(`${label}-${crypto.randomUUID()}`, { create: true });
-};
-
-/** Every file under `directory`, recursively, sorted. Temporary files included. */
-async function everyPathIn(
-	directory: FileSystemDirectoryHandle,
-	prefix: string
-): Promise<StorePath[]> {
-	const found: StorePath[] = [];
-	for await (const [name, handle] of directory.entries()) {
-		if (handle.kind === 'file') found.push(`${prefix}${name}`);
-		else
-			found.push(...(await everyPathIn(handle as FileSystemDirectoryHandle, `${prefix}${name}/`)));
-	}
-	return found.sort();
-}
-
-/** Descend to (and create) the directory `path`'s file lives in. */
-async function directoryOf(
-	root: FileSystemDirectoryHandle,
-	path: StorePath
-): Promise<{ directory: FileSystemDirectoryHandle; name: string }> {
-	const segments = pathSegments(path);
-	const name = segments.pop() as string;
-	let directory = root;
-	for (const segment of segments) {
-		directory = await directory.getDirectoryHandle(segment, { create: true });
-	}
-	return { directory, name };
-}
-
-/**
- * Fail the next write at `step`, by patching the browser API the adapter calls.
  *
- * No spy on anything the adapter declares, and nothing about how it is built: `close()` is where
- * OPFS reports a full disk, and looking a temporary file up again is the first thing the move into
- * place does. Each patch restores itself the moment it fires, so exactly one write fails.
+ * The fixture is shared with the File System Access adapter's suite, because both backends are
+ * one `FileSystemDirectoryHandle` store; see `directory-handle-fixture.ts`.
  */
-function failNextWrite(step: WriteStep): void {
-	if (step === 'bytes') {
-		const close = FileSystemWritableFileStream.prototype.close;
-		FileSystemWritableFileStream.prototype.close = function () {
-			FileSystemWritableFileStream.prototype.close = close;
-			return Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'));
-		};
-		return;
-	}
-	const getFileHandle = FileSystemDirectoryHandle.prototype.getFileHandle;
-	FileSystemDirectoryHandle.prototype.getFileHandle = function (
-		name: string,
-		options?: FileSystemGetFileOptions
-	) {
-		// A lookup, not a creation: the creation is the temporary file landing, which has to succeed
-		// for this to be the *second* step failing.
-		if (name.endsWith(TEMP_PATH_SUFFIX) && options?.create !== true) {
-			FileSystemDirectoryHandle.prototype.getFileHandle = getFileHandle;
-			return Promise.reject(new DOMException('storage went away', 'InvalidStateError'));
-		}
-		return getFileHandle.call(this, name, options);
-	};
-}
-
 describeProjectStore('OpfsProjectStore', async () => {
 	const directory = await scratchDirectory('suite');
 	return {
 		store: new OpfsProjectStore(() => Promise.resolve(directory)),
 		everyStoredPath: () => everyPathIn(directory, ''),
-		failNextWrite,
-		plantAbandonedWrite: async (path) => {
-			const { directory: parent, name } = await directoryOf(directory, path);
-			const handle = await parent.getFileHandle(name, { create: true });
-			const writable = await handle.createWritable();
-			await writable.write('half a document');
-			await writable.close();
-		}
+		failNextWrite: failNextDirectoryHandleWrite,
+		plantAbandonedWrite: (path) => plantAbandonedWriteIn(directory, path)
 	};
 });
 
