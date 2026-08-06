@@ -109,12 +109,60 @@ async function exportArchive(store: MemoryProjectStore, directory: string): Prom
 }
 
 /** A zip built by something other than us, so import is tested against arbitrary archives. */
-const buildZip = (files: Record<string, string | Uint8Array>): Bytes => {
+const buildZip = (files: Record<string, string | Uint8Array>, level?: 0): Bytes => {
 	const zippable: Zippable = {};
 	for (const [name, content] of Object.entries(files)) {
 		zippable[name] = typeof content === 'string' ? encode(content) : content;
 	}
-	return zipSync(zippable);
+	return zipSync(zippable, level === 0 ? { level: 0 } : undefined);
+};
+
+// A zip's central directory is the index an importer reads before it inflates anything, and it is
+// the part an attacker or a damaged sync rewrites: every field below — declared uncompressed size,
+// declared compressed size, checksum — is a claim the archive makes about itself. These two helpers
+// let a test rewrite one of those claims and leave everything else intact, which is the only way to
+// assert that import checks them rather than trusting them.
+
+const read32 = (bytes: Uint8Array, at: number): number =>
+	((bytes[at] as number) |
+		((bytes[at + 1] as number) << 8) |
+		((bytes[at + 2] as number) << 16) |
+		((bytes[at + 3] as number) << 24)) >>>
+	0;
+
+const write32 = (bytes: Uint8Array, at: number, value: number): void => {
+	bytes[at] = value & 0xff;
+	bytes[at + 1] = (value >>> 8) & 0xff;
+	bytes[at + 2] = (value >>> 16) & 0xff;
+	bytes[at + 3] = (value >>> 24) & 0xff;
+};
+
+/** The offset of `name`'s central-directory record. */
+function centralRecord(archive: Uint8Array, name: string): number {
+	let end = archive.length - 22;
+	while (read32(archive, end) !== 0x06054b50) end -= 1;
+	let at = read32(archive, end + 16);
+	for (;;) {
+		const nameLength = (archive[at + 28] as number) | ((archive[at + 29] as number) << 8);
+		const extraLength = (archive[at + 30] as number) | ((archive[at + 31] as number) << 8);
+		const commentLength = (archive[at + 32] as number) | ((archive[at + 33] as number) << 8);
+		const found = decode(archive.subarray(at + 46, at + 46 + nameLength));
+		if (found === name) return at;
+		at += 46 + nameLength + extraLength + commentLength;
+	}
+}
+
+/** A copy of `archive` with one of `name`'s central-directory fields rewritten. */
+const patchCentralDirectory = (
+	archive: Bytes,
+	name: string,
+	field: 'crc' | 'compressedSize' | 'uncompressedSize',
+	value: number
+): Bytes => {
+	const patched = new Uint8Array(archive) as Bytes;
+	const at = centralRecord(patched, name);
+	write32(patched, at + { crc: 16, compressedSize: 20, uncompressedSize: 24 }[field], value);
+	return patched;
 };
 
 describe('exporting a Project as a zip', () => {
@@ -317,6 +365,32 @@ describe('a round trip through export and import', () => {
 		expect(seen[0]).toMatchObject({ files: 0, totalFiles: 6, path: null });
 		expect(seen.at(-1)).toMatchObject({ files: 6, totalFiles: 6, path: null });
 		expect(seen.at(-1)?.bytes).toBe(zip.totalBytes);
+	});
+
+	it('undoes what it wrote when a write fails part way through', async () => {
+		// A closed laptop, a full disk, a lapsed folder grant. Without a rollback the leftover files
+		// are invisible — `project.json` is written last, so the hub does not list the directory — and
+		// the name is taken forever: retrying the same zip meets "this Workspace already has a folder
+		// called amsterdam-1625" while the user looks at a hub listing no such Project.
+		const failing = new (class extends MemoryProjectStore {
+			override async write(path: StorePath, bytes: Bytes): Promise<void> {
+				if (path.endsWith('/info.json')) throw new Error('the disk is full');
+				return super.write(path, bytes);
+			}
+		})();
+		const workspace = new Workspace(failing);
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+
+		await expect(workspace.importProject('amsterdam-1625', zip)).rejects.toThrow(
+			'the disk is full'
+		);
+
+		expect(await failing.list('')).toEqual([]);
+		// Not merely absent from `list`: nothing at all, including the temporary files a failed write
+		// leaves behind, which `list` hides and only `reclaimAbandonedWrites` can reach.
+		expect([...failing.snapshot().keys()]).toEqual([]);
+		// And so the name is free again, which is the whole point: the user can fix the disk and retry.
+		await expect(workspace.suggestDirectory('amsterdam-1625')).resolves.toBe('amsterdam-1625');
 	});
 
 	it('writes project.json last, so an interrupted import is not a listed Project', async () => {
@@ -587,6 +661,79 @@ describe('rejecting a zip before writing anything', () => {
 		);
 		// `project.json` is written last, so the half-written directory is not a listed Project.
 		expect((await target.listProjects()).map((p) => p.directory)).toEqual([]);
+	});
+
+	it('rejects a deflated entry whose bytes do not match the checksum the zip carries', async () => {
+		// The archive claims this file is 100 bytes long when it is really 5000. Nothing in fflate
+		// notices: the declared size becomes the output buffer, the buffer is not resized because the
+		// caller supplied it, and what comes back is the first 100 bytes with no error at all. So the
+		// length of what was inflated is exactly what was declared, and a length check cannot see this
+		// — only the CRC-32 the zip already carries can.
+		const honest = buildZip({
+			...projectFiles(),
+			'annotations/warehouses.geojson': `{"type":"FeatureCollection","features":[${'0,'.repeat(2500)}0]}`
+		});
+		const damaged = patchCentralDirectory(
+			honest,
+			'annotations/warehouses.geojson',
+			'uncompressedSize',
+			100
+		);
+
+		const failure = await attemptImport(damaged).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('damaged-entry');
+		expect(failure.message).toContain('annotations/warehouses.geojson');
+		expect(failure.message).toContain('Nothing has been imported.');
+		// The whole import fails and rolls back, so the user is not left with a Project whose GeoJSON
+		// is the first hundred bytes of a file — unparseable, and nothing said.
+		await nothingWritten();
+	});
+
+	it('rejects a stored entry whose bytes do not match the checksum, which tiles rely on', async () => {
+		// Tiles are JPEG, so export stores them rather than deflating them (deflate saves nothing on
+		// already-compressed bytes). A stored entry has no deflate stream to fail, which makes CRC-32
+		// the *only* integrity check the zip format offers for the bulk of a real Project.
+		const files = projectFiles();
+		const archive = buildZip(files, 0);
+		const tile = 'images/amsterdam-1625/0,0,256,256/256,256/0/default.jpg';
+		const truncated = patchCentralDirectory(
+			patchCentralDirectory(archive, tile, 'compressedSize', 5),
+			tile,
+			'uncompressedSize',
+			5
+		);
+
+		const failure = await attemptImport(truncated).catch((c) => c);
+
+		expect(failure.reason).toBe('damaged-entry');
+		expect(failure.message).toContain(tile);
+		await nothingWritten();
+	});
+
+	it('rejects a project.json whose checksum does not match, before parsing it', async () => {
+		// `project.json` is the one file validation reads the contents of, so its checksum is verified
+		// where it is inflated rather than being left to the write pass.
+		const damaged = patchCentralDirectory(buildZip(projectFiles()), 'project.json', 'crc', 0);
+
+		const failure = await attemptImport(damaged).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('damaged-entry');
+		expect(failure.message).toContain('project.json');
+		await nothingWritten();
+	});
+
+	it('accepts an undamaged archive, so the checksum check is not simply refusing everything', async () => {
+		// The counterpart every integrity check needs: proof that it passes on good bytes. Without it
+		// a check that rejected unconditionally would satisfy all three tests above.
+		await expect(attemptImport(buildZip(projectFiles()))).resolves.toMatchObject({
+			directory: 'amsterdam-1625'
+		});
+		await expect(attemptImport(buildZip(projectFiles(), 0), 'stored')).resolves.toMatchObject({
+			directory: 'stored'
+		});
 	});
 
 	it('imports a zip whose annotation description carries an XSS payload, inert', async () => {

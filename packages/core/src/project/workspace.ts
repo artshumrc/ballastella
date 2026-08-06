@@ -235,14 +235,57 @@ export class Workspace {
 			});
 
 		report(null);
-		for await (const file of source.files()) {
-			await this.#store.write(`${directory}/${file.path}`, file.bytes);
-			files += 1;
-			bytes += file.bytes.length;
-			report(file.path);
+		const written: string[] = [];
+		try {
+			for await (const file of source.files()) {
+				const path = `${directory}/${file.path}`;
+				// Recorded before the write rather than after, so a write that fails part way through
+				// is still cleaned up: the destination may hold a partial file, and the temporary file
+				// the atomic write created may still be beside it.
+				written.push(path);
+				await this.#store.write(path, file.bytes);
+				files += 1;
+				bytes += file.bytes.length;
+				// A source that under-declares `totalBytes` would make the progress it reports a lie, and
+				// on an untrusted source — a zip somebody was handed — it is also the bound on how much
+				// of the user's disk this loop may fill. So the declared total is a contract, checked.
+				if (bytes > source.totalBytes) {
+					throw new Error(
+						`This Project holds more than the ${source.totalBytes} bytes it said it would, ` +
+							`so it has not been imported.`
+					);
+				}
+				report(file.path);
+			}
+		} catch (cause) {
+			await this.#rollBackImport(directory, written);
+			throw cause;
 		}
 		report(null);
 		return this.#summarise(directory);
+	}
+
+	/**
+	 * Undo a partly written import.
+	 *
+	 * Without it the leftovers are worse than useless. `project.json` is written last, so the hub
+	 * cannot list the directory and the user cannot see or delete what is there; and the name is
+	 * taken forever, because the collision check counts every top-level name — so retrying the same
+	 * file is told the folder already exists while the hub shows no such Project. A partially written
+	 * import is worse than a rejected one (ticket 13), and this is what makes the rejected one
+	 * reachable after the writing has begun — which CRC-32 verification makes necessary, since a
+	 * damaged entry cannot be found until it has been inflated.
+	 *
+	 * Best-effort, and it never throws: the failure the caller is about to see is the one that
+	 * matters, and a Workspace too broken to clean up is not one where a second error helps.
+	 */
+	async #rollBackImport(directory: string, written: readonly string[]): Promise<void> {
+		for (const path of written) {
+			await this.#store.delete(path).catch(() => undefined);
+		}
+		// The half-finished writes `list` cannot report and `delete` cannot be handed, which is
+		// exactly what a write interrupted between its two steps leaves behind.
+		await this.#store.reclaimAbandonedWrites(`${directory}/`).catch(() => undefined);
 	}
 
 	/** A free directory name near `preferred`, for offering a way past a collision. */
