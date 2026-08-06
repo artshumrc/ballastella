@@ -244,7 +244,7 @@
 			unexpose = exposeWarpedLayerToBrowserTests(current, layer);
 			// The distortion view is read here rather than being a dependency of this effect: it is a
 			// display setting, and making it a dependency is exactly the rebuild this avoids.
-			const render = showAlignment(layer, shown, distortionNow());
+			const render = showAlignment(layer, shown, { distortion: distortionNow() });
 			drawn = render.status === 'drawn' ? { layer, mapId: render.mapId } : null;
 			onwarped?.(render);
 		};

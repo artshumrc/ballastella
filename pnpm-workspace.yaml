@@ -52,6 +52,36 @@ catalog:
   '@allmaps/annotation': 1.0.0-beta.37
   '@allmaps/transform': 1.0.0-beta.52
 
+  # The Allmaps community alignment lookup (ticket 14, ADR-0015): `fetchAnnotationsFromApi`
+  # asks `annotations.allmaps.org` whether anyone has already georeferenced the resource the
+  # user is adding. Exact for the reason at the top of this block, and because the *shape* of
+  # what that API returns is what `@allmaps/annotation` then has to read.
+  #
+  # It reaches the network through the page's own `fetch` and takes no injection point, so the
+  # ADR-0015 "off means no request" rule is enforced by not calling it — see
+  # `packages/core/src/remote-iiif/community-alignments.ts`, which names the seam, and
+  # `EditorSession.fetchCommunityAnnotations`, which is the only call site.
+  #
+  # A dependency of `apps/editor` and **not** of `@ballastella/core`, for the same reason
+  # `wasm-vips` is: core names the seam and the app supplies the implementation. It pulls
+  # `lodash-es`, `@turf/rewind`, and `svg-parser` behind it, and ADR-0019 is explicit that
+  # tree-shaking is not a boundary — every published site ships the viewer bundle, and a reader
+  # never asks Allmaps anything.
+  '@allmaps/stdlib': 1.0.0-beta.41
+
+  # triiiceratops: Manifest and Collection browsing, canvas selection, and unwarped viewing
+  # (ADR-0018, ticket 14). Imported from its `./svelte` export as an ordinary Svelte component,
+  # never as the web component — the OpenSeadragon `TileSource` ADR-0011 requires is natural as
+  # a prop and awkward as an attribute.
+  #
+  # Exact, no range specifier, for the same reason as `@allmaps/*`: it is pre-1.0, we maintain
+  # it, and it carries `manifesto.js` — the second IIIF parser in the bundle, whose only
+  # contract with the first is the URI boundary in ADR-0018. A release that changed how a
+  # canvas's image service URI is reported would move that boundary silently.
+  #
+  # `apps/editor` only. `apps/viewer` gains it at ticket 17, if story 85 needs it.
+  triiiceratops: 1.0.0-rc.35
+
   # `@allmaps/maplibre` is the ADR-0011 injection point for warped rendering: `fetchFn` on
   # `WarpedMapLayer` is how a locally stored pyramid reaches it (ticket 06). Wired now, used in
   # anger by ticket 07. It depends on `maplibre-gl` ^5, which is the range the catalog holds —

@@ -41,6 +41,7 @@ import {
 	COMPUTED_DISTORTION_MEASURES,
 	DEFAULT_DISTORTION_VIEW,
 	MINIMUM_CONTROL_POINTS,
+	referencedGeoreferencedMap,
 	toGeoreferencedMap,
 	type Alignment,
 	type DistortionView,
@@ -118,20 +119,45 @@ function mapOptionsFor(alignment: Alignment, distortion: DistortionView) {
  * normal thing for the page to render. An Alignment with two Control Points is not an error — it
  * is a user halfway through their first pairing, who needs to be told that a third point is what
  * makes the map appear.
+ *
+ * `service` is the **remote** image service URI for a `'referenced'` image (ticket 14), and `''` for
+ * a local copy. It has to be here rather than inside the Alignment because `@allmaps/maplibre`
+ * builds every tile URL from the document's `resource.id`, and the two cases want different
+ * answers: the ADR-0004 placeholder, which the injection layer resolves out of the store, or the
+ * library's own address, which goes to the network. Passing `''` for a referenced image is a blank
+ * warped Layer — the same silent failure ticket 06 spent a patch on — so the caller derives it from
+ * the Layer's `imageMode` rather than deciding per call site.
  */
 export function showAlignment(
 	layer: WarpedMapLayer,
 	alignment: Alignment,
 	/**
-	 * How to colourise it. Defaults to nothing colourised, which is the right default for any caller
-	 * that has no distortion view of its own — a Layer of the stack, for instance, where the overlay
-	 * belongs to the Alignment being edited rather than to every Historical Map on the map.
-	 *
-	 * Note that the *other* two options this fills in are not display settings and are applied
-	 * regardless: `transformationType`, without which a second- or third-order Alignment is silently
-	 * drawn as affine, and `distortionMeasures`, without which nothing could be colourised later.
+	 * Named rather than positional, because tickets 08 and 14 each added a third parameter
+	 * independently — a distortion view and a service address — and collided. A future third concern
+	 * would collide again, and a caller that silently passed one in the other's position would get a
+	 * blank warped Layer, which is the failure this file already exists to prevent.
 	 */
-	distortion: DistortionView = DEFAULT_DISTORTION_VIEW
+	{
+		distortion = DEFAULT_DISTORTION_VIEW,
+		service = ''
+	}: {
+		/**
+		 * How to colourise it. Defaults to nothing colourised, which is the right default for any
+		 * caller that has no distortion view of its own — a Layer of the stack, for instance, where the
+		 * overlay belongs to the Alignment being edited rather than to every Historical Map on the map.
+		 *
+		 * Note that the *other* two options this fills in are not display settings and are applied
+		 * regardless: `transformationType`, without which a second- or third-order Alignment is
+		 * silently drawn as affine, and `distortionMeasures`, without which nothing could be
+		 * colourised later.
+		 */
+		distortion?: DistortionView;
+		/**
+		 * The service address for a referenced image, or `''` for a local copy. See the note above
+		 * `showAlignment` for why this cannot live inside the Alignment.
+		 */
+		service?: string;
+	} = {}
 ): WarpedRender {
 	const need = MINIMUM_CONTROL_POINTS[alignment.transformationType];
 	const have = alignment.controlPoints.length;
@@ -142,8 +168,16 @@ export function showAlignment(
 		// which is a claim rather than a guarantee, so it is widened and checked rather than trusted.
 		// Believing the declared type here would surface a rejected Alignment as a map id, and the
 		// symptom would be an empty Base Map with the page reporting success.
+		// Ticket 14 chooses the document (placeholder id versus the service's own address); ticket 08
+		// chooses the options. Both apply to either document — a referenced image needs
+		// `transformationType` just as much as a local copy does, and dropping the options for it was
+		// how the two changes first collided.
+		const document =
+			service === ''
+				? toGeoreferencedMap(alignment)
+				: referencedGeoreferencedMap(alignment, service);
 		const mapId: unknown = layer.addGeoreferencedMap(
-			toGeoreferencedMap(alignment),
+			document,
 			mapOptionsFor(alignment, distortion)
 		);
 		if (mapId instanceof Error) return { status: 'refused', reason: mapId.message };

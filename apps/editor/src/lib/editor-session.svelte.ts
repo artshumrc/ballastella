@@ -1,3 +1,5 @@
+import { fetchAnnotationsFromApi } from '@allmaps/stdlib';
+
 import {
 	Autosave,
 	OpfsProjectStore,
@@ -15,9 +17,11 @@ import {
 	exportProjectZip,
 	imageIdFromAlignmentRef,
 	imageManifestPath,
+	imageModeOf,
 	ingestImageFile,
 	installFlushOnHide,
 	listIngestedImages,
+	listReferencedImages,
 	moveLayer,
 	newAlignment,
 	newAnnotationLayer,
@@ -27,10 +31,15 @@ import {
 	projectFilePath,
 	readImageLabel,
 	readProjectZip,
+	referencedImage,
+	referencedImageStorePath,
 	renameLayer,
 	serialiseAlignment,
+	serialiseReferencedAlignment,
+	serialiseReferencedImage,
 	setLayerVisible,
 	setMapLayerOpacity,
+	sourceOf,
 	streamingTiler,
 	toDirectoryName,
 	type Alignment,
@@ -44,6 +53,8 @@ import {
 	type ProjectStore,
 	type ProjectSummary,
 	type ProjectZip,
+	type ReferencedImage,
+	type RemoteImageService,
 	type SaveState,
 	type TransferProgress
 } from '@ballastella/core';
@@ -161,6 +172,24 @@ export class EditorSession {
 	 * disappears when there is nothing to report instead of sitting at 100% forever.
 	 */
 	images = $state<IngestedImage[]>([]);
+	/**
+	 * The Historical Maps this Project **references** rather than holds (ticket 14, ADR-0007).
+	 *
+	 * A separate list from {@link images} and disjoint from it: a local copy has an `info.json` in the
+	 * Project and a referenced image has a `remote.json` instead, because its tiles and its
+	 * description are both on somebody else's server. Together they are the Project's Historical Maps.
+	 * Keeping them apart is what makes `imageMode` a fact about where bytes are rather than a flag
+	 * somebody has to remember to set.
+	 */
+	referencedImages = $state<ReferencedImage[]>([]);
+	/**
+	 * Referenced images whose `remote.json` will not parse, by id and reason.
+	 *
+	 * Surfaced rather than swallowed, for the same reason {@link alignmentError} is: the Project has a
+	 * Layer that names an image nothing can draw, and drawing nothing while saying nothing is how a
+	 * user concludes the tool lost their work.
+	 */
+	referencedImageErrors = $state<{ imageId: string; reason: string }[]>([]);
 	ingest = $state<IngestProgress | null>(null);
 	/** The name of the file being ingested, for the progress message (SPEC story 23). */
 	ingestLabel = $state('');
@@ -409,6 +438,8 @@ export class EditorSession {
 		this.openProject = null;
 		this.projectProblem = null;
 		this.images = [];
+		this.referencedImages = [];
+		this.referencedImageErrors = [];
 		this.ingestError = '';
 		// The hub is what a null `?p=` shows, and it needs the list. Listing here rather than on
 		// every mutation is what keeps typing a Project name from walking the whole Workspace once
@@ -423,8 +454,13 @@ export class EditorSession {
 			this.status = 'ready';
 			this.unreachableDetail = '';
 			// A read, like everything else on this path: `listIngestedImages` looks for `info.json`
-			// files and writes nothing (ADR-0010).
+			// files and writes nothing (ADR-0010). `listReferencedImages` looks for `remote.json`, which
+			// is the same walk of the same directory and is where the other kind of Historical Map is.
 			this.images = await listIngestedImages(this.#store, directory);
+			const referenced = await listReferencedImages(this.#store, directory);
+			if (generation !== this.#openGeneration) return;
+			this.referencedImages = referenced.images;
+			this.referencedImageErrors = referenced.unreadable;
 		} catch (cause) {
 			if (generation !== this.#openGeneration) return;
 			const problem = describeProblem(cause, directory);
@@ -612,6 +648,125 @@ export class EditorSession {
 			)
 		};
 		await this.#write(directory);
+	}
+
+	/**
+	 * Add a Historical Map that stays on somebody else's server (SPEC stories 16–20, 25, 29).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE ORDER OF THE THREE WRITES, WHICH IS NOT ARBITRARY
+	 *
+	 *   1. `images/<id>/remote.json` — where the tiles are, and the provenance.
+	 *   2. `alignments/<id>.json`, only when the user is importing a community Alignment.
+	 *   3. `project.json`, gaining the Layer that references both.
+	 *
+	 * `project.json` is **last**, and it is the same discipline `addAnnotationLayer` follows and the
+	 * same one ticket 13's importer follows: a Layer whose references name files that do not exist is
+	 * a Project that `assertReferencesPresent` refuses. Written the other way round, a failure between
+	 * the writes would leave a Layer in the stack that nothing can draw and that no later action would
+	 * repair. Written this way, a failure leaves an orphaned `remote.json` — a file nothing reads,
+	 * which the next add overwrites.
+	 *
+	 * `imageMode: 'referenced'` is derived from the source rather than typed in, so the Layer's claim
+	 * and where its tiles actually come from cannot be written independently.
+	 *
+	 * The Alignment, when there is one, is serialised with the **remote service** as its
+	 * `resource.id`, not the ADR-0004 placeholder. For a referenced image that is both what makes the
+	 * file resolvable by Allmaps (ADR-0007, SPEC story 91) and what makes the warped Layer render at
+	 * all — `@allmaps/maplibre` fetches tiles from that `id`.
+	 *
+	 * @returns the Layer, or `null` when nothing could be written
+	 */
+	async addReferencedMap(fields: {
+		service: RemoteImageService;
+		label: string;
+		partOf: string;
+		canvas: string;
+		rights: string;
+		attribution: string;
+		/** A community Alignment to import, or `null` to start from scratch (ADR-0015). */
+		alignment: Alignment | null;
+	}): Promise<MapLayer | null> {
+		const directory = this.openDirectory;
+		const project = this.openProject;
+		if (!directory || !project) return null;
+
+		const { service } = fields;
+		const record = referencedImage({
+			imageId: service.imageId,
+			service: service.uri,
+			label: fields.label,
+			partOf: fields.partOf,
+			canvas: fields.canvas,
+			rights: fields.rights,
+			attribution: fields.attribution,
+			width: service.width,
+			height: service.height
+		});
+		const source = sourceOf(record);
+
+		try {
+			await this.#autosave.commit(
+				referencedImageStorePath(directory, record.imageId),
+				serialiseReferencedImage(record)
+			);
+			if (fields.alignment) {
+				await this.#autosave.commit(
+					alignmentStorePath(directory, record.imageId),
+					serialiseReferencedAlignment(
+						{ ...fields.alignment, imageId: record.imageId },
+						record.service
+					)
+				);
+			}
+		} catch (cause) {
+			this.saveError = cause instanceof Error ? cause.message : String(cause);
+			return null;
+		}
+
+		const alignmentRef = alignmentPath(record.imageId);
+		const existing = project.layers.find(
+			(layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef
+		);
+		// Adding the same remote resource twice is one Layer, not two. `generateId(uri)` is
+		// deterministic, so the second add lands on the same image id — which is a feature (a whole
+		// class adding the same map produces one Layer each, and a colleague's Project agrees) and
+		// would otherwise be a duplicate Layer over the same tiles.
+		if (existing && existing.kind === 'map') {
+			this.referencedImages = [
+				...this.referencedImages.filter((image) => image.imageId !== record.imageId),
+				record
+			];
+			return existing;
+		}
+
+		const layer = newMapLayer({
+			id: crypto.randomUUID(),
+			name: record.label || record.imageId,
+			alignmentRef,
+			imageMode: imageModeOf(source)
+		});
+		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
+		await this.#write(directory);
+		if (this.saveError !== '') return null;
+		this.referencedImages = [...this.referencedImages, record];
+		return layer;
+	}
+
+	/**
+	 * Ask `annotations.allmaps.org` whether anyone has already aligned this image.
+	 *
+	 * The seam is here because this is the only place the app talks to `@ballastella/core` and to the
+	 * `@allmaps/*` packages, and because it is the *only* call site — `findCommunityAlignments`
+	 * returns before reaching it when the setting is off, so "off means no request" is structural
+	 * rather than a flag threaded through a third party's code.
+	 *
+	 * `fetchAnnotationsFromApi` reaches the network through the page's own `fetch` and offers no
+	 * injection point, which is why it cannot be routed through the ADR-0011 shim and why the request
+	 * is counted by `recordRemoteRequest` at the caller instead.
+	 */
+	async fetchCommunityAnnotations(image: Parameters<typeof fetchAnnotationsFromApi>[0]) {
+		return fetchAnnotationsFromApi(image);
 	}
 
 	/** What the user calls one Historical Map, or `''` when its manifest cannot be read. */

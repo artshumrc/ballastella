@@ -197,6 +197,80 @@ export {
 	type FetchFn,
 	type StoreImageFetchOptions
 } from './injection/store-image-fetch.js';
+export {
+	storedPyramidTileSource,
+	type OpenSeadragonTileContext,
+	type OpenSeadragonTileSource,
+	type StoredPyramidTileSourceOptions
+} from './injection/openseadragon-tile-source.js';
+
+// Remote IIIF ingest (ticket 14; ADR-0007, ADR-0015, ADR-0018). Free of triiiceratops and of
+// OpenSeadragon: the parser boundary is a string, and the OpenSeadragon tile source above is
+// duck-typed, so `apps/viewer` gains neither by depending on this package (ADR-0019).
+export {
+	COMMUNITY_ALIGNMENT_DISCLOSURE,
+	COMMUNITY_ALIGNMENT_HOST,
+	MAX_COMMUNITY_ALIGNMENTS,
+	findCommunityAlignments,
+	type CommunityAlignment,
+	type CommunityAlignmentOffer,
+	type FetchCommunityAnnotations
+} from './remote-iiif/community-alignments.js';
+export {
+	RemoteImageUnusableError,
+	measureTileWithImageBitmap,
+	probeRemoteImageService,
+	type MeasureTile,
+	type RemoteImageProbe,
+	type RemoteProbeStage
+} from './remote-iiif/cors-probe.js';
+export {
+	DESCRIPTION_LIMITS,
+	describeRemoteResource,
+	imageServiceOf,
+	type DescribedCanvas,
+	type DescribedField,
+	type DescribedItem,
+	type DescribedResource
+} from './remote-iiif/describe-resource.js';
+export {
+	MAX_REMOTE_IMAGE_PIXELS,
+	acceptRemoteImageService,
+	readRemoteImageService,
+	type RemoteImageService
+} from './remote-iiif/image-service.js';
+export {
+	ParserBoundaryError,
+	imageServiceUriCrossingBoundary
+} from './remote-iiif/parser-boundary.js';
+export {
+	REFERENCED_IMAGE_FILE,
+	ReferencedImageUnreadableError,
+	imageModeOf,
+	isReferenced,
+	listReferencedImages,
+	localCopySource,
+	parseReferencedImage,
+	referencedGeoreferencedMap,
+	referencedImage,
+	referencedImagePath,
+	referencedImageStorePath,
+	serialiseReferencedAlignment,
+	serialiseReferencedImage,
+	sourceOf,
+	tileBaseFor,
+	type HistoricalMapSource,
+	type ReferencedImage
+} from './remote-iiif/referenced-image.js';
+export {
+	REMOTE_IIIF_LIMITS,
+	RemoteIiifRejectedError,
+	readRemoteIiifResource,
+	remoteIiifUrl,
+	type RemoteIiifKind,
+	type RemoteIiifLimits,
+	type RemoteIiifResource
+} from './remote-iiif/remote-resource.js';
 
 export * from './base-map';
 export * from './theme';
