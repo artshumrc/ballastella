@@ -276,11 +276,21 @@ test.describe('publishing a Workspace', () => {
 
 			// The Project's own data was read over HTTP, relative to the site: the Layer names come out
 			// of `amsterdam-1625/project.json`.
-			await expect(page.getByTestId('project-layers')).toContainText('The 1625 plan');
-			await expect(page.getByTestId('project-layers')).toContainText('Warehouses');
-			// And the Base Map the author chose, resolved against the catalog that travelled with the
-			// site rather than against this build's (ADR-0020).
-			await expect(page.getByTestId('project-base-map')).toHaveText('Base Map: Physical geography');
+			//
+			// `reader-layers` rather than ticket 16's `project-layers`: that was a static list of what the
+			// Project contained, and ticket 17 replaced it with the Reader's own Layer controls over the same
+			// data. The claim this test makes is unchanged — those names could only have come from
+			// `project.json`, fetched relative to this document — so it moves to the element that now carries
+			// them rather than being weakened.
+			await expect(page.getByTestId('reader-layers')).toContainText('The 1625 plan');
+			await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
+			// And the Base Map the author chose is the one shown first, resolved against the catalog that
+			// travelled with the site rather than against this build's (ADR-0020, SPEC story 69). The
+			// switcher's *selected* value, since ticket 17 made the choice a Reader's to change.
+			await expect(page.getByTestId('base-map-switcher')).toHaveValue('physical');
+			await expect(
+				page.getByTestId('base-map-switcher').locator('option[value="physical"]')
+			).toHaveText('Physical geography');
 
 			// Nothing 404'd. This is the assertion that fails when an asset is referenced as `/_app/…`:
 			// it is answered at a domain root and is outside the published folder in a subdirectory,

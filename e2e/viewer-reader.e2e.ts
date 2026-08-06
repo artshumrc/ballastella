@@ -209,9 +209,10 @@ const PAYLOADS = [
 
 /** Open a site holding one Project, and hand back the two served base paths. */
 async function published(
-	files: SiteFiles
+	files: SiteFiles,
+	options: { withoutBaseMap?: boolean } = {}
 ): Promise<{ sites: StaticSite[]; directory: string; close(): Promise<void> }> {
-	return servePublishedSite(files);
+	return servePublishedSite(files, options);
 }
 
 /** The Workspace of one Project, plus the site record that lists it. */
@@ -1164,6 +1165,40 @@ test.describe('a Published Site that is not entirely well', () => {
 		const chosen = await page.getByTestId('base-map-switcher').inputValue();
 		expect(chosen).not.toBe('a-base-map-from-another-deployment');
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('draws the work and says so when the site carries no copy of the Base Map', async ({
+		page
+	}) => {
+		// ADR-0020's opt-in, from the Reader's side (SPEC stories 88 and 89): including the Base Map's own
+		// 4.9 MB is a choice a scholar makes at publish time, and a great many sites will not have it.
+		//
+		// **The assertion that matters is that nothing was requested.** A bundled entry's archive, glyphs,
+		// and sprites are site-relative paths, so a viewer that built the ordinary style anyway would fire a
+		// pmtiles range request and two sprite requests at files that are not there — three 404s, a blank
+		// rectangle, and no account of either. This test exists because the *published* site's own e2e
+		// caught exactly that the first time the viewer drew a map at all.
+		// The record says so as well as the files being absent, which is what publishing writes: `publishSite`
+		// records `baseMapBundled` from the same answer that decided whether to write them, so the two cannot
+		// disagree on a real site.
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapBundled: false }), {
+			withoutBaseMap: true
+		});
+		const served = site.sites[0]!;
+		const seen = watch(page);
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await mapReady(page);
+
+		await expect(page.getByTestId('base-map-unavailable')).toContainText('without its own copy');
+		// It names the way out, and the entries that would work are marked in the switcher.
+		await expect(page.getByTestId('base-map-unavailable')).toContainText('needs network');
+		// The scholar's own work is still drawn: this is a missing *reference* map, not a missing Project.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		// And not one request for a file the site does not hold.
+		expect(seen.requests.filter((request) => request.url.includes('/base-map/'))).toEqual([]);
+		expect(served.failures).toEqual([]);
 		expect(seen.failures).toEqual([]);
 	});
 

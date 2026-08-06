@@ -39,16 +39,27 @@ export const SITE_PREFIXES = ['', '/student/atlas-2026'] as const;
 export type SiteFiles = Record<string, string | Uint8Array>;
 
 /**
- * A Workspace directory holding the built viewer, the Base Map's own files, and `files`.
+ * A Workspace directory holding the built viewer, `files`, and — unless asked otherwise — the Base Map's
+ * own files.
  *
- * The Base Map is copied because ADR-0020's self-contained site is the case a Reader on a train has, and
- * because without the archive the map is blank — which would make every "is the Layer drawn?" assertion
- * below a test of nothing.
+ * The Base Map is copied by default because ADR-0020's self-contained site is the case a Reader on a
+ * train has, and because without the archive the reference map is blank, which would make every "is the
+ * Layer drawn?" assertion a test of nothing.
+ *
+ * `withoutBaseMap` is the **other** supported state and not a broken one: including those 4.9 MB is opt-in
+ * at publish time (SPEC stories 88 and 89), so a great many real sites will not have them. A bundled
+ * catalog entry's archive, glyphs, and sprites are all site-relative paths, so this is the shape in which
+ * a viewer that asked for them anyway would answer a Reader with three 404s and a blank rectangle.
  */
-export async function writePublishedSite(files: SiteFiles): Promise<string> {
+export async function writePublishedSite(
+	files: SiteFiles,
+	options: { withoutBaseMap?: boolean } = {}
+): Promise<string> {
 	const directory = await mkdtemp(path.join(tmpdir(), 'ballastella-site-'));
 	await cp(viewerBuild, directory, { recursive: true });
-	await cp(baseMapAssets, path.join(directory, 'base-map'), { recursive: true });
+	if (!options.withoutBaseMap) {
+		await cp(baseMapAssets, path.join(directory, 'base-map'), { recursive: true });
+	}
 	for (const [relative, contents] of Object.entries(files)) {
 		const file = path.join(directory, relative);
 		await mkdir(path.dirname(file), { recursive: true });
@@ -97,12 +108,15 @@ export const asJson = (value: unknown): string => `${JSON.stringify(value, null,
  *
  * The same directory behind both, so this cannot accidentally become a test of two builds.
  */
-export async function servePublishedSite(files: SiteFiles): Promise<{
+export async function servePublishedSite(
+	files: SiteFiles,
+	options: { withoutBaseMap?: boolean } = {}
+): Promise<{
 	directory: string;
 	sites: StaticSite[];
 	close(): Promise<void>;
 }> {
-	const directory = await writePublishedSite(files);
+	const directory = await writePublishedSite(files, options);
 	const sites = await Promise.all(SITE_PREFIXES.map((prefix) => serveDirectory(directory, prefix)));
 	return {
 		directory,

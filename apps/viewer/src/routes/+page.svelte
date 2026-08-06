@@ -45,6 +45,7 @@
 		createStoreImageFetch,
 		imageIdFromAlignmentRef,
 		imageInfoPath,
+		isAbsoluteUrl,
 		isDescriptionRendererSupported,
 		otherTheme,
 		parseProjectFile,
@@ -442,6 +443,30 @@
 	const baseMap = $derived(resolveBaseMap(chosen ?? openProject?.file.baseMap ?? null, catalog));
 	const baseMapNotice = $derived(baseMapFallbackNotice(baseMap));
 
+	/**
+	 * Whether this site carries the Base Map's own files (ADR-0020, SPEC stories 88 and 89).
+	 *
+	 * Read out of the site record, because including them is opt-in at publish time: they are about 4.9 MB
+	 * against the same hosting budget as the scholar's Historical Maps, and a scholar publishing to a
+	 * network-connected audience reasonably leaves them out. Defaults to attempting them when there is no
+	 * record to read, which is the pre-publish bundle where nothing else works either.
+	 */
+	const bundledBaseMapAvailable = $derived(site === null ? true : site.baseMapBundled);
+
+	/**
+	 * Why the modern reference map is missing, or `''`.
+	 *
+	 * Said rather than left as an empty rectangle. This is the ADR-0020 case a Reader actually meets, and
+	 * the entries that *would* work are already marked in the switcher — so the sentence points at them
+	 * rather than merely apologising.
+	 */
+	const baseMapUnavailable = $derived(
+		!bundledBaseMapAvailable && !isAbsoluteUrl(baseMap.entry.archive)
+			? 'This site was published without its own copy of the modern reference map, so only the ' +
+					'Historical Maps and Annotations are drawn. The Base Maps marked “needs network” still work.'
+			: ''
+	);
+
 	/** Remember the Reader's choice for this site, and for no other (ADR-0020). Never Project data. */
 	function chooseBaseMap(id: string): void {
 		chosen = id;
@@ -728,6 +753,12 @@
 							</p>
 						{/if}
 
+						{#if baseMapUnavailable}
+							<p class="text-sm text-warning" aria-live="polite" data-testid="base-map-unavailable">
+								{baseMapUnavailable}
+							</p>
+						{/if}
+
 						<ReaderLayerControls
 							{layers}
 							{outcomes}
@@ -769,6 +800,7 @@
 								<ReaderMapPane
 									entryId={baseMap.entry.id}
 									{catalog}
+									{bundledBaseMapAvailable}
 									layers={drawn}
 									{fetchTile}
 									popupAnnotation={selectedAnnotation}

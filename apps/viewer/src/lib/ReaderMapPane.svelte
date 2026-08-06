@@ -37,6 +37,7 @@
 		ANNOTATION_ID_PROPERTY,
 		baseMapStyle,
 		defaultEntry,
+		isAbsoluteUrl,
 		type Annotation,
 		type BaseMapCatalog,
 		type FetchFn,
@@ -63,6 +64,7 @@
 	let {
 		entryId,
 		catalog,
+		bundledBaseMapAvailable,
 		layers = [],
 		fetchTile,
 		popupAnnotation = null,
@@ -82,6 +84,17 @@
 		 * make the correct behaviour the one a caller had to remember.
 		 */
 		catalog: BaseMapCatalog;
+		/**
+		 * Whether this site carries the Base Map's own files — the pmtiles archive, its glyphs, and its
+		 * sprites (ADR-0020, SPEC story 88).
+		 *
+		 * `false` is an ordinary, supported state: including them is opt-in at publish time because they are
+		 * about 4.9 MB against the same hosting budget as the scholar's Historical Maps. What must not happen
+		 * is the site asking for them anyway — a bundled entry's `archive` is a **site-relative path**, so on
+		 * a site published without them every tile, glyph, and sprite request is a 404 and the Reader gets a
+		 * blank map with nothing to explain it. See {@link styleFor}.
+		 */
+		bundledBaseMapAvailable: boolean;
 		/**
 		 * The Layers to draw, top of the stack first, with each Layer's documents already read.
 		 *
@@ -133,9 +146,32 @@
 	 * this Published Site, and reaching them by `/base-map/…` would work at a domain root and 404 in a
 	 * subdirectory (ADR-0006). An entry whose `archive` is an absolute URL is left alone — that is the
 	 * `needsNetwork` case.
+	 *
+	 * **A bare style when the files are not here.** A site published without its Base Map (ADR-0020's
+	 * opt-in, SPEC stories 88 and 89) holds no `base-map/` directory at all, and a bundled entry's archive,
+	 * glyphs, and sprites are all site-relative paths — so building the ordinary style would fire a
+	 * pmtiles range request and two sprite requests at files that are not there. The Reader would get a
+	 * blank map, three 404s, and no account of either. So the reference map is simply absent, the Project's
+	 * own Layers still draw over the background, and the page says why (see `base-map-unavailable`).
 	 */
 	const styleFor = (id: string): StyleSpecification => {
 		const entry = catalog.entries.find((candidate) => candidate.id === id) ?? defaultEntry(catalog);
+		if (!bundledBaseMapAvailable && !isAbsoluteUrl(entry.archive)) {
+			return {
+				version: 8,
+				sources: {},
+				// No `glyphs` and no `sprite`: both are site-relative templates, and asking for them is the
+				// other half of the same 404. Nothing the Layer stack draws needs either — a warped Historical
+				// Map is custom WebGL, and Annotations are circles, lines, and fills.
+				layers: [
+					{
+						id: 'ballastella-no-base-map',
+						type: 'background',
+						paint: { 'background-color': theme.current === 'dark' ? '#1d232a' : '#f2f2f2' }
+					}
+				]
+			};
+		}
 		return baseMapStyle(entry, { theme: theme.current, catalog, resolveAsset: resolveSiteAsset });
 	};
 
