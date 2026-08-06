@@ -1,18 +1,19 @@
 /**
- * The one field of `project.json` this slice touches.
+ * The one reader of `project.json`'s Base Map field.
  *
- * ────────────────────────────────────────────────────────────────────────────────────────────
- * SEAM WITH TICKET 02. Ticket 02 owns `project.json`, the `ProjectStore` abstraction, and the
- * autosave rules; it writes `baseMap: null` into a new Project's document. This module is
- * deliberately narrower than that: two pure functions over an already-parsed document, with no
- * opinion about how it was read or how it is written back. When ticket 02 lands, its document
- * type gains `baseMap: string | null` and these two functions keep working unchanged.
- * ────────────────────────────────────────────────────────────────────────────────────────────
+ * `parseProjectFile` calls this rather than inspecting the field itself, so there is exactly one
+ * implementation of "what did the author choose?". While there were two, `"baseMap": "  "` was
+ * no choice down one code path and a Base Map called two spaces down the other, and which
+ * behaviour a user got depended on which pane happened to open their Project.
  *
- * The rule these enforce is ADR-0020's, which is ADR-0004's discipline applied a second time:
+ * The rule it enforces is ADR-0020's, which is ADR-0004's discipline applied a second time:
  * portable data records **intent** — a stable id — never an **address**. It matters more here
  * than for image services, because a Base Map that fails to resolve renders a plausible-looking
  * but *wrong* map rather than an obvious error.
+ *
+ * There is deliberately no writer here to match. `ProjectFile` types the field and
+ * `serialiseProjectFile` writes it, and that is the only way it is written: a second writer over
+ * a loosely-typed document is how a Base Map choice ends up clobbering a Layer list.
  */
 
 /** The key `project.json` records the author's default Base Map under (ADR-0020). */
@@ -32,18 +33,4 @@ export function readBaseMapId(document: unknown): string | null {
 	if (typeof value !== 'string') return null;
 	const trimmed = value.trim();
 	return trimmed === '' ? null : trimmed;
-}
-
-/**
- * The same document with the author's default Base Map set to `id`.
- *
- * Returns a new object and leaves every other key alone, so writing a Base Map choice can never
- * be the thing that drops a Layer list. `id` is an id: this function has no way to record a URL
- * and no caller may give it one.
- */
-export function withBaseMapId<Document extends object>(
-	document: Document,
-	id: string
-): Document & { baseMap: string } {
-	return { ...document, [PROJECT_BASE_MAP_KEY]: id };
 }

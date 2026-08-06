@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
+import { newProjectFile, parseProjectFile, serialiseProjectFile } from '../project/project-file.js';
 import { BASE_MAP_CATALOG } from './catalog';
-import { readBaseMapId, withBaseMapId } from './project';
+import { readBaseMapId } from './project';
 import { resolveBaseMap } from './resolve';
 
-/** The document ticket 02 writes for a new Project. */
-const newProject = () => ({ formatVersion: 1, name: 'Amsterdam 1625', layers: [], baseMap: null });
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+/** A Project's manifest as it sits on disk, with `baseMap` set to `id`. */
+const savedWith = (id: string | null) =>
+	serialiseProjectFile({
+		...newProjectFile('Amsterdam 1625', new Date('2026-01-01T00:00:00.000Z')),
+		baseMap: id
+	});
 
 describe('the Base Map field of project.json', () => {
 	it('records the author choice as an id, and nothing that could be an address', () => {
 		const entry = BASE_MAP_CATALOG.entries[1];
 		if (entry === undefined) throw new Error('the catalog needs a second entry for this test');
 
-		const written = JSON.stringify(withBaseMapId(newProject(), entry.id));
+		const written = decode(savedWith(entry.id));
 
 		expect(JSON.parse(written).baseMap).toBe(entry.id);
 		// ADR-0020: never a URL. The file is portable across deployments precisely because it
@@ -22,20 +29,22 @@ describe('the Base Map field of project.json', () => {
 	});
 
 	it('leaves every other field of the document alone', () => {
-		const before = newProject();
-		const after = withBaseMapId(before, 'physical');
+		const written = JSON.parse(decode(savedWith('physical')));
 
-		expect(after).toMatchObject({ formatVersion: 1, name: 'Amsterdam 1625', layers: [] });
-		// Returns a new document rather than mutating the caller's.
-		expect(before.baseMap).toBeNull();
+		expect(written).toMatchObject({
+			formatVersion: 1,
+			name: 'Amsterdam 1625',
+			updatedAt: '2026-01-01T00:00:00.000Z',
+			layers: []
+		});
 	});
 
 	it('reads back what it wrote', () => {
-		expect(readBaseMapId(withBaseMapId(newProject(), 'muted'))).toBe('muted');
+		expect(parseProjectFile(savedWith('muted')).baseMap).toBe('muted');
 	});
 
 	it('reads a Project that has recorded no choice as no choice', () => {
-		expect(readBaseMapId(newProject())).toBeNull();
+		expect(parseProjectFile(savedWith(null)).baseMap).toBeNull();
 		expect(readBaseMapId({ formatVersion: 1 })).toBeNull();
 	});
 
@@ -55,18 +64,14 @@ describe('the Base Map field of project.json', () => {
 	});
 
 	it('reopens a Project onto the Base Map the author chose', () => {
-		const saved = JSON.stringify(withBaseMapId(newProject(), 'physical'));
-
-		const reopened = resolveBaseMap(readBaseMapId(JSON.parse(saved)));
+		const reopened = resolveBaseMap(parseProjectFile(savedWith('physical')).baseMap);
 
 		expect(reopened.entry.id).toBe('physical');
 		expect(reopened.fellBack).toBe(false);
 	});
 
 	it('opens a Project from another deployment onto the local default, quietly noted', () => {
-		const fromElsewhere = JSON.stringify(withBaseMapId(newProject(), 'ordnance-survey-1888'));
-
-		const reopened = resolveBaseMap(readBaseMapId(JSON.parse(fromElsewhere)));
+		const reopened = resolveBaseMap(parseProjectFile(savedWith('ordnance-survey-1888')).baseMap);
 
 		expect(reopened.entry.id).toBe(BASE_MAP_CATALOG.defaultId);
 		expect(reopened.fellBack).toBe(true);

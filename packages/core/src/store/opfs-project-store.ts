@@ -69,11 +69,15 @@ export class OpfsProjectStore extends TempFileWriteStore {
 		const writable = await handle.createWritable();
 		try {
 			await writable.write(bytes);
+			// `close` is inside the guard because `close` is where OPFS reports a full disk: the
+			// implementation exchanges the swap file for the real one there, and that is the step
+			// that needs the quota. Outside it, a quota failure left the stream open and its swap
+			// file allocated, on top of leaving the temporary file behind.
+			await writable.close();
 		} catch (cause) {
 			await writable.abort().catch(() => undefined);
 			throw cause;
 		}
-		await writable.close();
 	}
 
 	protected async renameTempFile(from: StorePath, to: StorePath): Promise<void> {

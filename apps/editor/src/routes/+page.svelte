@@ -13,13 +13,29 @@
 	// rather than at module scope.
 	let session = $state<EditorSession | null>(null);
 
+	/**
+	 * Why this browser cannot hold a Workspace at all, if it cannot. Set in an effect rather than
+	 * at component scope because the answer is `false` during prerendering too, where there is no
+	 * `navigator.storage` and nothing has gone wrong.
+	 */
+	let unsupported = $state('');
+
 	$effect(() => {
+		// Read into a local rather than back out of the state it just set: an effect that reads the
+		// `$state` it writes takes a dependency on itself.
+		const reason = EditorSession.unsupportedReason();
+		unsupported = reason;
+		if (reason) return;
 		const created = EditorSession.opfs();
 		session = created;
-		void created.refresh();
 		return created.installFlushOnHide();
 	});
 
+	// `open(null)` lists the Projects, so the hub is current whenever it is what is on screen.
+	// Listing here rather than after every mutation is what keeps typing a Project name from
+	// walking the whole Workspace once per keystroke — a Project with a 2 GB pyramid is tens of
+	// thousands of files, and the debounce would otherwise coalesce writes only to be defeated by
+	// a read storm.
 	$effect(() => {
 		void session?.open(openDirectory);
 	});
@@ -30,7 +46,14 @@
 <main class="mx-auto max-w-4xl p-8">
 	<h1 class="text-3xl font-bold">Ballastella Editor</h1>
 
-	{#if session === null}
+	{#if unsupported}
+		<!-- OPFS is missing only in a non-secure context, and the raw DOM failure for that
+		     diagnoses nothing. -->
+		<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
+			<h2 class="font-semibold">No storage for a Workspace</h2>
+			<p>{unsupported}</p>
+		</div>
+	{:else if session === null}
 		<p class="mt-8">Starting…</p>
 	{:else if openDirectory === null}
 		<ProjectHub {session} />

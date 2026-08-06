@@ -23,6 +23,19 @@ default view falls outside its bundled archive renders a plausible-looking empty
 | Natural Earth data | public domain |
 | Protomaps basemap build | BSD-3-Clause |
 
+## The one archive that is not in this directory
+
+`BASE_MAP_CATALOG`'s `streets-worldwide` entry reads
+`https://demo-bucket.protomaps.com/v4.pmtiles` over the network — the bucket Protomaps publishes
+for trying the format out. Its data is OpenStreetMap under ODbL 1.0, attributed the same way as the
+bundled extract, but the **hosting** is Protomaps' goodwill: no published rate limit, no uptime
+promise, and no terms of use. Every fork's users reach it by default, because it is in this
+deployment's catalog.
+
+A deployment that wants worldwide coverage should point that entry at an archive it controls. See
+the comment beside `REMOTE_ARCHIVE` in `packages/core/src/base-map/catalog.ts`; it is a change to
+that one line (ADR-0020).
+
 ## `fonts/`
 
 SDF glyph ranges from [protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets),

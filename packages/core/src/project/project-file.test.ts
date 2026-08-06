@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { readBaseMapId } from '../base-map/project.js';
 import {
 	CURRENT_FORMAT_VERSION,
 	ProjectFileUnreadableError,
@@ -80,6 +81,28 @@ describe('unreadable files', () => {
 		['a non-integer formatVersion', encode({ formatVersion: 1.5 })]
 	])('reports %s rather than guessing', (_description, bytes) => {
 		expect(() => parseProjectFile(bytes)).toThrow(ProjectFileUnreadableError);
+	});
+});
+
+describe('the Base Map field', () => {
+	// One reader, not two. `readBaseMapId` and this parser both answer "what did the author
+	// choose?", and while they disagreed the same file behaved differently depending on which
+	// path reached it — the Base Map pane read `"  "` as no choice and the Project view read it
+	// as a Base Map called two spaces. A Base Map that fails to resolve renders a
+	// plausible-looking but *wrong* map (ADR-0020), so a shape that means "no choice" has to
+	// mean it everywhere.
+	it.each([
+		['an id', '"physical"', 'physical'],
+		['surrounding whitespace trimmed off an id', '" physical "', 'physical'],
+		['whitespace alone as no choice', '"  "', null],
+		['an empty string as no choice', '""', null],
+		['a non-string as no choice', '7', null],
+		['null as no choice', 'null', null]
+	])('reads %s', (_description, json, expected) => {
+		const bytes = new TextEncoder().encode(`{"formatVersion":1,"baseMap":${json}}`);
+
+		expect(parseProjectFile(bytes).baseMap).toBe(expected);
+		expect(parseProjectFile(bytes).baseMap).toBe(readBaseMapId(JSON.parse(decode(bytes))));
 	});
 });
 

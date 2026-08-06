@@ -21,11 +21,24 @@ declare global {
 	}
 }
 
-/** Ticket 02 owns Project creation; until then the pane opens this well-known directory. */
-const PROJECT_DIRECTORY = 'demo-project';
+/** The Project these tests open. Identity is the directory name (ADR-0008). */
+const PROJECT_DIRECTORY = 'amsterdam-1625';
 const PROJECT_FILE = 'project.json';
 
 const BASE_MAP_PAGE = './base-map/';
+/** A Project is addressed by query parameter, never by a per-Project path (ADR-0008). */
+const paneUrl = (directory: string = PROJECT_DIRECTORY) => `${BASE_MAP_PAGE}?p=${directory}`;
+
+/** A Project's manifest as ticket 02 writes it, with anything the test needs overridden. */
+const projectJson = (fields: Record<string, unknown> = {}) =>
+	JSON.stringify({
+		formatVersion: 1,
+		name: 'Amsterdam 1625',
+		updatedAt: '2026-01-01T00:00:00.000Z',
+		layers: [],
+		baseMap: null,
+		...fields
+	});
 
 /** The deployment catalog, as an author reads it in the switcher. */
 const CATALOG_OPTIONS = [
@@ -40,32 +53,50 @@ const CATALOG_OPTIONS = [
 const switcher = (page: Page) => page.getByRole('combobox', { name: 'Base Map' });
 const themeToggle = (page: Page) => page.getByRole('button', { name: /switch to .* theme/i });
 
-async function openPane(page: Page): Promise<void> {
-	await page.goto(BASE_MAP_PAGE);
-	await waitForLoadedMap(page);
-}
-
 async function waitForLoadedMap(page: Page): Promise<void> {
 	await page.waitForFunction(() => window.ballastellaBaseMap?.loaded() === true, undefined, {
 		timeout: 45_000
 	});
 }
 
-/** Write a `project.json` before the app reads it, then reopen the pane onto it. */
-async function seedProject(page: Page, document: Record<string, unknown>): Promise<void> {
-	await page.goto(BASE_MAP_PAGE);
+/** Empty the origin's OPFS, so no test can see another's Projects. */
+async function emptyWorkspace(page: Page): Promise<void> {
+	await page.evaluate(async () => {
+		const root = await navigator.storage.getDirectory();
+		const names: string[] = [];
+		for await (const name of root.keys()) names.push(name);
+		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
+	});
+}
+
+/** Write a `project.json` straight into OPFS, bypassing the app entirely. */
+async function seedProject(page: Page, contents: string): Promise<void> {
 	await page.evaluate(
-		async ([directory, file, contents]) => {
+		async ([directory, file, json]) => {
 			const root = await navigator.storage.getDirectory();
 			const project = await root.getDirectoryHandle(directory, { create: true });
 			const handle = await project.getFileHandle(file, { create: true });
 			const writable = await handle.createWritable();
-			await writable.write(contents);
+			await writable.write(json);
 			await writable.close();
 		},
-		[PROJECT_DIRECTORY, PROJECT_FILE, JSON.stringify(document)] as const
+		[PROJECT_DIRECTORY, PROJECT_FILE, contents] as const
 	);
-	await page.reload();
+}
+
+/**
+ * A Project on disk, and the pane opened onto it.
+ *
+ * The Project is seeded rather than created through the pane on purpose: opening a pane must
+ * never create a Project. `/base-map/` with no `?p=` used to call
+ * `getDirectoryHandle(…, { create: true })` and manufacture a phantom Project in the real
+ * Workspace, which the hub then listed.
+ */
+async function openPane(page: Page, contents: string = projectJson()): Promise<void> {
+	await page.goto(BASE_MAP_PAGE);
+	await emptyWorkspace(page);
+	await seedProject(page, contents);
+	await page.goto(paneUrl());
 	await waitForLoadedMap(page);
 }
 
@@ -84,6 +115,16 @@ async function readProjectFile(page: Page): Promise<string | null> {
 		},
 		[PROJECT_DIRECTORY, PROJECT_FILE] as const
 	);
+}
+
+/** Every top-level name in the Workspace, so "the pane created nothing" is provable. */
+async function workspaceEntries(page: Page): Promise<string[]> {
+	return page.evaluate(async () => {
+		const root = await navigator.storage.getDirectory();
+		const names: string[] = [];
+		for await (const name of root.keys()) names.push(name);
+		return names.sort();
+	});
 }
 
 const renderedLayerIds = (page: Page) =>
@@ -282,12 +323,10 @@ test.describe('the author’s default', () => {
 		const crashes: Error[] = [];
 		page.on('pageerror', (error) => crashes.push(error));
 
-		await seedProject(page, {
-			formatVersion: 1,
-			name: 'From another deployment',
-			layers: [],
-			baseMap: 'ordnance-survey-1888'
-		});
+		await openPane(
+			page,
+			projectJson({ name: 'From another deployment', baseMap: 'ordnance-survey-1888' })
+		);
 
 		// A map, not a blank pane and not an error.
 		await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
@@ -295,11 +334,145 @@ test.describe('the author’s default', () => {
 		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
 
 		// Quiet, and in an announced live region rather than a tooltip (ADR-0016).
-		const notice = page.getByRole('status');
+		const notice = page.getByRole('status').filter({ hasText: 'ordnance-survey-1888' });
 		await expect(notice).toContainText('ordnance-survey-1888');
 		await expect(notice).toContainText('Streets');
 
 		expect(crashes).toEqual([]);
+	});
+
+	test('leaves an unrecognised id in project.json, so moving the Project back restores it', async ({
+		page
+	}) => {
+		// ADR-0020's portability claim, which is the whole reason `project.json` records an id and
+		// not an address: this deployment cannot serve `ordnance-survey-1888`, so it shows its own
+		// default — but the author's choice is *their* data and must survive being shown something
+		// else. Overwriting it with the local default is one line away and would silently destroy
+		// the author's intent the first time a Project were opened on the wrong deployment.
+		await openPane(page, projectJson({ baseMap: 'ordnance-survey-1888' }));
+
+		await expect(switcher(page)).toHaveValue('streets');
+		expect(JSON.parse((await readProjectFile(page)) ?? '{}').baseMap).toBe('ordnance-survey-1888');
+
+		// And it is still there after the pane has been open long enough to have written.
+		await page.reload();
+		await waitForLoadedMap(page);
+		expect(JSON.parse((await readProjectFile(page)) ?? '{}').baseMap).toBe('ordnance-survey-1888');
+	});
+
+	test('stamps updatedAt, because one write path owns the whole document', async ({ page }) => {
+		// The Base Map choice goes through the same `Workspace.writeProject` as every other
+		// mutation, so it keeps the document's own bookkeeping. A second writer for this one field
+		// wrote `baseMap` and nothing else: the hub's "last saved" then went stale, and a stale
+		// in-memory document elsewhere in the app could serialise the choice straight back out.
+		await openPane(page);
+
+		await switcher(page).selectOption('physical');
+		await expect.poll(() => readProjectFile(page)).toContain('physical');
+
+		const written = JSON.parse((await readProjectFile(page)) ?? '{}');
+		expect(written.updatedAt).not.toBe('2026-01-01T00:00:00.000Z');
+		expect(Date.parse(written.updatedAt)).toBeGreaterThan(Date.parse('2026-01-01T00:00:00.000Z'));
+		// And nothing else was lost on the way.
+		expect(written.name).toBe('Amsterdam 1625');
+		expect(written.formatVersion).toBe(1);
+		expect(written.layers).toEqual([]);
+	});
+
+	test('shows the save state, and says so when the choice could not be written', async ({
+		page
+	}) => {
+		// ADR-0017 rule 5: there is no Save button, so this indicator is the user's only signal.
+		// The write used to be fire-and-forget — `void store?.write(id)`, no await, no catch, and no
+		// indicator on this route at all — so a quota failure switched the map, said nothing, and
+		// silently reverted when the Project was reopened.
+		await openPane(page);
+		const indicator = page.locator('[data-save-state]');
+		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
+
+		// Chromium reports OPFS quota exhaustion from `close()`. Patched after seeding, so the
+		// failure is injected at the browser API and the app cannot tell it is being lied to.
+		await page.evaluate(() => {
+			FileSystemWritableFileStream.prototype.close = () =>
+				Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'));
+		});
+
+		await switcher(page).selectOption('physical');
+
+		await expect(indicator).toHaveAttribute('data-save-state', 'unsaved');
+		await expect(indicator).toHaveText('Unsaved changes');
+		// And the file really is unchanged, rather than half-written.
+		expect(JSON.parse((await readProjectFile(page)) ?? '{}').baseMap).toBeNull();
+	});
+});
+
+test.describe('the Project the pane opens', () => {
+	test('creates nothing when no Project is named', async ({ page }) => {
+		// Opening a pane must never create a Project. `/base-map/` with no `?p=` used to call
+		// `getDirectoryHandle('demo-project', { create: true })` and manufacture a phantom Project
+		// in the real Workspace, which the hub then listed as the user's own work.
+		await page.goto(BASE_MAP_PAGE);
+		await emptyWorkspace(page);
+		await page.goto(BASE_MAP_PAGE);
+
+		await expect(page.getByRole('link', { name: 'Back to all Projects' })).toBeVisible();
+		expect(await workspaceEntries(page)).toEqual([]);
+
+		// And the hub agrees: there is nothing to list.
+		await page.goto('./');
+		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		await expect(page.getByRole('listitem')).toHaveCount(0);
+		expect(await workspaceEntries(page)).toEqual([]);
+	});
+
+	test('refuses a project.json it cannot read, and does not replace it', async ({ page }) => {
+		// A trailing comma — a Dropbox conflict, a hand edit, a half-finished sync. The pane used to
+		// swallow the parse failure, read it as "no Base Map chosen", and then write a whole fresh
+		// document over it: `name`, `updatedAt`, and `layers` gone, in the one action that was
+		// supposed to record a single field.
+		const damaged = '{"formatVersion":1,"name":"Amsterdam 1625","layers":[],"baseMap":null,}';
+		await page.goto(BASE_MAP_PAGE);
+		await emptyWorkspace(page);
+		await seedProject(page, damaged);
+
+		await page.goto(paneUrl());
+
+		const alert = page.getByRole('alert');
+		await expect(alert).toContainText('could not be read');
+		// No switcher, because there is no document to record a choice in.
+		await expect(switcher(page)).toHaveCount(0);
+		expect(await readProjectFile(page)).toBe(damaged);
+	});
+
+	test('refuses a Project from a newer version and leaves it untouched', async ({ page }) => {
+		// ADR-0010's refusal, which the old pane defeated: it rewrote a `formatVersion: 2` document
+		// wholesale, which is exactly the silent destruction the refusal exists to prevent — and its
+		// message promises "It has been left untouched."
+		const fromTheFuture =
+			'{"formatVersion":2,"name":"Tomorrow","layers":[{"kind":"something-new"}],"baseMap":"physical"}';
+		await page.goto(BASE_MAP_PAGE);
+		await emptyWorkspace(page);
+		await seedProject(page, fromTheFuture);
+
+		await page.goto(paneUrl());
+
+		const alert = page.getByRole('alert');
+		await expect(alert).toContainText('newer version of Ballastella');
+		await expect(alert).toContainText('left untouched');
+		await expect(switcher(page)).toHaveCount(0);
+		expect(await readProjectFile(page)).toBe(fromTheFuture);
+	});
+
+	test('says so when the Project named does not exist, rather than creating it', async ({
+		page
+	}) => {
+		await page.goto(BASE_MAP_PAGE);
+		await emptyWorkspace(page);
+
+		await page.goto(paneUrl('never-existed'));
+
+		await expect(page.getByRole('alert')).toContainText('never-existed');
+		expect(await workspaceEntries(page)).toEqual([]);
 	});
 });
 

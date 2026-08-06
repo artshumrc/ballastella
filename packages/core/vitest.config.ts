@@ -11,6 +11,15 @@ import { defineConfig } from 'vitest/config';
 // against the real backend — a Node stub of OPFS would only prove the stub agrees with the
 // memory adapter, which is the very thing the suite exists to check. Ticket 12's File System
 // Access adapter joins this project for the same reason.
+//
+// It runs in **two engines**. SPEC story 4 is that OPFS is the universal backend, so the tool
+// works fully where folder access is impossible — Firefox, Safari, iPad — and a claim about other
+// browsers asserted only in Chromium is not asserted. Firefox is where the divergence would show:
+// it is a different OPFS implementation, not a different rendering of the same one.
+//
+// It is deliberately only this project. The Playwright suite drives MapLibre over WebGL, which is
+// a much larger cross-engine question and a CI decision of its own; the storage layer is where
+// story 4 actually lives.
 export default defineConfig({
 	test: {
 		expect: { requireAssertions: true },
@@ -33,7 +42,7 @@ export default defineConfig({
 						enabled: true,
 						headless: true,
 						provider: playwright(),
-						instances: [{ browser: 'chromium' }]
+						instances: [{ browser: 'chromium' }, { browser: 'firefox' }]
 					}
 				}
 			}

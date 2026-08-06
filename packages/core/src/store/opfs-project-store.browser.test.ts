@@ -1,7 +1,8 @@
 import { expect, it } from 'vitest';
 
 import { OpfsProjectStore } from './opfs-project-store.js';
-import { describeProjectStore } from './project-store-suite.js';
+import { describeProjectStore, type WriteStep } from './project-store-suite.js';
+import { pathSegments, TEMP_PATH_SUFFIX, type StorePath } from './project-store.js';
 
 /**
  * Real OPFS in a real browser. `*.browser.test.ts` files run in the browser project of
@@ -17,9 +18,79 @@ const scratchDirectory = async (label: string): Promise<FileSystemDirectoryHandl
 	return root.getDirectoryHandle(`${label}-${crypto.randomUUID()}`, { create: true });
 };
 
+/** Every file under `directory`, recursively, sorted. Temporary files included. */
+async function everyPathIn(
+	directory: FileSystemDirectoryHandle,
+	prefix: string
+): Promise<StorePath[]> {
+	const found: StorePath[] = [];
+	for await (const [name, handle] of directory.entries()) {
+		if (handle.kind === 'file') found.push(`${prefix}${name}`);
+		else
+			found.push(...(await everyPathIn(handle as FileSystemDirectoryHandle, `${prefix}${name}/`)));
+	}
+	return found.sort();
+}
+
+/** Descend to (and create) the directory `path`'s file lives in. */
+async function directoryOf(
+	root: FileSystemDirectoryHandle,
+	path: StorePath
+): Promise<{ directory: FileSystemDirectoryHandle; name: string }> {
+	const segments = pathSegments(path);
+	const name = segments.pop() as string;
+	let directory = root;
+	for (const segment of segments) {
+		directory = await directory.getDirectoryHandle(segment, { create: true });
+	}
+	return { directory, name };
+}
+
+/**
+ * Fail the next write at `step`, by patching the browser API the adapter calls.
+ *
+ * No spy on anything the adapter declares, and nothing about how it is built: `close()` is where
+ * OPFS reports a full disk, and looking a temporary file up again is the first thing the move into
+ * place does. Each patch restores itself the moment it fires, so exactly one write fails.
+ */
+function failNextWrite(step: WriteStep): void {
+	if (step === 'bytes') {
+		const close = FileSystemWritableFileStream.prototype.close;
+		FileSystemWritableFileStream.prototype.close = function () {
+			FileSystemWritableFileStream.prototype.close = close;
+			return Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'));
+		};
+		return;
+	}
+	const getFileHandle = FileSystemDirectoryHandle.prototype.getFileHandle;
+	FileSystemDirectoryHandle.prototype.getFileHandle = function (
+		name: string,
+		options?: FileSystemGetFileOptions
+	) {
+		// A lookup, not a creation: the creation is the temporary file landing, which has to succeed
+		// for this to be the *second* step failing.
+		if (name.endsWith(TEMP_PATH_SUFFIX) && options?.create !== true) {
+			FileSystemDirectoryHandle.prototype.getFileHandle = getFileHandle;
+			return Promise.reject(new DOMException('storage went away', 'InvalidStateError'));
+		}
+		return getFileHandle.call(this, name, options);
+	};
+}
+
 describeProjectStore('OpfsProjectStore', async () => {
 	const directory = await scratchDirectory('suite');
-	return new OpfsProjectStore(() => Promise.resolve(directory));
+	return {
+		store: new OpfsProjectStore(() => Promise.resolve(directory)),
+		everyStoredPath: () => everyPathIn(directory, ''),
+		failNextWrite,
+		plantAbandonedWrite: async (path) => {
+			const { directory: parent, name } = await directoryOf(directory, path);
+			const handle = await parent.getFileHandle(name, { create: true });
+			const writable = await handle.createWritable();
+			await writable.write('half a document');
+			await writable.close();
+		}
+	};
 });
 
 it('puts a Project directly in the OPFS root, so the workspace is the root (ADR-0008)', async () => {
@@ -37,6 +108,32 @@ it('puts a Project directly in the OPFS root, so the workspace is the root (ADR-
 
 it('reports OPFS as supported in a browser', () => {
 	expect(OpfsProjectStore.isSupported()).toBe(true);
+});
+
+it('writes atomically in a browser with no FileSystemFileHandle.move (SPEC story 4)', async () => {
+	// The adapter prefers `move` and copies when a browser has none. That fallback was dead code
+	// that no test executed — and story 4's promise is a *fully* functional tool wherever folder
+	// access is impossible, which is precisely the browsers that lack `move`.
+	//
+	// Running the suite in a second engine does not reach it: Firefox 153 has `move` too, so the
+	// branch has to be entered deliberately, by hiding `move` the way Safari does.
+	const prototype = FileSystemFileHandle.prototype as { move?: unknown };
+	const move = prototype.move;
+	delete prototype.move;
+	try {
+		const directory = await scratchDirectory('no-move');
+		const store = new OpfsProjectStore(() => Promise.resolve(directory));
+		await store.write('p/project.json', new TextEncoder().encode('the first version'));
+
+		await store.write('p/project.json', new TextEncoder().encode('second'));
+
+		expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
+		// The copy has to take the temporary file with it, or every write on those browsers leaves
+		// litter nothing can reach.
+		expect(await everyPathIn(directory, '')).toEqual(['p/project.json']);
+	} finally {
+		if (move !== undefined) prototype.move = move;
+	}
 });
 
 it('recovers once an unreachable workspace comes back, rather than latching broken', async () => {

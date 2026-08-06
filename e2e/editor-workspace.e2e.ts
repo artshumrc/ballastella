@@ -34,21 +34,44 @@ async function seedProject(page: Page, directory: string, json: string): Promise
 	);
 }
 
-/** SHA-256 of every file in a Project directory, so "nothing was written" is provable. */
+/**
+ * SHA-256 of every file in a Project directory, **recursively**, so "nothing was written" is
+ * provable.
+ *
+ * The recursion is the point. Skipping subdirectories left the hash covering `project.json` alone,
+ * so the nested `images/…/info.json` that the byte-identity test deliberately seeds — standing in
+ * for the pyramid a real Project is mostly made of — was silently never checked.
+ */
 async function hashProject(page: Page, directory: string): Promise<Record<string, string>> {
+	return page.evaluate(async (directory) => {
+		const hex = (digest: ArrayBuffer) =>
+			[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
+		const hashes: Record<string, string> = {};
+		const walk = async (handle: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
+			for await (const [name, entry] of handle.entries()) {
+				if (entry.kind === 'file') {
+					const bytes = await (await (entry as FileSystemFileHandle).getFile()).arrayBuffer();
+					hashes[`${prefix}${name}`] = hex(await crypto.subtle.digest('SHA-256', bytes));
+				} else {
+					await walk(entry as FileSystemDirectoryHandle, `${prefix}${name}/`);
+				}
+			}
+		};
+
+		const root = await navigator.storage.getDirectory();
+		await walk(await root.getDirectoryHandle(directory), '');
+		return hashes;
+	}, directory);
+}
+
+/** The display name in `project.json` as it sits on disk. */
+async function readProjectName(page: Page, directory = 'amsterdam-1625'): Promise<string> {
 	return page.evaluate(async (directory) => {
 		const root = await navigator.storage.getDirectory();
 		const project = await root.getDirectoryHandle(directory);
-		const hashes: Record<string, string> = {};
-		for await (const [name, handle] of project.entries()) {
-			if (handle.kind !== 'file') continue;
-			const bytes = await (await (handle as FileSystemFileHandle).getFile()).arrayBuffer();
-			const digest = await crypto.subtle.digest('SHA-256', bytes);
-			hashes[name] = [...new Uint8Array(digest)]
-				.map((byte) => byte.toString(16).padStart(2, '0'))
-				.join('');
-		}
-		return hashes;
+		const file = await project.getFileHandle('project.json');
+		return JSON.parse(await (await file.getFile()).text()).name;
 	}, directory);
 }
 
@@ -248,28 +271,61 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		await page.reload();
 		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1626' })).toBeVisible();
 	});
+});
 
+test.describe('flushing on hide (ADR-0017 rule 3)', () => {
+	/**
+	 * Hold back the app's own debounce, so that only a flush can put bytes on disk.
+	 *
+	 * This is what makes the test below about rule 3 rather than about rule 2. Rule 3 is the write
+	 * the timer has *not yet reached* — the closed laptop — and the app's window is 400 ms while
+	 * `expect.poll` waits five seconds, so with the timer live it fired well inside the poll and the
+	 * assertion passed with `installFlushOnHide` deleted altogether. Verified both ways.
+	 *
+	 * Swallowing long timers rather than freezing the clock: Playwright's `clock` also replaces
+	 * `Date` and `performance`, and a frozen clock stopped the flush from completing at all. Only
+	 * timers at or beyond the debounce are dropped, and the save indicator's own 400 ms dwell goes
+	 * with them — which is why this describe asserts files rather than the indicator.
+	 */
+	const holdBackTheDebounce = (page: Page) =>
+		page.addInitScript(() => {
+			const real = window.setTimeout;
+			window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) =>
+				typeof delay === 'number' && delay >= 400
+					? 0
+					: real(handler as never, delay, ...args)) as typeof window.setTimeout;
+		});
+
+	test.beforeEach(async ({ page }) => {
+		await holdBackTheDebounce(page);
+		await page.goto('./');
+		await emptyWorkspace(page);
+		await page.reload();
+	});
+
+	// The `visibilitychange` half of rule 3 is asserted at the core seam instead
+	// (`autosave.test.ts`), where the visibility state can be set. Chromium exposes no way for a
+	// test to make a page genuinely hidden, and shadowing `document.visibilityState` from inside the
+	// page does not take — so an e2e version would assert the shadowing, not the app.
 	test('pagehide flushes a write that is still inside its debounce window', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByRole('status')).toHaveAttribute('data-save-state', 'saved');
+		await expect(page.getByLabel('Project name')).toBeVisible();
+		// Wait for the view to settle before typing. The field appears as soon as the Project has been
+		// read, but opening is driven by an effect over the URL that can run again, and a keystroke
+		// landing while it is re-reading is dropped — see the note on `EditorSession.open`. An idle
+		// indicator means nothing is in flight, so this test is about rule 3 and not about that race.
+		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
 
-		// Typed and then immediately gone: the real "closed the laptop" path. The event is
-		// dispatched rather than provoked by a navigation so the assertion is about the listener
-		// being installed on the real window, not about how fast the browser tears a page down.
 		await page.getByLabel('Project name').fill('Half a keystroke ago');
+		// Still only in memory: the debounce window cannot close, so nothing has been written yet.
+		expect(await readProjectName(page)).toBe('Amsterdam 1625');
+
+		// Dispatched rather than provoked by a navigation, so the assertion is about the listener
+		// being installed on the real window and not about how fast the browser tears a page down.
 		await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
 
-		await expect
-			.poll(() =>
-				page.evaluate(async () => {
-					const root = await navigator.storage.getDirectory();
-					const project = await root.getDirectoryHandle('amsterdam-1625');
-					const file = await project.getFileHandle('project.json');
-					return JSON.parse(await (await file.getFile()).text()).name;
-				})
-			)
-			.toBe('Half a keystroke ago');
+		await expect.poll(() => readProjectName(page)).toBe('Half a keystroke ago');
 	});
 });
 
@@ -347,6 +403,37 @@ test.describe('opening a Project and closing it (ADR-0010)', () => {
 		await page.reload();
 	});
 
+	test('tabbing and clicking through the name field writes nothing', async ({ page }) => {
+		// The byte-identity test below navigates with `page.goto` and never focuses anything, so it
+		// cannot see this: `onblur` committed with no dirty check, and `writeProject` stamps a fresh
+		// `updatedAt` unconditionally, so a user who merely tabbed into the field and out again
+		// rewrote `project.json`. ADR-0010 is explicit — merely looking at an old Project must not
+		// modify files, or opening one in a git working tree produces an unexplained diff and opening
+		// one in a Dropbox folder syncs a rewrite to every other machine.
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		const field = page.getByLabel('Project name');
+		await expect(field).toBeVisible();
+		const before = await hashProject(page, 'amsterdam-1625');
+
+		await field.focus();
+		await expect(field).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(field).not.toBeFocused();
+
+		// And with the pointer, which is the same gesture through a different event order.
+		await field.click();
+		await page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' }).click();
+		await expect(field).not.toBeFocused();
+
+		// An absence, so it needs a settle: longer than the 400 ms debounce, plus the flush that
+		// `pagehide` forces, so any write the app was going to make has certainly happened.
+		await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+		await page.waitForTimeout(600);
+
+		expect(await hashProject(page, 'amsterdam-1625')).toEqual(before);
+	});
+
 	test('writes nothing: every file is byte-identical before and after', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.evaluate(async () => {
@@ -359,6 +446,11 @@ test.describe('opening a Project and closing it (ADR-0010)', () => {
 			await writable.close();
 		});
 		const before = await hashProject(page, 'amsterdam-1625');
+		// The hash has to reach into subdirectories, or "every file is byte-identical" is a claim
+		// about `project.json` alone. The nested `images/info.json` stands in for the pyramid a real
+		// Project is mostly made of — thousands of files, all of them untouched by merely looking.
+		// Sorted, because OPFS promises no enumeration order.
+		expect(Object.keys(before).sort()).toEqual(['images/info.json', 'project.json']);
 
 		await page.goto('./?p=amsterdam-1625');
 		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();

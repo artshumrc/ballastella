@@ -1,3 +1,4 @@
+import { PROJECT_BASE_MAP_KEY, readBaseMapId } from '../base-map/project.js';
 import type { Bytes } from '../store/project-store.js';
 
 /** The `project.json` format this build of the app understands (ADR-0010). */
@@ -40,7 +41,13 @@ export interface ProjectFile {
 	readonly updatedAt: string;
 	/** The ordered Layer stack. Ticket 09 gives this a type; empty until then. */
 	readonly layers: readonly unknown[];
-	/** The author's default Base Map, by stable id and never by URL (ADR-0020). Ticket 04. */
+	/**
+	 * The author's default Base Map, by stable id and never by URL (ADR-0020).
+	 *
+	 * Normalised by `readBaseMapId`, the one reader of this field: anything that cannot be an id
+	 * — a non-string, an empty string, whitespace alone — is `null`, meaning the author has not
+	 * chosen. `resolveBaseMap` turns that into the deployment default.
+	 */
 	readonly baseMap: string | null;
 	/**
 	 * Anything else the file carried, kept so that writing it back cannot drop it. The refusal
@@ -99,10 +106,13 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		throw new ProjectFileUnreadableError('the file does not contain a JSON object');
 	}
 
-	const { formatVersion, name, updatedAt, layers, baseMap, ...unknownFields } = raw as Record<
+	const { formatVersion, name, updatedAt, layers, ...unknownFields } = raw as Record<
 		string,
 		unknown
 	>;
+	// Removed by the same key `readBaseMapId` reads it under, so the field cannot be recognised in
+	// one place and treated as unknown in the other.
+	delete unknownFields[PROJECT_BASE_MAP_KEY];
 
 	if (typeof formatVersion !== 'number' || !Number.isInteger(formatVersion)) {
 		throw new ProjectFileUnreadableError('formatVersion is missing or is not an integer');
@@ -116,7 +126,10 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		name: typeof name === 'string' ? name : '',
 		updatedAt: typeof updatedAt === 'string' ? updatedAt : '',
 		layers: Array.isArray(layers) ? layers : [],
-		baseMap: typeof baseMap === 'string' ? baseMap : null,
+		// Through `readBaseMapId` rather than inline, so there is exactly one implementation of
+		// "what did the author choose?". Two of them disagreeing meant `"baseMap": "  "` behaved
+		// differently depending on which code path reached the file.
+		baseMap: readBaseMapId(raw),
 		unknownFields
 	};
 }
