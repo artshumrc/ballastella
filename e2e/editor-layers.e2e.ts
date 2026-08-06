@@ -344,11 +344,22 @@ async function alignedProject(page: Page): Promise<string> {
 	return directory;
 }
 
-/** Open the Layers pane and wait until the stack has been put on the map. */
+/** How long the stack may take to reach the map. See {@link openLayers}. */
+const STACK_READY_MS = 20_000;
+
+/**
+ * Open the Layers pane and wait until the stack has been put on the map.
+ *
+ * The wait is longer than the default because what it waits for is a whole Base Map style — a PMTiles
+ * header, sprites, glyphs — and then a warped Historical Map on top of it. Five seconds is enough on an
+ * idle machine and not on a busy one, which reads as a failure of whatever the test went on to do.
+ */
 async function openLayers(page: Page, directory: string, drawn = 1): Promise<void> {
 	await page.goto(`/layers?p=${directory}`);
 	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
-	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', String(drawn));
+	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', String(drawn), {
+		timeout: STACK_READY_MS
+	});
 }
 
 const rows = (page: Page) => page.getByTestId('layer-row');
@@ -683,7 +694,9 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		expect((await projectJson(page, directory)).layers[0].opacity).toBeCloseTo(0.35, 5);
 
 		await page.reload();
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
+			timeout: STACK_READY_MS
+		});
 		await expect(page.getByTestId('layer-opacity-value')).toHaveText('35%');
 		expect(await warpedOpacity(page, layerId)).toBeCloseTo(0.35, 5);
 	});
@@ -804,7 +817,9 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 			})
 		);
 		await page.reload();
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
+			timeout: STACK_READY_MS
+		});
 		return { directory, annotationId, mapId };
 	}
 
@@ -1179,8 +1194,10 @@ test.describe('getting back out of the Layers pane', () => {
 
 		await page.getByTestId('back-to-project').click();
 
+		// *This* Project rather than the hub: its own name in the field, and its own Layer count.
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-		await expect(page.getByTestId('image-pane')).toBeVisible();
+		await expect(page.getByLabel('Project name')).toHaveValue('Amsterdam 1625');
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
 	});
 });
 
