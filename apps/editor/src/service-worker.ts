@@ -1,0 +1,343 @@
+/// <reference types="@sveltejs/kit" />
+/// <reference lib="webworker" />
+
+// ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+// │ THE APP SHELL, AND NOTHING ELSE (ADR-0012).                                               │
+// │                                                                                           │
+// │ This worker exists so that a scholar in a reading room with hostile wifi can keep          │
+// │ aligning maps (SPEC story 8), and so that installing the app is a real offer rather than   │
+// │ a bookmark (SPEC story 6). Both of those need exactly one thing: the app's own code,       │
+// │ available with the network off. Everything past that is a correctness bug, not waste.      │
+// └───────────────────────────────────────────────────────────────────────────────────────────┘
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// WHAT IS CACHED, AND WHY THE LISTS ARE SO SHORT
+//
+// **Two caches, each with a rule that can be stated in one line**, so that what is in them is
+// reviewable rather than emergent:
+//
+//   `ballastella-shell-<version>`     the hashed build's code and styles, and the entry HTML
+//   `ballastella-base-map-<version>`  this deployment's own bundled Base Map files
+//
+// Everything else is refused, and the refusals are the point:
+//
+//   1. **Project data is never cached.** It lives in OPFS, reached through `ProjectStore`. A Cache
+//      API copy would be a *second source of truth* competing with the store, and the two diverge
+//      the first time a user edits offline. This is the most damaging thing this file could do.
+//   2. **Remote IIIF tiles are never cached.** A referenced source can be gigabytes, and the Cache
+//      API evicts unpredictably under quota pressure — producing a partially cached Historical Map
+//      that renders *with holes*, which reads as corruption rather than as absence.
+//   3. **Remote Base Map tiles are never cached**, for the same reason. Note the difference from the
+//      bundled archive below: `needsNetwork: true` entries are somebody else's server and a whole
+//      planet of tiles, and nothing here touches them.
+//   4. **The rest of `static/` is never cached.** This is the ADR-0019 hole a precaching worker
+//      opens: the editor's `static/` also holds the staged read-only viewer (`viewer-bundle/`),
+//      which Publish writes into a Workspace, and this repository's test fixtures.
+//      `check-viewer-deps.mjs` and `check-tiler-lazy.mjs` police what the viewer *imports*; neither
+//      can see what a service worker *caches*. Naming the one directory that is wanted, rather than
+//      taking `files` whole, is what closes it — and the offline suite asserts each cache's contents
+//      against its rule.
+//   5. **`wasm-vips` is not cached**, which is the same argument one layer up. ADR-0019 keeps the
+//      5 MB module behind a dynamic import so it does not land "in the initial bundle of every
+//      page load"; precaching it on install would reimpose that cost — twice, since the worker
+//      copy is a second 5 MB — on every user who installs the app, most of whom will never ingest
+//      an image in this session. So the shell takes only code and styles from `build`. The cost is
+//      honest and narrow: preparing a *new* image needs the network on first use.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// THE BUNDLED BASE MAP IS CACHED, AND THAT IS A DELIBERATE READING OF THIS TICKET
+//
+// ⚠ **This is the one place where two halves of ticket 18 disagree, and the disagreement is worth a
+// second opinion.** Its Out of scope says "Precaching a pmtiles Base Map on the fly. A bundled
+// extract is a workspace file (ticket 16), not a service-worker cache entry", and its first scope
+// fence says "precache only hashed build assets and the entry HTML". Its Offline verification
+// paragraph says the editor must, with the network disabled, "open a Project, **view the aligned
+// map**, place Control Points, **draw Annotations**, and save", with "a bundled pmtiles Base Map".
+// ADR-0012 gives the same reason for believing offline is achievable at all: "a bundled pmtiles
+// extract provides a base map (ADR-0005)".
+//
+// Both cannot hold, and it was measured rather than reasoned about. With the archive absent, the
+// MapLibre style never finishes loading — a vector source whose metadata never arrives is never
+// `loaded()`, so `Map#isStyleLoaded()` stays false and `load` never fires. Every part of the app
+// gated on that is then gone offline: the warped Historical Map (`BaseMapPane` attaches the layer on
+// `once('load')`) and the whole Layer stack, which is where Annotations are drawn. Control Point
+// pairing survives, because a click on a canvas is a coordinate whether or not a tile arrived. So
+// leaving the archive out costs two of the four things the Offline verification names.
+//
+// The reading taken is that "on the fly" is doing the work in that sentence: what is out of scope is
+// *fetching and caching base map data at runtime* — a whole planet lazily accumulated, which is
+// fence 3 — and "a bundled extract is a workspace file (ticket 16)" is about the Published Site,
+// where the extract really is a file in the user's Workspace. The editor's own bundled extract is
+// none of those things: it is same-origin, it is a fixed 4.9 MB, it is immutable per build, and it is
+// this deployment's own configuration (ADR-0020). It is in a cache of its own, named for what it is,
+// so that reversing this judgement is deleting one list and one branch.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// IT DOES NOT SERVE THE STORE
+//
+// ADR-0011 rejected a service worker serving the `ProjectStore` at a virtual path, because File
+// System Access directory handles have murky permission semantics inside a service worker — and
+// that is the backend most users will have. A service worker existing does not reopen that
+// decision. Tile reads continue through `fetchFn` and `addProtocol` in the page. Concretely: the
+// fetch handler below answers **only** URLs it precached, and calls `respondWith` for nothing
+// else, so a request it does not recognise behaves exactly as if no worker were installed.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// NO SILENT ACTIVATION
+//
+// There is no `skipWaiting` here, and there must not be. ADR-0010 named a stale service worker as
+// a version-skew vector, and an explicit prompt is the mitigation: silent activation is exactly
+// how an old bundle quietly meets new data. A new worker installs, fills its own cache, and then
+// **waits**. `$lib/pwa/installed-app.svelte.ts` notices and says so; the user chooses when. Nothing
+// in this file reloads a page or takes over a client, because an update must never interrupt
+// somebody mid-alignment (SPEC story 9).
+//
+// The consequence of that is deliberate and is what the old-version criterion rests on: while a
+// new worker waits, the *old* one keeps serving out of the *old* cache, because the cache is named
+// for the build that filled it and `activate` is the only thing that ever deletes another.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// IT WORKS AT A DOMAIN ROOT AND IN A SUBDIRECTORY (ADR-0006)
+//
+// Nothing here writes a leading `/`. `$service-worker`'s `base` is
+// `location.pathname.split('/').slice(0, -1).join('/')` — the worker's own directory, computed at
+// runtime — and every entry of `build` and `prerendered` is already prefixed with it. The
+// registration in `$lib/pwa/installed-app.svelte.ts` asks for `service-worker.js` relative to the
+// deployment, so the scope the browser derives is the deployment's own directory and not the
+// origin. A hardcoded `/` here would work at `example.org/` and 404 at `example.org/ballastella/`,
+// which is the failure ADR-0006 exists to prevent and which the suite drives at both.
+
+import { base, build, files, prerendered, version } from '$service-worker';
+
+const worker = self as unknown as ServiceWorkerGlobalScope;
+
+/**
+ * One cache per build, per kind.
+ *
+ * Named for the build rather than reused, so that an old worker waiting on the user's decision is
+ * still serving the bytes it was installed with. A single shared cache name would let a newly
+ * *installed* worker overwrite what the still-*active* one is serving — silent activation through
+ * the back door, without ever calling `skipWaiting`.
+ */
+const SHELL_CACHE = `ballastella-shell-${version}`;
+const BASE_MAP_CACHE = `ballastella-base-map-${version}`;
+
+/** Every cache this app makes, so `activate` can tell its own from another app's. */
+const OURS = /^ballastella-(shell|base-map)-/;
+
+/**
+ * The app shell: the entry HTML for every route, and the code and styles that run it.
+ *
+ * `build` filtered to `.js` and `.css` — see the header on `wasm-vips`. The filter is by extension
+ * and not by name so that it states a rule ("code and styles") rather than a list of things to
+ * dodge; the two 5 MB `vips*.wasm` files are what it currently excludes.
+ */
+const SHELL: readonly string[] = [
+	...prerendered,
+	...build.filter((url) => url.endsWith('.js') || url.endsWith('.css'))
+];
+
+/**
+ * A path from one of the lists above, spelled the way a request for it will be.
+ *
+ * **This is not tidying.** `$service-worker`'s lists are file paths, and a file path is not a URL
+ * path: the bundled Base Map's glyphs live in directories called `Noto Sans Regular`, so the list
+ * says `…/Noto Sans Regular/0-255.pbf` and every request for one says `…/Noto%20Sans%20Regular/…`.
+ * Comparing the two directly is a miss on every file whose name contains a space — which was exactly
+ * the bug: the archive was served from the cache, the style loaded, the map drew, and MapLibre
+ * quietly fell back to rendering labels with local system fonts because it could not fetch a single
+ * glyph range. Loud enough to find only because it warns; silent in every assertion about the map.
+ */
+const asRequested = (path: string) => new URL(path, location.href).pathname;
+
+/**
+ * The one directory of `static/` this worker takes: the Base Map files this deployment serves for
+ * its own panes — the pmtiles archive, its glyphs, and its sprites (ADR-0005, ADR-0020).
+ *
+ * A **directory**, deliberately, and no archive name and no catalog entry id. ADR-0020 requires that
+ * a fork repointing its catalog change the catalog and nothing else, and
+ * `scripts/check-base-map-catalog.mjs` enforces it; `scripts/stage-viewer-bundle.mjs` names the same
+ * directory for the same reason. So a fork that swaps its extract keeps this working, and a fork that
+ * points every entry at a remote archive simply finds this list empty.
+ */
+const BASE_MAP_DIRECTORY = 'base-map/';
+
+const BASE_MAP: readonly string[] = files.filter((url) =>
+	url.startsWith(`${base}/${BASE_MAP_DIRECTORY}`)
+);
+
+/** What each list answers to, as a request's `pathname`. See {@link asRequested}. */
+const SHELL_PATHS = new Set(SHELL.map(asRequested));
+const BASE_MAP_PATHS = new Set(BASE_MAP.map(asRequested));
+
+/**
+ * Where a navigation lands, by the pathname a browser would ask for.
+ *
+ * `prerendered` carries the canonical paths — `/`, `/base-map`, `/layers`, … each already prefixed
+ * with the deployment's own directory — while a browser may ask for `/base-map/` or
+ * `/base-map/index.html`, and a Project is addressed by `?p=` on top of that (ADR-0008). So the
+ * lookup is over a normalised pathname, and the query string is dropped: it selects a Project
+ * inside the page and never a different document.
+ */
+const ENTRY_HTML = new Map(
+	prerendered.map((path) => [normalise(asRequested(path)), asRequested(path)])
+);
+
+function normalise(pathname: string): string {
+	const withoutIndex = pathname.replace(/(^|\/)index\.html$/, '$1');
+	// A trailing slash is dropped, except where it is all that is left: `<base>/` is a path.
+	return withoutIndex.length > 1 ? withoutIndex.replace(/\/$/, '') : withoutIndex;
+}
+
+worker.addEventListener('install', (event) => {
+	// `cache.addAll` is one atomic-enough unit: it rejects if any request fails, and a rejected
+	// `install` leaves the old worker in place rather than promoting a half-filled cache. An
+	// installed worker that cannot serve the shell offline is worse than no new worker at all.
+	event.waitUntil(
+		Promise.all([
+			caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL)),
+			caches.open(BASE_MAP_CACHE).then((cache) => cache.addAll(BASE_MAP))
+		])
+	);
+	// Deliberately no `skipWaiting`. See the header.
+});
+
+worker.addEventListener('activate', (event) => {
+	// The old build's caches go only once this worker is genuinely in charge, which is the moment the
+	// user's decision has been taken and nothing is left serving out of them.
+	const keep = new Set([SHELL_CACHE, BASE_MAP_CACHE]);
+	event.waitUntil(
+		caches
+			.keys()
+			.then((names) =>
+				Promise.all(
+					names
+						.filter((name) => OURS.test(name) && !keep.has(name))
+						.map((name) => caches.delete(name))
+				)
+			)
+	);
+	// Deliberately no `clients.claim()`. A page that loaded under the previous worker keeps it for
+	// the rest of its life; taking over a live client is the mid-alignment interruption story 9
+	// rules out, and it is how an old page comes to be served new bytes.
+});
+
+worker.addEventListener('fetch', (event) => {
+	const { request } = event;
+	// Anything that is not a plain same-origin read is left entirely alone — no `respondWith`, so
+	// the browser behaves as though no worker were installed. That covers every OPFS read (which
+	// issues no request at all), every remote IIIF tile, and every remote Base Map range request.
+	if (request.method !== 'GET') return;
+
+	const url = new URL(request.url);
+	if (url.origin !== location.origin) return;
+
+	if (request.mode === 'navigate') {
+		const canonical = ENTRY_HTML.get(normalise(url.pathname));
+		if (canonical === undefined) return;
+		if (canonical !== url.pathname) {
+			// ──────────────────────────────────────────────────────────────────────────────────────
+			// THE STATIC HOST'S REDIRECT, PERFORMED OFFLINE
+			//
+			// `trailingSlash: 'never'`, so the prerendered pages are flat files — `base-map.html`, not
+			// `base-map/index.html` — and their asset references are relative. That makes `/base-map`
+			// the only URL those references resolve correctly from: at `/base-map/`, `./_app/…` means
+			// `/base-map/_app/…`, which is nothing. A static host and `vite preview` both answer
+			// `/base-map/` with a redirect to `/base-map`, and offline nobody is left to do that — so
+			// this does, rather than serving HTML from a URL its own `<link>`s are wrong at. Handing
+			// back the right bytes at the wrong address is precisely how a page renders blank.
+			return event.respondWith(
+				Promise.resolve(Response.redirect(`${canonical}${url.search}${url.hash}`, 301))
+			);
+		}
+		return event.respondWith(fromCache(SHELL_CACHE, canonical, request));
+	}
+
+	// Hashed asset names, so an exact match or nothing: there is no normalising to do and no reason
+	// to guess. Anything absent is left to the network, which is what keeps this worker out of the way
+	// of every remote tile and of everything else in `static/`.
+	if (SHELL_PATHS.has(url.pathname)) {
+		return event.respondWith(fromCache(SHELL_CACHE, url.pathname, request));
+	}
+	if (BASE_MAP_PATHS.has(url.pathname)) {
+		return event.respondWith(fromCache(BASE_MAP_CACHE, url.pathname, request));
+	}
+});
+
+/**
+ * Cache-first, out of *this* build's cache, honouring a `Range` header if there is one.
+ *
+ * Cache-first is not merely a speed choice; it is what the no-silent-activation contract rests on.
+ * While a new worker waits for the user's decision, this one keeps answering out of the caches it was
+ * installed with and never consults the server for a shell asset — so the running session stays
+ * whole, rather than a page of the old build gradually acquiring chunks of the new one.
+ */
+async function fromCache(name: string, path: string, request: Request): Promise<Response> {
+	const cache = await caches.open(name);
+	const hit = await cache.match(path);
+	if (!hit) return fetch(request);
+	const range = request.headers.get('range');
+	return range === null ? hit : slice(hit, range, path);
+}
+
+/**
+ * A `206` cut out of a cached `200`.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * THIS IS NOT OPTIONAL, AND IT IS NOT DEFENSIVE
+ *
+ * `Cache.match` ignores the `Range` header: it answers a ranged request with the whole response. The
+ * Base Map is one pmtiles archive read entirely by range, and `pmtiles`' `FetchSource` **rejects**
+ * that answer — measured in `pmtiles@4`, it throws "Server returned no content-length header or
+ * content-length exceeding request" when a `200` arrives whose `Content-Length` is larger than what
+ * it asked for. So a naive precache of the archive does not merely fail to help; it *breaks the Base
+ * Map while online too*, which is worse than not caching it at all. Anything that revisits the
+ * caching judgement in the header has to keep this or drop both.
+ */
+async function slice(response: Response, range: string, path: string): Promise<Response> {
+	const bytes = await bodyOf(response, path);
+	const asked = /^bytes=(\d*)-(\d*)$/.exec(range);
+	if (!asked) return response;
+	const last = bytes.byteLength - 1;
+	// `bytes=-500` is the final 500 bytes; `bytes=500-` is everything from 500 on.
+	const start =
+		asked[1] === '' ? Math.max(0, bytes.byteLength - Number(asked[2])) : Number(asked[1]);
+	const end = asked[1] === '' || asked[2] === '' ? last : Math.min(Number(asked[2]), last);
+	if (start > last) {
+		// What a byte-serving host answers, and what `FetchSource` handles by asking again for the
+		// whole file: the range is past the end, and the total length is the useful part of the reply.
+		return new Response(null, {
+			status: 416,
+			headers: { 'content-range': `bytes */${bytes.byteLength}` }
+		});
+	}
+	const part = bytes.slice(start, end + 1);
+	return new Response(part, {
+		status: 206,
+		statusText: 'Partial Content',
+		headers: {
+			'content-type': response.headers.get('content-type') ?? 'application/octet-stream',
+			'content-length': String(part.byteLength),
+			'content-range': `bytes ${start}-${end}/${bytes.byteLength}`,
+			'accept-ranges': 'bytes'
+		}
+	});
+}
+
+/**
+ * The cached bytes of one file, read once.
+ *
+ * Memoised because the archive is several megabytes and every single Base Map tile is one range
+ * request against it: re-reading the whole response per tile would turn panning the map into tens of
+ * megabytes of reads. One entry per path, and the worker is torn down when it goes idle, so this is
+ * bounded by the Base Map list — which is this deployment's own configuration and a known size.
+ */
+const bodies = new Map<string, Promise<ArrayBuffer>>();
+
+function bodyOf(response: Response, path: string): Promise<ArrayBuffer> {
+	const known = bodies.get(path);
+	if (known) return known;
+	const reading = response.arrayBuffer();
+	bodies.set(path, reading);
+	return reading;
+}
