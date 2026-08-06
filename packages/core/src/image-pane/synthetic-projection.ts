@@ -37,10 +37,19 @@
 //    round-trip, which inverts the same transcendental exactly; it is only how much the
 //    bottom of the image is stretched on screen.
 //
-// 4. **There is zoom headroom left.** The deepest map zoom the pane needs is
-//    12 + log2(maxScaleFactor) - log2(512 / tileWidth). MapLibre's own ceiling is 24, which
-//    leaves room for a pyramid with maxScaleFactor 2**12 — an image a million pixels on a
-//    side, far past anything real.
+// 4. **There is zoom headroom left.** The binding ceiling is not on map zoom. MapLibre's
+//    `maxZoom` option is unvalidated in v5 — 25 and 30 are both accepted, verified against
+//    maplibre-gl 5.24.0 in a real browser — and the pane asks for
+//    `fullResolutionMapZoom + 2` so a Control Point can be placed on a feature smaller than a
+//    pixel of the scan (`ImagePane.svelte`). What is enforced is `MAX_TILE_ZOOM = 25` on the
+//    *tile* zoom: `CanonicalTileID` throws past it, and the observed symptom is that the source
+//    requests no tiles at all while the console says
+//    `x=33554432, y=33554432, z=26 outside of bounds` and nothing about a pyramid.
+//
+//    So the constraint is `12 + log2(maxScaleFactor) <= 25`, i.e. maxScaleFactor at most
+//    2**13, i.e. a window of `tileWidth * 8192` image pixels — two million pixels on a side
+//    for 256-pixel tiles, four million for 512, far past anything real. It is checked below
+//    rather than left to MapLibre, because the failure is silent where it is diagnosable here.
 //
 // A shallower window zoom (a larger window) buys nothing and costs distortion; a deeper one
 // costs map zoom levels. Twelve is the middle of that trade.
@@ -114,6 +123,13 @@ export type SyntheticProjection = {
 export const WINDOW_TILE_ZOOM = 12;
 
 /**
+ * MapLibre's `MAX_TILE_ZOOM` (`src/util/util.ts`), the deepest tile zoom `CanonicalTileID` will
+ * accept. Not the same thing as its documented 0–24 range for the map's own `minZoom`/`maxZoom`,
+ * which v5 does not enforce at all.
+ */
+const MAPLIBRE_MAX_TILE_ZOOM = 25;
+
+/**
  * Documented round-trip tolerance, in image pixels.
  *
  * Measured over a dense grid: 4.5e-10 px worst case over the fixture pyramid, and 1.4e-8 px
@@ -172,6 +188,20 @@ export function createSyntheticProjection(pyramid: PyramidGeometry): SyntheticPr
 		);
 	}
 
+	const deepestTileZoom = WINDOW_TILE_ZOOM + Math.log2(maxScaleFactor);
+
+	if (deepestTileZoom > MAPLIBRE_MAX_TILE_ZOOM) {
+		throw new Error(
+			`The pyramid's finest level sits at tile zoom ${deepestTileZoom}, past MapLibre's ` +
+				`maximum tile zoom of ${MAPLIBRE_MAX_TILE_ZOOM}. Scale factor ${maxScaleFactor} is ` +
+				`${deepestTileZoom - MAPLIBRE_MAX_TILE_ZOOM} level(s) too deep: the deepest the window ` +
+				`allows is ${2 ** (MAPLIBRE_MAX_TILE_ZOOM - WINDOW_TILE_ZOOM)}, a window of ` +
+				`${tileWidth * 2 ** (MAPLIBRE_MAX_TILE_ZOOM - WINDOW_TILE_ZOOM)} image pixels. Past ` +
+				`that MapLibre requests no tiles at all and reports a tile coordinate out of bounds, ` +
+				`which says nothing about the pyramid it came from.`
+		);
+	}
+
 	const windowSize = tileWidth * maxScaleFactor;
 
 	if (windowSize < width || windowSize < height) {
@@ -196,7 +226,7 @@ export function createSyntheticProjection(pyramid: PyramidGeometry): SyntheticPr
 	const northWest = resourceToSynthetic({ x: 0, y: 0 });
 	const southEast = resourceToSynthetic({ x: width, y: height });
 
-	const maxTileZoom = WINDOW_TILE_ZOOM + Math.log2(maxScaleFactor);
+	const maxTileZoom = deepestTileZoom;
 	// MapLibre's world is 512 map pixels per tile regardless of the source's tile size.
 	const mapZoomOffset = Math.log2(512 / tileWidth);
 

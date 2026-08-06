@@ -190,6 +190,23 @@ describe('createSyntheticProjection', () => {
 		expect(() => createSyntheticProjection({ ...fixture, tileHeight: 512 })).toThrow(/square/i);
 	});
 
+	it('refuses a pyramid deeper than MapLibre can address a tile', () => {
+		// MapLibre's hard ceiling is on *tile* zoom, not on map zoom: `MAX_TILE_ZOOM` is 25 and
+		// `CanonicalTileID` throws for anything past it. Verified in a real browser against
+		// maplibre-gl 5.24.0 — a raster source with `maxzoom: 26` produces
+		//   pageerror: x=33554432, y=33554432, z=26 outside of bounds. … 0<=z<=25
+		// and requests no tiles at all, so the pane is blank and the message says nothing about a
+		// pyramid. That is a diagnosis this module can hand over instead.
+		const beyond = { ...fixture, width: 1, height: 1, maxScaleFactor: 2 ** 14 };
+		expect(() => createSyntheticProjection(beyond)).toThrow(/tile zoom/i);
+
+		// One level shallower is the deepest pyramid the pane supports, and it must be accepted:
+		// tile zoom 25 exactly, a window 2 097 152 image pixels on a side.
+		const deepest = createSyntheticProjection({ ...fixture, width: 1, height: 1, maxScaleFactor: 2 ** 13 });
+		expect(deepest.maxTileZoom).toBe(25);
+		expect(deepest.windowSize).toBe(2_097_152);
+	});
+
 	it('reports the map zoom range the pyramid covers', () => {
 		const projection = createSyntheticProjection(fixture);
 
