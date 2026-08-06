@@ -11,8 +11,9 @@
 	// There is nothing to trap focus in and nothing to reimplement.
 	//
 	// The list is an `<ol>`, so its structure *and* its order reach assistive technology from the
-	// markup rather than from a label somebody has to remember to update — and the numbers are visible,
-	// because "which Layer is third" is information a sighted user needs too.
+	// markup rather than from a label somebody has to remember to update. The position is drawn beside
+	// each row as well, and `aria-hidden` there, because the `<ol>` already says it — announcing
+	// "1 of 2" twice per row is worse than not drawing it.
 
 	import type { Layer } from '@ballastella/core';
 
@@ -100,7 +101,13 @@
 			whenever you have something to say over it.
 		</p>
 	{:else}
-		<ol class="mt-2 flex list-inside list-decimal flex-col gap-2" aria-label="Layers, top first">
+		<!--
+			An `<ol>`, so the list's structure and each Layer's position in the stack reach assistive
+			technology from the markup rather than from a label somebody has to remember to update. The
+			position is drawn as well, because "which Layer is third" is information a sighted user needs
+			too — as text, not as a list marker, since a marker does not render on a flex item.
+		-->
+		<ol class="mt-2 flex flex-col gap-2" aria-label="Layers, top first">
 			{#each layers as layer, index (layer.id)}
 				{@const outcome = outcomes[layer.id]}
 				<!--
@@ -144,6 +151,10 @@
 					}}
 				>
 					<div class="flex flex-wrap items-center gap-3">
+						<span class="text-sm tabular-nums opacity-60" aria-hidden="true">
+							{index + 1}/{layers.length}
+						</span>
+
 						<label class="flex items-center gap-2 text-sm">
 							<input
 								type="checkbox"
