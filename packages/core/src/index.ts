@@ -91,7 +91,24 @@ export type {
 } from './image-pane/synthetic-projection';
 
 export { createImagePane } from './image-pane/iiif-image-pane';
-export type { ImagePane, ImagePaneTile, XyzTile } from './image-pane/iiif-image-pane';
+export type {
+	ImagePane,
+	ImagePaneTile,
+	ImagePaneTileBase,
+	XyzTile
+} from './image-pane/iiif-image-pane';
+
+// The injection layer (ADR-0011): the one `ProjectStore` → `Response` shim every consumer of a
+// stored pyramid resolves through. Free of the tiler and of `wasm-vips`, because `apps/viewer`
+// reads published pyramids through it too (ADR-0019).
+export {
+	MissingImageServiceOverrideError,
+	createStoreImageFetch,
+	isImageServicePlaceholderUrl,
+	refuseUnroutedImageServiceRequests,
+	type FetchFn,
+	type StoreImageFetchOptions
+} from './injection/store-image-fetch.js';
 
 export * from './base-map';
 export * from './theme';

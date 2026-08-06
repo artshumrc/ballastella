@@ -20,12 +20,17 @@
 // Interior tiles — the overwhelming majority — are passed through as bytes without being
 // decoded here at all.
 //
-// This is deliberately *not* the injection layer of ADR-0011. Tiles here come from the app's
-// static assets over ordinary HTTP, which keeps the projection isolated from the storage
-// layer; ticket 06 replaces the `fetch` below with a `ProjectStore` read, and nothing else in
-// this file has to change for it.
+// **Where the bytes come from is injected** (ADR-0011, ticket 06). Ticket 03 fetched them from
+// the app's static assets, which kept the projection isolated from the storage layer while the
+// projection was the risk; a pane over a Historical Map the user ingested is handed
+// `createStoreImageFetch` instead, and the tile URLs it builds are on the `unset.invalid`
+// placeholder host that shim routes. This file cannot tell the two apart, which is the point:
+// one `fetch`-shaped seam, and the fixture pane and the user's own map take the same path
+// through it.
 
-import type { ImagePane } from '@ballastella/core';
+import { recordServedTile } from './browser-test-handle';
+
+import type { FetchFn, ImagePane } from '@ballastella/core';
 import { addProtocol, type GetResourceResponse, type RequestParameters } from 'maplibre-gl';
 
 const PROTOCOL = 'ballastella-image';
@@ -33,7 +38,10 @@ const PROTOCOL = 'ballastella-image';
 /** `ballastella-image://<pane id>/<z>/<x>/<y>` */
 const TILE_URL = /^ballastella-image:\/\/([^/]+)\/(\d+)\/(\d+)\/(\d+)$/;
 
-const panes = new Map<string, ImagePane>();
+/** A registered pane, and the `fetch` its tiles are read through. */
+type RegisteredPane = { pane: ImagePane; fetchTile: FetchFn };
+
+const panes = new Map<string, RegisteredPane>();
 let protocolRegistered = false;
 
 /** The `tiles` entry for a MapLibre raster source reading this pane's pyramid. */
@@ -42,8 +50,17 @@ export const imagePaneTileTemplate = (paneId: string) => `${PROTOCOL}://${paneId
 /**
  * Makes a pane's pyramid reachable by `imagePaneTileTemplate(paneId)`. Returns the function
  * that unregisters it again, for component teardown.
+ *
+ * `fetchTile` is where the pyramid actually lives. Pass `createStoreImageFetch(...)` for a
+ * Historical Map in the user's Project — it resolves the placeholder host out of the
+ * `ProjectStore` and passes anything else through — and leave it out only for a pyramid that
+ * really is served over HTTP, which in this app is ticket 03's committed fixture alone.
  */
-export function registerImagePaneTiles(paneId: string, pane: ImagePane): () => void {
+export function registerImagePaneTiles(
+	paneId: string,
+	pane: ImagePane,
+	fetchTile: FetchFn = (input, init) => fetch(input, init)
+): () => void {
 	if (!protocolRegistered) {
 		// MapLibre's protocol registry is one object for the whole page, so the pane registry
 		// rather than the protocol is what varies: panes come and go, `PROTOCOL` is installed once.
@@ -59,7 +76,7 @@ export function registerImagePaneTiles(paneId: string, pane: ImagePane): () => v
 		protocolRegistered = true;
 	}
 
-	panes.set(paneId, pane);
+	panes.set(paneId, { pane, fetchTile });
 
 	return () => {
 		panes.delete(paneId);
@@ -77,12 +94,13 @@ async function loadTile(
 	}
 
 	const [, paneId, z, x, y] = parsed as unknown as [string, string, string, string, string];
-	const pane = panes.get(paneId);
+	const registered = panes.get(paneId);
 
-	if (!pane) {
+	if (!registered) {
 		throw new Error(`No image pane is registered as "${paneId}".`);
 	}
 
+	const { pane, fetchTile } = registered;
 	const tile = pane.tileAt({ z: Number(z), x: Number(x), y: Number(y) });
 
 	if (!tile) {
@@ -92,11 +110,13 @@ async function loadTile(
 		return { data: transparentTile(pane.tileSize) };
 	}
 
-	const response = await fetch(tile.url, { signal: abortController.signal });
+	const response = await fetchTile(tile.url, { signal: abortController.signal });
 
 	if (!response.ok) {
 		throw new Error(`${response.status} ${response.statusText} fetching ${tile.url}`);
 	}
+
+	recordServedTile(paneId, tile);
 
 	const fillsItsCell =
 		tile.placement.width === pane.tileSize && tile.placement.height === pane.tileSize;

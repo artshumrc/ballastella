@@ -6,6 +6,7 @@ import {
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
 	Workspace,
+	createStoreImageFetch,
 	exportProjectZip,
 	ingestImageFile,
 	installFlushOnHide,
@@ -15,6 +16,7 @@ import {
 	readProjectZip,
 	streamingTiler,
 	toDirectoryName,
+	type FetchFn,
 	type IngestProgress,
 	type IngestedImage,
 	type ProjectFile,
@@ -463,6 +465,23 @@ export class EditorSession {
 			this.ingest = null;
 			this.ingestLabel = '';
 		}
+	}
+
+	/**
+	 * A `fetch` that answers the open Project's stored pyramids, or `null` when none is open.
+	 *
+	 * The ADR-0011 injection layer, handed out from here because this is the only place the app
+	 * talks to `@ballastella/core` and the only place that holds the store. Every consumer of a
+	 * Historical Map's bytes takes this one function: the image pane's MapLibre source through
+	 * `addProtocol`, `@allmaps/maplibre` through its `fetchFn` option, and OpenSeadragon's
+	 * `TileSource` at ticket 14. Requests to any other host pass straight through to the network,
+	 * so a remote referenced image keeps working unchanged.
+	 */
+	imageServiceFetch(): FetchFn | null {
+		const directory = this.openDirectory;
+		return directory === null
+			? null
+			: createStoreImageFetch({ store: this.#store, projectDirectory: directory });
 	}
 
 	/**

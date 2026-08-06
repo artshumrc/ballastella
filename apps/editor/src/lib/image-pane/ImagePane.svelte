@@ -34,7 +34,7 @@
 	// synthetic geography is an implementation detail of the fact that MapLibre is Web Mercator
 	// only (ADR-0005), and letting it escape is how it would end up stored somewhere.
 
-	import type { ImagePane, ResourcePoint } from '@ballastella/core';
+	import type { FetchFn, ImagePane, ResourcePoint } from '@ballastella/core';
 	// `Marker` is MapLibre's own class name, so the word is unavoidable at this one seam. It goes
 	// no further: nothing this component exports or renders uses it (CONTEXT.md, Control Point).
 	import { MapLibreMap, Marker, NavigationControl } from 'maplibre-gl';
@@ -47,6 +47,7 @@
 		pane,
 		paneId,
 		label,
+		fetchTile,
 		overlayPoints = [],
 		onclickpoint,
 		onview,
@@ -57,6 +58,11 @@
 		paneId: string;
 		/** Accessible name for the map region. */
 		label: string;
+		/**
+		 * Where this pyramid's tiles are read from (ADR-0011). `createStoreImageFetch(...)` for a
+		 * Historical Map in the user's Project; left out only for one really served over HTTP.
+		 */
+		fetchTile?: FetchFn;
 		overlayPoints?: PaneOverlayPoint[];
 		/** An image pixel the user clicked. */
 		onclickpoint?: (point: ResourcePoint) => void;
@@ -107,7 +113,7 @@
 	}
 
 	onMount(() => {
-		const unregisterTiles = registerImagePaneTiles(paneId, pane);
+		const unregisterTiles = registerImagePaneTiles(paneId, pane, fetchTile);
 
 		const created = new MapLibreMap({
 			container,

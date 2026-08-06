@@ -37,6 +37,12 @@ catalog:
   # `generateRandomId()` for local files; `generateId(uri)` is for remote resources.
   '@allmaps/id': 1.0.0-beta.38
 
+  # `@allmaps/maplibre` is the ADR-0011 injection point for warped rendering: `fetchFn` on
+  # `WarpedMapLayer` is how a locally stored pyramid reaches it (ticket 06). Wired now, used in
+  # anger by ticket 07. It depends on `maplibre-gl` ^5, which is the range the catalog holds —
+  # two MapLibre copies in one page is a broken map rather than a warning.
+  '@allmaps/maplibre': 1.0.0-beta.43
+
   # The streaming tiler (ADR-0003), for images above the measured `createImageBitmap` decode
   # ceiling. **Single-threaded build only**: the threaded one needs COOP/COEP cross-origin
   # isolation headers, which GitHub Pages cannot set, and that would break "anyone can fork and

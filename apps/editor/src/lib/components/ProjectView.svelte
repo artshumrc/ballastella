@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 
+	import HistoricalMapPane from '$lib/image-pane/HistoricalMapPane.svelte';
+
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 	import SaveIndicator from './SaveIndicator.svelte';
@@ -9,11 +11,11 @@
 	/**
 	 * One Project, selected client-side from `?p=<folder>` (ADR-0008).
 	 *
-	 * Almost everything a Project *is* arrives in later slices — the Historical Map panes, the
-	 * Control Points, the Layer stack. What is here is the frame they hang in and, more
-	 * importantly, the autosave rules they will follow: the name field below is the app's first
-	 * editable value, so it is where "typing coalesces into one write" and "the edit is committed
-	 * when it ends" are established rather than improvised per slice (ADR-0017).
+	 * The Control Points and the Layer stack still arrive in later slices. What is here is the
+	 * frame they hang in, the autosave rules they will follow — the name field below is the app's
+	 * first editable value, so it is where "typing coalesces into one write" and "the edit is
+	 * committed when it ends" are established rather than improvised per slice (ADR-0017) — and,
+	 * since ticket 06, the user's own Historical Maps rendered from their own Project.
 	 *
 	 * `storage` is here for the two states in which there is no Project to show because there is no
 	 * Workspace to show it from — see {@link WorkspaceRecovery}. Both were reachable and neither was
@@ -23,6 +25,21 @@
 
 	/** Nothing to show, and a reason worth naming, rather than a page that says "Opening…" for ever. */
 	const recovering = $derived(session.status === 'unreachable' || storage.awaitingFolder);
+
+	/** Which Historical Map is on screen. The first one, until the user picks another. */
+	let selectedImageId = $state('');
+
+	const images = $derived(session.images);
+	const shown = $derived(
+		images.find((image) => image.imageId === selectedImageId)?.imageId ?? images[0]?.imageId ?? ''
+	);
+
+	/**
+	 * The ADR-0011 shim for this Project. Recomputed when the open Project changes, because it is
+	 * bound to that Project's directory — a stale one would resolve the right image id against the
+	 * wrong folder, which is a pane of somebody else's map rather than an error.
+	 */
+	const imageServiceFetch = $derived(session.imageServiceFetch());
 </script>
 
 {#if recovering}
@@ -142,17 +159,47 @@
 			</div>
 		{/if}
 
-		{#if session.images.length > 0}
-			<ul class="mt-4 list-disc pl-6">
-				{#each session.images as image (image.imageId)}
-					<li><code>{image.imageId}</code></li>
+		{#if images.length > 0}
+			<!--
+				One button per Historical Map, so a Project with several of them can be moved between
+				(SPEC story 31 is about zooming into *my* map, and a scholar comparing two sheets has
+				two). `aria-current` rather than a visual cue alone: which map is on screen is
+				information, and a border is not announced.
+			-->
+			<ul class="mt-4 flex flex-wrap gap-2" aria-label="Historical Maps in this Project">
+				{#each images as image (image.imageId)}
+					<li>
+						<button
+							class="btn btn-sm"
+							class:btn-primary={image.imageId === shown}
+							aria-current={image.imageId === shown ? 'true' : undefined}
+							onclick={() => (selectedImageId = image.imageId)}
+						>
+							<code>{image.imageId}</code>
+						</button>
+					</li>
 				{/each}
 			</ul>
+
+			<!--
+				The pane itself. Every byte it draws comes out of the ProjectStore through the ADR-0011
+				shim — no static-asset fallback, no URL anywhere — which is what makes deep zoom into the
+				user's own map work with no network at all (stories 31 and 8).
+			-->
+			{#if imageServiceFetch && shown}
+				<div class="mt-4">
+					<HistoricalMapPane
+						imageId={shown}
+						fetchTile={imageServiceFetch}
+						label="Historical Map, unwarped, in image pixel coordinates"
+					/>
+				</div>
+			{/if}
 		{:else if !session.ingest}
 			<p class="mt-4 max-w-prose">
 				This Project has no Historical Maps yet. Aligning and annotating them arrive in later
-				slices; what works now is bringing one in — the image is converted to a IIIF pyramid and
-				written into the Project as you watch.
+				slices; what works now is bringing one in — the image is converted to a IIIF pyramid,
+				written into the Project as you watch, and shown here to zoom into.
 			</p>
 		{/if}
 	</section>

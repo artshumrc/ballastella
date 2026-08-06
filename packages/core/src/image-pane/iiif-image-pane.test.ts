@@ -353,4 +353,17 @@ describe('createImagePane tile grid', () => {
 			/unset\.invalid/i
 		);
 	});
+
+	it('takes the placeholder as the base only when the caller says the store holds the tiles', () => {
+		// ADR-0011 makes the placeholder the routing key of the injection layer, so a pyramid read
+		// out of the Project's own store really does answer on that host — and the string above is
+		// still refused. The two are told apart by type rather than by value, because the value is
+		// identical: `{ storedImageId }` is a decision, `info.id` passed through is a forgetting.
+		const pane = createImagePane(readInfoJson(), { storedImageId: 'floride-1657' });
+
+		expect(pane.image.uri).toBe('https://unset.invalid/floride-1657');
+		expect(pane.allTiles()[0]?.url).toMatch(/^https:\/\/unset\.invalid\/floride-1657\//);
+		// And it is still a real reader: the geometry does not depend on where the bytes come from.
+		expect([pane.image.width, pane.image.height, pane.tileSize]).toEqual([1200, 851, 256]);
+	});
 });
