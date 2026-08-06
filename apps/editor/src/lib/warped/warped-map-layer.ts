@@ -39,6 +39,7 @@
 import { WarpedMapLayer } from '@allmaps/maplibre';
 import {
 	COMPUTED_DISTORTION_MEASURES,
+	DEFAULT_DISTORTION_VIEW,
 	MINIMUM_CONTROL_POINTS,
 	toGeoreferencedMap,
 	type Alignment,
@@ -117,7 +118,16 @@ function mapOptionsFor(alignment: Alignment, distortion: DistortionView) {
 export function showAlignment(
 	layer: WarpedMapLayer,
 	alignment: Alignment,
-	distortion: DistortionView
+	/**
+	 * How to colourise it. Defaults to nothing colourised, which is the right default for any caller
+	 * that has no distortion view of its own — a Layer of the stack, for instance, where the overlay
+	 * belongs to the Alignment being edited rather than to every Historical Map on the map.
+	 *
+	 * Note that the *other* two options this fills in are not display settings and are applied
+	 * regardless: `transformationType`, without which a second- or third-order Alignment is silently
+	 * drawn as affine, and `distortionMeasures`, without which nothing could be colourised later.
+	 */
+	distortion: DistortionView = DEFAULT_DISTORTION_VIEW
 ): WarpedRender {
 	const need = MINIMUM_CONTROL_POINTS[alignment.transformationType];
 	const have = alignment.controlPoints.length;

@@ -312,6 +312,19 @@ the second way a user reaches this without doing anything unusual.
 - **`project.json` is untouched by this slice**, as by ticket 07. The transformation type and the mask
   are both fields of the Alignment; the distortion view is deliberately not persisted anywhere.
   `EditorSession` remains the only writer of `project.json`, trivially.
+- **This branch and ticket 09's overlap in `BaseMapPane.svelte`, and the merge needs one decision
+  rather than a resolution.** Ticket 09 landed on `main` while this was in flight. `git merge-tree`
+  reports one conflict, and it is adjacency rather than contradiction: both slices added `untrack` to
+  the same import, both added props, and their Layer-stack effect sits immediately after the
+  single-Alignment effect this slice modified. `packages/core/src/index.ts` and
+  `warped-map-layer.ts` auto-merge; `editor-session.svelte.ts` is untouched here.
+  **The substantive part is that `drawLayerStack` calls `showAlignment(layer, drawn.alignment)`.**
+  Its third parameter is therefore optional and defaults to nothing colourised, so the merge compiles
+  and every Layer of the stack still gets the two options that are *not* display settings —
+  `transformationType`, without which a Higher-order Alignment is silently drawn as affine, and
+  `distortionMeasures`. What a Layer of the stack does not get is the overlay itself, which is the
+  right default (the overlay belongs to the Alignment being edited) and is worth a look when the two
+  surfaces are reconciled.
 - **Shared e2e driving now lives in `e2e/support/alignment-workspace.ts`.** `editor-alignment.e2e.ts`
   still carries its own copy; rewriting a green suite to import from here would be churn in a file
   another slice is also touching.
