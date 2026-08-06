@@ -154,9 +154,9 @@ const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
 /**
  * Draw `layers` onto `map`, bottom of the stack first.
  *
- * The whole stack is built and torn down together rather than diffed. `addGeoreferencedMap` is keyed
- * on the document's content, so a moved Control Point is a different map to the renderer and there is
- * nothing to update in place; and MapLibre has no "move this layer below that one" that would let a
+ * The whole stack is built and torn down together rather than diffed. Handing an Alignment to the
+ * warped renderer is keyed on the document's content, so a moved Control Point is a different map to it
+ * and there is nothing to update in place; and MapLibre has no "move this layer below that one" that would let a
  * reorder be applied incrementally without the same care. What a rebuild must not be spent on is
  * opacity, which is why {@link StackRender.setOpacity} exists.
  */
