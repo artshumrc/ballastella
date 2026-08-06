@@ -24,6 +24,7 @@
 		type Layer,
 		type MapLayer
 	} from '@ballastella/core';
+	import { untrack } from 'svelte';
 
 	import BaseMapPane from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
@@ -71,8 +72,15 @@
 	/**
 	 * What requires the referenced documents to be read again: which Layers are drawn, and out of which
 	 * files. **Not** the name and not the opacity, which are display state and must not cost a read of
-	 * the store — a reorder that re-read every Alignment would make the cheapest edit in the
-	 * application one of the most expensive.
+	 * the store — a rename that re-read every Alignment would make the cheapest edit in the application
+	 * one of the most expensive.
+	 *
+	 * **A string, and the effect below reads nothing else that is tracked.** Deriveds compare by
+	 * reference and `shown` is a fresh array from `.filter()` on every change to `layers`, so an effect
+	 * that reads `shown` has `layers` as its real dependency however carefully it computes a key first.
+	 * That is what this guard used to be: the key was computed, discarded with `void`, and `shown` read
+	 * on the next line — so a rename cost a re-read of every Alignment, and one drag of the opacity
+	 * slider at `step="0.05"` cost twenty of them per Layer.
 	 */
 	const documentKey = $derived(
 		JSON.stringify(
@@ -94,9 +102,12 @@
 	let generation = 0;
 
 	$effect(() => {
+		// The two tracked dependencies: which files to read, and the session to read them from. `shown`
+		// is read *untracked*, so a rename or a dragged slider — neither of which changes which Layers
+		// are drawn or out of which files — cannot reach the store at all. See {@link documentKey}.
 		void documentKey;
 		const current = session;
-		const wanted = shown;
+		const wanted = untrack(() => shown);
 		if (!current) return;
 		const mine = ++generation;
 		void (async () => {

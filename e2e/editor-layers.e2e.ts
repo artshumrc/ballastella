@@ -88,8 +88,33 @@ declare global {
 			>;
 			builds: number;
 		};
+		/** How many times each file has been opened for reading — see `countFileReads`. */
+		ballastellaFileReads?: Record<string, number>;
 	}
 }
+
+/**
+ * Count every file the page opens for reading from now on, by file name.
+ *
+ * The only way to assert "this edit costs no read of the store" from outside, and the store is the
+ * thing being claimed about rather than an internal: OPFS issues no requests, so there is nothing on
+ * the network to watch. `getFile()` is the one call every read in `DirectoryHandleStore` goes through.
+ */
+async function countFileReads(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const counts: Record<string, number> = {};
+		window.ballastellaFileReads = counts;
+		const proto = FileSystemFileHandle.prototype;
+		const original = proto.getFile;
+		proto.getFile = function (this: FileSystemFileHandle) {
+			counts[this.name] = (counts[this.name] ?? 0) + 1;
+			return original.call(this);
+		};
+	});
+}
+
+const fileReads = (page: Page): Promise<Record<string, number>> =>
+	page.evaluate(() => ({ ...window.ballastellaFileReads }));
 
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
@@ -710,6 +735,40 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		expect(after).toEqual(before);
 		// And the display state did land somewhere: `project.json` is the only place it lives.
 		expect(await readProjectFile(page, directory, 'project.json')).not.toBe(projectBefore);
+	});
+
+	// Display state must not cost a read of the store either. A rename and an opacity drag change
+	// nothing about *which* Layers are drawn or out of which files, so re-reading every Alignment and
+	// every `FeatureCollection` for one of them makes the cheapest edit in the application one of the
+	// most expensive: at `step="0.05"` one drag of the slider is twenty input events, and a Project with
+	// six aligned maps and two Annotation Layers would pay eight OPFS reads and eight JSON parses for
+	// each one.
+	test('a rename and an opacity change re-read no Layer document at all', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(2);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const annotationId = (await rowIds(page))[0] as string;
+		const alignmentFile = (await alignmentRefOf(page, directory)).split('/').at(-1) as string;
+		await countFileReads(page);
+
+		await page.getByTestId('layer-opacity').fill('0.4');
+		await expect(page.getByTestId('layer-opacity-value')).toHaveText('40%');
+		await rows(page).nth(0).getByTestId('layer-name').fill('Trade routes');
+		await rows(page).nth(0).getByTestId('layer-name').blur();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		// Both Layers are still drawn, so nothing was skipped rather than re-read.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+
+		const reads = await fileReads(page);
+		expect(reads[alignmentFile] ?? 0, 'the Alignment was read again for display state').toBe(0);
+		expect(
+			reads[`${annotationId}.geojson`] ?? 0,
+			'the FeatureCollection was read again for display state'
+		).toBe(0);
 	});
 
 	test('renaming a Layer changes only project.json', async ({ page }) => {
