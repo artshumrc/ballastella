@@ -16,7 +16,7 @@ The tree runs **664 unit tests and 137 e2e**, with lint, typecheck, build, and t
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Seven items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
+**Eight items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
 
 ### A note on how much to trust a green ticket
 
@@ -95,6 +95,14 @@ Raised by the code reviews of tickets 02–04 and 12–13, and by tickets 05, 06
    `@allmaps/annotation@1.0.0-beta.37`'s Zod enum has no `polynomial1` member, and its `.or()` fallback is unreachable dead code because `parseIfValid` always succeeds first. So `generateAnnotation` writes **no transformation at all**, and parsing a file that contains `polynomial1` returns `undefined`. Ticket 07 instead writes `{ type: 'polynomial', options: { order: 1 } }` through upstream's own `transformationTypeToTypeAndOrder`, which round-trips and reads back as exactly `polynomial1` — so the *behaviour* ADR-0013 wants holds, via a different serialisation than it names.
 
    Reword the ADR to describe the `{ type, options.order }` form as the wire representation, or record why the literal is required and treat the upstream gap as a blocker. Do not leave the ADR reading as though the literal is what ships.
+
+8. **[ADR-0005](../../docs/adr/0005-maplibre-and-terra-draw.md) mandates `terra-draw` for all drawing, and two tickets have now deliberately declined it — the ADR needs amending or superseding, and that is a person's call.** An amendment is being drafted for your ratification; do not treat it as settled.
+
+   ADR-0005 says "All drawing and editing — control points, resource masks, and annotations — goes through `terra-draw`". [SPEC.md](./SPEC.md) repeats it, and ticket 10's *Where to start* claims the dependency "arrived in ticket 07". **None of that is true**: `terra-draw` is in no manifest and no source file. Tickets 07 and 08 both chose ticket 03's `overlayPoints` seam instead, and a third-party reviewer independently endorsed the call.
+
+   The decisive reason is not preference: **terra-draw edits inside MapLibre GL layers, and a WebGL canvas is not focusable per-feature**, so anything it drew would be the app's first mouse-only editable object — against a standing accessibility criterion. `overlayPoints` gives real `<button>` elements with names, arrow-key movement and Delete. Three lesser reasons compound it: per-coordinate change events against ADR-0017 rule 1, synthetic lng/lat escaping the image pane against ADR-0005's own projection rule, and ADR-0019's dependency cost.
+
+   Ticket 10 may still choose terra-draw for annotations — free-form geometry over real geography is the case it is actually for — so the amendment should record Control Points and the Resource Mask as settled and leave annotations open. **What must not persist is a repository whose ADR and spec mandate a library it does not contain**, which is how the next contributor is misled.
 
 ## Sequencing notes
 
