@@ -75,9 +75,18 @@ export type DescribedResource = {
  * Never throws. This runs on a document that has already been accepted, to render a panel, and a
  * missing field is a missing line rather than a resource that cannot be added — a library that
  * omits `summary` has not published a broken Manifest.
+ *
+ * `document` is the raw JSON the parse came from. It is asked for rather than taken off
+ * `parsed.source`, which is only populated when `IIIF.parse` was given `keepSource` — a flag it is
+ * easy to forget and whose absence would silently drop the rights statement, the one field on this
+ * panel that changes what a scholar is allowed to do. `RemoteIiifResource` carries the document
+ * already, so nothing has to re-fetch to supply it.
  */
-export function describeRemoteResource(parsed: Image | Manifest | Collection): DescribedResource {
-	const source = 'source' in parsed ? parsed.source : undefined;
+export function describeRemoteResource(
+	parsed: Image | Manifest | Collection,
+	document?: unknown
+): DescribedResource {
+	const source = document ?? ('source' in parsed ? parsed.source : undefined);
 	const metadata = 'metadata' in parsed ? readMetadata(parsed.metadata) : { rows: [], dropped: 0 };
 
 	return {
