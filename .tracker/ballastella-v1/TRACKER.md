@@ -8,13 +8,17 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: 06 is next and is unblocked. Tickets 05, 12, and 13 are merged into `main`; 12 and 13 have been reviewed and their findings are being remediated. Ticket 05 is `Needs Human Validation or Intervention` — everything in it is green, but see open question 3.
+Current ticket: 06 is in progress. Tickets 12 and 13 are reviewed and remediated; ticket 05 is merged and green but is `Needs Human Validation or Intervention` — see open question 3.
 
-The tree at the ticket-05 merge runs **452 unit tests and 71 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
+The tree runs **475 unit tests and 82 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Four items need a human — see [Open questions for a human](#open-questions-for-a-human).** Only item 3 constrains scope; none blocks ticket 06.
+**Five items need a human — see [Open questions for a human](#open-questions-for-a-human).** Items 3 and 4 constrain what v1 can claim; none blocks ticket 06.
+
+### A note on how much to trust a green ticket
+
+Worth recording, because it has held on every ticket so far. Each implementing agent reported all acceptance criteria passing, and the code reviews then found substantive defects anyway — including data loss in tickets 02, 04, and 13, and **three of ticket 02's criteria passing vacuously** (delete the code under test and the tests stayed green). Remediation in turn refuted several reviewer claims with harder evidence, and twice found defects *neither* the implementer nor the reviewer had seen: the `open()` keystroke-dropping race in ticket 02, and fflate's 16-bit entry count in ticket 13. Reviews caught what implementers missed; remediation caught what reviewers got wrong. **Neither layer alone was sufficient on any ticket.** Treat "the agent says the criteria pass" as a weak signal, and prefer the mutation check — break the behaviour, confirm the test goes red — which is what caught the vacuous tests in every case.
 
 Last updated: 2026-08-05
 
@@ -61,7 +65,13 @@ Raised by the code reviews of tickets 02–04 and 12–13, and by ticket 05's im
 
    Options are laid out in the ticket: vendor a single-threaded build, ship a COI service worker, drop streaming from v1, or something else. Each has consequences for tickets 14 and 18 and for the LGPLv3 obligation. **Ticket 06 is not blocked by this** — it needs the pyramid format and the injection layer, both of which exist.
 
-4. **The two licence texts still do not ship** — now three, with LGPLv3. OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
+4. **`fflate`'s zip writer has no zip64, so export now refuses a Project of more than 65,535 files.** Found during ticket 13's remediation, by an agent verifying a different finding — **not by either code review.**
+
+   fflate counts entries in 16 bits. Measured: exporting 70,000 entries produced an archive whose index claimed `70000 & 0xffff` = **4,464** files, and `unzipSync` read it back as 4,464 files **with no error at all** — a plausible-looking zip missing 94% of a pyramid, on ADR-0001's only-way-out and story 94's deposit path. SPEC puts "tens of thousands of files" on a single 2 GB pyramid, so this is reachable, not theoretical.
+
+   `exportProjectZip` now refuses with `ProjectTooLargeToZipError`, naming the folder Workspace as the way out. That is honest but it means **a legitimately large Project is un-exportable for exactly the Firefox, Safari, and iPad users for whom zip is the only way out** — the users ADR-0001 built this path for. The real fix is zip64 in the writer: either fflate gains it, or the central directory is written here. Related and also open: import holds the whole compressed archive in the JS heap, so a ~400 MB export cannot be re-imported on an iPad (recorded in ticket 13 with two fix shapes — `File.slice()`, or a quarantine directory).
+
+5. **The two licence texts still do not ship** — now three, with LGPLv3. OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
 
 ## Sequencing notes
 
