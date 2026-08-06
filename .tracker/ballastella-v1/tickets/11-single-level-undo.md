@@ -68,6 +68,35 @@ pnpm -r build && pnpm lint && pnpm check
 
 Success: all exit 0. The e2e tests must **wait for the save indicator to read "saved" before invoking undo** — an implementation that reverts to last-saved-state passes a naive test and fails this one, which is the whole point of the ticket.
 
+## A trap waiting for you: deleting a map Layer resurrects it
+
+Recorded here by ticket 09's code review rather than left to be discovered, because it only bites once
+you add the delete affordance — which is this ticket.
+
+Ticket 09 deliberately shipped `removeLayer` **tested but with no button**, on the reasoning that
+"layer deleted" is one of the four actions ADR-0014 requires undo to cover, so the affordance belongs
+with the undo that makes it safe. That was right. But `EditorSession.#ensureMapLayer`
+(`apps/editor/src/lib/editor-session.svelte.ts`) recreates a map Layer on **every** Alignment write.
+
+So the moment a delete button exists: delete a map Layer, then touch a single Control Point in the
+alignment workspace, and the Layer comes back — with a **fresh `id`**, a fresh name read from the
+image's `manifest.json`, and at the **top of the stack**, discarding the user's ordering. Undo will not
+help, because from the app's point of view nothing was undone: a new Layer was legitimately created.
+
+You need a tombstone, or an idempotence key that is not "does a Layer for this image exist" — and it
+must survive a reload, since the Alignment write that resurrects the Layer can happen in a later
+session. Decide which before writing the button, and record the choice.
+
+Two smaller things from the same review, for the same reason:
+
+- **`#ensureMapLayer` is a check-then-act across two awaits** (a `layers.some(...)` test, then an
+  `await this.#imageLabel(...)` store read, then the assignment), so two Alignment writes in flight can
+  each see no Layer and each add one — two rows, two `WarpedMapLayer`s fetching the same pyramid, and
+  as of ticket 09 no affordance to remove either. Worth fixing as part of the same work.
+- **`parseLayers` does not deduplicate ids.** Two Layers sharing an id reach a keyed `{#each}`, which is
+  a hard error in dev and list corruption in a production build. Relevant here because an undo that
+  restores a Layer is a second writer of an id that may already be back.
+
 ## Blocked by
 
 - Ticket 08
