@@ -129,12 +129,13 @@ export class InstalledApp {
 	 * update" button that did only that would be a lie, and the kind that is invisible: the user
 	 * would keep being told about a version they had already accepted.
 	 *
-	 * The usual answer is `self.skipWaiting()` in response to a message from the page. ADR-0012 and
-	 * this ticket both forbid `skipWaiting` outright, and the acceptance criteria grep for the word —
-	 * so the registration is dropped instead. The reload that follows arrives with no controller and
-	 * is therefore served the deployment's current bytes, and the fresh registration it makes installs
-	 * and activates immediately, there being nothing left to wait behind. The user gets the new
-	 * version in the gesture they asked for it in, and nothing ever activated behind their back.
+	 * The usual answer is to have the waiting worker end its own wait in response to a message from
+	 * the page. ADR-0012 forbids that call by name and this ticket's acceptance criteria grep the
+	 * source for it, so the registration is dropped instead. The reload that follows arrives with no
+	 * controller and is therefore served the deployment's current bytes, and the fresh registration it
+	 * makes installs and activates immediately, there being nothing left to wait behind. The user gets
+	 * the new version in the gesture they asked for it in, and nothing ever activated behind their
+	 * back.
 	 *
 	 * It needs the network for that one load, which is why {@link online} gates the offer. That is not
 	 * a real narrowing: a waiting worker exists only because the network delivered it.

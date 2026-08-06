@@ -708,6 +708,21 @@ test.describe('a Layer for an aligned Historical Map', () => {
  * case worth covering.
  */
 test.describe('a Base Map that never finishes loading', () => {
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+	// THE SERVICE WORKER IS BLOCKED HERE, AND THAT IS THE POINT OF THE TEST RATHER THAN A DODGE
+	//
+	// Ticket 18's worker precaches this deployment's own bundled Base Map, and it answers a request
+	// for the archive out of that cache — so once it is installed the hang below is *unreachable for
+	// the bundled archive*, which is ADR-0012's offline claim working rather than this fallback
+	// breaking. `page.route` cannot see a request the worker answered, so with a worker in place this
+	// test asserted the opposite of what it says.
+	//
+	// The message it covers is still needed twice over, and both are what this now measures: a first
+	// visit, before any worker is installed, and a `needsNetwork: true` catalog entry, whose archive is
+	// on somebody else's server and which the worker deliberately never caches (ADR-0012 fence 4).
+	// Blocking the worker is how a Playwright context reaches the first of those.
+	test.use({ serviceWorkers: 'block' });
+
 	test('says why the Layer cannot be drawn rather than leaving the list silent', async ({
 		page
 	}) => {

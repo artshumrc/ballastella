@@ -85,12 +85,15 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // NO SILENT ACTIVATION
 //
-// There is no `skipWaiting` here, and there must not be. ADR-0010 named a stale service worker as
-// a version-skew vector, and an explicit prompt is the mitigation: silent activation is exactly
-// how an old bundle quietly meets new data. A new worker installs, fills its own cache, and then
-// **waits**. `$lib/pwa/installed-app.svelte.ts` notices and says so; the user chooses when. Nothing
-// in this file reloads a page or takes over a client, because an update must never interrupt
-// somebody mid-alignment (SPEC story 9).
+// **Nothing here cuts a waiting worker's wait short, and nothing may.** ADR-0012 forbids that one
+// call by name and this ticket's acceptance criteria grep the source for it — which is why no
+// comment in this file spells it either, so the grep has no decoys to sift.
+//
+// ADR-0010 named a stale service worker as a version-skew vector, and an explicit prompt is the
+// mitigation: silent activation is exactly how an old bundle quietly meets new data. A new worker
+// installs, fills its own cache, and then **waits**. `$lib/pwa/installed-app.svelte.ts` notices and
+// says so; the user chooses when. Nothing in this file reloads a page or takes over a client,
+// because an update must never interrupt somebody mid-alignment (SPEC story 9).
 //
 // The consequence of that is deliberate and is what the old-version criterion rests on: while a
 // new worker waits, the *old* one keeps serving out of the *old* cache, because the cache is named
@@ -117,7 +120,7 @@ const worker = self as unknown as ServiceWorkerGlobalScope;
  * Named for the build rather than reused, so that an old worker waiting on the user's decision is
  * still serving the bytes it was installed with. A single shared cache name would let a newly
  * *installed* worker overwrite what the still-*active* one is serving — silent activation through
- * the back door, without ever calling `skipWaiting`.
+ * the back door, without any worker ever cutting its wait short.
  */
 const SHELL_CACHE = `ballastella-shell-${version}`;
 const BASE_MAP_CACHE = `ballastella-base-map-${version}`;
@@ -199,7 +202,7 @@ worker.addEventListener('install', (event) => {
 			caches.open(BASE_MAP_CACHE).then((cache) => cache.addAll(BASE_MAP))
 		])
 	);
-	// Deliberately no `skipWaiting`. See the header.
+	// Deliberately nothing here that would end this worker's wait. See the header.
 });
 
 worker.addEventListener('activate', (event) => {

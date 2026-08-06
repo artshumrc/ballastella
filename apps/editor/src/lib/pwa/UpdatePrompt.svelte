@@ -10,7 +10,7 @@
 	 * Story 9's clause is "so that an update never interrupts me mid-alignment", and the ways a
 	 * notice can interrupt are more numerous than the ways it can inform:
 	 *
-	 *   * **It does not reload.** The service worker has no `skipWaiting` and never claims a client,
+	 *   * **It does not reload.** The service worker never ends its own wait and never claims a client,
 	 *     so the running page keeps the worker it started with. This component reloads only from a
 	 *     click on the button below.
 	 *   * **It does not take focus.** No `<dialog>`, no `autofocus`, no `role="alert"`: a modal or an
