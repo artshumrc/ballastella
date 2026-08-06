@@ -253,8 +253,14 @@ test.describe('a Historical Map read from the Project', () => {
 
 		const tiles = await servedTiles(page);
 
-		// Every level, and a ragged tile at the right and the bottom margin of each — the geometry
-		// that is wrong by up to 45% if `placement` is ignored, and by 0.6% if it is rounded.
+		// Every level, and a ragged tile at the right and the bottom margin of each.
+		//
+		// This is a claim about *which tiles were served*, and deliberately nothing more: `placement`
+		// here is read out of the app's own log of what `pane.tileAt` returned, so it cannot say
+		// anything about where the pixels landed. Whether a ragged tile is *drawn* at its placement is
+		// asserted on canvas pixels in `packages/core`'s `pad-tile-to-cell.browser.test.ts` — a
+		// distinction that mattered: the drawing code could be changed to use the served size instead
+		// and this log would be identical.
 		expect([...new Set(tiles.map((tile) => tile.scaleFactor))].sort((a, b) => a - b)).toEqual([
 			1, 2, 4
 		]);
@@ -365,6 +371,50 @@ test.describe('a Historical Map read from the Project', () => {
 		}
 
 		expect(requested.filter((url) => url.includes('unset.invalid'))).toEqual([]);
+	});
+
+	test('hands the ragged-edge drawing a fractional placement, on a real pyramid', async ({
+		page
+	}) => {
+		// **The case that had never run.** `placement` is `region / scaleFactor`, so it is fractional
+		// only where a ragged region does not divide by its own scale factor — and 700 × 500, the
+		// fixture every other test here uses, has nine tiles whose every region divides exactly. So
+		// the arithmetic that exists for the fractional case was reached by no assertion anywhere,
+		// while the pixel test in `packages/core` had no evidence the app ever produces one.
+		//
+		// 300 × 1300 does: its scale-factor-8 tile covers the whole image, is served at 38 × 163 and
+		// covers 37.5 × 162.5 of its cell. That is the number `padTileToCell` is asserted against.
+		await collectServedTiles(page);
+		await page.goto('/');
+		await emptyWorkspace(page);
+		await page.reload();
+		await createProject(page, 'Amsterdam 1625');
+		await openProject(page, 'Amsterdam 1625');
+
+		await ingest(page, 300, 1300, 'tall.png');
+		await waitForTiles(page);
+		await expect(pyramidReadout(page)).toContainText('scale factors 1, 2, 4, 8');
+
+		// Out to the coarsest level, the same way the first test in this file gets there: fitting the
+		// whole map is not far enough out on its own.
+		await button(page, 'Fit whole map').click();
+		await waitForTiles(page);
+		for (let step = 0; step < 6; step++) {
+			await button(page, 'Zoom out one level').click();
+		}
+		await waitForTiles(page);
+		await expect
+			.poll(async () => (await servedTiles(page)).some((tile) => tile.scaleFactor === 8), {
+				message: 'the coarsest level was never served, so no fractional placement was produced',
+				timeout: 15_000
+			})
+			.toBe(true);
+
+		const placements = (await servedTiles(page))
+			.filter((tile) => tile.scaleFactor === 8)
+			.map((tile) => tile.placement);
+
+		expect(placements).toContainEqual({ width: 37.5, height: 162.5 });
 	});
 
 	test('is operable from the keyboard, and reports the pixel under the pointer', async ({

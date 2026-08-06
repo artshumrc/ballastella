@@ -10,12 +10,12 @@
 //
 // **MapLibre stretches a raster tile to fill its cell.** A ragged edge tile at the right or
 // bottom margin is smaller than a full tile — 176×256 rather than 256×256 — and drawn as-is it
-// would be stretched by 45%, putting the content near the image's edges tens of pixels away
-// from where a Control Point placed there would think it was. Those tiles are therefore drawn
-// into a transparent full-size tile at the size they actually cover. That size is
-// `tile.placement`, not the size the tile was served at: IIIF rounds a served tile up to whole
-// pixels, and using the rounded number would leave a systematic sub-pixel stretch, which is
-// exactly the kind of thing that reads as imprecision rather than as a bug.
+// would be stretched by 45%. Those tiles are therefore drawn into a transparent full-size tile at
+// the size they actually cover, by `padTileToCell`, which lives in `@ballastella/core` beside the
+// `placement` it consumes because its correctness is a claim about pixels and pixels can only be
+// asserted in a browser — see `pad-tile-to-cell.browser.test.ts`. Nothing about that geometry can
+// be asserted from here: this module's only observable output is
+// `window.ballastellaServedTiles`, which records what the pane *intended* to draw.
 //
 // Interior tiles — the overwhelming majority — are passed through as bytes without being
 // decoded here at all.
@@ -30,7 +30,7 @@
 
 import { recordServedTile } from './browser-test-handle';
 
-import type { FetchFn, ImagePane } from '@ballastella/core';
+import { padTileToCell, type FetchFn, type ImagePane } from '@ballastella/core';
 import { addProtocol, type GetResourceResponse, type RequestParameters } from 'maplibre-gl';
 
 const PROTOCOL = 'ballastella-image';
@@ -125,69 +125,7 @@ async function loadTile(
 		return { data: await response.arrayBuffer() };
 	}
 
-	return { data: await padToCell(await response.blob(), tile.placement, pane.tileSize) };
-}
-
-/** Draws a ragged edge tile into a transparent full-size tile, at the size it covers. */
-async function padToCell(
-	body: Blob,
-	placement: { width: number; height: number },
-	tileSize: number
-): Promise<ImageBitmap> {
-	const served = await createImageBitmap(body);
-
-	try {
-		const canvas = new OffscreenCanvas(tileSize, tileSize);
-		const context = canvas.getContext('2d');
-
-		if (!context) {
-			throw new Error('No 2d context on an OffscreenCanvas — cannot place ragged edge tiles.');
-		}
-
-		context.imageSmoothingQuality = 'high';
-		context.drawImage(served, 0, 0, placement.width, placement.height);
-
-		// Then clamp the edge outward by a pixel. MapLibre samples the tile texture with linear
-		// filtering, so along the boundary between the content and the transparent remainder it
-		// blends the two — and transparent black darkens, leaving a roughly one-screen-pixel dark
-		// fringe down the image's right and bottom edges at full resolution. Replicating the last
-		// column and row into the dead area is the standard clamp-to-edge remedy and changes
-		// nothing about geometry: `placement` is untouched, and the replicated pixels sit outside
-		// the image's own extent, which only ragged margin tiles have.
-		const edge = 1;
-
-		if (placement.width < tileSize) {
-			context.drawImage(
-				served,
-				served.width - 1,
-				0,
-				1,
-				served.height,
-				placement.width,
-				0,
-				edge,
-				placement.height
-			);
-		}
-
-		if (placement.height < tileSize) {
-			context.drawImage(
-				served,
-				0,
-				served.height - 1,
-				served.width,
-				1,
-				0,
-				placement.height,
-				placement.width + edge,
-				edge
-			);
-		}
-
-		return canvas.transferToImageBitmap();
-	} finally {
-		served.close();
-	}
+	return { data: await padTileToCell(await response.blob(), tile.placement, pane.tileSize) };
 }
 
 const transparentTile = (tileSize: number) =>
