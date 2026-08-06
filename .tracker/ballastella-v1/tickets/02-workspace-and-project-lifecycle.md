@@ -189,3 +189,84 @@ and every assertion fails for reasons that have nothing to do with the code unde
 happened during this ticket and cost a full debugging cycle. The fix is to read the ports from
 the environment, or to set `reuseExistingServer: false`; it belongs to whoever owns
 `playwright.config.ts` next, since it is ticket 01's file and outside this slice.
+
+## Review follow-ups
+
+### Fixed in review, 2026-08-05
+
+Findings from an independent review of this slice, with the tests that now fail when each
+behaviour is broken. Each was verified red by breaking the behaviour deliberately.
+
+- **Autosave lost the bytes of a failed write, and the indicator lied about it.** `#drainLoop`
+  cleared `file.pending` *before* attempting the write and merely returned on failure, so there
+  was nothing for `flush` to retry and `#drain`'s `.finally` then deleted the entry. And
+  `#lastError` was a single field cleared by the next write that happened to succeed: rename a
+  Project with quota exhausted, create any other Project, and the indicator read "Saved" for an
+  edit that was never written — what ADR-0017 rule 5 exists to prevent. The error is now per file
+  and the state derives from the file's own pending bytes. `commit` rejects, so
+  `Workspace.writeProject` and `EditorSession` cannot report a mutation they did not get.
+  `Autosave.hasPendingWrite` is no longer dead code.
+- **Tabbing through the Project name field rewrote `project.json`.** `onblur` committed with no
+  dirty check and `writeProject` stamps a fresh `updatedAt`, so criterion 12 was false through the
+  UI even though the store-level test passed. `commitProjectName` now no-ops unless a write is
+  pending. The existing byte-identity e2e could not see it, because it navigates with `page.goto`
+  and never focuses anything; the new test drives focus with both keyboard and pointer.
+- **Abandoned atomic writes were unreclaimable, so a "deleted" Project survived on disk.**
+  `writeBytes` sat outside `write`'s guard, and OPFS reports quota exhaustion from `close()`, which
+  sat outside its own — so a full disk left a temporary file that nothing could reach: `list` hides
+  the reserved suffix, `delete` refuses it, and `deleteProject` walks `list`. Both are inside their
+  guards now, `ProjectStore` gained `reclaimAbandonedWrites(prefix)` (one implementation in
+  `TempFileWriteStore`, every backend inherits it), and `deleteProject` calls it. It is a removal
+  only — it neither lists the litter nor writes, so no caller gains a way to put bytes where `list`
+  hides them.
+- **Three vacuous tests.** `installFlushOnHide`'s two flush tests called `await autosave.flush()`
+  themselves, so gutting both listener bodies left them green. The e2e `pagehide` test was vacuous
+  differently: the debounce is 400 ms and `expect.poll` waits five seconds, so the timer fired
+  inside the poll — verified to pass with `installFlushOnHide` deleted entirely. It now freezes the
+  page's clock, so the app's timer cannot fire and the listener is the only thing that can write.
+  The shared suite's two "no litter" tests asserted through `store.list('')`, which filters
+  temporary paths *by construction* — verified to pass with the cleanup removed. They now go
+  through the backend's own view of what it holds.
+- **`hashProject` in the e2e did not recurse**, so the nested `images/info.json` the byte-identity
+  test deliberately seeds was skipped and only `project.json` was ever hashed. It recurses, and the
+  test asserts which files the hash covers so the recursion cannot quietly go away again.
+- **The interruption test's protected-member spy is gone.** It cast the store and spied on
+  `renameTempFile`, so ticket 12 could only pass the suite "unchanged" by extending
+  `TempFileWriteStore` — contradicting the suite's own headline claim and CONTRIBUTING's "never
+  assert on module structure". The fault now comes from a fixture each backend supplies
+  (`StoreUnderTest`): the in-memory double has a documented `failNextWrite` switch beside
+  `unreachable()`, and the OPFS adapter is interrupted by patching the browser API it calls. Both
+  failure points are covered for both adapters, plus recovery on the next write.
+- **`EditorSession` no longer reports every failure as an unreachable Workspace.** A
+  `PathNotFoundError` from a concurrently-deleted Project rendered "Workspace not reachable" over a
+  reachable Workspace; write failures now land in `saveError` beside the save indicator instead.
+- **`OpfsProjectStore.isSupported` is consulted**, so a non-secure context gets a diagnosis rather
+  than "navigator.storage.getDirectory is not a function".
+- **The name field no longer triggers a read storm.** Every keystroke ran `listProjects()` →
+  `list('')`, a recursive walk of the whole OPFS tree with a re-parse of every `project.json`; with
+  three 2 GB pyramids a twenty-character name meant twenty 30,000-entry walks. The list is loaded
+  when the hub is shown, which is the only place it is rendered.
+- **The OPFS adapter suite runs in Firefox as well as Chromium** (74 tests), because story 4 is
+  that OPFS is the universal backend and Firefox has its own implementation of it. The `move`-less
+  rename fallback also has a test that enters it deliberately — see the note under ticket 04, since
+  `move` turns out not to be Chromium-only any more.
+
+### Still open — needs a human
+
+- **`BALLASTELLA_CANONICAL_URL` is a guess** (`packages/core/src/project/project-file.ts`). It was
+  derived from the git remote and reads `https://artshumrc.github.io/ballastella/`, which 404s
+  unless Pages is enabled with no custom domain. Worse, ADR-0006 is explicit that we cannot know at
+  build time whether a deployment sits at a subpath or a domain root — so a compile-time constant is
+  wrong on every fork, in the one message a user reads at the moment their work is at risk
+  ("open it at *URL*", ADR-0010). The value has been left alone deliberately. Deciding it means
+  either recording the canonical instance as a project decision, or making it deployment
+  configuration a forker sets — which is the same shape as the Base Map catalog (ADR-0020) and
+  probably the right answer, but it is a product call, not a refactor.
+- **Orphaned writes are still not counted in a workspace's total size.** `list` hides the reserved
+  suffix by design, so the `list` + `size` sum tickets 15 and 16 use for ADR-0008's ~1 GB warning
+  excludes any half-finished write. After the fixes above that is bounded by "one interrupted write
+  per crashed tab", and `reclaimAbandonedWrites` clears them when a Project is deleted — but a
+  Project the user never deletes can accumulate them. Ticket 15 or 16 should decide whether to
+  sweep before totalling, and whether a directory holding *only* an abandoned write (a first write
+  interrupted by a crash, so there is no `project.json` and the hub cannot list it) needs surfacing
+  at all.

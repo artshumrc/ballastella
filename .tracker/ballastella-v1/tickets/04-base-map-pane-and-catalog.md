@@ -166,3 +166,79 @@ sheets — 4.8 MB in total. Provenance and licences are in `PROVENANCE.md` besid
 `THIRD-PARTY-NOTICES.md`. The glyphs matter more than they look: `@protomaps/basemaps` gates every
 label layer behind its `lang` option, so "streets and labels" needs them bundled or it needs the
 network, and needing the network for labels would quietly defeat story 88.
+
+## Review follow-ups
+
+### Fixed in review, 2026-08-05
+
+The seam this slice left for ticket 02 has been closed, and the throwaway half deleted.
+
+`apps/editor/src/lib/base-map/project-base-map.ts` — `OpfsProjectDefaultBaseMap` — is gone, as its
+own header comment prescribed. It wrote `<dir>/project.json` into the same OPFS root as ticket 02's
+`OpfsProjectStore`, so the editor had two writers of one file with different guards, and the
+throwaway's were absent. Verified against the old code rather than reasoned about:
+
+- **An unreadable `project.json` was replaced wholesale.** `#readDocument` swallowed `JSON.parse`
+  failures and returned null, after which `write` wrote a fresh document. A trailing comma — a
+  Dropbox conflict, a hand edit — meant the file came back with `"name": "amsterdam-1625"`, the
+  directory name, with `updatedAt` gone and `layers` reset. Ticket 02's `parseProjectFile` throws
+  `ProjectFileUnreadableError` for exactly this input.
+- **A `formatVersion: 2` document was rewritten in place**, defeating the ADR-0010 refusal whose
+  message promises "It has been left untouched." Verified: the future document came back
+  reserialised, carrying the new `baseMap`.
+- **`/base-map/` with no `?p=` created a Project.** It called
+  `getDirectoryHandle('demo-project', { create: true })` and manufactured a phantom Project in the
+  real Workspace, which the hub then listed as the user's own work. Opening a pane must never create
+  a Project; the route now says so and links back to the hub.
+- **The write was fire-and-forget** — `void store?.write(id)`, no `await`, no `.catch` — and the
+  route carried no save indicator at all, so a quota failure switched the map, said nothing, and
+  reverted on reopen. ADR-0017 rule 5 is that the indicator is the user's only signal; the route now
+  has one, and a failure shows beside it.
+- **It kept none of the document's bookkeeping**, so a Base Map choice left `updatedAt` stale — and
+  any other in-memory copy of the document was free to serialise the choice straight back out. The
+  pane now reads and writes through `EditorSession`, which is the app's only writer of
+  `project.json` and holds the only in-memory copy of it. That matters most for ticket 07, which
+  puts this pane and the Project view on one page: a second snapshot there would be a lost update
+  inside a single component rather than between tabs.
+
+Two more, both in `core`:
+
+- **`baseMap` had two readers that disagreed.** `readBaseMapId` trimmed and read whitespace alone as
+  no choice; `parseProjectFile` did neither, so `"baseMap": "  "` behaved differently depending on
+  which path reached the file. `parseProjectFile` now goes through `readBaseMapId`, and
+  `withBaseMapId` — a second *writer* over a loosely-typed document — is gone with the stub that was
+  its only caller. `ProjectFile` types the field and `serialiseProjectFile` writes it; that is now
+  the only way it is written.
+- **ADR-0020's portability claim is asserted.** An unrecognised id must *survive* in `project.json`,
+  so moving the Project back to a deployment that carries it restores the author's choice. The code
+  was already right; it was one line from silently overwriting the author's intent with the local
+  default, and nothing would have caught it.
+
+**The `move`-less rename fallback was dead code — and `move` is not Chromium-only any more.**
+`OpfsProjectStore.renameTempFile` prefers `FileSystemFileHandle.move` and copies when a browser has
+none, and no test executed the copy. Adding Firefox to the adapter suite does *not* reach it:
+Playwright's Firefox 153 has `move` too, which was worth finding out. So there is now a test that
+enters the branch deliberately, by hiding `move` the way Safari does, asserting both that the
+destination ends up correct and that the copy takes its temporary file with it. Firefox was added to
+the suite anyway — story 4 is about a second OPFS implementation, not a second rendering engine.
+
+**The catalog's remote entry has a provenance line**, beside the URL in `catalog.ts` and in
+`static/base-map/PROVENANCE.md`. Its data is OpenStreetMap under ODbL and attributed like the
+bundled extract; its *hosting* is Protomaps' public demo bucket — goodwill, with no published rate
+limit, uptime promise, or terms of use — and every fork's users reach it by default. Repointing it is
+a change to that one line (ADR-0020).
+
+### Still open — needs a human
+
+- **The licence texts for the committed base map assets do not ship.** OFL 1.1 (the Noto Sans glyph
+  ranges) and BSD-3-Clause (the Protomaps sprite sheets) both require their text to accompany
+  redistribution, and neither is in this repository or in `node_modules`. `@protomaps/basemaps`
+  ships no `LICENSE` file, so there is nothing to copy from; `maplibre-gl` ships a BSD-3-Clause text
+  but with MapLibre's copyright line rather than Protomaps', and substituting it would fabricate an
+  attribution rather than reproduce one. `THIRD-PARTY-NOTICES.md` no longer claims otherwise and
+  records what has to be fetched and from where. Resolving it needs a network fetch and a
+  copyright-holder determination.
+- **A Firefox or WebKit run of the Playwright suite is a separate decision.** It would drive real
+  MapLibre over WebGL in a second engine, which is a materially larger cross-engine question than
+  the storage layer and a CI cost as well as a correctness one. The storage layer — which is where
+  story 4's promise actually lives — is covered.
