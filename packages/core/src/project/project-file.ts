@@ -58,6 +58,30 @@ export interface ProjectFile {
 	 */
 	readonly baseMap: string | null;
 	/**
+	 * The map Layers the user has deleted, by the `alignmentRef` each one drew.
+	 *
+	 * **A tombstone, and the only thing that stops a deleted map Layer coming back** (ticket 11).
+	 * Aligning a Historical Map is what puts it in the stack, and the app makes that true by ensuring
+	 * a Layer for the Alignment on *every* Alignment write — so without a record of the deletion,
+	 * nudging one Control Point after deleting the Layer creates a new one, with a fresh id, a name
+	 * read from the image's `manifest.json`, and at the top of the stack. Undo cannot help with that:
+	 * nothing was undone, a Layer was legitimately created.
+	 *
+	 * The idempotence key therefore cannot be "does a Layer for this image exist", and it has to
+	 * **survive a reload**, because the write that would resurrect the Layer can happen in a later
+	 * session. It lives here because `project.json` is the document `EditorSession` already owns and
+	 * writes atomically (ADR-0017 rule 4); a file of its own would be a second writer of the same
+	 * fact.
+	 *
+	 * Undoing the deletion lifts the tombstone along with putting the Layer back, so the two can
+	 * never both be true.
+	 *
+	 * Written only when there is something in it, so a Project nobody has deleted a Layer from
+	 * serialises exactly as it did before this field existed — which is what keeps ADR-0010's
+	 * "opening last year's work modifies no byte" true across the change.
+	 */
+	readonly removedMapLayers: readonly string[];
+	/**
 	 * Anything else the file carried, kept so that writing it back cannot drop it. The refusal
 	 * below means we never write a file from a newer version, but the same-version case matters
 	 * too: a field added by a build one commit ahead is not worth destroying (ADR-0010).
@@ -124,10 +148,8 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		throw new ProjectFileUnreadableError('the file does not contain a JSON object');
 	}
 
-	const { formatVersion, name, updatedAt, layers, ...unknownFields } = raw as Record<
-		string,
-		unknown
-	>;
+	const { formatVersion, name, updatedAt, layers, removedMapLayers, ...unknownFields } =
+		raw as Record<string, unknown>;
 	// Removed by the same key `readBaseMapId` reads it under, so the field cannot be recognised in
 	// one place and treated as unknown in the other.
 	delete unknownFields[PROJECT_BASE_MAP_KEY];
@@ -150,6 +172,12 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		// "what did the author choose?". Two of them disagreeing meant `"baseMap": "  "` behaved
 		// differently depending on which code path reached the file.
 		baseMap: readBaseMapId(raw),
+		// Tolerant in the same direction as `parseLayers`: anything that is not a list of strings reads
+		// as no tombstones at all. The cost of losing one is a Layer that comes back; the cost of
+		// throwing here is a Project that cannot be opened.
+		removedMapLayers: Array.isArray(removedMapLayers)
+			? removedMapLayers.filter((ref): ref is string => typeof ref === 'string' && ref !== '')
+			: [],
 		unknownFields
 	};
 }
@@ -159,9 +187,19 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
  * produces diffs a human can read and every write of an unchanged Project is byte-identical.
  */
 export function serialiseProjectFile(file: ProjectFile): Bytes {
-	const { unknownFields, formatVersion, name, updatedAt, layers, baseMap } = file;
+	const { unknownFields, formatVersion, name, updatedAt, layers, baseMap, removedMapLayers } = file;
 	const json = JSON.stringify(
-		{ formatVersion, name, updatedAt, layers: serialiseLayers(layers), baseMap, ...unknownFields },
+		{
+			formatVersion,
+			name,
+			updatedAt,
+			layers: serialiseLayers(layers),
+			baseMap,
+			// Omitted when empty, which is the common case: a Project nobody has deleted a Layer from
+			// writes exactly the bytes it wrote before this field existed.
+			...(removedMapLayers.length === 0 ? {} : { removedMapLayers: [...removedMapLayers] }),
+			...unknownFields
+		},
 		null,
 		'\t'
 	);
@@ -176,6 +214,7 @@ export function newProjectFile(name: string, updatedAt: Date): ProjectFile {
 		updatedAt: updatedAt.toISOString(),
 		layers: [],
 		baseMap: null,
+		removedMapLayers: [],
 		unknownFields: {}
 	};
 }

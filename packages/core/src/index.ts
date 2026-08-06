@@ -20,6 +20,7 @@ export {
 	emptyAnnotationCollection,
 	findLayer,
 	imageIdFromAlignmentRef,
+	insertLayerAt,
 	mapLayerImageInfoPath,
 	moveLayer,
 	moveLayerDown,
@@ -157,6 +158,7 @@ export {
 	dashArrayFor,
 	emptyCollection,
 	findAnnotation,
+	insertAnnotationAt,
 	lineStyleOf,
 	newAnnotation,
 	removeAnnotation,
@@ -375,6 +377,24 @@ export {
 	type RemoteIiifLimits,
 	type RemoteIiifResource
 } from './remote-iiif/remote-resource.js';
+
+// Single-level undo (ADR-0014, ticket 11). Editor-only in practice — a Published Site has nothing to
+// undo — but here rather than in the app because it is where the record shapes, the wording of the
+// affordance, and the one-slot semantics can be asserted without a browser.
+export {
+	UndoSlot,
+	describeUndo,
+	isControlPointUndo,
+	layerFileRef,
+	restoreAnnotation,
+	restoreControlPoint,
+	restoreLayer,
+	type AnnotationDeletedUndo,
+	type ControlPointDeletedUndo,
+	type ControlPointMovedUndo,
+	type LayerDeletedUndo,
+	type UndoRecord
+} from './undo/undo.js';
 
 export * from './base-map';
 export * from './theme';
