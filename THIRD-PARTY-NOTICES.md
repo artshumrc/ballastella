@@ -2,9 +2,15 @@
 
 Ballastella is MIT licensed — see [`LICENSE`](LICENSE) and
 [ADR-0021](docs/adr/0021-mit-licence-and-gpl-hygiene.md). It distributes or will distribute
-the third-party components below, which remain under their own licences. Copies of those
-licences ship inside each package in `node_modules` and in the built bundles that include
-them.
+the third-party components below, which remain under their own licences.
+
+**Where each licence text actually is has to be checked per component, not assumed.** Many npm
+packages ship one — `maplibre-gl` carries `LICENSE.txt`, for instance — but several do not:
+`pmtiles` and `@protomaps/basemaps` ship no licence file at all, and the base map bytes committed
+under `apps/editor/static/base-map/` are not npm packages, so no manifest covers them. Every one of
+those licences requires its text to accompany redistribution, which means the obligation is met by
+what this repository ships, not by what happens to be in someone's `node_modules`. See the open
+item at the end of this file.
 
 This file is maintained by hand. **A new dependency whose licence is not plainly permissive
 — and any dependency that ships a compiled artefact under a different licence from its
@@ -80,3 +86,29 @@ the files themselves.
 The ODbL attribution obligation is met by the `attribution` on the base map source, which
 MapLibre's attribution control renders uncompacted. It is a licence condition, so it is not
 behind an "i" and must not become one.
+
+`base-map/streets-worldwide` in the catalog reads a **remote** archive from Protomaps' public demo
+bucket rather than shipping it. Its data carries the same ODbL obligation, met the same way; its
+hosting carries no published terms. See
+[`apps/editor/static/base-map/PROVENANCE.md`](apps/editor/static/base-map/PROVENANCE.md).
+
+## Open: two licence texts do not ship
+
+**Needs a human.** OFL 1.1 and BSD-3-Clause both require the licence text to accompany
+redistribution, and neither text is anywhere in this repository or in `node_modules`:
+
+| Content                      | Licence      | Where its text is |
+| ---------------------------- | ------------ | ----------------- |
+| `base-map/fonts/Noto Sans *` | OFL 1.1      | missing           |
+| `base-map/sprites/*`         | BSD-3-Clause | missing           |
+
+`@protomaps/basemaps` — the source of the sprite sheets and the glyph build — ships no `LICENSE`
+file, so there is nothing to copy from. `maplibre-gl` does ship a BSD-3-Clause text, but it carries
+MapLibre's copyright line rather than Protomaps', and substituting one for the other would be
+fabricating an attribution rather than reproducing one.
+
+Resolving this means fetching both texts from their sources —
+[OFL 1.1](https://openfontlicense.org/), and the BSD-3-Clause notice as published by
+[protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets) with its own copyright
+line — and committing them beside the assets they cover. That is a network fetch and a
+copyright-holder determination, so it is left for a person rather than guessed at.

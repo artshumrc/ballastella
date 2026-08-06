@@ -63,9 +63,13 @@ jobs:
 
       # Before `pnpm -r test`, not only before the Playwright suite: the ProjectStore adapter
       # suite runs against real OPFS in Vitest browser mode, so the unit tests need a browser
-      # too. `--with-deps` is what brings the system libraries headless Chromium needs here.
-      - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
+      # too. `--with-deps` is what brings the system libraries headless browsers need here.
+      #
+      # Firefox as well as Chromium, because SPEC story 4 is that OPFS is the universal backend and
+      # the tool works fully where folder access is impossible. Firefox has its own OPFS
+      # implementation, so asserting the adapter suite only in Chromium asserts nothing about it.
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium firefox
 
       - run: pnpm -r test
 

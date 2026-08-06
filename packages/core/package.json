@@ -8,7 +8,7 @@
 	},
 	"scripts": {
 		"check": "tsc --noEmit",
-		"test": "playwright install chromium && vitest run"
+		"test": "playwright install chromium firefox && vitest run"
 	},
 	"dependencies": {
 		"@allmaps/iiif-parser": "catalog:",

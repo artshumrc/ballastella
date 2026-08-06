@@ -26,8 +26,18 @@ import type { BaseMapCatalog } from './entry';
 const BUNDLED_ARCHIVE = 'base-map/amsterdam-centre.pmtiles';
 
 /**
- * Protomaps' public demo planet. Keyless, so it costs no secret and breaks no fork — but it
+ * Protomaps' public **demo** planet. Keyless, so it costs no secret and breaks no fork — but it
  * is a network dependency, which is what `needsNetwork` exists to say out loud.
+ *
+ * **Provenance and terms.** This is the bucket Protomaps publishes for trying the format out. Its
+ * data is OpenStreetMap under ODbL 1.0, carried by the `attribution` below; the *hosting* is
+ * Protomaps' goodwill, with no published rate limit, uptime promise, or terms of use, and every
+ * fork's users reach it by default because it is in this deployment's catalog. Nothing about it is
+ * suitable to rely on. A deployment that wants worldwide coverage should point this entry at its
+ * own archive — a Protomaps API key, a bucket of its own, or a self-hosted extract — which is a
+ * change to this line and nothing else (ADR-0020). It is here because a `needsNetwork: true` entry
+ * has to exist for the switcher's marking to mean anything and for ticket 17 to have something to
+ * assert, and a keyless one is the only kind a fork inherits without setup.
  */
 const REMOTE_ARCHIVE = 'https://demo-bucket.protomaps.com/v4.pmtiles';
 

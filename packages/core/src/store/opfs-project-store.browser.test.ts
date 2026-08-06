@@ -110,6 +110,32 @@ it('reports OPFS as supported in a browser', () => {
 	expect(OpfsProjectStore.isSupported()).toBe(true);
 });
 
+it('writes atomically in a browser with no FileSystemFileHandle.move (SPEC story 4)', async () => {
+	// The adapter prefers `move` and copies when a browser has none. That fallback was dead code
+	// that no test executed — and story 4's promise is a *fully* functional tool wherever folder
+	// access is impossible, which is precisely the browsers that lack `move`.
+	//
+	// Running the suite in a second engine does not reach it: Firefox 153 has `move` too, so the
+	// branch has to be entered deliberately, by hiding `move` the way Safari does.
+	const prototype = FileSystemFileHandle.prototype as { move?: unknown };
+	const move = prototype.move;
+	delete prototype.move;
+	try {
+		const directory = await scratchDirectory('no-move');
+		const store = new OpfsProjectStore(() => Promise.resolve(directory));
+		await store.write('p/project.json', new TextEncoder().encode('the first version'));
+
+		await store.write('p/project.json', new TextEncoder().encode('second'));
+
+		expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
+		// The copy has to take the temporary file with it, or every write on those browsers leaves
+		// litter nothing can reach.
+		expect(await everyPathIn(directory, '')).toEqual(['p/project.json']);
+	} finally {
+		if (move !== undefined) prototype.move = move;
+	}
+});
+
 it('recovers once an unreachable workspace comes back, rather than latching broken', async () => {
 	let reachable = false;
 	const store = new OpfsProjectStore(async () => {
