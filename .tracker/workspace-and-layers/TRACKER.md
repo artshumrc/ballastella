@@ -8,7 +8,7 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Current ticket: none. **01 is complete**, so 02, 03, 08, and 09 are all unblocked and can run beside one another.
+Current ticket: **02, 03, 08, and 09 are in progress in parallel.** 01 is merged to `main`.
 
 This epic follows [`ballastella-v1`](../ballastella-v1/TRACKER.md), whose implementation is complete and merged. Two things carry across and should be read before any ticket is written:
 
@@ -29,14 +29,14 @@ Last updated: 2026-08-06
 | Number | Filename | Status | Depends On | Fulfills |
 | --- | --- | --- | --- | --- |
 | 01 | [01-historical-maps-move-to-the-workspace.md](./tickets/01-historical-maps-move-to-the-workspace.md) | Completed | — | 61, 62, 66, 67 |
-| 02 | [02-a-layer-is-created-when-a-map-is-added.md](./tickets/02-a-layer-is-created-when-a-map-is-added.md) | Not Started | 01 | 18, 34, 35, 68 |
-| 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | Not Started | 01 | 37, 38, 41–55, 57–60 |
+| 02 | [02-a-layer-is-created-when-a-map-is-added.md](./tickets/02-a-layer-is-created-when-a-map-is-added.md) | In Progress | 01 | 18, 34, 35, 68 |
+| 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | In Progress | 01 | 37, 38, 41–55, 57–60 |
 | 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Not Started | 03 | 1, 2, 3, 10–13, 109, 110 |
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Not Started | 02, 04 | 14–17, 20 |
 | 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Not Started | 02, 05 | 21–30, 33, 36, 106 |
 | 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Not Started | 06 | 31, 32, 39, 40, 56, 80, 81 |
-| 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Not Started | 01 | 23, 63, 64, 65, 98 |
-| 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Not Started | 01 | 4, 5, 7, 8, 9, 100 |
+| 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | In Progress | 01 | 23, 63, 64, 65, 98 |
+| 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | In Progress | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Not Started | 09 | 74, 102, 103 |
 | 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Not Started | 08, 10 | 6, 69–73, 75–79, 97, 99 |
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Not Started | 04 | 88, 105, 107, 108 |
