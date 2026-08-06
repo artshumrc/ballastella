@@ -133,15 +133,28 @@ export function showAlignment(
 	layer: WarpedMapLayer,
 	alignment: Alignment,
 	/**
-	 * How to colourise it. Defaults to nothing colourised, which is the right default for any caller
-	 * that has no distortion view of its own — a Layer of the stack, for instance, where the overlay
-	 * belongs to the Alignment being edited rather than to every Historical Map on the map.
-	 *
-	 * Note that the *other* two options this fills in are not display settings and are applied
-	 * regardless: `transformationType`, without which a second- or third-order Alignment is silently
-	 * drawn as affine, and `distortionMeasures`, without which nothing could be colourised later.
+	 * Named rather than positional, which is `main`'s shape and is adopted here deliberately. Tickets
+	 * 08 and 14 each added a third parameter independently — a distortion view and a remote service
+	 * address — and collided; a caller that passed one in the other's position would get a blank warped
+	 * Layer, which is the failure this file exists to prevent. Ticket 14 owns `service`, so it is not
+	 * here; this signature is written so that reconciling the two is adding a field rather than
+	 * changing a shape.
 	 */
-	distortion: DistortionView = DEFAULT_DISTORTION_VIEW
+	{
+		distortion = DEFAULT_DISTORTION_VIEW
+	}: {
+		/**
+		 * How to colourise it. Defaults to nothing colourised, which is the right default for any caller
+		 * that has no distortion view of its own — a Layer of the stack, for instance, where the overlay
+		 * belongs to the Alignment being edited rather than to every Historical Map on the map.
+		 *
+		 * Note that the *other* options this fills in are not display settings and are applied
+		 * regardless: the Alignment's own `gcps`, `resourceMask` and `transformationType` — without the
+		 * last of which a second- or third-order Alignment is silently drawn as affine — and
+		 * `distortionMeasures`, without which nothing could be colourised later.
+		 */
+		distortion?: DistortionView;
+	} = {}
 ): WarpedRender {
 	const need = MINIMUM_CONTROL_POINTS[alignment.transformationType];
 	const have = alignment.controlPoints.length;

@@ -393,6 +393,17 @@ this one is a one-line addition upstream, in the `init` branch.
   `distortionMeasures`. What a Layer of the stack does not get is the overlay itself, which is the
   right default (the overlay belongs to the Alignment being edited) and is worth a look when the two
   surfaces are reconciled.
+- **The merge with ticket 14 needs two decisions, and one of them is already taken here.** Ticket 14
+  landed on `main` while this remediation was in flight, and it touches the same two files.
+  `showAlignment`'s third parameter is the collision: ticket 14 turned it into a named options object
+  `{ distortion, service }` for exactly the reason a third concern would collide again, and **that
+  shape is adopted here** — this branch passes `{ distortion }` and leaves `service` to ticket 14, so
+  reconciling the two is adding a field rather than changing a shape. The second decision is the
+  rename: `toGeoreferencedMap` is `toRendererDocument` here, because CONTEXT.md confines the format's
+  vocabulary to the module that reads and writes it and this function is exported across that
+  boundary. Ticket 14 has since added a **sibling**, `referencedGeoreferencedMap`, which makes the
+  finding more true rather than less — whoever merges should carry the rename to both, as
+  `referencedRendererDocument`, rather than leaving one of a pair renamed.
 - **Shared e2e driving now lives in `e2e/support/alignment-workspace.ts`.** `editor-alignment.e2e.ts`
   still carries its own copy; rewriting a green suite to import from here would be churn in a file
   another slice is also touching.

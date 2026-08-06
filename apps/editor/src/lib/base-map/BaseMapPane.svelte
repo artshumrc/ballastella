@@ -265,7 +265,7 @@
 			unexpose = exposeWarpedLayerToBrowserTests(current, layer);
 			// The distortion view is read untracked for the same reason the Alignment is: it is a display
 			// setting, and making it a dependency is exactly the rebuild this avoids.
-			const render = showAlignment(layer, shown, distortionNow());
+			const render = showAlignment(layer, shown, { distortion: distortionNow() });
 			drawnAlignment = render.status === 'drawn' ? { layer, mapId: render.mapId } : null;
 			onwarped?.(render);
 		};
