@@ -270,7 +270,24 @@ the second way a user reaches this without doing anything unusual.
   adding it there costs nothing that adding it here would have saved. **A reviewer should confirm
   this**; it is the same call ticket 07 made, for overlapping reasons.
 - **Ticket 10's opening line is now wrong.** It says "`terra-draw` and its MapLibre adapter arrived in
-  ticket 07". They did not, and they have not arrived here either.
+  ticket 07". They did not, and they have not arrived here either. **Update, 2026-08-06:** a review
+  endorsed the decision — its decisive reason being that `terra-draw` edits inside WebGL layers, a
+  canvas is not focusable per feature, so the mask would have been the app's first mouse-only editable
+  object — and the two artefacts this slice can reach have been corrected:
+  [ADR-0005](../../../docs/adr/0005-maplibre-and-terra-draw.md) now carries an amendment narrowing
+  "all drawing" to annotations, and SPEC.md's Map stack section says what the code does.
+  **The ADR amendment is proposed and needs a person to ratify it.** Ticket 10's line is owned by
+  another slice and is left to it.
+- **The mask's help text and its CSS both promised a gesture the code deliberately refuses.** The
+  summary said "drag a dashed handle to add one" and `layout.css` gave those handles `cursor: grab`
+  with `grabbing` on `:active`, while `paint` calls `setDraggable(false)` for them — because a handle
+  that both inserted and moved would make "I nudged it" and "I added one" the same gesture, which is
+  the note above. The design was right and the affordances were not brought along; on a teaching tool
+  that reads as a broken handle. Text and cursor now describe activation.
+- **A successful mask edit was never announced.** The refusal was an `aria-live` region and the summary
+  was a plain `<p>`, so a keyboard user was told when an edit failed and told nothing when it worked —
+  which teaches them that silence means failure. One live region now carries both, as
+  `data-testid="mask-status"` with `data-mask-status="done" | "refused"`.
 - **The fold check is ours, not the renderer's.** ADR-0013 makes it continuous and independent of the
   overlay, and a warning derived from a WebGL layer's triangulation exists only while a layer does,
   only in a browser, and only after the style has loaded — which is not when a student placing their
@@ -281,6 +298,11 @@ the second way a user reaches this without doing anything unusual.
   so a least-squares solve over swapped Control Points comes back unmirrored rather than folded. Under
   Simple, a swapped pair shows as a badly placed map instead. Recorded and asserted as a known limit.
   `polynomial1`, `projective` and `thinPlateSpline` all catch it.
+  **Amended 2026-08-06: the limit is now said to the user, not only recorded here.** Correct
+  mathematics, but what the user experiences is a *silence* — and a student who has learnt to trust
+  "this Alignment is mirrored" under Standard will read the same silence under Simple as "no mistake".
+  The picker shows a note while Simple is selected. It is a separate paragraph rather than an edit to
+  the option's own guidance text, because that string is ADR-0013's table and is asserted verbatim.
 - **The fold region is named against the image, not the mask.** The user is looking at the whole sheet,
   so "the top-right" has to mean the top-right of what is on screen; against the mask's own bounding
   box, a mask covering one corner would have its own top-right, which is a different place.
@@ -296,6 +318,52 @@ the second way a user reaches this without doing anything unusual.
   Historical Map vanish and come back for a checkbox. `setMapOptions` reaches the same map in place,
   from a second effect that has the display view as a dependency and the Alignment only through the
   layer it already built.
+  **Correction, 2026-08-06 — this was only half done, and the other half was a live defect.** Turning
+  the overlay on did not rebuild the layer; *every Alignment edit did*, because the effect that owned
+  the layer had the `alignment` prop as a dependency and `AlignmentWorkspace` passes a `$derived` over
+  a getter that returns a fresh object on every read. Two consequences. The cost the checkbox was
+  spared was paid on every Control Point drag, every mask vertex, every reset and every type change —
+  every renderer discarded, every warped tile refetched. And **the overlay silently stopped
+  colourising**, because `WarpedMap.applyOptions` never assigns `this.distortionMeasure` in its
+  `stage: 'init'` branch (a *fourth* upstream defect, see note 5) while
+  `trianglePointsDistortion` and the shader both read the field. A student switched the overlay on,
+  changed the transformation type, and the map redrew uncoloured with the checkbox still checked, the
+  `<select>` still naming the measure, and `getMapOptions(mapId).distortionMeasure` still reporting it.
+  Nothing threw. The premise in the sentence above was also wrong: `gcps`, `resourceMask` and
+  `transformationType` *are* map options, routed to `setGcps` / `setResourceMask` /
+  `setTransformationType`, which `TriangulatedWarpedMap` overrides to re-triangulate. The layer is now
+  built and taken off by "is there an Alignment at all" and nothing else.
+
+### Note 5 — a fourth upstream defect: `distortionMeasure` at construction is never applied
+
+`WarpedMap.applyOptions` has two branches. The `stage: 'init'` branch that `addGeoreferencedMap` runs
+assigns `gcps`, `resourceMask`, `transformationType`, both projections and the visibility fields, and
+**never assigns `this.distortionMeasure`**. The assignment lives only in `setDistortionMeasure`, which
+only the `else` branch calls, and only for an option that *changed*. Measured against the pinned,
+patched build:
+
+```
+at init                          option = log2sigma | field = undefined | worst distortion 0
+after same-value setMapOptions   field = undefined                     | worst distortion 0
+after clearing, then setting     field = log2sigma                     | worst distortion 0.1504…
+```
+
+The middle row is the trap: `objectDifference` compares the merged options against `this.options`,
+which already holds the measure, so saying it again is a no-op. It has to be **cleared and then set**,
+which routes through the `else` branch twice. `showAlignment` now does that after adding, because the
+construction path is still reached on a theme change (`setStyle` takes the layer off with everything
+else) and whenever an Alignment drops below its minimum Control Point count and comes back — and in
+both cases the user had the overlay switched on. Worth carrying to ticket 19 beside the other three:
+this one is a one-line addition upstream, in the `init` branch.
+
+- **The Layer stack gets the ramp and the type but never a `distortionMeasure`, and that is intended.**
+  `drawLayerStack` calls `showAlignment(layer, layer.alignment)` with the default view, so every Layer
+  of the stack gets `transformationType` — without which a Higher-order Alignment is silently drawn as
+  affine — and `distortionMeasures`, without which nothing could ever be colourised. What it does not
+  get is the overlay itself, which is right: the overlay belongs to the Alignment being *edited*, not
+  to every Historical Map on the map. Nothing crashes, nothing is half-configured, and the upstream
+  defect above cannot bite there because no measure is ever displayed. Recorded so that a future
+  reader does not read the asymmetry as an oversight.
 - **The Advanced disclosure is forced open when an advanced type is selected**, and its hide button is
   then not offered. A `<select>` whose value matches no option silently falls back to the first, so
   without this a Project stored as Higher-order (3rd) would reopen looking as though the choice had

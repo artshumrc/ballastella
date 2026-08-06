@@ -189,6 +189,30 @@ serialise → deserialise; **byte-identity** of re-serialisation against the com
 `validateAnnotation` acceptance by upstream's own validator; and idempotence over five round-trips,
 because drift that only shows on the third save is the usual shape of this bug.
 
+**Correction, 2026-08-06 — "per fixture" was not true when this was written, and now is.** The
+fixture list the round-trip tests iterated contained only `floride-1657` and `awkward-coordinates`.
+`allmaps-shaped` — the one fixture that exists *because* it is a document we did not write — had no
+`validateAnnotation` on our writer's output, no place in the exactly-zero measurement, and three
+round-trip generations rather than five. So nothing asserted the thing it was built to assert: that a
+document from another producer, read and re-written by us, is still accepted by upstream's validator,
+which is the migration event ADR-0010 names arriving from the direction the fixture was made for. It
+is now a member of the list, carrying every guarantee above **except byte-identity**, which it should
+not carry: we deliberately write no `id`, no timestamps and no `_allmaps`, so our output is a
+different document that has to mean the same thing rather than the same bytes.
+
+The same review found an unguarded instance of note 3's failure class on a field this module *copies*
+rather than computes. `Source2Schema` validates `resource.width` as `z.number().positive()` — a
+fractional dimension parses — while the SVG selector is validated as `width="\d+"`, integers only, and
+`<svg>` with no dimensions at all is an accepted selector branch. A foreign Alignment with a
+fractional image width is therefore readable by us and re-written as `<svg width="5120.25" …>`, which
+upstream refuses **entirely**, taking every Control Point with it, on reopening rather than on saving.
+`parseAlignment` now rounds to whole pixels — refusing would cost the user everything to protect a
+field nothing is placed by — and `serialiseAlignment` runs `validateAnnotation` on its own output
+before the bytes leave, throwing `AlignmentUnwritableError` rather than writing a file that cannot be
+read back. That is insurance for the *next* one: the encoder itself was brute-forced over ~200,000
+doubles plus every decade exponent from 1e-320 to 1e308 with zero failures against upstream's pattern
+and zero bits lost.
+
 **Measured agreement.** The file's own contribution to coordinate error is **exactly zero** — every
 value travels as a JSON number or a plain-decimal string, both lossless for a float64, so there is no
 error budget to spend and any inexactness at all is a defect. Asserted as `toBe(0)`, not as a
@@ -255,6 +279,19 @@ problem to retire.
   **This is the one deviation from the ticket's stated tooling and a reviewer should confirm it.**
   Nothing is foreclosed: terra-draw still has to arrive for annotations in ticket 10 and the Resource
   Mask in ticket 08, which are genuinely shape-drawing rather than linked points.
+  **Update, 2026-08-06:** ticket 08 made the same call for the mask, and a review endorsed both. The
+  artefacts have been brought into line — [ADR-0005](../../../docs/adr/0005-maplibre-and-terra-draw.md)
+  now carries an amendment recording the decision and SPEC.md's Map stack section has been corrected.
+  **The ADR amendment is proposed, not ratified: amending a decision record is a person's call.**
+  Ticket 10's opening line ("`terra-draw` and its MapLibre adapter arrived in ticket 07") is still
+  wrong and is owned by another slice.
+- **`aria-pressed` was over-applied when the mask handles joined this seam** (ticket 08), so a screen
+  reader announced "Resource Mask corner 1 of 4 … toggle button, not pressed" — for ever, since
+  neither mask kind is ever `selected`. It is guarded on `control-point` now. Worth knowing if a third
+  interactive kind is ever added here: the attribute belongs to the *toggle*, not to the seam.
+- **Deleting a focused overlay point used to drop focus to `<body>`**, after which the arrow keys pan
+  the map instead of moving the next point — so the keyboard path ended after one deletion. Fixed in
+  `overlay-points.ts`: focus moves to the next handle of the same kind, or the map's own canvas.
 - **The `/warped` dev route is deleted**, as ticket 06 asked. `WarpedMapLayer` now lives in the Base
   Map pane, fed the Alignment once it can be solved, and `editor-warped-fetch.e2e.ts` drives the real
   pane through the real pairing UI instead of a hand-built georeferenced map.
