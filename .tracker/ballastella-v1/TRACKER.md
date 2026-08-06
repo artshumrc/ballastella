@@ -8,11 +8,13 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: 05 is in progress. Tickets 12 and 13 are merged into `main` and awaiting code review; tickets 02–04 are merged, reviewed, and remediated. The tree at the 12+13 merge runs **379 unit tests and 68 e2e** with lint, typecheck, build, and the ADR-0006 fence clean.
+Current ticket: 06 is next and is unblocked. Tickets 05, 12, and 13 are merged into `main`; 12 and 13 have been reviewed and their findings are being remediated. Ticket 05 is `Needs Human Validation or Intervention` — everything in it is green, but see open question 3.
+
+The tree at the ticket-05 merge runs **452 unit tests and 71 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Three items need a human — see [Open questions for a human](#open-questions-for-a-human).** None blocks the remaining tickets.
+**Four items need a human — see [Open questions for a human](#open-questions-for-a-human).** Only item 3 constrains scope; none blocks ticket 06.
 
 Last updated: 2026-08-05
 
@@ -26,7 +28,7 @@ Last updated: 2026-08-05
 | 02 | [02-workspace-and-project-lifecycle.md](./tickets/02-workspace-and-project-lifecycle.md) | Completed | 01 | *4*, *7*, 10, 11, 12, 73, 74, 75, 76, *77*, 97 |
 | 03 | [03-image-pane-synthetic-projection.md](./tickets/03-image-pane-synthetic-projection.md) | Completed | 01 | — (groundwork for 31) |
 | 04 | [04-base-map-pane-and-catalog.md](./tickets/04-base-map-pane-and-catalog.md) | Completed | 01 | 68, 69, *72*, *98*, 100, *101* |
-| 05 | [05-local-image-to-level-0-pyramid.md](./tickets/05-local-image-to-level-0-pyramid.md) | In Progress | 02 | 21, 22, 23 |
+| 05 | [05-local-image-to-level-0-pyramid.md](./tickets/05-local-image-to-level-0-pyramid.md) | Needs Human Validation or Intervention | 02 | 21, 23, **22** |
 | 06 | [06-injection-layer-local-tiles-to-renderers.md](./tickets/06-injection-layer-local-tiles-to-renderers.md) | Not Started | 03, 05 | 31 |
 | 07 | [07-alignment-control-point-pairing.md](./tickets/07-alignment-control-point-pairing.md) | Not Started | 04, 06 | 30, 32, 33, 34, 35, 36, 37, 91, *94* |
 | 08 | [08-alignment-refinement.md](./tickets/08-alignment-refinement.md) | Not Started | 07 | 39, 40, 41, 42, 43, 44, 45, 46, 47 |
@@ -45,13 +47,21 @@ Stories **95 and 96** are deliberately absent from the table. Accessibility is a
 
 ## Open questions for a human
 
-Raised by the code reviews of tickets 02–04. None is a defect an implementer can decide away.
+Raised by the code reviews of tickets 02–04 and 12–13, and by ticket 05's implementation. None is a defect an implementer can decide away.
 
 1. **What is the canonical instance URL?** `BALLASTELLA_CANONICAL_URL` in `packages/core/src/project/project-file.ts` is currently `https://artshumrc.github.io/ballastella/`, derived from the git remote because nothing in the repo records one. ADR-0010 requires the format-refusal message to name a URL, and this is the one string a user reads at the moment their work is at risk. Two problems: it 404s unless Pages is enabled on that repo with no custom domain, and [ADR-0006](../../docs/adr/0006-relative-asset-paths.md) says we cannot know at build time whether a deployment lives at a subpath or a domain root — so a compile-time constant is wrong on every fork until hand-edited. Decide the value, or decide it must be deployment configuration with a guard like ADR-0020's catalog lint rule.
 
 2. **Should the Playwright suite run on Firefox and WebKit too?** Largely resolved during remediation, and the premise the review started from turned out to be stale: `FileSystemFileHandle.move()` is **no longer Chromium-only** — Playwright's Firefox 153 has it. So the ProjectStore adapter suite now runs in both Chromium and Firefox (`packages/core/vitest.config.ts`, and CI installs both), and the in-place-overwrite fallback is covered by a test that hides `move` the way Safari still does. What remains is purely a CI cost decision: the **Playwright** suite is still Chromium-only, so the app's UI is unasserted on other engines even though the storage layer is not. Story 4 is no longer claimed-and-untested; it is claimed and tested at the layer where it can silently corrupt data.
 
-3. **The two licence texts still do not ship.** OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
+3. **`wasm-vips` cannot run where ADR-0003 needs it to, so images above ~268 MP cannot be ingested on a static host.** This is the one item in the epic so far that an implementer could not decide away, and it is why ticket 05 is `Needs Human Validation or Intervention` rather than `Completed`.
+
+   npm publishes **only the threaded `wasm-vips` build**, which requires `SharedArrayBuffer` and therefore COOP/COEP headers — the headers GitHub Pages cannot send, which is exactly why [ADR-0003](../../docs/adr/0003-every-image-is-tiled-client-side.md) mandates the single-threaded build. **No published artefact of that build exists.** Measured on 2026-08-05: with COOP+COEP it initialises (libvips 8.18.3); without them `Vips()` never settles at all — it hangs in Chromium 151 and Firefox 153 after a `DataCloneError` from the pthread worker.
+
+   Nothing was improvised around it: the loader refuses up front when `crossOriginIsolated` is false (so nothing hangs), ingest refuses an over-threshold image when no streaming tiler is supplied, and the vips tiler's geometry is fully asserted against real libvips in the Node project. **Everything at or below the threshold works and is green.** Story 22 is therefore partly delivered — hence **22** in bold in the ledger.
+
+   Options are laid out in the ticket: vendor a single-threaded build, ship a COI service worker, drop streaming from v1, or something else. Each has consequences for tickets 14 and 18 and for the LGPLv3 obligation. **Ticket 06 is not blocked by this** — it needs the pyramid format and the injection layer, both of which exist.
+
+4. **The two licence texts still do not ship** — now three, with LGPLv3. OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
 
 ## Sequencing notes
 
@@ -64,8 +74,8 @@ Ticket 01 is a prefactor and must land first: it fixes the commands (`pnpm -r te
 The spec's build order is dictated by risk, not feature order. Each of these produces a number or a validation that later tickets depend on:
 
 1. **The synthetic projection for the image pane** — ticket 03. The largest unknown, and its failure is *silent*: Control Points that drift as the user zooms. Must land with a numeric pixel → lng/lat → pixel round-trip assertion at every zoom level. Visual confirmation does not satisfy it.
-2. **The `createImageBitmap` decode ceiling** — ticket 05. The measured number sets the `wasm-vips` threshold and cannot be guessed. It must be recorded with browser and method, since it cannot be re-derived from the code.
-3. **A generated `info.json` validated against Allmaps end to end** — ticket 05, before anything is built on the pyramid format.
+2. **The `createImageBitmap` decode ceiling** — ticket 05. **MEASURED: 528,006,700 pixels** (Firefox 153.0 decoded 26533×19900 and refused 26733×20050; Chromium 151.0.7922.34 decoded 26733×20050 = 535,996,650 and refused 32767×16384). Linux x86-64, 62 GiB RAM, 2026-08-05. Method: all-zero greyscale PNGs — which compress to nothing but force a full-size bitmap allocation — through `createImageBitmap(blob)`, binary-searched between last success and first failure, a fresh browser process per probe, each bitmap sampled at its far corner so a lazy decode could not pass. Both engines refuse in 3–15 ms with no allocation attempt, so it is a **hard cap, not host memory** — 2^29 px is exactly 2 GiB at 4 B/px. Threshold set at 2^28 = 268,435,456 px; the margin is argued in `packages/core/src/tiler/decode-ceiling.ts`. **WebKit's ceiling is unmeasured.**
+3. **A generated `info.json` validated against Allmaps end to end** — ticket 05. **DONE, against the real Allmaps editor:** a 29-tile pyramid from the shipped `ingestImageFile`, served at an HTTPS origin with the `id` stamped, was opened in `editor.allmaps.org` in Chromium 151. Allmaps parsed the `info.json`, derived tile requests from `tileZoomLevels` itself, fetched 6 tiles at scale factor 2 — all 200, zero 404s, including the ragged `1024,0,176,512/88,256` — and rendered the map correctly. `manifest.json` also loaded standalone. Caveat: Allmaps refuses non-HTTPS IIIF URLs and Chrome blocks public→loopback fetches, so the transport was a Playwright route on a public-looking origin; everything above the transport was Allmaps' own code.
 4. **`@allmaps/*` fixture round-trips** — ticket 07. Every one of those packages is pre-1.0, so this test is what stands between a beta bump and every Alignment in the field being subtly misplaced.
 
 ### Cross-cutting constraints
