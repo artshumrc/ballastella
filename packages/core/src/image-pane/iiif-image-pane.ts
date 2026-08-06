@@ -115,6 +115,21 @@ export function createImagePane(info: unknown, tiles: ImagePaneTileBase): ImageP
 		);
 	}
 
+	// An image **id**, not a URL. `{ storedImageId: info.id }` is the plausible slip — the two are
+	// adjacent in every caller — and it produces a base of
+	// `https://unset.invalid/https://unset.invalid/<id>`, which the shim resolves to a path no
+	// pyramid is at: every tile 404s and the pane is blank, with the guard above satisfied because
+	// the caller did use the object form. So the id is checked for the shape of a URL rather than
+	// the base being checked for the shape of an id.
+	if (typeof tiles === 'object' && !/^[\w.-]+$/.test(tiles.storedImageId)) {
+		throw new Error(
+			`"${tiles.storedImageId}" is not a stored image id. It looks like a URL or a path, and ` +
+				`storedImageId is the id alone — the last segment of info.json's "id", which is what ` +
+				`images/<image-id>/ is named after (ADR-0004, ADR-0008). Passing info.id here builds a ` +
+				`base with the placeholder host twice in it, and every tile then 404s out of the store.`
+		);
+	}
+
 	const baseUri = typeof tiles === 'string' ? tiles : imageServiceId(tiles.storedImageId);
 	const image = Image.parse(info);
 	image.uri = baseUri.replace(/\/$/, '');

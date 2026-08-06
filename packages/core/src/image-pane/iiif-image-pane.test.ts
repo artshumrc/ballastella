@@ -366,4 +366,23 @@ describe('createImagePane tile grid', () => {
 		// And it is still a real reader: the geometry does not depend on where the bytes come from.
 		expect([pane.image.width, pane.image.height, pane.tileSize]).toEqual([1200, 851, 256]);
 	});
+
+	it('refuses info.id where a stored image id belongs, by name', () => {
+		// The slip the type distinction above cannot catch, because the object form is the *correct*
+		// form and only its contents are wrong. `{ storedImageId: info.id }` builds a base of
+		// `https://unset.invalid/https://unset.invalid/floride-1657`, which the ADR-0011 shim
+		// resolves to a path no pyramid is at — so every tile 404s and the pane is blank, which is
+		// the failure mode ADR-0004 exists to make impossible.
+		const info = readInfoJson() as { id: string };
+
+		expect(() => createImagePane(info, { storedImageId: info.id })).toThrow(
+			/not a stored image id/
+		);
+		expect(() => createImagePane(info, { storedImageId: 'images/floride-1657' })).toThrow(
+			/not a stored image id/
+		);
+		// The message has to name the mistake rather than the symptom: what a caller got before was
+		// a doubled host in a URL and a bare 404.
+		expect(() => createImagePane(info, { storedImageId: info.id })).toThrow(/info\.id/);
+	});
 });

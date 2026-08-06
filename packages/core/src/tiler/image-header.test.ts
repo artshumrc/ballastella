@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
-import { readImageHeader } from './image-header.js';
+import { IMAGE_HEADER_BYTES, readImageHeader, readImageHeaderFromBlob } from './image-header.js';
 
 const FIXTURE_DIRECTORY = new URL(
 	'../../../../apps/editor/static/fixtures/images/floride-1657/',
@@ -178,5 +178,82 @@ describe('readImageHeader', () => {
 
 	it('says nothing for a JPEG truncated before its frame header', () => {
 		expect(readImageHeader(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]))).toBeUndefined();
+	});
+});
+
+/** A little-endian TIFF whose single IFD sits at `ifdOffset`, with `padding` bytes of image data. */
+function tiffWithTrailingIfd(width: number, height: number, ifdOffset: number): Uint8Array {
+	const bytes = new Uint8Array(ifdOffset + 2 + 24 + 4);
+	const view = new DataView(bytes.buffer);
+	bytes.set([0x49, 0x49]); // 'II'
+	view.setUint16(2, 42, true);
+	view.setUint32(4, ifdOffset, true);
+	// Image data between the header and the directory, which is how libtiff, ImageMagick and
+	// Photoshop all write a large strip TIFF. Filled so a reader cannot pass by finding zeroes.
+	bytes.fill(0x7f, 8, ifdOffset);
+	view.setUint16(ifdOffset, 2, true);
+	view.setUint16(ifdOffset + 2, 256, true); // ImageWidth
+	view.setUint16(ifdOffset + 4, 4, true); // LONG
+	view.setUint32(ifdOffset + 6, 1, true);
+	view.setUint32(ifdOffset + 10, width, true);
+	view.setUint16(ifdOffset + 14, 257, true); // ImageLength
+	view.setUint16(ifdOffset + 16, 4, true);
+	view.setUint32(ifdOffset + 18, 1, true);
+	view.setUint32(ifdOffset + 22, height, true);
+	return bytes;
+}
+
+describe('readImageHeaderFromBlob', () => {
+	it('follows a TIFF’s IFD pointer past the header window', async () => {
+		// **The archival master this whole code path exists for.** A large strip TIFF puts its
+		// directory *after* the image data, so reading only the first 64 KB found nothing and the file
+		// fell through to `createImageBitmap`, which told the scholar to convert the TIFF they had
+		// just been handed. The offset is in the first eight bytes, so following it is one slice.
+		const tiff = tiffWithTrailingIfd(47_000, 31_500, IMAGE_HEADER_BYTES + 4096);
+
+		// The synchronous reader, given the window ingest used to give it, cannot see it at all.
+		expect(readImageHeader(tiff.subarray(0, IMAGE_HEADER_BYTES))).toBeUndefined();
+
+		expect(await readImageHeaderFromBlob(new Blob([tiff as BlobPart]))).toEqual({
+			width: 47_000,
+			height: 31_500,
+			format: 'tiff'
+		});
+	});
+
+	it('reads a TIFF whose IFD is at the front without a second read', async () => {
+		const tiff = tiffWithTrailingIfd(4000, 3000, 8);
+
+		expect(await readImageHeaderFromBlob(new Blob([tiff as BlobPart]))).toEqual({
+			width: 4000,
+			height: 3000,
+			format: 'tiff'
+		});
+	});
+
+	it('says nothing for a TIFF whose IFD pointer leads outside the file', async () => {
+		// A truncated download. `undefined` sends it to the decoder, which reports a decode failure —
+		// the right outcome, and better than trusting a pointer into nothing.
+		const tiff = tiffWithTrailingIfd(4000, 3000, IMAGE_HEADER_BYTES + 16);
+
+		expect(
+			await readImageHeaderFromBlob(new Blob([tiff.subarray(0, IMAGE_HEADER_BYTES) as BlobPart]))
+		).toBeUndefined();
+	});
+
+	it('reads every other container from the first slice, unchanged', async () => {
+		const png = new Uint8Array(24);
+		png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+		new DataView(png.buffer).setUint32(16, 1200);
+		new DataView(png.buffer).setUint32(20, 851);
+
+		expect(await readImageHeaderFromBlob(new Blob([png as BlobPart]))).toEqual({
+			width: 1200,
+			height: 851,
+			format: 'png'
+		});
+		expect(await readImageHeaderFromBlob(new Blob([new Uint8Array([1, 2, 3]) as BlobPart]))).toBe(
+			undefined
+		);
 	});
 });

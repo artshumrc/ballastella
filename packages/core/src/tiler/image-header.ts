@@ -9,11 +9,20 @@
 // So the dimensions come out of the container's header. Every format here states its size in
 // the first few dozen bytes, and reading them costs nothing.
 //
-// TIFF is included even though no browser can decode one, because an uncompressed or LZW TIFF
-// is what a library hands a scholar when they ask for the archival master (SPEC story 22).
+// TIFF is included even though most browsers cannot decode one, because an uncompressed or LZW
+// TIFF is what a library hands a scholar when they ask for the archival master (SPEC story 22).
 // libvips reads it, so the streaming path can tile it; what would otherwise happen is that the
 // format falls through to the decode path, `createImageBitmap` refuses it, and the user is told
 // their file is broken.
+//
+// **TIFF needs two reads, and with one it was mostly unreachable.** Unlike every other container
+// here, a TIFF does not put its metadata at the front: the 8-byte header holds only a pointer to
+// the first IFD, and libtiff, ImageMagick and Photoshop all write a large strip TIFF with that IFD
+// *after* the image data — gigabytes in. Given only the first 64 KB, `readImageHeader` returned
+// `undefined` for exactly the archival masters TIFF support exists for, the file fell through to
+// `createImageBitmap`, and the user was told to convert the TIFF they had just been handed. So
+// {@link readImageHeaderFromBlob} follows the pointer: the offset is in the first eight bytes, so
+// the second read is one targeted slice and not a scan.
 
 /** The intrinsic pixel size of an image file, and the container it was read from. */
 export type ImageHeader = {
@@ -68,12 +77,51 @@ export function readImageHeader(bytes: Uint8Array): ImageHeader | undefined {
 		};
 	}
 
-	if (bytes.length >= 8) {
-		const little = ascii(bytes, 0, 2) === 'II' && view.getUint16(2, true) === 42;
-		const big = ascii(bytes, 0, 2) === 'MM' && view.getUint16(2, false) === 42;
-		if (little || big) return readTiffHeader(view, little);
-	}
+	const tiff = tiffByteOrder(bytes, view);
+	if (tiff !== undefined) return readTiffHeader(view, tiff, view.getUint32(4, tiff));
 
+	return undefined;
+}
+
+/** How much of a file the header reader needs. Every format but TIFF states its size well inside. */
+export const IMAGE_HEADER_BYTES = 64 * 1024;
+
+/**
+ * The size declared in `file`'s header, following a TIFF's IFD pointer wherever it leads.
+ *
+ * The asynchronous form, and the one ingest uses. {@link readImageHeader} stays synchronous and
+ * byte-oriented because that is what makes it testable against hand-built containers, but it can
+ * only see what it was given — and a large strip TIFF's IFD is at the end of the file. This reads
+ * the first {@link IMAGE_HEADER_BYTES}, and then, only for a TIFF whose IFD lies beyond them, one
+ * further slice at the offset the header names.
+ */
+export async function readImageHeaderFromBlob(file: Blob): Promise<ImageHeader | undefined> {
+	const head = new Uint8Array(await file.slice(0, IMAGE_HEADER_BYTES).arrayBuffer());
+	const direct = readImageHeader(head);
+	if (direct) return direct;
+
+	const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
+	const little = tiffByteOrder(head, view);
+	if (little === undefined) return undefined;
+
+	// A whole IFD is 2 + 12 × entries + 4 bytes. 64 KB covers 5 000 tags, which is far more than
+	// any real file has, and reading a fixed window means one slice rather than two.
+	const ifd = view.getUint32(4, little);
+	if (ifd < head.byteLength) return undefined;
+
+	const tail = new Uint8Array(await file.slice(ifd, ifd + IMAGE_HEADER_BYTES).arrayBuffer());
+	if (tail.byteLength < 2) return undefined;
+
+	// The IFD is now at offset 0 of what was read, so the walk is told where it starts rather than
+	// being given a file it can index absolutely.
+	return readTiffHeader(new DataView(tail.buffer, tail.byteOffset, tail.byteLength), little, 0);
+}
+
+/** `true` for little-endian, `false` for big-endian, `undefined` if this is not a TIFF at all. */
+function tiffByteOrder(bytes: Uint8Array, view: DataView): boolean | undefined {
+	if (bytes.length < 8) return undefined;
+	if (ascii(bytes, 0, 2) === 'II' && view.getUint16(2, true) === 42) return true;
+	if (ascii(bytes, 0, 2) === 'MM' && view.getUint16(2, false) === 42) return false;
 	return undefined;
 }
 
@@ -151,9 +199,14 @@ function readWebpHeader(bytes: Uint8Array, view: DataView): ImageHeader | undefi
 	return undefined;
 }
 
-/** TIFF: the first IFD's `ImageWidth` (256) and `ImageLength` (257) tags. */
-function readTiffHeader(view: DataView, little: boolean): ImageHeader | undefined {
-	const ifd = view.getUint32(4, little);
+/**
+ * TIFF: the first IFD's `ImageWidth` (256) and `ImageLength` (257) tags.
+ *
+ * `ifd` is where that directory starts **within `view`**, which is not the same as where it starts
+ * in the file: {@link readImageHeaderFromBlob} reads the IFD on its own when it sits past the
+ * header window, and then it is at offset 0 of a slice.
+ */
+function readTiffHeader(view: DataView, little: boolean, ifd: number): ImageHeader | undefined {
 	if (ifd + 2 > view.byteLength) return undefined;
 	const entries = view.getUint16(ifd, little);
 
