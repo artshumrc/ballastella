@@ -93,6 +93,15 @@ decimal notation with every significant digit kept), so no patch is needed, but 
 either widen the regex or serialise defensively. Ticket 08 makes the mask editable, which is what
 makes this reachable in practice.
 
+**A fourth, found by ticket 08: `typeAndOrderToTransformationType` has unreachable branches.** It tests
+`type === 'polynomial'` in its first branch *before* looking at the order, so its order-2 and order-3
+branches can never run and both `polynomial2` and `polynomial3` come back as `polynomial1`. The
+written *file* is correct in every case — only upstream's own inverse helper is wrong — so we read the
+order directly instead, pinned by a test that fails when upstream fixes it. **This needs no patch,
+only a four-line reordering upstream**, and it is the cheapest of the four to get merged. Related:
+`WarpedMap` reads `transformation.type` and ignores the order, so the type has to be passed as an
+explicit map option too, or the picker changes the file and not the map.
+
 **And a third, in `@allmaps/annotation`'s transformation types.** Its Zod enum has no `polynomial1`
 member and its `.or()` fallback is unreachable dead code, so `generateAnnotation` writes **no
 transformation at all** for it and parsing a file containing `polynomial1` returns `undefined`. We
