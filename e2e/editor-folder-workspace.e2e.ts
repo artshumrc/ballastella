@@ -442,6 +442,124 @@ test.describe('returning to a folder Workspace (ADR-0012)', () => {
 	});
 });
 
+test.describe('the Workspace is the same one on every route', () => {
+	test.beforeEach(async ({ page }) => {
+		await installDirectoryPicker(page);
+		await page.goto('./');
+		await emptyBrowserStorage(page);
+		await forgetRememberedFolder(page);
+		await page.evaluate(() => localStorage.clear());
+		await page.reload();
+	});
+
+	test('the Base Map pane records the author’s choice in the folder, not in browser storage', async ({
+		page
+	}) => {
+		// The state this asserts against is one the suite above deliberately creates: the same
+		// directory name in browser storage *and* in the folder. `/base-map/` reached for OPFS
+		// directly while `/` went through the backing the user had chosen, and there was no shared
+		// context, so the choice did not cross the route boundary — the OPFS namesake was written with
+		// a fresh `updatedAt`, the indicator said "Saved", and the folder file was untouched. Ticket 07
+		// puts this pane on the Project page, which makes this the default path rather than a corner.
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'Amsterdam 1625');
+
+		// A namesake in browser storage, which is what makes the write assertable either way.
+		await page.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			const project = await root.getDirectoryHandle('amsterdam-1625', { create: true });
+			const writable = await (
+				await project.getFileHandle('project.json', { create: true })
+			).createWritable();
+			await writable.write(
+				'{"formatVersion":1,"name":"In browser storage","updatedAt":"2020-01-01T00:00:00.000Z","layers":[],"baseMap":null}'
+			);
+			await writable.close();
+		});
+
+		await page.goto('./base-map/?p=amsterdam-1625');
+		// A bookmarked Project on a route that cannot resume the folder without a gesture. The pane
+		// has to say so and offer the gesture, rather than quietly using the other Workspace.
+		const reopen = page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` });
+		await expect(reopen).toBeVisible();
+		await reopen.click();
+
+		await page.getByRole('combobox', { name: 'Base Map' }).selectOption('physical');
+		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
+
+		// The folder's copy carries the choice.
+		expect(JSON.parse(await readInFolder(page, 'amsterdam-1625/project.json'))).toMatchObject({
+			name: 'Amsterdam 1625',
+			baseMap: 'physical'
+		});
+		// And browser storage's namesake is untouched, `updatedAt` included.
+		const untouched = await page.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			const project = await root.getDirectoryHandle('amsterdam-1625');
+			return (await (await project.getFileHandle('project.json')).getFile()).text();
+		});
+		expect(JSON.parse(untouched)).toMatchObject({
+			name: 'In browser storage',
+			updatedAt: '2020-01-01T00:00:00.000Z',
+			baseMap: null
+		});
+	});
+
+	test('a Project page says the folder is not open yet, rather than "Project not found"', async ({
+		page
+	}) => {
+		// Returning to a bookmarked `?p=` with a folder remembered but not resumed. The Project is in
+		// the folder, so browser storage does not have it, so the page said "There is no Project called
+		// amsterdam-1625 in this Workspace" — with no hint that the folder simply is not open yet and
+		// no way to open it.
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'Amsterdam 1625');
+		await page.goto('./?p=amsterdam-1625');
+
+		const reopen = page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` });
+		await expect(reopen).toBeVisible();
+		await reopen.click();
+
+		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();
+	});
+
+	test('a Project page reports an unreachable Workspace with a locate-again action', async ({
+		page
+	}) => {
+		// Ticket 12's acceptance criterion 7 on the Project page rather than only on the hub. The
+		// implementing agent read this as ticket 02's; it is not — in OPFS the root cannot vanish, and
+		// making a deletable folder the store is precisely what this ticket did.
+		//
+		// What the page said before the fix was worse than the reported "Opening…": "There is no
+		// Project called amsterdam-1625 in this Workspace." A deleted Workspace folder makes
+		// `getDirectoryHandle('amsterdam-1625')` raise the same `NotFoundError` as a Project that
+		// really has gone, so the two are one failure on the read path — and the page picked the guess
+		// that tells a scholar their work does not exist while it sits in a folder on their desk, with
+		// the wrong recovery offered and no locate-again at all.
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByLabel('Project name')).toBeVisible();
+
+		await page.evaluate(async (folder) => {
+			const root = await navigator.storage.getDirectory();
+			await root.removeEntry(folder, { recursive: true });
+		}, PICKED_FOLDER);
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+
+		const alert = page.getByRole('alert');
+		await expect(alert).toContainText('Workspace not reachable');
+		await expect(page.getByText('Opening…')).toHaveCount(0);
+		await expect(
+			alert.getByRole('button', { name: 'Locate Workspace folder again' })
+		).toBeVisible();
+	});
+});
+
 test.describe('a browser with no File System Access API (SPEC story 4)', () => {
 	test.beforeEach(async ({ page }) => {
 		await hideDirectoryPicker(page);

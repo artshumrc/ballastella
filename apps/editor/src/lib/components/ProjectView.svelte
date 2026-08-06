@@ -2,7 +2,9 @@
 	import { resolve } from '$app/paths';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
+	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 	import SaveIndicator from './SaveIndicator.svelte';
+	import WorkspaceRecovery from './WorkspaceRecovery.svelte';
 
 	/**
 	 * One Project, selected client-side from `?p=<folder>` (ADR-0008).
@@ -12,11 +14,21 @@
 	 * importantly, the autosave rules they will follow: the name field below is the app's first
 	 * editable value, so it is where "typing coalesces into one write" and "the edit is committed
 	 * when it ends" are established rather than improvised per slice (ADR-0017).
+	 *
+	 * `storage` is here for the two states in which there is no Project to show because there is no
+	 * Workspace to show it from — see {@link WorkspaceRecovery}. Both were reachable and neither was
+	 * handled: the page rendered "Opening…" indefinitely.
 	 */
-	let { session }: { session: EditorSession } = $props();
+	let { session, storage }: { session: EditorSession; storage: WorkspaceStorage } = $props();
+
+	/** Nothing to show, and a reason worth naming, rather than a page that says "Opening…" for ever. */
+	const recovering = $derived(session.status === 'unreachable' || storage.awaitingFolder);
 </script>
 
-{#if session.projectProblem}
+{#if recovering}
+	<WorkspaceRecovery {storage} />
+	<p class="mt-6"><a class="link" href={resolve('/')}>Back to all Projects</a></p>
+{:else if session.projectProblem}
 	<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
 		<h2 class="font-semibold">
 			{session.projectProblem.kind === 'missing'

@@ -369,6 +369,20 @@ export class EditorSession {
 			if (generation !== this.#openGeneration) return;
 			const problem = describeProblem(cause, directory);
 			if (problem) {
+				// "This Project is not there" and "the Workspace is not there" are the **same failure**
+				// on the read path: a Workspace folder that has been deleted makes
+				// `getDirectoryHandle('amsterdam-1625')` raise the same `NotFoundError` as a Project that
+				// really has gone. Blaming the Project is the worse of the two guesses by a long way — it
+				// tells a scholar their work does not exist while it sits in a folder on their desk — and
+				// it offers the wrong recovery, so the Workspace is asked before the Project is blamed.
+				//
+				// Only on this path, and only for this one kind: `refresh` walks the Workspace, which is
+				// too expensive to do on the way to a Project that opened perfectly well.
+				if (problem.kind === 'missing') {
+					await this.refresh();
+					if (generation !== this.#openGeneration) return;
+					if (this.status === 'unreachable') return;
+				}
 				this.projectProblem = problem;
 				return;
 			}
