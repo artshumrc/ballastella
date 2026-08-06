@@ -582,6 +582,41 @@ test.describe('a Layer for an aligned Historical Map', () => {
 	});
 });
 
+/**
+ * SPEC story 8's reading room, whose wifi answers the request and then never finishes it.
+ *
+ * **A request that hangs, not one that fails.** A PMTiles archive that is *refused* leaves the Layer
+ * drawing perfectly well over a blank Base Map — MapLibre treats a source, a sprite and a glyph range
+ * that errored as loaded, so `isStyleLoaded()` becomes true and the stack attaches. A request left
+ * open does not: the style never completes, the stack never attaches, `onstack` is never called, and
+ * the page's own fallback has nothing to say about a Layer whose Alignment it read perfectly well. The
+ * region then read "0 of 1 Layers are drawn" with no reason anywhere on the page, which tells a
+ * scholar their work is missing and not why. Captive portals and dead connections hang; that is the
+ * case worth covering.
+ */
+test.describe('a Base Map that never finishes loading', () => {
+	test('says why the Layer cannot be drawn rather than leaving the list silent', async ({
+		page
+	}) => {
+		// Longer than the pane's own wait for the style, which is the thing being asserted.
+		test.setTimeout(90_000);
+		const directory = await alignedProject(page);
+
+		// Neither fulfilled nor aborted: the request stays open for the life of the page.
+		await page.route('**/base-map/*.pmtiles', () => undefined);
+		await page.goto(`/layers?p=${directory}`);
+		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await expect(rows(page)).toHaveCount(1);
+
+		// The Layer's own row carries the reason, and the region still counts honestly.
+		await expect(rows(page).first().getByTestId('layer-problem')).toContainText(
+			'Base Map has not finished loading',
+			{ timeout: 40_000 }
+		);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '0');
+	});
+});
+
 test.describe('showing and hiding a Layer (SPEC story 50)', () => {
 	test('draws the Historical Map warped, and takes it off the map when hidden', async ({
 		page

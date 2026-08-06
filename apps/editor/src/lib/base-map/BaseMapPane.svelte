@@ -285,6 +285,14 @@
 	let stack = $state.raw<StackRender | undefined>(undefined);
 
 	/**
+	 * How long the stack waits for the Base Map's style before saying it cannot be drawn on.
+	 *
+	 * Long enough that a slow-but-working load is never called a failure, short enough that the wait is
+	 * accounted for rather than endured in silence.
+	 */
+	const STYLE_WAIT_MS = 15_000;
+
+	/**
 	 * Run `attach` once the map's style is complete, and hand back the way to stop waiting.
 	 *
 	 * **`isStyleLoaded()` is the gate, not the event.** `styledata` fires repeatedly while a style
@@ -293,13 +301,27 @@
 	 * stack that never appeared at all, with nothing logged: the one `once('styledata')` fired early,
 	 * found the style unloaded, and there was no second chance. Waiting on `load` instead is no better,
 	 * because a theme change repaints a map that loaded minutes ago.
+	 *
+	 * **And a style that never completes is reported rather than waited on for ever.** The gate cannot
+	 * deadlock, but it can wait indefinitely — an unreachable PMTiles archive on a reading room's wifi
+	 * (SPEC story 8) — and then `attach` never runs, `onstack` is never called, and the page's own
+	 * fallback has nothing to say about a Layer whose document it read perfectly well. The region read
+	 * "0 of 1 Layers are drawn" with no problem text, which tells a user their work is missing and not
+	 * why. `giveUp` is that account.
 	 */
-	const whenStyleLoaded = (target: MapLibreMap, attach: () => void): (() => void) => {
+	const whenStyleLoaded = (
+		target: MapLibreMap,
+		attach: () => void,
+		giveUp: () => void
+	): (() => void) => {
 		if (target.isStyleLoaded()) {
 			attach();
 			return () => undefined;
 		}
+		let timer: ReturnType<typeof setTimeout> | undefined;
 		const stop = () => {
+			if (timer !== undefined) clearTimeout(timer);
+			timer = undefined;
 			target.off('styledata', retry);
 			target.off('idle', retry);
 		};
@@ -312,6 +334,10 @@
 		// `idle` as well, because a style that is already complete when the last `styledata` fires
 		// leaves nothing else to listen for.
 		target.on('idle', retry);
+		timer = setTimeout(() => {
+			stop();
+			giveUp();
+		}, STYLE_WAIT_MS);
 		return stop;
 	};
 
@@ -321,20 +347,40 @@
 		void stackStructure;
 		const current = map;
 		const readTiles = fetchTile;
-		const drawn = untrack(() => layers);
-		if (!current || !readTiles || drawn.length === 0) {
+		// Named for what it is rather than `drawn`, which is this module's warped-map state — a local
+		// shadowing it meant a later edit inside this effect reaching for that state would silently get
+		// an array of Layers instead.
+		const stackLayers = untrack(() => layers);
+		if (!current || !readTiles || stackLayers.length === 0) {
 			onstack?.({});
 			return;
 		}
 
 		let built: StackRender | undefined;
 		const attach = () => {
-			built = drawLayerStack({ map: current, layers: drawn, fetchTile: readTiles });
+			built = drawLayerStack({ map: current, layers: stackLayers, fetchTile: readTiles });
 			stack = built;
 			onstack?.(built.outcomes);
 		};
 
-		const stopWaiting = whenStyleLoaded(current, attach);
+		const stopWaiting = whenStyleLoaded(current, attach, () => {
+			// Every Layer, because none of them can be drawn: the thing that is missing is the map they
+			// would be drawn on. Said per Layer rather than once, because the list is where a user looks
+			// for the Layer they cannot see.
+			onstack?.(
+				Object.fromEntries(
+					stackLayers.map((entry) => [
+						entry.layer.id,
+						{
+							status: 'refused',
+							reason:
+								'The Base Map has not finished loading, so there is nothing to draw this Layer ' +
+								'on yet. Check your connection and reload the page.'
+						} as const
+					])
+				)
+			);
+		});
 
 		return () => {
 			stopWaiting();
@@ -348,8 +394,8 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
-		for (const drawn of layers) {
-			if (isDrawnMap(drawn)) built.setOpacity(drawn.layer.id, drawn.layer.opacity);
+		for (const entry of layers) {
+			if (isDrawnMap(entry)) built.setOpacity(entry.layer.id, entry.layer.opacity);
 		}
 	});
 
