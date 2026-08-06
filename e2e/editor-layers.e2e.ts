@@ -413,23 +413,38 @@ const WARPED_TILE_WAIT_MS = 30_000;
 const warpedTiles = (page: Page, layerId: string): Promise<number> =>
 	page.evaluate(
 		async ([id, ceiling]) => {
-			const stack = window.ballastellaLayerStack;
-			const layer = stack?.warped[id as string];
-			if (!stack || !layer) return -1;
-			// Bring the warped map into view, or the renderer has no reason to ask for a tile.
-			stack.map.fitBounds(layer.getBounds(), { animate: false });
+			// **The layer is looked up on every pass, never captured once.** Any change to the stack — a
+			// reorder, a Layer shown or hidden — tears the whole stack down and builds a new one, with a
+			// new `WarpedMapLayer` per map Layer, and the handle is replaced along with it. A version that
+			// grabbed the layer once and then polled it was watching an object that had been taken off the
+			// map, whose cache stays empty for ever: it answered 0 for a renderer that had six decoded
+			// tiles a second after the reorder, which is the opposite of the honest signal this is for.
+			const live = () => window.ballastellaLayerStack?.warped[id as string];
+			const cached = () => {
+				const layer = live();
+				return layer === undefined
+					? -1
+					: (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
+			};
+
 			// **Polled, not slept for, and still the same assertion.** `getCachedTiles()` is the honest
-			// signal — a cached tile is bytes that arrived *and* decoded through the ADR-0011 shim, which is
-			// what the `@allmaps/render` patch made possible — so what changed is the waiting, not what is
-			// being asked. A fixed three seconds and one look was enough on an idle machine and not on a
-			// loaded one, and a stack rebuilt by a reorder starts its fetching again from nothing: it
-			// answered 0 for a renderer that was working perfectly, and every positive assertion built on it
-			// flaked. A longer fixed sleep would be the same defect, slower.
-			const count = () => (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
-			for (let waited = 0; waited < ceiling && count() === 0; waited += 200) {
+			// signal — a cached tile is bytes that arrived *and* decoded through the ADR-0011 shim, which
+			// is what the `@allmaps/render` patch made possible — so what changed is the waiting, not what
+			// is being asked. A fixed three seconds and one look was enough on an idle machine and not on
+			// a loaded one; a longer fixed sleep would be the same defect, slower.
+			let framed: unknown;
+			for (let waited = 0; waited <= (ceiling as number); waited += 200) {
+				const layer = live();
+				if (layer !== undefined && layer !== framed) {
+					// Bring the warped map into view, or the renderer has no reason to ask for a tile — and
+					// again for a layer that has just replaced the one this was looking at.
+					framed = layer;
+					window.ballastellaLayerStack?.map.fitBounds(layer.getBounds(), { animate: false });
+				}
+				if (cached() > 0) break;
 				await new Promise((resolve) => setTimeout(resolve, 200));
 			}
-			return count();
+			return cached();
 		},
 		[layerId, WARPED_TILE_WAIT_MS] as const
 	);
