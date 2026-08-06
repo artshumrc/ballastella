@@ -282,7 +282,45 @@ describe('createImagePane tile grid', () => {
 
 		// A missing intermediate level is a zoom at which the pane would render nothing, with
 		// no error anywhere to say why.
-		expect(() => createImagePane(gappy, fixtureBaseUri)).toThrow(/contiguous powers of two/i);
+		expect(() => createImagePane(gappy, fixtureBaseUri)).toThrow(/with no gaps/i);
+	});
+
+	it('refuses a pyramid whose finest level is not full resolution', () => {
+		const info = readInfoJson() as { tiles: { scaleFactors: number[] }[] };
+		// Contiguous powers of two, but starting at 2: `getTileImageRequest` is happy, and so is
+		// the contiguity check, because [2, 4, 8] is 2 × 2**index.
+		const coarseOnly = {
+			...info,
+			tiles: [{ ...info.tiles[0], scaleFactors: [2, 4, 8] }]
+		};
+
+		// Left unguarded this is a blank pane and a silent one. `maxTileZoom` comes off the
+		// coarsest level, so it is 15, and `scaleFactorFromTileZoom(15)` is 1 — a level that does
+		// not exist. Every tile request at the pane's own `fullResolutionMapZoom` misses, the tile
+		// protocol answers a transparent tile by design, and "Zoom to full resolution" shows
+		// nothing at all with nothing logged anywhere.
+		expect(() => createImagePane(coarseOnly, fixtureBaseUri)).toThrow(/full resolution/i);
+	});
+
+	it('refuses a pyramid whose levels do not all use one tile size', () => {
+		const info = readInfoJson() as { tiles: { width: number; scaleFactors: number[] }[] };
+		// `@allmaps/iiif-parser` flattens several tilesets into one sorted list of levels, so a
+		// perfectly legal `info.json` can offer scale factors [1, 2, 4, 8] where the coarse half
+		// of them is cut into 512-pixel tiles. Sorted scale factors are contiguous, `levels[0]` is
+		// square and 256 pixels, and every existing guard passes.
+		const twoTilesets = {
+			...info,
+			tiles: [
+				{ width: 256, height: 256, scaleFactors: [1, 2] },
+				{ width: 512, height: 512, scaleFactors: [4, 8] }
+			]
+		};
+
+		// Left unguarded this is the ticket's stated nightmare. A MapLibre raster source has one
+		// `tileSize`, taken from `levels[0]`, so the scale-factor 4 and 8 levels are drawn into a
+		// 256-pixel cell while covering 512 pixels' worth of image: correct at the tile origin and
+		// progressively wrong away from it, at half scale, looking exactly like imprecision.
+		expect(() => createImagePane(twoTilesets, fixtureBaseUri)).toThrow(/one tile size|same tile/i);
 	});
 
 	it('refuses a base URI that is still the unset.invalid placeholder', () => {
