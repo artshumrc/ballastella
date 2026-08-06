@@ -22,8 +22,10 @@ describe('workspaceSize', () => {
 	it('totals every file in the Workspace', async () => {
 		const store = await filled({
 			'amsterdam-1625/project.json': 100,
-			'amsterdam-1625/images/a/info.json': 20,
-			'amsterdam-1625/images/a/0,0,256,256/256,256/0/default.jpg': 3000,
+			// At the Workspace root, not inside the Project: a pyramid is shared (ADR-0023), and the
+			// total is a Workspace total, so the shared pool is most of what it counts.
+			'images/a/info.json': 20,
+			'images/a/0,0,256,256/256,256/0/default.jpg': 3000,
 			'florida-1657/project.json': 80
 		});
 
@@ -51,8 +53,8 @@ describe('workspaceSize', () => {
 		// guard — the same one `project-store-suite.ts` puts on `size` itself.
 		const store = await filled({
 			'p/project.json': 100,
-			'p/images/a/0,0,256,256/256,256/0/default.jpg': 4096,
-			'p/images/a/256,0,256,256/256,256/0/default.jpg': 4096
+			'images/a/0,0,256,256/256,256/0/default.jpg': 4096,
+			'images/a/256,0,256,256/256,256/0/default.jpg': 4096
 		});
 		const read = vi.spyOn(store, 'read');
 
@@ -68,15 +70,15 @@ describe('workspaceSize', () => {
 		// with it and failed a save. The litter is swept at Workspace adoption instead, where nothing
 		// else is writing.
 		const store = await filled({ 'p/project.json': 100 });
-		store.plant(`p/images/a/tile.jpg${TEMP_PATH_SUFFIX}`, new Uint8Array(5000));
-		store.plant(`p/images/a/tile.jpg${TEMP_PATH_SUFFIX}.crswap`, new Uint8Array(6000));
+		store.plant(`images/a/tile.jpg${TEMP_PATH_SUFFIX}`, new Uint8Array(5000));
+		store.plant(`images/a/tile.jpg${TEMP_PATH_SUFFIX}.crswap`, new Uint8Array(6000));
 
 		// A floor: `list` hides both, so neither is in the total.
 		expect(await workspaceSize(store)).toEqual({ bytes: 100, files: 1 });
 		// And both are still on the disk, because a half-written file may be one somebody is writing now.
 		expect([...store.snapshot().keys()].sort()).toEqual([
-			`p/images/a/tile.jpg${TEMP_PATH_SUFFIX}`,
-			`p/images/a/tile.jpg${TEMP_PATH_SUFFIX}.crswap`,
+			`images/a/tile.jpg${TEMP_PATH_SUFFIX}`,
+			`images/a/tile.jpg${TEMP_PATH_SUFFIX}.crswap`,
 			'p/project.json'
 		]);
 	});

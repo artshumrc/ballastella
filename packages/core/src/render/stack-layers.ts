@@ -50,11 +50,20 @@ export interface DrawnMapLayer {
 	/**
 	 * The remote image service this Layer's tiles come from, or `''` for a local copy (ticket 14).
 	 *
-	 * Resolved by the caller from the Project's `remote.json` records, for the same reason the
-	 * Alignment is: reaching the store is `EditorSession`'s business. A `'referenced'` Layer with `''`
-	 * here draws nothing at all, so the caller derives it from `imageMode` — see the layers pane.
+	 * Resolved by the caller from the Workspace's `remote.json` records, for the same reason the
+	 * Alignment is: reaching the store is `EditorSession`'s business. A referenced Layer with `''` here
+	 * draws nothing at all, so the caller observes whether the image is referenced — the image directory
+	 * has an `info.json` of ours, or only a `remote.json` — and passes {@link referenced} with it.
 	 */
 	readonly service?: string;
+	/**
+	 * Whether this Layer's Historical Map is served from somebody else's server, as observed from the
+	 * files beside it in the Workspace (ADR-0023).
+	 *
+	 * Passed through to `showAlignment`, which refuses a referenced Layer with no address rather than
+	 * drawing a blank one and reporting it drawn.
+	 */
+	readonly referenced?: boolean;
 }
 
 export interface DrawnAnnotationLayer {
@@ -335,6 +344,7 @@ export function drawLayerStack(options: {
 			warped[layerId] = layer;
 			layer.setOpacity(drawn.layer.opacity);
 			const render: WarpedRender = showAlignment(layer, drawn.alignment, {
+				referenced: drawn.referenced ?? false,
 				service: drawn.service ?? ''
 			});
 			outcomes[layerId] = describe(render);

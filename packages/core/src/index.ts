@@ -12,16 +12,13 @@ export { installFlushOnHide, type HideEventTargets } from './autosave/flush-on-h
 // `terra-draw`, the tiler, and `wasm-vips`.
 export {
 	ANNOTATION_DIRECTORY,
-	LOCAL_COPY,
 	addLayer,
 	annotationPath,
 	annotationStorePath,
 	drawingOrder,
 	emptyAnnotationCollection,
 	findLayer,
-	imageIdFromAlignmentRef,
 	insertLayerAt,
-	mapLayerImageInfoPath,
 	moveLayer,
 	moveLayerDown,
 	moveLayerUp,
@@ -35,7 +32,6 @@ export {
 	setMapLayerOpacity,
 	type AnnotationLayer,
 	type ForeignLayer,
-	type ImageMode,
 	type Layer,
 	type MapLayer,
 	type SimpleStyle
@@ -60,6 +56,10 @@ export {
 } from './project/project-file.js';
 export {
 	ProjectDirectoryCollisionError,
+	// Exported because the editor has to recognise it: `createProject` throws it at the one moment a
+	// user can be told, and a refusal the app cannot name is rendered as an unreachable Workspace.
+	RESERVED_DIRECTORY_NAMES,
+	ReservedDirectoryNameError,
 	Workspace,
 	toDirectoryName,
 	type ProjectSummary,
@@ -264,7 +264,6 @@ export {
 	NEVER_OFFERED_TRANSFORMATION_NAMES,
 	TRANSFORMATION_CHOICES,
 	alignmentPath,
-	alignmentStorePath,
 	canSolve,
 	collectControlPoints,
 	fullImageResourceMask,
@@ -402,16 +401,13 @@ export {
 export {
 	REFERENCED_IMAGE_FILE,
 	ReferencedImageUnreadableError,
-	imageModeOf,
 	isReferenced,
 	listReferencedImages,
-	localCopySource,
 	parseReferencedImage,
 	partitionByLocalCopy,
 	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,
-	referencedImageStorePath,
 	serialiseReferencedAlignment,
 	serialiseReferencedImage,
 	sourceOf,

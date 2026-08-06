@@ -24,9 +24,14 @@
 // It is not an index *of the Workspace*: it holds no file paths and nothing a Project needs. Delete
 // it and every Project directory is still complete, standard-format, and readable with no
 // proprietary index (SPEC story 94). It is part of the viewer file set, not part of the data.
+//
+// Publishing still copies no Project data and no pyramid. ADR-0023 moved the pyramids to the Workspace
+// root, which changes nothing here: they were never copied, and now they are not copied from one place
+// instead of many.
 
 import { BASE_MAP_CATALOG, type BaseMapCatalog } from '../base-map/index.js';
-import { imageInfoPath } from '../project/image-files.js';
+import { IMAGE_DIRECTORY, imageDirectory, imageInfoPath } from '../project/image-files.js';
+import { REFERENCED_IMAGE_FILE } from '../remote-iiif/referenced-image.js';
 import { parseProjectFile, projectFilePath, type ProjectFile } from '../project/project-file.js';
 import {
 	STATIC_HOSTING_LIMIT_BYTES,
@@ -291,10 +296,10 @@ const collisionMessage = (collisions: readonly string[]): string =>
 /**
  * The two facts publishing needs out of the Projects' own documents, in one walk.
  *
- * **The referenced Historical Maps** are read out of each `project.json`'s Layer stack rather than
- * out of `remote.json`, because the warning is about what the *site* draws: a `remote.json` for an
- * image nothing references costs a Reader nothing, and a Layer that says `'referenced'` is a Layer
- * that renders blank without a network (ADR-0007, SPEC stories 29 and 90).
+ * **The referenced Historical Maps** are each Project's map Layers intersected with what the Workspace
+ * observably fetches from elsewhere, because the warning is about what the *site* draws: a `remote.json`
+ * for an image nothing references costs a Reader nothing, and a Layer over a referenced image renders
+ * blank without a network (ADR-0007, SPEC stories 29 and 90).
  *
  * **The canonical address** is whatever the Projects already agree on, so a re-publish can offer it
  * back. The first one found wins: they are stamped together by one action, and a Workspace whose
@@ -312,6 +317,7 @@ async function inspectProjects(
 	referenced: { project: PublishedProject; layers: string[] }[];
 	canonicalUrl: string | null;
 }> {
+	const remote = await referencedImageIds(store);
 	const referenced: { project: PublishedProject; layers: string[] }[] = [];
 	let canonicalUrl: string | null = null;
 	for (const project of projects) {
@@ -323,11 +329,43 @@ async function inspectProjects(
 		}
 		canonicalUrl ??= file.canonicalUrl;
 		const layers = file.layers
-			.filter((layer) => layer.kind === 'map' && layer.imageMode === 'referenced')
+			.filter((layer) => layer.kind === 'map' && remote.has(layer.imageId))
 			.map((layer) => layer.name || layer.id);
 		if (layers.length > 0) referenced.push({ project, layers });
 	}
 	return { referenced, canonicalUrl };
+}
+
+/**
+ * The Historical Maps whose tiles are on somebody else's server, read off the Workspace's own files.
+ *
+ * **The one way to know, now that nothing stores it** (ADR-0023). An image directory with an `info.json`
+ * of ours has its tiles here; one with only a `remote.json` has them on a Library's server. The warning
+ * used to be read out of each Layer's `imageMode`, which was a claim in a document — and a claim that
+ * survived an offline copy landing on disk, so publishing warned about a network dependency the
+ * Workspace no longer had.
+ *
+ * One `list` of `images/` rather than one per Layer: a Workspace holds tens of thousands of tile files,
+ * and this is the walk that must not happen once per Project. Sorted out by suffix rather than by
+ * reading anything.
+ */
+async function referencedImageIds(store: ProjectStore): Promise<ReadonlySet<string>> {
+	const prefix = `${IMAGE_DIRECTORY}/`;
+	const local = new Set<string>();
+	const remote = new Set<string>();
+	for (const path of await store.list(prefix)) {
+		const rest = path.slice(prefix.length);
+		const slash = rest.indexOf('/');
+		if (slash <= 0) continue;
+		const imageId = rest.slice(0, slash);
+		const within = rest.slice(slash + 1);
+		if (within === 'info.json') local.add(imageId);
+		else if (within === REFERENCED_IMAGE_FILE) remote.add(imageId);
+	}
+	// A mirrored map keeps its `remote.json` for the citation (ADR-0007), so being in both lists means
+	// the tiles are here and the site needs no network for them.
+	for (const imageId of local) remote.delete(imageId);
+	return remote;
 }
 
 function referencedWarning(referenced: { project: PublishedProject; layers: string[] }[]): string {
@@ -604,15 +642,25 @@ export function normaliseCanonicalUrl(input: string): string {
 /**
  * The IIIF image service `id` one Historical Map answers at, once the Workspace is at `url`.
  *
- * `<url>/<project>/images/<image-id>` — the directory the pyramid is in, because
- * `@allmaps/iiif-parser` builds every tile URL by concatenating the IIIF path onto `id`, and the
- * pyramid's files are laid out at exactly that path relative to the Project (ADR-0004, ADR-0006).
+ * `<url>/images/<image-id>` — the directory the pyramid is in, because `@allmaps/iiif-parser` builds
+ * every tile URL by concatenating the IIIF path onto `id`, and the pyramid's files are laid out at
+ * exactly that path **relative to the Workspace** (ADR-0004, ADR-0023). No Project directory: a
+ * Historical Map is shared, so it answers at one address whichever Projects reference it — and a stamp
+ * that named one of them would 404 for every tile the moment that Project was renamed or deleted.
+ *
  * Stamp the wrong base and every tile 404s, so this is the one function that decides it.
+ *
+ * Resolved through `URL` rather than by string-joining, because that is what it actually is — a
+ * Workspace-relative path resolved against the address the Workspace is served at — and because
+ * `scripts/check-workspace-rooted-paths.mjs` is right to refuse the string-joined spelling. Every
+ * `${something}/${imageDirectory(id)}` that fence sees *is* a Project-rooted store path except this one,
+ * and an exemption for the file would have covered `stampCanonicalUrl` below it too.
  */
-export const canonicalImageServiceId = (url: string, directory: string, imageId: string): string =>
-	`${url}/${directory}/${imageInfoPath(imageId).replace(/\/info\.json$/, '')}`;
+export const canonicalImageServiceId = (url: string, imageId: string): string =>
+	// `normaliseCanonicalUrl` has already stripped any trailing slash, so this adds exactly one.
+	new URL(imageDirectory(imageId), `${url}/`).href;
 
-/** What stamping one Project changed. */
+/** What stamping the Workspace's Historical Maps changed. */
 export type CanonicalStamp = {
 	readonly url: string;
 	/** The `info.json` files rewritten. */
@@ -620,24 +668,28 @@ export type CanonicalStamp = {
 };
 
 /**
- * Rewrite every `info.json` `id` in one Project to the canonical address (SPEC story 92).
+ * Rewrite every named Historical Map's `info.json` `id` to the canonical address (SPEC story 92).
  *
  * This is what turns a scholar's tiles into a real, citable IIIF endpoint that Allmaps, Theseus,
  * and OpenSeadragon can consume directly — the interoperability promise actually paying out rather
  * than being a claim about file formats (ADR-0004).
  *
- * **Opt-in, and the only path on which publishing writes a Project's own files.** Everything else
+ * **A Workspace-level action, and it takes no Project directory** (ADR-0023). The pyramids are shared,
+ * so there is one address per Historical Map and stamping it once is stamping it for every Project. The
+ * per-Project version wrote `<url>/<project>/images/<id>`, which was a citation that broke as soon as
+ * a second Project used the map or the first one was renamed.
+ *
+ * **Opt-in, and the only path on which publishing writes the user's own files.** Everything else
  * publishing does is additive; this is a change the user asked for, so it is a separate call the
- * caller makes deliberately and records in `project.json`.
+ * caller makes deliberately and records in each `project.json`.
  *
  * Only `id` is touched, and the rest of the document is written back exactly as it was parsed, so
  * a field a newer build added survives the stamp. Nothing else in the pyramid moves: the editor
- * assigns `Image#uri` at load time from wherever the tiles really are, so a stamped Project still
+ * assigns `Image#uri` at load time from wherever the tiles really are, so a stamped Workspace still
  * opens here — load-time override always wins (ADR-0004).
  */
 export async function stampCanonicalUrl(
 	store: ProjectStore,
-	directory: string,
 	url: string,
 	imageIds: readonly string[]
 ): Promise<CanonicalStamp> {
@@ -652,13 +704,13 @@ export async function stampCanonicalUrl(
 
 	const images: string[] = [];
 	for (const imageId of imageIds) {
-		const path = assertStorePath(`${directory}/${imageInfoPath(imageId)}`);
+		const path = assertStorePath(imageInfoPath(imageId));
 		const info = JSON.parse(
 			new TextDecoder('utf-8', { fatal: true }).decode(await store.read(path))
 		);
 		if (typeof info !== 'object' || info === null || Array.isArray(info)) continue;
 		const next = { ...(info as Record<string, unknown>) };
-		next.id = canonicalImageServiceId(stamped, directory, imageId);
+		next.id = canonicalImageServiceId(stamped, imageId);
 		await store.write(path, serialiseJson(next));
 		images.push(imageId);
 	}

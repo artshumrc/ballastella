@@ -6,12 +6,24 @@
 // A static host has no directory listing, so ADR-0006's HTTP `ProjectStore` has no `list` — see
 // `packages/core/src/store/http-project-store.ts` for why an implementation returning `[]` would be a
 // lie in the worst direction. Everything below is therefore reached by a path `project.json` itself
-// names, or derived from one: a map Layer's `alignmentRef`, an Annotation Layer's `geojsonRef`, and
-// `images/<image-id>/` derived from the Alignment's own path by `imageIdFromAlignmentRef`.
+// names, or derived from one: an Annotation Layer's `geojsonRef`, and — from a map Layer's `imageId` —
+// `alignments/<image-id>.json` and `images/<image-id>/` at the **site root** (ADR-0023).
 //
 // That has a consequence the editor's Layers pane does not have and is better for it: `listReferencedImages`
-// walks `images/` and cannot be used here, so a `'referenced'` Layer's `remote.json` is fetched by name
-// — which is how the state below can tell "not read yet" from "not there".
+// walks `images/` and cannot be used here, so a referenced map's `remote.json` is fetched by name — which
+// is how the state below can tell "not read yet" from "not there".
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// WHY THIS PROBES FOR `info.json` RATHER THAN READING A FLAG
+//
+// ADR-0023 deleted `MapLayer.imageMode`, because whether a Historical Map's tiles are here is a fact
+// about the files and a stored flag could disagree with them — an offline copy used to leave every other
+// Project's Layer still claiming the library. So the answer is read the way it is written: an `info.json`
+// of ours means the tiles are on this site, and only a `remote.json` means they are on a Library's server.
+//
+// `info.json` is asked for first because a local copy is the common case and that request costs nothing
+// extra — `@allmaps/maplibre` fetches the same file from `resource.id` to draw the map, so the probe hits
+// the same cache entry. Only a referenced map pays a 404 for the question.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE DEFECT THIS MODULE EXISTS TO NOT INHERIT
@@ -31,7 +43,8 @@
 import {
 	PathNotFoundError,
 	SiteFileUnreachableError,
-	imageIdFromAlignmentRef,
+	alignmentPath,
+	imageInfoPath,
 	parseAlignment,
 	parseAnnotations,
 	parseReferencedImage,
@@ -54,18 +67,34 @@ export type LayerDocuments =
 			/** The Annotations an Annotation Layer draws. `null` for a Layer with no file. */
 			readonly annotations?: AnnotationCollection | null;
 			/**
-			 * The remote image service a `'referenced'` map Layer's tiles come from, `''` for a local copy.
+			 * The remote image service a referenced map Layer's tiles come from, `''` for a local copy.
 			 *
-			 * `''` on a `'referenced'` Layer is unreachable by construction here: the read that would produce
+			 * `''` on a referenced Layer is unreachable by construction here: the read that would produce
 			 * it fails, and the Layer is `'unreadable'` instead. That is the ticket 09 defect not inherited.
 			 */
 			readonly service?: string;
+			/**
+			 * Whether this map Layer's Historical Map is served from somebody else's server, as observed
+			 * from the files on this site rather than claimed by `project.json` (ADR-0023).
+			 *
+			 * What the page says out loud about needing the network, and what `showAlignment` uses to refuse
+			 * a referenced Layer with no address instead of drawing a blank one.
+			 */
+			readonly referenced?: boolean;
 	  }
 	| {
 			readonly status: 'unreadable';
 			readonly reason: string;
 			/** True when a host failed to answer rather than a file being absent. */
 			readonly hostUnreachable: boolean;
+			/**
+			 * Whether this map Layer's tiles are on somebody else's server, when that much was observable.
+			 *
+			 * Present on the failed case too, because the two questions are independent: a Layer whose
+			 * Alignment will not parse can still be one whose tiles need the network, and SPEC story 29 is
+			 * owed to the Reader either way. Absent when the image itself could not be placed.
+			 */
+			readonly referenced?: boolean;
 	  };
 
 /** Every Layer's documents, by Layer id. A Layer absent from this has not been asked for. */
@@ -92,61 +121,76 @@ export async function readLayerDocuments(
 			if (layer.kind === 'foreign') return;
 			read[layer.id] =
 				layer.kind === 'map'
-					? await readMapLayer(store, directory, layer)
+					? await readMapLayer(store, layer)
 					: await readAnnotationLayer(store, directory, layer);
 		})
 	);
 	return read;
 }
 
-async function readMapLayer(
-	store: ReadOnlyProjectStore,
-	directory: string,
-	layer: MapLayer
-): Promise<LayerDocuments> {
-	const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
-	if (imageId === null) {
+async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promise<LayerDocuments> {
+	const { imageId } = layer;
+	const named = `“${layer.name || layer.id}”`;
+	if (imageId === '') {
 		return {
 			status: 'unreadable',
-			reason:
-				`This Layer’s Historical Map is recorded as “${layer.alignmentRef}”, which does not name ` +
-				`an Alignment this site can find.`,
+			reason: `${named} does not name a Historical Map this site can find.`,
 			hostUnreachable: false
 		};
 	}
 
-	let alignment: Alignment;
+	// ── Where the tiles are, asked first ────────────────────────────────────────────────────────
+	//
+	// **Before the Alignment, so that "this Layer needs the network" survives an Alignment that will
+	// not parse.** The two are independent facts and SPEC story 29 is owed to the Reader either way:
+	// answering it out of the Alignment's success is how the warning quietly stopped appearing for
+	// exactly the Projects most likely to have something wrong with them.
+	//
+	// A local copy needs no address: its tiles are files of this site, and ADR-0011's shim resolves the
+	// `unset.invalid` placeholder in its `info.json` against them. The presence of that file is what says
+	// so — see the module comment on why this is a probe and not a flag.
+	let referenced = false;
+	let service = '';
 	try {
-		// The image id comes from the path and never from the document's own `resource.id` — the same
-		// discipline the editor reads an Alignment with, so a file copied under another name cannot claim
-		// the image it used to describe.
-		alignment = parseAlignment(await store.read(`${directory}/${layer.alignmentRef}`), { imageId });
+		await store.read(imageInfoPath(imageId));
 	} catch (cause) {
-		return unreadable(
-			cause,
-			`“${layer.name || layer.id}” is aligned, but this site does not carry the Alignment that ` +
-				`places it`
-		);
+		// A host that did not answer is not a map held elsewhere, and asking a second question of a site
+		// that is not there would only repeat the same failure under a worse sentence.
+		if (!(cause instanceof PathNotFoundError)) {
+			return unreadable(cause, `${named} is aligned, but this site did not answer for its image`);
+		}
+		try {
+			const record = parseReferencedImage(await store.read(referencedImagePath(imageId)), {
+				imageId
+			});
+			referenced = true;
+			service = record.service;
+		} catch (second) {
+			// **Not `service: ''`.** See the module comment: `''` here is a blank warped Layer reported as
+			// drawn, which is the defect recorded on ticket 09.
+			return unreadable(
+				second,
+				`${named} has neither its own tiles on this site nor a readable record of the server that ` +
+					`holds them`
+			);
+		}
 	}
 
-	// A local copy needs no address: its tiles are files of this site, and ADR-0011's shim resolves the
-	// `unset.invalid` placeholder in its `info.json` against them.
-	if (layer.imageMode !== 'referenced') return { status: 'ready', alignment, service: '' };
-
+	// ── And where on the earth it goes ──────────────────────────────────────────────────────────
 	try {
-		const record = parseReferencedImage(
-			await store.read(`${directory}/${referencedImagePath(imageId)}`),
-			{ imageId }
-		);
-		return { status: 'ready', alignment, service: record.service };
+		// The image id comes from the Layer and the Alignment's path is derived from it, so the document's
+		// own `resource.id` is never consulted — the same discipline the editor reads an Alignment with, so
+		// a file copied under another name cannot claim the image it used to describe.
+		const alignment = parseAlignment(await store.read(alignmentPath(imageId)), { imageId });
+		return { status: 'ready', alignment, service, referenced };
 	} catch (cause) {
-		// **Not `service: ''`.** See the module comment: `''` here is a blank warped Layer reported as
-		// drawn, which is the defect recorded on ticket 09.
-		return unreadable(
-			cause,
-			`“${layer.name || layer.id}” is held on another server rather than in this site, and the ` +
-				`record of which server that is could not be read`
-		);
+		return {
+			...unreadable(
+				cause,
+				`${named} is aligned, but this site does not carry the Alignment that places it`
+			),
+			referenced
+		};
 	}
 }
 
@@ -175,7 +219,10 @@ async function readAnnotationLayer(
  * after a library reorganised both need the name — it is the difference between "the tool is broken" and
  * "that server is down".
  */
-function unreadable(cause: unknown, context: string): LayerDocuments {
+function unreadable(
+	cause: unknown,
+	context: string
+): Extract<LayerDocuments, { status: 'unreadable' }> {
 	if (cause instanceof SiteFileUnreachableError) {
 		return {
 			status: 'unreadable',

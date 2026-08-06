@@ -53,6 +53,7 @@
 
 	const startCreating = () => {
 		newName = '';
+		session.dismissProjectProblem();
 		creating = true;
 	};
 
@@ -175,6 +176,16 @@
 		     the only way out, indistinguishable from a click that did not register. -->
 		<div role="alert" class="mt-4 alert flex-col items-start alert-error">
 			<p>{session.transferError}</p>
+		</div>
+	{/if}
+
+	{#if session.projectProblem?.kind === 'reserved-name'}
+		<!-- ADR-0023: `images/`, `alignments/`, and `base-map/` belong to the Workspace, so a Project
+		     cannot have one of those folder names. Here rather than in the dialog, which has already
+		     closed by the time `createProject` answers, and beside the list rather than over it: the
+		     Workspace is fine and every other Project stays visible. -->
+		<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
+			<p data-testid="reserved-name">{session.projectProblem.message}</p>
 		</div>
 	{/if}
 

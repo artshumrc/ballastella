@@ -31,11 +31,7 @@ import {
 	type UndoRecord
 } from './undo.js';
 
-const mapLayer = newMapLayer({
-	id: 'l-map',
-	name: 'La Floride',
-	alignmentRef: 'alignments/floride-1657.json'
-});
+const mapLayer = newMapLayer({ id: 'l-map', name: 'La Floride', imageId: 'floride-1657' });
 const notes = newAnnotationLayer({ id: 'l-notes', name: 'Trade routes' });
 
 const drafts = [
@@ -77,8 +73,8 @@ describe('what the undo affordance says (SPEC story 38)', () => {
 			kind: 'layer-deleted',
 			at: 1,
 			layer: mapLayer,
-			path: mapLayer.alignmentRef,
-			bytes: new TextEncoder().encode('{}')
+			path: layerFileRef(mapLayer),
+			bytes: null
 		};
 
 		expect(describeUndo(moved)).toBe('Undo move of Control Point 7');
@@ -308,7 +304,7 @@ describe('a deleted Layer', () => {
 			kind: 'layer-deleted',
 			at: 1,
 			layer: mapLayer,
-			path: mapLayer.alignmentRef,
+			path: layerFileRef(mapLayer),
 			bytes: null
 		};
 
@@ -319,8 +315,8 @@ describe('a deleted Layer', () => {
 		expect(back.map((layer) => layer.id)).toEqual(['l-notes', 'l-map']);
 		// `order` follows the position, so the restored Layer's stored number agrees with the array.
 		expect(back.map((layer) => layer.order)).toEqual([0, 1]);
-		// Everything else about it, unchanged: its name, its opacity, its visibility, and the Alignment
-		// it draws. `order` is the one field the stack owns rather than the record.
+		// Everything else about it, unchanged: its name, its opacity, its visibility, and the Historical
+		// Map it draws. `order` is the one field the stack owns rather than the record.
 		expect(back[1]).toEqual({ ...mapLayer, order: 1 });
 	});
 
@@ -335,7 +331,7 @@ describe('a deleted Layer', () => {
 			kind: 'layer-deleted',
 			at: 1,
 			layer: { ...mapLayer, name: 'The name it had when it was deleted' },
-			path: mapLayer.alignmentRef,
+			path: layerFileRef(mapLayer),
 			bytes: null
 		};
 
@@ -348,8 +344,12 @@ describe('a deleted Layer', () => {
 		expect(written.filter((layer) => layer.id === 'l-map')).toHaveLength(1);
 	});
 
-	it('names the file each kind of Layer draws, and claims none for a kind it cannot read', () => {
-		expect(layerFileRef(mapLayer)).toBe('alignments/floride-1657.json');
+	// ADR-0023 and SPEC story 67: removing a Layer leaves the Historical Map available. A map Layer's
+	// Alignment and pyramid are the Workspace's and may be drawn by other Projects, so a delete must take
+	// **nothing** with it — which is why `layerFileRef` answers `''` for one. Returning the Alignment path
+	// here would make one Project's delete button destroy another Project's map.
+	it('claims no file for a map Layer, because its Historical Map is the Workspace’s', () => {
+		expect(layerFileRef(mapLayer)).toBe('');
 		expect(layerFileRef(notes)).toBe('annotations/l-notes.geojson');
 		expect(
 			layerFileRef({
@@ -376,7 +376,9 @@ describe('a deleted Layer', () => {
  * `e2e/editor-undo.e2e.ts`, which assert the restored file byte-for-byte against the deleted one.
  */
 describe('a deletion reversed through the slot, after it reached storage (ADR-0017)', () => {
-	const path = 'amsterdam-1625/alignments/floride-1657.json';
+	// At the Workspace root: an Alignment is shared by every Project (ADR-0023), so undoing its
+	// deletion puts the bytes back where every Project reads them from.
+	const path = 'alignments/floride-1657.json';
 	// Deliberately *not* what `serialiseAlignment` would produce: a colleague's file, with fields this
 	// build carries rather than understands. A record that held a parsed Alignment would restore
 	// something merely equivalent, and the byte-identity criterion would fail on exactly this file.

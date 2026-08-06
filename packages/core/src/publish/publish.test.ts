@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CATALOG_WITH_STALE_DEFAULT, FORKED_CATALOG } from '../base-map/fixture-catalogs.js';
+import { imageInfoPath } from '../project/image-files.js';
 import { newMapLayer, newAnnotationLayer } from '../project/layer.js';
 import { newProjectFile, parseProjectFile, serialiseProjectFile } from '../project/project-file.js';
 import { Workspace } from '../project/workspace.js';
@@ -118,7 +119,7 @@ describe('planning a publish', () => {
 		// tens of thousands of tiles. The *absence* of a read is the claim, and it is the one thing
 		// here no assertion about files could carry: a version written with `read` returns exactly the
 		// same total, correct in every respect and unusable on a real Workspace.
-		await store.write('amsterdam-1625/images/x/0,0,256,256/256,256/0/default.jpg', encode('tile'));
+		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('tile'));
 		const read = vi.spyOn(store, 'read');
 
 		const planned = await plan();
@@ -147,17 +148,21 @@ describe('planning a publish', () => {
 	});
 
 	it('warns that a referenced Historical Map leaves a Reader with no network seeing nothing', async () => {
+		// **Which maps need the network is read off the Workspace's files, not off `project.json`**
+		// (ADR-0023). `blaeu` has only a `remote.json`, so its tiles are on a Library's server; `mine` has
+		// an `info.json` of ours. There is no field either Layer could carry to say otherwise, which is
+		// what stopped the warning outliving an offline copy that made it false.
+		await store.write(
+			'images/blaeu/remote.json',
+			encode('{"service":"https://lib.example/blaeu"}')
+		);
+		await store.write('images/mine/info.json', encode('{"id":"https://unset.invalid/mine"}'));
 		const file = await workspace.readProject('amsterdam-1625');
 		await workspace.writeProject('amsterdam-1625', {
 			...file,
 			layers: [
-				newMapLayer({
-					id: 'l1',
-					name: 'Blaeu’s plan',
-					alignmentRef: 'alignments/x.json',
-					imageMode: 'referenced'
-				}),
-				newMapLayer({ id: 'l2', name: 'My own scan', alignmentRef: 'alignments/y.json' }),
+				newMapLayer({ id: 'l1', name: 'Blaeu’s plan', imageId: 'blaeu' }),
+				newMapLayer({ id: 'l2', name: 'My own scan', imageId: 'mine' }),
 				newAnnotationLayer({ id: 'l3', name: 'Warehouses' })
 			]
 		});
@@ -173,22 +178,40 @@ describe('planning a publish', () => {
 	});
 
 	it('says nothing about the network when every Historical Map is a local copy', async () => {
+		await store.write('images/mine/info.json', encode('{"id":"https://unset.invalid/mine"}'));
 		const file = await workspace.readProject('amsterdam-1625');
 		await workspace.writeProject('amsterdam-1625', {
 			...file,
-			layers: [newMapLayer({ id: 'l1', name: 'My own scan', alignmentRef: 'alignments/y.json' })]
+			layers: [newMapLayer({ id: 'l1', name: 'My own scan', imageId: 'mine' })]
 		});
 
 		expect((await plan()).warnings).toEqual([]);
 	});
 
+	// A copy keeps its `remote.json` for the citation (ADR-0007), so being in both lists means the tiles
+	// are here. Warning about a map the Workspace has already copied is the failure the stored `imageMode`
+	// produced: the claim outlived the copy, and the user was told to make one they had already made.
+	it('says nothing about a map that has been copied offline, though it kept its remote.json', async () => {
+		await store.write(
+			'images/blaeu/remote.json',
+			encode('{"service":"https://lib.example/blaeu"}')
+		);
+		await store.write('images/blaeu/info.json', encode('{"id":"https://unset.invalid/blaeu"}'));
+		const file = await workspace.readProject('amsterdam-1625');
+		await workspace.writeProject('amsterdam-1625', {
+			...file,
+			layers: [newMapLayer({ id: 'l1', name: 'Blaeu’s plan', imageId: 'blaeu' })]
+		});
+
+		expect((await plan()).warnings.map((warning) => warning.kind)).not.toContain(
+			'referenced-images'
+		);
+	});
+
 	it('names the hosting limit when the site would take the Workspace past it', async () => {
 		// One large file rather than many, because what is being asserted is the arithmetic and the
 		// sentence, not the walk.
-		await store.write(
-			'amsterdam-1625/images/x/big.jpg',
-			new Uint8Array(STATIC_HOSTING_LIMIT_BYTES - 1_000_000)
-		);
+		await store.write('images/x/big.jpg', new Uint8Array(STATIC_HOSTING_LIMIT_BYTES - 1_000_000));
 
 		const warning = (await plan({ includeBaseMap: true })).warnings.find(
 			(entry) => entry.kind === 'hosting-limit'
@@ -200,7 +223,7 @@ describe('planning a publish', () => {
 	});
 
 	it('says nothing about the hosting limit for a Workspace nowhere near it', async () => {
-		await store.write('amsterdam-1625/images/x/small.jpg', new Uint8Array(1000));
+		await store.write('images/x/small.jpg', new Uint8Array(1000));
 
 		expect((await plan({ includeBaseMap: true })).warnings.map((entry) => entry.kind)).toEqual([
 			'base-map-size'
@@ -219,10 +242,13 @@ describe('planning a publish', () => {
 	});
 
 	it('refuses a Workspace whose Project folder is named after a file the site needs', async () => {
-		// `toDirectoryName('Base Map')` is `base-map`, which is where the Base Map extract goes, so
-		// this is reachable by naming a Project rather than by contriving anything.
-		const created = await workspace.createProject('Base Map');
-		expect(created.directory).toBe('base-map');
+		// **No longer reachable by naming a Project**, and that is ADR-0023's reserved names doing their
+		// job: `createProject('Base Map')` derives `base-map` and is refused outright, because that folder
+		// is where the offline Base Map cache goes. So the refusal is asserted first, and then the state is
+		// reached the way it still can be — a folder written directly, which is a hand-edited Workspace or
+		// one restored from a backup made elsewhere.
+		await expect(workspace.createProject('Base Map')).rejects.toThrow(/reserved/);
+		await store.write('base-map/project.json', encode('{"formatVersion":1,"name":"Base Map"}'));
 
 		const planned = await plan();
 
@@ -245,15 +271,10 @@ describe('publishing', () => {
 		store = new MemoryProjectStore();
 		workspace = new Workspace(store, { now: () => new Date('2026-01-02T03:04:05.000Z') });
 		await workspace.createProject('Amsterdam 1625');
-		await store.write('amsterdam-1625/alignments/x.json', encode('{"type":"Annotation","id":"x"}'));
-		await store.write(
-			'amsterdam-1625/images/x/info.json',
-			encode('{"id":"https://unset.invalid/x"}')
-		);
-		await store.write(
-			'amsterdam-1625/images/x/0,0,256,256/256,256/0/default.jpg',
-			encode('a tile')
-		);
+		// At the Workspace root, shared by every Project (ADR-0023).
+		await store.write('alignments/x.json', encode('{"type":"Annotation","id":"x"}'));
+		await store.write('images/x/info.json', encode('{"id":"https://unset.invalid/x"}'));
+		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('a tile'));
 	});
 
 	const publish = async (options: { includeBaseMap?: boolean; at?: string } = {}) =>
@@ -283,11 +304,11 @@ describe('publishing', () => {
 				'_app/immutable/entry/start.AAAA.js',
 				'_app/immutable/nodes/0.BBBB.js',
 				'_app/version.json',
-				'amsterdam-1625/alignments/x.json',
-				'amsterdam-1625/images/x/0,0,256,256/256,256/0/default.jpg',
-				'amsterdam-1625/images/x/info.json',
+				'alignments/x.json',
 				'amsterdam-1625/project.json',
 				'ballastella-site.json',
+				'images/x/0,0,256,256/256,256/0/default.jpg',
+				'images/x/info.json',
 				'index.html',
 				'robots.txt'
 			].sort()
@@ -351,7 +372,14 @@ describe('publishing', () => {
 	it('records exactly the paths it writes, so the data-only zip can exclude them', async () => {
 		await publish({ includeBaseMap: true });
 
-		const written = (await store.list('')).filter((path) => !path.startsWith('amsterdam-1625/'));
+		// Everything that is not the user's data. Since ADR-0023 that means the Project's own directory *and*
+		// the shared `images/` and `alignments/` at the Workspace root — publishing must claim none of them.
+		const written = (await store.list('')).filter(
+			(path) =>
+				!path.startsWith('amsterdam-1625/') &&
+				!path.startsWith('images/') &&
+				!path.startsWith('alignments/')
+		);
 		// Every file publishing wrote is recognised by the recorded list…
 		expect(written.filter((path) => !isViewerFile(path))).toEqual([]);
 		// …and nothing in the list is idle: each recorded path matched something that was written.
@@ -527,6 +555,14 @@ describe('publishing', () => {
 		// The end-to-end form of ADR-0006's requirement, across the two features: publish, then
 		// export. The bundle is at the Workspace and a Project zip is rooted at the Project, so this
 		// asserts the arrangement as much as the list.
+		// The Layer is what makes the export gather the shared material: an archive carries the
+		// `images/<id>/` and `alignments/<id>.json` its Layers reference, out of the Workspace and in at
+		// the paths the format has always used (ADR-0023).
+		const file = await workspace.readProject('amsterdam-1625');
+		await workspace.writeProject('amsterdam-1625', {
+			...file,
+			layers: [newMapLayer({ id: 'l1', name: 'Blaeu’s plan', imageId: 'x' })]
+		});
 		await publish({ includeBaseMap: true });
 
 		const zip = await readProjectZip(
@@ -613,7 +649,7 @@ describe('stamping a canonical URL', () => {
 		await workspace.createProject('Amsterdam 1625');
 		for (const imageId of ['aaa', 'bbb']) {
 			await store.write(
-				`amsterdam-1625/images/${imageId}/info.json`,
+				imageInfoPath(imageId),
 				encode(
 					`${JSON.stringify(
 						{
@@ -634,38 +670,34 @@ describe('stamping a canonical URL', () => {
 	});
 
 	const infoJson = async (imageId: string) =>
-		JSON.parse(decode(await store.read(`amsterdam-1625/images/${imageId}/info.json`)));
+		JSON.parse(decode(await store.read(imageInfoPath(imageId))));
 
+	// **The address names no Project** (ADR-0023). A Historical Map is shared, so there is one citable
+	// endpoint for it however many Projects draw it — and the per-Project spelling was a citation that
+	// broke the moment a second Project used the map or the first one was renamed.
 	it('rewrites every info.json id to the address the tiles are published at', async () => {
-		const stamp = await stampCanonicalUrl(
-			store,
-			'amsterdam-1625',
-			'https://scholar.example/atlas/',
-			['aaa', 'bbb']
-		);
+		const stamp = await stampCanonicalUrl(store, 'https://scholar.example/atlas/', ['aaa', 'bbb']);
 
 		expect(stamp.url).toBe('https://scholar.example/atlas');
 		expect(stamp.images).toEqual(['aaa', 'bbb']);
-		expect((await infoJson('aaa')).id).toBe(
-			'https://scholar.example/atlas/amsterdam-1625/images/aaa'
-		);
-		expect((await infoJson('bbb')).id).toBe(
-			'https://scholar.example/atlas/amsterdam-1625/images/bbb'
-		);
+		expect((await infoJson('aaa')).id).toBe('https://scholar.example/atlas/images/aaa');
+		expect((await infoJson('bbb')).id).toBe('https://scholar.example/atlas/images/bbb');
 	});
 
 	it('is the address a IIIF client concatenates a tile path onto', async () => {
 		// The whole value of stamping is that somebody else's client can fetch these tiles
 		// (ADR-0004, SPEC story 92), and it builds every URL by concatenating onto `id`. So the
-		// stamped base plus a real IIIF tile path has to be where the tile actually is.
-		const id = canonicalImageServiceId('https://scholar.example', 'amsterdam-1625', 'aaa');
+		// stamped base plus a real IIIF tile path has to be where the tile actually is — which, since
+		// ADR-0023, is `<site>/images/<id>/…` with no Project directory in between.
+		const id = canonicalImageServiceId('https://scholar.example', 'aaa');
 		const tile = '0,0,256,256/256,256/0/default.jpg';
 
-		expect(`${id}/${tile}`).toBe(`https://scholar.example/amsterdam-1625/images/aaa/${tile}`);
+		expect(id).toBe('https://scholar.example/images/aaa');
+		expect(`${id}/${tile}`).toBe(`https://scholar.example/images/aaa/${tile}`);
 	});
 
 	it('keeps every other field of info.json, including one it does not understand', async () => {
-		await stampCanonicalUrl(store, 'amsterdam-1625', 'https://scholar.example', ['aaa']);
+		await stampCanonicalUrl(store, 'https://scholar.example', ['aaa']);
 
 		expect(await infoJson('aaa')).toMatchObject({
 			'@context': 'http://iiif.io/api/image/3/context.json',
@@ -677,11 +709,9 @@ describe('stamping a canonical URL', () => {
 		});
 	});
 
-	it('is remembered in the Project, and only in the Project it stamped', async () => {
+	it('is remembered in the Project the caller recorded it in', async () => {
 		await workspace.createProject('Boston 1775');
-		const stamp = await stampCanonicalUrl(store, 'amsterdam-1625', 'https://scholar.example', [
-			'aaa'
-		]);
+		const stamp = await stampCanonicalUrl(store, 'https://scholar.example', ['aaa']);
 		const file = await workspace.readProject('amsterdam-1625');
 		await workspace.writeProject('amsterdam-1625', { ...file, canonicalUrl: stamp.url });
 
@@ -708,15 +738,13 @@ describe('stamping a canonical URL', () => {
 	});
 
 	it('refuses an address a IIIF client could not fetch from, before touching a file', async () => {
-		const before = decode(await store.read('amsterdam-1625/images/aaa/info.json'));
+		const before = decode(await store.read(imageInfoPath('aaa')));
 
 		for (const bad of ['', '   ', 'scholar.example', 'ftp://scholar.example', 'not a url']) {
-			await expect(stampCanonicalUrl(store, 'amsterdam-1625', bad, ['aaa'])).rejects.toThrow(
-				PublishRefusedError
-			);
+			await expect(stampCanonicalUrl(store, bad, ['aaa'])).rejects.toThrow(PublishRefusedError);
 		}
 
-		expect(decode(await store.read('amsterdam-1625/images/aaa/info.json'))).toBe(before);
+		expect(decode(await store.read(imageInfoPath('aaa')))).toBe(before);
 	});
 
 	it('normalises what the user typed into a base other paths hang off', () => {

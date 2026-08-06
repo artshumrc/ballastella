@@ -308,7 +308,6 @@ describe('the pyramid this tiler writes, against the committed fixture', () => {
 		const store = new MemoryProjectStore();
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'p',
 			file: reconstructed,
 			label: 'floride-1657',
 			openDecodeAndCrop: openDecodeAndCropSource

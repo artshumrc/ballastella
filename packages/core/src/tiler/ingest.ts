@@ -17,7 +17,12 @@
 import { generateRandomId } from '@allmaps/id';
 
 import type { Bytes, ProjectStore, StorePath } from '../store/project-store.js';
-import { imageDirectory, imageInfoPath, imageManifestPath } from '../project/image-files.js';
+import {
+	IMAGE_DIRECTORY,
+	imageDirectory,
+	imageInfoPath,
+	imageManifestPath
+} from '../project/image-files.js';
 import { STREAMING_TILER_THRESHOLD_PIXELS } from './decode-ceiling.js';
 import { readImageHeaderFromBlob } from './image-header.js';
 import { buildImageManifest } from './image-manifest.js';
@@ -75,8 +80,6 @@ export type IngestResult = {
 
 export type IngestOptions = {
 	readonly store: ProjectStore;
-	/** The Project directory the image is being added to (ADR-0008). */
-	readonly projectDirectory: string;
 	readonly file: File | Blob;
 	/** What to call this Historical Map. Defaults to the file's name. */
 	readonly label?: string;
@@ -87,7 +90,7 @@ export type IngestOptions = {
 	 * ingests of one file are two Historical Maps (ADR-0015). It is supplied by exactly one caller —
 	 * `mirrorRemoteImage`, making an offline copy of a referenced remote image — where the opposite
 	 * holds and is load-bearing: that image's id is `generateId(uri)`, which is what every Alignment in
-	 * the Project names and what `annotations.allmaps.org` keys the image on, so mirroring must land on
+	 * the Workspace names and what `annotations.allmaps.org` keys the image on, so mirroring must land on
 	 * the id the image already has rather than mint a second one.
 	 */
 	readonly imageId?: string;
@@ -117,7 +120,7 @@ export type IngestOptions = {
 	readonly signal?: AbortSignal;
 };
 
-/** One ingested image in a Project, as the UI lists them. */
+/** One ingested Historical Map of the Workspace, as the UI lists them. */
 export type IngestedImage = {
 	readonly imageId: string;
 	readonly directory: StorePath;
@@ -125,16 +128,14 @@ export type IngestedImage = {
 };
 
 /**
- * The images a Project holds, found by looking for `info.json` and nothing else.
+ * The Historical Maps the **Workspace** holds, found by looking for `info.json` and nothing else
+ * (ADR-0023). Shared by every Project, so this asks the Workspace root and takes no Project directory.
  *
  * `info.json` is written last, so this reports only complete pyramids — the tiles of an
  * interrupted ingest are invisible here, which is the point of that write order.
  */
-export async function listIngestedImages(
-	store: ProjectStore,
-	projectDirectory: string
-): Promise<IngestedImage[]> {
-	const prefix = `${projectDirectory}/images/`;
+export async function listIngestedImages(store: ProjectStore): Promise<IngestedImage[]> {
+	const prefix = `${IMAGE_DIRECTORY}/`;
 	const paths = await store.list(prefix);
 
 	return (
@@ -144,7 +145,7 @@ export async function listIngestedImages(
 				const directory = path.slice(0, -'/info.json'.length);
 				return { imageId: directory.slice(prefix.length), directory, infoPath: path };
 			})
-			// A nested `images/<id>/…/info.json` is not an image of this Project; only the top level is.
+			// A nested `images/<id>/…/info.json` is not a Historical Map; only the top level is.
 			.filter((image) => !image.imageId.includes('/'))
 	);
 }
@@ -168,7 +169,7 @@ export class StreamingTilerUnavailableError extends Error {
 		super(
 			`This image is ${Math.round(pixels / 1e6)} megapixels, above the ${Math.round(
 				threshold / 1e6
-			)} megapixel limit of the built-in tiler. ${reason} Nothing has been added to the Project.`
+			)} megapixel limit of the built-in tiler. ${reason} Nothing has been added to the Workspace.`
 		);
 		this.name = 'StreamingTilerUnavailableError';
 		this.reason = reason;
@@ -200,7 +201,7 @@ export class UnreadableImageError extends Error {
 }
 
 /**
- * Turn a local image file into a level-0 pyramid inside `projectDirectory`.
+ * Turn a local image file into a level-0 pyramid at `images/<image-id>/` in the Workspace (ADR-0023).
  *
  * Order of writes matters and is deliberate: **every tile lands before `info.json` does.** A
  * Workspace is a folder in git or Dropbox (ADR-0008), so an ingest interrupted halfway is a
@@ -213,7 +214,6 @@ export class UnreadableImageError extends Error {
 export async function ingestImageFile(options: IngestOptions): Promise<IngestResult> {
 	const {
 		store,
-		projectDirectory,
 		file,
 		openDecodeAndCrop,
 		openStreaming,
@@ -289,7 +289,7 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 	try {
 		const { width, height } = source.dimensions;
 		const imageId = options.imageId ?? (await generateRandomId());
-		const directory = `${projectDirectory}/${imageDirectory(imageId)}`;
+		const directory = imageDirectory(imageId);
 		const info = buildImageInfo({ imageId, width, height });
 		const tiles = planPyramid(info, directory);
 		tileCount = tiles.length;
@@ -308,8 +308,8 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 		report('finishing', tiler);
 		signal?.throwIfAborted();
 
-		const infoPath = `${projectDirectory}/${imageInfoPath(imageId)}`;
-		const manifestPath = `${projectDirectory}/${imageManifestPath(imageId)}`;
+		const infoPath = imageInfoPath(imageId);
+		const manifestPath = imageManifestPath(imageId);
 		// The manifest first, then `info.json`: the same argument one level up. `info.json` is the
 		// completion marker for the whole directory, so nothing may be missing once it is there.
 		await store.write(manifestPath, serialiseJson(buildImageManifest({ imageId, label, info })));

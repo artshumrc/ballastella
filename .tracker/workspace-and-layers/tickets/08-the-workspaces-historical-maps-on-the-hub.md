@@ -19,6 +19,8 @@ Demonstrable end to end: from the hub, see three Historical Maps with sizes; one
 
 ## Contract
 
+> **From the review of ticket 01:** "is this Historical Map referenced rather than copied?" already has five implementations — `referencedImageIds` in `publish.ts`, `partitionByLocalCopy` in `referenced-image.ts`, `readMapLayer`'s 404 probe in the viewer's `project-documents.ts`, and the derived sets in the editor's `layers/+page.svelte` and the viewer's `+page.svelte`. One `referencedHistoricalMaps(store)` in core would serve all of them, and this ticket is the place to write it. Do not add a sixth.
+
 **A new core function answers which Projects use which Historical Maps**, reading every `project.json` in the Workspace and returning, per image id, the Projects whose Layers reference it. It must not read any pyramid bytes. It is a pure-ish function over the store and belongs in core so both the hub and publish can use it.
 
 **Deleting a Historical Map that is in use is refused, and the refusal names the Projects.** Not a confirmation dialog offering to cascade. One click that destroys three arguments is not a click this application has. The message names them; the user removes the Layers themselves if that is what they want.

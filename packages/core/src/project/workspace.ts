@@ -1,4 +1,6 @@
+import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import type { Autosave } from '../autosave/autosave.js';
+import { IMAGE_DIRECTORY } from './image-files.js';
 import {
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
@@ -42,6 +44,67 @@ export class ProjectDirectoryCollisionError extends Error {
 		this.suggestion = suggestion;
 	}
 }
+
+/**
+ * The Workspace directories that are not Projects and never can be (ADR-0023).
+ *
+ * `images/` holds every Historical Map's pyramid and `alignments/` holds every Alignment — both shared
+ * by every Project — and `base-map/` is the opt-in offline tile cache (ADR-0025). A Project landing on
+ * one of those names would put `project.json` and `annotations/` inside the pool of shared material,
+ * and deleting that Project would take every Project's Historical Maps with it.
+ *
+ * Refused at **creation**, which is the point. `claimedByPublishing` refuses a colliding name at
+ * *publish* time, and by then the Project exists and holds a semester's work; the only remedy on offer
+ * is a rename, and the folder has already been sitting in the middle of the images.
+ */
+export const RESERVED_DIRECTORY_NAMES: readonly string[] = [
+	// From the constants rather than spelled again: `imageDirectory` and `alignmentPath` are built from
+	// these two, so a rename that missed this list would leave the Workspace writing its shared material
+	// into a directory a Project is allowed to be created in — which is the collision this list exists
+	// to refuse, arriving by the one route it could not see.
+	IMAGE_DIRECTORY,
+	ALIGNMENT_DIRECTORY,
+	// A literal because there is no constant to take it from: `base-map/` is written by publishing
+	// (`VIEWER_FILE_PATHS`) and read by the catalog's archive paths (ADR-0020, ADR-0025), neither of
+	// which names a directory on its own.
+	'base-map'
+];
+
+/**
+ * A Project was asked for under a name the Workspace itself needs.
+ *
+ * Names the reservation rather than only refusing, because the user typed a perfectly reasonable
+ * display name — "Images", "Base Map" — and `toDirectoryName` is what turned it into a collision. What
+ * they need to know is that the *folder* name is taken by the Workspace and that the display name is
+ * not the problem.
+ */
+export class ReservedDirectoryNameError extends Error {
+	/** The folded folder name that was refused. */
+	readonly directory: string;
+
+	constructor(directory: string, displayName: string) {
+		super(
+			`“${displayName}” would go in a folder called “${directory}”, and this Workspace keeps its ` +
+				`shared Historical Maps, Alignments, and Base Map tiles in ` +
+				`${RESERVED_DIRECTORY_NAMES.map((name) => `“${name}”`).join(', ')} — so “${directory}” is ` +
+				`reserved and cannot be a Project. Choose another name. Nothing has been created.`
+		);
+		this.name = 'ReservedDirectoryNameError';
+		this.directory = directory;
+	}
+}
+
+/**
+ * Whether `name` is one of {@link RESERVED_DIRECTORY_NAMES}, compared the way a filesystem would.
+ *
+ * **Through {@link foldName}, and that is not decoration.** APFS and NTFS are both case-insensitive and
+ * APFS folds Unicode composition as well, so `getDirectoryHandle('Images', { create: true })` hands
+ * back the existing `images` — the shared pool — on the backend most users have. A reserved-name check
+ * that compared raw strings would wave `Images` and a decomposed `Alignments` straight through, for
+ * exactly the reason the collision check could not compare raw strings either.
+ */
+export const isReservedDirectoryName = (name: string): boolean =>
+	RESERVED_DIRECTORY_NAMES.some((reserved) => foldName(reserved) === foldName(name));
 
 /** What the hub page needs about one Project without opening it. */
 export interface ProjectSummary {
@@ -152,9 +215,23 @@ export class Workspace {
 		await this.#store.write(path, bytes);
 	}
 
-	/** Create a Project. Its directory name is derived from the display name and made unique. */
+	/**
+	 * Create a Project. Its directory name is derived from the display name and made unique.
+	 *
+	 * **Refused when the derived folder name is one the Workspace itself needs** — see
+	 * {@link RESERVED_DIRECTORY_NAMES}. Refused rather than quietly suffixed: `toDirectoryName('Images')`
+	 * is `images`, and a user who asked for a Project called "Images" and got one called "images-2" has
+	 * been told nothing about why. This runs before `#unusedDirectory`, which *does* treat the reserved
+	 * names as taken — so nothing else in this class can land on one either.
+	 *
+	 * @throws ReservedDirectoryNameError when the folder name is reserved
+	 */
 	async createProject(displayName: string): Promise<ProjectSummary> {
 		const name = displayName.trim() || 'Untitled Project';
+		const preferred = toDirectoryName(name);
+		if (isReservedDirectoryName(preferred)) {
+			throw new ReservedDirectoryNameError(preferred, name);
+		}
 		const directory = await this.#unusedDirectory(name);
 		await this.writeProject(directory, newProjectFile(name, this.#now()));
 		return this.#summarise(directory);
@@ -213,7 +290,20 @@ export class Workspace {
 	 * writer — every byte goes through this Workspace and the store's atomic `write` (ADR-0017 rule
 	 * 4) — so an interrupted import cannot leave a torn file.
 	 *
+	 * **The shared material is hoisted out of the Project directory** (ADR-0023). An archive is rooted at
+	 * the Project and carries `images/<id>/` and `alignments/<id>.json` beside `project.json`, exactly as
+	 * it always did — the zip format did not change — but those two now belong to the Workspace, so they
+	 * are written at the Workspace root and everything else goes inside `directory`. See
+	 * {@link hoistedImageId}.
+	 *
+	 * **And an image id the Workspace already has is not overwritten.** That is the whole of the
+	 * deduplication ADR-0023 asks for, and the direction is the one that cannot lose work: the Alignment
+	 * in the Workspace is the one every existing Project is already drawn by, and a colleague's archive
+	 * of the same map would otherwise silently move every one of them. The Project still imports, still
+	 * references the image, and draws it where the user already had it.
+	 *
 	 * @throws ProjectDirectoryCollisionError when `directory` is already in use
+	 * @throws ReservedDirectoryNameError when `directory` is a name the Workspace itself needs
 	 */
 	async importProject(
 		directory: string,
@@ -221,9 +311,17 @@ export class Workspace {
 		options: { onProgress?: TransferProgressListener } = {}
 	): Promise<ProjectSummary> {
 		assertDirectoryName(directory);
+		// Before the collision check, so the message names the reservation rather than reporting a folder
+		// the user cannot see. Import is the sharper case than creation: it writes into the Workspace root
+		// itself, so a Project landing on `images/` would write `project.json` into the shared pool.
+		if (isReservedDirectoryName(directory)) {
+			throw new ReservedDirectoryNameError(directory, directory);
+		}
 		if (await this.#isTaken(directory)) {
 			throw new ProjectDirectoryCollisionError(directory, await this.#unusedDirectory(directory));
 		}
+
+		const present = await this.#historicalMapIds();
 
 		let files = 0;
 		let bytes = 0;
@@ -238,15 +336,25 @@ export class Workspace {
 
 		report(null);
 		const written: string[] = [];
+		/** The prefixes written into, for the abandoned-write sweep a rollback has to do. */
+		const touched = new Set<string>([`${directory}/`]);
 		try {
 			for await (const file of source.files()) {
-				const path = `${directory}/${file.path}`;
+				const shared = hoistedImageId(file.path);
+				// Counted as seen even when skipped, so progress reaches its total rather than stopping
+				// short of it on an import that deduplicated half the archive.
+				files += 1;
+				if (shared !== null && present.has(shared)) {
+					report(file.path);
+					continue;
+				}
+				const path = shared === null ? `${directory}/${file.path}` : file.path;
+				if (shared !== null) touched.add(`${file.path.split('/').slice(0, -1).join('/')}/`);
 				// Recorded before the write rather than after, so a write that fails part way through
 				// is still cleaned up: the destination may hold a partial file, and the temporary file
 				// the atomic write created may still be beside it.
 				written.push(path);
 				await this.#store.write(path, file.bytes);
-				files += 1;
 				bytes += file.bytes.length;
 				// A source that under-declares `totalBytes` would make the progress it reports a lie, and
 				// on an untrusted source — a zip somebody was handed — it is also the bound on how much
@@ -260,11 +368,31 @@ export class Workspace {
 				report(file.path);
 			}
 		} catch (cause) {
-			await this.#rollBackImport(directory, written);
+			await this.#rollBackImport(written, touched);
 			throw cause;
 		}
 		report(null);
 		return this.#summarise(directory);
+	}
+
+	/**
+	 * Every Historical Map the Workspace already has, by image id (ADR-0023).
+	 *
+	 * A map counts as present when *anything* is under `images/<id>/` or when its Alignment is there —
+	 * not only when the pyramid is complete. The question this answers is "would importing overwrite
+	 * something", and a half-written pyramid the user is still ingesting is something.
+	 */
+	async #historicalMapIds(): Promise<Set<string>> {
+		const ids = new Set<string>();
+		for (const path of await this.#store.list(`${IMAGE_DIRECTORY}/`)) {
+			const id = path.slice(IMAGE_DIRECTORY.length + 1).split('/')[0];
+			if (id !== undefined && id !== '') ids.add(id);
+		}
+		for (const path of await this.#store.list(`${ALIGNMENT_DIRECTORY}/`)) {
+			const name = path.slice(ALIGNMENT_DIRECTORY.length + 1);
+			if (name.endsWith('.json') && !name.includes('/')) ids.add(name.slice(0, -'.json'.length));
+		}
+		return ids;
 	}
 
 	/**
@@ -281,13 +409,19 @@ export class Workspace {
 	 * Best-effort, and it never throws: the failure the caller is about to see is the one that
 	 * matters, and a Workspace too broken to clean up is not one where a second error helps.
 	 */
-	async #rollBackImport(directory: string, written: readonly string[]): Promise<void> {
+	async #rollBackImport(written: readonly string[], touched: ReadonlySet<string>): Promise<void> {
 		for (const path of written) {
 			await this.#store.delete(path).catch(() => undefined);
 		}
 		// The half-finished writes `list` cannot report and `delete` cannot be handed, which is
 		// exactly what a write interrupted between its two steps leaves behind.
-		await this.#store.reclaimAbandonedWrites(`${directory}/`).catch(() => undefined);
+		//
+		// Every prefix this import wrote into rather than only the Project's, because ADR-0023's hoist
+		// puts some of them under `images/<id>/` and `alignments/`. Only prefixes it actually wrote to:
+		// sweeping `images/` wholesale would reclaim the temporary file of an ingest running beside this.
+		for (const prefix of touched) {
+			await this.#store.reclaimAbandonedWrites(prefix).catch(() => undefined);
+		}
 	}
 
 	/** A free directory name near `preferred`, for offering a way past a collision. */
@@ -335,7 +469,14 @@ export class Workspace {
 	 */
 	async #takenNames(): Promise<Set<string>> {
 		const paths = await this.#store.list('');
-		return new Set(paths.map((path) => foldName(topLevelSegment(path))));
+		return new Set([
+			// Seeded, so `#unusedDirectory` can never *offer* a reserved name either — which matters
+			// because it is what `suggestDirectory` returns to the rename field and what `duplicateProject`
+			// lands on. An empty Workspace holds none of these directories yet, so listing alone would say
+			// they were free.
+			...RESERVED_DIRECTORY_NAMES.map(foldName),
+			...paths.map((path) => foldName(topLevelSegment(path)))
+		]);
 	}
 
 	async #isTaken(directory: string): Promise<boolean> {
@@ -351,6 +492,36 @@ export class Workspace {
 			if (!taken.has(foldName(candidate))) return candidate;
 		}
 	}
+}
+
+/**
+ * The Historical Map an archive entry belongs to, when the entry is shared Workspace material —
+ * `null` when it is one of the Project's own files (ADR-0023).
+ *
+ * An archive is rooted at the Project and its paths did not change, so this is the whole of the
+ * hoist: `images/<id>/…` and `alignments/<id>.json` name a Historical Map that belongs to the
+ * Workspace, and everything else — `project.json`, `annotations/…` — belongs inside the Project
+ * directory.
+ *
+ * Deliberately narrow about what counts. `images/<id>` with nothing after it is a directory entry
+ * rather than a file; `alignments/nested/thing.json` names no Historical Map this app would write.
+ * Both answer `null`, so they land inside the Project directory as ordinary files rather than being
+ * hoisted somewhere their name does not describe — which is the reading that cannot put an archive's
+ * bytes at a Workspace path it did not ask for.
+ */
+export function hoistedImageId(archivePath: string): string | null {
+	const segments = archivePath.split('/');
+	if (segments[0] === IMAGE_DIRECTORY) {
+		const id = segments[1];
+		return segments.length > 2 && id !== undefined && id !== '' ? id : null;
+	}
+	if (segments[0] === ALIGNMENT_DIRECTORY && segments.length === 2) {
+		const name = segments[1] ?? '';
+		return name.endsWith('.json') && name.length > '.json'.length
+			? name.slice(0, -'.json'.length)
+			: null;
+	}
+	return null;
 }
 
 /**

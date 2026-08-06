@@ -124,12 +124,14 @@ describe('removedMapLayers', () => {
 			removedMapLayers
 		});
 
-	it('round-trips the Alignments whose Layer the user deleted', () => {
-		const opened = parseProjectFile(withTombstone(['alignments/floride-1657.json']));
+	// Keyed on the **image id** each deleted Layer drew (ADR-0023), which is the one thing a map Layer
+	// carries about its Historical Map.
+	it('round-trips the image ids whose Layer the user deleted', () => {
+		const opened = parseProjectFile(withTombstone(['floride-1657']));
 
-		expect(opened.removedMapLayers).toEqual(['alignments/floride-1657.json']);
+		expect(opened.removedMapLayers).toEqual(['floride-1657']);
 		expect(JSON.parse(decode(serialiseProjectFile(opened))).removedMapLayers) //
-			.toEqual(['alignments/floride-1657.json']);
+			.toEqual(['floride-1657']);
 	});
 
 	// ADR-0010: opening last year's Project must not modify a byte of it. A field written
@@ -145,7 +147,7 @@ describe('removedMapLayers', () => {
 	// comes back, and the cost of throwing is a Project that cannot be opened at all.
 	it.each([
 		['a missing field', undefined],
-		['the wrong type', 'alignments/floride-1657.json'],
+		['the wrong type', 'floride-1657'],
 		['a list of the wrong things', [7, null, '']]
 	])('reads %s as no tombstones', (_description, value) => {
 		expect(parseProjectFile(withTombstone(value)).removedMapLayers).toEqual([]);
@@ -154,7 +156,7 @@ describe('removedMapLayers', () => {
 	// It is a known field, so it must not *also* be carried as an unknown one — which would write it
 	// twice, once from each place, and let the two disagree.
 	it('is not carried as an unknown field as well', () => {
-		const opened = parseProjectFile(withTombstone(['alignments/floride-1657.json']));
+		const opened = parseProjectFile(withTombstone(['floride-1657']));
 
 		expect(opened.unknownFields).toEqual({});
 		expect(decode(serialiseProjectFile({ ...opened, removedMapLayers: [] }))).not.toContain(

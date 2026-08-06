@@ -57,7 +57,6 @@ import {
 	toRendererResourceMask
 } from '../alignment/georeference-annotation.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import type { ImageMode } from '../project/layer.js';
 import {
 	referencedImagePath,
 	referencedRendererDocument
@@ -155,7 +154,7 @@ function mapOptionsFor(alignment: Alignment, distortion: DistortionView) {
  * definition does not have locally — a blank Layer with nothing said, which is the exact failure
  * ticket 14's criterion names. It cannot be detected from `service` alone, because `''` is also the
  * right answer for every local copy, so the caller says which kind of image this is with
- * `imageMode` — and the guard can only run for a caller that does; see the option's own note.
+ * `referenced` — and the guard can only run for a caller that does; see the option's own note.
  */
 export function showAlignment(
 	layer: WarpedMapLayer,
@@ -168,7 +167,7 @@ export function showAlignment(
 	 */
 	{
 		distortion = DEFAULT_DISTORTION_VIEW,
-		imageMode,
+		referenced = false,
 		service = ''
 	}: {
 		/**
@@ -183,18 +182,19 @@ export function showAlignment(
 		 */
 		distortion?: DistortionView;
 		/**
-		 * Whether this Historical Map's tiles are in the Project or on somebody else's server — ticket
-		 * 09's field, straight off the Layer.
+		 * Whether this Historical Map's tiles are on somebody else's server rather than in the Workspace.
 		 *
-		 * **Optional, and the omission is not free.** It is what turns the `'referenced'`-with-no-address
-		 * case from a blank Layer into a refusal the page can print, so anything drawing a Layer of a
-		 * Project's stack has it in hand and should pass it — `drawLayerStack` reads it straight off
-		 * `drawn.layer.imageMode`. Left out, that pairing is undetectable here and the Layer draws
-		 * nothing with nothing said, which is the state this whole option exists to end. It is optional
-		 * only for the caller that has no Layer: the alignment pane, drawing the one Historical Map
-		 * being worked on.
+		 * **An observation, not a stored field** (ADR-0023): the image directory has an `info.json` of
+		 * ours, or it has only a `remote.json`. `MapLayer` used to carry an `imageMode` claiming it, and
+		 * a claim can disagree with the bytes on disk.
+		 *
+		 * **Optional, and the omission is not free.** It is what turns the referenced-with-no-address case
+		 * from a blank Layer into a refusal the page can print. Left out, that pairing is undetectable
+		 * here and the Layer draws nothing with nothing said, which is the state this whole option exists
+		 * to end. Defaults to `false` because a caller that cannot observe the answer is the alignment
+		 * pane drawing one Historical Map, and refusing on a guess would refuse every local copy.
 		 */
-		imageMode?: ImageMode;
+		referenced?: boolean;
 		/**
 		 * The remote image service URI for a `'referenced'` image (ticket 14), or `''` for a local copy.
 		 * It cannot live inside the Alignment — see the note above this function.
@@ -206,11 +206,11 @@ export function showAlignment(
 	// number of Control Points draws an image whose tiles have no address. Refusing here is also what
 	// keeps the placeholder document out of the renderer entirely, so nothing is attached and reported
 	// drawn on the way to being torn down again.
-	if (imageMode === 'referenced' && service === '') {
+	if (referenced && service === '') {
 		return {
 			status: 'refused',
 			reason:
-				`This Historical Map is referenced rather than copied into this Project, and the record ` +
+				`This Historical Map is referenced rather than copied into this Workspace, and the record ` +
 				`of where it is served from (${referencedImagePath(alignment.imageId)}) could not be ` +
 				`read — so there is nowhere to fetch its tiles from. Nothing is drawn, rather than an ` +
 				`empty Layer reported as drawn.`

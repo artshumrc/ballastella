@@ -184,6 +184,57 @@ test.describe('the Project hub', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625', exact: true })).toBeVisible();
 	});
 
+	// ADR-0023 keeps `images/`, `alignments/`, and `base-map/` for the Workspace itself, and ticket 01
+	// requires the refusal to reach a screen "with a message naming the reservation". It did not: the
+	// error was missing from `describeProblem`, so the hub fell through to `status = 'unreachable'` and
+	// replaced itself — and every Project in it — with "Workspace not reachable — Your Workspace could
+	// not be opened…". A scholar who typed "Images" was told their whole Workspace had gone.
+	//
+	// `bAsE mAp` is here as well as `Images` because the fold is the other half of the criterion: it is
+	// `toDirectoryName` that turns a display name into `base-map`, and a check on the raw string would
+	// pass this one straight through onto APFS, which would then hand the Project the Base Map folder.
+	for (const [displayName, folder] of [
+		['Images', 'images'],
+		['bAsE mAp', 'base-map']
+	]) {
+		test(`refuses a Project called “${displayName}” and names the reservation`, async ({
+			page
+		}) => {
+			await createProject(page, 'Amsterdam 1625');
+
+			await page.getByRole('button', { name: 'New Project' }).click();
+			await page
+				.getByRole('dialog', { name: 'New Project' })
+				.getByLabel('Project name')
+				.fill(displayName);
+			await page.getByRole('button', { name: 'Create Project' }).click();
+
+			const refusal = page.getByTestId('reserved-name');
+			await expect(refusal).toBeVisible();
+			await expect(refusal).toContainText(folder);
+			await expect(refusal).toContainText('reserved');
+
+			// The Workspace is right here and still lists. Neither of these was true before.
+			await expect(page.getByText('Workspace not reachable')).toHaveCount(0);
+			await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+
+			// And nothing was written: no reserved folder, and no Project beside the one that existed.
+			expect(
+				await page.evaluate(async () => {
+					const root = await navigator.storage.getDirectory();
+					const names: string[] = [];
+					for await (const name of root.keys()) names.push(name);
+					return names.sort();
+				})
+			).toEqual(['amsterdam-1625']);
+
+			// A name that is not reserved goes through, and takes the refusal off the screen with it —
+			// an alert still complaining about a Project that now exists says the opposite of the truth.
+			await createProject(page, `${displayName} of Amsterdam`);
+			await expect(refusal).toHaveCount(0);
+		});
+	}
+
 	test('deleting a Project removes it from the list and from OPFS', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
 
@@ -467,18 +518,21 @@ test.describe('opening a Project and closing it (ADR-0010)', () => {
 		await page.evaluate(async () => {
 			const root = await navigator.storage.getDirectory();
 			const project = await root.getDirectoryHandle('amsterdam-1625');
-			const images = await project.getDirectoryHandle('images', { create: true });
-			const file = await images.getFileHandle('info.json', { create: true });
+			// `annotations/` rather than `images/`: since ADR-0023 a pyramid is the Workspace's and is not
+			// inside a Project at all, so a nested fixture under the Project has to be one of the Project's
+			// own files or the claim below would be about a file the application never puts there.
+			const annotations = await project.getDirectoryHandle('annotations', { create: true });
+			const file = await annotations.getFileHandle('l-notes.geojson', { create: true });
 			const writable = await file.createWritable();
-			await writable.write('{"width":1}');
+			await writable.write('{"type":"FeatureCollection","features":[]}');
 			await writable.close();
 		});
 		const before = await hashProject(page, 'amsterdam-1625');
 		// The hash has to reach into subdirectories, or "every file is byte-identical" is a claim
-		// about `project.json` alone. The nested `images/info.json` stands in for the pyramid a real
-		// Project is mostly made of — thousands of files, all of them untouched by merely looking.
-		// Sorted, because OPFS promises no enumeration order.
-		expect(Object.keys(before).sort()).toEqual(['images/info.json', 'project.json']);
+		// about `project.json` alone. The nested `annotations/l-notes.geojson` stands in for the
+		// Annotations a real Project holds — untouched by merely looking. Sorted, because OPFS promises no
+		// enumeration order.
+		expect(Object.keys(before).sort()).toEqual(['annotations/l-notes.geojson', 'project.json']);
 
 		await page.goto('./?p=amsterdam-1625');
 		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();

@@ -43,7 +43,6 @@
 		SiteFileUnreachableError,
 		baseMapFallbackNotice,
 		createStoreImageFetch,
-		imageIdFromAlignmentRef,
 		imageInfoPath,
 		isAbsoluteUrl,
 		otherTheme,
@@ -241,7 +240,7 @@
 			openProject?.directory ?? '',
 			layers.map((layer) =>
 				layer.kind === 'map'
-					? [layer.id, layer.alignmentRef, layer.imageMode]
+					? [layer.id, layer.imageId]
 					: layer.kind === 'annotation'
 						? [layer.id, layer.geojsonRef]
 						: [layer.id]
@@ -270,15 +269,14 @@
 	 *
 	 * The same shim the editor gives MapLibre, over the HTTP store rather than over OPFS — which is
 	 * ADR-0001's abstraction paying out and the reason there is no second tile path here. A local copy's
-	 * `info.json` carries the `unset.invalid` placeholder, this resolves it against
-	 * `<directory>/images/<image-id>/`, and a `'referenced'` image's real address passes straight through
-	 * to the library that holds it.
+	 * `info.json` carries the `unset.invalid` placeholder, this resolves it against `images/<image-id>/`
+	 * at the **site root** (ADR-0023), and a referenced image's real address passes straight through to
+	 * the library that holds it.
+	 *
+	 * No longer per-Project, because the pyramids are not: one shim serves every Project of the site, and
+	 * two Projects drawing the same Historical Map draw the same bytes.
 	 */
-	const fetchTile = $derived(
-		openProject
-			? createStoreImageFetch({ store: siteStore(), projectDirectory: openProject.directory })
-			: null
-	);
+	const fetchTile = $derived(createStoreImageFetch({ store: siteStore() }));
 
 	/** The stack as the map takes it: top first, each Layer with its documents in hand. */
 	const drawn = $derived<readonly DrawnLayer[]>(
@@ -291,7 +289,14 @@
 			if (read?.status !== 'ready') return [];
 			if (layer.kind === 'map') {
 				if (!read.alignment) return [];
-				return [{ layer, alignment: read.alignment, service: read.service ?? '' }];
+				return [
+					{
+						layer,
+						alignment: read.alignment,
+						referenced: read.referenced ?? false,
+						service: read.service ?? ''
+					}
+				];
 			}
 			return [{ layer, annotations: read.annotations ?? null }];
 		})
@@ -348,10 +353,36 @@
 	 *
 	 * Said out loud on the page rather than only warned about at publish time, because the Reader is the
 	 * person who meets the consequence: on a train, or after the library reorganises, those Layers draw
-	 * nothing (ADR-0007). `imageMode` is what decides it.
+	 * nothing (ADR-0007).
+	 *
+	 * Read from what the site's own files say rather than from a field of `project.json` (ADR-0023), which
+	 * is why it comes out of `documents`: a Layer whose documents have not arrived yet is not counted, and
+	 * so this says "needs the network" only once something has actually been observed to.
 	 */
 	const needsNetwork = $derived(
-		layers.filter((layer) => layer.kind === 'map' && layer.imageMode === 'referenced')
+		layers.filter((layer) => layer.kind === 'map' && referencedImageIds.has(layer.imageId))
+	);
+
+	/**
+	 * The Historical Maps this site does not hold its own tiles for, by image id.
+	 *
+	 * Out of `documents`, which is where the observation was made — see `readMapLayer`. A Layer whose
+	 * documents have not arrived yet is in neither state and is absent, so nothing claims a map needs the
+	 * network before anything has looked for it.
+	 */
+	const referencedImageIds = $derived(
+		new Set(
+			layers.flatMap((layer) => {
+				if (layer.kind !== 'map') return [];
+				const read = documents[layer.id];
+				// Both statuses, because the two questions are independent (see `readMapLayer`): a Layer
+				// whose Alignment will not parse is still one whose tiles need the network, and the Reader is
+				// owed that either way.
+				return read?.status === 'loading' || read === undefined || read.referenced !== true
+					? []
+					: [layer.imageId];
+			})
+		)
 	);
 
 	/** Every referenced host that failed to answer, so the message can name it (ticket 17's table). */
@@ -504,9 +535,9 @@
 			unwarpedError = '';
 			return;
 		}
-		const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
+		const { imageId } = layer;
 		void (async () => {
-			if (imageId === null) {
+			if (imageId === '') {
 				unwarpedError = 'This site does not record where this Historical Map’s image is.';
 				return;
 			}
@@ -514,7 +545,7 @@
 				// The published `info.json`, which is the document that describes the pyramid — and, in its
 				// own `id`, the document that decides where a tiling viewer will fetch from. See
 				// `$lib/unwarped-manifest` for why nothing here can override that.
-				const bytes = await siteStore().read(`${open.directory}/${imageInfoPath(imageId)}`);
+				const bytes = await siteStore().read(imageInfoPath(imageId));
 				if (unwarpedLayerId !== layer.id) return;
 				const info = parseServedImageInfo(bytes);
 				if (servedImageServiceId(info) === null) {
@@ -757,6 +788,7 @@
 						<ReaderLayerControls
 							{layers}
 							{outcomes}
+							{referencedImageIds}
 							onshow={(id, visible) => (layers = setLayerVisible(layers, id, visible))}
 							onopacity={(id, opacity) => (layers = setMapLayerOpacity(layers, id, opacity))}
 							onunwarped={readAsDocument}
@@ -791,7 +823,7 @@
 						<div
 							class="h-[60vh] overflow-hidden rounded border border-base-300 sm:h-[32rem] lg:h-[36rem]"
 						>
-							{#if fetchTile && siteRecordKnown}
+							{#if siteRecordKnown}
 								<ReaderMapPane
 									entryId={baseMap.entry.id}
 									{catalog}

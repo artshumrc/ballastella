@@ -2,7 +2,7 @@ import { zipSync, type Zippable } from 'fflate';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { ProjectFormatTooNewError, ProjectFileUnreadableError } from '../project/project-file.js';
-import { ProjectDirectoryCollisionError, Workspace } from '../project/workspace.js';
+import { ProjectDirectoryCollisionError, Workspace, hoistedImageId } from '../project/workspace.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { InvalidPathError, type Bytes, type StorePath } from '../store/project-store.js';
 import { MAX_ZIP_ENTRIES, exportProjectZip } from './export-project-zip.js';
@@ -38,8 +38,7 @@ const projectJson = (overrides: Record<string, unknown> = {}) =>
 					order: 0,
 					kind: 'map',
 					opacity: 0.8,
-					alignmentRef: 'alignments/amsterdam-1625.json',
-					imageMode: 'mirrored'
+					imageId: 'amsterdam-1625'
 				},
 				{
 					id: 'l2',
@@ -58,7 +57,15 @@ const projectJson = (overrides: Record<string, unknown> = {}) =>
 		'\t'
 	)}\n`;
 
-/** The files of a Project that is a bit more than a manifest: an Alignment, GeoJSON, a pyramid. */
+/**
+ * A Project's whole archive: `project.json`, its Annotations, and the shared material its Layers
+ * reference.
+ *
+ * **These are archive paths, and ADR-0023 did not change one of them.** What changed is where they come
+ * from and go to in a Workspace — `images/` and `alignments/` are hoisted to the Workspace root, and
+ * `project.json` and `annotations/` stay inside the Project directory. See {@link seed} and
+ * {@link archiveShape}, which are the two places that split.
+ */
 const projectFiles = (): Record<string, string> => ({
 	'project.json': projectJson(),
 	'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"amsterdam-1625"}',
@@ -68,14 +75,42 @@ const projectFiles = (): Record<string, string> => ({
 	'images/amsterdam-1625/256,0,256,256/256,256/0/default.jpg': 'nor is this one'
 });
 
+/**
+ * Write a Project's files into a Workspace, putting each where ADR-0023 says it goes.
+ *
+ * The shared material at the Workspace root, the Project's own inside `directory` — which is exactly
+ * the split `Workspace.importProject` performs, expressed through the same `hoistedImageId` so that the
+ * fixture and the importer cannot disagree about it.
+ */
 async function seed(
 	store: MemoryProjectStore,
 	directory: string,
 	files: Record<string, string>
 ): Promise<void> {
 	for (const [path, text] of Object.entries(files)) {
-		await store.write(`${directory}/${path}` as StorePath, encode(text));
+		const target = hoistedImageId(path) === null ? `${directory}/${path}` : path;
+		await store.write(target as StorePath, encode(text));
 	}
+}
+
+/**
+ * A Workspace as the archive of one Project sees it: the Project's own files, plus the shared material
+ * its Layers reference, keyed by archive path.
+ *
+ * The inverse of {@link seed}, so `toEqual(projectFiles())` still means "the same bytes came back" after
+ * a round trip — which is the claim these tests exist to make, and the one ADR-0023 must not weaken.
+ */
+async function archiveShape(
+	store: MemoryProjectStore,
+	directory: string
+): Promise<Record<string, string>> {
+	const out = await contents(store, `${directory}/`);
+	for (const prefix of ['images/', 'alignments/']) {
+		for (const [path, text] of Object.entries(await contents(store, prefix))) {
+			out[`${prefix}${path}`] = text;
+		}
+	}
+	return out;
 }
 
 /** Everything under a prefix as text, keyed by the path relative to it. */
@@ -239,6 +274,14 @@ describe('exporting a Project as a zip', () => {
 		await seed(watched, 'amsterdam-1625', projectFiles());
 
 		const { body } = await exportProjectZip(watched, 'amsterdam-1625');
+		// `project.json` is read while the export is *planned*, to learn which Workspace Historical Maps
+		// this Project's Layers reference (ADR-0023). That is one small JSON document and it is not part of
+		// the streaming claim, so the log is measured from the point the stream starts. (A `ReadableStream`
+		// pulls once on construction, so the first entry's read has already happened by here too — which is
+		// the interleaving this asserts, arriving one step earlier than the `getReader` below.)
+		expect(log[0]).toBe('read amsterdam-1625/project.json');
+		const planning = 1;
+
 		const reader = body.getReader();
 		for (;;) {
 			const { done, value } = await reader.read();
@@ -246,12 +289,13 @@ describe('exporting a Project as a zip', () => {
 			log.push(`chunk ${value.length}`);
 		}
 
-		const firstChunk = log.findIndex((line) => line.startsWith('chunk'));
-		const lastRead = log.findLastIndex((line) => line.startsWith('read'));
+		const streamed = log.slice(planning);
+		const firstChunk = streamed.findIndex((line) => line.startsWith('chunk'));
+		const lastRead = streamed.findLastIndex((line) => line.startsWith('read'));
 		expect(firstChunk).toBeGreaterThanOrEqual(0);
 		expect(firstChunk).toBeLessThan(lastRead);
 		// And only one file has been read by the time the first bytes are out.
-		expect(log.slice(0, firstChunk).filter((line) => line.startsWith('read'))).toHaveLength(1);
+		expect(streamed.slice(0, firstChunk).filter((line) => line.startsWith('read'))).toHaveLength(1);
 	});
 
 	it('excludes whatever is on the viewer-file list', async () => {
@@ -336,7 +380,58 @@ describe('a round trip through export and import', () => {
 		});
 		// Byte identity, every file, not "the Layers look the same": the Alignment and the GeoJSON are
 		// the portable scholarship (ADR-0002) and the pyramid is what the reader actually sees.
-		expect(await contents(destination, 'amsterdam-1625/')).toEqual(projectFiles());
+		expect(await archiveShape(destination, 'amsterdam-1625')).toEqual(projectFiles());
+	});
+
+	// ADR-0023's export half, and the reason the zip format did not have to change: the archive is still
+	// rooted at the Project and still carries `images/<id>/` and `alignments/<id>.json` beside
+	// `project.json` — gathered out of the Workspace rather than out of the Project directory.
+	it('gathers the shared material its Layers reference, at the archive paths it always used', async () => {
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+
+		expect([...zip.paths].sort()).toEqual(Object.keys(projectFiles()).sort());
+	});
+
+	// A Workspace can hold Historical Maps no Project uses (ADR-0023), and an export is a *Project*
+	// bundle rather than a Workspace backup — so it must not carry a stranger's pyramid. That is the whole
+	// difference between the two artefacts ADR-0024 splits apart.
+	it('carries no Historical Map this Project’s Layers do not reference', async () => {
+		await source.write(
+			'images/boston-1775/info.json' as StorePath,
+			encode('{"id":"https://unset.invalid/boston-1775"}')
+		);
+		await source.write('alignments/boston-1775.json' as StorePath, encode('{"type":"Annotation"}'));
+
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+
+		expect([...zip.paths].filter((path) => path.includes('boston-1775'))).toEqual([]);
+	});
+
+	// The import half of the same criterion. The Workspace's own copy of a map is what every existing
+	// Project is already drawn by, so a colleague's archive of it must change nothing: their Alignment
+	// would otherwise move every one of those Projects, published ones included.
+	it('leaves a Historical Map the destination already has untouched', async () => {
+		// The same image id, different bytes — which is what makes "untouched" a claim about content
+		// rather than about paths.
+		await destination.write(
+			'images/amsterdam-1625/info.json' as StorePath,
+			encode('{"width":1,"height":1}')
+		);
+		await destination.write(
+			'alignments/amsterdam-1625.json' as StorePath,
+			encode('{"type":"Annotation","id":"mine"}')
+		);
+		const mine = await contents(destination, 'images/');
+		const myAlignment = decode(await destination.read('alignments/amsterdam-1625.json'));
+
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+		await target.importProject('amsterdam-1625', zip);
+
+		expect(await contents(destination, 'images/')).toEqual(mine);
+		expect(decode(await destination.read('alignments/amsterdam-1625.json'))).toBe(myAlignment);
+		// And the Project still arrived, still naming that image — it draws the copy already in hand.
+		const file = await target.readProject('amsterdam-1625');
+		expect(file.layers[0]).toMatchObject({ kind: 'map', imageId: 'amsterdam-1625' });
 	});
 
 	it('keeps updatedAt, which is the only record of it that survives a zip', async () => {
@@ -362,7 +457,7 @@ describe('a round trip through export and import', () => {
 		const third = new MemoryProjectStore();
 		await new Workspace(third).importProject('amsterdam-1625', await readProjectZip(second));
 
-		expect(await contents(third, 'amsterdam-1625/')).toEqual(projectFiles());
+		expect(await archiveShape(third, 'amsterdam-1625')).toEqual(projectFiles());
 		// And the archives themselves match. Nothing requires that — ADR-0006's format claim is about
 		// the files, and the ticket asks only for semantic equivalence — but it holds because every
 		// entry carries a fixed timestamp, and it is the strongest available statement that the round
@@ -493,7 +588,7 @@ describe('importing into a directory name that is taken (SPEC story 14)', () => 
 
 		expect(imported.directory).toBe('amsterdam-1625-2');
 		expect(await contents(destination, 'amsterdam-1625/')).toEqual(mine);
-		expect(await contents(destination, 'amsterdam-1625-2/')).toEqual(projectFiles());
+		expect(await archiveShape(destination, 'amsterdam-1625-2')).toEqual(projectFiles());
 		// Two Projects, both listed, identity carried by the directory (ADR-0008).
 		expect((await target.listProjects()).map((p) => `${p.directory}: ${p.name}`)).toEqual([
 			'amsterdam-1625: My own Amsterdam',
@@ -687,8 +782,12 @@ describe('rejecting a zip before writing anything', () => {
 
 	// The case the structural check above cannot see, and the one that actually loses a reader's
 	// map: not an incomplete pyramid but a Layer pointing at an image directory the archive does not
-	// carry at all. Followed from `alignmentRef`, because that is where an Alignment's identity
-	// lives — **no Annotation is opened to find it** (see `layerReferences`).
+	// carry at all. Derived from the Layer's `imageId` — **no Annotation is opened to find it** (see
+	// `layerReferences`).
+	//
+	// The *directory* is named rather than `info.json`, because whether that image should have an
+	// `info.json` or a `remote.json` is not this check's business and cannot be answered from
+	// `project.json` at all (ADR-0023). That the image is in the archive is.
 	it('rejects a map Layer whose image the zip does not carry at all, naming it', async () => {
 		const files = projectFiles();
 		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
@@ -697,18 +796,21 @@ describe('rejecting a zip before writing anything', () => {
 
 		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
 		expect(failure.reason).toBe('missing-reference');
-		expect(failure.message).toContain('images/amsterdam-1625/info.json');
+		expect(failure.message).toContain('images/amsterdam-1625/');
 		// Named by the Layer the reader would find blank, not only by the path.
 		expect(failure.message).toContain('The 1625 plan');
 		await nothingWritten();
 	});
 
-	// `imageMode` comes out of a `project.json` another person wrote, so it must not be able to waive
-	// the image check. It used to: `mapLayerImageInfoPath` answers `null` for a `'referenced'` image —
-	// correctly, its tiles are on somebody else's server (ADR-0007) — and on its own that let the author
-	// of an archive decide the check did not apply to them. A zip with `project.json`, an Alignment, no
-	// `images/` directory at all and one word changed imported cleanly and then drew nothing, because
-	// the renderer never consults `imageMode` and asks for every map Layer's tiles out of `images/<id>/`.
+	// **The image check can no longer be waived from inside the document, because there is no longer a
+	// field that could.** The stored image mode used to be one: the helper that named a map Layer's
+	// `info.json` answered `null` for a referenced image — correctly, its tiles are on somebody else's
+	// server (ADR-0007) — and on its own that let the author of an archive decide the check did not apply
+	// to them. A zip with `project.json`, an Alignment, no `images/` directory at all and one word changed
+	// imported cleanly and then drew nothing. ADR-0023 deleted the field, so the exemption is
+	// unrepresentable rather than merely unhonoured, and the three tests below say the same thing about a
+	// Layer that carries the old words, a Layer with no image directory, and a Layer whose image is
+	// described by `remote.json`.
 	const referencedLayer = {
 		id: 'l1',
 		name: 'A map on somebody else’s server',
@@ -716,8 +818,7 @@ describe('rejecting a zip before writing anything', () => {
 		order: 0,
 		kind: 'map',
 		opacity: 1,
-		alignmentRef: 'alignments/amsterdam-1625.json',
-		imageMode: 'referenced'
+		imageId: 'amsterdam-1625'
 	};
 
 	it('rejects a referenced image whose directory the zip does not carry at all', async () => {
@@ -735,9 +836,47 @@ describe('rejecting a zip before writing anything', () => {
 		await nothingWritten();
 	});
 
-	// And the check is about presence rather than about the word: the same Layer with its image really
-	// in the archive is accepted. *What* a referenced image keeps in that directory is ticket 14's
-	// contract, which is why this asks for the directory and not for a named file.
+	// The old exemption, attempted. A Layer still carrying `imageMode: 'referenced'` and an
+	// `alignmentRef` — a document written by the build before ADR-0023, or one hand-edited to imitate it
+	// — names no `imageId`, so it claims no image and the archive is not asked for one. The point is that
+	// it also draws nothing, and gets no exemption *for* anything: there is no way to spell "this map's
+	// image need not be here" that also names a map.
+	it('gives no image exemption to a Layer carrying the old imageMode and alignmentRef', async () => {
+		const files = projectFiles();
+		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
+		files['project.json'] = projectJson({
+			layers: [
+				{
+					id: 'l1',
+					name: 'Pretending to be referenced',
+					visible: true,
+					order: 0,
+					kind: 'map',
+					opacity: 1,
+					alignmentRef: 'alignments/amsterdam-1625.json',
+					imageMode: 'referenced'
+				}
+			]
+		});
+
+		// Accepted, because it names no Historical Map at all — and therefore draws none.
+		const imported = await attemptImport(buildZip(files));
+		expect(imported.directory).toBe('amsterdam-1625');
+		// The same words on a Layer that *does* name an image buy it nothing: the directory is still
+		// required. This is the assertion the deleted `imageMode` used to fail.
+		const claiming = projectFiles();
+		for (const path of Object.keys(claiming)) if (path.startsWith('images/')) delete claiming[path];
+		claiming['project.json'] = projectJson({
+			layers: [{ ...referencedLayer, imageMode: 'referenced', alignmentRef: 'alignments/x.json' }]
+		});
+		await expect(attemptImport(buildZip(claiming), 'boston-1775')).rejects.toThrow(
+			/images\/amsterdam-1625\//
+		);
+	});
+
+	// And the check is about presence rather than about any word: the same Layer with its image really
+	// in the archive is accepted. *What* a referenced image keeps in that directory is `remote.json`'s
+	// business, which is why this asks for the directory and not for a named file.
 	it('accepts a referenced image whose directory the zip does carry', async () => {
 		const files = projectFiles();
 		files['project.json'] = projectJson({ layers: [referencedLayer] });
@@ -755,7 +894,7 @@ describe('rejecting a zip before writing anything', () => {
 	it('accepts a referenced image described by remote.json rather than info.json', async () => {
 		const files = projectFiles();
 		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
-		files['images/amsterdam-1625/remote.json'] = '{"imageMode":"referenced"}';
+		files['images/amsterdam-1625/remote.json'] = '{"service":"https://lib.example/x"}';
 		files['project.json'] = projectJson({ layers: [referencedLayer] });
 
 		await expect(attemptImport(buildZip(files))).resolves.toMatchObject({
@@ -778,26 +917,16 @@ describe('rejecting a zip before writing anything', () => {
 		await nothingWritten();
 	});
 
-	// The honest limit of following the link by path. An `alignmentRef` that does not follow the
-	// Alignment's own naming names no image id, so nothing local is claimed and nothing is looked
-	// for — rather than a guess about which directory it meant.
-	it('claims no image for an alignmentRef that names none', async () => {
+	// The honest limit of deriving both paths from one field. A map Layer with no `imageId` names no
+	// Historical Map, so nothing is claimed and nothing is looked for — rather than a guess about which
+	// directory it meant. Such a Layer draws nothing and can still be named and reordered, which is the
+	// tolerance `parseLayers` promises for every field.
+	it('claims no image for a map Layer with no imageId', async () => {
 		const files = projectFiles();
 		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
-		files['alignments/somewhere/else.json'] = '{"type":"Annotation"}';
+		delete files['alignments/amsterdam-1625.json'];
 		files['project.json'] = projectJson({
-			layers: [
-				{
-					id: 'l1',
-					name: 'Hand-wired',
-					visible: true,
-					order: 0,
-					kind: 'map',
-					opacity: 1,
-					alignmentRef: 'alignments/somewhere/else.json',
-					imageMode: 'mirrored'
-				}
-			]
+			layers: [{ id: 'l1', name: 'Hand-wired', visible: true, order: 0, kind: 'map', opacity: 1 }]
 		});
 
 		await expect(attemptImport(buildZip(files))).resolves.toMatchObject({

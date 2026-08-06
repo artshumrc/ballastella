@@ -28,13 +28,30 @@ import {
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
-/** A store holding one Project directory with one image's `info.json` and one tile. */
+/**
+ * A Workspace holding one Historical Map's `info.json` and one tile, at the Workspace root.
+ *
+ * **No Project directory anywhere in these paths, and that is the point of ADR-0023.** A pyramid is
+ * shared, so `images/<id>/…` *is* the path. It also holds a Project directory with a decoy pyramid
+ * inside it, because the mistake this file exists to catch is silent: rooted at a Project, the shim
+ * answers with those bytes instead — a plausible map, in the right pane, with nothing logged.
+ */
 async function storeWithTile(): Promise<MemoryProjectStore> {
 	const store = new MemoryProjectStore();
-	await store.write('amsterdam-1625/images/abc123/info.json', bytes('{"id":"x"}'));
+	await store.write('images/abc123/info.json', bytes('{"id":"x"}'));
+	await store.write('images/abc123/0,0,256,256/256,256/0/default.jpg', bytes('tile bytes'));
+	// The decoy. If any of the assertions below can be satisfied by a Project-rooted resolution, they
+	// come back as these bytes rather than as a failure to find anything. Both paths are the specimen
+	// `check-workspace-rooted-paths.mjs` refuses, seeded here on purpose, so both carry its pragma.
 	await store.write(
+		// project-rooted-path-is-the-fixture: the decoy pyramid the shim must never resolve to
+		'amsterdam-1625/images/abc123/info.json',
+		bytes('{"id":"the wrong map"}')
+	);
+	await store.write(
+		// project-rooted-path-is-the-fixture: the decoy tile, whose bytes name the wrong rooting
 		'amsterdam-1625/images/abc123/0,0,256,256/256,256/0/default.jpg',
-		bytes('tile bytes')
+		bytes('the wrong tile')
 	);
 	return store;
 }
@@ -43,10 +60,7 @@ const placeholderTile = `${imageServiceId('abc123')}/0,0,256,256/256,256/0/defau
 
 describe('createStoreImageFetch', () => {
 	it('serves a tile that only exists in the store, keyed on the placeholder base URL', async () => {
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625'
-		});
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
 
 		const response = await fetchImage(placeholderTile);
 
@@ -56,10 +70,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('serves the info.json through the same route, so the pane has one way in', async () => {
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625'
-		});
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
 
 		const response = await fetchImage(`${imageServiceId('abc123')}/info.json`);
 
@@ -69,10 +80,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('accepts a URL and a Request, not only a string', async () => {
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625'
-		});
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
 
 		const fromUrl = await fetchImage(new URL(placeholderTile));
 		const fromRequest = await fetchImage(new Request(placeholderTile));
@@ -82,10 +90,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('percent-encoded IIIF commas resolve to the same tile', async () => {
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625'
-		});
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
 
 		const response = await fetchImage(
 			`${imageServiceId('abc123')}/0%2C0%2C256%2C256/256%2C256/0/default.jpg`
@@ -95,24 +100,19 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('answers 404 for a tile the pyramid does not hold, naming the path it looked at', async () => {
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625'
-		});
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
 
 		const response = await fetchImage(`${imageServiceId('abc123')}/9,9,1,1/1,1/0/default.jpg`);
 
+		const detail = await response.text();
 		expect(response.status).toBe(404);
-		expect(await response.text()).toContain(
-			'amsterdam-1625/images/abc123/9,9,1,1/1,1/0/default.jpg'
-		);
+		expect(detail).toContain('images/abc123/9,9,1,1/1,1/0/default.jpg');
+		// And the path it names has no Project directory in it, which is the whole of the rooting claim.
+		expect(detail).not.toContain('amsterdam-1625');
 	});
 
-	it('answers 404 for an image id that is not in this Project', async () => {
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625'
-		});
+	it('answers 404 for an image id that is not in this Workspace', async () => {
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
 
 		const response = await fetchImage(`${imageServiceId('not-here')}/info.json`);
 
@@ -121,7 +121,7 @@ describe('createStoreImageFetch', () => {
 
 	it('answers 404, and never reads, for a placeholder path that is not a store path', async () => {
 		const store = await storeWithTile();
-		const fetchImage = createStoreImageFetch({ store, projectDirectory: 'amsterdam-1625' });
+		const fetchImage = createStoreImageFetch({ store });
 
 		// Traversal out of the Project, an empty segment, and the bare base with no IIIF path.
 		// A `fetchFn` must answer rather than throw — a stray request must not become an
@@ -137,10 +137,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('answers 405 to a method that is not a read', async () => {
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625'
-		});
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
 
 		const response = await fetchImage(placeholderTile, { method: 'PUT' });
 
@@ -149,10 +146,7 @@ describe('createStoreImageFetch', () => {
 	});
 
 	it('answers a HEAD with the length and no body, so a size question costs no bytes', async () => {
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625'
-		});
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
 
 		const response = await fetchImage(placeholderTile, { method: 'HEAD' });
 
@@ -167,11 +161,7 @@ describe('createStoreImageFetch', () => {
 			seen.push({ input, init });
 			return new Response('from the network');
 		};
-		const fetchImage = createStoreImageFetch({
-			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625',
-			fetch: network
-		});
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile(), fetch: network });
 
 		const init = { headers: { accept: 'image/jpeg' } };
 		const remote = 'https://iiif.example.org/abc/0,0,256,256/256,256/0/default.jpg';
@@ -187,7 +177,6 @@ describe('createStoreImageFetch', () => {
 		const seen: unknown[] = [];
 		const fetchImage = createStoreImageFetch({
 			store: await storeWithTile(),
-			projectDirectory: 'amsterdam-1625',
 			fetch: async (input) => {
 				seen.push(input);
 				return new Response('from the network');
@@ -199,11 +188,43 @@ describe('createStoreImageFetch', () => {
 		expect(seen).toEqual(['/fixtures/images/floride-1657/info.json']);
 	});
 
-	it('refuses a Project directory that is not a usable store path, at construction', async () => {
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE ROOTING ITSELF (ADR-0023), which is the riskiest change in the epic because it cannot fail
+	// loudly: a Project-rooted shim returns *another map's* bytes, at a plausible size, in the right
+	// pane. So it is asserted from both sides — the Workspace bytes come back, and the Project-rooted
+	// bytes are the ones that do not.
+
+	it('resolves at the Workspace root, so one shim serves every Project', async () => {
+		// No Project is named anywhere in the construction. There is nowhere to put one.
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
+
+		expect(await (await fetchImage(placeholderTile)).text()).toBe('tile bytes');
+		expect(await (await fetchImage(`${imageServiceId('abc123')}/info.json`)).json()).toEqual({
+			id: 'x'
+		});
+	});
+
+	it('never answers with a pyramid that is inside a Project directory', async () => {
+		const fetchImage = createStoreImageFetch({ store: await storeWithTile() });
+
+		// The decoy is a complete, readable pyramid under `amsterdam-1625/images/abc123/`. Nothing the
+		// placeholder host can be asked reaches it.
+		expect(await (await fetchImage(placeholderTile)).text()).not.toBe('the wrong tile');
+		const info = await (await fetchImage(`${imageServiceId('abc123')}/info.json`)).text();
+		expect(info).not.toContain('the wrong map');
+	});
+
+	// The half a Project-rooted shim got right by accident and this one gets right on purpose: two
+	// Projects drawing the same Historical Map draw the same bytes, from the same place, through one
+	// function. Under the old rooting each Project needed its own copy of the pyramid to draw at all.
+	it('serves the same bytes to callers working in different Projects', async () => {
 		const store = await storeWithTile();
 
-		expect(() => createStoreImageFetch({ store, projectDirectory: '/absolute' })).toThrow(
-			/Invalid store path/
+		const mine = createStoreImageFetch({ store });
+		const theirs = createStoreImageFetch({ store });
+
+		expect(await (await mine(placeholderTile)).text()).toBe(
+			await (await theirs(placeholderTile)).text()
 		);
 	});
 });
@@ -285,17 +306,16 @@ function pngHeader(width: number, height: number): Uint8Array {
 }
 
 describe('a pyramid the tiler wrote, read back through the pane', () => {
-	/** Ingest one image into a Project and build the pane over it, store-backed throughout. */
+	/** Ingest one image into the Workspace and build the pane over it, store-backed throughout. */
 	async function ingestAndOpen(width: number, height: number) {
 		const store = new MemoryProjectStore();
 		const result = await ingestImageFile({
 			store,
-			projectDirectory: 'amsterdam-1625',
 			file: new File([pngHeader(width, height) as BlobPart], 'scan.png', { type: 'image/png' }),
 			openDecodeAndCrop: stubTiler({ width, height })
 		});
 
-		const fetchImage = createStoreImageFetch({ store, projectDirectory: 'amsterdam-1625' });
+		const fetchImage = createStoreImageFetch({ store });
 		const info = await (await fetchImage(`${imageServiceId(result.imageId)}/info.json`)).json();
 		const pane = createImagePane(info, { storedImageId: result.imageId });
 
@@ -392,8 +412,8 @@ describe('a pyramid the tiler wrote, read back through the pane', () => {
 		// back out of the store through the shim, which is what the pane depends on.
 		const store = new MemoryProjectStore();
 		const info = buildImageInfo({ imageId: 'big', width: 60000, height: 24000 });
-		await store.write('amsterdam-1625/images/big/info.json', serialiseJson(info));
-		const fetchImage = createStoreImageFetch({ store, projectDirectory: 'amsterdam-1625' });
+		await store.write('images/big/info.json', serialiseJson(info));
+		const fetchImage = createStoreImageFetch({ store });
 		const large = worstRoundTrip(
 			createImagePane(await (await fetchImage(`${imageServiceId('big')}/info.json`)).json(), {
 				storedImageId: 'big'
@@ -418,19 +438,18 @@ describe('a pyramid the tiler wrote, read back through the pane', () => {
 		}
 	});
 
-	it('keeps two images in one Project apart', async () => {
+	it('keeps two images in one Workspace apart', async () => {
 		const store = new MemoryProjectStore();
 		const ingest = (width: number, height: number) =>
 			ingestImageFile({
 				store,
-				projectDirectory: 'amsterdam-1625',
 				file: new File([pngHeader(width, height) as BlobPart], 'scan.png', { type: 'image/png' }),
 				openDecodeAndCrop: stubTiler({ width, height })
 			});
 
 		const wide = await ingest(700, 500);
 		const tall = await ingest(300, 900);
-		const fetchImage = createStoreImageFetch({ store, projectDirectory: 'amsterdam-1625' });
+		const fetchImage = createStoreImageFetch({ store });
 
 		const panes = await Promise.all(
 			[wide, tall].map(async (result) =>

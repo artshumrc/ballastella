@@ -23,6 +23,7 @@
 	let {
 		layers,
 		outcomes,
+		referencedImageIds,
 		ontypename,
 		oncommit,
 		onshow,
@@ -34,6 +35,16 @@
 		layers: readonly Layer[];
 		/** What became of each Layer on the map, keyed by Layer id. */
 		outcomes: Readonly<Record<string, DrawnOutcome>>;
+		/**
+		 * The Workspace Historical Maps whose tiles are on somebody else's server, by image id.
+		 *
+		 * **Passed in rather than read off the Layer, because ADR-0023 deleted the field that used to
+		 * carry it.** A map Layer names an `imageId` and nothing else; whether that image's tiles are here
+		 * is an observation of the files beside it — `info.json` of ours, or only `remote.json` — which
+		 * only the page holding the store can make. A stored flag was what let a Layer claim the library
+		 * for tiles that had already been copied into the folder.
+		 */
+		referencedImageIds: ReadonlySet<string>;
 		ontypename: (id: string, name: string) => void;
 		/** The edit that was in flight is over — a field blurred, a slider released (ADR-0017 rule 1). */
 		oncommit: () => void;
@@ -318,19 +329,23 @@
 
 						{#if layer.kind === 'map'}
 							<!--
-								Whether this Layer's tiles are bytes in this Project or a URL somewhere else. Shown
-								here rather than only warned about at publish time (ticket 16), because it is what
-								decides whether a reader needs the network and whether the work survives the host
-								disappearing — and by then it is too late to be the first mention of it.
+								Whether this Layer's tiles are bytes in this Workspace or a URL somewhere else. Shown
+								here rather than only warned about at publish time, because it is what decides whether
+								a reader needs the network and whether the work survives the host disappearing — and by
+								then it is too late to be the first mention of it.
+
+								Read from `referencedImageIds`, which is what the folder says, rather than from the
+								Layer, which no longer claims anything about it (ADR-0023).
 							-->
+							{@const referenced = referencedImageIds.has(layer.imageId)}
 							<span
 								class="badge badge-sm"
-								class:badge-success={layer.imageMode !== 'referenced'}
-								class:badge-warning={layer.imageMode === 'referenced'}
+								class:badge-success={!referenced}
+								class:badge-warning={referenced}
 								data-testid="layer-image-mode"
-								data-image-mode={layer.imageMode}
+								data-image-mode={referenced ? 'referenced' : 'mirrored'}
 							>
-								{layer.imageMode === 'referenced'
+								{referenced
 									? 'Remote reference — needs the network'
 									: 'Local copy — no network needed'}
 							</span>

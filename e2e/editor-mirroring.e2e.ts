@@ -367,11 +367,12 @@ async function emptyWorkspace(page: Page): Promise<void> {
 	});
 }
 
+/** One JSON file out of OPFS. `''` as the directory reads from the Workspace root (ADR-0023). */
 const readJson = (page: Page, directory: string, path: string): Promise<unknown> =>
 	page.evaluate(
 		async ([directory, path]) => {
 			const root = await navigator.storage.getDirectory();
-			let handle = await root.getDirectoryHandle(directory as string);
+			let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
 				handle = await handle.getDirectoryHandle(segment);
@@ -382,16 +383,22 @@ const readJson = (page: Page, directory: string, path: string): Promise<unknown>
 		[directory, path]
 	);
 
+/** Overwrite one JSON file in OPFS. `''` writes at the Workspace root (ADR-0023). */
 const writeJson = (page: Page, directory: string, path: string, body: unknown): Promise<void> =>
 	page.evaluate(
 		async ([directory, path, text]) => {
 			const root = await navigator.storage.getDirectory();
-			let handle = await root.getDirectoryHandle(directory as string);
+			let handle =
+				directory === ''
+					? root
+					: await root.getDirectoryHandle(directory as string, { create: true });
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
-				handle = await handle.getDirectoryHandle(segment);
+				handle = await handle.getDirectoryHandle(segment, { create: true });
 			}
-			const file = await handle.getFileHandle(segments[segments.length - 1] as string);
+			const file = await handle.getFileHandle(segments[segments.length - 1] as string, {
+				create: true
+			});
 			const writable = await file.createWritable();
 			await writable.write(text as string);
 			await writable.close();
@@ -400,34 +407,46 @@ const writeJson = (page: Page, directory: string, path: string, body: unknown): 
 	);
 
 /**
- * Put a Project back into the state a copy leaves when its pyramid landed and its two document writes
- * did not — the Layer still `'referenced'`, the Alignment still naming the library.
+ * Give a second Project a map Layer over an image the Workspace already holds.
  *
- * Written onto the disk rather than provoked, because the three ways in (the session moving to another
- * Project while the copy ran, the Alignment rewrite throwing, the `project.json` write failing) all
- * leave the same thing behind, and it is the state the repair is about rather than the route to it.
+ * Written onto the disk rather than driven through the UI because the affordance for it — "choose a
+ * Historical Map you already have" — is a later ticket. What is being demonstrated is the storage
+ * property ADR-0023 exists for: one pyramid, one Alignment, two Projects that both draw them.
  */
-async function halfCommitTheCopy(page: Page, directory: string, imageId: string): Promise<void> {
-	const project = (await readJson(page, directory, 'project.json')) as {
-		layers: { kind: string; imageMode?: string; alignmentRef?: string }[];
-	};
-	for (const layer of project.layers) {
-		if (layer.kind === 'map' && layer.alignmentRef === `alignments/${imageId}.json`) {
-			layer.imageMode = 'referenced';
-		}
-	}
-	await writeJson(page, directory, 'project.json', project);
-
-	const alignment = (await readJson(page, directory, `alignments/${imageId}.json`)) as {
-		target: { source: { id: string } };
-	};
-	alignment.target.source.id = service('images.test', 'florida');
-	await writeJson(page, directory, `alignments/${imageId}.json`, alignment);
+async function projectOverSameImage(
+	page: Page,
+	directory: string,
+	name: string,
+	imageId: string
+): Promise<void> {
+	await writeJson(page, directory, 'project.json', {
+		formatVersion: 1,
+		name,
+		updatedAt: '2026-01-02T03:04:05.000Z',
+		layers: [
+			{
+				kind: 'map',
+				id: 'l-shared',
+				name: 'The same sheet, in another argument',
+				visible: true,
+				order: 0,
+				opacity: 1,
+				imageId
+			}
+		],
+		baseMap: null
+	});
 }
 
-/** Every file under one Project directory, by relative path. */
-const listProjectFiles = (page: Page, directory: string): Promise<string[]> =>
-	page.evaluate(async (directory) => {
+/**
+ * Every file in the whole Workspace, by path.
+ *
+ * The **Workspace** rather than one Project directory, and that is load-bearing since ADR-0023: a
+ * pyramid lands at `images/<id>/` at the root, so a before-and-after comparison scoped to the Project
+ * would see nothing either way and every "nothing was added" assertion below would pass vacuously.
+ */
+const listWorkspaceFiles = (page: Page): Promise<string[]> =>
+	page.evaluate(async () => {
 		const root = await navigator.storage.getDirectory();
 		const walk = async (handle: FileSystemDirectoryHandle, prefix: string): Promise<string[]> => {
 			const found: string[] = [];
@@ -447,7 +466,7 @@ const listProjectFiles = (page: Page, directory: string): Promise<string[]> =>
 		};
 		try {
 			return (
-				(await walk(await root.getDirectoryHandle(directory), ''))
+				(await walk(root, ''))
 					// A half-finished atomic write is litter rather than project data, and `ProjectStore#list`
 					// hides it — including the `.crswap` a dying tab leaves beside it. Excluded here too, so a
 					// before-and-after comparison is about what the copy wrote and not about write timing.
@@ -457,7 +476,7 @@ const listProjectFiles = (page: Page, directory: string): Promise<string[]> =>
 		} catch {
 			return [];
 		}
-	}, directory);
+	});
 
 async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void> {
 	await page.getByRole('button', { name: 'New Project' }).click();
@@ -481,10 +500,27 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
 	await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
 }
 
-/** Open the offline-copy dialog for the only referenced map on the page. */
+/**
+ * Open the offline-copy dialog for the only referenced map on the page, and wait until it has
+ * finished filling itself in.
+ *
+ * **The second wait is not belt-and-braces.** The dialog opens in the frame the button is pressed —
+ * deliberately, so the gesture is answered — while `prepare` is still re-reading the service's
+ * `info.json`, and until that resolves there is no plan: `mirror-start` is disabled, the size and the
+ * notes are not on the page, and `job.start()` returns `false` without doing anything. Every test
+ * below that reaches for a control or asserts the *absence* of a note was therefore racing one HTTP
+ * request. It surfaced as the keyboard test failing 2 runs in 9: focus went to a disabled button,
+ * Enter did nothing, and Cancel was never rendered to receive it.
+ *
+ * `data-step` is the dialog's own account of which step it is on, so this waits for the state the
+ * test needs rather than for a duration. `'deciding'` is reached whether the plan is a refusal or a
+ * costing, which is why it is the wait rather than "the Copy button is enabled" — the refusal tests
+ * need a settled dialog with that button still disabled.
+ */
 async function openMirrorDialog(page: Page): Promise<void> {
 	await page.getByTestId('mirror-open').click();
 	await expect(page.getByRole('dialog', { name: 'Make an offline copy' })).toBeVisible();
+	await expect(page.getByTestId('mirror-status')).toHaveAttribute('data-step', 'deciding');
 }
 
 /**
@@ -539,9 +575,13 @@ function watchRequests(page: Page): {
  * the two halves differed by more than the copy. They no longer have to, and `'load'` is covered on its
  * own by the reload test below, which is the fresh-load claim in its proper place.
  */
-async function drawTheStack(page: Page, via: 'link' | 'load'): Promise<void> {
+async function drawTheStack(
+	page: Page,
+	via: 'link' | 'load',
+	directory = 'amsterdam-1625'
+): Promise<void> {
 	if (via === 'link') await page.getByTestId('open-layers').click();
-	else await page.goto('/layers?p=amsterdam-1625');
+	else await page.goto(`/layers?p=${directory}`);
 	await expect(page.getByRole('heading', { name: 'Layers in this Project' })).toBeVisible();
 
 	await expect
@@ -772,7 +812,7 @@ test.describe('making an offline copy', () => {
 		const imageId = generateId(service('images.test', 'florida'));
 		expect(imageId).toMatch(/^[0-9a-f]{16}$/);
 
-		const files = await listProjectFiles(page, 'amsterdam-1625');
+		const files = await listWorkspaceFiles(page);
 		const tiles = files.filter((path) => path.endsWith('/default.jpg'));
 		// 700 × 500: 6 tiles at scale factor 1, 2 at 2, and 1 at 4.
 		expect(tiles).toHaveLength(9);
@@ -790,7 +830,7 @@ test.describe('making an offline copy', () => {
 		// ADR-0004: the pyramid carries the deliberately unusable placeholder, never the library's URI —
 		// which is what lets the injection shim route it and what makes a code path that forgets to
 		// override it fail loudly rather than quietly fetch somebody else's tiles.
-		const info = (await readJson(page, 'amsterdam-1625', `images/${imageId}/info.json`)) as Record<
+		const info = (await readJson(page, '', `images/${imageId}/info.json`)) as Record<
 			string,
 			unknown
 		>;
@@ -799,16 +839,22 @@ test.describe('making an offline copy', () => {
 		expect(info.tiles).toEqual([{ width: 256, height: 256, scaleFactors: [1, 2, 4] }]);
 		expect(JSON.stringify(info)).not.toContain('images.test');
 
-		// The Layer says it is a local copy now.
+		// **`project.json` was not touched by the copy at all** (ADR-0023). There is no `imageMode` to
+		// flip: the pyramid landing beside `remote.json` *is* the record that the tiles are here, so every
+		// Project drawing this map sees it at once rather than only the one that happened to be open — and
+		// the half-committed state the old third write could leave cannot occur.
 		const project = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
-			layers: { kind: string; imageMode: string; alignmentRef: string }[];
+			layers: { kind: string; imageId: string }[];
 		};
 		expect(project.layers).toHaveLength(1);
-		expect(project.layers[0]).toMatchObject({
-			kind: 'map',
-			imageMode: 'mirrored',
-			alignmentRef: `alignments/${imageId}.json`
-		});
+		expect(project.layers[0]).toMatchObject({ kind: 'map', imageId });
+		// Read off the files instead, which is where the answer lives.
+		await page.getByTestId('open-layers').click();
+		await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
+			'data-image-mode',
+			'mirrored'
+		);
+		await page.goBack();
 
 		// And the source URI is still on screen, so the copy can be cited.
 		await expect(page.getByRole('heading', { name: 'Offline copies' })).toBeVisible();
@@ -856,7 +902,7 @@ test.describe('making an offline copy', () => {
 		await openNewProject(page);
 		await addReferenced(page, 'slow.test', 'slow');
 
-		const before = await listProjectFiles(page, 'amsterdam-1625');
+		const before = await listWorkspaceFiles(page);
 
 		await openMirrorDialog(page);
 		await page.getByTestId('mirror-start').click();
@@ -866,15 +912,15 @@ test.describe('making an offline copy', () => {
 		await expect(page.getByTestId('mirror-error')).toContainText('cancelled');
 
 		// Nothing was added at all: not a tile, not an `info.json`.
-		expect(await listProjectFiles(page, 'amsterdam-1625')).toEqual(before);
+		expect(await listWorkspaceFiles(page)).toEqual(before);
 
 		await page.getByTestId('mirror-dismiss').click();
 
-		// The Layer is still referenced and still there.
-		const project = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
-			layers: { imageMode: string }[];
-		};
-		expect(project.layers[0]?.imageMode).toBe('referenced');
+		// The map is still referenced, and it is still there. Said by the files — no `info.json` beside its
+		// `remote.json` — because that is the only thing that says it (ADR-0023).
+		await expect(
+			readJson(page, '', `images/${generateId(service('images.test', 'florida'))}/info.json`)
+		).rejects.toThrow();
 		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Offline copies' })).toHaveCount(0);
 	});
@@ -884,7 +930,7 @@ test.describe('making an offline copy', () => {
 		await openNewProject(page);
 		await addReferenced(page, 'broken.test', 'broken');
 
-		const before = await listProjectFiles(page, 'amsterdam-1625');
+		const before = await listWorkspaceFiles(page);
 
 		await openMirrorDialog(page);
 		await page.getByTestId('mirror-start').click();
@@ -894,13 +940,13 @@ test.describe('making an offline copy', () => {
 		await expect(error).toContainText('500');
 		await expect(error).toContainText('still works');
 
-		expect(await listProjectFiles(page, 'amsterdam-1625')).toEqual(before);
+		expect(await listWorkspaceFiles(page)).toEqual(before);
 
 		await page.getByTestId('mirror-dismiss').click();
-		const project = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
-			layers: { imageMode: string }[];
-		};
-		expect(project.layers[0]?.imageMode).toBe('referenced');
+		// Still referenced, said by the absence of a pyramid rather than by a field (ADR-0023).
+		await expect(
+			readJson(page, '', `images/${generateId(service('broken.test', 'broken'))}/info.json`)
+		).rejects.toThrow();
 		await expect(page.getByTestId('mirror-open')).toBeVisible();
 	});
 
@@ -1002,11 +1048,9 @@ test.describe('a copied Historical Map, once it is copied', () => {
 
 		// Before the copy the Alignment names the library, which is what makes a referenced Layer render
 		// at all (ticket 14) — so the rewrite below is a change and not a no-op.
-		const referencedAlignment = (await readJson(
-			page,
-			'amsterdam-1625',
-			`alignments/${imageId}.json`
-		)) as { target: { source: { id: string } } };
+		const referencedAlignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
+			target: { source: { id: string } };
+		};
 		expect(referencedAlignment.target.source.id).toBe(service('images.test', 'florida'));
 
 		// ── The control. Drawn *referenced*, this Layer really does fetch from the library, and the
@@ -1029,11 +1073,10 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		// The Alignment now names the ADR-0004 placeholder. Left naming the library it would keep sending
 		// `@allmaps/maplibre` there for tiles that are in this folder — the copy would work, the map would
 		// draw, and mirroring would have bought nothing.
-		const mirroredAlignment = (await readJson(
-			page,
-			'amsterdam-1625',
-			`alignments/${imageId}.json`
-		)) as { target: { source: { id: string } }; body: { features: unknown[] } };
+		const mirroredAlignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
+			target: { source: { id: string } };
+			body: { features: unknown[] };
+		};
 		expect(mirroredAlignment.target.source.id).toBe(`https://unset.invalid/${imageId}`);
 		// And the Control Points survived the rewrite, which is the thing that would be worst to lose.
 		expect(mirroredAlignment.body.features).toHaveLength(3);
@@ -1139,17 +1182,18 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		}
 	});
 
-	test('finishes a copy whose tiles landed but whose files did not', async ({ page }) => {
-		// The half-committed state, and it is reachable three ways — the session moving to another Project
-		// while the copy runs, the Alignment rewrite throwing, and the `project.json` write failing. In all
-		// three the pyramid is in the folder and the document still says `'referenced'`, and it used to be
-		// **permanent**: `remoteOrigins` reads the disk, so the map moved to "Offline copies" and the copy
-		// could not be started again, while the Layers pane read `imageMode` and kept handing the renderer
-		// the library's address. The bytes sat unused and a Published Site of it still needed the network.
-		//
-		// A community Alignment, so there is an Alignment to get wrong: it is the write that keeps
-		// `@allmaps/maplibre` pointed at the library, and a repair that only fixed `imageMode` would leave
-		// the copy unused while looking finished.
+	// ADR-0023 replaced the "finish the offline copy" repair path with the absence of the state it
+	// repaired, and this is that absence asserted rather than assumed. The old test drove a
+	// half-committed copy — pyramid on disk, `project.json` still saying `'referenced'`, Alignment still
+	// naming the library — and pressed a button to reconcile them. With one derived answer per map there
+	// is nothing to reconcile: the copy *is* the record, so it lands for every Project at once.
+	//
+	// What is asserted instead is the behaviour that made the repair unnecessary, and it is the ticket's
+	// own criterion: **two Projects hold a map Layer for the same image, both render, and there is one
+	// pyramid on disk.**
+	test('a copied map is one pyramid that two Projects both draw', async ({ page }) => {
+		test.slow();
+		// A community Alignment, so the map is really placed and a warped Layer can be drawn from it.
 		await installFixtureHosts(page, {
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
@@ -1167,41 +1211,47 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		});
 
 		const imageId = generateId(service('images.test', 'florida'));
-		await halfCommitTheCopy(page, 'amsterdam-1625', imageId);
-		await page.reload();
 
-		// The Project page says the two disagree rather than showing a copy that is quietly not one.
-		await expect(page.getByRole('heading', { name: 'Offline copies' })).toBeVisible();
-		await expect(page.getByTestId('unfinished-copy')).toBeVisible();
-		await expect(page.getByTestId('unfinished-copy')).toContainText('read from the library');
-
-		// Reachable and operable from the keyboard, and the announcement takes focus when the button that
-		// was pressed goes away with the problem it fixed.
-		const finish = page.getByTestId('finish-copy');
-		await finish.focus();
-		await page.keyboard.press('Enter');
-
-		const report = page.getByTestId('finish-copy-report');
-		await expect(report).toContainText('recorded as an offline copy');
-		await expect(report).toBeFocused();
-		await expect(page.getByTestId('finish-copy')).toHaveCount(0);
-
-		// And the files agree now: the Layer, and the Alignment that would otherwise keep sending
-		// `@allmaps/maplibre` to the library for tiles that are in this folder.
-		const project = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
-			layers: { imageMode: string }[];
-		};
-		expect(project.layers[0]?.imageMode).toBe('mirrored');
-		const alignment = (await readJson(page, 'amsterdam-1625', `alignments/${imageId}.json`)) as {
+		// The Alignment names this Workspace's own tiles now, not the library — the one document write a
+		// copy still makes, and the one without which `@allmaps/maplibre` would keep fetching from the
+		// library for tiles that are in the folder.
+		const alignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
 			target: { source: { id: string } };
 		};
 		expect(alignment.target.source.id).toBe(`https://unset.invalid/${imageId}`);
 
-		// It survives a reload, which is the whole difference between repairing the document and
-		// repairing the screen.
+		// A second Project over the same image, with its own Layer id and its own name for it.
+		await projectOverSameImage(page, 'boston-1775', 'A second argument', imageId);
 		await page.reload();
-		await expect(page.getByRole('heading', { name: 'Offline copies' })).toBeVisible();
-		await expect(page.getByTestId('unfinished-copy')).toHaveCount(0);
+
+		// One pyramid, one Alignment, at the Workspace root — and nothing inside either Project directory
+		// except its own document.
+		const files = await listWorkspaceFiles(page);
+		expect(files.filter((path) => path.endsWith(`images/${imageId}/info.json`))).toEqual([
+			`images/${imageId}/info.json`
+		]);
+		expect(files.filter((path) => path.startsWith('alignments/'))).toEqual([
+			`alignments/${imageId}.json`
+		]);
+		expect(files.filter((path) => path.startsWith('boston-1775/'))).toEqual([
+			'boston-1775/project.json'
+		]);
+
+		// And **both** Projects draw it, from those same bytes, with no request to the library. Measured on
+		// the warped Layer's own tile cache — bytes fetched *and* decoded — because the failure this path has
+		// is an error `@allmaps/render` logs and swallows, so a blank map would otherwise go green. Same
+		// instrument as every other warped assertion in this file: `drawTheStack`.
+		for (const directory of ['amsterdam-1625', 'boston-1775'] as const) {
+			const watched = watchRequests(page);
+			await drawTheStack(page, 'load', directory);
+			expect(watched.library, `${directory} went back to the library`).toEqual([]);
+			// The badge is read off the files, so both Projects agree that the tiles are here — which is the
+			// disagreement the deleted `imageMode` used to produce for every Project but the open one.
+			await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
+				'data-image-mode',
+				'mirrored'
+			);
+		}
 	});
 });
 

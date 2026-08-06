@@ -199,15 +199,20 @@ async function delayWritesTo(page: Page, needle: string, ms: number): Promise<vo
 	);
 }
 
-/** The names of a Project's stored Historical Maps, which are random identifiers (ADR-0015). */
-const storedImageIds = (page: Page, directory: string): Promise<string[]> =>
-	page.evaluate(async (project) => {
+/**
+ * The names of the **Workspace's** stored Historical Maps, which are random identifiers (ADR-0015).
+ *
+ * At the Workspace root rather than inside a Project (ADR-0023): a pyramid is prepared once and shared,
+ * so `images/` has one answer whichever Project is open.
+ */
+const storedImageIds = (page: Page): Promise<string[]> =>
+	page.evaluate(async () => {
 		const root = await navigator.storage.getDirectory();
-		const images = await (await root.getDirectoryHandle(project)).getDirectoryHandle('images');
+		const images = await root.getDirectoryHandle('images');
 		const names: string[] = [];
 		for await (const name of images.keys()) names.push(name);
 		return names;
-	}, directory);
+	});
 
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
@@ -219,12 +224,17 @@ async function emptyWorkspace(page: Page): Promise<void> {
 	});
 }
 
-/** One file of a Project, straight out of OPFS. */
+/**
+ * One file of a Project, straight out of OPFS.
+ *
+ * Pass `''` as the directory for something at the Workspace root — a Historical Map's pyramid or its
+ * Alignment, which belong to the Workspace rather than to any Project (ADR-0023).
+ */
 const readProjectFile = (page: Page, directory: string, path: string): Promise<string> =>
 	page.evaluate(
 		async ([directory, path]) => {
 			const root = await navigator.storage.getDirectory();
-			let handle = await root.getDirectoryHandle(directory as string);
+			let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
 				handle = await handle.getDirectoryHandle(segment);
@@ -258,12 +268,14 @@ const writeProjectFile = (
 	);
 
 /** Every file of a Project under `prefix`, as a sha256 per path. The bytes are the assertion. */
+/** Every file under `prefix`, as a sha256 per path. `''` as the directory walks the Workspace root. */
 async function hashesUnder(page: Page, directory: string, prefix: string) {
 	const files = await page.evaluate(
 		async ([directory, prefix]) => {
 			const out: [string, number[]][] = [];
 			const root = await navigator.storage.getDirectory();
-			const project = await root.getDirectoryHandle(directory as string);
+			// `''` is the Workspace root, which is where an Alignment lives now (ADR-0023).
+			const project = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const walk = async (handle: FileSystemDirectoryHandle, at: string): Promise<void> => {
 				for await (const [name, entry] of handle.entries()) {
 					const path = at === '' ? name : `${at}/${name}`;
@@ -510,15 +522,19 @@ const projectJson = async (page: Page, directory: string) =>
 	JSON.parse(await readProjectFile(page, directory, 'project.json'));
 
 /**
- * The path of the one Alignment in this Project, taken from the Layer that references it.
+ * The Workspace path of the one Alignment this Project draws, derived from the Layer's image id.
  *
- * Not spelled out, because a Historical Map's id is a random identifier rather than its filename
- * (ADR-0015) — which is also why the Layer's *name* comes from the image's manifest.
+ * The id is not spelled out because a Historical Map's id is a random identifier rather than its
+ * filename (ADR-0015) — which is also why the Layer's *name* comes from the image's manifest. The path
+ * around it is spelled out rather than imported from `core`, so that a fixture built from the same
+ * function the app builds its paths with cannot agree with itself however wrong both are.
  */
 const alignmentRefOf = async (page: Page, directory: string): Promise<string> =>
-	(await projectJson(page, directory)).layers.find(
-		(layer: { kind: string }) => layer.kind === 'map'
-	).alignmentRef;
+	`alignments/${
+		(await projectJson(page, directory)).layers.find(
+			(layer: { kind: string }) => layer.kind === 'map'
+		).imageId
+	}.json`;
 
 test.describe('a Layer for an aligned Historical Map', () => {
 	test('aligning a Historical Map produces a kind: map Layer in project.json', async ({ page }) => {
@@ -535,17 +551,22 @@ test.describe('a Layer for an aligned Historical Map', () => {
 			name: 'la-floride.png',
 			visible: true,
 			order: 0,
-			opacity: 1,
-			// A locally ingested image is a local copy, never a remote reference. Settled by ticket 09
-			// because otherwise the field is ambiguous for every image that exists today.
-			imageMode: 'mirrored'
+			opacity: 1
 		});
-		// References the Alignment that is really there, by the Alignment's own naming — which is what
-		// lets ticket 13's import follow a Layer to its image without opening the Annotation.
-		expect(file.layers[0].alignmentRef).toMatch(/^alignments\/[^/]+\.json$/);
-		expect(await readProjectFile(page, directory, file.layers[0].alignmentRef)).toContain(
+		// **One field, and both Workspace paths derive from it** (ADR-0023). The Layer names the image id
+		// and nothing else — no `alignmentRef` to disagree with the derived path, and no `imageMode` to
+		// disagree with the files on disk.
+		expect(file.layers[0].imageId).toMatch(/^[a-z0-9]+$/i);
+		expect(file.layers[0].alignmentRef).toBeUndefined();
+		expect(file.layers[0].imageMode).toBeUndefined();
+		// The Alignment is really there, at the Workspace root — where a second Project could reference it.
+		expect(await readProjectFile(page, '', `alignments/${file.layers[0].imageId}.json`)).toContain(
 			'Annotation'
 		);
+		// And no Alignment was written inside the Project directory.
+		await expect(
+			readProjectFile(page, directory, `alignments/${file.layers[0].imageId}.json`)
+		).rejects.toThrow();
 		expect(typeof file.layers[0].id).toBe('string');
 		expect(file.layers[0].id).not.toBe('');
 	});
@@ -582,7 +603,7 @@ test.describe('a Layer for an aligned Historical Map', () => {
 	 */
 	test('does not create the Layer when the Alignment could not be written', async ({ page }) => {
 		const directory = await projectWithImage(page);
-		const [imageId] = await storedImageIds(page, directory);
+		const [imageId] = await storedImageIds(page);
 		// The atomic write's temporary path carries the destination's own name, so this refuses the
 		// Alignment and nothing else — `project.json` is still perfectly writable.
 		const allowWrites = await failWritesTo(page, `.${imageId}.json.`);
@@ -610,7 +631,7 @@ test.describe('a Layer for an aligned Historical Map', () => {
 
 		const file = await projectJson(page, directory);
 		expect(file.layers).toHaveLength(1);
-		expect(await readProjectFile(page, directory, file.layers[0].alignmentRef)).toContain(
+		expect(await readProjectFile(page, '', `alignments/${file.layers[0].imageId}.json`)).toContain(
 			'Annotation'
 		);
 	});
@@ -658,6 +679,8 @@ test.describe('a Layer for an aligned Historical Map', () => {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 
+		// The badge is now an **observation of the Workspace's files** rather than a field of
+		// `project.json` (ADR-0023): the image directory has an `info.json` of ours, so the tiles are here.
 		const badge = page.getByTestId('layer-image-mode');
 		await expect(badge).toHaveAttribute('data-image-mode', 'mirrored');
 		await expect(badge).toContainText('Local copy');
@@ -1122,7 +1145,9 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const before = [
-			...(await hashesUnder(page, directory, 'alignments/')),
+			// The Alignment is the Workspace's and the Annotations are the Project's (ADR-0023), so the two
+			// halves of "no display-state edit reaches a portability document" are hashed from two places.
+			...(await hashesUnder(page, '', 'alignments/')),
 			...(await hashesUnder(page, directory, 'annotations/'))
 		];
 		// The claim is only worth making if there is something to hash.
@@ -1137,7 +1162,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const after = [
-			...(await hashesUnder(page, directory, 'alignments/')),
+			...(await hashesUnder(page, '', 'alignments/')),
 			...(await hashesUnder(page, directory, 'annotations/'))
 		];
 		expect(after).toEqual(before);
@@ -1194,14 +1219,14 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 		const alignmentRef = await alignmentRefOf(page, directory);
-		const alignmentBefore = await readProjectFile(page, directory, alignmentRef);
+		const alignmentBefore = await readProjectFile(page, '', alignmentRef);
 
 		await page.getByTestId('layer-name').fill('The 1625 plan');
 		await page.getByTestId('layer-name').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		expect((await projectJson(page, directory)).layers[0].name).toBe('The 1625 plan');
-		expect(await readProjectFile(page, directory, alignmentRef)).toBe(alignmentBefore);
+		expect(await readProjectFile(page, '', alignmentRef)).toBe(alignmentBefore);
 	});
 
 	// The name field's half of the same question as the opacity drag: `fill()` never presses a mouse

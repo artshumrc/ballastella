@@ -180,7 +180,7 @@ export function storedPyramidTileSource(
 						context.finish(
 							null,
 							undefined,
-							`${context.src} is not in this Project (${response.status}).`
+							`${context.src} is not in this Workspace (${response.status}).`
 						);
 						return;
 					}

@@ -97,7 +97,13 @@ async function emptyWorkspace(page: Page): Promise<void> {
 	});
 }
 
-/** Every file in a Project directory, recursively, with its byte length. */
+/**
+ * Every file under one Workspace directory, recursively, with its byte length.
+ *
+ * `''` walks the whole Workspace. Since ADR-0023 a pyramid lands at `images/<id>/` at the root rather
+ * than inside the Project, so a helper scoped to the Project directory would see nothing an ingest wrote
+ * and every assertion below it would pass vacuously.
+ */
 async function filesIn(page: Page, directory: string): Promise<Record<string, number>> {
 	return page.evaluate(async (directory) => {
 		const files: Record<string, number> = {};
@@ -111,16 +117,17 @@ async function filesIn(page: Page, directory: string): Promise<Record<string, nu
 			}
 		};
 		const root = await navigator.storage.getDirectory();
-		await walk(await root.getDirectoryHandle(directory), '');
+		await walk(directory === '' ? root : await root.getDirectoryHandle(directory), '');
 		return files;
 	}, directory);
 }
 
+/** One JSON file out of OPFS. `''` as the directory reads from the Workspace root (ADR-0023). */
 const readJson = (page: Page, directory: string, path: string): Promise<unknown> =>
 	page.evaluate(
 		async ([directory, path]) => {
 			const root = await navigator.storage.getDirectory();
-			let handle = await root.getDirectoryHandle(directory as string);
+			let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
 				handle = await handle.getDirectoryHandle(segment);
@@ -204,16 +211,21 @@ test.describe('adding a Historical Map from a file', () => {
 		const imageId = (await page.getByRole('listitem').first().innerText()).trim();
 		expect(imageId).toMatch(/^[0-9a-f]{16}$/);
 
-		const files = await filesIn(page, 'amsterdam-1625');
+		// The whole Workspace, because the pyramid is the Workspace's (ADR-0023).
+		const files = await filesIn(page, '');
 		const tiles = Object.keys(files).filter((path) => path.endsWith('/0/default.jpg'));
 		expect(tiles).toHaveLength(expectedTiles);
 		expect(files[`images/${imageId}/info.json`]).toBeGreaterThan(0);
 		expect(files[`images/${imageId}/manifest.json`]).toBeGreaterThan(0);
-		// `project.json` is untouched by an ingest: the Layer that refers to this image is ticket 09,
-		// and a write with nothing behind it would stamp a fresh `updatedAt` (ADR-0010).
-		expect(Object.keys(files)).toContain('project.json');
+		// **And no bytes inside the Project directory** beyond the document it already had. A pyramid is
+		// prepared once and shared, so a copy landing inside whichever Project happened to be open is the
+		// failure ADR-0023 exists to end. `project.json` itself is untouched: the Layer arrives when the map
+		// is aligned, and a write with nothing behind it would stamp a fresh `updatedAt` (ADR-0010).
+		expect(Object.keys(files).filter((path) => path.startsWith('amsterdam-1625/'))).toEqual([
+			'amsterdam-1625/project.json'
+		]);
 
-		const info = (await readJson(page, 'amsterdam-1625', `images/${imageId}/info.json`)) as Record<
+		const info = (await readJson(page, '', `images/${imageId}/info.json`)) as Record<
 			string,
 			unknown
 		>;
@@ -257,8 +269,8 @@ test.describe('adding a Historical Map from a file', () => {
 		await expect(page.getByRole('alert')).toContainText('could not be read as an image');
 		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
 
-		const files = await filesIn(page, 'amsterdam-1625');
-		expect(Object.keys(files)).toEqual(['project.json']);
+		// The whole Workspace: an ingest that failed must leave no pyramid at the root either.
+		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
 	});
 
 	test('a user can stop an ingest, and nothing is left behind', async ({ page }) => {
@@ -293,7 +305,7 @@ test.describe('adding a Historical Map from a file', () => {
 		// And the Project is as it was. The tiles already written are removed, which matters because
 		// a Workspace is a folder in git or Dropbox (ADR-0008) and litter in it is the user's problem.
 		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
-		expect(Object.keys(await filesIn(page, 'amsterdam-1625'))).toEqual(['project.json']);
+		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
 	});
 
 	test('refuses a scan above the decode ceiling by naming the deployment, not the file', async ({
@@ -335,7 +347,7 @@ test.describe('adding a Historical Map from a file', () => {
 		// Nothing added, and nothing fetched: the decision is made from the header, so neither a
 		// decoder nor 5 MB of WebAssembly is ever reached.
 		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
-		expect(Object.keys(await filesIn(page, 'amsterdam-1625'))).toEqual(['project.json']);
+		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
 		expect(requested.filter((url) => /vips/i.test(url))).toEqual([]);
 	});
 

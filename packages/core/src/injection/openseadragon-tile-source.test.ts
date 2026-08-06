@@ -121,14 +121,10 @@ describe('the OpenSeadragon tile source for a pyramid in a Project', () => {
 	it('reads a tile out of the store and never touches the network', async () => {
 		const store = new MemoryProjectStore();
 		const tile = planPyramid(info, imageDirectory(IMAGE_ID))[0]!;
-		await store.write(`amsterdam-1625/${tile.path}`, new TextEncoder().encode('tile bytes'));
-		const tiles = source(
-			createStoreImageFetch({
-				store,
-				projectDirectory: 'amsterdam-1625',
-				fetch: refuseNetwork
-			})
-		);
+		// At the Workspace root, which is where a pyramid lives (ADR-0023) and therefore what
+		// `planPyramid` already produces: `tile.path` is the complete store path with nothing prefixed.
+		await store.write(tile.path, new TextEncoder().encode('tile bytes'));
+		const tiles = source(createStoreImageFetch({ store, fetch: refuseNetwork }));
 
 		const url = `${imageServiceId(IMAGE_ID)}/${tile.path.replace(`${imageDirectory(IMAGE_ID)}/`, '')}`;
 		const finished = await download(tiles, url);
@@ -137,22 +133,18 @@ describe('the OpenSeadragon tile source for a pyramid in a Project', () => {
 		expect(finished.data).toEqual({ decoded: 'tile bytes' });
 	});
 
-	it('reports a tile that is not in the Project, rather than a DNS failure', async () => {
+	it('reports a tile that is not in the Workspace, rather than a DNS failure', async () => {
 		// Without this the user meets `TypeError: Failed to fetch` against a `.invalid` host, which
 		// says nothing about a pyramid. `.invalid` is reserved precisely so that the failure is loud —
 		// this makes it legible as well.
 		const tiles = source(
-			createStoreImageFetch({
-				store: new MemoryProjectStore(),
-				projectDirectory: 'amsterdam-1625',
-				fetch: refuseNetwork
-			})
+			createStoreImageFetch({ store: new MemoryProjectStore(), fetch: refuseNetwork })
 		);
 
 		const finished = await download(tiles, tiles.getTileUrl(tiles.maxLevel, 0, 0));
 
 		expect(finished.data).toBeNull();
-		expect(finished.error).toContain('is not in this Project');
+		expect(finished.error).toContain('is not in this Workspace');
 	});
 
 	it('does not decode a tile whose download was abandoned', async () => {

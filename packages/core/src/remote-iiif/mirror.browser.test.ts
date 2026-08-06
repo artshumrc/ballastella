@@ -215,7 +215,6 @@ describe('a level-0 remote service, mirrored end to end', () => {
 
 		const result = await mirrorRemoteImage({
 			store,
-			projectDirectory: 'amsterdam-1625',
 			service,
 			label: 'floride-1657',
 			fetch: host.fetch,
@@ -251,7 +250,7 @@ describe('a level-0 remote service, mirrored end to end', () => {
 	});
 
 	it('kept generateId(uri) as the image id and the placeholder as the pyramid id', async () => {
-		expect(directory).toBe(`amsterdam-1625/images/${service.imageId}`);
+		expect(directory).toBe(`images/${service.imageId}`);
 		const info = JSON.parse(new TextDecoder().decode(await store.read(`${directory}/info.json`)));
 		expect(info.id).toBe(`https://unset.invalid/${service.imageId}`);
 		expect(info.profile).toBe('level0');
@@ -277,7 +276,6 @@ describe('a level-0 remote service, mirrored end to end', () => {
 		const local = new MemoryProjectStore();
 		const ingested = await ingestImageFile({
 			store: local,
-			projectDirectory: 'amsterdam-1625',
 			file: stitched,
 			label: 'floride-1657',
 			openDecodeAndCrop: openDecodeAndCropSource
@@ -375,7 +373,6 @@ describe('IIIF exact-resize, in a pyramid that arrived by being copied', () => {
 			const store = new MemoryProjectStore();
 			const result = await mirrorRemoteImage({
 				store,
-				projectDirectory: 'p',
 				service: raggedService,
 				fetch: hostFor(await uniformRegionImage(tile.region)),
 				assemble: assembleWithCanvas,
@@ -423,7 +420,6 @@ describe('a level-0 remote service that will not serve what it declared', () => 
 		await expect(
 			mirrorRemoteImage({
 				store,
-				projectDirectory: 'amsterdam-1625',
 				service,
 				fetch: async (input, init) => {
 					// The fifth tile 404s, which is what a pyramid with a missing file does.
@@ -435,7 +431,7 @@ describe('a level-0 remote service that will not serve what it declared', () => 
 			})
 		).rejects.toThrow(MirrorRefusedError);
 
-		expect(await store.list('amsterdam-1625/')).toEqual([]);
+		expect(await store.list('images/')).toEqual([]);
 	});
 });
 

@@ -22,6 +22,8 @@ Read [ADR-0023](../../../docs/adr/0023-historical-maps-and-alignments-live-in-th
 
 **Delete `ProjectFile.removedMapLayers`.** It existed only to stop an Alignment write resurrecting a deleted Layer. With Layers created by explicit gesture alone, nothing can resurrect one. The parser must not carry the field forward and must not choke on a `project.json` that happens to contain it.
 
+> **From the review of ticket 01:** this is already broken on the *referenced* path, not only the local one — `addReferencedMap` writes `alignments/<image-id>.json` only when a community Alignment was chosen, while `layerReferences` in `import-project-zip.ts` requires it for every map Layer, so such a Project exports a zip this build then refuses to import. Fixing it here covers both paths; a test that only adds a map from a file will not see it.
+
 **A starter Alignment is written when a Historical Map is added.** `newAlignment(imageId, image)` — zero Control Points, Resource Mask covering the whole sheet. Without it, an unaligned Layer references a file that does not exist and `assertReferencesPresent` makes the Project un-exportable and un-publishable, which is the trap this contract exists to close. This does not offend ADR-0010: that rule forbids writing when *merely opening* a Project, and adding a map is an explicit act.
 
 **"Not aligned" is derived, never stored.** The test is `controlPoints.length < MINIMUM_CONTROL_POINTS`, which `canSolve` already computes. Do not add a boolean field. A partially aligned map — one or two points, below the solvable minimum — must warn, which a boolean set at creation would get wrong.

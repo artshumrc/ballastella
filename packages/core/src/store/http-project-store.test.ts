@@ -108,7 +108,7 @@ describe('the HTTP ProjectStore adapter', () => {
 				fetch: async () => new Response(jpeg, { status: 200 })
 			});
 
-			expect(await store.read('p/images/a/0,0,256,256/256,256/0/default.jpg')).toEqual(jpeg);
+			expect(await store.read('images/a/0,0,256,256/256,256/0/default.jpg')).toEqual(jpeg);
 		});
 
 		it('returns bytes backed by a plain ArrayBuffer, which is what every parser here takes', async () => {
@@ -201,7 +201,7 @@ describe('the HTTP ProjectStore adapter', () => {
 			});
 
 			const failure: unknown = await store
-				.read('p/images/a/info.json')
+				.read('images/a/info.json')
 				.catch((cause: unknown) => cause);
 			// Narrowed rather than cast, so a `read` that resolved would fail here instead of reading
 			// properties off bytes.
@@ -262,11 +262,13 @@ describe('the HTTP ProjectStore adapter', () => {
 			const store = createHttpProjectStore({
 				resolve: (path) => `https://scholar.example/atlas/${path}`,
 				fetch: serving({
-					'https://scholar.example/atlas/amsterdam-1625/images/aaa/info.json': '{"width":1024}'
+					// At the site root, because a published pyramid is the Workspace's rather than a Project's
+					// (ADR-0023) — one `images/<id>/` served to every Project of the site.
+					'https://scholar.example/atlas/images/aaa/info.json': '{"width":1024}'
 				}).fetch
 			});
 
-			const readTile = createStoreImageFetch({ store, projectDirectory: 'amsterdam-1625' });
+			const readTile = createStoreImageFetch({ store });
 			const response = await readTile('https://unset.invalid/aaa/info.json');
 
 			expect(response.status).toBe(200);

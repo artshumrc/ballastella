@@ -7,9 +7,7 @@
 //
 // Free of everything editor-only, because `apps/viewer` reads the Layer stack too (ADR-0019).
 
-import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import type { Bytes } from '../store/project-store.js';
-import { imageInfoPath } from './image-files.js';
 
 /**
  * The simplestyle-spec 1.1.0 styling properties, plus ADR-0009's one extension.
@@ -44,22 +42,6 @@ export interface SimpleStyle {
 }
 
 /**
- * Whether a map Layer's tiles are bytes inside this Project or a URL somewhere else.
- *
- * This is displayed, not merely stored, because it is what decides whether the reader of a
- * Published Site needs the network and whether the Project survives the host disappearing.
- *
- * **A locally ingested image is a local copy, not a `'referenced'` image.** Every image that exists
- * at the time this slice lands is a pyramid this app tiled into the Project directory (ADR-0003), so
- * it is {@link LOCAL_COPY}; only ticket 14's remote IIIF resources are `'referenced'`, and ticket 15
- * is what moves one of those to a local copy (ADR-0007).
- */
-export type ImageMode = 'mirrored' | 'referenced';
-
-/** The {@link ImageMode} of an image whose tiles are in the Project directory. */
-export const LOCAL_COPY: ImageMode = 'mirrored';
-
-/**
  * What every Layer carries, whatever its kind: its identity and its presentation.
  *
  * `order` mirrors the Layer's position in the stack and **0 is the top** — the Layer that draws over
@@ -86,14 +68,27 @@ interface LayerCommon {
 	readonly unknownFields?: Readonly<Record<string, unknown>>;
 }
 
-/** An aligned Historical Map in the stack. */
+/**
+ * A Historical Map of the Workspace, in this Project's stack.
+ *
+ * **One field, and everything else is derived from it** (ADR-0023). The Workspace owns where a
+ * Historical Map sits on the earth, so the Alignment is `alignmentPath(imageId)` and the pyramid is
+ * `imageDirectory(imageId)` — both at the Workspace root, both shared by every Project that references
+ * this image. A Project owns only how the map is presented: its name for the Layer, whether it is
+ * visible, where it sits in the stack, and its opacity.
+ *
+ * The Layer therefore carries no `alignmentRef` — a second name for a path already derivable, which a
+ * hand-edited file could point somewhere else — and no `imageMode`. Whether the tiles are here or on a
+ * Library's server is **observable**: the image directory has an `info.json` of ours, or it has only a
+ * `remote.json`. A stored flag could disagree with the bytes on disk, and repairing that disagreement
+ * is what the deleted interrupted-copy path existed for.
+ */
 export interface MapLayer extends LayerCommon {
 	readonly kind: 'map';
 	/** 0–1. Present on this kind alone — see {@link Layer}. */
 	readonly opacity: number;
-	/** The Alignment this Layer draws, by path within the Project. Referenced, never contained. */
-	readonly alignmentRef: string;
-	readonly imageMode: ImageMode;
+	/** The Workspace Historical Map this Layer draws. Referenced, never contained. */
+	readonly imageId: string;
 }
 
 /** A set of Annotations in the stack. One GeoJSON `FeatureCollection` (ADR-0009). */
@@ -162,53 +157,8 @@ export function emptyAnnotationCollection(): Bytes {
 	);
 }
 
-/**
- * The Historical Map a map Layer's Alignment is for, or `null` when the reference does not follow
- * the Alignment's own naming.
- *
- * This is the Layer → Alignment → image link, and it is followable **without opening the
- * Alignment**: an Alignment's identity is its path (`alignments/<image-id>.json`), which is exactly
- * why `parseAlignment` takes the image id from the caller and never from the document's own
- * `resource.id` — a file copied under a different name would otherwise claim the image it used to
- * describe. So the path is the authority here for the same reason it is there, and reading the
- * document could only produce a second answer that disagrees with it.
- */
-export function imageIdFromAlignmentRef(alignmentRef: string): string | null {
-	const prefix = `${ALIGNMENT_DIRECTORY}/`;
-	if (!alignmentRef.startsWith(prefix) || !alignmentRef.endsWith('.json')) return null;
-	const imageId = alignmentRef.slice(prefix.length, -'.json'.length);
-	// A nested path is not an image id, and neither is an empty one.
-	return imageId === '' || imageId.includes('/') ? null : imageId;
-}
-
-/**
- * The `info.json` a map Layer's image needs to be readable, or `null` when this Layer does not claim
- * a local pyramid.
- *
- * `null` for a `'referenced'` image, whose tiles are on somebody else's server by design (ADR-0007),
- * and for a reference that does not name an image — see {@link imageIdFromAlignmentRef}.
- *
- * **Neither `null` is an exemption from validation, and this function must not be the only thing asked.**
- * `imageMode` comes out of a `project.json` somebody else wrote, so a validator that stopped here would
- * be letting the author of an archive decide that the image check did not apply to them —
- * `assertReferencesPresent` therefore also requires that a map Layer's image *directory* is in the
- * archive, whatever `imageMode` says. The other `null`, for a reference that names no image id, is a
- * real limit: such a reference names no Alignment this app would write either, and guessing which
- * directory it meant would be inventing an authority. Both are recorded on ticket 09.
- */
-export function mapLayerImageInfoPath(layer: MapLayer): string | null {
-	if (layer.imageMode === 'referenced') return null;
-	const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
-	return imageId === null ? null : imageInfoPath(imageId);
-}
-
-/** A new map Layer for a Historical Map that has just been aligned. Fully opaque and visible. */
-export function newMapLayer(fields: {
-	id: string;
-	name: string;
-	alignmentRef: string;
-	imageMode?: ImageMode;
-}): MapLayer {
+/** A new map Layer for a Workspace Historical Map. Fully opaque and visible. */
+export function newMapLayer(fields: { id: string; name: string; imageId: string }): MapLayer {
 	return {
 		kind: 'map',
 		id: fields.id,
@@ -216,8 +166,7 @@ export function newMapLayer(fields: {
 		visible: true,
 		order: 0,
 		opacity: 1,
-		alignmentRef: fields.alignmentRef,
-		imageMode: fields.imageMode ?? LOCAL_COPY
+		imageId: fields.imageId
 	};
 }
 
@@ -442,17 +391,17 @@ function parseLayer(record: Readonly<Record<string, unknown>>, id: string): Laye
 	};
 
 	if (kind === 'map') {
-		const { opacity, alignmentRef, imageMode, ...carriedRest } = rest;
+		const { opacity, imageId, ...carriedRest } = rest;
 		return {
 			...common,
 			kind: 'map',
 			opacity: Math.min(1, Math.max(0, readNumber(opacity, 1))),
-			alignmentRef: readString(alignmentRef, ''),
-			// Anything that is not the word for a remote reference is a local copy — see
-			// {@link ImageMode}. That direction is deliberate: it is the answer that makes a Layer's
-			// image be looked for in the Project, so a file that omits the field is checked rather than
-			// waved through as somebody else's problem.
-			imageMode: imageMode === 'referenced' ? 'referenced' : LOCAL_COPY,
+			// An absent or non-string `imageId` reads as `''`, which is the same tolerance every other
+			// field here gets: the Layer stays in the stack, nameable and reorderable, rather than the
+			// Project failing to open over one field (ADR-0017 rule 4). A Layer with `''` draws nothing,
+			// and `assertReferencesPresent` skips it for the same reason it skips an empty `geojsonRef` —
+			// there is no image it could be asked for.
+			imageId: readString(imageId, ''),
 			...carried(carriedRest)
 		};
 	}
@@ -503,8 +452,7 @@ function serialiseLayer(layer: Layer): Record<string, unknown> {
 				kind: 'map',
 				...common,
 				opacity: layer.opacity,
-				alignmentRef: layer.alignmentRef,
-				imageMode: layer.imageMode,
+				imageId: layer.imageId,
 				...layer.unknownFields
 			};
 		case 'annotation':

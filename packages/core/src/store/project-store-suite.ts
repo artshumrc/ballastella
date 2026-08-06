@@ -126,13 +126,13 @@ export function describeProjectStore(
 		describe('listing', () => {
 			beforeEach(async () => {
 				await store.write('a/project.json', utf8.encode('a'));
-				await store.write('a/images/one/info.json', utf8.encode('one'));
+				await store.write('a/annotations/one.geojson', utf8.encode('one'));
 				await store.write('ab/project.json', utf8.encode('ab'));
 				await store.write('b/project.json', utf8.encode('b'));
 			});
 
 			it('returns every path under a directory prefix, recursively, sorted', async () => {
-				expect(await store.list('a/')).toEqual(['a/images/one/info.json', 'a/project.json']);
+				expect(await store.list('a/')).toEqual(['a/annotations/one.geojson', 'a/project.json']);
 			});
 
 			it('matches on the string prefix, so a partial name does not straddle directories', async () => {
@@ -141,7 +141,7 @@ export function describeProjectStore(
 
 			it('lists the whole workspace for an empty prefix', async () => {
 				expect(await store.list('')).toEqual([
-					'a/images/one/info.json',
+					'a/annotations/one.geojson',
 					'a/project.json',
 					'ab/project.json',
 					'b/project.json'

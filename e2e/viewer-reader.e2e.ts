@@ -678,8 +678,7 @@ test.describe('exploring a Project', () => {
 							visible: true,
 							order: 1,
 							opacity: 1,
-							alignmentRef: `alignments/${IMAGE_ID}.json`,
-							imageMode: 'mirrored'
+							imageId: IMAGE_ID
 						}
 					]
 				}
@@ -1015,10 +1014,12 @@ test.describe('a Historical Map read unwarped', () => {
 			// from disk per request, as a static host does, so this takes effect with no restart.
 			site = await published(oneProject());
 			const served = site.sites[0]!;
+			// At the **site root**, and stamped with an address that names no Project (ADR-0023): a Historical
+			// Map is shared, so it answers at one citable endpoint however many Projects draw it.
 			await writeSiteFile(
 				site.directory,
-				`amsterdam-1625/images/${IMAGE_ID}/info.json`,
-				infoJson(`${served.url}amsterdam-1625/images/${IMAGE_ID}`)
+				`images/${IMAGE_ID}/info.json`,
+				infoJson(`${served.url}images/${IMAGE_ID}`)
 			);
 			const seen = watch(page);
 			const url = `${served.url}?p=amsterdam-1625`;
@@ -1064,7 +1065,7 @@ test.describe('a Historical Map read unwarped', () => {
 							.filter(
 								(request) =>
 									request.url.startsWith(served.url) &&
-									request.url.includes(`/amsterdam-1625/images/${IMAGE_ID}/`) &&
+									request.url.includes(`/images/${IMAGE_ID}/`) &&
 									request.url.endsWith('.jpg')
 							).length,
 					{ timeout: 30_000 }
@@ -1149,6 +1150,10 @@ test.describe('a Published Site that is not entirely well', () => {
 		// asking the injection shim for a pyramid a referenced image does not have locally, which draws
 		// blank while the page reports it drawn. That is the defect recorded on ticket 09, and the reason
 		// this Layer is `unreadable` instead.
+		//
+		// Since ADR-0023 the 503 also takes away the *only* thing that says where the tiles are: the viewer
+		// probes for an `info.json` of ours first and asks `remote.json` when there is none, so an
+		// unanswerable `remote.json` leaves it with no address at all rather than with a stale claim.
 		site = await published(
 			await oneProject({
 				imageMode: 'referenced',
@@ -1278,8 +1283,9 @@ test.describe('a Published Site that is not entirely well', () => {
 	test('warns that a referenced Historical Map leaves a Reader with no network seeing nothing', async ({
 		page
 	}) => {
-		// SPEC story 29 from the Reader's side. `imageMode` is what decides whether a Reader needs the
-		// network, and the Reader is the person who meets the consequence.
+		// SPEC story 29 from the Reader's side. What decides whether a Reader needs the network is the
+		// **site's own files** — a `remote.json` with no `info.json` of ours beside it (ADR-0023) — rather
+		// than a field of `project.json`, and the Reader is the person who meets the consequence.
 		site = await published(
 			await oneProject({
 				imageMode: 'referenced',
