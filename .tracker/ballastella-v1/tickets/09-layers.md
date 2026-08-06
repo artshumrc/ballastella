@@ -116,14 +116,25 @@ map" are the same word everywhere else, including in the file. `order` is kept e
 by every operation and by the parser, so the two cannot drift.
 
 **The union has a third member already: `ForeignLayer`.** A `kind` this build has never heard of parses
-into a Layer that can be named, hidden, and reordered, and serialises back with every field it arrived
-with. That is stronger than "ignored gracefully": ADR-0014 expects image-space annotation next, and a
-build from before that kind existed must be able to open a colleague's Project and save it without
-destroying the Layer it cannot draw — which is the same failure ADR-0010's version refusal exists to
-prevent, arriving by a different route. Its `kind` is the literal `'foreign'` so narrowing still works
-and the declared kind is carried in `declaredKind`; **a future real kind must therefore not be called
-`'foreign'`.** `serialiseLayer` has no `default:` branch, so a fourth kind is a compile error in the one
-module that writes Layers rather than a silent runtime demotion.
+into a Layer that can be named, hidden, and reordered, and serialises back **losslessly** — with the
+kind the file carried and every field it arrived with. That is stronger than "ignored gracefully":
+ADR-0014 expects image-space annotation next, and a build from before that kind existed must be able to
+open a colleague's Project and save it without destroying the Layer it cannot draw — which is the same
+failure ADR-0010's version refusal exists to prevent, arriving by a different route. Its `kind` is the
+literal `'foreign'` so narrowing still works and the declared kind is carried in `declaredKind`; **a
+future real kind must therefore not be called `'foreign'`**, which is now also recorded in ADR-0014,
+where an author looking for the third kind will actually read it. `serialiseLayer` has no `default:`
+branch, so a fourth kind is a compile error in the one module that writes Layers rather than a silent
+runtime demotion.
+
+**Lossless, deliberately not byte-identical.** Nothing of the user's is lost, but the fields come back
+in `serialiseLayer`'s order rather than the file's, so a third-party `project.json` with `id` before
+`kind`, or with `visible` omitted, is rewritten in a different byte sequence the first time anything in
+the Project is saved. The round-trip test uses `toEqual`, which ignores key order, and both fixtures
+happen to be written in the order this build emits. That is a readable-diff cost on first save, not a
+loss, and normalising is the more defensible behaviour for a document this app owns — but "byte
+identical" is the wrong word for it and is not claimed. The byte-identity criterion above is about
+`alignments/*.json` and `annotations/*.geojson`, which this app really does leave untouched.
 
 **`SimpleStyle` is defined here because `defaultStyle` is a field of the Layer union**, but its *values*
 are carried rather than validated: ticket 10 owns the style controls and their conformance. `title` and
@@ -133,11 +144,59 @@ are carried rather than validated: ticket 10 owns the style controls and their c
 than a panel beside the alignment workspace. The stack is the whole Project composed — which is what
 tickets 16 and 17 publish — where aligning is one Historical Map being placed; and putting the two on
 one page would have meant two WebGL contexts and two warped renderers side by side. `ProjectView` links
-to it with the Layer count.
+to it with the Layer count, and it links back to the Project as well as to the hub: the stack is where a
+user *notices* that a Control Point needs fixing, and the trip back to the alignment workspace should not
+go out to the hub and in again.
 
-**An Annotation Layer's `FeatureCollection` is written before the Layer that references it.** A
-`geojsonRef` naming a file that is not there is a Project that ticket 13's import refuses, so the
-reference must never exist without its file.
+**A Layer is written only after the file it references.** An Annotation Layer's `FeatureCollection` is
+committed before the Layer, and a map Layer is created only once the Alignment write has resolved. A
+`geojsonRef` or an `alignmentRef` naming a file that is not there is a Project that ticket 13's import
+refuses **by name** — `assertReferencesPresent` says the Layer "needs it to be drawn" — so a scholar
+whose disk filled up mid-alignment could not import their own export. The map half of this was wrong on
+first delivery: `#ensureMapLayer` sat outside the `try` that turns a rejected write into `saveError`.
+
+**Nothing reads `project.json` out of memory before an `await` and writes it back after.**
+`#ensureMapLayer` reads the image's `manifest.json` for the Layer's name, and the version that took its
+snapshot of the document first wrote that snapshot back — silently discarding anything else that changed
+`project.json` inside the window. The Project name field is on the same page as the alignment workspace,
+so renaming a Project while the first Control Point pair was being saved reverted the name, on screen and
+on disk. The cheap early return stays, because this runs on every completed pair and is what keeps
+`manifest.json` from being read once per pairing click; the answer that *decides* is taken again after
+the await. (This is a lost update rather than a duplicated Layer: because the snapshot is taken before
+the check as well, two overlapping writes are a last-write-wins on the whole document and produce one
+Layer, not two.)
+
+**Keyboard reorder manages its own focus.** The `{#each}` is keyed by Layer id, so Svelte moves the
+row's DOM node, and a focused element that is reinserted is blurred to `document.body` — at either end
+of the stack *and* in the middle, verified in Chromium. Without focus restoration a keyboard user got one
+move and then had to Tab back in from the top of the document past MapLibre's controls, which is SPEC
+story 53 broken on the press that matters (ADR-0016). Focus goes back to the button that was pressed, or
+to the other half of the same control where the move reached the end and the button became `disabled` —
+which is also where the next press undoes the move. Restored, never taken: something focused in the
+meantime is left alone.
+
+**The drag source is a handle, not the whole row.** `draggable="true"` on the `<li>` made the opacity
+slider and the name field unusable with a mouse: a pointer drag beginning anywhere inside a draggable
+element is claimed by the drag machinery rather than by the control under the cursor, so the slider's
+thumb would not move (story 51 unreachable by mouse) and the name could not be selected across (story 54
+degraded) — on the platform ADR-0014 says authoring targets. `draggable="false"` on the descendants does
+not help; Chromium still starts the row's drag. The row remains the drop target. Neither symptom was
+visible to the suite by construction, because `fill()` sets `value` and dispatches `input` without ever
+pressing a mouse button; both now have tests that use `page.mouse`.
+
+**Display state costs no read of the store.** The guard meant to ensure that did nothing — `documentKey`
+was computed and discarded with `void`, and the next line read `shown`, a `$derived` producing a fresh
+array from `.filter()`, which deriveds compare by reference. So the effect's real dependency was
+`layers`, and a rename or one drag of the opacity slider re-read and reparsed every Alignment and every
+`FeatureCollection`. `shown` is now read untracked.
+
+**A Base Map style that never completes is accounted for.** `whenStyleLoaded` cannot deadlock but could
+wait indefinitely, and then `onstack` is never called and the page's fallback skips any Layer whose
+document it read — so the region said "0 of 1 Layers are drawn" with no reason anywhere. There is now a
+timeout that reports a refusal per Layer. Worth knowing for anyone testing this: a PMTiles archive that
+is *refused* does **not** produce that state — MapLibre treats a source, a sprite and a glyph range that
+errored as loaded, so the style completes and the Layer draws over a blank Base Map. A request left
+**open**, which is what a captive portal does, is what never completes.
 
 **Two defects the browser suite found, recorded because neither was visible any other way.** A map Layer
 was being named after the image's id, which is a random identifier (ADR-0015) rather than a filename —
@@ -162,13 +221,31 @@ answer that disagrees with the authority. The narrow version the note asked for 
 string operation on a path, no parse, no exception to catch.
 
 What is now established: every file a Layer names is in the archive — its Alignment or its GeoJSON, and
-for a map Layer whose image is a local copy the `info.json` that makes its pyramid readable. A
-`'referenced'` image (ticket 14) claims no local pyramid, so none is looked for.
+for every map Layer the `info.json` that makes its pyramid readable.
+
+**Nothing in the archive can turn the image check off.** The first version exempted
+`imageMode: 'referenced'` from it — "a referenced image claims no local pyramid, so none is looked for"
+— which is an exemption keyed on a field out of a `project.json` another person wrote. Ticket 14 does not
+exist, so no legitimate archive can carry `'referenced'` today, and the renderer does not consult
+`imageMode` at all: it asks the ADR-0011 shim for every map Layer's tiles out of `images/<id>/`. So the
+word's only reachable effect was that a zip with `project.json`, `alignments/x.json`, no `images/`
+directory whatsoever and one word changed imported cleanly and then showed a reader nothing, with the
+network working perfectly. `assertDrawableImages` now **refuses** `'referenced'` outright, naming the
+Layer and saying that this version can only draw a Historical Map whose tiles are in the Project.
+**Ticket 14 lifts that refusal, and must lift it together with the renderer** — a referenced image that
+imports but does not draw is the same blank map arriving by a longer route.
 
 What is **not** established, and should not be:
 
 - An Alignment whose *contents* name a different image service than its filename does. The filename is
   the authority in the reader too; catching this would mean inventing a second one.
+- Anything about the image of a map Layer whose `alignmentRef` does not follow `alignments/<id>.json`.
+  Such a reference names no image id, so `mapLayerImageInfoPath` returns `null` and **the Alignment is
+  checked while the image is not checked at all**. This is the honest limit of following the link by
+  path rather than a second exemption: a nested or oddly named reference is not something this app
+  writes, and guessing which image directory it meant would be inventing an authority. It is recorded
+  here because the asymmetry — one of a Layer's two references checked, the other silently skipped — is
+  not something a reader of the code would expect.
 - That a pyramid is **complete**. A missing tile is a blank square rather than a lost map, and only the
   tiler knows which tiles a level should have. The pre-existing structural check — every `images/<id>/`
   in the archive carries its `info.json` — stays, and the two are a pair: the Layer check catches an
@@ -187,4 +264,19 @@ What is **not** established, and should not be:
   two things that really render rather than about an empty layer; ticket 10 will replace its styling.
 - **Deleting a Layer is not in the UI.** `removeLayer` exists and is tested, but ADR-0014 makes "layer
   deleted" one of the four actions single-level undo must cover, which is ticket 11 — so the button
-  belongs with the undo that makes it safe.
+  belongs with the undo that makes it safe. `removeLayer` and `findLayer` are consequently exported from
+  `@ballastella/core` with no consumer outside `layer.test.ts`; ticket 11 is the consumer, and if it
+  turns out not to want `findLayer` that export should go rather than stay as a tested-but-unused API.
+
+- **`warpedTiles` in the browser suite polls for decoded tiles rather than sleeping.** A fixed three
+  seconds was enough on an idle machine and not on a loaded one — a stack rebuilt by a reorder starts
+  fetching again from nothing — so a working renderer answered 0 and the positive assertions built on it
+  flaked, reproducibly, at load average 26 on 20 cores. The poll caps at ten seconds and returns on the
+  first non-zero answer, so it is also faster in the ordinary case. If it flakes again the answer is
+  probably the cap, not the assertion.
+
+- **The `imageMode` badge is shown for a `'referenced'` Layer that this build cannot draw.** A
+  hand-edited `project.json` in the Workspace can still carry one — only *import* refuses it — and the
+  list then says "Remote reference — needs the network" beside a Layer that will render blank whatever
+  the network does. Ticket 14 makes the badge true; until then it is a claim about a state that cannot
+  arrive through the interface.

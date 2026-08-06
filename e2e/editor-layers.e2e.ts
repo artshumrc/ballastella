@@ -1169,6 +1169,21 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 	});
 });
 
+test.describe('getting back out of the Layers pane', () => {
+	// The stack is where a user *notices* that a Control Point needs fixing — the Historical Map is
+	// visibly in the wrong place — so the way back to the alignment workspace has to be one click rather
+	// than a trip out to the hub and in again.
+	test('links back to the Project it belongs to, not only to the hub', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+
+		await page.getByTestId('back-to-project').click();
+
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('image-pane')).toBeVisible();
+	});
+});
+
 test.describe('the Layer list reaches assistive technology (SPEC story 96)', () => {
 	test('is an ordered list whose structure and order are announced', async ({ page }) => {
 		const directory = await alignedProject(page);

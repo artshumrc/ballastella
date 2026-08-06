@@ -266,7 +266,19 @@
 					Add an Annotation Layer
 				</button>
 
-				<p class="mt-6"><a class="link" href={resolve('/')}>Back to all Projects</a></p>
+				<!--
+					Back to the Project first, and to the hub second. The stack is where a user notices that
+					a Control Point needs fixing — the Historical Map is visibly in the wrong place — and
+					without this the only way back to the alignment workspace was out to the hub and in
+					again. The Project is addressed by query parameter (ADR-0008), so this is the same link
+					`ProjectView` uses to get here, in reverse.
+				-->
+				<p class="mt-6 flex flex-wrap gap-4">
+					<a class="link" data-testid="back-to-project" href="{resolve('/')}?p={openDirectory}">
+						Back to this Project
+					</a>
+					<a class="link" href={resolve('/')}>Back to all Projects</a>
+				</p>
 			</div>
 
 			<div>
