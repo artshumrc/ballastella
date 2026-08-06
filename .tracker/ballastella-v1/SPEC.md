@@ -456,7 +456,17 @@ Stories **95 and 96** (keyboard reach, announced guidance and status) are the ex
 
 ### Stories only partly delivered
 
-None. Every story is covered by the acceptance criteria of the tickets listed against it.
+**Story 22 — "a scan far too large for the browser to decode is still tiled".** Delivered only up to
+the `createImageBitmap` decode ceiling. Above it, ingest is *refused* rather than routed to the
+streaming tiler, because `wasm-vips` cannot run on a static host: npm publishes only the threaded
+build, which needs `SharedArrayBuffer` and therefore COOP/COEP headers that GitHub Pages cannot send —
+the very reason [ADR-0003](../../docs/adr/0003-every-image-is-tiled-client-side.md) mandates the
+single-threaded build, of which no published artefact exists. See open question 3 in
+[TRACKER.md](./TRACKER.md). The refusal is deliberate and legible rather than a silent partial pyramid,
+and everything at or below the ceiling works; but the story as written is not met, and the measured
+ceiling (528,006,700 px, threshold 2^28) is roughly half the range the story implies.
+
+Every other story is covered by the acceptance criteria of the tickets listed against it.
 
 Story 62 was the last entry here, and it was closed by **amending the story rather than adding a criterion**: footnotes are deferred past v1 (see Out of Scope), leaving emphasis and links, which ticket 10 asserts. That gap also surfaced a missing decision — nothing named the Markdown renderer, only the sanitiser — now recorded in ADR-0009 and ticket 10. This section is kept deliberately: the next scope change will want it.
 

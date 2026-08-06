@@ -10,7 +10,9 @@ Overall status: `In Progress`
 
 Current ticket: 10 and 14 are in progress. Tickets 01–09, 12, and 13 are merged; ticket 05 is green but is `Needs Human Validation or Intervention` (open question 3). Ticket 11 unblocks when 10 lands.
 
-The tree runs **664 unit tests and 137 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
+The tree runs **664 unit tests and 137 e2e**, with lint, typecheck, build, and the ADR-0006 fence all clean.
+
+**Correction, recorded because it was reported as a passing check several times and was not one.** Ticket 05's acceptance command `grep -rl "wasm-vips" apps/editor/build/_app/immutable/entry/` prints its success message **unconditionally**: the string `wasm-vips` appears nowhere in the built output, because the bundler renames the chunk to `_app/immutable/workers/vips-es6-*.js`. It also inspects only `entry/`, not the chunks the entry statically imports. The dependency genuinely *is* lazy — the only reference is an `await import(...)` — and `e2e/editor-image-ingest.e2e.ts` asserts that soundly by watching the network. But the grep is not what establishes it, and a real static check is owed. See ticket 05's follow-ups.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
