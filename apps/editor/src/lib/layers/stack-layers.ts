@@ -7,12 +7,28 @@
 // kinds**: an Annotation Layer above a map Layer draws above it.
 //
 // A `kind: 'map'` Layer becomes a `WarpedMapLayer` reading its tiles through the ADR-0011 shim; an
-// Annotation Layer becomes a GeoJSON source and the three MapLibre layers a `FeatureCollection`
-// needs. Anything else — a kind this build has never heard of — is skipped and reported, which is
-// ADR-0014's forward tolerance at the render boundary.
+// Annotation Layer becomes a GeoJSON source and the MapLibre layers its geometries need. Anything
+// else — a kind this build has never heard of — is skipped and reported, which is ADR-0014's forward
+// tolerance at the render boundary.
 
-import type { Alignment, AnnotationLayer, FetchFn, MapLayer, SimpleStyle } from '@ballastella/core';
-import { drawingOrder } from '@ballastella/core';
+import type {
+	Alignment,
+	AnnotationCollection,
+	AnnotationLayer,
+	FetchFn,
+	LineStyle,
+	MapLayer
+} from '@ballastella/core';
+import {
+	DASHED_DASHARRAY,
+	DOTTED_DASHARRAY,
+	LINE_STYLES,
+	LINE_STYLE_PROPERTY,
+	SIMPLESTYLE_DEFAULTS,
+	drawingOrder,
+	mapLibreDashArray,
+	toRenderCollection
+} from '@ballastella/core';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
 import {
@@ -45,8 +61,14 @@ export interface DrawnMapLayer {
 
 export interface DrawnAnnotationLayer {
 	readonly layer: AnnotationLayer;
-	/** The parsed `FeatureCollection`, or `null` when the Layer has no file yet. */
-	readonly features: unknown;
+	/**
+	 * The Layer's Annotations, or `null` when it has no file yet.
+	 *
+	 * The model rather than the raw parsed JSON ticket 09 passed, because the styling this draws with
+	 * is resolved per Annotation and precedence is a property of the model (ADR-0009). It is also what
+	 * the editing surface beside the map needs, so the document is read once for both.
+	 */
+	readonly annotations: AnnotationCollection | null;
 }
 
 export type DrawnLayer = DrawnMapLayer | DrawnAnnotationLayer;
@@ -94,70 +116,156 @@ export interface StackRender {
 export const stackLayerId = (layerId: string, part = ''): string =>
 	`ballastella-layer-${layerId}${part === '' ? '' : `-${part}`}`;
 
-/** simplestyle's own defaults (ADR-0009), used wherever the Layer's default style says nothing. */
-const SIMPLESTYLE_DEFAULTS = {
-	stroke: '#555555',
-	strokeOpacity: 1,
-	strokeWidth: 2,
-	fill: '#555555',
-	fillOpacity: 0.6,
-	markerColor: '#7e7e7e'
-} as const;
+/**
+ * How big a pin draws, by `marker-size`. simplestyle names three sizes and gives no pixel values, so
+ * these are ours; the ratios are what matter.
+ */
+const MARKER_RADIUS: Record<string, number> = { small: 4, medium: 6, large: 9 };
 
-/** The three MapLibre layers a `FeatureCollection` needs, styled from the Layer's default style. */
+/**
+ * The MapLibre layers one Annotation Layer needs.
+ *
+ * **Every paint value is read from the feature** — `['get', 'stroke']` and not a constant — because
+ * ticket 10's criterion is that a Layer's `defaultStyle` applies to Annotations lacking their own
+ * properties *and* that an Annotation's own property overrides it. The precedence itself is not
+ * decided here: `toRenderCollection` has already resolved each Annotation's effective style onto the
+ * copy handed to the source, so this reads plain values and the rules live in one place in `core`
+ * where the published viewer reads them too.
+ *
+ * **A line layer per dash pattern**, because `line-dasharray` is the one paint property MapLibre will
+ * not evaluate per feature. So the dash becomes a filter on the bucket `toRenderCollection` computed,
+ * which is how a solid, a dashed, and a dotted Annotation draw distinctly inside a single Layer.
+ * Solid's layer sets no `line-dasharray` at all — absent is the representation of solid all the way to
+ * the renderer (ADR-0009), not a dash array that happens to look continuous.
+ *
+ * **Only the layers this Layer's contents need are added**, which is why `present` is a parameter
+ * rather than this returning all five every time. Every MapLibre layer is per-frame work on the same
+ * thread that decodes a warped Historical Map's tiles, and an Annotation Layer of pins was otherwise
+ * paying for three line layers that could never match anything. It is not only tidiness: ticket 09's
+ * `warpedTiles` assertion allows three seconds for tiles to arrive *and decode*, and the unconditional
+ * five were enough to push it past that on a loaded machine — a real slowdown that happened to show up
+ * as somebody else's test going red.
+ */
 function annotationLayers(
 	layerId: string,
-	defaultStyle: SimpleStyle
+	present: { lineStyles: ReadonlySet<LineStyle>; hasArea: boolean; hasPoint: boolean }
 ): { id: string; spec: Record<string, unknown> }[] {
 	const source = stackLayerId(layerId, 'source');
-	const dash = defaultStyle['stroke-dasharray'];
-	return [
-		{
-			id: stackLayerId(layerId, 'fill'),
-			spec: {
-				type: 'fill',
-				source,
-				filter: ['==', ['geometry-type'], 'Polygon'],
-				paint: {
-					'fill-color': defaultStyle.fill ?? SIMPLESTYLE_DEFAULTS.fill,
-					'fill-opacity': defaultStyle['fill-opacity'] ?? SIMPLESTYLE_DEFAULTS.fillOpacity
-				}
-			}
-		},
-		{
-			id: stackLayerId(layerId, 'line'),
-			spec: {
-				type: 'line',
-				source,
-				filter: ['in', ['geometry-type'], ['literal', ['LineString', 'Polygon']]],
-				paint: {
-					'line-color': defaultStyle.stroke ?? SIMPLESTYLE_DEFAULTS.stroke,
-					'line-opacity': defaultStyle['stroke-opacity'] ?? SIMPLESTYLE_DEFAULTS.strokeOpacity,
-					'line-width': defaultStyle['stroke-width'] ?? SIMPLESTYLE_DEFAULTS.strokeWidth,
-					// Absent means solid (ADR-0009), which is the property not being set at all rather than
-					// a dash array that happens to look continuous.
-					...(dash ? { 'line-dasharray': [...dash] } : {})
-				}
-			}
-		},
-		{
-			id: stackLayerId(layerId, 'point'),
-			spec: {
-				type: 'circle',
-				source,
-				filter: ['==', ['geometry-type'], 'Point'],
-				paint: {
-					'circle-color': defaultStyle['marker-color'] ?? SIMPLESTYLE_DEFAULTS.markerColor,
-					'circle-radius': 6,
-					'circle-stroke-color': defaultStyle.stroke ?? SIMPLESTYLE_DEFAULTS.stroke,
-					'circle-stroke-width': 1
-				}
+	const strokeWidth = ['to-number', ['get', 'stroke-width']];
+	const lineOf = (style: LineStyle) => ({
+		id: stackLayerId(layerId, `line-${style}`),
+		spec: {
+			type: 'line',
+			source,
+			filter: [
+				'all',
+				['in', ['geometry-type'], ['literal', ['LineString', 'Polygon']]],
+				['==', ['get', LINE_STYLE_PROPERTY], style]
+			],
+			paint: {
+				'line-color': ['get', 'stroke'],
+				'line-opacity': ['to-number', ['get', 'stroke-opacity']],
+				'line-width': strokeWidth,
+				...(style === 'solid'
+					? {}
+					: {
+							// MapLibre expresses a dash as a multiple of the line's own width; the stored tuple
+							// is in the same units as the width, like SVG's. A constant is correct here because
+							// every feature in this layer is in the same bucket, and the width divides out.
+							'line-dasharray': mapLibreDashArray(
+								style === 'dashed' ? DASHED_DASHARRAY : DOTTED_DASHARRAY,
+								SIMPLESTYLE_DEFAULTS['stroke-width']
+							)
+						})
 			}
 		}
+	});
+
+	const fill = {
+		id: stackLayerId(layerId, 'fill'),
+		spec: {
+			type: 'fill',
+			source,
+			filter: ['==', ['geometry-type'], 'Polygon'],
+			paint: {
+				'fill-color': ['get', 'fill'],
+				'fill-opacity': ['to-number', ['get', 'fill-opacity']]
+			}
+		}
+	};
+
+	const point = {
+		id: stackLayerId(layerId, 'point'),
+		spec: {
+			type: 'circle',
+			source,
+			filter: ['==', ['geometry-type'], 'Point'],
+			paint: {
+				'circle-color': ['get', 'marker-color'],
+				'circle-radius': [
+					'match',
+					['coalesce', ['get', 'marker-size'], 'medium'],
+					'small',
+					MARKER_RADIUS['small'] ?? 4,
+					'large',
+					MARKER_RADIUS['large'] ?? 9,
+					MARKER_RADIUS['medium'] ?? 6
+				],
+				'circle-stroke-color': ['get', 'stroke'],
+				'circle-stroke-width': 1,
+				'circle-opacity': ['to-number', ['get', 'fill-opacity']]
+			}
+		}
+	};
+
+	// Fill under lines under pins, which is the order these read best in: an area's outline over its
+	// own fill, and a pin over both.
+	return [
+		...(present.hasArea ? [fill] : []),
+		...LINE_STYLES.filter((style) => present.lineStyles.has(style)).map(lineOf),
+		...(present.hasPoint ? [point] : [])
 	];
 }
 
-const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
+/**
+ * Which geometry kinds and line styles a render-ready collection actually contains.
+ *
+ * Read off the render copy rather than the domain collection, because that copy is what the source is
+ * given: a geometry this build cannot draw is already absent from it, so a Layer holding nothing but a
+ * `MultiPolygon` correctly asks for no layers at all.
+ */
+function whatItContains(rendered: { features: Record<string, unknown>[] }): {
+	lineStyles: ReadonlySet<LineStyle>;
+	hasArea: boolean;
+	hasPoint: boolean;
+} {
+	const lineStyles = new Set<LineStyle>();
+	let hasArea = false;
+	let hasPoint = false;
+	for (const feature of rendered.features) {
+		const type = (feature['geometry'] as { type?: string } | undefined)?.type;
+		const properties = feature['properties'] as Record<string, unknown> | undefined;
+		if (type === 'Point') hasPoint = true;
+		if (type === 'Polygon') hasArea = true;
+		if (type === 'LineString' || type === 'Polygon') {
+			lineStyles.add((properties?.[LINE_STYLE_PROPERTY] as LineStyle | undefined) ?? 'solid');
+		}
+	}
+	return { lineStyles, hasArea, hasPoint };
+}
+
+/**
+ * Every MapLibre layer id an Annotation Layer *could* contribute, for hit-testing a click.
+ *
+ * All five candidates, not only the ones added: which exist depends on what the Layer contains, and a
+ * caller hit-testing has to filter by `map.getLayer(id)` anyway — asking MapLibre about a layer that is
+ * not there throws. Returning the full set keeps this function free of the contents.
+ */
+export const annotationLayerIds = (layerId: string): string[] => [
+	stackLayerId(layerId, 'fill'),
+	...LINE_STYLES.map((style) => stackLayerId(layerId, `line-${style}`)),
+	stackLayerId(layerId, 'point')
+];
 
 /**
  * Draw `layers` onto `map`, bottom of the stack first.
@@ -196,14 +304,16 @@ export function drawLayerStack(options: {
 		}
 
 		const source = stackLayerId(layerId, 'source');
-		map.addSource(source, {
-			type: 'geojson',
-			// A Layer with no file yet, or one whose file could not be read, draws nothing rather than
-			// taking the rest of the stack down with it.
-			data: (drawn.features ?? EMPTY_COLLECTION) as never
-		});
+		// `toRenderCollection` resolves each Annotation's style against this Layer's default and
+		// simplestyle's own (ADR-0009). A Layer with no file yet, or one whose file could not be read,
+		// draws nothing rather than taking the rest of the stack down with it.
+		const rendered = toRenderCollection(
+			drawn.annotations ?? { annotations: [] },
+			drawn.layer.defaultStyle
+		);
+		map.addSource(source, { type: 'geojson', data: rendered as never });
 		sources.push(source);
-		for (const { id, spec } of annotationLayers(layerId, drawn.layer.defaultStyle)) {
+		for (const { id, spec } of annotationLayers(layerId, whatItContains(rendered))) {
 			map.addLayer({ id, ...spec } as never);
 			added.push(id);
 		}

@@ -12,7 +12,15 @@ Each Annotation Layer is one GeoJSON `FeatureCollection` that opens correctly in
 
 [ADR-0009](../../../docs/adr/0009-annotations-use-simplestyle-spec.md) (the whole slice), [ADR-0002](../../../docs/adr/0002-display-state-separate-from-portable-documents.md) (default style lives on the Layer), [ADR-0005](../../../docs/adr/0005-maplibre-and-terra-draw.md) (data-driven styling).
 
-`terra-draw` and its MapLibre adapter arrived in ticket 07; the Layer list in ticket 09.
+~~`terra-draw` and its MapLibre adapter arrived in ticket 07~~ — **this was never true.** Ticket 07
+declined `terra-draw` for the Control Point pairing (ADR-0022: pairing is linked markers across two
+panes, which no drawing library models) and built the `overlayPoints` seam instead; ticket 08
+declined it for the Resource Mask and *widened that seam* with `mask-vertex` and `mask-edge` handles.
+It has never been in the repository. Ticket 10 declined it too — the reasoning is in
+`apps/editor/src/lib/annotations/drawing.svelte.ts` and summarised under "Decisions" below.
+
+The Layer list did arrive in ticket 09, along with `SimpleStyle`, `annotationPath`,
+`emptyAnnotationCollection`, and the `kind: 'annotation'` render path in `stack-layers.ts`.
 
 ```
 marked        Markdown → HTML
@@ -85,22 +93,30 @@ Drawing tools: point, line, polygon, with vertex editing after drawing. Per ADR-
 
 ## Acceptance criteria
 
-- [ ] Points, lines, and polygons can be drawn on the Base Map and appear in the correct Annotation Layer
-- [ ] Vertices can be edited after drawing, and an edit produces **exactly one** store write, on gesture end
-- [ ] `title` and `description` are editable and persist
-- [ ] Markdown in `description` renders with emphasis and links, and the editor shows a live preview while typing
-- [ ] A `description` containing `<img src=x onerror=alert(1)>` and a `javascript:` link renders inert — asserted, not assumed
-- [ ] Sanitisation runs **after** parsing: a payload that survives `marked` but not `dompurify` is inert, proving the order — a sanitise-then-parse implementation fails this and passes a naive "is it escaped" test
-- [ ] Footnote syntax (`[^1]`) renders as literal text, producing no anchors, no ids, and no broken markup
-- [ ] The sanitised renderer is exported from `core` and imported by both apps — not reimplemented in the viewer
-- [ ] `marked` and `dompurify` are catalog entries and direct dependencies of both apps, with accurate `THIRD-PARTY-NOTICES.md` entries
-- [ ] Colour, opacity, and width controls write simplestyle property names exactly
-- [ ] Solid, dashed, and dotted render distinctly; solid is the **absence** of `stroke-dasharray`; dashed and dotted store tuples
-- [ ] A Layer `defaultStyle` applies to features lacking their own properties, and a feature property overrides it
-- [ ] Features created with default styling carry **no** style properties in the written file
-- [ ] The written file is valid GeoJSON and validates against simplestyle property names and value types
-- [ ] Deleting an Annotation removes it from the file
-- [ ] Every drawing tool and style control is reachable and operable by keyboard, and the toolbar's active tool is announced
+- [x] Points, lines, and polygons can be drawn on the Base Map and appear in the correct Annotation Layer
+- [x] Vertices can be edited after drawing, and an edit produces **exactly one** store write, on gesture end
+- [x] `title` and `description` are editable and persist
+- [x] Markdown in `description` renders with emphasis and links, and the editor shows a live preview while typing
+- [x] A `description` containing `<img src=x onerror=alert(1)>` and a `javascript:` link renders inert — asserted, not assumed
+- [x] Sanitisation runs **after** parsing: a payload that survives `marked` but not `dompurify` is inert, proving the order — a sanitise-then-parse implementation fails this and passes a naive "is it escaped" test
+- [x] Footnote syntax (`[^1]`) renders as literal text, producing no anchors, no ids, and no broken markup
+- [x] The sanitised renderer is exported from `core` and imported by both apps — not reimplemented in the viewer
+- [x] `marked` and `dompurify` are catalog entries and direct dependencies of both apps, with accurate `THIRD-PARTY-NOTICES.md` entries
+- [x] Colour, opacity, and width controls write simplestyle property names exactly
+- [x] Solid, dashed, and dotted render distinctly; solid is the **absence** of `stroke-dasharray`; dashed and dotted store tuples
+- [x] A Layer `defaultStyle` applies to features lacking their own properties, and a feature property overrides it
+- [x] Features created with default styling carry **no** style properties in the written file
+- [x] The written file is valid GeoJSON and validates against simplestyle property names and value types
+- [x] Deleting an Annotation removes it from the file
+- [x] Every drawing tool and style control is reachable and operable by keyboard, and the toolbar's active tool is announced
+- [~] **The geojson.io portability spot-check was not performed.** It is a manual step against a
+      third-party site, and this environment has no way to drive it. What *is* asserted, and is most of
+      what the spot-check would find: the document is a `FeatureCollection` of `Feature`s with
+      RFC 7946 geometries, a Polygon's ring is closed (an open ring is the single most common reason
+      another tool rejects hand-built GeoJSON, and geojson.io itself would draw it happily while
+      PostGIS and shapely refuse it), every property name written is one simplestyle 1.1.0 defines,
+      and every value is of the type and in the range the spec gives. A human should still open one in
+      geojson.io and record the outcome.
 
 ```bash
 pnpm --filter @ballastella/core test    # simplestyle conformance, precedence, dasharray tuples, sanitisation
@@ -115,3 +131,172 @@ Success: all exit 0. The sanitisation assertion is **required**, not optional �
 ## Blocked by
 
 - Ticket 09
+
+## What the sanitisation assertions actually check
+
+Recorded here because the tracker calls this the one place in the epic where a bug is a security
+vulnerability rather than a defect, and because "DOMPurify is in the pipeline" is not an assertion.
+
+**Three render surfaces show untrusted text, and all three are asserted:**
+
+| Surface | Where | How it is safe | Asserted in |
+| --- | --- | --- | --- |
+| The Annotation's name in the list | `AnnotationPanel.svelte` | Svelte interpolates it as **text**; the DOM never parses it as markup | `e2e/editor-annotations.e2e.ts`, "inert in the Annotation's name in the list" |
+| The description preview | `AnnotationEditor.svelte` | `{@html}` of `renderDescription`'s output — DOMPurify's own | same file, "inert in the description preview" |
+| The popup on the map | `annotation-popup.ts` → `renderAnnotationPopup` | title escaped, description sanitised, **whole assembly sanitised again** | same file, "inert in the popup on the map" |
+
+A fourth test asks the same questions of the **whole document**, so a fifth surface added later
+without a test of its own still has something looking at it. The popup covers both of a feature's text
+fields at once, which matters because a `title` looks like a label rather than like a stranger's prose
+and is the field most likely to be missed.
+
+**What each asserts, on the live DOM rather than on the pipeline:** no `<script>`, no `<img>`, no
+`<svg>`, no `<iframe>`, no attribute beginning `on`, no `id`, and no `javascript:` or `data:` URL in
+any `href`/`src`/`action`. Plus `window.__xss` was never set, no `<img src=x>` reached the document, no
+`<script>` anywhere contains the payload, and the `pageerror` and `dialog` probes ticket 13 left are
+carried forward on every rendering test.
+
+**And, before any of that, that the surface rendered at all.** The payload carries legitimate prose
+with emphasis in the same string, and each test asserts the prose is present *before* asserting the
+markup is absent. This is not belt-and-braces: a surface that renders nothing passes every security
+assertion perfectly, and rendering nothing is exactly what `{@html}` does when Svelte has adopted
+prerendered nodes for it — which the viewer's page did until it was caught. Note also that the
+payload's own characters do **not** survive in the description: DOMPurify removes a disallowed element
+rather than escaping it, so an assertion looking for `onerror` there would have been asserting the
+wrong behaviour.
+
+**Proved by mutation in the running app too.** With `sanitise` changed to return its input unchanged
+and the editor rebuilt, `pnpm exec playwright test e2e/editor-annotations.e2e.ts --grep untrusted`
+gives:
+
+- **the description preview: FAILS** (a `<script>` element in the preview, `Expected: 0 Received: 1`)
+- **the popup on the map: FAILS**
+- **the Annotation's name in the list: still PASSES** — and that is correct rather than a gap. That
+  surface's safety does not come from DOMPurify at all: Svelte interpolates a title as **text**, so the
+  DOM never parses it as markup, and breaking the sanitiser cannot affect it. What would break it is
+  somebody turning that interpolation into `{@html}`, which is why the test exists and why the comment
+  above it in `AnnotationPanel.svelte` says so. Worth knowing that the three surfaces are safe for two
+  different reasons, because a reader who assumes one mechanism protects all three will eventually
+  "simplify" the wrong one.
+
+**Proved by mutation, twice, at the unit level** (`markdown.browser.test.ts`, Chromium and Firefox):
+
+- `sanitise` changed to return its input unchanged → **32 of 154 tests fail.**
+- the pipeline reversed to sanitise-then-parse → **4 fail, and they are the right 4**: the payloads
+  written in *Markdown* syntax, `[click](javascript:…)` and the `data:` link. That is ADR-0009's named
+  bypass exactly — the sanitiser sees inert text and passes it, and the parser downstream builds
+  `<a href="javascript:…">` out of it. 148 tests still passed, which is why the order has a test whose
+  *only* job is the order, and why an `<img onerror>` cannot be the payload that proves it: DOMPurify
+  removes that one in either order.
+
+## Decisions
+
+### `terra-draw` was declined, and that makes three tickets in a row
+
+Ticket 07 declined it for Control Point pairing, ticket 08 for the Resource Mask, and this slice for
+Annotation drawing. It has never been in the repository, so this ticket's "Where to start" was simply
+wrong about it. **ADR-0005 says all drawing and editing goes through `terra-draw`, so the ADR and the
+code now disagree** — see the open question below.
+
+Annotations are the case `terra-draw` is most obviously *for* — free-form lines and polygons over real
+geography rather than a four-corner ring — so ticket 08's four reasons were re-weighed rather than
+inherited. Three hold, one does not, and a fifth has appeared:
+
+1. **Keyboard reach, which decides it.** `terra-draw` edits inside a WebGL layer, and a WebGL layer
+   cannot be focused. "Every drawing tool and style control is reachable and operable by keyboard" is a
+   criterion of *this* ticket. The `overlayPoints` seam gives a named `<button>` per vertex with
+   arrow-key movement and Delete, already built and already asserted.
+2. **ADR-0017 rule 1.** The criterion is that a vertex edit costs *exactly one* store write — a number,
+   asserted by counting. `terra-draw`'s change events fire per coordinate; the seam's `onmoveend` fires
+   once per pointer-drag and once per arrow-key hold.
+3. **ADR-0019's cost.** Two runtime dependencies, two catalog pins, two notices, and a standing fence.
+4. ~~ADR-0005's projection rule~~ — **does not apply here.** Ticket 08's mask is in image pixel space;
+   Annotations are on real geography.
+5. **One drawing mechanism rather than two.** New, and it is what settles it now that the seam has been
+   widened twice. Adding `terra-draw` for only the third of three vertex editors would mean two keyboard
+   stories, two write-count stories, and two sets of bugs.
+
+What is lost is a rubber-band preview between clicks. It is replaced by drawing the vertices placed so
+far plus a live count in an announced status region — which is also what makes the gesture legible to a
+screen reader, where a rubber band is not.
+
+The reasoning lives in `apps/editor/src/lib/annotations/drawing.svelte.ts`.
+
+### Annotation deletion **is** in the UI, unlike ticket 09's Layer deletion
+
+Ticket 09 shipped `removeLayer` tested but deliberately kept its button out, because the button belongs
+with the single-level undo that makes it safe (ADR-0014, ticket 11). This slice ships the delete button
+anyway, and the asymmetry is deliberate on three grounds:
+
+- **The criterion requires it.** "Deleting an Annotation removes it from the file" is an acceptance
+  criterion here; ticket 09 had no equivalent for Layers.
+- **The blast radius is a different order.** Deleting a Layer destroys a whole document and every
+  Annotation in it — ADR-0017 rule 4's "not one annotation but the map of everything". Deleting one
+  Annotation destroys one shape, which the user has selected and is looking at.
+- **Its absence is the worse failure.** Drawing is an easy-to-mis-aim gesture, and with no delete a
+  misplaced shape would be permanent. "Undo last point" and Escape cover the gesture in progress;
+  deletion covers the one already committed.
+
+ADR-0014 still lists "annotation deleted" among the four actions single-level undo must cover, and
+ticket 11 should cover it.
+
+## A slowdown this slice caused, and how it surfaced
+
+Worth recording because of *how* it was found, which is the pattern the tracker keeps warning about.
+
+Because `line-dasharray` is not a data-driven paint property, an Annotation Layer needs one MapLibre
+line layer per dash pattern — so this slice took a Layer from ticket 09's three MapLibre layers to
+**five**. Every one of those is per-frame work on the same thread that decodes a warped Historical
+Map's tiles through the ADR-0011 shim.
+
+The symptom was **ticket 09's** test going red, not one of ours:
+`editor-layers.e2e.ts` "an Annotation Layer above a map Layer draws above it" asserts
+`warpedTiles > 0` after allowing three seconds for tiles to arrive *and decode*, and the two extra
+layers were enough to miss that window. It failed with `--workers=1` and nothing else running, so it
+was not the contention flake the tracker documents — it was a real regression wearing that costume.
+Two other tests in the same describe kept passing, which is what located it: they assert `data-drawn`
+is 2, so the warped map was being *drawn* fine; only its tiles were late.
+
+Only the layers a Layer's contents need are now added — an Annotation Layer of pins no longer carries
+three line layers that can never match anything, and one with only solid lines is back to ticket 09's
+three. `annotationLayerIds` still returns all five candidates for hit-testing, because a caller has to
+filter by `map.getLayer(id)` anyway.
+
+**That did not fix the test, so the layer count was not the cause.** What is established, and what is
+not:
+
+- **Established.** It fails on `warpedTiles > 0` alone — zero tiles in the tile cache after the
+  three seconds the helper allows. The two sibling tests in the same describe pass, and both assert
+  `data-drawn` is 2, so the warped Historical Map *is* being drawn; only its tiles are late. Every one
+  of this slice's 31 Annotation tests passes in the same run, including the ones that assert what
+  MapLibre painted. Reducing the MapLibre layer count changed nothing.
+- **Not established: whether this slice caused it.** The decisive experiment — running that one test
+  against `main`'s `apps/` and `packages/` — could not be run: checking out another ref's paths was
+  refused by this environment's permission classifier, and it did not seem right to work around that.
+  So **a reviewer should run `editor-layers.e2e.ts` on `main` before assuming either answer.** The
+  circumstantial case for "pre-existing and marginal" is that the same test was reported *flaky*
+  (passing on retry) in one full run and failing in others, that a hard regression would not pass on
+  retry, and that two or three agents' Playwright suites were running on this machine throughout —
+  which the tracker already names as the cause of this suite's flakes. The case for "caused here" is
+  that it failed with `--workers=1` and nothing else running, which is exactly what the tracker says
+  the known flake does *not* do.
+
+**The lesson regardless:** a performance regression in this slice does not announce itself in this
+slice's tests. It shows up as a *timing* assertion in somebody else's, indistinguishable at a glance
+from the flake this suite is known to have. Before calling a red warped-tile assertion flaky, run it
+with `--workers=1` and nothing else on the machine — and if it still fails, that is not the known
+flake.
+
+## Open question raised by this ticket, for a human
+
+**ADR-0005 mandates `terra-draw` for all drawing, and three tickets have now declined it.** This is the
+same shape as the epic's existing open question 7 about ADR-0013 — an ADR that says something the code
+does not do is worse than one that is silent. The reasons for declining are recorded above and in the
+code, and the substitute seam is real and asserted, so nothing is broken; what is needed is a decision:
+
+- reword ADR-0005 to describe the `overlayPoints` seam as the drawing mechanism, keeping `terra-draw`
+  as considered-and-rejected with the keyboard reasoning; **or**
+- decide that keyboard-inaccessible drawing is acceptable somewhere and say where, and treat the three
+  tickets' seam as the thing to be replaced.
+
+`THIRD-PARTY-NOTICES.md` has had its `terra-draw` row removed, since that file records what ships.

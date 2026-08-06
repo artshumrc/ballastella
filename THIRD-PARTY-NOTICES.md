@@ -69,14 +69,32 @@ dependency at a time.
 | `triiiceratops`                  | MIT           | IIIF Manifest and Collection navigation, unwarped viewing |
 | `manifesto.js` (via triiiceratops) | Apache-2.0  | IIIF Presentation parsing inside triiiceratops   |
 | `openseadragon` (via triiiceratops) | BSD-3-Clause | Deep-zoom image viewer                        |
-| `terra-draw` and its MapLibre adapter | MIT      | All drawing — control points, resource masks, annotations |
 | `maplibre-gl`                    | BSD-3-Clause  | Both map panes                                  |
 | `@maplibre/maplibre-gl-style-spec` | ISC         | The `StyleSpecification` type, across the `core` boundary |
 | `pmtiles`                        | BSD-3-Clause  | Single-file tile archive for the offline base map |
 | `@protomaps/basemaps`            | BSD-3-Clause  | Base map style documents                        |
+| `marked`                         | MIT           | Markdown → HTML, the first stage of the Annotation `description` pipeline (ADR-0009) |
+| `dompurify`                      | Apache-2.0 or MPL-2.0 | HTML → sanitised HTML, the second stage, and the security boundary |
+| `fflate`                         | MIT           | Zip export and import, ADR-0001's only way in and out |
 | `daisyui`                        | MIT           | The only UI dependency (ADR-0016)               |
 | `tailwindcss`                    | MIT           | Styling                                         |
 | `svelte`, `@sveltejs/*`          | MIT           | Framework and static adapter                    |
+
+`marked` and `dompurify` are direct dependencies of `@ballastella/core` **and of both apps**.
+ADR-0018 explains why `dompurify` arriving in triiiceratops' tree costs nothing extra to
+install; it is not permission to import it undeclared, which pnpm's isolated `node_modules`
+prevents anyway. `dompurify` is dual-licensed and either licence is acceptable here; its text
+ships in the package.
+
+**`terra-draw` has been removed from this table, because it is not a dependency.** It was
+listed ahead of the ticket expected to add it, as the note above this table describes, and
+then three tickets in a row declined it: ticket 07 for Control Point pairing (ADR-0022 —
+pairing is linked markers across two panes, which no drawing library models), ticket 08 for
+the Resource Mask, and ticket 10 for Annotation drawing. All three now share one seam,
+`apps/editor/src/lib/overlay/overlay-points.ts`, whose handles are real focusable buttons.
+ADR-0005 still says all drawing goes through `terra-draw`, so **the ADR and the code
+disagree** — recorded as an open question for a human in the epic tracker. This file records
+what ships.
 
 Base map _tiles_ are not dependencies but are still third-party content with attribution
 requirements of their own — OpenStreetMap data is ODbL, and the rendered base maps must

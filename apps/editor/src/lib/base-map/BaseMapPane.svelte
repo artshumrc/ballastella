@@ -16,11 +16,13 @@
 <script lang="ts">
 	import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 	import {
+		ANNOTATION_ID_PROPERTY,
 		BASE_MAP_CATALOG,
 		DEFAULT_DISTORTION_VIEW,
 		baseMapStyle,
 		resolveBaseMap,
 		type Alignment,
+		type Annotation,
 		type DistortionView,
 		type FetchFn
 	} from '@ballastella/core';
@@ -28,7 +30,9 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount, untrack } from 'svelte';
 
+	import { showAnnotationPopup } from '$lib/annotations/annotation-popup';
 	import {
+		annotationLayerIds,
 		drawLayerStack,
 		isDrawnMap,
 		type DrawnLayer,
@@ -56,7 +60,12 @@
 		layers = [],
 		distortion = DEFAULT_DISTORTION_VIEW,
 		fetchTile,
+		popupAnnotation = null,
+		popupAt = null,
 		onclickpoint,
+		onclickannotation,
+		onfinishshape,
+		onpopupclose,
 		onwarped,
 		onstack
 	}: {
@@ -93,8 +102,46 @@
 		 * be drawn warped, since a locally stored pyramid has no URL.
 		 */
 		fetchTile?: FetchFn;
-		/** A place on the earth the user clicked. */
+		/**
+		 * The Annotation whose popup is open, and where it is anchored, or `null` for none (ticket 10).
+		 *
+		 * The pane owns MapLibre's `Popup` because it owns the map; the page owns *which* Annotation is
+		 * open, because that is a question about the user's selection. The HTML is neither's: it comes
+		 * from `renderAnnotationPopup` in `core`, which escapes the title and sanitises the description,
+		 * and is the same function the Published Site uses (ADR-0009, ADR-0019).
+		 */
+		popupAnnotation?: Annotation | null;
+		popupAt?: GeoPoint | null;
+		/**
+		 * A place on the earth the user asked for — a click on the pane, or Enter while it has focus.
+		 *
+		 * Enter reports the **centre of the map**, which is what makes drawing an Annotation reachable
+		 * without a pointer: MapLibre already pans the canvas with the arrow keys and zooms with `+` and
+		 * `-`, so "move the map to the place, then press Enter" is a complete path with nothing new to
+		 * learn. Ticket 10's criterion is that every drawing tool is operable by keyboard, and a tool
+		 * that can be *selected* but not *used* by keyboard would satisfy the letter of it only.
+		 */
 		onclickpoint?: (point: GeoPoint) => void;
+		/**
+		 * An Annotation the user clicked, by its Layer and its own id (ticket 10).
+		 *
+		 * Reported **in addition to** {@link onclickpoint} rather than instead of it, because which one
+		 * matters depends on the tool the page is holding: with a drawing tool active the click places a
+		 * vertex and the Annotation underneath is irrelevant, and with the select tool it is the other
+		 * way round. The page knows which; the pane does not, and guessing here would make the pane hold
+		 * a copy of the toolbar's state.
+		 */
+		onclickannotation?: (hit: { layerId: string; annotationId: string; at: GeoPoint }) => void;
+		/**
+		 * The gesture is over: a double-click, or Shift+Enter while the pane has focus.
+		 *
+		 * The pointer and keyboard routes to the same act, on the pane rather than only on the Finish
+		 * button, because a user drawing a nine-vertex shape is looking at the map and not at the
+		 * toolbar.
+		 */
+		onfinishshape?: () => void;
+		/** The reader dismissed the popup with its own close button or with Escape. */
+		onpopupclose?: () => void;
 		/**
 		 * What the warped renderer did with the current Alignment, for the page to surface.
 		 *
@@ -132,6 +179,39 @@
 			resolveAsset: resolveDeploymentAsset
 		});
 
+	/**
+	 * The Annotation drawn at a screen point, or `null`.
+	 *
+	 * Restricted to this stack's own Annotation layers, so the Base Map style's roads and labels — which
+	 * are also rendered features — can never read as a hit. The id comes out of the render copy's
+	 * `properties` rather than the GeoJSON `Feature`'s `id`, because MapLibre needs a feature id to be
+	 * an integer and mangles a UUID (see `ANNOTATION_ID_PROPERTY`).
+	 */
+	const annotationAt = (
+		target: MapLibreMap,
+		at: { x: number; y: number }
+	): { layerId: string; annotationId: string } | null => {
+		for (const drawn of layers) {
+			if (isDrawnMap(drawn)) continue;
+			const ids = annotationLayerIds(drawn.layer.id).filter((id) => target.getLayer(id));
+			if (ids.length === 0) continue;
+			// A few pixels of slack, because a line one pixel wide is not something a pointer can hit and
+			// a pin is drawn larger than the point it marks.
+			const box: [[number, number], [number, number]] = [
+				[at.x - 6, at.y - 6],
+				[at.x + 6, at.y + 6]
+			];
+			const found = target.queryRenderedFeatures(box, { layers: ids });
+			for (const feature of found) {
+				const annotationId = feature.properties?.[ANNOTATION_ID_PROPERTY];
+				if (typeof annotationId === 'string' && annotationId !== '') {
+					return { layerId: drawn.layer.id, annotationId };
+				}
+			}
+		}
+		return null;
+	};
+
 	onMount(() => {
 		registerPmtilesProtocol();
 
@@ -148,9 +228,47 @@
 		});
 		created.addControl(new NavigationControl({}), 'top-right');
 
-		created.on('click', (event) =>
-			onclickpoint?.({ lng: event.lngLat.lng, lat: event.lngLat.lat })
-		);
+		created.on('click', (event) => {
+			const at = { lng: event.lngLat.lng, lat: event.lngLat.lat };
+			// The Annotation underneath first, so the page has both facts before it decides which one the
+			// current tool cares about. `queryRenderedFeatures` is asked with the click's own screen point
+			// and restricted to this stack's Annotation layers, so a click on the Base Map's own label or
+			// road never reads as a hit.
+			const hit = annotationAt(created, event.point);
+			if (hit) onclickannotation?.({ ...hit, at });
+			onclickpoint?.(at);
+		});
+
+		// Double-click ends a line or a shape. MapLibre's own default for `dblclick` is to zoom in, which
+		// would otherwise fire in the same gesture and leave the user somewhere else on the earth.
+		created.on('dblclick', (event) => {
+			if (onfinishshape === undefined) return;
+			event.preventDefault();
+			onfinishshape();
+		});
+
+		// Enter places a point at the centre of the map; Shift+Enter ends a line or a shape. That
+		// completes the keyboard path for drawing an Annotation: MapLibre already pans the canvas with
+		// the arrow keys and zooms with `+` and `-`, so "move the map to the place, then press Enter" is
+		// a whole route with nothing new to learn. Without it a drawing tool could be *chosen* by
+		// keyboard and never *used* by one.
+		//
+		// On MapLibre's own canvas rather than on the container, and that is not incidental: the canvas
+		// already carries `tabindex="0"`, a role, and an accessible name, so nothing here has to invent
+		// them — a wrapper `<div>` with a key handler would need a role of its own, and `role="application"`
+		// would change how a screen reader treats the whole pane. It also means a focused overlay-point
+		// button, which is a sibling of the canvas rather than a child, never reaches this at all: Enter
+		// on a vertex handle is that button's activation.
+		created.getCanvas().addEventListener('keydown', (event) => {
+			if (event.key !== 'Enter') return;
+			event.preventDefault();
+			if (event.shiftKey) {
+				onfinishshape?.();
+				return;
+			}
+			const centre = created.getCenter();
+			onclickpoint?.({ lng: centre.lng, lat: centre.lat });
+		});
 
 		painted = paintKey(entryId, theme.current);
 		map = created;
@@ -277,7 +395,7 @@
 			layers.map((drawn) =>
 				isDrawnMap(drawn)
 					? [drawn.layer.id, 'map', drawn.alignment]
-					: [drawn.layer.id, 'annotation', drawn.layer.defaultStyle, drawn.features]
+					: [drawn.layer.id, 'annotation', drawn.layer.defaultStyle, drawn.annotations]
 			)
 		])
 	);
@@ -344,6 +462,22 @@
 		};
 	});
 
+	/**
+	 * The open Annotation's popup (SPEC story 67).
+	 *
+	 * Rebuilt whenever the Annotation, its text, or its anchor changes, so that editing a description
+	 * updates the popup the author is looking at — which is half of what makes the preview trustworthy:
+	 * the popup and the preview are the same renderer, and seeing them agree is the assurance.
+	 */
+	$effect(() => {
+		const annotation = popupAnnotation;
+		const at = popupAt;
+		const current = map;
+		if (!current || !annotation || !at) return;
+		const shown = showAnnotationPopup({ map: current, annotation, at, onclose: onpopupclose });
+		return () => shown?.destroy();
+	});
+
 	/** Opacity, applied in place — see {@link stackStructure} for why this is not a rebuild. */
 	$effect(() => {
 		const built = stack;
@@ -379,7 +513,9 @@
 
 <!--
 	MapLibre gives the canvas `tabindex="0"`, a `role`, and an accessible name, and handles arrow-key
-	panning and +/- zooming itself, so the pane is keyboard operable without anything added here.
+	panning and +/- zooming itself, so the pane is keyboard operable without anything added here. The
+	one addition is Enter and Shift+Enter for drawing an Annotation, bound to the canvas in `onMount`
+	rather than to this element — see there for why.
 
 	The testid names this container specifically because MapLibre appends overlay points *into* it,
 	and both panes' points use identical markup — so telling one pane's Control Points from the

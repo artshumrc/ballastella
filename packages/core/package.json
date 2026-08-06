@@ -17,7 +17,9 @@
 		"@allmaps/transform": "catalog:",
 		"@maplibre/maplibre-gl-style-spec": "catalog:",
 		"@protomaps/basemaps": "catalog:",
-		"fflate": "catalog:"
+		"dompurify": "catalog:",
+		"fflate": "catalog:",
+		"marked": "catalog:"
 	},
 	"devDependencies": {
 		"@allmaps/types": "catalog:",
