@@ -2,16 +2,24 @@ import {
 	Autosave,
 	OpfsProjectStore,
 	PathNotFoundError,
+	ProjectDirectoryCollisionError,
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
 	Workspace,
+	exportProjectZip,
 	installFlushOnHide,
 	projectFilePath,
+	readProjectZip,
+	toDirectoryName,
 	type ProjectFile,
 	type ProjectStore,
 	type ProjectSummary,
-	type SaveState
+	type ProjectZip,
+	type SaveState,
+	type TransferProgress
 } from '@ballastella/core';
+
+import { saveFile } from './save-file.js';
 
 /**
  * Whether the workspace can be reached. Not reachable is a **normal state** with a
@@ -20,6 +28,39 @@ import {
  * trace at that moment reasonably concludes the tool has eaten their work.
  */
 export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
+
+/**
+ * A transfer in flight, for the status region that announces it.
+ *
+ * A zip of a mirrored pyramid takes real seconds to tens of seconds, and it is announced rather
+ * than merely drawn: SPEC story 96 asks for status to reach assistive technology, and this is one
+ * of the two places in the app where the user is waiting on something they cannot see.
+ */
+export interface TransferState {
+	readonly kind: 'export' | 'import';
+	/** The Project being moved, by display name where there is one. */
+	readonly subject: string;
+	readonly files: number;
+	readonly totalFiles: number;
+	readonly finished: boolean;
+}
+
+/**
+ * A validated zip waiting to be written, and where it would go.
+ *
+ * Held between the two halves of an import so the collision question can be asked without
+ * re-reading and re-validating the archive: the user answers it by choosing a name, and the answer
+ * must not be able to change what is about to be written.
+ */
+export interface PendingImport {
+	readonly zip: ProjectZip;
+	/** The display name inside the zip, for naming what is being imported. */
+	readonly name: string;
+	/** Where it will go. The Project's identity, so this is the thing that can collide (ADR-0008). */
+	readonly directory: string;
+	/** The message from a refused attempt, or `''` on the first pass. */
+	readonly collision: string;
+}
 
 /** Why the Project named in `?p=` cannot be shown. */
 export type ProjectProblem =
@@ -60,6 +101,20 @@ export class EditorSession {
 	 * the worst version: the map switches, the app looks fine, and the choice is gone on reopen.
 	 */
 	saveError = $state('');
+
+	/** The export or import in flight, or `null`. Rendered as announced status (ticket 13). */
+	transfer = $state<TransferState | null>(null);
+	/**
+	 * A zip that has been read and validated but not yet written, because where to put it is still
+	 * an open question. `null` whenever there is nothing to answer.
+	 */
+	pendingImport = $state<PendingImport | null>(null);
+	/**
+	 * Why the last export or import did not happen. Shown in the import dialog, and it is the whole
+	 * point of the refusals: ADR-0010's "this Project is from a newer version" has to reach a
+	 * screen, or a user hands a colleague a zip that silently does nothing.
+	 */
+	transferError = $state('');
 
 	/** The Project directory currently open, from `?p=`. */
 	openDirectory = $state<string | null>(null);
@@ -128,6 +183,144 @@ export class EditorSession {
 
 	async deleteProject(directory: string): Promise<void> {
 		await this.#mutate(directory, () => this.#workspace.deleteProject(directory));
+	}
+
+	/**
+	 * Hand one Project to the user as a zip (SPEC story 5).
+	 *
+	 * Everything pending is flushed first. Exporting a Project whose last edit is still inside the
+	 * autosave debounce would otherwise produce an archive missing the change the user just made —
+	 * the one failure that would make this whole path untrustworthy, since a zip is what they are
+	 * about to send somebody (ADR-0017 rule 1).
+	 */
+	async exportProject(project: ProjectSummary): Promise<void> {
+		this.transferError = '';
+		await this.flush();
+		const announce = (progress: TransferProgress, finished: boolean) => {
+			this.transfer = {
+				kind: 'export',
+				subject: project.name,
+				files: progress.files,
+				totalFiles: progress.totalFiles,
+				finished
+			};
+		};
+		try {
+			const exported = await exportProjectZip(this.#workspace.store, project.directory, {
+				onProgress: (progress) => announce(progress, false)
+			});
+			await saveFile(exported.fileName, exported.body);
+			announce(
+				{
+					files: exported.totalFiles,
+					totalFiles: exported.totalFiles,
+					bytes: exported.totalBytes,
+					totalBytes: exported.totalBytes,
+					path: null
+				},
+				true
+			);
+		} catch (cause) {
+			this.transfer = null;
+			this.transferError = cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	/**
+	 * Read a zip the user chose and work out where it would go. **Writes nothing.**
+	 *
+	 * The whole archive is validated here, before there is anything to write, so a zip that is
+	 * refused leaves the Workspace exactly as it was. On success this leaves a {@link pendingImport}
+	 * for {@link confirmImport}, which is what lets the collision be a question.
+	 *
+	 * The directory name is taken from the *file name*, because the Project's identity is its
+	 * directory and a zip rooted at that directory does not carry it. Falling back to the display
+	 * name inside would be wrong as a first choice: two Projects may share a display name, and
+	 * deriving identity from it would refuse a colleague's Project for having the same title.
+	 */
+	async prepareImport(file: File): Promise<void> {
+		this.transferError = '';
+		this.pendingImport = null;
+		try {
+			const zip = await readProjectZip(new Uint8Array(await file.arrayBuffer()));
+			const base = file.name.replace(/\.zip$/i, '');
+			// `toDirectoryName` always returns something usable, so ask separately whether the file name
+			// had anything in it to work from before trusting what it produced.
+			const fromFileName = /[a-z0-9]/i.test(base) ? toDirectoryName(base) : '';
+			this.pendingImport = {
+				zip,
+				name: zip.project.name || fromFileName,
+				directory: fromFileName || toDirectoryName(zip.project.name),
+				collision: ''
+			};
+		} catch (cause) {
+			this.transferError = cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	/**
+	 * Write a prepared import into `directory` (SPEC stories 13 and 14).
+	 *
+	 * A collision does not fail the import: it comes back as a question with the offending name and
+	 * a free one, and the pending zip stays in hand so answering it costs nothing. Nothing has been
+	 * written at the point the question is asked, which is the property that matters — the user may
+	 * be importing a colleague's version of work they also have.
+	 *
+	 * @returns the imported Project, or `null` when it was refused
+	 */
+	async confirmImport(directory: string): Promise<ProjectSummary | null> {
+		const pending = this.pendingImport;
+		if (!pending) return null;
+		this.transferError = '';
+		const name = pending.name || directory;
+		try {
+			const imported = await this.#workspace.importProject(directory, pending.zip, {
+				onProgress: (progress) => {
+					this.transfer = {
+						kind: 'import',
+						subject: name,
+						files: progress.files,
+						totalFiles: progress.totalFiles,
+						finished: false
+					};
+				}
+			});
+			this.transfer = {
+				kind: 'import',
+				subject: name,
+				files: pending.zip.paths.length,
+				totalFiles: pending.zip.paths.length,
+				finished: true
+			};
+			this.pendingImport = null;
+			await this.refresh();
+			return imported;
+		} catch (cause) {
+			this.transfer = null;
+			if (cause instanceof ProjectDirectoryCollisionError) {
+				// Kept, not discarded: the archive is already validated and in hand, so the user answers
+				// with a name rather than choosing the file again.
+				this.pendingImport = {
+					...pending,
+					directory: cause.suggestion,
+					collision: cause.message
+				};
+				return null;
+			}
+			this.transferError = cause instanceof Error ? cause.message : String(cause);
+			return null;
+		}
+	}
+
+	/** Abandon a prepared import. Nothing was written, so there is nothing to undo. */
+	cancelImport(): void {
+		this.pendingImport = null;
+		this.transferError = '';
+	}
+
+	/** Clear the announced transfer status, once the user has had a chance to read it. */
+	clearTransfer(): void {
+		this.transfer = null;
 	}
 
 	/**

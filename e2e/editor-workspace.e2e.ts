@@ -234,7 +234,7 @@ test.describe('the keyboard alone', () => {
 
 		// Every control on the row is reachable by tabbing forward from the heading link.
 		await page.getByRole('link', { name: 'Keyboard Only' }).focus();
-		for (const label of [/^Rename/, /^Duplicate/, /^Delete/]) {
+		for (const label of [/^Rename/, /^Duplicate/, /^Export/, /^Delete/]) {
 			await page.keyboard.press('Tab');
 			await expect(page.getByRole('button', { name: label })).toBeFocused();
 		}
