@@ -52,9 +52,13 @@ import {
  * silent — the layer falls back to the global `fetch`, every tile URL goes to `unset.invalid`,
  * and the map is blank with nothing to say why. Requiring it here makes the omission a type
  * error instead.
+ *
+ * @param layerId MapLibre's id for the layer. Named by the caller when a Project's Layer stack puts
+ *   more than one of these on a map (ticket 09), because MapLibre keys everything — the drawing
+ *   order included — on that id, and two layers minting the same default would collide.
  */
-export function createWarpedMapLayer(fetchTile: FetchFn): WarpedMapLayer {
-	return new WarpedMapLayer({ fetchFn: fetchTile });
+export function createWarpedMapLayer(fetchTile: FetchFn, layerId?: string): WarpedMapLayer {
+	return new WarpedMapLayer({ fetchFn: fetchTile, ...(layerId === undefined ? {} : { layerId }) });
 }
 
 /** What became of an attempt to draw an Alignment warped. */

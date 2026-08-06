@@ -7,6 +7,38 @@
 
 export { Autosave, type AutosaveOptions, type SaveState } from './autosave/autosave.js';
 export { installFlushOnHide, type HideEventTargets } from './autosave/flush-on-hide.js';
+// The Layer stack (CONTEXT.md, Layer; ADR-0002). Both apps: the editor edits it, and the published
+// viewer reads it to know what draws over what (ADR-0019), so it lives here and is free of
+// `terra-draw`, the tiler, and `wasm-vips`.
+export {
+	ANNOTATION_DIRECTORY,
+	LOCAL_COPY,
+	addLayer,
+	annotationPath,
+	annotationStorePath,
+	drawingOrder,
+	emptyAnnotationCollection,
+	findLayer,
+	imageIdFromAlignmentRef,
+	mapLayerImageInfoPath,
+	moveLayer,
+	moveLayerDown,
+	moveLayerUp,
+	newAnnotationLayer,
+	newMapLayer,
+	parseLayers,
+	removeLayer,
+	renameLayer,
+	serialiseLayers,
+	setLayerVisible,
+	setMapLayerOpacity,
+	type AnnotationLayer,
+	type ForeignLayer,
+	type ImageMode,
+	type Layer,
+	type MapLayer,
+	type SimpleStyle
+} from './project/layer.js';
 export {
 	BALLASTELLA_CANONICAL_URL,
 	CURRENT_FORMAT_VERSION,
@@ -149,7 +181,7 @@ export {
 } from './tiler/decode-ceiling.js';
 export { openDecodeAndCropSource } from './tiler/decode-and-crop-tiler.js';
 export { readImageHeader, type ImageHeader } from './tiler/image-header.js';
-export { buildImageManifest, type ImageManifest } from './tiler/image-manifest.js';
+export { buildImageManifest, readImageLabel, type ImageManifest } from './tiler/image-manifest.js';
 export {
 	NoStreamingTilerError,
 	UnreadableImageError,

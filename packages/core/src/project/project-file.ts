@@ -1,5 +1,6 @@
 import { PROJECT_BASE_MAP_KEY, readBaseMapId } from '../base-map/project.js';
 import type { Bytes } from '../store/project-store.js';
+import { parseLayers, serialiseLayers, type Layer } from './layer.js';
 
 /** The `project.json` format this build of the app understands (ADR-0010). */
 export const CURRENT_FORMAT_VERSION = 1;
@@ -39,8 +40,15 @@ export interface ProjectFile {
 	 * touched it survives being moved, zipped, and cloned; a file mtime does not.
 	 */
 	readonly updatedAt: string;
-	/** The ordered Layer stack. Ticket 09 gives this a type; empty until then. */
-	readonly layers: readonly unknown[];
+	/**
+	 * The ordered Layer stack, top first (ADR-0002).
+	 *
+	 * **The single most important field in the file.** Losing it is "not one annotation but the map
+	 * of everything" (ADR-0017 rule 4), which is why it is written atomically, why `EditorSession` is
+	 * the app's only writer of this document, and why `parseLayers` refuses to throw over a field it
+	 * does not like.
+	 */
+	readonly layers: readonly Layer[];
 	/**
 	 * The author's default Base Map, by stable id and never by URL (ADR-0020).
 	 *
@@ -135,7 +143,9 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		formatVersion,
 		name: typeof name === 'string' ? name : '',
 		updatedAt: typeof updatedAt === 'string' ? updatedAt : '',
-		layers: Array.isArray(layers) ? layers : [],
+		// Tolerant by design and never throwing — see `parseLayers`. A Layer list that refused to
+		// parse would turn one bad field into a Project that cannot be opened at all.
+		layers: parseLayers(layers),
 		// Through `readBaseMapId` rather than inline, so there is exactly one implementation of
 		// "what did the author choose?". Two of them disagreeing meant `"baseMap": "  "` behaved
 		// differently depending on which code path reached the file.
@@ -151,7 +161,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 export function serialiseProjectFile(file: ProjectFile): Bytes {
 	const { unknownFields, formatVersion, name, updatedAt, layers, baseMap } = file;
 	const json = JSON.stringify(
-		{ formatVersion, name, updatedAt, layers, baseMap, ...unknownFields },
+		{ formatVersion, name, updatedAt, layers: serialiseLayers(layers), baseMap, ...unknownFields },
 		null,
 		'\t'
 	);

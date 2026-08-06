@@ -15,6 +15,24 @@ it('exposes a working workspace through the package entry point', async () => {
 	expect((await workspace.listProjects()).map((p) => p.directory)).toEqual([created.directory]);
 });
 
+// The Layer stack, reachable through the barrel because **both** apps need it: the editor edits it
+// and the published viewer reads it to know what draws over what (ADR-0019).
+it('exposes the Layer stack to both apps', () => {
+	expect(Object.keys(core)).toEqual(
+		expect.arrayContaining([
+			'addLayer',
+			'drawingOrder',
+			'moveLayer',
+			'newAnnotationLayer',
+			'newMapLayer',
+			'parseLayers',
+			'renameLayer',
+			'setLayerVisible',
+			'setMapLayerOpacity'
+		])
+	);
+});
+
 // Containment, not equality: every slice adds exports, and an exhaustive list here would
 // fail on each one without saying anything true about reachability. The behaviour of these
 // lives in `src/image-pane`; this only asserts the apps can reach them.

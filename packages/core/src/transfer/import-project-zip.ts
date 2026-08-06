@@ -1,5 +1,6 @@
 import { unzip, type UnzipFileInfo, type Unzipped } from 'fflate';
 
+import { mapLayerImageInfoPath, type Layer } from '../project/layer.js';
 import {
 	BALLASTELLA_CANONICAL_URL,
 	PROJECT_FILE_NAME,
@@ -321,13 +322,59 @@ function assertSafeEntryName(name: string): void {
 }
 
 /**
+ * The files a Layer names, which the archive therefore has to carry.
+ *
+ * A Layer references its content and never contains it (ADR-0002), so this is where the references
+ * are collected — from the union rather than by reading key names off an untyped object, so a kind
+ * added later has to say here what it points at.
+ *
+ * A {@link ForeignLayer} — a kind this build has never heard of — is still asked about the two
+ * reference names this application owns, because a Layer that carries an `alignmentRef` means by it
+ * what every other Layer means. Nothing else about it is interpreted, which is the forward tolerance
+ * ADR-0014 asks of the Layer list itself.
+ */
+function layerReferences(layer: Layer): readonly string[] {
+	switch (layer.kind) {
+		// **The Layer → Alignment → image link, followed without opening the Alignment.** An
+		// Alignment's identity is its path, which is exactly why `parseAlignment` takes the image id
+		// from the caller and never from the document's own `resource.id`; `mapLayerImageInfoPath`
+		// reads it the same way. So the image a map Layer draws is named by `alignmentRef` itself, and
+		// **no untrusted Annotation is parsed during validation** — which was the real reason ticket 13
+		// deferred this, and the property `readProjectZip` is built on: it interprets nothing but
+		// `project.json` before deciding to accept the archive.
+		case 'map': {
+			const info = mapLayerImageInfoPath(layer);
+			return info === null ? [layer.alignmentRef] : [layer.alignmentRef, info];
+		}
+		case 'annotation':
+			return [layer.geojsonRef];
+		case 'foreign':
+			return ['alignmentRef', 'geojsonRef']
+				.map((key) => layer.unknownFields?.[key])
+				.filter((reference): reference is string => typeof reference === 'string');
+	}
+}
+
+/**
  * Refuse a zip whose `project.json` points at files it does not carry.
  *
- * `alignmentRef` and `geojsonRef` are the two references a Layer holds (SPEC's Layer union, given
- * a type by ticket 09). They are read structurally here rather than through that type, so this
- * check works on the `layers: unknown[]` of today and keeps working when ticket 09 lands — and it
- * tolerates a Layer kind this build has never heard of, which is the same forward tolerance
- * ADR-0014 asks of the Layer list itself.
+ * **What this establishes.** Every file a Layer names is in the archive: its Alignment or its
+ * GeoJSON, and — for a map Layer whose image is a local copy — the `info.json` that makes its
+ * pyramid readable at all. That last one is the case that actually loses a reader's map: a Layer
+ * pointing at an image directory the zip does not carry, which the structural check below cannot see
+ * because there is no directory there to check.
+ *
+ * **What it does not establish, deliberately.** Nothing here opens an Alignment or a
+ * `FeatureCollection`. The image is found through the Alignment's *path*, which is where its identity
+ * lives; the document's own `resource.id` is not consulted, exactly as `parseAlignment` does not
+ * consult it. So this cannot catch an Alignment whose contents name a different image service than
+ * its filename does — and it should not try, because the filename is the authority in the reader too,
+ * and because parsing a stranger's Annotation to decide whether to accept an archive would give up
+ * the one property this whole path has: it interprets nothing but `project.json`. It also does not
+ * check that a pyramid is *complete* — a tile that is missing is a blank square, not a lost map, and
+ * only the tiler knows which tiles a level should have.
+ *
+ * A `'referenced'` image (ticket 14) claims no local pyramid at all, so none is looked for.
  */
 function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<string>): void {
 	const missing = (reference: string, why: string): never => {
@@ -338,19 +385,21 @@ function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<stri
 	};
 
 	for (const layer of project.layers) {
-		if (typeof layer !== 'object' || layer === null) continue;
-		for (const key of ['alignmentRef', 'geojsonRef'] as const) {
-			const reference = (layer as Record<string, unknown>)[key];
-			if (typeof reference !== 'string' || reference === '') continue;
-			if (!present.has(reference)) missing(reference, `a Layer in ${PROJECT_FILE_NAME} refers to`);
+		for (const reference of layerReferences(layer)) {
+			if (reference === '') continue;
+			if (!present.has(reference)) {
+				missing(
+					reference,
+					`the Layer “${layer.name || layer.id}” in ${PROJECT_FILE_NAME} needs to be drawn`
+				);
+			}
 		}
 	}
 
 	// An image directory without its `info.json` is a heap of tiles no IIIF client can open
 	// (ADR-0006's layout), so the pyramid is missing whether or not any Layer has been wired to it
-	// yet. Checked from the archive's own contents rather than from a reference, because the link from
-	// a Layer to its image runs through its Alignment, and following it would mean parsing an
-	// untrusted Annotation during validation — see ticket 09's checklist.
+	// yet. This is the other half of the pair: the loop above catches an image a Layer names and the
+	// archive does not carry, and this one catches an image the archive carries incompletely.
 	const imageDirectories = new Set<string>();
 	for (const path of present) {
 		const segments = path.split('/');

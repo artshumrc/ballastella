@@ -88,6 +88,23 @@ export function wholeImageDerivative(
 	};
 }
 
+/**
+ * What the user calls this Historical Map, out of its `manifest.json`, or `''` when the document does
+ * not say.
+ *
+ * The manifest's label is the **only** record of the file the user picked: an image id is a random
+ * identifier (ADR-0015), so a Layer named from the id alone would be named after a hash. Read from
+ * here rather than kept a second time in `project.json`, because two records of the same fact are two
+ * records that can disagree — and a Layer's `name` is the user's to change from this starting point
+ * (SPEC story 54), after which the manifest is no longer the authority on it.
+ */
+export function readImageLabel(manifest: unknown): string {
+	const label = (manifest as { label?: { none?: unknown } } | null)?.label?.none;
+	if (!Array.isArray(label)) return '';
+	const first = label[0];
+	return typeof first === 'string' ? first : '';
+}
+
 /** The `manifest.json` for a locally ingested image. */
 export function buildImageManifest({
 	imageId,

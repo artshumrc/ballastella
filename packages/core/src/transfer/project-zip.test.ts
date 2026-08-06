@@ -685,6 +685,76 @@ describe('rejecting a zip before writing anything', () => {
 		await nothingWritten();
 	});
 
+	// The case the structural check above cannot see, and the one that actually loses a reader's
+	// map: not an incomplete pyramid but a Layer pointing at an image directory the archive does not
+	// carry at all. Followed from `alignmentRef`, because that is where an Alignment's identity
+	// lives — **no Annotation is opened to find it** (see `layerReferences`).
+	it('rejects a map Layer whose image the zip does not carry at all, naming it', async () => {
+		const files = projectFiles();
+		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
+
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('missing-reference');
+		expect(failure.message).toContain('images/amsterdam-1625/info.json');
+		// Named by the Layer the reader would find blank, not only by the path.
+		expect(failure.message).toContain('The 1625 plan');
+		await nothingWritten();
+	});
+
+	// A `'referenced'` image's tiles are on somebody else's server by design (ADR-0007), so there is
+	// no local pyramid for the archive to be missing.
+	it('looks for no local pyramid for a referenced image', async () => {
+		const files = projectFiles();
+		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
+		files['project.json'] = projectJson({
+			layers: [
+				{
+					id: 'l1',
+					name: 'A map on somebody else’s server',
+					visible: true,
+					order: 0,
+					kind: 'map',
+					opacity: 1,
+					alignmentRef: 'alignments/amsterdam-1625.json',
+					imageMode: 'referenced'
+				}
+			]
+		});
+
+		await expect(attemptImport(buildZip(files))).resolves.toMatchObject({
+			directory: 'amsterdam-1625'
+		});
+	});
+
+	// The honest limit of following the link by path. An `alignmentRef` that does not follow the
+	// Alignment's own naming names no image id, so nothing local is claimed and nothing is looked
+	// for — rather than a guess about which directory it meant.
+	it('claims no image for an alignmentRef that names none', async () => {
+		const files = projectFiles();
+		for (const path of Object.keys(files)) if (path.startsWith('images/')) delete files[path];
+		files['alignments/somewhere/else.json'] = '{"type":"Annotation"}';
+		files['project.json'] = projectJson({
+			layers: [
+				{
+					id: 'l1',
+					name: 'Hand-wired',
+					visible: true,
+					order: 0,
+					kind: 'map',
+					opacity: 1,
+					alignmentRef: 'alignments/somewhere/else.json',
+					imageMode: 'mirrored'
+				}
+			]
+		});
+
+		await expect(attemptImport(buildZip(files))).resolves.toMatchObject({
+			directory: 'amsterdam-1625'
+		});
+	});
+
 	it('tolerates a Layer kind it has never heard of, so long as its references are there', async () => {
 		// ADR-0014 expects a third Layer kind. An importer that only understood today's two would
 		// refuse next year's Projects, which is the failure ADR-0010's version check exists to make
@@ -693,7 +763,16 @@ describe('rejecting a zip before writing anything', () => {
 			buildZip({
 				...projectFiles(),
 				'project.json': projectJson({
-					layers: [{ kind: 'something-new', geojsonRef: 'annotations/warehouses.geojson' }]
+					layers: [
+						{
+							id: 'l3',
+							name: 'The cartouche',
+							visible: true,
+							order: 0,
+							kind: 'something-new',
+							geojsonRef: 'annotations/warehouses.geojson'
+						}
+					]
 				})
 			})
 		);
@@ -701,6 +780,31 @@ describe('rejecting a zip before writing anything', () => {
 		await expect(target.importProject('amsterdam-1625', zip)).resolves.toMatchObject({
 			directory: 'amsterdam-1625'
 		});
+	});
+
+	// The reference names this application owns mean the same thing on a kind this build cannot
+	// draw, so they are still checked — nothing else about such a Layer is interpreted.
+	it('still checks the references a Layer of an unknown kind carries', async () => {
+		const files = projectFiles();
+		delete files['annotations/warehouses.geojson'];
+		files['project.json'] = projectJson({
+			layers: [
+				{
+					id: 'l3',
+					name: 'The cartouche',
+					visible: true,
+					order: 0,
+					kind: 'something-new',
+					geojsonRef: 'annotations/warehouses.geojson'
+				}
+			]
+		});
+
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.message).toContain('annotations/warehouses.geojson');
+		await nothingWritten();
 	});
 
 	it.each([

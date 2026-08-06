@@ -24,8 +24,15 @@
 	} from '@ballastella/core';
 	import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 
+	import {
+		drawLayerStack,
+		isDrawnMap,
+		type DrawnLayer,
+		type DrawnOutcome,
+		type StackRender
+	} from '$lib/layers/stack-layers';
 	import { createOverlayPointLayer, type OverlayPointLayer } from '$lib/overlay/overlay-points';
 	import { theme } from '$lib/theme.svelte';
 	import { exposeWarpedLayerToBrowserTests } from '$lib/warped/browser-test-handle';
@@ -43,9 +50,11 @@
 		entryId,
 		overlayPoints = [],
 		alignment = null,
+		layers = [],
 		fetchTile,
 		onclickpoint,
-		onwarped
+		onwarped,
+		onstack
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
@@ -58,6 +67,14 @@
 		 * aligned onto — and that route is gone.
 		 */
 		alignment?: Alignment | null;
+		/**
+		 * The Project's Layer stack, top first, with each Layer's documents already read (ticket 09).
+		 *
+		 * Only visible Layers belong here: hiding one is its absence from this list, so there is no
+		 * second place where a Layer can be on the map but not drawn. The stack decides what draws over
+		 * what, including across kinds (ADR-0002) — see `drawLayerStack`.
+		 */
+		layers?: readonly DrawnLayer[];
 		/**
 		 * Where the aligned Historical Map's tiles are read from (ADR-0011). Required for anything to
 		 * be drawn warped, since a locally stored pyramid has no URL.
@@ -75,6 +92,13 @@
 		 * points the user had just deleted.
 		 */
 		onwarped?: (render: WarpedRender | null) => void;
+		/**
+		 * What became of each Layer of {@link layers}, keyed by Layer id, for the Layer list to
+		 * surface. Reported for the same reason {@link onwarped} is: the list cannot see the map's
+		 * lifecycle, and a Layer that is in the stack but has too few Control Points to draw is a normal
+		 * state that has to be sayable.
+		 */
+		onstack?: (outcomes: Readonly<Record<string, DrawnOutcome>>) => void;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -204,6 +228,97 @@
 			if (added && current.getLayer(layer.id)) current.removeLayer(layer.id);
 			onwarped?.(null);
 		};
+	});
+
+	/**
+	 * What about the Layer stack requires it to be rebuilt: which Layers draw, in what order, and from
+	 * which documents.
+	 *
+	 * **Opacity is deliberately absent.** A rebuild throws away every renderer and refetches every
+	 * tile, and opacity is dragged — so including it would make a continuous gesture the most
+	 * expensive thing in the application, which is the shape ADR-0017 rule 1 exists to prevent. The
+	 * theme is present because `setStyle` takes our layers off the map with everything else.
+	 */
+	const stackStructure = $derived(
+		JSON.stringify([
+			theme.current,
+			layers.map((drawn) =>
+				isDrawnMap(drawn)
+					? [drawn.layer.id, 'map', drawn.alignment]
+					: [drawn.layer.id, 'annotation', drawn.layer.defaultStyle, drawn.features]
+			)
+		])
+	);
+
+	let stack = $state.raw<StackRender | undefined>(undefined);
+
+	/**
+	 * Run `attach` once the map's style is complete, and hand back the way to stop waiting.
+	 *
+	 * **`isStyleLoaded()` is the gate, not the event.** `styledata` fires repeatedly while a style
+	 * loads — the first one arrives long before the sprites and the PMTiles header are in — so
+	 * attaching on it is attaching to a map that will refuse to take a layer. The symptom was a Layer
+	 * stack that never appeared at all, with nothing logged: the one `once('styledata')` fired early,
+	 * found the style unloaded, and there was no second chance. Waiting on `load` instead is no better,
+	 * because a theme change repaints a map that loaded minutes ago.
+	 */
+	const whenStyleLoaded = (target: MapLibreMap, attach: () => void): (() => void) => {
+		if (target.isStyleLoaded()) {
+			attach();
+			return () => undefined;
+		}
+		const stop = () => {
+			target.off('styledata', retry);
+			target.off('idle', retry);
+		};
+		const retry = () => {
+			if (!target.isStyleLoaded()) return;
+			stop();
+			attach();
+		};
+		target.on('styledata', retry);
+		// `idle` as well, because a style that is already complete when the last `styledata` fires
+		// leaves nothing else to listen for.
+		target.on('idle', retry);
+		return stop;
+	};
+
+	/** The Project's Layer stack (ticket 09), on the same `fetchFn` injection point (ADR-0011). */
+	$effect(() => {
+		// The only tracked dependencies, so that an opacity change cannot reach this effect.
+		void stackStructure;
+		const current = map;
+		const readTiles = fetchTile;
+		const drawn = untrack(() => layers);
+		if (!current || !readTiles || drawn.length === 0) {
+			onstack?.({});
+			return;
+		}
+
+		let built: StackRender | undefined;
+		const attach = () => {
+			built = drawLayerStack({ map: current, layers: drawn, fetchTile: readTiles });
+			stack = built;
+			onstack?.(built.outcomes);
+		};
+
+		const stopWaiting = whenStyleLoaded(current, attach);
+
+		return () => {
+			stopWaiting();
+			built?.destroy();
+			stack = undefined;
+			onstack?.({});
+		};
+	});
+
+	/** Opacity, applied in place — see {@link stackStructure} for why this is not a rebuild. */
+	$effect(() => {
+		const built = stack;
+		if (!built) return;
+		for (const drawn of layers) {
+			if (isDrawnMap(drawn)) built.setOpacity(drawn.layer.id, drawn.layer.opacity);
+		}
 	});
 </script>
 
