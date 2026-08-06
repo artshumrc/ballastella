@@ -8,15 +8,15 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: 11 and 16 are in progress. The two Layers-pane defects ticket 15 found are fixed and merged. Tickets 01–10 and 12–15 are merged and their reviews remediated; ticket 05 is green but is `Needs Human Validation or Intervention` (open question 3). Tickets 17 and 18 need 16.
+Current ticket: 16 is in progress; 17 and 18 follow it. Tickets 01–15 are merged, reviewed where reviewed, and remediated; ticket 05 is green but is `Needs Human Validation or Intervention` (open question 3).
 
-The tree runs **1065 unit tests (plus 15 live-network tests skipped by default) and 214 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the tiler-laziness fence (source and built bundles) all clean. The 212-test e2e run was **clean — no failures and no flakes** — which is the first time that has happened in many runs.
+The tree runs **1094 unit tests (plus 15 live-network tests skipped by default) and 226 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the tiler-laziness fence (source and built bundles) all clean. The last four full e2e runs have been **clean — no failures and no flakes**, after two genuine test defects were fixed that had been masquerading as machine-load flakiness.
 
 **Correction, recorded because it was reported as a passing check several times and was not one.** Ticket 05's acceptance command `grep -rl "wasm-vips" apps/editor/build/_app/immutable/entry/` prints its success message **unconditionally**: the string `wasm-vips` appears nowhere in the built output, because the bundler renames the chunk to `_app/immutable/workers/vips-es6-*.js`. It also inspects only `entry/`, not the chunks the entry statically imports. The dependency genuinely *is* lazy — the only reference is an `await import(...)` — and `e2e/editor-image-ingest.e2e.ts` asserts that soundly by watching the network. But the grep is not what establishes it, and a real static check is owed. See ticket 05's follow-ups.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Eight items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
+**Nine items need a human — see [Open questions for a human](#open-questions-for-a-human)** — plus [ticket 19](./tickets/19-upstream-allmaps-fetchfn-fix.md), which is human-only. Items 3 and 4 still constrain what v1 can claim. Item 5 is resolved locally by a patch; ticket 19 is what removes it.
 
 ### A note on how much to trust a green ticket
 
@@ -40,7 +40,7 @@ Last updated: 2026-08-06
 | 08 | [08-alignment-refinement.md](./tickets/08-alignment-refinement.md) | Completed | 07 | 39, 40, 41, 42, 43, 44, 45, 46, 47 |
 | 09 | [09-layers.md](./tickets/09-layers.md) | Completed | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
 | 10 | [10-annotations.md](./tickets/10-annotations.md) | Completed | 09 | *55*, *56*, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, *94* |
-| 11 | [11-single-level-undo.md](./tickets/11-single-level-undo.md) | In Progress | 08, 10 | 38 |
+| 11 | [11-single-level-undo.md](./tickets/11-single-level-undo.md) | Completed | 08, 10 | 38 |
 | 12 | [12-file-system-access-adapter.md](./tickets/12-file-system-access-adapter.md) | Completed | 02 | 1, 2, 3, *4*, *7* |
 | 13 | [13-zip-export-and-import.md](./tickets/13-zip-export-and-import.md) | Completed | 02 | 5, 13, 14, *56*, *87*, *93*, *94* |
 | 14 | [14-remote-iiif-ingest.md](./tickets/14-remote-iiif-ingest.md) | Completed | 09 | 16, 17, 18, 19, 20, 24, 25, 26, 48 |
@@ -103,6 +103,18 @@ Raised by the code reviews of tickets 02–04 and 12–13, and by tickets 05, 06
    The decisive reason is not preference: **terra-draw edits inside MapLibre GL layers, and a WebGL canvas is not focusable per-feature**, so anything it drew would be the app's first mouse-only editable object — against a standing accessibility criterion. `overlayPoints` gives real `<button>` elements with names, arrow-key movement and Delete. Three lesser reasons compound it: per-coordinate change events against ADR-0017 rule 1, synthetic lng/lat escaping the image pane against ADR-0005's own projection rule, and ADR-0019's dependency cost.
 
    Ticket 10 may still choose terra-draw for annotations — free-form geometry over real geography is the case it is actually for — so the amendment should record Control Points and the Resource Mask as settled and leave annotations open. **What must not persist is a repository whose ADR and spec mandate a library it does not contain**, which is how the next contributor is misled.
+
+9. **The Layer tombstone creates a dead end, and closing it is a product decision.** Ticket 11 solved the resurrection trap correctly — `ProjectFile.removedMapLayers` records the `alignmentRef`s whose map Layer the user deleted, so an Alignment write can no longer recreate it — but the consequence is that **for a locally ingested map, nothing except undo lifts the tombstone.** After a reload, re-aligning that image produces Control Points and no Layer, silently.
+
+   The field is omitted when empty, so an untouched `project.json` is byte-identical to what it was before the field existed, and `addReferencedMap` lifts the tombstone because an explicit re-add is the user asking. What is missing is the equivalent gesture for a local image: either a "put this Historical Map back in the stack" affordance, or a documented limitation. Ticket 11 recorded the alternatives it rejected and why, so the reasoning is not lost.
+
+## Known defects, recorded rather than fixed
+
+Small, in one place, and each found by a ticket that did not own it.
+
+- **`stack-status`'s `data-drawn` counts Layers that have left the stack** — `outcomes` never prunes `rendered` (`apps/editor/src/routes/layers/+page.svelte`). Found by ticket 11, which routed around it by reading MapLibre's `getLayersOrder()` instead. Worth fixing before ticket 17 builds a Reader-facing count on it.
+- **A `'referenced'` Layer whose `remote.json` is missing or unreadable renders blank while the page reports it drawn.** After the Layers-pane fix that state only arrives for a genuinely absent or corrupt record, but telling "not read yet" from "not there" needs `EditorSession` to expose whether the remote records have been read — deliberately left alone while ticket 16 owns that file. Recorded on ticket 09.
+- **A referenced Layer's row is named after the image id** rather than a label. Pre-existing and unrelated to the above.
 
 ## Sequencing notes
 
