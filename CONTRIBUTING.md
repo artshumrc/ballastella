@@ -57,7 +57,8 @@ but no `build`.
 | `pnpm -r test`                       | unit and integration tests (Vitest)            |
 | `pnpm --filter @ballastella/core test` | core tests only                              |
 | `pnpm test:e2e`                      | browser tests (Playwright, headless Chromium)  |
-| `pnpm lint`                          | lint and format check                          |
+| `pnpm lint`                          | lint, format check, and the source fences      |
+| `pnpm check:bundles`                 | ADR-0019 against built output (needs a build)  |
 | `pnpm check`                         | Svelte and TypeScript checks                   |
 | `pnpm format`                        | rewrite formatting in place                    |
 
@@ -71,6 +72,14 @@ its leanness is enforced by the dependency graph rather than by tree-shaking, be
 tree-shaking is not a boundary: one incautious import and every published site silently
 grows by megabytes, with no error and nobody looking. `scripts/check-viewer-deps.mjs` runs
 as part of `pnpm lint` and fails if any of them appear in the viewer's manifest.
+
+The tiler is not in a manifest — it lives inside `@ballastella/core`, which the viewer does
+depend on — so `scripts/check-tiler-lazy.mjs` covers that half. It runs in `pnpm lint` over the
+source (nothing under `packages/core/src` may name `wasm-vips`; nothing in `apps/editor/src` may
+import it other than dynamically), and again as `pnpm check:bundles` **after `pnpm -r build`**,
+where it walks the built editor's chunk graph and greps the built viewer for the tiler's own
+string literals. Both halves fail if they find nothing to guard, because the check they replaced
+— a `grep` for a module specifier that bundling resolves away — reported success unconditionally.
 
 **No asset may be referenced by an absolute path.** `paths.relative: true` is set in both
 apps' `svelte.config.js` and is mandatory
