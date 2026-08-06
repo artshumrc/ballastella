@@ -78,11 +78,27 @@ pnpm --filter @ballastella/core test    # tile geometry, info.json validity, par
 pnpm test:e2e                    # file pick → progress → store contents; lazy wasm-vips
 pnpm -r build && pnpm lint && pnpm check
 
-# confirm wasm-vips is not eagerly bundled
+# confirm wasm-vips is not eagerly bundled — chunk graph, not a grep for the specifier
+pnpm check:bundles
+```
+
+Success: all exit 0. The Allmaps-viewer check is manual; its outcome is recorded in the ticket before closing, because ADR-0003 requires validating the format before anything is built on top of it.
+
+**The `grep` this command replaced could not fail**, and the correction is recorded here rather than
+quietly made. It was:
+
+```bash
 grep -rl "wasm-vips" apps/editor/build/_app/immutable/entry/ && echo "FAIL: eager" || echo "OK: lazy"
 ```
 
-Success: all exit 0 and the `grep` prints `OK: lazy`. The Allmaps-viewer check is manual; its outcome is recorded in the ticket before closing, because ADR-0003 requires validating the format before anything is built on top of it.
+`wasm-vips` is a module specifier that bundling resolves away, so it appears **nowhere in the built
+output at all** — the chunk is named `_app/immutable/workers/vips-es6-*.js` — and the command
+therefore printed `OK: lazy` unconditionally. Verified by building the editor with a deliberate
+`import 'wasm-vips'` at the top of `libvips-loader.ts` and watching it still print `OK: lazy`. It
+also inspected only `entry/`, never the chunks the entry statically imports. `pnpm check:bundles`
+walks the chunk graph instead: no chunk may statically import a chunk that names a vips `.wasm`
+file, and at least one must import it dynamically. See
+[The ADR-0019 fences](#the-adr-0019-fences-one-of-which-could-not-fail).
 
 ## Blocked by
 
@@ -287,3 +303,194 @@ always exists.
   later version" clause of LGPLv2.1) and that the LGPL text ships in the package (**it does not** —
   only the MIT text for the wrapper). The LGPLv3 text now joins OFL 1.1 and BSD-3-Clause in that
   file's open item for a human to fetch.
+
+## Review round 2, 2026-08-06
+
+Six findings, five of them real defects rather than documentation gaps. Each is a check that goes
+red when the behaviour is broken, proved by breaking it.
+
+### The streaming tiler was not streaming at its coarse levels
+
+**The worst of the six, and it defeated the tiler's entire purpose.** `bandFor` set
+`bandHeight = tile.region.height` and then `copyMemory()`'d that band, and at the **coarsest** level
+`planPyramid` emits one tile whose region is the whole image — `tileSize × scaleFactor ≥ imageHeight`
+is what "coarsest" means. So `copyMemory()` materialised the entire uncompressed source. The file's
+own header claimed the opposite in so many words: "this path's memory is one band of the source —
+`imageWidth × tileSize × scaleFactor × 3` bytes — regardless of how large the scan is".
+
+At ADR-0003's named 60000 × 24000 case that formula is 4.32 GB, above wasm32's whole address space:
+a hard allocation failure mid-ingest, which is precisely the out-of-memory the routing threshold
+exists to prevent. No test could see it — the only fixture is 1200 × 851, whose full band is 3 MB.
+
+**Measured on `vips.Stats.mem()`, peak live tracked memory during a full pyramid, RGB sources:**
+
+| Source        | Whole image | Before   | After   |
+| ------------- | ----------- | -------- | ------- |
+| 1024 × 1024   | 3.1 MB      | 3.1 MB   | 0.8 MB  |
+| 1024 × 16384  | 50.3 MB     | 50.3 MB  | 0.8 MB  |
+| 2048 × 8192   | 50.3 MB     | 50.3 MB  | 7.9 MB  |
+| 2048 × 32768  | 201.3 MB    | 201.3 MB | 9.4 MB  |
+
+Before, the peak is *exactly* the source's full size, to the byte, at every size — the signature of
+holding the whole image. After, it is `imageWidth × tileSize × bands` plus libvips' reduction
+window, and sixteen times the height costs nothing (0.8 → 0.8 MB) to 2.4× (7.9 → 9.4 MB, the extra
+being the shrink window at the extra scale factors). `vips_tracked_get_mem_highwater()` tells the
+same story: 213.9 MB before against 29.0 MB after for 2048 × 32768.
+
+**The fix is a genuine bound, not a smaller unbounded number.** The band is reduced to the tile
+row's *output* height before it is materialised rather than after. Every tile in a row shares
+`region.height` and `size.height`, so one vertical resize serves the whole row — the same operation
+hoisted, not an approximation of it — and the per-tile horizontal resize then crops out of a band
+that is already at most `tileSize` rows tall. The exact-resize contract is untouched on both axes:
+the vertical scale is still `size ÷ region` and the vertical extent is checked against `size.height`
+before the band is accepted.
+
+Two approaches were tried and rejected, because both break the extent contract at ragged margins:
+pre-reducing the whole source by `1 / scaleFactor` and cutting the level into tiles (interior tiles
+then drift by up to a source pixel per column, which is the accumulation `dzsave` is rejected for),
+and pre-reducing by an integer factor and cropping (`rint(lastW / sf) × sf ≠ lastW`, so the last
+column covers the wrong source extent — the 0.6% error, reintroduced).
+
+**Goes red when broken:** setting `bandHeight` back to `tile.region.height` fails the new memory test
+at 50.3 MB against a 12.6 MB bound, and the two vertical geometry tests as well.
+
+### The exact-resize contract was asserted vertically only
+
+The decode-and-crop assertions are sound and were left alone. But the streaming tiler's only fixture
+is 1200 × 851, which has **no horizontally ragged tile at any scale factor** — every region width
+divides by its scale factor — and both edge tests sweep a *horizontal* edge and measure its
+*vertical* position. Changing `size.width / region.width` to `1 / tile.scaleFactor` survived the
+entire file, because the tile's dimension self-check compares output sizes and `rint` and `ceil`
+agree there.
+
+A 849 × 1200 fixture (ragged horizontally at scale factors 2, 4 and 8, and chosen over 851 because
+the rounding it leaves is larger) and a column-wise edge sweep now assert the horizontal axis.
+
+**Goes red when broken:** the mutation above fails at scale factor 2 —
+`images/floride/512,0,337,512/169,256/0/default.jpg` reads 144.27 against 144.43 — and the tile's own
+self-check does *not* catch it, so the new assertion is what is doing the work.
+
+### On a static host, an over-threshold image was refused with a false diagnosis
+
+`ingest.ts` wrapped every rejection from `open(file)` in `UnreadableImageError`, and `apps/editor`
+always supplies `openStreaming` — so the COOP/COEP refusal from `libvips-loader.ts` reached the user
+as *"This file could not be read as an image. Browsers read JPEG, PNG, WebP … a TIFF or JPEG 2000
+archival master needs to be converted first."* about a valid 20000 × 15000 JPEG. The leading sentence
+was false and the advice was to convert a file the user does not have; SPEC's *On the audience* makes
+that binding.
+
+Worse, the *tested* refusal and the *shipped* refusal were different code paths.
+`NoStreamingTilerError` covered "this build has no streaming tiler", which is unreachable in the app,
+and `libvipsUnavailableReason` — the function that produces what a scholar actually reads — had no
+test and was an unused export.
+
+`IngestOptions` now takes `streamingTilerUnavailableReason`, asked **before** the tiler is opened and
+only above the threshold, and the editor supplies `libvipsUnavailableReason`. One error,
+`StreamingTilerUnavailableError`, carries either reason. `UnreadableImageError` takes the tiler kind,
+so a libvips failure no longer recommends converting the TIFF libvips reads.
+
+**Goes red when broken, on the shipped path.** A new e2e picks a header-only PNG declaring
+20000 × 15000 — routing is decided from the header, so no pixels are needed — against the preview
+server, which sends no COOP/COEP and is therefore in exactly the state GitHub Pages is. It asserts
+the alert says "300 megapixels", names `Cross-Origin-Embedder-Policy`, tells the user what to do, and
+**does not contain** "could not be read as an image"; and that nothing was written and no request for
+vips was made.
+
+### The threshold's margin argument was invalidated by the blocker in the same ticket
+
+`decode-ceiling.ts` argued the 2^28 margin on "routing to the streaming tiler costs time; routing the
+other way costs the user their ingest". With no runnable streaming tiler, **both directions cost the
+ingest** — and the conservative one costs it for images the browser demonstrably handles: 300 MP is
+refused where both measured engines decoded 528 MP.
+
+The comment now says so. **The number is deliberately left alone**: raising it would trade a legible
+refusal for a dead tab on exactly the machines story 22 is about, and the blocker is expected to be
+resolved rather than lived with.
+
+Two things that were unsaid and now are:
+
+- **Option 3 below ("cap ingest at the decode ceiling") is a *different* threshold from the one
+  shipped.** This constant decides *which of two tilers runs*; a cap decides *whether ingest is
+  possible at all*, and the honest value for that is derived from the measured ceiling with a margin —
+  nearer 2^29 than 2^28, and it would want Safari measured first. Shipping option 3 while leaving
+  2^28 in place would refuse half the images the cap is meant to admit.
+- **A container `readImageHeader` does not recognise — AVIF, JPEG XL, an SVG — falls through to
+  `createImageBitmap` at any declared size.** For those the ceiling is enforced by the decoder
+  refusing, which both measured engines do in single-digit milliseconds without attempting the
+  allocation. So the outcome is a decode error rather than a dead tab, but it is a different message
+  from the size refusal: it says the file could not be read.
+
+### The ADR-0019 fences, one of which could not fail
+
+The acceptance `grep` is corrected above. `scripts/check-tiler-lazy.mjs` replaces it and also covers
+the half `check-viewer-deps.mjs` conceded in its own header that no script checked — the tiler lives
+inside `@ballastella/core`, which the viewer depends on, so a manifest can never see it.
+
+Two layers, because neither is sufficient. **Source**, in `pnpm lint`: nothing under
+`packages/core/src` may name `wasm-vips`, nothing in `apps/editor/src` may import it other than
+dynamically. **Built output**, as `pnpm check:bundles` after `pnpm -r build` in CI: no chunk may
+statically import a chunk that names a vips `.wasm` file, at least one must import it dynamically,
+and the built viewer must contain none of the tiler's own string literals. Both halves fail when they
+find *nothing to guard*, which is the specific defect of the check they replace.
+
+It is not in `pnpm lint` for the built half because `pnpm lint` does not build, and a fence that
+skips when its input is missing is the thing being fixed. `--require-build` makes a missing build
+fatal, which is what CI passes. That follows the pattern ADR-0006's relative-paths grep already sets.
+
+**Goes red when broken**, three ways:
+
+| Mutation                                                      | `check-tiler-lazy.mjs` | old grep | `check-viewer-deps.mjs` |
+| ------------------------------------------------------------- | ---------------------- | -------- | ----------------------- |
+| `import 'wasm-vips'` at the top of `libvips-loader.ts`         | **fails** (both halves) | passes  | passes                  |
+| `apps/viewer` uses `openDecodeAndCropSource`                   | **fails** (viewer grep) | passes  | passes                  |
+| the dynamic `import('wasm-vips')` removed                      | **fails** ("guarding nothing") | passes | passes           |
+
+The reviewer's observation that the dependency really *is* lazy, and that
+`e2e/editor-image-ingest.e2e.ts` asserts that soundly on the network, is confirmed — the network
+assertion was never the weak one.
+
+### The libvips licence corrections were right; two other places contradicted them
+
+`THIRD-PARTY-NOTICES.md` was accurate. `pnpm-workspace.yaml` — the comment a maintainer reads when
+bumping the pin — and ADR-0021 both still said LGPL-2.1-or-later, and `CONTRIBUTING.md` points at
+ADR-0021 as the authority for the obligation. Both corrected.
+
+`vips.wasm` links in twenty other libraries and none was listed, while CONTRIBUTING requires an entry
+for "any dependency that ships a compiled artefact under a different licence from its wrapper". They
+are now transcribed from the installed package's own `THIRD-PARTY-NOTICES.md` — not from upstream
+project pages, since the licence that applies is the one the build was made under, and **nothing was
+fetched from the network or written from memory**. Two things are called out rather than left to
+inference: `aom` carries the **AOM Patent License 1.0**, which is not discharged by reproducing a
+notice; and `glib`, `libexif` and `libheif` are LGPLv3 too, so the missing LGPLv3 text covers four
+components rather than one. The nineteen texts that do not ship join the existing open item, which
+now also records that `vips.wasm` is in the editor's build **today** — so the obligation is live
+rather than prospective, even though nothing can reach the tiler on a static host.
+
+### Also fixed, from the low-medium list
+
+- **`readImageHeader`'s TIFF support was mostly unreachable.** It read only the first IFD and only
+  from the first 64 KB, but libtiff's, ImageMagick's and Photoshop's layout for a large strip TIFF
+  puts the IFD *after* the image data — so it returned `undefined` for exactly the archival masters
+  TIFF support exists for, the file fell through to `createImageBitmap`, and the user was told to
+  convert the TIFF they had just been handed. Both existing tests placed the IFD at offset 8.
+  `readImageHeaderFromBlob` follows the pointer, which costs one targeted slice because the offset is
+  in the first eight bytes; ingest uses it. **Goes red when broken:** removing the second read fails
+  the new test, and the synchronous reader given the old 64 KB window is asserted to see nothing.
+- **Cancellation was dead in the shipped app.** `signal` was implemented and tested;
+  `EditorSession.ingestImage` never passed one, so a user who picked the wrong 4000-tile scan could
+  not stop it, and `ingest.ts` claimed the job "can be cancelled". Wired, with a Cancel button beside
+  the progress bar labelled for what it cancels, and an e2e that cancels a 171-tile ingest and
+  asserts the Project holds only `project.json` and that no error is shown.
+
+### Rejected, or handled differently
+
+- **`header.format` is read nowhere, so a 20 MP TIFF goes to `createImageBitmap`.** Correct as an
+  observation, and **not fixed**, because the obvious fix regresses Safari: WebKit *does* decode TIFF
+  via ImageIO, so routing every TIFF to the streaming tiler would refuse on Safari a file Safari can
+  read — and refuse it with a size message that would be false for 20 MP. The right shape is a
+  fallback chain (try decode-and-crop, fall back to streaming on failure), which changes the
+  "opened once" contract of `TileTiler` and is a design decision rather than a fix. **Left for a
+  human**, with the TIFF reachability half of the finding fixed, which is the half that costs
+  nothing.
+- **The `1200 × 851` fixture's *vertical* assertions.** The reviewer said the decode-and-crop
+  assertions are genuinely resampler-independent and could not be broken. Confirmed; untouched.

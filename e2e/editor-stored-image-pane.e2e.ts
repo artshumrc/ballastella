@@ -164,8 +164,20 @@ async function ingest(page: Page, width: number, height: number, name: string): 
 	return added[0]!;
 }
 
-const waitForTiles = (page: Page) =>
-	expect(page.getByTestId('historical-map-tiles')).toHaveAttribute('data-tiles-loaded', 'true');
+/**
+ * Wait for the pane to have settled.
+ *
+ * `timeout` is overridable because every tile here is an OPFS read and the suite runs ten workers
+ * each driving a real WebGL map against real OPFS — the contention the tracker already records. A
+ * pyramid with more levels than the usual fixture's takes longer to settle, and the default 5 s is
+ * a measurement of the machine rather than of the pane.
+ */
+const waitForTiles = (page: Page, timeout?: number) =>
+	expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
+		'data-tiles-loaded',
+		'true',
+		timeout === undefined ? undefined : { timeout }
+	);
 
 const pyramidReadout = (page: Page) => page.getByTestId('historical-map-pyramid');
 
@@ -392,17 +404,19 @@ test.describe('a Historical Map read from the Project', () => {
 		await openProject(page, 'Amsterdam 1625');
 
 		await ingest(page, 300, 1300, 'tall.png');
-		await waitForTiles(page);
+		// Four levels rather than the usual fixture's three, so the opening view settles more slowly:
+		// the default 5 s timed out about one run in ten under the suite's own contention.
+		await waitForTiles(page, 30_000);
 		await expect(pyramidReadout(page)).toContainText('scale factors 1, 2, 4, 8');
 
 		// Out to the coarsest level, the same way the first test in this file gets there: fitting the
 		// whole map is not far enough out on its own.
 		await button(page, 'Fit whole map').click();
-		await waitForTiles(page);
+		await waitForTiles(page, 30_000);
 		for (let step = 0; step < 6; step++) {
 			await button(page, 'Zoom out one level').click();
 		}
-		await waitForTiles(page);
+		await waitForTiles(page, 30_000);
 		await expect
 			.poll(async () => (await servedTiles(page)).some((tile) => tile.scaleFactor === 8), {
 				message: 'the coarsest level was never served, so no fractional placement was produced',

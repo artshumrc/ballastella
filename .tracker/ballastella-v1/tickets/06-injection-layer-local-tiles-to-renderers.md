@@ -208,3 +208,100 @@ ticket 06 delivers are unaffected.
   records is a separate matter and was not observed in these runs.**
 - **`pnpm test:e2e` was run with `CI=1` on the committed ports 4173/4174**, verified free before each
   run; `playwright.config.ts` is unmodified.
+
+### Review round 2, 2026-08-06
+
+Two findings, and the first of them turned up a defect nobody was looking for.
+
+#### `padToCell` had never run with a fractional `placement`, and Chromium was rounding it away
+
+The reviewer's point was that `e2e/editor-stored-image-pane.e2e.ts` read `placement` out of
+`window.ballastellaServedTiles` — the app's own log of what `pane.tileAt` *returned* — rather than out
+of pixels, so replacing `placement.width` with the served width inside the drawing left the log
+identical and the suite green. And that the 700 × 500 fixture cannot exercise the fractional case at
+all: its nine regions all divide by their scale factor, so `placement` is integral everywhere.
+
+Both true. Writing the pixel assertion then produced a result worth recording on its own.
+
+**Chromium rounds a fractional `drawImage` destination size to whole pixels.** Measured 2026-08-06
+against `OffscreenCanvas` in both engines, drawing a 38 × 163 bitmap:
+
+| Destination asked for | Chromium 151 draws | Firefox 153 draws |
+| --------------------- | ------------------ | ----------------- |
+| 37.5 × 162.5          | **38 × 163**       | 37.502 × 162.502  |
+| 150 × 106.375         | **150 × 106**      | 150 × 106.377     |
+| 99.1 / 99.9           | **99 / 100**       | 99.102 / 99.902   |
+| 99.6 / 99.4           | **100 / 99**       | 99.604 / 99.400   |
+
+To nearest, so it is not even consistently the served size — 106.375 rounds *down*, stretching the
+content outwards past its own region, which is the worse direction. And it is not an artefact of one
+API: a destination rect, a source sub-rect, `setTransform` and `scale` all behave identically.
+
+So `placement` was a comment rather than a behaviour in the browser this app is developed and tested
+in. For the 300 × 1300 pyramid, 37.5 and the served 38 produce **the same bitmap**, and up to half a
+cell pixel of every ragged margin was displaced — the same order as the 0.6% error `placement` exists
+to prevent, and the silent-drift failure SPEC ranks first among the project's risks.
+
+**Fixed by staging.** The drawing is composed at a power-of-two multiple of the cell — the smallest
+that makes `region / scaleFactor` whole, which is always a power of two because `scaleFactor` is —
+and then blitted down by exactly that multiple, so the placement both engines honour is an integer.
+The staging canvas is only as large as the content and its clamp, and the multiple is capped at 8, so
+the worst case is 2056 × 2056 = 4.2 megapixels, inside the 5,242,880-pixel canvas area limit ADR-0003
+records for Safari. The residual is 1/16 of a cell pixel at scale factors above 8, against half a
+cell pixel before.
+
+`padToCell` moves to `@ballastella/core` as `padTileToCell`, beside the `placement` it consumes,
+because its correctness is a claim about **pixels** and pixels can only be asserted in a browser.
+Asserted in `apps/editor` there is nothing to assert on: the module's only observable output is the
+served-tile log.
+
+**Goes red when broken**, in Chromium and in Firefox, against the 300 × 1300 pyramid's scale-factor-8
+tile (served 38 × 163, placed 37.5 × 162.5):
+
+| Mutation                                              | Before this round | After            |
+| ----------------------------------------------------- | ----------------- | ---------------- |
+| `placement.width` → `served.width` (the reviewer's)   | green             | **fails both**   |
+| the staging multiple forced to 1                      | n/a               | **fails Chromium** |
+
+The e2e keeps its ragged-tile assertions, now labelled as a claim about *which tiles were served* and
+nothing more, and gains a test that the running app really does produce a fractional placement —
+`{ width: 37.5, height: 162.5 }` at scale factor 8 of a 300 × 1300 pyramid. That is the link the
+reviewer identified as missing in the other direction: the pixel test needed evidence the app ever
+hands it such a number.
+
+#### The ADR-0019 checks
+
+Both halves of finding 6.2 are recorded on
+[ticket 05](./05-local-image-to-level-0-pyramid.md#the-adr-0019-fences-one-of-which-could-not-fail),
+since that is where the acceptance command lived. Relevant here: the note above claiming "the
+viewer-manifest fence passes and `wasm-vips` is still absent from the built entry chunk" rested on a
+`grep` that printed success unconditionally. `pnpm check:bundles` now walks the built editor's chunk
+graph and greps the built viewer, and both are mutation-tested. The conclusion the note reached was
+correct; the evidence for it was not.
+
+#### Also fixed, from the low-medium list
+
+- **`store-image-fetch.test.ts` asserted the tile↔bytes mapping only up to a permutation.** It
+  `.sort()`ed both sides, so any bijection of the pyramid's paths passed. Paired per URL instead.
+  **Goes red when broken:** making the test's own fetch resolve each URL to the *next* tile's file —
+  the shim the reviewer described, which would return 200 for all nine and draw the pyramid scrambled
+  — now fails it.
+- **`{ storedImageId: info.id }`** built a base with the placeholder host in it twice, so every tile
+  404ed and the pane went blank, with ADR-0004's guard satisfied because the caller *did* use the
+  object form. `createImagePane` now refuses an id shaped like a URL or a path and names the mistake,
+  including the words `info.id`.
+
+#### Rejected, or left for a human
+
+- **AC 6 asserts "throwable", not "surfaced".** The reviewer is right that
+  `e2e/editor-stored-image-pane.e2e.ts` calls `fetch(...)` from `page.evaluate` and reads the
+  rejection, and that the criterion says *surfaced*. **Not fixed, deliberately, because there is
+  nowhere honest to surface it from.** All three consumers ADR-0011 names are wired, so no shipped
+  code path can reach the guard; a test that asserted a *visible* error would have to introduce a
+  deliberately-unrouted consumer to produce one, and would then be asserting the behaviour of a fake.
+  What the guard actually defends is the *next* consumer somebody adds, and where its error should
+  surface depends on what that consumer is. **A human should decide** whether the criterion is
+  reworded to "throwable with a message naming the override" — which is what is asserted, and is
+  ADR-0004's own framing of "fails loudly" — or whether a surface is built for it. Note that the same
+  gap has a working precedent in this slice: `historical-map-failure` surfaces a refused pyramid with
+  `role="alert"`, so the mechanism exists if the criterion is kept as written.
