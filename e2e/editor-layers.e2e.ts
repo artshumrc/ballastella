@@ -447,6 +447,40 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		expect(await warpedOpacity(page, layerId)).toBeCloseTo(0.35, 5);
 	});
 
+	// **A real pointer drag, not `fill()`.** `fill()` sets `value` and dispatches `input`
+	// programmatically, so it cannot see the thing a user meets first: the row carries
+	// `draggable="true"` for the reorder, and a pointer drag beginning on a descendant of a draggable
+	// element can be claimed by the drag machinery instead of by the control under the cursor. A slider
+	// thumb that will not move puts story 51 out of reach by mouse, on the platform ADR-0014 says
+	// authoring targets — and every test in this file would still be green.
+	test('the slider can be dragged with the mouse, not only set programmatically', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		const layerId = (await rowIds(page))[0] as string;
+		await expect(page.getByTestId('layer-opacity-value')).toHaveText('100%');
+
+		const slider = page.getByTestId('layer-opacity');
+		const box = await slider.boundingBox();
+		if (!box) throw new Error('the opacity slider has no box to drag in');
+		// From the thumb, which sits at the right-hand end while the Layer is fully opaque.
+		await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(box.x + box.width * 0.5, box.y + box.height / 2, { steps: 10 });
+		await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2, { steps: 10 });
+		await page.mouse.up();
+
+		// Somewhere near the left of the track rather than an exact value: what is being asserted is
+		// that the gesture reached the control at all, and a range's own hit geometry is its business.
+		const opacity = await warpedOpacity(page, layerId);
+		expect(opacity, 'dragging the opacity slider did not reach the warped renderer').toBeLessThan(
+			0.6
+		);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		expect((await projectJson(page, directory)).layers[0].opacity).toBeCloseTo(opacity, 5);
+	});
+
 	// The union makes this a type error in `@ballastella/core`; here it is the UI honouring it, so
 	// nobody can "fix" an unresponsive slider by threading opacity through label rendering (ADR-0002).
 	test('is offered on a map Layer and on no other kind', async ({ page }) => {
@@ -562,10 +596,61 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		);
 	});
 
+	// The half of SPEC story 53 that "the order changed" cannot see. A keyboard user reorders by
+	// pressing the same button repeatedly, so where focus is *after* a move decides whether they can
+	// make a second one — and the `{#each}` is keyed, so Svelte moves the row's DOM node out from under
+	// the button that was just activated. Losing focus here means Tabbing back in from the top of the
+	// document, past MapLibre's own controls, for every single move.
+	test('leaves the keyboard on the Layer that moved, so a second move needs no Tab', async ({
+		page
+	}) => {
+		const { annotationId, mapId } = await stackWithBothKinds(page);
+		const moveDown = rows(page).nth(0).getByTestId('layer-move-down');
+
+		await page.keyboard.press('Tab');
+		await tabTo(page, moveDown, 'Move down');
+		await page.keyboard.press('Enter');
+		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
+
+		// At the bottom of the stack "Move down" is a disabled button, so the keyboard is handed the
+		// other half of the same control rather than the document body.
+		await expect(rows(page).nth(1).getByTestId('layer-move-up')).toBeFocused();
+
+		// And it really is operable from there: one keypress, no Tab, and the Layer comes back.
+		await page.keyboard.press('Enter');
+		expect(await rowIds(page)).toEqual([annotationId, mapId]);
+		await expect(page.getByTestId('layer-move-status')).toContainText('moved to 1 of 2');
+	});
+
+	// The same thing away from the ends, where the button that was pressed is still enabled — the case
+	// that is about Svelte moving a keyed node rather than about `disabled`.
+	test('keeps focus on the same button when the move does not reach the end', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		await page.getByTestId('add-annotation-layer').click();
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(3);
+		const [top] = (await rowIds(page)) as [string, string, string];
+
+		const moveDown = rows(page).nth(0).getByTestId('layer-move-down');
+		await page.keyboard.press('Tab');
+		await tabTo(page, moveDown, 'Move down');
+		await page.keyboard.press('Enter');
+
+		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', top);
+		await expect(rows(page).nth(1).getByTestId('layer-move-down')).toBeFocused();
+
+		await page.keyboard.press('Enter');
+		expect((await rowIds(page))[2]).toBe(top);
+	});
+
+	// From the handle, which is the drag source: the row is only the drop target, because a pointer
+	// drag beginning anywhere inside a `draggable` element is claimed by the drag machinery rather than
+	// by the slider or the name field under the cursor.
 	test('reorders by dragging, reaching the same render order', async ({ page }) => {
 		const { annotationId, mapId } = await stackWithBothKinds(page);
 
-		await rows(page).nth(0).dragTo(rows(page).nth(1));
+		await rows(page).nth(0).getByTestId('layer-drag-handle').dragTo(rows(page).nth(1));
 
 		await expect(rows(page).nth(0)).toHaveAttribute('data-layer-id', mapId);
 		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
@@ -639,6 +724,30 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 
 		expect((await projectJson(page, directory)).layers[0].name).toBe('The 1625 plan');
 		expect(await readProjectFile(page, directory, alignmentRef)).toBe(alignmentBefore);
+	});
+
+	// The name field's half of the same question as the opacity drag: `fill()` never presses a mouse
+	// button, so it cannot see a text input inside a `draggable` row where a drag-select is claimed by
+	// the drag machinery and the user cannot select a word to replace it (SPEC story 54).
+	test('a Layer’s name can be selected by dragging across it with the mouse', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		const field = page.getByTestId('layer-name');
+		await expect(field).toHaveValue('la-floride.png');
+
+		const box = await field.boundingBox();
+		if (!box) throw new Error('the name field has no box to drag in');
+		await page.mouse.move(box.x + 6, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2, { steps: 10 });
+		await page.mouse.up();
+
+		const selected = await field.evaluate((element) => {
+			const input = element as HTMLInputElement;
+			return input.value.slice(input.selectionStart ?? 0, input.selectionEnd ?? 0);
+		});
+		expect(selected, 'dragging across the name field selected nothing').not.toBe('');
+		await expect(field).toBeFocused();
 	});
 
 	// ADR-0010: merely looking must not modify files. Ticket 02's review found an `onblur` that
