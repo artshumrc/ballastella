@@ -38,11 +38,15 @@
 
 import { WarpedMapLayer } from '@allmaps/maplibre';
 import {
+	COMPUTED_DISTORTION_MEASURES,
 	MINIMUM_CONTROL_POINTS,
 	toGeoreferencedMap,
 	type Alignment,
+	type DistortionView,
 	type FetchFn
 } from '@ballastella/core';
+
+import { distortionRamp } from './distortion-ramp';
 
 /**
  * A `WarpedMapLayer` that reads its tiles through `fetchTile`.
@@ -73,6 +77,36 @@ export type WarpedRender =
 	| { readonly status: 'refused'; readonly reason: string };
 
 /**
+ * Every option a warped Historical Map is given, beyond the document itself.
+ *
+ * Two of these carry real weight and the rest are display.
+ *
+ * **`transformationType` is not redundant with the document, and omitting it silently downgrades
+ * the warp.** `WarpedMap` reads `georeferencedMap.transformation?.type` and ignores the order
+ * beside it, so `{ type: 'polynomial', options: { order: 3 } }` — the only shape the format has for
+ * a third-order polynomial — reaches the solver as plain `polynomial`, which is first order. Map
+ * options win over what the layer read from the document (`mergeOptionsUnlessUndefined(defaults,
+ * georeferencedMapOptions, listOptions, mapOptions)`), so passing the canonical name here is what
+ * makes Higher-order (2nd) and (3rd) actually second and third order. Without it the picker would
+ * offer two options that changed the file and not the map.
+ *
+ * **`distortionMeasures` is what is COMPUTED and `distortionMeasure` is what is DISPLAYED.**
+ * Conflating them is the obvious mistake (ADR-0013) and it fails silently: display a measure that
+ * was never computed and the map draws with no colouring at all, which reads as "this Alignment has
+ * no distortion". So the computed set is always every measure the interface can display, whatever is
+ * being displayed now — including when nothing is.
+ */
+function mapOptionsFor(alignment: Alignment, distortion: DistortionView) {
+	return {
+		transformationType: alignment.transformationType,
+		distortionMeasures: [...COMPUTED_DISTORTION_MEASURES],
+		distortionMeasure: distortion.measure ?? undefined,
+		renderGrid: distortion.grid,
+		...distortionRamp()
+	};
+}
+
+/**
  * Hand an Alignment to the layer, and say what happened.
  *
  * The outcome is returned rather than thrown or logged because every one of these states is a
@@ -80,7 +114,11 @@ export type WarpedRender =
  * is a user halfway through their first pairing, who needs to be told that a third point is what
  * makes the map appear.
  */
-export function showAlignment(layer: WarpedMapLayer, alignment: Alignment): WarpedRender {
+export function showAlignment(
+	layer: WarpedMapLayer,
+	alignment: Alignment,
+	distortion: DistortionView
+): WarpedRender {
 	const need = MINIMUM_CONTROL_POINTS[alignment.transformationType];
 	const have = alignment.controlPoints.length;
 	if (have < need) return { status: 'too-few-points', have, need };
@@ -90,7 +128,10 @@ export function showAlignment(layer: WarpedMapLayer, alignment: Alignment): Warp
 		// which is a claim rather than a guarantee, so it is widened and checked rather than trusted.
 		// Believing the declared type here would surface a rejected Alignment as a map id, and the
 		// symptom would be an empty Base Map with the page reporting success.
-		const mapId: unknown = layer.addGeoreferencedMap(toGeoreferencedMap(alignment));
+		const mapId: unknown = layer.addGeoreferencedMap(
+			toGeoreferencedMap(alignment),
+			mapOptionsFor(alignment, distortion)
+		);
 		if (mapId instanceof Error) return { status: 'refused', reason: mapId.message };
 		if (typeof mapId !== 'string' || mapId === '') {
 			return { status: 'refused', reason: 'the renderer accepted the Alignment but named no map' };
@@ -98,5 +139,28 @@ export function showAlignment(layer: WarpedMapLayer, alignment: Alignment): Warp
 		return { status: 'drawn', mapId };
 	} catch (cause) {
 		return { status: 'refused', reason: cause instanceof Error ? cause.message : String(cause) };
+	}
+}
+
+/**
+ * Change what the drawn map is colourised with, without rebuilding it.
+ *
+ * Turning the overlay on must not re-add the map: `addGeoreferencedMap` is keyed on the document's
+ * content, so a rebuild discards the tile cache and the user watches their Historical Map disappear
+ * and come back for a display toggle. `setMapOptions` reaches the same options in place.
+ *
+ * Deliberately silent about a map id the layer has forgotten — a theme change calls `setStyle`,
+ * which takes our layer off with everything else, so a display update racing that is normal.
+ */
+export function showDistortion(
+	layer: WarpedMapLayer,
+	mapId: string,
+	alignment: Alignment,
+	distortion: DistortionView
+): void {
+	try {
+		layer.setMapOptions(mapId, mapOptionsFor(alignment, distortion));
+	} catch {
+		// Nothing to report: there is no map to colourise, which is not a failure of colourising.
 	}
 }

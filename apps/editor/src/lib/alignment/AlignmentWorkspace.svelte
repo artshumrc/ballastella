@@ -10,9 +10,13 @@
 	// so there is exactly one place that decides an edit is over.
 
 	import {
-		canSolve,
+		DEFAULT_DISTORTION_VIEW,
 		MINIMUM_CONTROL_POINTS,
+		MINIMUM_MASK_VERTICES,
+		canSolve,
+		detectFold,
 		type Alignment,
+		type DistortionView,
 		type FetchFn,
 		type GeoPoint,
 		type ImagePane,
@@ -25,7 +29,9 @@
 	import type { WarpedRender } from '$lib/warped/warped-map-layer';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
+	import DistortionControls from './DistortionControls.svelte';
 	import { AlignmentPairing } from './pairing.svelte.js';
+	import TransformationPicker from './TransformationPicker.svelte';
 
 	let {
 		session,
@@ -47,6 +53,28 @@
 	let warped = $state<WarpedRender | null>(null);
 
 	/**
+	 * How the warped Historical Map is drawn (ADR-0013).
+	 *
+	 * **Held here and nowhere else.** It is a working view, not a property of the work, so it is
+	 * never written to `project.json` and never reaches `EditorSession` — persisted it would become
+	 * layer display state under ADR-0002, and a Published Site could then load colourised with a
+	 * Reader having no way to interpret it.
+	 */
+	let distortion = $state<DistortionView>(DEFAULT_DISTORTION_VIEW);
+
+	/**
+	 * Whether the Resource Mask's handles are on the pane.
+	 *
+	 * The outline itself is always drawn — a user needs to see what the Alignment leaves out whether
+	 * or not they are changing it — but eight draggable handles over a sheet you are placing Control
+	 * Points on is noise, and a mis-aimed click is a moved outline. So the handles are asked for.
+	 */
+	let editingMask = $state(false);
+
+	/** Why the last mask edit did not happen, if it did not. Said, not silently ignored. */
+	let maskRefusal = $state('');
+
+	/**
 	 * Bumped by every load, so a read that resolves late knows it has been superseded — the same
 	 * guard `EditorSession.open` and `HistoricalMapPane` both need, and for the same reason: the
 	 * user can pick another Historical Map while this one's Alignment is in flight.
@@ -62,6 +90,10 @@
 		pairing = undefined;
 		warped = null;
 		failure = '';
+		maskRefusal = '';
+		// The mask belongs to one image's pixel space, so its handles must not survive into another's.
+		// The distortion view is about *drawing* rather than about a coordinate, so it stays.
+		editingMask = false;
 	});
 
 	/**
@@ -106,7 +138,18 @@
 		pairing && canSolve(pairing.alignment) ? pairing.alignment : null
 	);
 
-	const needed = MINIMUM_CONTROL_POINTS.polynomial1;
+	/** How many pairs the *chosen* type needs — not the default's, which is what ticket 07 could assume. */
+	const needed = $derived(MINIMUM_CONTROL_POINTS[pairing?.transformationType ?? 'polynomial1']);
+
+	/**
+	 * Whether this Alignment folds over itself, and where (ADR-0013).
+	 *
+	 * **Independent of the distortion overlay, and continuously computed.** It reads `pairing` and
+	 * nothing about what is being drawn, so it is present with the overlay off, before the warped
+	 * layer has been added, and while the Base Map's style is still loading — which is when a student
+	 * placing their fourth point most needs to be told they have swapped two of the first three.
+	 */
+	const fold = $derived(pairing ? detectFold(pairing.alignment) : null);
 
 	/** How a Control Point half is described to assistive technology and on hover. */
 	const halfLabel = (ordinal: number | undefined, side: 'Historical Map' | 'Base Map'): string =>
@@ -150,8 +193,72 @@
 				ondelete: () => current.cancelPending()
 			});
 		}
+
+		// The Resource Mask's handles, on this pane only — the mask is in image pixel space, and
+		// editing it on the Base Map has no meaning (ticket 08's out-of-scope note).
+		if (editingMask) points.push(...maskPoints(current));
+
 		return points;
 	});
+
+	/**
+	 * The Resource Mask's vertex and edge handles.
+	 *
+	 * On the same seam as a Control Point, deliberately. A mask vertex is the same kind of object to a
+	 * keyboard — something you focus, nudge with the arrow keys, and delete — so it gets a real
+	 * `<button>` with a name, arrow-key movement, and one store write per gesture, all of which
+	 * `overlay-points.ts` already carries. The alternative was a drawing library editing inside a
+	 * WebGL layer, which is not focusable and has no keyboard story at all.
+	 *
+	 * Keyed by index rather than by identity, because a mask vertex has no identity: the ring's order
+	 * *is* the polygon, and there is nowhere in the file to put an id (SPEC story 94). Consequence:
+	 * inserting a vertex renumbers the handles after it, exactly as deleting a Control Point
+	 * renumbers the ordinals after it.
+	 */
+	const maskPoints = (current: AlignmentPairing): PaneOverlayPoint[] => {
+		const vertices: PaneOverlayPoint[] = current.resourceMask.map((vertex, index) => ({
+			key: `mask-vertex-${index}`,
+			point: vertex,
+			kind: 'mask-vertex',
+			label:
+				`Resource Mask corner ${index + 1} of ${current.resourceMask.length}. Arrow keys move it` +
+				(current.canRemoveMaskVertex ? ', Delete removes it.' : '.'),
+			onmoveend: (to) => {
+				current.moveMaskVertex(index, to);
+				maskRefusal = '';
+				save(current);
+			},
+			ondelete: () => {
+				if (current.removeMaskVertex(index)) {
+					maskRefusal = '';
+					save(current);
+					return;
+				}
+				// Refused rather than silently ignored: a keypress that appears to do nothing is
+				// indistinguishable from a broken handle.
+				maskRefusal =
+					`A Resource Mask needs at least ${MINIMUM_MASK_VERTICES} corners, so this one cannot ` +
+					'be removed. Move it instead, or show the whole sheet again.';
+			}
+		}));
+
+		const edges: PaneOverlayPoint[] = current.maskEdgeMidpoints.map((midpoint, index) => ({
+			key: `mask-edge-${index}`,
+			point: midpoint,
+			kind: 'mask-edge',
+			glyph: '+',
+			label: `Add a Resource Mask corner on the edge after corner ${index + 1}`,
+			// The affordance is activation, not dragging: a handle that both inserted and moved would
+			// make "I nudged it" and "I added one" the same gesture.
+			onselect: () => {
+				current.insertMaskVertexAfter(index);
+				maskRefusal = '';
+				save(current);
+			}
+		}));
+
+		return [...vertices, ...edges];
+	};
 
 	/** The earth halves, plus the pending half if it is on this pane. */
 	const basePoints = $derived.by((): BaseMapOverlayPoint[] => {
@@ -269,6 +376,60 @@
 		{/if}
 	</div>
 
+	<!--
+		The fold warning (ADR-0013): "the single most useful piece of feedback a student can receive."
+
+		Above the panes and not tucked beside the distortion toggles, because it is about the Alignment
+		being wrong rather than about how it is drawn — and it appears with the overlay off, which is
+		its whole point. `role="alert"` rather than a polite region: an Alignment that has folded over
+		itself is a mistake the user is currently making, and the next thing they do is place another
+		point on top of it.
+	-->
+	{#if fold}
+		<div
+			role="alert"
+			class="mt-3 alert max-w-prose alert-warning"
+			data-testid="fold-warning"
+			data-fold-kind={fold.kind}
+			data-fold-where={fold.where}
+		>
+			<p>{fold.message}</p>
+		</div>
+	{/if}
+
+	{#if pairing}
+		<!--
+			How the map is stretched, and how that is drawn. Two groups rather than one: the
+			transformation type is part of the Alignment and is written to disk, and the distortion view
+			is a working view that is deliberately not (ADR-0013). Putting them in one row would invite
+			exactly the conflation that puts a debugging toggle in a Published Site.
+		-->
+		<div class="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
+			<div class="min-w-0 flex-1">
+				<TransformationPicker
+					value={pairing.transformationType}
+					controlPointCount={controlPoints.length}
+					onchoose={(type) => {
+						const current = pairing;
+						if (!current) return;
+						// Every Control Point survives, because this touches one field. Written now rather
+						// than on a timer: choosing a type is a discrete act (ADR-0017 rule 1).
+						current.setTransformationType(type);
+						save(current);
+					}}
+				/>
+			</div>
+
+			<div class="min-w-0 flex-1">
+				<DistortionControls
+					view={distortion}
+					enabled={warped?.status === 'drawn'}
+					onchange={(next) => (distortion = next)}
+				/>
+			</div>
+		</div>
+	{/if}
+
 	<div class="mt-3 grid items-start gap-4 lg:grid-cols-2">
 		<section aria-labelledby="historical-map-pane-heading" class="min-w-0">
 			<h4 id="historical-map-pane-heading" class="mb-2 text-sm font-semibold">Historical Map</h4>
@@ -283,9 +444,81 @@
 				{fetchTile}
 				label="Historical Map, unwarped, in image pixel coordinates. Click a feature to start a Control Point."
 				overlayPoints={imagePoints}
+				maskRing={pairing?.resourceMask ?? []}
 				onclickpoint={clickHistoricalMap}
 				onpane={(pane) => loadAlignment(imageId, pane)}
 			/>
+
+			{#if pairing}
+				<!--
+					The Resource Mask (SPEC stories 46 and 47): which part of this sheet is actually the map.
+
+					The outline is always drawn — dimming what it leaves out, so the user can see what the
+					Alignment excludes whether or not they are changing it — and the handles are asked for,
+					because eight of them over a sheet you are placing Control Points on is noise and a
+					mis-aimed click is a moved outline.
+				-->
+				<div class="mt-3 flex flex-col gap-1" data-testid="resource-mask-controls">
+					<div class="flex flex-wrap items-center gap-3">
+						<label class="label cursor-pointer gap-2 text-sm">
+							<input
+								type="checkbox"
+								class="toggle toggle-sm"
+								checked={editingMask}
+								data-testid="mask-edit-toggle"
+								onchange={(event) => {
+									editingMask = event.currentTarget.checked;
+									maskRefusal = '';
+								}}
+							/>
+							Outline the part of the sheet that is the map
+						</label>
+
+						{#if editingMask}
+							<button
+								class="btn btn-ghost btn-sm"
+								data-testid="mask-reset"
+								onclick={() => {
+									const current = pairing;
+									if (!current) return;
+									current.resetMask();
+									maskRefusal = '';
+									save(current);
+								}}
+							>
+								Show the whole sheet again
+							</button>
+						{/if}
+					</div>
+
+					<p
+						class="text-sm opacity-70"
+						data-testid="mask-summary"
+						data-mask-vertices={pairing.resourceMask.length}
+					>
+						{#if editingMask}
+							{pairing.resourceMask.length} corners. Drag a corner to move it, or a dashed handle to add
+							one. Arrow keys move the corner you have focused; Delete removes it.
+						{:else}
+							{pairing.resourceMask.length} corners. Everything outside the outline is left out when the
+							Historical Map is drawn over the Base Map.
+						{/if}
+					</p>
+
+					<!--
+						Why an edit did not happen. A live region, because the refusal follows a keypress on a
+						handle the user is looking at rather than at this text.
+					-->
+					<p
+						class="min-h-0 text-sm text-warning"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="mask-refusal"
+					>
+						{maskRefusal}
+					</p>
+				</div>
+			{/if}
 		</section>
 
 		<section aria-labelledby="base-map-pane-heading" class="min-w-0">
@@ -295,6 +528,7 @@
 					entryId={baseMapId}
 					overlayPoints={basePoints}
 					alignment={solvable}
+					{distortion}
 					{fetchTile}
 					onclickpoint={clickBaseMap}
 					onwarped={(render) => (warped = render)}
