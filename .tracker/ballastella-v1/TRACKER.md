@@ -8,9 +8,11 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: none. Tickets 02, 03, and 04 are merged into `main`, code-reviewed, and their confirmed findings remediated and re-verified (247 unit tests, 40 e2e, lint/typecheck/build clean). **Tickets 05, 12, and 13 are ready to start** — all three depend only on 02. Ticket 06 additionally needs 05.
+Current ticket: 05 is in progress. Tickets 12 and 13 are merged into `main` and awaiting code review; tickets 02–04 are merged, reviewed, and remediated. The tree at the 12+13 merge runs **379 unit tests and 68 e2e** with lint, typecheck, build, and the ADR-0006 fence clean.
 
-**Three items need a human — see [Open questions for a human](#open-questions-for-a-human).** None blocks tickets 05, 12, or 13.
+Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
+
+**Three items need a human — see [Open questions for a human](#open-questions-for-a-human).** None blocks the remaining tickets.
 
 Last updated: 2026-08-05
 
@@ -31,8 +33,8 @@ Last updated: 2026-08-05
 | 09 | [09-layers.md](./tickets/09-layers.md) | Not Started | 07 | *29*, 49, 50, 51, 52, 53, 54, *55*, *56* |
 | 10 | [10-annotations.md](./tickets/10-annotations.md) | Not Started | 09 | *55*, *56*, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, *94* |
 | 11 | [11-single-level-undo.md](./tickets/11-single-level-undo.md) | Not Started | 08, 10 | 38 |
-| 12 | [12-file-system-access-adapter.md](./tickets/12-file-system-access-adapter.md) | In Progress | 02 | 1, 2, 3, *4*, *7* |
-| 13 | [13-zip-export-and-import.md](./tickets/13-zip-export-and-import.md) | In Progress | 02 | 5, 13, 14, *56*, *87*, *93*, *94* |
+| 12 | [12-file-system-access-adapter.md](./tickets/12-file-system-access-adapter.md) | Completed | 02 | 1, 2, 3, *4*, *7* |
+| 13 | [13-zip-export-and-import.md](./tickets/13-zip-export-and-import.md) | Completed | 02 | 5, 13, 14, *56*, *87*, *93*, *94* |
 | 14 | [14-remote-iiif-ingest.md](./tickets/14-remote-iiif-ingest.md) | Not Started | 09 | 16, 17, 18, 19, 20, 24, 25, 26, 48 |
 | 15 | [15-mirroring-offline-copies.md](./tickets/15-mirroring-offline-copies.md) | Not Started | 05, 14 | *15*, 27, 28 |
 | 16 | [16-publish.md](./tickets/16-publish.md) | Not Started | 09, 10 | *15*, *29*, 78, 79, 80, 81, *82*, *87*, 88, 89, 90, 92, *93*, 99, *101* |
@@ -73,6 +75,7 @@ These will otherwise be rediscovered, or missed, per ticket:
 - **`ProjectStore` is built OPFS-first**, before the File System Access adapter (ticket 12), so the abstraction is not shaped around one backend (ADR-0001). Ticket 12 must pass ticket 02's shared adapter suite *unchanged*; needing to widen the interface is a signal the interface was wrong, not that the adapter is special.
 - **`apps/viewer` must never depend on `terra-draw`, the tiler, or `wasm-vips`** (ADR-0019). Ticket 01 adds a CI check; treat it as a standing review item, not a one-off.
 - **`maplibre-gl` is held at `^5`, and raising it is a migration event.** Tickets 03 and 04 were built in parallel and disagreed: 03 used `^6.1.0`, 04 found that v6 computes its worker URL from `import.meta.url` at runtime so the built app 404s and the map never loads. Settled at `^5.24.0` on merge, which is also the peer range `@allmaps/maplibre` and `@allmaps/basemap` declare — **ticket 07 needs those, and two MapLibre copies in one page is a broken map, not a warning.** Ticket 03's projection round-trip was re-verified against v5 after the merge.
+- **The Playwright suite is flaky under its own parallelism, and this needs attention before it grows.** Measured on the wave-3 tree (68 tests, 7 workers): a flake in roughly one full run in three, and **not the same test twice** — observed so far in `editor-workspace.e2e.ts` "pagehide flushes a write that is still inside its debounce window" (a `NotReadableError` from the test's OPFS read racing the app's temp-file→move) and `editor-base-map.e2e.ts` "changes the Base Map flavor in the same action as the interface". Neither reproduces in isolation at `--repeat-each=10 --workers=6`, which points at resource contention — every worker drives a real WebGL map and real OPFS — rather than a defect in either test. `retries: 1` means CI goes green, which is exactly why this is recorded: **a suite that flakes is a suite that can absorb a real race without anyone noticing**, and tickets 06–11 all add map-driven e2e. Cap workers or serialise the map-heavy projects before that.
 - **Accessibility is an acceptance criterion inside every ticket that adds UI**, not a slice of its own. Keyboard reach, focus management, announced status, and ADR-0016's mandated component methods. A single accessibility pass at the end reliably becomes a graveyard.
 - **Autosave lands in ticket 02**, not late, so tickets 05–15 do not each improvise their own saving and then get retrofitted — which is how ADR-0017's atomic-write rule quietly fails to happen.
 - **Format migration is deliberately not a ticket.** Ticket 02 writes `formatVersion` and implements the *refusal* of anything newer, which is the part that protects users from old forks. Migration machinery with zero migrations would be speculative and untestable; the first real format change brings its own ticket.
