@@ -80,6 +80,17 @@ export type IngestOptions = {
 	readonly file: File | Blob;
 	/** What to call this Historical Map. Defaults to the file's name. */
 	readonly label?: string;
+	/**
+	 * The image id to write this pyramid under. A fresh random one when absent.
+	 *
+	 * Absent is right for a file the user picked: there is no URI to derive an identity from, and two
+	 * ingests of one file are two Historical Maps (ADR-0015). It is supplied by exactly one caller —
+	 * `mirrorRemoteImage`, making an offline copy of a referenced remote image — where the opposite
+	 * holds and is load-bearing: that image's id is `generateId(uri)`, which is what every Alignment in
+	 * the Project names and what `annotations.allmaps.org` keys the image on, so mirroring must land on
+	 * the id the image already has rather than mint a second one.
+	 */
+	readonly imageId?: string;
 	/** The decode-and-crop tiler. Required: it is the default path for every image. */
 	readonly openDecodeAndCrop: OpenTileSource;
 	/**
@@ -277,7 +288,7 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 
 	try {
 		const { width, height } = source.dimensions;
-		const imageId = await generateRandomId();
+		const imageId = options.imageId ?? (await generateRandomId());
 		const directory = `${projectDirectory}/${imageDirectory(imageId)}`;
 		const info = buildImageInfo({ imageId, width, height });
 		const tiles = planPyramid(info, directory);

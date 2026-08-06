@@ -4,6 +4,8 @@
 
 	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
 	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
+	import MirrorMap from '$lib/remote-iiif/MirrorMap.svelte';
+	import { MirrorMap as MirrorMapJob } from '$lib/remote-iiif/mirror-map.svelte.js';
 	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
@@ -55,6 +57,26 @@
 	const unwarped = $derived(
 		session.referencedImages.find((image) => image.imageId === unwarpedImageId) ?? null
 	);
+
+	/**
+	 * Which of this Project's remote-origin records still fetch from a library, and which have been
+	 * copied (ticket 15).
+	 *
+	 * Split on whether the pyramid is in the Project, not on what a Layer claims — see
+	 * `EditorSession.remoteOrigins`. The two are listed apart because the difference is the whole point
+	 * of ADR-0007: one of them makes a Published Site need the network and stops working when the
+	 * library reorganises, and the other does not.
+	 */
+	const origins = $derived(session.remoteOrigins);
+
+	/**
+	 * One mirroring job for the whole list, not one per row.
+	 *
+	 * Mirroring is deliberately one image at a time (ticket 15's Out of scope: no bulk copying, partly
+	 * to keep the host-load decision explicit), so a second job would be a second way to start a copy
+	 * that the first one's `busy` guard cannot see.
+	 */
+	const mirror = new MirrorMapJob(() => session);
 </script>
 
 {#if recovering}
@@ -264,15 +286,16 @@
 		network and whether the work survives the library reorganising — which is a thing a scholar has
 		to be able to see, not a field in a file.
 	-->
-	{#if session.referencedImages.length > 0}
+	{#if origins.referenced.length > 0}
 		<section class="mt-10" aria-labelledby="referenced-maps-heading">
 			<h3 id="referenced-maps-heading" class="text-lg font-semibold">Referenced Historical Maps</h3>
 			<p class="mt-1 max-w-prose text-sm opacity-70">
 				These stay on the library's server. A reader of a Published Site of this Project needs a
-				network connection to see them.
+				network connection to see them, and they stop working if the library reorganises. An offline
+				copy fixes both, at the cost of the bytes.
 			</p>
 			<ul class="mt-4 flex flex-col gap-2" aria-label="Historical Maps referenced by this Project">
-				{#each session.referencedImages as image (image.imageId)}
+				{#each origins.referenced as image (image.imageId)}
 					<li class="flex flex-wrap items-center gap-3">
 						<span data-testid="referenced-image-label">{image.label || image.imageId}</span>
 						<code class="text-xs opacity-70" data-testid="referenced-image-host"
@@ -288,6 +311,8 @@
 						>
 							View unwarped
 						</button>
+						<!-- SPEC stories 27 and 28. Per image, on a referenced Layer, and never in bulk. -->
+						<MirrorMap {image} job={mirror} />
 					</li>
 				{/each}
 			</ul>
@@ -305,6 +330,45 @@
 			{/if}
 		</section>
 	{/if}
+
+	<!--
+		The Historical Maps this Project has copied offline (SPEC stories 27, 28). A section of its own
+		because the source URI has to stay visible: mirroring keeps `remote.json` precisely so a copy can
+		still be cited and traced back to the library it came from (ADR-0007), and a copy nobody can cite
+		is a copy that has been orphaned.
+
+		No "View unwarped" here. That viewer reads tiles from the remote service, and the whole claim of an
+		offline copy is that nothing goes back to the library — the copied map is in the Historical Maps
+		section above, read from this folder through the ADR-0011 shim.
+	-->
+	{#if origins.mirrored.length > 0}
+		<section class="mt-10" aria-labelledby="mirrored-maps-heading">
+			<h3 id="mirrored-maps-heading" class="text-lg font-semibold">Offline copies</h3>
+			<p class="mt-1 max-w-prose text-sm opacity-70">
+				Ballastella holds its own tiles for these, so they work with no network and survive the
+				library reorganising. The address each came from is kept so the work can still be cited.
+			</p>
+			<ul class="mt-4 flex flex-col gap-2" aria-label="Historical Maps copied into this Project">
+				{#each origins.mirrored as image (image.imageId)}
+					<li class="flex flex-wrap items-center gap-3">
+						<span data-testid="mirrored-image-label">{image.label || image.imageId}</span>
+						<code class="text-xs break-all opacity-70" data-testid="mirrored-image-source"
+							>{image.service}</code
+						>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
+	<!--
+		The outcome of a copy, announced from out here rather than from inside the dialog: the dialog closes
+		on success, and an announcement added to a subtree that is removed in the same frame is
+		indistinguishable from one that never happened.
+	-->
+	<p class="mt-4 min-h-6 text-sm" aria-live="polite" aria-atomic="true" data-testid="mirror-done">
+		{mirror.completed}
+	</p>
 
 	<p class="mt-6"><a class="link" href={resolve('/')}>Back to all Projects</a></p>
 {:else}

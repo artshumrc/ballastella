@@ -64,6 +64,17 @@ export {
 	type ProjectSummary,
 	type WorkspaceOptions
 } from './project/workspace.js';
+// ADR-0008's ~1 GB cliff, and the byte total it is judged against. Both apps: ticket 15 warns before a
+// Workspace grows and ticket 16 warns again at publish, from the same two functions rather than two
+// answers to one question.
+export {
+	STATIC_HOSTING_LIMIT_BYTES,
+	crossesHostingLimit,
+	describeBytes,
+	hostingLimitWarning,
+	workspaceSize,
+	type WorkspaceSize
+} from './project/workspace-size.js';
 export { DirectoryHandleStore, type DirectoryResolver } from './store/directory-handle-store.js';
 export { FileSystemAccessProjectStore } from './store/file-system-access-project-store.js';
 export { MemoryProjectStore } from './store/memory-project-store.js';
@@ -312,6 +323,25 @@ export {
 	readRemoteImageService,
 	type RemoteImageService
 } from './remote-iiif/image-service.js';
+// Mirroring (ticket 15; ADR-0007). Adds no dependency: it is a funnel into the tiler this barrel
+// already exports, with `assemble` and the tilers themselves injected, so `apps/viewer` gains nothing
+// it did not already have by depending on this package (ADR-0019).
+export {
+	ESTIMATED_MIRROR_BYTES_PER_PIXEL,
+	MIRROR_LIMITS,
+	MirrorRefusedError,
+	assembleWithCanvas,
+	estimateMirrorBytes,
+	mirrorRemoteImage,
+	planMirror,
+	type AssembleImage,
+	type MirrorPath,
+	type MirrorPiece,
+	type MirrorPiecePayload,
+	type MirrorPlan,
+	type MirrorProgress,
+	type MirrorResult
+} from './remote-iiif/mirror.js';
 export {
 	ParserBoundaryError,
 	imageServiceUriCrossingBoundary
@@ -324,6 +354,7 @@ export {
 	listReferencedImages,
 	localCopySource,
 	parseReferencedImage,
+	partitionByLocalCopy,
 	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,

@@ -13,6 +13,7 @@ import {
 	isReferenced,
 	localCopySource,
 	parseReferencedImage,
+	partitionByLocalCopy,
 	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,
@@ -252,5 +253,48 @@ describe('an Alignment of a referenced image', () => {
 			resource: { id: string };
 		};
 		expect(map.resource.id).toBe(SERVICE);
+	});
+});
+
+describe('a Historical Map that has been copied offline (ticket 15)', () => {
+	const other = () =>
+		referencedImage({
+			imageId: 'ffff0000ffff0000',
+			service: 'https://digital.bodleian.ox.ac.uk/iiif/image/other',
+			width: 10,
+			height: 10
+		});
+
+	it('is told apart from a referenced one by the pyramid being there, not by what a Layer claims', () => {
+		// `imageMode` in `project.json` is a claim; this is the fact. The two disagree only in the window
+		// between a copy's pyramid landing and the document write that follows it, and the fact is the one
+		// worth believing — the alternative is an image whose tiles are right here being fetched from a
+		// library on every load.
+		const split = partitionByLocalCopy([record(), other()], [{ imageId: 'a8eb9e9cf936cc3d' }]);
+
+		expect(split.mirrored.map((image) => image.imageId)).toEqual(['a8eb9e9cf936cc3d']);
+		expect(split.referenced.map((image) => image.imageId)).toEqual(['ffff0000ffff0000']);
+	});
+
+	it('keeps its record, so it can still be cited and traced back', () => {
+		// ADR-0007's whole reason for keeping `remote.json` where it is: mirroring must not orphan the copy.
+		const [mirrored] = partitionByLocalCopy([record()], [{ imageId: 'a8eb9e9cf936cc3d' }]).mirrored;
+
+		expect(mirrored?.service).toBe(SERVICE);
+		expect(mirrored?.rights).toBe('http://rightsstatements.org/vocab/NoC-US/1.0/');
+		expect(mirrored?.attribution).toBe('Library of Congress, Geography and Map Division');
+	});
+
+	it('reaches its tiles through the injection layer once its Layer says so', () => {
+		// The transition the `HistoricalMapSource` union was shaped for, in one assertion: the same image
+		// id, and a base that has stopped being a URL on somebody else's host.
+		const before = sourceOf(record());
+		const after = localCopySource(record().imageId);
+
+		expect(imageModeOf(before)).toBe('referenced');
+		expect(imageModeOf(after)).toBe('mirrored');
+		expect(tileBaseFor(before)).toBe(SERVICE);
+		expect(tileBaseFor(after)).toEqual({ storedImageId: 'a8eb9e9cf936cc3d' });
+		expect(isReferenced(after)).toBe(false);
 	});
 });

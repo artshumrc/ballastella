@@ -54,22 +54,22 @@ Reversing is out of scope, but the Layer must not be left inconsistent if mirror
 
 ## Acceptance criteria
 
-- [ ] "Make an offline copy" is available per image on a referenced Layer
-- [ ] Mirroring a **level 2** source issues a single `full/max` request and then tiles locally
-- [ ] Mirroring a **level 0** source fetches its existing tiles and warns beforehand that this means many requests to the host
-- [ ] `rights` and `requiredStatement` from the manifest are shown before the copy begins
-- [ ] The estimated size of the copy and the workspace's current size are both shown before the copy begins, and a copy that would cross ~1 GB warns explicitly while still allowing the user to proceed
-- [ ] The workspace size is obtained via `ProjectStore#size` and **not** by reading tile bytes — asserted with a spy on `read`
-- [ ] The resulting pyramid is structurally identical to a locally ingested one: same paths, same tile geometry, same square tiles, `id` set to the `unset.invalid` placeholder
-- [ ] The `image-id` is unchanged by mirroring, and remains `generateId(uri)`
-- [ ] The source URI is recorded and still visible after mirroring
-- [ ] The Layer's `imageMode` becomes `'mirrored'`
-- [ ] The mirrored image renders through the injection shim with **no** network requests to the original host
-- [ ] A source whose `full/max` exceeds the decode ceiling routes to the streaming tiler
-- [ ] A capped `maxWidth`/`maxArea` profile is respected rather than producing a failed oversized request
-- [ ] Cancelling mid-mirror leaves no partial pyramid, and the Layer remains `'referenced'` and functional
-- [ ] A failed mirror leaves the Layer `'referenced'` and still rendering
-- [ ] Progress is reported and announced to assistive technology
+- [x] "Make an offline copy" is available per image on a referenced Layer
+- [x] Mirroring a **level 2** source issues a single `full/max` request and then tiles locally
+- [x] Mirroring a **level 0** source fetches its existing tiles and warns beforehand that this means many requests to the host
+- [x] `rights` and `requiredStatement` from the manifest are shown before the copy begins
+- [x] The estimated size of the copy and the workspace's current size are both shown before the copy begins, and a copy that would cross ~1 GB warns explicitly while still allowing the user to proceed
+- [x] The workspace size is obtained via `ProjectStore#size` and **not** by reading tile bytes — asserted with a spy on `read`
+- [x] The resulting pyramid is structurally identical to a locally ingested one: same paths, same tile geometry, same square tiles, `id` set to the `unset.invalid` placeholder
+- [x] The `image-id` is unchanged by mirroring, and remains `generateId(uri)`
+- [x] The source URI is recorded and still visible after mirroring
+- [x] The Layer's `imageMode` becomes `'mirrored'`
+- [x] The mirrored image renders through the injection shim with **no** network requests to the original host
+- [~] A source whose `full/max` exceeds the decode ceiling routes to the streaming tiler — asserted in `mirror.test.ts` against an injected threshold, and the plan says so in the dialog. **Not asserted end to end, because on a static host that tiler cannot run at all** (open question 3): npm publishes only the threaded `wasm-vips` build, which needs COOP/COEP. So an over-ceiling copy routes correctly and then meets the same wall ticket 05 is held open for.
+- [x] A capped `maxWidth`/`maxArea` profile is respected rather than producing a failed oversized request
+- [x] Cancelling mid-mirror leaves no partial pyramid, and the Layer remains `'referenced'` and functional
+- [x] A failed mirror leaves the Layer `'referenced'` and still rendering
+- [x] Progress is reported and announced to assistive technology
 
 ```bash
 pnpm --filter @ballastella/core test    # level-2 vs level-0 path selection, profile caps, id stability
@@ -85,3 +85,96 @@ Success: all exit 0, and the post-mirror test asserts by request interception th
 
 - Ticket 05
 - Ticket 14
+
+## What was built, and the decisions that were not in the ticket
+
+**Mirroring is a funnel into `ingestImageFile`, not a second tiler.** Both paths end with one
+full-resolution image handed to ticket 05's job, which is why the output is not merely shaped like a
+locally ingested pyramid: `mirror.browser.test.ts` asserts it is **byte-identical**, tile for tile, to
+what `ingestImageFile` writes for the same source, in Chromium and Firefox. `ingest.ts` gained one
+optional field, `imageId`, supplied by exactly one caller — mirroring, where the id must not change.
+
+**`ImageMode` did not need a third member.** Ticket 09 already declares it as
+`'mirrored' | 'referenced'` with `LOCAL_COPY = 'mirrored'`, so mirroring moves an image between two
+values that already exist and ticket 14's deliberate compile error (`_everyImageModeHasASource`) never
+fired. The transition is asserted in three places: `referenced-image.test.ts` (`tileBaseFor` stops
+being a URL and becomes `{ storedImageId }`), `mirror.test.ts` (the pyramid lands under
+`generateId(uri)` with the `unset.invalid` id), and `editor-mirroring.e2e.ts` (`project.json` reads
+`imageMode: 'mirrored'`, and the copy draws with nothing reaching the library).
+
+**The path is not chosen on compliance level, and measurement is why.** All fourteen services in ticket
+14's captured corpus report `supportsAnyRegionAndSize`, so "is this level 0" would send every real
+service down the one-request path — including **two that cannot serve it**: Cambridge Digital Library
+declares `maxWidth`/`maxHeight` 2000 over a 4880×6174 image, and Micrio (Rijksmuseum) declares
+`maxArea` 17 550 000 over 27.7 megapixels. The condition is therefore "will this service serve the whole
+image in one request", which is `supportsAnyRegionAndSize` **and** the declared caps. The corpus also
+has **no genuinely level-0 member**, so the level-0 fixtures are this app's own generated `info.json` —
+which is exactly what a level-0 service in the wild is.
+
+**The stored Alignment is rewritten, and this was not in the ticket.** A referenced image's Alignment
+names the remote service as its `resource.id` (ticket 14), which is what made it resolvable by Allmaps
+and what made the warped Layer render. Left alone after a copy it keeps sending `@allmaps/maplibre` to
+the library for tiles that are now in the folder — so the copy would work, the map would draw, and
+mirroring would have bought nothing. It is rewritten to the ADR-0004 placeholder through
+`serialiseAlignment`, and the Control Points are asserted to survive.
+
+**`remote.json` is deliberately kept**, so a copy can still be cited (ADR-0007). That makes
+`listIngestedImages` and `listReferencedImages` no longer disjoint, which ticket 14's comment claimed
+they were; `partitionByLocalCopy` is the one place that answers "referenced or copied?" and it answers
+it from **whether the pyramid is there**, not from what a Layer claims — so a copy whose pyramid landed
+and whose document write did not repairs itself on the next attempt rather than fetching from a library
+forever.
+
+**The hosting total reads no file contents.** `workspaceSize` is `list` + `size`, with a spy on `read`
+asserting it, and it sweeps abandoned writes first: ticket 12's review found that `list` hides anything
+matching the reserved suffix — including Chromium's `.crswap` — so a total built from `list` alone would
+silently under-report what is on disk, which is the worst possible property for the one number a user
+reads before a copy that may cross the cliff. `ESTIMATED_MIRROR_BYTES_PER_PIXEL` is 0.7, measured at
+0.563 on the committed 1200×851 pyramid and set deliberately above it: an estimate that came in under
+the truth is the one that lets someone walk off the cliff unwarned.
+
+## Follow-ups and defects found
+
+1. **Two defects in the Layers pane, neither caused by this ticket, both found by trying to measure the
+   same thing twice.** Recorded in `drawTheStack`'s comment in `e2e/editor-mirroring.e2e.ts`.
+   - A **client-side navigation** to `/layers` leaves the stack undrawn — `window.ballastellaLayerStack`
+     is never set at all — whenever the Project page had a local Historical Map on it. Reproduced with a
+     plain ingested PNG and no remote IIIF anywhere. Every existing test of that pane uses `page.goto`,
+     which is why it has not been seen.
+   - A **fresh page load** of `/layers` draws a `'referenced'` Layer with `service: ''`: the stack is
+     built before `remote.json` has been read, so the Layer asks the injection shim for a pyramid the
+     Project does not contain and renders blank, and the redraw when the record arrives does not happen.
+     `editor-remote-iiif.e2e.ts` asserts that render through the *link* route, so it passes.
+
+   Together these mean the mirroring e2e must use the link route for the referenced control and the load
+   route for the copied claim. Both belong to whoever owns the layers pane.
+
+2. **Upstream, `@allmaps/iiif-parser@1.0.0-beta.48`: `Image#getImageUrl` cannot express "the whole
+   image".** `getImageUrl({})` emits `full/full` regardless of `majorVersion`, and `size=full` was
+   **removed** in Image API 3 — so for a version 3 service it builds a URL a strict server answers 400
+   to. Passing the string forms produces
+   `undefined,undefined,undefined,undefined/NaN,NaN/0/default.jpg`. `wholeImageUrl` in `mirror.ts`
+   builds it directly and branches on `majorVersion`. (Its cap validation is right, though: it throws
+   `Width of requested image is too large: 4880 > 2000` for Cambridge rather than building the URL.)
+
+3. **Ticket 05's per-row profile statistic does not transfer to a large level, and this is worth knowing
+   before it is reused.** Asserting exact-resize by comparing each output row's mean brightness against
+   the source band it would be drawn from prefers the **wrong** hypothesis for a scale-factor-4 tile of
+   the 1200-wide fixture (measured: 39.0 for IIIF against 30.4 for resize-and-pad). Over 213 output rows
+   each engine's constant sub-pixel sampling offset — ticket 05 measures −0.12 output pixels in Chromium
+   — is larger than the 0-to-1 source row the two hypotheses differ by. The **extent** statistic is an
+   integral and cannot be biased that way, so `mirror.browser.test.ts` uses that one. Ticket 05's own use
+   of the profile statistic is against a different pair of images and passes; the point is that it is
+   offset-sensitive and should not be copied to a new case without checking.
+
+4. **The `assembled` path holds the whole source in one image, so it inherits the decode ceiling rather
+   than escaping it** — the streaming tiler is no help, because there is no file to stream from until the
+   pieces are stitched. Refused up front above 2²⁸ pixels with a message naming the number. ADR-0003 also
+   records that WebKit's *canvas area* limit can be as low as 5 242 880 pixels, which the decode-and-crop
+   tiler avoids by never making a canvas larger than one tile and which this path cannot avoid: a large
+   level-0 copy may therefore fail on Safari well below the stated bound. Unmeasured, like WebKit's
+   decode ceiling.
+
+5. **Un-mirroring and bulk mirroring remain out of scope**, as the ticket says. Worth noting that
+   un-mirroring is now cheap to add: `remote.json` is still there, so it is "delete the pyramid, flip
+   `imageMode`, rewrite the Alignment with the service".
