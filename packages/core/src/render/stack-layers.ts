@@ -10,34 +10,33 @@
 // Annotation Layer becomes a GeoJSON source and the MapLibre layers its geometries need. Anything
 // else — a kind this build has never heard of — is skipped and reported, which is ADR-0014's forward
 // tolerance at the render boundary.
+//
+// **In `core` because both apps draw the same stack** (ADR-0019, and the same argument
+// `annotation/render.ts` already makes for the style precedence this reads). The editor's Layers pane
+// and the Published Site's Project view are the same picture with different controls beside it, and
+// ADR-0002's cross-kind rule — an Annotation Layer above a map Layer draws above it — must have one
+// implementation or the Reader eventually sees a different stack from the author.
 
-import type {
-	Alignment,
-	AnnotationCollection,
-	AnnotationLayer,
-	FetchFn,
-	LineStyle,
-	MapLayer
-} from '@ballastella/core';
 import {
 	DASHED_DASHARRAY,
 	DOTTED_DASHARRAY,
+	SIMPLESTYLE_DEFAULTS,
+	type AnnotationCollection,
+	type LineStyle
+} from '../annotation/annotation.js';
+import {
 	LINE_STYLES,
 	LINE_STYLE_PROPERTY,
-	SIMPLESTYLE_DEFAULTS,
-	drawingOrder,
 	mapLibreDashArray,
 	toRenderCollection
-} from '@ballastella/core';
+} from '../annotation/render.js';
+import type { Alignment } from '../alignment/alignment.js';
+import type { FetchFn } from '../injection/store-image-fetch.js';
+import { drawingOrder, type AnnotationLayer, type MapLayer } from '../project/layer.js';
+import type { WarpedMapLayer } from '@allmaps/maplibre';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
-import {
-	createWarpedMapLayer,
-	showAlignment,
-	type WarpedRender
-} from '$lib/warped/warped-map-layer';
-
-import { exposeLayerStackToBrowserTests } from './browser-test-handle';
+import { createWarpedMapLayer, showAlignment, type WarpedRender } from './warped-map-layer.js';
 
 /**
  * One Layer of the stack with the documents it references already read.
@@ -277,6 +276,34 @@ export const annotationLayerIds = (layerId: string): string[] => [
 ];
 
 /**
+ * The live objects a built stack consists of, handed to {@link StackBuiltListener}.
+ *
+ * Named rather than left inline so that an app can type a Playwright handle against it **without naming
+ * `@allmaps/maplibre`**. `apps/viewer` deliberately does not depend on that package — it reaches warped
+ * rendering through this module, which is where ADR-0019 wants that dependency to live — so an app-side
+ * `Record<string, WarpedMapLayer>` would be an undeclared import of somebody else's dependency.
+ */
+export type DrawnStackObjects = {
+	readonly map: MapLibreMap;
+	/** The live warped layer for each `kind: 'map'` Layer of the stack, by Layer id. */
+	readonly warped: Readonly<Record<string, WarpedMapLayer>>;
+};
+
+/**
+ * Called with the live objects once a stack is on the map, returning the way to let go of them.
+ *
+ * **The seam that keeps each app's Playwright handle in its own app.** SPEC's Seam 2 is a real browser
+ * with no map abstraction, so a browser test needs the `WarpedMapLayer`s themselves — but a
+ * `declare global` on `Window` inside `@ballastella/core` would put one app's test scaffolding into the
+ * other's types, and into a published Reader's bundle. So the exposure is injected and this module knows
+ * nothing about `window`.
+ */
+export type StackBuiltListener = (
+	map: DrawnStackObjects['map'],
+	warped: DrawnStackObjects['warped']
+) => (() => void) | void;
+
+/**
  * Draw `layers` onto `map`, bottom of the stack first.
  *
  * The whole stack is built and torn down together rather than diffed. Handing an Alignment to the
@@ -290,6 +317,7 @@ export function drawLayerStack(options: {
 	layers: readonly DrawnLayer[];
 	/** Where an aligned Historical Map's tiles are read from (ADR-0011). */
 	fetchTile: FetchFn;
+	onBuilt?: StackBuiltListener;
 }): StackRender {
 	const { map, layers, fetchTile } = options;
 	const outcomes: Record<string, DrawnOutcome> = {};
@@ -329,7 +357,7 @@ export function drawLayerStack(options: {
 		outcomes[layerId] = { status: 'drawn' };
 	}
 
-	const unexpose = exposeLayerStackToBrowserTests(map, warped);
+	const unexpose = options.onBuilt?.(map, warped) ?? (() => undefined);
 
 	return {
 		outcomes,

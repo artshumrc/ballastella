@@ -222,10 +222,22 @@ importers:
       dompurify:
         specifier: 'catalog:'
         version: 3.4.13
+      maplibre-gl:
+        specifier: 'catalog:'
+        version: 5.24.0
       marked:
         specifier: 'catalog:'
         version: 18.0.9
+      pmtiles:
+        specifier: 'catalog:'
+        version: 4.4.1
+      triiiceratops:
+        specifier: 'catalog:'
+        version: 1.0.0-rc.35(svelte@5.56.8(@typescript-eslint/types@8.66.0))
     devDependencies:
+      '@maplibre/maplibre-gl-style-spec':
+        specifier: 'catalog:'
+        version: 24.10.0
       '@sveltejs/adapter-static':
         specifier: 'catalog:'
         version: 3.0.10(@sveltejs/kit@2.70.2(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.8(@typescript-eslint/types@8.66.0))(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)))(svelte@5.56.8(@typescript-eslint/types@8.66.0))(typescript@6.0.3)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)))
@@ -268,6 +280,9 @@ importers:
       '@allmaps/iiif-parser':
         specifier: 'catalog:'
         version: 1.0.0-beta.48
+      '@allmaps/maplibre':
+        specifier: 'catalog:'
+        version: 1.0.0-beta.43
       '@allmaps/transform':
         specifier: 'catalog:'
         version: 1.0.0-beta.52
@@ -283,9 +298,15 @@ importers:
       fflate:
         specifier: 'catalog:'
         version: 0.8.3
+      maplibre-gl:
+        specifier: 'catalog:'
+        version: 5.24.0
       marked:
         specifier: 'catalog:'
         version: 18.0.9
+      pmtiles:
+        specifier: 'catalog:'
+        version: 4.4.1
     devDependencies:
       '@allmaps/types':
         specifier: 'catalog:'

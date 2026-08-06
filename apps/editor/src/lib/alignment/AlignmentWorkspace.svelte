@@ -25,11 +25,11 @@
 		type ImagePane,
 		type ResourcePoint
 	} from '@ballastella/core';
+	import type { WarpedRender } from '@ballastella/core/render';
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import HistoricalMapPane from '$lib/image-pane/HistoricalMapPane.svelte';
 	import type { PaneOverlayPoint } from '$lib/image-pane/ImagePane.svelte';
-	import type { WarpedRender } from '$lib/warped/warped-map-layer';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import DistortionControls from './DistortionControls.svelte';

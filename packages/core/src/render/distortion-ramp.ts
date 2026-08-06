@@ -25,7 +25,7 @@
 // This was found by ticket 07's `pageerror` watch on an unrelated test, which is the only reason
 // `rgb(…)` did not ship. The distortion test now watches for it too.
 
-import { DEFAULT_DISTORTION_MEASURE, type DistortionRamp } from '@ballastella/core';
+import type { DistortionRamp } from '../alignment/distortion.js';
 
 /**
  * Which theme variable each stop of the ramp reads, and what to fall back to.
@@ -124,12 +124,7 @@ function resolveThemeColour(variable: string): string {
 	const first = paint('#ff00ff');
 	return first === paint('#00ff00') ? first : '';
 }
-
-/**
- * The measure to show when the user turns the overlay on without having chosen one.
- *
- * Re-exported through this module so that a component reaching for the overlay's colours and the
- * overlay's default measure has one import, and so that the default is not restated in a
- * component where it could drift from core's.
- */
-export const INITIAL_DISTORTION_MEASURE = DEFAULT_DISTORTION_MEASURE;
+// `INITIAL_DISTORTION_MEASURE` used to be re-exported from here so that a component reaching for the
+// overlay's colours and its default measure had one import. It had no callers by the time this module
+// moved into `core`, and the barrel now exports `DEFAULT_DISTORTION_MEASURE` itself — so a second name
+// for it here would be an alias that can drift from the thing it aliases.

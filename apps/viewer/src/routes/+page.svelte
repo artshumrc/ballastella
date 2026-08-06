@@ -10,42 +10,85 @@
 	// That record also carries the Base Map catalog the authoring deployment resolved, so a
 	// Published Site keeps working when that deployment later changes its own catalog (ADR-0020).
 	//
-	// Everything is fetched **relative** to this document, never from `/` (ADR-0006): one build has
-	// to serve `username.github.io/some-repo/` and a custom domain root, and which one is unknown at
-	// build time. See `$lib/site-files`.
+	// Everything is read **relative** to this document, never from `/` (ADR-0006), and everything is read
+	// through **one** {@link ReadOnlyProjectStore}: ADR-0006's HTTP adapter, whose only method is `read`.
+	// There is no second data path in this app and nothing in it can write. See `$lib/site-files`.
 	//
 	// ADR-0008 chose `?p=<folder>` over per-Project URLs so that the static adapter prerenders one
 	// page: no SPA fallback, no post-build path rewriting, and nothing per-Project to keep in sync
-	// when a Project is renamed or deleted.
+	// when a Project is renamed or deleted. `?unwarped=<layer-id>` is on the same page and for the same
+	// reason — a second *route* would be a second prerendered directory, which `VIEWER_FILE_PATHS` would
+	// have to claim before publishing would write it.
 	//
-	// Reading the work — the maps, the Annotations and their popups, the Base Map switcher, unwarped
-	// viewing — is ticket 17. What is here is the way in, and what each Project contains.
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// NOTHING A READER DOES IS AN EDIT
+	//
+	// Layer visibility and opacity are **view** controls over an in-memory copy of the stack. They call
+	// core's own `setLayerVisible` and `setMapLayerOpacity` — the same pure functions the editor calls —
+	// and then stop: there is no store `write` in this app to call next, and `project.json` is read-only
+	// over HTTP anyway. Ticket 17 names the failure being avoided: a naive reuse of the editor's controls
+	// would try to persist, fail, and surface a confusing error at a Reader.
+	//
+	// The one thing that *is* remembered is the Base Map choice, in `localStorage`, keyed per site
+	// (ADR-0020) — never in Project data.
 
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import {
+		BASE_MAP_CATALOG,
 		PUBLISHED_SITE_RECORD_NAME,
+		PathNotFoundError,
 		ProjectFormatTooNewError,
+		SiteFileUnreachableError,
 		baseMapFallbackNotice,
+		createStoreImageFetch,
+		imageIdFromAlignmentRef,
+		imageInfoPath,
+		isAbsoluteUrl,
 		isDescriptionRendererSupported,
+		otherTheme,
 		parseProjectFile,
 		parsePublishedSite,
 		projectFilePath,
+		readBaseMapPreference,
 		resolveBaseMap,
+		setLayerVisible,
+		setMapLayerOpacity,
+		writeBaseMapPreference,
+		type Annotation,
+		type AnnotationCollection,
+		type AnnotationLayer,
+		type GeoPoint,
+		type Layer,
+		type MapLayer,
 		type ProjectFile,
 		type PublishedSite
 	} from '@ballastella/core';
-	import { onMount } from 'svelte';
+	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
+	import { onMount, untrack } from 'svelte';
 
 	import { annotationHtml } from '$lib/annotation-text';
-	import { readSiteFile } from '$lib/site-files';
+	import BaseMapSwitcher from '$lib/BaseMapSwitcher.svelte';
+	import { readLayerDocuments, type ReadDocuments } from '$lib/project-documents';
+	import ReaderLayerControls from '$lib/ReaderLayerControls.svelte';
+	import ReaderMapPane from '$lib/ReaderMapPane.svelte';
+	import { readSiteFile, siteStore, sitePrefix } from '$lib/site-files';
+	import { startTheme, theme } from '$lib/theme.svelte';
+	import UnwarpedView from '$lib/UnwarpedView.svelte';
+	import {
+		parseServedImageInfo,
+		servedImageManifest,
+		servedImageServiceId,
+		type ServedImageInfo
+	} from '$lib/unwarped-manifest';
 
 	/**
 	 * The site's own prose, authored as Markdown so that the emphasis and the link below are produced
 	 * by `marked` and then sanitised by DOMPurify — the same two stages, in the same order, that a
 	 * scholar's Annotation `description` goes through (ADR-0009). Keeping the shared path live in the
-	 * viewer's shipped bundle is what makes ticket 17's "the payload inert in the editor is inert
-	 * here" assertion mean anything: a reimplementation would have to remove working code.
+	 * viewer's shipped bundle is what makes ticket 17's "the payload inert in the editor is inert here"
+	 * assertion mean anything: a reimplementation would have to remove working code.
 	 */
 	const about = {
 		description:
@@ -72,11 +115,15 @@
 	 *
 	 * That failure deserves a test rather than only a comment, because **a blank render surface
 	 * passes every "is the payload inert?" assertion.** So `e2e/viewer.e2e.ts` asserts the text **is**
-	 * present as well as that the markup is not.
+	 * present as well as that the markup is not — on every surface, including the Annotation popup,
+	 * which is the one a stranger's Project writes.
 	 */
 	let hydrated = $state(false);
 	onMount(() => {
 		hydrated = true;
+		// ADR-0016: the theme ships with the viewer, and one signal drives the interface and the Base Map
+		// flavor. Here rather than at module scope, because a module body runs during prerendering too.
+		startTheme();
 	});
 
 	const aboutHtml = $derived(
@@ -95,6 +142,9 @@
 	 */
 	const openDirectory = $derived(hydrated ? page.url.searchParams.get('p') : null);
 
+	/** Which Historical Map is being read as a document, or `null` for the map (SPEC story 85). */
+	const unwarpedLayerId = $derived(hydrated ? page.url.searchParams.get('unwarped') : null);
+
 	let site = $state<PublishedSite | null>(null);
 	/** Why the site record could not be read. A site with no record is not a site at all. */
 	let siteError = $state('');
@@ -111,10 +161,29 @@
 				site = parsePublishedSite(await readSiteFile(PUBLISHED_SITE_RECORD_NAME));
 				siteError = '';
 			} catch (cause) {
-				siteError = cause instanceof Error ? cause.message : String(cause);
+				siteError = describeSiteRecordFailure(cause);
 			}
 		})();
 	});
+
+	/**
+	 * Why the site record could not be read, in a Reader's terms.
+	 *
+	 * The three cases are genuinely different and reading them as one is how a Reader is misinformed: the
+	 * bundle sitting in a half-set-up repository with nothing published into it yet, a host that is not
+	 * answering, and a record that is there and corrupt. The adapter tells them apart (`PathNotFoundError`
+	 * versus `SiteFileUnreachableError`), which is the whole reason it distinguishes them.
+	 */
+	function describeSiteRecordFailure(cause: unknown): string {
+		if (cause instanceof PathNotFoundError) {
+			return (
+				'This site has no list of Projects yet. The viewer’s own files are here, but nothing has ' +
+				'been published into this folder — publish again from Ballastella to add it.'
+			);
+		}
+		if (cause instanceof SiteFileUnreachableError) return cause.message;
+		return cause instanceof Error ? cause.message : String(cause);
+	}
 
 	$effect(() => {
 		const directory = openDirectory;
@@ -133,47 +202,430 @@
 			} catch (cause) {
 				if (openDirectory !== directory) return;
 				openProject = null;
+				// `formatVersion` newer than this bundle understands is said plainly rather than misrendered
+				// (ADR-0010), and a host that is not answering is said as such — a Published Site is a
+				// snapshot that may outlive the app that wrote it, and both of those are ordinary.
 				projectError =
-					cause instanceof ProjectFormatTooNewError
+					cause instanceof ProjectFormatTooNewError || cause instanceof SiteFileUnreachableError
 						? cause.message
-						: `There is no Project called “${directory}” on this site.`;
+						: cause instanceof PathNotFoundError
+							? `There is no Project called “${directory}” on this site.`
+							: cause instanceof Error
+								? cause.message
+								: String(cause);
 			}
 		})();
 	});
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// The Reader's view of the stack
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * The Layer stack as this Reader currently has it: the author's order, with their own visibility and
+	 * opacity applied.
+	 *
+	 * **A copy in memory, and the copy is the point.** It starts as whatever `project.json` said, and a
+	 * Reader's toggles and sliders replace it through core's own `setLayerVisible` and
+	 * `setMapLayerOpacity` — the same functions the editor uses, so the semantics (0 is the top, opacity
+	 * is clamped, opacity on an annotation Layer is a no-op) cannot drift between what an author sets and
+	 * what a Reader sees. What does not follow is a write: there is none to call.
+	 *
+	 * `$state.raw`, because nothing here is mutated in place — every change replaces the array.
+	 */
+	let layers = $state.raw<readonly Layer[]>([]);
+
+	/** Reset to the author's own stack whenever a different Project is opened. */
+	$effect(() => {
+		const file = openProject?.file ?? null;
+		layers = file?.layers ?? [];
+	});
+
+	/**
+	 * The Layers a Reader has left visible, and of a kind this build can draw.
+	 *
+	 * A hidden Layer is *absent* from what the map is given rather than flagged inside it, so there is no
+	 * second place where a Layer can be in the stack and not drawn. A `foreign` Layer is absent for the
+	 * same reason and says so in the list — this build cannot draw a kind it has never heard of, and
+	 * ADR-0014 expects there to be one eventually.
+	 */
+	const shown = $derived(
+		layers.filter(
+			(layer): layer is MapLayer | AnnotationLayer => layer.visible && layer.kind !== 'foreign'
+		)
+	);
+
+	let documents = $state.raw<ReadDocuments>({});
+	/** Bumped by every load, so a read that resolves late knows it has been superseded. */
+	let generation = 0;
+
+	/**
+	 * What requires the referenced documents to be read again: which Project, and which files.
+	 *
+	 * **Not** visibility and not opacity, which are view state and must not cost a fetch — a Reader
+	 * dragging a slider on a phone would otherwise re-request every Alignment twenty times. A string,
+	 * because deriveds compare by reference and any array recomputed from `layers` would make `layers`
+	 * the real dependency however carefully a key was computed first.
+	 */
+	const documentKey = $derived(
+		JSON.stringify([
+			openProject?.directory ?? '',
+			layers.map((layer) =>
+				layer.kind === 'map'
+					? [layer.id, layer.alignmentRef, layer.imageMode]
+					: layer.kind === 'annotation'
+						? [layer.id, layer.geojsonRef]
+						: [layer.id]
+			)
+		])
+	);
+
+	$effect(() => {
+		void documentKey;
+		const open = untrack(() => openProject);
+		const wanted = untrack(() => layers);
+		if (!open || wanted.length === 0) {
+			documents = {};
+			return;
+		}
+		const mine = ++generation;
+		void (async () => {
+			const read = await readLayerDocuments(siteStore(), open.directory, wanted);
+			if (mine !== generation) return;
+			documents = read;
+		})();
+	});
+
+	/**
+	 * Where an aligned Historical Map's tiles are read from (ADR-0011).
+	 *
+	 * The same shim the editor gives MapLibre, over the HTTP store rather than over OPFS — which is
+	 * ADR-0001's abstraction paying out and the reason there is no second tile path here. A local copy's
+	 * `info.json` carries the `unset.invalid` placeholder, this resolves it against
+	 * `<directory>/images/<image-id>/`, and a `'referenced'` image's real address passes straight through
+	 * to the library that holds it.
+	 */
+	const fetchTile = $derived(
+		openProject
+			? createStoreImageFetch({ store: siteStore(), projectDirectory: openProject.directory })
+			: null
+	);
+
+	/** The stack as the map takes it: top first, each Layer with its documents in hand. */
+	const drawn = $derived<readonly DrawnLayer[]>(
+		shown.flatMap((layer): DrawnLayer[] => {
+			const read = documents[layer.id];
+			// **Nothing is handed to the map until its documents have arrived.** A map Layer given
+			// `service: ''` while its `remote.json` is still in flight draws blank and reports itself drawn
+			// — the defect recorded on ticket 09, which this avoids by having a third state rather than two
+			// (see `$lib/project-documents`).
+			if (read?.status !== 'ready') return [];
+			if (layer.kind === 'map') {
+				if (!read.alignment) return [];
+				return [{ layer, alignment: read.alignment, service: read.service ?? '' }];
+			}
+			return [{ layer, annotations: read.annotations ?? null }];
+		})
+	);
+
+	/** What the map made of each Layer it was given. */
+	let rendered = $state.raw<Readonly<Record<string, DrawnOutcome>>>({});
+
+	/**
+	 * What the list says about each Layer: what the map reported, plus what the map never got.
+	 *
+	 * **Keyed off the Layers that are currently shown, and nothing else.** That is not incidental
+	 * tidiness: the editor's equivalent merges over `{ ...rendered }`, which is never pruned, so a Layer
+	 * the Reader has just hidden goes on being counted as drawn — the `data-drawn` defect recorded
+	 * against `apps/editor/src/routes/layers/+page.svelte`. Building the record from `shown` means a
+	 * Layer that has left the stack cannot survive in it, so the count below is a fact about the map
+	 * rather than a high-water mark.
+	 */
+	const outcomes = $derived.by((): Readonly<Record<string, DrawnOutcome>> => {
+		const merged: Record<string, DrawnOutcome> = {};
+		for (const layer of shown) {
+			const read = documents[layer.id];
+			if (read?.status === 'unreadable') {
+				merged[layer.id] = { status: 'refused', reason: read.reason };
+				continue;
+			}
+			if (read === undefined || read.status === 'loading') {
+				merged[layer.id] = { status: 'refused', reason: 'Still loading…' };
+				continue;
+			}
+			const reportedByMap = rendered[layer.id];
+			if (reportedByMap) {
+				merged[layer.id] = reportedByMap;
+				continue;
+			}
+			merged[layer.id] =
+				layer.kind === 'map'
+					? {
+							status: 'refused',
+							reason: 'This Historical Map has not been aligned, so it is not drawn.'
+						}
+					: { status: 'refused', reason: 'This Layer has no Annotations in it.' };
+		}
+		return merged;
+	});
+
+	/** How many Layers are actually on the map. Said, because "nothing is drawn" has many reasons. */
+	const drawnCount = $derived(
+		Object.values(outcomes).filter((outcome) => outcome.status === 'drawn').length
+	);
+
+	/**
+	 * Which Layers still fetch their Historical Map from the library that holds it (SPEC story 29).
+	 *
+	 * Said out loud on the page rather than only warned about at publish time, because the Reader is the
+	 * person who meets the consequence: on a train, or after the library reorganises, those Layers draw
+	 * nothing (ADR-0007). `imageMode` is what decides it.
+	 */
+	const needsNetwork = $derived(
+		layers.filter((layer) => layer.kind === 'map' && layer.imageMode === 'referenced')
+	);
+
+	/** Every referenced host that failed to answer, so the message can name it (ticket 17's table). */
+	const unreachable = $derived(
+		layers.flatMap((layer) => {
+			const read = documents[layer.id];
+			return read?.status === 'unreadable' && read.hostUnreachable
+				? [{ name: layer.name || layer.id, reason: read.reason }]
+				: [];
+		})
+	);
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// The Base Map (ADR-0020)
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * The catalog to draw from: the one that **travelled with this site**, falling back to this bundle's.
+	 *
+	 * ADR-0020's point is that a Published Site keeps working when the authoring deployment later changes
+	 * its own catalog, so the record wins. The fallback is for a site whose record could not be read at
+	 * all, where offering this build's Base Maps is a working map rather than a blank pane.
+	 */
+	const catalog = $derived(site?.baseMap ?? BASE_MAP_CATALOG);
+
+	/**
+	 * This Reader's own choice, or `null` — read once per site rather than watched.
+	 *
+	 * `null` until the Reader chooses, so the **author's default governs first contact** (SPEC story 69),
+	 * which is the moment that carries the argument.
+	 */
+	let chosen = $state<string | null>(null);
+	$effect(() => {
+		if (!hydrated) return;
+		chosen = readBaseMapPreference(readerStorage(), sitePrefix());
+	});
+
+	/**
+	 * `localStorage`, or `null` where there is none.
+	 *
+	 * A function rather than a captured reference: merely *touching* `window.localStorage` throws in
+	 * Safari's private browsing and wherever site data is blocked, so the access has to be inside the
+	 * `try` — and a Reader who has switched storage off must still get the author's default rather than a
+	 * page that will not render.
+	 */
+	function readerStorage(): Storage | null {
+		try {
+			return typeof window === 'undefined' ? null : window.localStorage;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * The Base Map actually shown: this Reader's choice if they have one, else the author's default, and
+	 * in both cases resolved against the catalog so an id this site cannot serve falls back **visibly**.
+	 */
+	const baseMap = $derived(resolveBaseMap(chosen ?? openProject?.file.baseMap ?? null, catalog));
+	const baseMapNotice = $derived(baseMapFallbackNotice(baseMap));
+
+	/**
+	 * Whether this site carries the Base Map's own files (ADR-0020, SPEC stories 88 and 89).
+	 *
+	 * Read out of the site record, because including them is opt-in at publish time: they are about 4.9 MB
+	 * against the same hosting budget as the scholar's Historical Maps, and a scholar publishing to a
+	 * network-connected audience reasonably leaves them out. Defaults to attempting them when there is no
+	 * record to read, which is the pre-publish bundle where nothing else works either.
+	 */
+	const bundledBaseMapAvailable = $derived(site === null ? true : site.baseMapBundled);
+
+	/**
+	 * Why the modern reference map is missing, or `''`.
+	 *
+	 * Said rather than left as an empty rectangle. This is the ADR-0020 case a Reader actually meets, and
+	 * the entries that *would* work are already marked in the switcher — so the sentence points at them
+	 * rather than merely apologising.
+	 */
+	const baseMapUnavailable = $derived(
+		!bundledBaseMapAvailable && !isAbsoluteUrl(baseMap.entry.archive)
+			? 'This site was published without its own copy of the modern reference map, so only the ' +
+					'Historical Maps and Annotations are drawn. The Base Maps marked “needs network” still work.'
+			: ''
+	);
+
+	/** Remember the Reader's choice for this site, and for no other (ADR-0020). Never Project data. */
+	function chooseBaseMap(id: string): void {
+		chosen = id;
+		writeBaseMapPreference(readerStorage(), sitePrefix(), id);
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// Annotation popups (SPEC story 67) — the highest-stakes surface in the epic
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	let selected = $state.raw<{ layerId: string; annotationId: string; at: GeoPoint } | null>(null);
+
+	/**
+	 * The open Annotation, out of the collection the map is drawing.
+	 *
+	 * Its `title` and `description` are **untrusted text**: a Published Site runs on the author's own
+	 * domain, and the Project may have arrived from a stranger by zip import (ticket 13) or from a remote
+	 * library (ticket 14). Neither is turned into HTML here. `showAnnotationPopup` in
+	 * `@ballastella/core/render` builds the popup from `renderAnnotationPopup`, which escapes the title
+	 * and runs the description through `marked` then DOMPurify in that order, and holds this repository's
+	 * one `setHTML` (ADR-0009).
+	 */
+	const selectedAnnotation = $derived.by((): Annotation | null => {
+		if (!selected) return null;
+		const read = documents[selected.layerId];
+		if (read?.status !== 'ready') return null;
+		const collection = read.annotations as AnnotationCollection | null | undefined;
+		return collection?.annotations.find((one) => one.id === selected?.annotationId) ?? null;
+	});
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// Reading a Historical Map as a document (SPEC story 85)
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/** The map Layer being read unwarped, or `null`. */
+	const unwarpedLayer = $derived<MapLayer | null>(
+		(layers.find((layer) => layer.kind === 'map' && layer.id === unwarpedLayerId) as
+			MapLayer | undefined) ?? null
+	);
+
+	let unwarped = $state.raw<{ layerId: string; info: ServedImageInfo } | null>(null);
+	let unwarpedError = $state('');
+
+	$effect(() => {
+		const layer = unwarpedLayer;
+		const open = openProject;
+		if (!layer || !open) {
+			unwarped = null;
+			unwarpedError = '';
+			return;
+		}
+		const imageId = imageIdFromAlignmentRef(layer.alignmentRef);
+		void (async () => {
+			if (imageId === null) {
+				unwarpedError = 'This site does not record where this Historical Map’s image is.';
+				return;
+			}
+			try {
+				// The published `info.json`, which is the document that describes the pyramid — and, in its
+				// own `id`, the document that decides where a tiling viewer will fetch from. See
+				// `$lib/unwarped-manifest` for why nothing here can override that.
+				const bytes = await siteStore().read(`${open.directory}/${imageInfoPath(imageId)}`);
+				if (unwarpedLayerId !== layer.id) return;
+				const info = parseServedImageInfo(bytes);
+				if (servedImageServiceId(info) === null) {
+					// **Refused rather than shown empty.** The pyramid's `info.json` still carries the ADR-0004
+					// placeholder, so every tile OpenSeadragon asked for would fail at DNS and the Reader would
+					// be looking at a blank rectangle with nothing to explain it. Ticket 17's degradation rule
+					// is to say so plainly rather than misrender, and this is that case.
+					unwarped = null;
+					unwarpedError =
+						'This Historical Map cannot be opened on its own from this site yet. Its image was ' +
+						'tiled without a web address, so nothing here can fetch the sheet. The scholar who ' +
+						'published this site can fix it by publishing again and giving Ballastella the address ' +
+						'the site is at, which turns the map into a citable IIIF endpoint. It is still shown ' +
+						'aligned on the map.';
+					return;
+				}
+				unwarped = { layerId: layer.id, info };
+				unwarpedError = '';
+			} catch (cause) {
+				if (unwarpedLayerId !== layer.id) return;
+				unwarped = null;
+				unwarpedError =
+					cause instanceof PathNotFoundError
+						? 'The image behind this Historical Map is not on this site, so it cannot be read as a document.'
+						: cause instanceof Error
+							? cause.message
+							: String(cause);
+			}
+		})();
+	});
+
+	/**
+	 * The Manifest triiiceratops is given.
+	 *
+	 * The service id is the pyramid's **own** declared `id` and never a URL this page composed, because a
+	 * composed one would produce a Manifest that looks right over a viewer fetching from somewhere else
+	 * entirely — see `$lib/unwarped-manifest` for the measurement. By the time this runs, `unwarped` is
+	 * only non-null when that id is fetchable.
+	 */
+	const unwarpedSource = $derived.by(() => {
+		const layer = unwarpedLayer;
+		if (!layer || !unwarped || unwarped.layerId !== layer.id) return null;
+		const serviceId = servedImageServiceId(unwarped.info);
+		if (serviceId === null) return null;
+		return {
+			manifestId: `${serviceId}/manifest.json`,
+			manifest: servedImageManifest({ serviceId, label: layer.name, info: unwarped.info })
+		};
+	});
+
+	/**
+	 * Open a Historical Map as a document, and come back (SPEC story 85).
+	 *
+	 * Query only, on the one route ADR-0008 chose: a second route would be a second prerendered
+	 * directory, which `VIEWER_FILE_PATHS` would have to claim before publishing would write it.
+	 *
+	 * `goto` rather than `location.href`, so this is a **client-side** navigation. That is the harder
+	 * case and the one worth having: it destroys the map-bearing pane and mounts the unwarped one inside
+	 * a single Svelte flush, which is exactly where an exception in a teardown abandons the incoming
+	 * mount and a page renders nothing at all. Coming back is `history.back()`, so the Reader's place in
+	 * the site is where they left it.
+	 */
+	function readAsDocument(layerId: string): void {
+		if (openDirectory === null) return;
+		void goto(
+			resolve(`/?p=${encodeURIComponent(openDirectory)}&unwarped=${encodeURIComponent(layerId)}`)
+		);
+	}
 
 	/** What this site calls itself in the tab. The hub has no name of its own beyond the tool's. */
 	const title = $derived(
 		openProject ? `${openProject.file.name} — Ballastella` : 'Ballastella — published Projects'
 	);
-
-	/**
-	 * The Base Map a Reader sees first, resolved against the catalog that travelled with the site
-	 * rather than against this build's (ADR-0020). Switching is ticket 17; the author's default is
-	 * what governs first contact, which is the moment that carries the argument.
-	 */
-	const baseMap = $derived(
-		site && openProject ? resolveBaseMap(openProject.file.baseMap, site.baseMap) : null
-	);
-
-	/**
-	 * The Layers whose Historical Map is still fetched from the library that holds it (SPEC story 29).
-	 *
-	 * Said out loud on the page rather than only warned about at publish time, because the Reader is
-	 * the person who meets the consequence: on a train, or after the library reorganises, those
-	 * Layers draw nothing (ADR-0007).
-	 */
-	const needsNetwork = $derived(
-		(openProject?.file.layers ?? []).filter(
-			(layer) => layer.kind === 'map' && layer.imageMode === 'referenced'
-		)
-	);
 </script>
 
 <svelte:head><title>{title}</title></svelte:head>
 
-<main class="mx-auto max-w-4xl p-8">
+<!-- Escape closes an open Annotation popup from anywhere on the page, not only over the map. -->
+<svelte:window
+	onkeydown={(event) => {
+		if (event.key === 'Escape' && selected !== null) selected = null;
+	}}
+/>
+
+<!--
+	`max-w-*` with `mx-auto`, and horizontal padding that shrinks: at 375 px the `p-8` this page used to
+	carry spent 43% of the viewport on margins. Nothing here has a fixed width, so the page never scrolls
+	sideways (ticket 17's criterion, and SPEC story 84 — a phone is where most Readers arrive).
+-->
+<main class="mx-auto max-w-6xl p-4 sm:p-8">
 	{#if openDirectory === null}
-		<h1 class="text-3xl font-bold">Published Projects</h1>
+		<div class="flex flex-wrap items-baseline justify-between gap-4">
+			<h1 class="text-3xl font-bold">Published Projects</h1>
+			<button type="button" class="btn btn-sm" onclick={() => theme.toggle()}>
+				Switch to {otherTheme(theme.current)} theme
+			</button>
+		</div>
 
 		<!--
 			`{@html}`, and safe for one reason only: `aboutHtml` is DOMPurify's own output. There is no
@@ -187,7 +639,7 @@
 		{#if siteError}
 			<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
 				<h2 class="font-semibold">This site has no list of Projects</h2>
-				<p>{siteError}</p>
+				<p data-testid="site-problem">{siteError}</p>
 			</div>
 		{:else if site === null}
 			<p class="mt-8">Looking for the Projects on this site…</p>
@@ -203,14 +655,17 @@
 									Interpolated as text, never as markup. A display name comes out of a `project.json`
 									and is untrusted content: this site runs on the author's own domain, so a name
 									carrying `<img src=x onerror=…>` rendered as HTML would be stored XSS there
-									(ADR-0009). Svelte escapes it, and `e2e/editor-publish.e2e.ts` asserts both halves —
-									that the real name is on the page, and that no element came with it.
+									(ADR-0009). Svelte escapes it, and both `e2e/editor-publish.e2e.ts` and
+									`e2e/viewer.e2e.ts` assert both halves — that the real name is on the page, and
+									that no element came with it.
 								-->
 								<a class="link" href={resolve(`/?p=${encodeURIComponent(project.directory)}`)}
 									>{project.name}</a
 								>
 							</h2>
-							<p class="text-sm opacity-70">folder <code>{project.directory}</code></p>
+							<p class="text-sm break-words opacity-70">
+								folder <code>{project.directory}</code>
+							</p>
 						</div>
 					</li>
 				{/each}
@@ -222,52 +677,161 @@
 			at a domain root and in a subdirectory alike (ADR-0006), and the prerendered HTML carries no
 			absolute path for the CI fence to find.
 		-->
-		<p><a class="link" href={resolve('/')}>All Projects</a></p>
+		<p><a class="link" data-testid="all-projects" href={resolve('/')}>All Projects</a></p>
 
 		{#if projectError}
 			<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
-				<h1 class="text-xl font-semibold">This Project is not on this site</h1>
-				<p>{projectError}</p>
+				<h1 class="text-xl font-semibold">This Project cannot be shown</h1>
+				<p data-testid="project-problem">{projectError}</p>
 			</div>
 		{:else if openProject === null}
 			<p class="mt-4">Opening…</p>
 		{:else}
-			<h1 class="mt-2 text-3xl font-bold" data-testid="project-name">{openProject.file.name}</h1>
+			<div class="mt-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+				<h1 class="text-3xl font-bold" data-testid="project-name">{openProject.file.name}</h1>
+				<button type="button" class="btn btn-sm" onclick={() => theme.toggle()}>
+					Switch to {otherTheme(theme.current)} theme
+				</button>
+			</div>
 
-			<h2 class="mt-8 text-xl font-semibold">What is in this Project</h2>
-			{#if openProject.file.layers.length === 0}
-				<p class="mt-2">Nothing yet: this Project has no Layers.</p>
-			{:else}
-				<ul class="mt-2 flex flex-col gap-2" data-testid="project-layers">
-					{#each openProject.file.layers as layer (layer.id)}
-						<li class="flex flex-wrap items-baseline gap-2">
-							<span class="font-medium">{layer.name}</span>
-							<span class="text-sm opacity-70">
-								{layer.kind === 'map' ? 'aligned Historical Map' : 'Annotations'}
-							</span>
-						</li>
-					{/each}
-				</ul>
-			{/if}
+			{#if unwarpedLayerId !== null}
+				<!--
+					Reading one Historical Map on its own. A separate branch rather than a panel beside the
+					map, deliberately: two tile viewers over one WebGL-bearing page is a phone running out of
+					memory, and a Reader who asked to read the sheet is not looking at the geography.
 
-			{#if baseMap}
-				<p class="mt-6 text-sm opacity-80" data-testid="project-base-map">
-					Base Map: {baseMap.entry.label}
+					**This is a navigation between two map-bearing panes**, which is the shape that once made a
+					destination page render nothing at all — an exception in the outgoing pane's teardown
+					abandons the rest of Svelte's destroy flush *and* the incoming mount. `e2e/viewer.e2e.ts`
+					puts a `pageerror` assertion on it in both directions and on both ways in (by link, and by
+					loading the URL directly).
+				-->
+				<p class="mt-4">
+					<a
+						class="link"
+						data-testid="back-to-project"
+						href="{resolve('/')}?p={encodeURIComponent(openDirectory)}"
+					>
+						Back to this Project’s map
+					</a>
 				</p>
-				{#if baseMapFallbackNotice(baseMap)}
-					<p class="mt-1 text-sm text-warning">{baseMapFallbackNotice(baseMap)}</p>
+				{#if unwarpedError}
+					<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
+						<p data-testid="unwarped-problem">{unwarpedError}</p>
+					</div>
+				{:else if unwarpedLayer === null}
+					<p class="mt-4" data-testid="unwarped-problem">
+						This Project has no Historical Map with that name.
+					</p>
+				{:else if unwarpedSource === null}
+					<p class="mt-4">Opening the sheet…</p>
+				{:else}
+					<UnwarpedView
+						label={unwarpedLayer.name}
+						manifestId={unwarpedSource.manifestId}
+						manifest={unwarpedSource.manifest}
+						onclose={() => history.back()}
+					/>
 				{/if}
-			{/if}
+			{:else}
+				<!--
+					One column on a phone and two from `lg` up. The controls come **first** in the DOM so that
+					tabbing reaches them before MapLibre's canvas and its zoom buttons, and on a narrow screen
+					they are what a Reader sees under the heading rather than below a full-height map.
+				-->
+				<div class="mt-4 grid items-start gap-6 lg:grid-cols-[22rem_1fr]">
+					<div class="flex flex-col gap-4">
+						<BaseMapSwitcher
+							entryId={baseMap.entry.id}
+							{catalog}
+							onSelect={(id) => chooseBaseMap(id)}
+						/>
 
-			{#if needsNetwork.length > 0}
-				<p class="mt-6 text-sm text-warning" data-testid="project-needs-network">
-					{needsNetwork.length === 1
-						? 'One Historical Map'
-						: `${needsNetwork.length} Historical Maps`}
-					here {needsNetwork.length === 1 ? 'is' : 'are'} held on the library's own server rather than
-					in this site: {needsNetwork.map((layer) => layer.name).join(', ')}. Without a network
-					connection {needsNetwork.length === 1 ? 'it' : 'they'} cannot be shown.
-				</p>
+						{#if baseMapNotice}
+							<p class="text-sm text-warning" aria-live="polite" data-testid="base-map-notice">
+								{baseMapNotice}
+							</p>
+						{/if}
+
+						{#if baseMapUnavailable}
+							<p class="text-sm text-warning" aria-live="polite" data-testid="base-map-unavailable">
+								{baseMapUnavailable}
+							</p>
+						{/if}
+
+						<ReaderLayerControls
+							{layers}
+							{outcomes}
+							onshow={(id, visible) => (layers = setLayerVisible(layers, id, visible))}
+							onopacity={(id, opacity) => (layers = setMapLayerOpacity(layers, id, opacity))}
+							onunwarped={readAsDocument}
+						/>
+
+						{#if needsNetwork.length > 0}
+							<p class="text-sm text-warning" data-testid="project-needs-network">
+								{needsNetwork.length === 1
+									? 'One Historical Map'
+									: `${needsNetwork.length} Historical Maps`}
+								here {needsNetwork.length === 1 ? 'is' : 'are'} held on the library's own server rather
+								than in this site: {needsNetwork.map((layer) => layer.name).join(', ')}. Without a
+								network connection {needsNetwork.length === 1 ? 'it' : 'they'} cannot be shown.
+							</p>
+						{/if}
+
+						{#if unreachable.length > 0}
+							<div role="alert" class="alert flex-col items-start alert-warning">
+								<h2 class="font-semibold">Some of this Project could not be reached</h2>
+								{#each unreachable as failure (failure.name)}
+									<p data-testid="layer-unreachable">{failure.reason}</p>
+								{/each}
+							</div>
+						{/if}
+					</div>
+
+					<div>
+						<!--
+							A viewport-relative height on a phone and a fixed one from `sm` up. `36rem` of map on
+							a 667 px-tall phone leaves the controls below the fold and nothing above it.
+						-->
+						<div
+							class="h-[60vh] overflow-hidden rounded border border-base-300 sm:h-[32rem] lg:h-[36rem]"
+						>
+							{#if fetchTile}
+								<ReaderMapPane
+									entryId={baseMap.entry.id}
+									{catalog}
+									{bundledBaseMapAvailable}
+									layers={drawn}
+									{fetchTile}
+									popupAnnotation={selectedAnnotation}
+									popupAt={selected?.at ?? null}
+									onclickannotation={(hit) => (selected = hit)}
+									onpopupclose={() => (selected = null)}
+									onstack={(reported) => (rendered = reported)}
+								/>
+							{/if}
+						</div>
+						<!--
+							What is on the map, in words. `aria-live` rather than `role="status"`, because a Reader
+							who has just hidden a Layer needs to be told what the map now holds — and "nothing is
+							drawn" has many reasons, each of which is beside its own Layer in the list.
+						-->
+						<p
+							class="mt-2 min-h-6 text-sm"
+							aria-live="polite"
+							aria-atomic="true"
+							data-testid="stack-status"
+							data-drawn={drawnCount}
+						>
+							{#if layers.length === 0}
+								This Project has nothing on the map.
+							{:else}
+								{drawnCount} of {layers.length}
+								{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
+							{/if}
+						</p>
+					</div>
+				</div>
 			{/if}
 		{/if}
 	{/if}

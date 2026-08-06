@@ -13,9 +13,13 @@
 	"dependencies": {
 		"@ballastella/core": "workspace:*",
 		"dompurify": "catalog:",
-		"marked": "catalog:"
+		"maplibre-gl": "catalog:",
+		"marked": "catalog:",
+		"pmtiles": "catalog:",
+		"triiiceratops": "catalog:"
 	},
 	"devDependencies": {
+		"@maplibre/maplibre-gl-style-spec": "catalog:",
 		"@sveltejs/adapter-static": "catalog:",
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",

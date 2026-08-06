@@ -4,7 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./render": "./src/render/index.ts"
 	},
 	"scripts": {
 		"check": "tsc --noEmit",
@@ -14,12 +15,15 @@
 		"@allmaps/annotation": "catalog:",
 		"@allmaps/id": "catalog:",
 		"@allmaps/iiif-parser": "catalog:",
+		"@allmaps/maplibre": "catalog:",
 		"@allmaps/transform": "catalog:",
 		"@maplibre/maplibre-gl-style-spec": "catalog:",
 		"@protomaps/basemaps": "catalog:",
 		"dompurify": "catalog:",
 		"fflate": "catalog:",
-		"marked": "catalog:"
+		"maplibre-gl": "catalog:",
+		"marked": "catalog:",
+		"pmtiles": "catalog:"
 	},
 	"devDependencies": {
 		"@allmaps/types": "catalog:",

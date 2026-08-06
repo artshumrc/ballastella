@@ -1,5 +1,4 @@
-import type { WarpedMapLayer } from '@allmaps/maplibre';
-import type { Map as MapLibreMap } from 'maplibre-gl';
+import type { DrawnStackObjects, StackBuiltListener } from '@ballastella/core/render';
 
 /**
  * The live Layer stack, for the Playwright suite.
@@ -20,10 +19,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
  *
  * It is not an API. Nothing in `src/` may read it.
  */
-export interface LayerStackHandle {
-	readonly map: MapLibreMap;
-	/** The live warped layer for each `kind: 'map'` Layer of the stack, by Layer id. */
-	readonly warped: Readonly<Record<string, WarpedMapLayer>>;
+export interface LayerStackHandle extends DrawnStackObjects {
 	/** How many times the whole stack has been built since the page loaded. */
 	readonly builds: number;
 }
@@ -36,13 +32,10 @@ declare global {
 
 let builds = 0;
 
-export function exposeLayerStackToBrowserTests(
-	map: MapLibreMap,
-	warped: Readonly<Record<string, WarpedMapLayer>>
-): () => void {
+export const exposeLayerStackToBrowserTests: StackBuiltListener = (map, warped) => {
 	builds += 1;
 	window.ballastellaLayerStack = { map, warped, builds };
 	return () => {
 		delete window.ballastellaLayerStack;
 	};
-}
+};

@@ -39,6 +39,7 @@
 		type LineStyle,
 		type MapLayer
 	} from '@ballastella/core';
+	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
 	import { untrack } from 'svelte';
 
 	import AnnotationPanel from '$lib/annotations/AnnotationPanel.svelte';
@@ -48,7 +49,6 @@
 	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import LayerList from '$lib/layers/LayerList.svelte';
-	import type { DrawnLayer, DrawnOutcome } from '$lib/layers/stack-layers';
 	import UndoControl from '$lib/undo/UndoControl.svelte';
 	import { startTheme, theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';

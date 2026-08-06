@@ -18,7 +18,7 @@
 	import type { Layer } from '@ballastella/core';
 	import { tick } from 'svelte';
 
-	import type { DrawnOutcome } from './stack-layers';
+	import type { DrawnOutcome } from '@ballastella/core/render';
 
 	let {
 		layers,

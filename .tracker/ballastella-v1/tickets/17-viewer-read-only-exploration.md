@@ -56,23 +56,23 @@ A missing or broken single Layer must never take down the whole Project view.
 
 ## Acceptance criteria
 
-- [ ] The hub page lists Projects and `?p=<dir>` opens one, served over plain HTTP with no server-side logic
-- [ ] The viewer reads exclusively through the HTTP `ProjectStore` adapter, and exposes no `write`
-- [ ] Layer visibility and opacity work and honour `order`, including an annotation Layer drawing above a map Layer
-- [ ] Changing a view control makes **no** write attempt and produces no error
-- [ ] Annotation popups render `title` and Markdown `description`
-- [ ] A `description` containing an XSS payload renders inert in the **viewer** — asserted here as well as in ticket 10, because this is the origin that matters
-- [ ] The Base Map starts at the author's default
-- [ ] Switching Base Maps works, persists via `localStorage`, and is restored on return
-- [ ] The `localStorage` key is per site: two Published Sites on different paths do not share a preference
-- [ ] Base Map choice is **never** written to Project data
-- [ ] Entries needing network are marked or disabled
-- [ ] A Historical Map opens unwarped via triiiceratops, reading over HTTP
-- [ ] The site is usable at a 375 px viewport width: no horizontal page scroll, controls reachable, popups readable
-- [ ] Tracy's theme is applied, and toggling theme changes the Base Map flavor in the same action
-- [ ] An unreachable referenced host, an unknown base map id, and a newer `formatVersion` each degrade with a clear message and do not blank the site
-- [ ] Every Reader control is reachable and operable by keyboard, and layer state changes are announced
-- [ ] A low-contrast-sensitive Reader can select a high-contrast or muted Base Map
+- [x] The hub page lists Projects and `?p=<dir>` opens one, served over plain HTTP with no server-side logic
+- [x] The viewer reads exclusively through the HTTP `ProjectStore` adapter, and exposes no `write`
+- [x] Layer visibility and opacity work and honour `order`, including an annotation Layer drawing above a map Layer
+- [x] Changing a view control makes **no** write attempt and produces no error
+- [x] Annotation popups render `title` and Markdown `description`
+- [x] A `description` containing an XSS payload renders inert in the **viewer** — asserted here as well as in ticket 10, because this is the origin that matters
+- [x] The Base Map starts at the author's default
+- [x] Switching Base Maps works, persists via `localStorage`, and is restored on return
+- [x] The `localStorage` key is per site: two Published Sites on different paths do not share a preference
+- [x] Base Map choice is **never** written to Project data
+- [x] Entries needing network are marked or disabled
+- [~] A Historical Map opens unwarped via triiiceratops, reading over HTTP — **works, and only for a Project the author published with an address.** See "The unwarped view is limited by upstream" below.
+- [x] The site is usable at a 375 px viewport width: no horizontal page scroll, controls reachable, popups readable
+- [x] Tracy's theme is applied, and toggling theme changes the Base Map flavor in the same action
+- [x] An unreachable referenced host, an unknown base map id, and a newer `formatVersion` each degrade with a clear message and do not blank the site
+- [x] Every Reader control is reachable and operable by keyboard, and layer state changes are announced
+- [x] A low-contrast-sensitive Reader can select a high-contrast or muted Base Map
 
 ```bash
 pnpm -r build
@@ -89,3 +89,60 @@ Success: all exit 0 and the `grep` prints `OK: read-only`. The e2e suite must ru
 ## Blocked by
 
 - Ticket 16
+
+## What was found while building this
+
+### The unwarped view is limited by upstream, and it is the one criterion left `[~]`
+
+**A Historical Map reads unwarped over HTTP, and it is asserted doing so — but only for a Project the
+author published with an address** (the opt-in canonical stamp, SPEC story 92). For an unstamped
+Project the page refuses with a sentence a Reader can act on rather than mounting a viewer that could
+only draw nothing. Both paths are asserted in `e2e/viewer-reader.e2e.ts`.
+
+Measured against `triiiceratops@1.0.0-rc.35` and the OpenSeadragon it bundles:
+
+1. `getCanvasTileSources` turns a canvas's image service into the **string** `` `${serviceId}/info.json` ``
+   (`dist/utils/resolveCanvasImage.js`). There is no path on which an inline service *object* reaches
+   OpenSeadragon — which also means an embedded service entry of `{ id, type, profile }` produces **not one
+   tile request**, silently, and the whole `info.json` has to be embedded for the document to be usable at
+   all.
+2. OpenSeadragon then builds every tile URL from `this._id = this['@id'] || this.id || this.identifier` —
+   **the fetched document's own id**, not the URL it was fetched from. (The URL wins only when the document
+   carries no `@context`, which a generated `info.json` always has.)
+
+So a Published Site cannot redirect its own pyramid's tiles by describing it differently: whatever
+`images/<image-id>/info.json` says its `id` is, that is where the tiles are fetched from. For a locally
+ingested pyramid that is the ADR-0004 placeholder, and every request fails at DNS — measured, eight
+`ERR_NAME_NOT_RESOLVED` with triiiceratops reporting "Image load aborted" per tile.
+
+**This is the same missing upstream prop the editor's own `UnwarpedView` already records** — a
+`TileSource` (or an `infoJson`) a host can pass in — and one upstream change closes both. A human's
+options, none of which an implementer should pick:
+
+- **Upstream it** (preferred, and it is our own package): triiiceratops accepts a tile source or an
+  `infoJson` override. Ticket 19 is the precedent for how that is owned.
+- **Have publishing resolve the address**, which is what `stampCanonicalUrl` already does — but make it
+  automatic rather than opt-in, which is a change to ADR-0004's reasoning about what a published `id`
+  means and to ADR-0006's "the address is unknown at build time".
+- **Accept the limitation** and leave the refusal, which is what ships today.
+
+### Two defects this ticket fixed in code it did not own
+
+- **A Published Site with no bundled Base Map asked for it anyway.** Including the Base Map's 4.9 MB is
+  opt-in at publish time (ADR-0020, SPEC stories 88 and 89), and a bundled entry's archive, glyphs, and
+  sprites are all *site-relative* paths — so on a site published without them the viewer fired a pmtiles
+  range request and two sprite requests at files that are not there: three 404s, a blank map, and no
+  account of either. The pane now builds a bare style in that case and the page says why. Found by
+  `e2e/editor-publish.e2e.ts`, which had asserted "nothing 404'd" since ticket 16 and only started
+  failing once the viewer drew a map at all.
+- **`stack-status`'s `data-drawn` counting Layers that have left the stack** was not inherited. The
+  editor's `outcomes` merges over a `rendered` record it never prunes; the Reader's is built from the
+  Layers currently shown, so hiding one removes it from the count. Asserted both ways.
+
+### The HTTP adapter cannot pass ticket 02's shared suite, and that is recorded rather than worked around
+
+27 of the suite's 30 tests either assert a write or use `store.write` to arrange their fixture —
+including all four `listing` tests and both `size` tests — and `StoreUnderTest` requires three
+write-shaped hooks. The three routes to a green suite are each worse than the honest answer; the
+reasoning is at the top of `packages/core/src/store/http-project-store.test.ts`, along with why `list`
+is **unanswerable** on a static host rather than merely unimplemented.
