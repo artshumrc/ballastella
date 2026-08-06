@@ -116,6 +116,80 @@ async function countFileReads(page: Page): Promise<void> {
 const fileReads = (page: Page): Promise<Record<string, number>> =>
 	page.evaluate(() => ({ ...window.ballastellaFileReads }));
 
+/**
+ * Refuse every write whose file name contains `needle`, as a full disk or a revoked permission does.
+ *
+ * A quota failure part way through an alignment is not a hypothetical: OPFS has a quota, a folder
+ * Workspace can have its permission revoked mid-session, and either arrives as a rejected write in the
+ * middle of a gesture. `createWritable` is where `DirectoryHandleStore` opens a file to write it, and
+ * the atomic write's temporary path carries the destination's own name — so naming one file is enough
+ * to make exactly one of the two documents an alignment touches fail.
+ *
+ * @returns a function that stops refusing
+ */
+async function failWritesTo(page: Page, needle: string): Promise<() => Promise<void>> {
+	await page.evaluate((match) => {
+		const proto = FileSystemFileHandle.prototype as unknown as {
+			createWritable: (...args: unknown[]) => Promise<unknown>;
+			ballastellaOriginalCreateWritable?: (...args: unknown[]) => Promise<unknown>;
+		};
+		proto.ballastellaOriginalCreateWritable ??= proto.createWritable;
+		const original = proto.ballastellaOriginalCreateWritable;
+		proto.createWritable = function (this: FileSystemFileHandle, ...args: unknown[]) {
+			if (this.name.includes(match)) {
+				return Promise.reject(
+					new DOMException(`Quota exceeded writing ${this.name}`, 'QuotaExceededError')
+				);
+			}
+			return original.call(this, ...args);
+		};
+	}, needle);
+
+	return () =>
+		page.evaluate(() => {
+			const proto = FileSystemFileHandle.prototype as unknown as {
+				createWritable: unknown;
+				ballastellaOriginalCreateWritable?: unknown;
+			};
+			if (proto.ballastellaOriginalCreateWritable) {
+				proto.createWritable = proto.ballastellaOriginalCreateWritable;
+			}
+		});
+}
+
+/**
+ * Hold up every read of a file called `name` by `ms`, widening a window the machine usually closes.
+ *
+ * A check-then-act separated by an `await` is a race whether or not the await is usually fast, and a
+ * test that depends on it being slow is a test that passes by luck. Slowing the one read that sits in
+ * the middle of it makes the window wide enough to drive on purpose.
+ */
+async function delayReadsOf(page: Page, name: string, ms: number): Promise<void> {
+	await page.evaluate(
+		async ([match, delay]) => {
+			const proto = FileSystemFileHandle.prototype;
+			const original = proto.getFile;
+			proto.getFile = async function (this: FileSystemFileHandle) {
+				if (this.name === match) {
+					await new Promise((resolve) => setTimeout(resolve, delay as number));
+				}
+				return original.call(this);
+			};
+		},
+		[name, ms] as const
+	);
+}
+
+/** The names of a Project's stored Historical Maps, which are random identifiers (ADR-0015). */
+const storedImageIds = (page: Page, directory: string): Promise<string[]> =>
+	page.evaluate(async (project) => {
+		const root = await navigator.storage.getDirectory();
+		const images = await (await root.getDirectoryHandle(project)).getDirectoryHandle('images');
+		const names: string[] = [];
+		for await (const name of images.keys()) names.push(name);
+		return names;
+	}, directory);
+
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
@@ -210,15 +284,12 @@ async function clickAt(target: Locator, fx: number, fy: number): Promise<void> {
 }
 
 /**
- * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack.
- *
- * Made through the interface rather than seeded into OPFS, because the first criterion is that
- * *aligning* is what produces the Layer — so the Layer has to come from the alignment workspace and
- * not from a fixture that already contains one.
+ * A Project with one ingested Historical Map and not one Control Point yet — the state a scholar is in
+ * when they make their first pair, and so the state an interrupted first Alignment write starts from.
  *
  * @returns the Project directory
  */
-async function alignedProject(page: Page): Promise<string> {
+async function projectWithImage(page: Page): Promise<string> {
 	await page.goto('/');
 	await emptyWorkspace(page);
 	await page.reload();
@@ -235,6 +306,29 @@ async function alignedProject(page: Page): Promise<string> {
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 
+	return 'amsterdam-1625';
+}
+
+/** One Control Point pair, at the same fraction across both panes. */
+async function pairAt(page: Page, fx: number, fy: number): Promise<void> {
+	await clickAt(page.getByTestId('image-pane'), fx, fy);
+	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
+	await clickAt(page.getByTestId('base-map-pane'), fx, fy);
+	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
+}
+
+/**
+ * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack.
+ *
+ * Made through the interface rather than seeded into OPFS, because the first criterion is that
+ * *aligning* is what produces the Layer — so the Layer has to come from the alignment workspace and
+ * not from a fixture that already contains one.
+ *
+ * @returns the Project directory
+ */
+async function alignedProject(page: Page): Promise<string> {
+	const directory = await projectWithImage(page);
+
 	// Three pairs, which is the minimum a first-order polynomial can be solved from (ADR-0013), so
 	// the Layer this makes has something to draw.
 	for (const [fx, fy] of [
@@ -242,15 +336,12 @@ async function alignedProject(page: Page): Promise<string> {
 		[0.7, 0.35],
 		[0.5, 0.7]
 	] as const) {
-		await clickAt(page.getByTestId('image-pane'), fx, fy);
-		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
-		await clickAt(page.getByTestId('base-map-pane'), fx, fy);
-		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', '');
+		await pairAt(page, fx, fy);
 	}
 	await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
 	await expect(page.getByRole('status')).toHaveText('Saved');
 
-	return 'amsterdam-1625';
+	return directory;
 }
 
 /** Open the Layers pane and wait until the stack has been put on the map. */
@@ -287,8 +378,16 @@ const warpedTiles = (page: Page, layerId: string): Promise<number> =>
 		if (!stack || !layer) return -1;
 		// Bring the warped map into view, or the renderer has no reason to ask for a tile.
 		stack.map.fitBounds(layer.getBounds(), { animate: false });
-		await new Promise((resolve) => setTimeout(resolve, 3000));
-		return (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
+		// Polled rather than slept for a fixed period. A stack rebuilt by a reorder starts its fetching
+		// again from nothing, and a fixed three seconds was enough for that on an idle machine and not on
+		// a loaded one — so this answered 0 for a renderer that was working perfectly and the positive
+		// assertions built on it flaked. Polling is also *faster* whenever the tiles are there: it
+		// returns on the first non-zero answer rather than always waiting out the clock.
+		const count = () => (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
+		for (let waited = 0; waited < 10_000 && count() === 0; waited += 200) {
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		}
+		return count();
 	}, layerId);
 
 const warpedOpacity = (page: Page, layerId: string): Promise<number> =>
@@ -387,6 +486,88 @@ test.describe('a Layer for an aligned Historical Map', () => {
 		const after = await projectJson(page, directory);
 		expect(after.layers).toHaveLength(1);
 		expect(after.updatedAt).toBe(before.updatedAt);
+	});
+
+	/**
+	 * The Layer must never exist without the Alignment it names.
+	 *
+	 * A Layer whose `alignmentRef` names a file that is not there is a Project ticket 13's import
+	 * refuses — `assertReferencesPresent` says the Layer "needs it to be drawn" — so an interrupted
+	 * first Alignment write leaves a scholar unable to import their own export. This is the same
+	 * discipline `addAnnotationLayer` already keeps for `geojsonRef`, and there is nothing exotic about
+	 * the interruption: OPFS has a quota, and a folder Workspace can have its permission revoked
+	 * mid-session.
+	 */
+	test('does not create the Layer when the Alignment could not be written', async ({ page }) => {
+		const directory = await projectWithImage(page);
+		const [imageId] = await storedImageIds(page, directory);
+		// The atomic write's temporary path carries the destination's own name, so this refuses the
+		// Alignment and nothing else — `project.json` is still perfectly writable.
+		const allowWrites = await failWritesTo(page, `.${imageId}.json.`);
+
+		await pairAt(page, 0.3, 0.3);
+		await pairAt(page, 0.7, 0.35);
+		await pairAt(page, 0.5, 0.7);
+		await expect(page.getByText('Quota exceeded')).toBeVisible();
+		// The barrier that makes the claim below a claim rather than a race: the Historical Map is being
+		// drawn from three pairs, so all three refused writes — and anything either of them set in
+		// motion — are long done. The first pair alone is what used to create the Layer.
+		await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+
+		// No Layer, because the Alignment it would name is not there. Read off the page, which renders
+		// the count out of the one in-memory `project.json`, and out of the file.
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (0)');
+		expect((await projectJson(page, directory)).layers).toEqual([]);
+
+		// And this is not Layer creation broken: once the disk is no longer full, the next pair produces
+		// the Layer, and it names an Alignment that is really there — a Project ticket 13 would accept.
+		await allowWrites();
+		await pairAt(page, 0.4, 0.5);
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const file = await projectJson(page, directory);
+		expect(file.layers).toHaveLength(1);
+		expect(await readProjectFile(page, directory, file.layers[0].alignmentRef)).toContain(
+			'Annotation'
+		);
+	});
+
+	/**
+	 * Making the Layer must not throw away whatever else changed while it was being made.
+	 *
+	 * Putting the Layer in the stack read `project.json` out of memory, then `await`ed a read of the
+	 * image's `manifest.json` for the Layer's name, and then wrote the *snapshot it took before the
+	 * await* back with the Layer added. So any other change to the document inside that window was
+	 * silently discarded — and one of them is the Project name field, which sits on this very page: a
+	 * user renames their Project while their first Control Point pair is being saved, sees the field
+	 * revert to the old name, and the file on disk carries the old name too. `project.json` is the
+	 * document whose loss is "not one annotation but the map of everything" (ADR-0017 rule 4), and this
+	 * is the only place in the app that wrote it from a stale snapshot.
+	 */
+	test('making the Layer does not discard a Project rename made while it was being made', async ({
+		page
+	}) => {
+		const directory = await projectWithImage(page);
+		// Widens the window between the snapshot and the write. The window is real at any speed; this
+		// only makes it wide enough to drive on purpose.
+		await delayReadsOf(page, 'manifest.json', 1500);
+
+		await pairAt(page, 0.3, 0.3);
+		// Inside the window: the pair is made, its Alignment is written, and the Layer is on its way.
+		const name = page.getByLabel('Project name');
+		await name.fill('Amsterdam, 1625');
+		await name.blur();
+
+		// Long enough for the delayed read and the write it leads to. A fixed wait rather than a signal,
+		// because the claim is about a write that must *not* undo an earlier one.
+		await page.waitForTimeout(3000);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// The Layer was made, and the rename survived it — on screen and in the file.
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(name).toHaveValue('Amsterdam, 1625');
+		expect((await projectJson(page, directory)).name).toBe('Amsterdam, 1625');
 	});
 
 	test('shows the Layer as a local copy, which is what decides whether a reader needs the network', async ({
@@ -530,15 +711,36 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	 * deliberately enormous, so it is under the centre of the canvas wherever the Base Map happens to
 	 * be looking.
 	 *
+	 * @param defaultStyle the Annotation Layer's style, written into `project.json` — ticket 10 owns the
+	 * controls that would otherwise set it
 	 * @returns the Project directory and the two Layer ids, Annotation Layer first
 	 */
-	async function stackWithBothKinds(page: Page) {
+	async function stackWithBothKinds(page: Page, defaultStyle: Record<string, unknown> = {}) {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(2);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		const [annotationId, mapId] = (await rowIds(page)) as [string, string];
+
+		if (Object.keys(defaultStyle).length > 0) {
+			const file = await projectJson(page, directory);
+			await writeProjectFile(
+				page,
+				directory,
+				'project.json',
+				`${JSON.stringify(
+					{
+						...file,
+						layers: file.layers.map((layer: { kind: string }) =>
+							layer.kind === 'annotation' ? { ...layer, defaultStyle } : layer
+						)
+					},
+					null,
+					'\t'
+				)}\n`
+			);
+		}
 
 		await writeProjectFile(
 			page,
@@ -618,6 +820,40 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		const order = await stackOrder(page);
 		expect(order.indexOf(`ballastella-layer-${annotationId}-fill`)).toBeLessThan(
 			order.indexOf(`ballastella-layer-${mapId}`)
+		);
+	});
+
+	/**
+	 * The case ADR-0002 actually names: an opaque label over the map it describes.
+	 *
+	 * The test above exercises translucent over translucent, and only that. A `WarpedMapLayer` is a
+	 * MapLibre *custom* layer, so it always renders in the translucent pass; a `fill` at
+	 * `fill-opacity: 1` renders in the **opaque** pass, which is a different pass with different
+	 * ordering rules. Every polygon in this file inherits simplestyle's `fill-opacity: 0.6` default, so
+	 * the pass an annotation Layer will normally be in once ticket 10 gives it a solid fill was never
+	 * covered. Asserted through `getLayersOrder()` and `queryRenderedFeatures`, not pixels.
+	 */
+	test('an opaque annotation above a map Layer still draws above it', async ({ page }) => {
+		const { annotationId, mapId } = await stackWithBothKinds(page, {
+			fill: '#aa0000',
+			'fill-opacity': 1
+		});
+
+		expect(await warpedTiles(page, mapId)).toBeGreaterThan(0);
+		expect(await renderedAtCentre(page)).toContain(`ballastella-layer-${annotationId}-fill`);
+
+		const above = await stackOrder(page);
+		expect(above.indexOf(`ballastella-layer-${mapId}`)).toBeLessThan(
+			above.indexOf(`ballastella-layer-${annotationId}-fill`)
+		);
+
+		await rows(page).nth(0).getByTestId('layer-move-down').click();
+		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+
+		const below = await stackOrder(page);
+		expect(below.indexOf(`ballastella-layer-${annotationId}-fill`)).toBeLessThan(
+			below.indexOf(`ballastella-layer-${mapId}`)
 		);
 	});
 
@@ -733,8 +969,19 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 			...(await hashesUnder(page, directory, 'annotations/'))
 		];
 		expect(after).toEqual(before);
-		// And the display state did land somewhere: `project.json` is the only place it lives.
+
+		// And the display state did land somewhere: `project.json` is the only place it lives. The four
+		// values are named rather than left to "the bytes differ", because `writeProject` stamps a fresh
+		// `updatedAt` on every write — so the inequality below holds even if the rename, the reorder, the
+		// toggle and the opacity had all been dropped from the serialised `layers`, which would make the
+		// pairing with the hashes above vacuous.
+		const project = await projectJson(page, directory);
 		expect(await readProjectFile(page, directory, 'project.json')).not.toBe(projectBefore);
+		expect(project.layers[1].name).toBe('Trade routes');
+		expect(project.layers[1].kind).toBe('annotation');
+		expect(project.layers[0].kind).toBe('map');
+		expect(project.layers[0].visible).toBe(false);
+		expect(project.layers[0].opacity).toBeCloseTo(0.4, 5);
 	});
 
 	// Display state must not cost a read of the store either. A rename and an opacity drag change
