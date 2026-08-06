@@ -10,7 +10,7 @@
 	import { createImagePane, type ImagePane, type ResourcePoint } from '@ballastella/core';
 	import { onMount } from 'svelte';
 
-	import ImagePaneView, { type PaneMarker } from '$lib/image-pane/ImagePane.svelte';
+	import ImagePaneView, { type PaneOverlayPoint } from '$lib/image-pane/ImagePane.svelte';
 
 	const PANE_ID = 'floride-1657';
 
@@ -24,7 +24,10 @@
 	let tilesLoaded = $state(false);
 	let ready = $state(false);
 
-	const registrations: { point: ResourcePoint; label: string }[] = $derived(
+	// Points whose image pixel is known in advance, so that the pane's drawing and its coordinate
+	// reporting can be checked against each other. Not Control Points and not registration points
+	// — CONTEXT.md rules out "register" for an Alignment and "marker" for a Control Point.
+	const referencePoints: { point: ResourcePoint; label: string }[] = $derived(
 		pane
 			? [
 					{ point: { x: 0, y: 0 }, label: 'top left' },
@@ -36,11 +39,11 @@
 			: []
 	);
 
-	const markers: PaneMarker[] = $derived([
-		...registrations.map(({ point, label }): PaneMarker => ({
+	const overlayPoints: PaneOverlayPoint[] = $derived([
+		...referencePoints.map(({ point, label }): PaneOverlayPoint => ({
 			point,
-			label: `Registration point, ${label}: pixel ${point.x}, ${point.y}`,
-			kind: 'registration'
+			label: `Reference point, ${label}: pixel ${point.x}, ${point.y}`,
+			kind: 'reference'
 		})),
 		...(reported
 			? [
@@ -122,7 +125,7 @@
 				{pane}
 				paneId={PANE_ID}
 				label="Historical Map, unwarped, in image pixel coordinates"
-				{markers}
+				{overlayPoints}
 				onclickpoint={(point) => (reported = point)}
 				onview={(view) => {
 					mapZoom = view.mapZoom;
@@ -165,8 +168,8 @@
 				{pane.image.tileZoomLevels.map((level) => level.scaleFactor).join(', ')}
 			</p>
 			<p>
-				<span class="font-semibold">Registration points:</span>
-				{registrations.map(({ point, label }) => `${label} ${pixel(point)}`).join('; ')}
+				<span class="font-semibold">Reference points:</span>
+				{referencePoints.map(({ point, label }) => `${label} ${pixel(point)}`).join('; ')}
 			</p>
 			{#if ready}<p data-testid="pane-ready">Pane ready.</p>{/if}
 		</footer>

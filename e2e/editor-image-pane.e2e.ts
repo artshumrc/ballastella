@@ -8,6 +8,13 @@ import { expect, test, type Locator, type Page, type Response } from '@playwrigh
 // assert that MapLibre agrees with it once a real pointer, a real tile grid and a real zoom
 // are involved. Nothing here is a screenshot: SPEC rules out pixel comparison, and silent
 // drift is precisely what a screenshot would miss.
+//
+// Of the tests below, the two that establish something a round trip cannot are "renders the
+// fixture Historical Map and reports the pixel under the cursor" — clicking a point drawn by
+// `resourceToSynthetic` and requiring the click to come back as that point's own pixel, which
+// composes MapLibre's project and unproject in opposite directions — and "pans by the distance
+// the pointer moved", which pins the scale against a physical distance. The zoom-stability test
+// is the ticket's acceptance criterion and bounds precision; see its own comment.
 
 /** The fixture pyramid's tile size. Guarded against the committed `info.json` in core. */
 const TILE_SIZE = 256;
@@ -78,7 +85,7 @@ const centreOf = async (locator: Locator) => {
 const waitForTiles = (page: Page) =>
 	expect(page.getByTestId('pane-tiles')).toHaveAttribute('data-tiles-loaded', 'true');
 
-/** Clicks the map at an element's centre. Markers do not take pointer events themselves. */
+/** Clicks the map at an element's centre. Overlay points do not take pointer events. */
 const clickCentreOf = async (page: Page, locator: Locator) => {
 	const { x, y } = await centreOf(locator);
 	await page.mouse.click(x, y);
@@ -110,33 +117,34 @@ test('renders the fixture Historical Map and reports the pixel under the cursor'
 	expect(fitZoom).toBeGreaterThan(11);
 	expect(fitZoom).toBeLessThanOrEqual(14);
 
-	// Clicking each registration marker must report the pixel that marker claims to be at.
-	// This is the assertion that the pane's drawing and its coordinate reporting agree: the
-	// marker is placed by `resourceToSynthetic`, and the click comes back through MapLibre's
-	// own unproject and `syntheticToResource`. The four corners and the centre, so a flipped
-	// axis or a transposed dimension cannot survive.
+	// Clicking each reference point must report the pixel that point claims to be at. This is
+	// one of the two browser assertions that establish something a round trip cannot: the point
+	// is *drawn* by `resourceToSynthetic` and MapLibre's project, and the click comes back
+	// through MapLibre's unproject and `syntheticToResource` — two different directions through
+	// MapLibre, not one function inverted by its own inverse. The four corners and the centre,
+	// so a flipped axis or a transposed dimension cannot survive.
 	//
 	// A click lands on a whole screen pixel, and at this zoom one screen pixel is several image
 	// pixels, so the resolution of the gesture itself is the tolerance.
 	const tolerance = 1.5 * 2 ** (14 - fitZoom);
-	const markers = page.getByTestId('pane-marker-registration');
+	const referencePoints = page.getByTestId('pane-overlay-point-reference');
 
-	await expect(markers).toHaveCount(5);
+	await expect(referencePoints).toHaveCount(5);
 
 	for (let index = 0; index < 5; index++) {
-		const marker = markers.nth(index);
+		const drawn = referencePoints.nth(index);
 		const claimed = {
-			x: Number(await marker.getAttribute('data-resource-x')),
-			y: Number(await marker.getAttribute('data-resource-y'))
+			x: Number(await drawn.getAttribute('data-resource-x')),
+			y: Number(await drawn.getAttribute('data-resource-y'))
 		};
-		await clickCentreOf(page, marker);
+		await clickCentreOf(page, drawn);
 		const reported = await reportedPixel(page);
 
-		expect(Math.abs(reported.x - claimed.x), `marker ${index} x`).toBeLessThan(tolerance);
-		expect(Math.abs(reported.y - claimed.y), `marker ${index} y`).toBeLessThan(tolerance);
+		expect(Math.abs(reported.x - claimed.x), `reference point ${index} x`).toBeLessThan(tolerance);
+		expect(Math.abs(reported.y - claimed.y), `reference point ${index} y`).toBeLessThan(tolerance);
 	}
 
-	// The last marker clicked is the centre.
+	// The last reference point clicked is the centre.
 	const centre = await reportedPixel(page);
 	expect(Math.abs(centre.x - 600)).toBeLessThan(tolerance);
 	expect(Math.abs(centre.y - 425.5)).toBeLessThan(tolerance);
@@ -161,9 +169,9 @@ test('loads tiles at every scale factor, ragged edges included, with nothing fai
 
 	// Aim at the bottom-right corner of the image, so that when the view is deeper than the
 	// container is large, the ragged tiles at the right and bottom margins are the ones on
-	// screen. Clicking the corner marker while the whole image is framed is how that corner gets
-	// named, with no coordinate arithmetic in the test.
-	await clickCentreOf(page, page.getByTestId('pane-marker-registration').nth(3));
+	// screen. Clicking the corner reference point while the whole image is framed is how that
+	// corner gets named, with no coordinate arithmetic in the test.
+	await clickCentreOf(page, page.getByTestId('pane-overlay-point-reference').nth(3));
 
 	// Walk out to the coarsest level and back in to full resolution one level at a time, so
 	// that MapLibre asks for every zoom level the pyramid offers rather than only the one the
@@ -220,9 +228,14 @@ test('pans by the distance the pointer moved, in image pixels', async ({ page })
 	await button(page, 'Report the pixel at the centre of the view').click();
 	const before = await reportedPixel(page);
 
+	// **This is the browser test that carries real weight.** It pins the projection's scale in
+	// screen pixels against an external quantity — the distance a physical pointer travelled —
+	// which is something no round-trip through the projection can establish about itself.
+	//
 	// At full resolution one image pixel covers one map pixel, so dragging 120 map pixels west
-	// must move the view exactly 120 image pixels east. A wrong window size would show up here
-	// as a scale factor on the drag.
+	// must move the view exactly 120 image pixels east. A wrong window size, a wrong
+	// `mapZoomFromTileZoom`, or a `WINDOW_TILE_ZOOM` changed without changing anything else all
+	// show up here as a scale factor on the drag, and nowhere else in the browser suite.
 	const centre = await centreOf(pane);
 	await page.mouse.move(centre.x, centre.y);
 	await page.mouse.down();
@@ -241,11 +254,21 @@ test('pans by the distance the pointer moved, in image pixels', async ({ page })
 test('reports the same pixel after zooming fully out and back in', async ({ page }) => {
 	const pane = await openPane(page);
 
-	// This is the test the whole ticket is for. A pixel is placed at full resolution, the view
-	// is thrown away by framing the whole image, and the pixel is then picked up again — going
-	// out through `resourceToSynthetic`, through MapLibre's transform at two different zooms,
-	// through a real pointer, and back through `syntheticToResource`. Drift anywhere in that
-	// loop lands here as a coordinate that has moved.
+	// The acceptance criterion "a point placed at maximum zoom, after zooming fully out and back
+	// in, reports the same pixel coordinate". Worth being honest about how much it proves.
+	//
+	// The point-at-the-centre assertion below is close to a tautology: "Zoom to full resolution"
+	// calls `jumpTo({ center: resourceToSynthetic(placed) })`, so the point is at the container
+	// centre because `jumpTo` put it there, and splicing MapLibre in does not break that because
+	// MapLibre's transform is itself a bijection. What it does catch is an overlay point whose
+	// placement and the map's centring disagree — a real class of bug, just a narrow one.
+	//
+	// The click at the end is the part with teeth: the pixel goes out through
+	// `resourceToSynthetic`, the view is genuinely thrown away and rebuilt at another zoom, and
+	// the pixel comes back through a real pointer, MapLibre's unproject at a different map
+	// centre, and `syntheticToResource`. It is still a round trip, so it bounds precision rather
+	// than establishing placement — for placement see the tile-origin test in
+	// `@ballastella/core`, and for scale see "pans by the distance the pointer moved" above.
 	await button(page, 'Zoom to full resolution').click();
 	expect(await mapZoom(page)).toBe(14);
 
@@ -260,11 +283,11 @@ test('reports the same pixel after zooming fully out and back in', async ({ page
 	await button(page, 'Zoom to full resolution').click();
 	expect(await mapZoom(page)).toBe(14);
 
-	// The marker for the placed pixel is now drawn at the centre of the view — it has not moved
-	// on the image, so it must not have moved relative to its own coordinates.
-	const marker = await centreOf(page.getByTestId('pane-marker-reported'));
-	expect(Math.abs(marker.x - centre.x)).toBeLessThan(2);
-	expect(Math.abs(marker.y - centre.y)).toBeLessThan(2);
+	// The overlay point for the placed pixel is now drawn at the centre of the view — it has not
+	// moved on the image, so it must not have moved relative to its own coordinates.
+	const drawn = await centreOf(page.getByTestId('pane-overlay-point-reported'));
+	expect(Math.abs(drawn.x - centre.x)).toBeLessThan(2);
+	expect(Math.abs(drawn.y - centre.y)).toBeLessThan(2);
 
 	// And clicking it again reports the same pixel.
 	await page.mouse.click(centre.x, centre.y);

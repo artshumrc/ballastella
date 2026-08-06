@@ -58,7 +58,7 @@ Commit a **real** fixture pyramid, not a synthetic gradient: enough zoom levels 
 - [x] The fixture pyramid renders in a MapLibre map and is pannable and zoomable to full resolution
 - [x] Tiles at every `scaleFactor` in the fixture load, including ragged edge tiles at the right and bottom margins
 - [x] `resourceToSynthetic` → `syntheticToResource` round-trips within the documented tolerance for a set of points including all four corners, the centre, and points on the ragged edges
-- [x] The round-trip assertion runs at **every** zoom level the fixture offers, not just one
+- [x] The round-trip assertion runs at **every** zoom level the fixture offers, not just one — but read this criterion as it was delivered, not as written: the projection is zoom-independent by design, so the per-level loop varies the point set, not the behaviour. What genuinely holds *per zoom level* is the tile-origin identity. See *Review follow-ups*.
 - [x] Clicking reports an image pixel coordinate that matches the visually indicated feature within the documented tolerance
 - [x] A point placed at maximum zoom, after zooming fully out and back in, reports the same pixel coordinate within tolerance
 - [x] Tile URLs are built via `getTileImageRequest`, not by string arithmetic in this slice's own code
@@ -159,3 +159,81 @@ fixture, and it never enters the round-trip.
   server held 4173 in another worktree, and `reuseExistingServer` silently pointed the suite at
   *their* build. Only the two port constants differed; they are restored. Worth knowing that
   this failure mode looks exactly like a missing route.
+
+### Review follow-ups, 2026-08-05
+
+An independent review of this slice. Its central conclusion first, because it governs how the
+rest should be read: **the projection math is correct.** The review re-derived it from scratch,
+swept round-trip error across seven window sizes at 400 000 randomised points each, verified the
+tile-grid anchor as an exact algebraic identity, and decoded the committed fixture JPEGs to check
+the ragged-edge `drawImage` numerically. Everything below is a defect in a guard, a comment, or
+a name — not in the arithmetic.
+
+Fixed on this branch:
+
+- **Two pyramid shapes rendered wrong and got through every guard.** Scale factors starting at
+  2 satisfied the contiguity check and left the pane blank at its own full-resolution zoom with
+  nothing logged. Two tilesets of different tile sizes — legal IIIF, flattened by
+  `@allmaps/iiif-parser` into contiguous scale factors — put two levels at half scale, correct
+  at the tile origin and progressively wrong away from it. Both now throw. Neither is reachable
+  from this repo's own tiler; **both become reachable at ticket 14**, where the `info.json` is a
+  stranger's.
+- **The zoom-headroom paragraph named the wrong constraint**, and the guard it implied did not
+  exist. MapLibre v5 does not validate the map's `maxZoom` at all; what it enforces is
+  `MAX_TILE_ZOOM = 25`, past which the source requests no tiles and the console reports a tile
+  coordinate out of bounds. Now stated correctly and refused with a diagnosis.
+- **The round-trip tolerance is a scaling law, not a constant.** `windowSize * 2 ** -42`, exact.
+  Headroom runs from 2 100× at this fixture to 1.05× at the largest window MapLibre can address,
+  so the old "seventy-fold" figure was true only of the one window it was measured on.
+  `createSyntheticProjection` now refuses any pyramid that would break the documented tolerance —
+  1024-pixel tiles at scale factor 8192 would, and are legal IIIF.
+- **The evidence was misattributed.** The two tests the ticket credits compute f⁻¹(f(x)) == x,
+  which is self-consistent by construction; so, nearly, is the browser test billed as "the test
+  the whole ticket is for". What actually anchors the projection is the tile-origin identity in
+  `iiif-image-pane.test.ts`, the 512-pixel-world test, and the pointer-distance browser test.
+  Comments moved onto those; the round-trip tests renamed to say what they establish.
+- **Two comments asserted things that were false**: a 0.0014-pixel on-screen stretch that does
+  not exist (rendered scale is exactly uniform — now asserted on equality), and four
+  bit-identical MapLibre formulae of which only three are. Keeping the rearranged
+  `latFromMercatorY` is correct and now says why.
+- **Vocabulary.** `PaneMarker`, the `markers` prop, and the visible "Registration point…" text
+  broke CONTEXT.md on two entries at once. Now `PaneOverlayPoint` / `overlayPoints` /
+  `kind: 'reference' | 'reported'`. Renamed here rather than at **ticket 07**, which adds Control
+  Points to this pane through exactly this interface.
+
+**A forward contract for ticket 05, and the most important item here.**
+`ImagePaneTile.placement` is `region / scaleFactor` — 106.375, not the served 107 — and the
+review proved this is right by decoding all 29 committed tiles: every ragged tile sits at the
+JPEG noise floor (~25 MSE) against IIIF's exact-resize semantics and 20–45× above it against
+resize-and-pad. **The risk is entirely forward.** If ticket 05's tiler resizes by exactly
+1 / scaleFactor and pads to whole pixels, or resizes to the rounded `size`, every ragged tile in
+every real Historical Map is stretched by up to 0.6% at the right and bottom margins: sub-pixel,
+systematic, in the margins, and invisible to every test in this slice, because the coordinates
+would all still be right. The docstring now states that `placement` binds the writer as much as
+the reader. **Ticket 05 must assert it, not inherit it.**
+
+Recorded, not fixed:
+
+- **`iiif-image-pane.test.ts` reads across the package boundary** into `apps/editor/static/`, so
+  `pnpm --filter @ballastella/core test` is not runnable against a published `core` in isolation.
+  Deliberate — it makes the bytes the unit tests reason about the bytes the browser fetches — and
+  it stops being deliberate the day `core` is published or the fixture moves.
+- **`apps/editor/static/fixtures/README.md` is the one set of bundled non-dependency bytes not
+  linked from `THIRD-PARTY-NOTICES.md`.** That file's "Bundled base map content" pattern arrived
+  with ticket 04, after this branch, and both files are outside this slice's paths. The fixture's
+  provenance and rights *are* fully recorded beside the bytes; what is missing is the link from
+  the notices file. **One line for whoever owns `THIRD-PARTY-NOTICES.md` next.**
+- **`apps/editor/src/lib/base-map/pmtiles-protocol.ts` carries the same false claim** that
+  `addProtocol` throws on a second registration. In maplibre-gl 5.24 it is a plain assignment
+  into `config.REGISTERED_PROTOCOLS`. The idempotence guard there is harmless; its stated reason
+  is wrong. Ticket 04's file, so left alone.
+- **The `iiif-image-pane.test.ts` per-level round-trip logs a worst error of 0**, because every
+  point in it is an integer or half-integer on a 2048-pixel window and `WINDOW_ORIGIN + t` comes
+  out exact. Honest numbers are in `synthetic-projection.test.ts`'s window-size sweep, which
+  samples off-grid deliberately. Noted in the test rather than changed, since its point set is
+  chosen to cover tile geometry rather than float64.
+- **The ragged-tile canvas padding is still not asserted numerically.** The edge-clamp added
+  here removes a one-screen-pixel dark fringe caused by linear filtering against transparent
+  black, and it cannot move any coordinate — `placement` is untouched — but neither it nor the
+  original `drawImage` has a test. The seam would be a browser-mode unit test of the padding
+  function; the previous entry above still stands.

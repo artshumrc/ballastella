@@ -46,6 +46,20 @@ export type ImagePaneTile = {
 	 * systematic error, and systematic errors in this pane are what drift is made of.
 	 *
 	 * Interior tiles fill their cell exactly and need no correction.
+	 *
+	 * **This binds the writer as much as the reader.** `placement` is `region / scaleFactor`, so
+	 * it is only the right number if a ragged tile's bytes are an *exact* resize of its region by
+	 * 1 / scaleFactor — IIIF's own semantics, where a 851-pixel region at scale factor 8 becomes
+	 * 106.375 pixels' worth of content in a 107-pixel-wide file, the last row of pixels only
+	 * fractionally covered. It is **not** correct for a tiler that resizes to `floor` or `round`
+	 * and pads the remainder, nor for one that resizes to the rounded `size` and calls it done:
+	 * either of those stretches every ragged tile by up to 0.6% at the right and bottom margins
+	 * of every Historical Map in the app. Sub-pixel, systematic, in the margins — and invisible
+	 * to every test in this slice, because the coordinates would all still be right.
+	 *
+	 * The committed fixture satisfies this (verified by decoding all 29 tiles: every ragged tile
+	 * sits at the JPEG noise floor against exact-resize semantics and 20–45× above it against
+	 * resize-and-pad). Ticket 05's tiler must assert it rather than inherit it.
 	 */
 	placement: { width: number; height: number };
 };
@@ -95,13 +109,37 @@ export function createImagePane(info: unknown, baseUri: string): ImagePane {
 	}
 
 	const scaleFactors = levels.map((level) => level.scaleFactor);
-	const expected = scaleFactors.map((_, index) => first.scaleFactor * 2 ** index);
+	const expected = scaleFactors.map((_, index) => 2 ** index);
 
 	if (scaleFactors.join() !== expected.join()) {
 		throw new Error(
-			`The pyramid's scale factors must be contiguous powers of two, got ` +
-				`[${scaleFactors.join(', ')}]. A missing intermediate level is a zoom at which the ` +
-				`image pane renders nothing, with no error anywhere to say why.`
+			`The pyramid's scale factors must be 1, 2, 4, … with no gaps, got ` +
+				`[${scaleFactors.join(', ')}]. The finest level must be scale factor 1 — full ` +
+				`resolution — because the map zoom range is derived from the coarsest level down, so ` +
+				`a pyramid starting at 2 has no level at the zoom it calls full resolution: the pane ` +
+				`renders blank there with no error anywhere to say why. A missing intermediate level ` +
+				`is the same failure one zoom higher.`
+		);
+	}
+
+	// Every level must be cut into the same square tile, because a MapLibre raster source carries
+	// one `tileSize` for the whole pyramid. `@allmaps/iiif-parser` flattens several `tiles` entries
+	// into one list of levels, so an `info.json` that is entirely legal — 256-pixel tiles for the
+	// fine levels, 512-pixel tiles for the coarse ones — arrives here as contiguous scale factors
+	// that pass every other guard. Drawn against `levels[0]`'s tile size the coarse levels would
+	// render at half scale: right at the tile origin and progressively wrong away from it, which
+	// is indistinguishable from imprecision and is the exact failure this module exists to refuse.
+	const mixed = levels.find(
+		(level) => level.width !== first.width || level.height !== first.height
+	);
+
+	if (mixed) {
+		throw new Error(
+			`Every level of the pyramid must use one tile size, got ${first.width}×${first.height} ` +
+				`at scale factor ${first.scaleFactor} and ${mixed.width}×${mixed.height} at scale ` +
+				`factor ${mixed.scaleFactor}. A MapLibre raster source has a single tile size, so the ` +
+				`levels that disagree with it would be drawn at the wrong scale — correct at the tile ` +
+				`origin and progressively wrong away from it.`
 		);
 	}
 
