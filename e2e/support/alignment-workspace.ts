@@ -62,6 +62,9 @@ export function gradientPng(width: number, height: number): Buffer {
 export const IMAGE_WIDTH = 700;
 export const IMAGE_HEIGHT = 500;
 
+/** How long a freshly ingested pyramid may take to decode every tile of its first view. */
+const TILES_READY_MS = 20_000;
+
 export const PROJECT_NAME = 'Amsterdam 1625';
 export const PROJECT_DIRECTORY = 'amsterdam-1625';
 
@@ -147,9 +150,15 @@ export async function start(page: Page): Promise<string> {
 	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
 
 	await expect(page.getByTestId('image-pane')).toBeVisible();
+	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
+	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and
+	// not on one running four workers that each drive a real WebGL context and the same origin's OPFS
+	// (see `playwright.config.ts` on contention). Too short a wait here reads as a failure of whatever
+	// the test went on to do, which is the reason `editor-layers.e2e.ts` waits 20 seconds for its stack.
 	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 		'data-tiles-loaded',
-		'true'
+		'true',
+		{ timeout: TILES_READY_MS }
 	);
 	// The pairing status only renders once the Alignment has been read, so waiting for it is waiting
 	// for the whole surface to be live rather than for a timeout.
@@ -161,9 +170,15 @@ export async function start(page: Page): Promise<string> {
 export async function waitForSurface(page: Page): Promise<void> {
 	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 	await expect(page.getByTestId('image-pane')).toBeVisible();
+	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
+	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and
+	// not on one running four workers that each drive a real WebGL context and the same origin's OPFS
+	// (see `playwright.config.ts` on contention). Too short a wait here reads as a failure of whatever
+	// the test went on to do, which is the reason `editor-layers.e2e.ts` waits 20 seconds for its stack.
 	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 		'data-tiles-loaded',
-		'true'
+		'true',
+		{ timeout: TILES_READY_MS }
 	);
 }
 
@@ -242,35 +257,69 @@ export const watchWrites = (page: Page) =>
 
 export const writes = (page: Page) => page.evaluate(() => window.ballastellaAlignmentWrites ?? []);
 
-/** The Alignment as it sits in OPFS, or `null` when there is no such file. */
+/**
+ * How long a read is retried before "not there" is believed. See {@link storedAlignment}.
+ *
+ * The same 20 × 25 ms as `editor-workspace.ts`'s `readProjectName`, which fixed this defect in the
+ * other direction: a window that is a few milliseconds wide by construction, forgiven for half a
+ * second, so a file that genuinely does not exist still reads as absent almost immediately in wall
+ * clock terms.
+ */
+const READ_ATTEMPTS = 20;
+const READ_RETRY_MS = 25;
+
+/**
+ * The Alignment as it sits in OPFS, or `null` when there is no such file.
+ *
+ * **Retried, because the app writes atomically** — a temp file, then `move()` over the destination
+ * (ADR-0017 rule 4) — and a read that lands inside that window throws rather than returning stale
+ * bytes: `getFileHandle` with a `NotFoundError` while the destination is momentarily gone, or
+ * `getFile()` as it is replaced. Swallowing that as `null` is worse than the crash it avoids, and in
+ * both directions: `expect(written).not.toContain(…)` on a `null` fails with a matcher error (which is
+ * how it surfaced), and `expect.poll(read).not.toBe(before)` *passes* on a `null` — a byte-identity
+ * assertion satisfied by a file that could not be read.
+ *
+ * This is a fix to the read and not to any assertion: the bytes on disk are still what is compared, so
+ * a write that never happens still fails, and a file that is genuinely absent still reads as absent.
+ * Only a read that collided with an atomic replace is forgiven, and only for as long as one can last.
+ */
 export const storedAlignment = (page: Page, imageId: string, directory = PROJECT_DIRECTORY) =>
 	page.evaluate(
-		async ([directory, imageId]) => {
-			const root = await navigator.storage.getDirectory();
-			try {
-				const project = await root.getDirectoryHandle(directory as string);
-				const alignments = await project.getDirectoryHandle('alignments');
-				const handle = await alignments.getFileHandle(`${imageId}.json`);
-				return await (await handle.getFile()).text();
-			} catch {
-				return null;
+		async ([directory, imageId, attempts, retryMs]) => {
+			for (let attempt = 0; attempt < (attempts as number); attempt += 1) {
+				try {
+					const root = await navigator.storage.getDirectory();
+					const project = await root.getDirectoryHandle(directory as string);
+					const alignments = await project.getDirectoryHandle('alignments');
+					const handle = await alignments.getFileHandle(`${imageId}.json`);
+					return await (await handle.getFile()).text();
+				} catch {
+					await new Promise((resolve) => setTimeout(resolve, retryMs as number));
+				}
 			}
+			return null;
 		},
-		[directory, imageId] as const
+		[directory, imageId, READ_ATTEMPTS, READ_RETRY_MS] as const
 	);
 
-/** `project.json` as it sits in OPFS, or `null`. */
+/** `project.json` as it sits in OPFS, or `null`. Retried — see {@link storedAlignment}. */
 export const storedProjectFile = (page: Page, directory = PROJECT_DIRECTORY) =>
-	page.evaluate(async (directory) => {
-		const root = await navigator.storage.getDirectory();
-		try {
-			const project = await root.getDirectoryHandle(directory);
-			const handle = await project.getFileHandle('project.json');
-			return await (await handle.getFile()).text();
-		} catch {
+	page.evaluate(
+		async ([directory, attempts, retryMs]) => {
+			for (let attempt = 0; attempt < (attempts as number); attempt += 1) {
+				try {
+					const root = await navigator.storage.getDirectory();
+					const project = await root.getDirectoryHandle(directory as string);
+					const handle = await project.getFileHandle('project.json');
+					return await (await handle.getFile()).text();
+				} catch {
+					await new Promise((resolve) => setTimeout(resolve, retryMs as number));
+				}
+			}
 			return null;
-		}
-	}, directory);
+		},
+		[directory, READ_ATTEMPTS, READ_RETRY_MS] as const
+	);
 
 /**
  * Wait until the Alignment on disk carries `count` pairs.

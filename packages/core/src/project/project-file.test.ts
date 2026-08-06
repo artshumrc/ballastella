@@ -106,6 +106,63 @@ describe('the Base Map field', () => {
 	});
 });
 
+/**
+ * The tombstone that stops a deleted map Layer coming back (ticket 11).
+ *
+ * The app ensures a map Layer on *every* Alignment write, so "does a Layer for this image exist" is
+ * not an idempotence key a deletion can survive — and the write that would resurrect the Layer can
+ * happen in a later session, which is why the record has to be in the file rather than in memory.
+ */
+describe('removedMapLayers', () => {
+	const withTombstone = (removedMapLayers: unknown) =>
+		encode({
+			formatVersion: 1,
+			name: 'Amsterdam 1625',
+			updatedAt: '2026-01-01T00:00:00.000Z',
+			layers: [],
+			baseMap: null,
+			removedMapLayers
+		});
+
+	it('round-trips the Alignments whose Layer the user deleted', () => {
+		const opened = parseProjectFile(withTombstone(['alignments/floride-1657.json']));
+
+		expect(opened.removedMapLayers).toEqual(['alignments/floride-1657.json']);
+		expect(JSON.parse(decode(serialiseProjectFile(opened))).removedMapLayers) //
+			.toEqual(['alignments/floride-1657.json']);
+	});
+
+	// ADR-0010: opening last year's Project must not modify a byte of it. A field written
+	// unconditionally would change the bytes of every `project.json` in every existing Workspace.
+	it('is absent from a Project nobody has deleted a Layer from', () => {
+		const bytes = serialiseProjectFile(newProjectFile('Amsterdam 1625', new Date(0)));
+
+		expect(decode(bytes)).not.toContain('removedMapLayers');
+		expect(parseProjectFile(bytes).removedMapLayers).toEqual([]);
+	});
+
+	// Tolerant in the same direction as `parseLayers`: the cost of losing a tombstone is a Layer that
+	// comes back, and the cost of throwing is a Project that cannot be opened at all.
+	it.each([
+		['a missing field', undefined],
+		['the wrong type', 'alignments/floride-1657.json'],
+		['a list of the wrong things', [7, null, '']]
+	])('reads %s as no tombstones', (_description, value) => {
+		expect(parseProjectFile(withTombstone(value)).removedMapLayers).toEqual([]);
+	});
+
+	// It is a known field, so it must not *also* be carried as an unknown one — which would write it
+	// twice, once from each place, and let the two disagree.
+	it('is not carried as an unknown field as well', () => {
+		const opened = parseProjectFile(withTombstone(['alignments/floride-1657.json']));
+
+		expect(opened.unknownFields).toEqual({});
+		expect(decode(serialiseProjectFile({ ...opened, removedMapLayers: [] }))).not.toContain(
+			'removedMapLayers'
+		);
+	});
+});
+
 describe('fields this build does not know about', () => {
 	it('keeps them, so writing the file back cannot drop somebody else’s work', () => {
 		const original = encode({

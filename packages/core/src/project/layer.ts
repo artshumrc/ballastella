@@ -286,6 +286,30 @@ export function removeLayer(layers: readonly Layer[], id: string): readonly Laye
 	return renumber(layers.filter((layer) => layer.id !== id));
 }
 
+/**
+ * Put a Layer back at `index` in the stack — the undo of {@link removeLayer} (ticket 11).
+ *
+ * Not {@link addLayer}, because that puts it at the top: restoring a deleted Layer has to return it to
+ * the position the user had it in, or undo silently discards their ordering, which is display state
+ * ADR-0002 makes load-bearing. Out-of-range indices are clamped, so a Layer deleted from the bottom of
+ * a stack that has since lost rows still comes back at the bottom.
+ *
+ * **Refused when a Layer with this id is already in the stack**, returning the array it was given.
+ * `parseLayers` drops a duplicate id — a keyed `{#each}` given one key twice is a hard error in dev
+ * and list corruption in a production build — so an undo that inserted a second Layer with the same
+ * id would write a `project.json` whose next read quietly loses one of them. The identity return is
+ * the same no-op signal every operation here uses, so the caller writes nothing.
+ */
+export function insertLayerAt(
+	layers: readonly Layer[],
+	layer: Layer,
+	index: number
+): readonly Layer[] {
+	if (layers.some((other) => other.id === layer.id)) return layers;
+	const at = Math.min(layers.length, Math.max(0, index));
+	return renumber([...layers.slice(0, at), layer, ...layers.slice(at)]);
+}
+
 /** SPEC story 54. Every kind can be renamed, including one this build cannot draw. */
 export function renameLayer(layers: readonly Layer[], id: string, name: string): readonly Layer[] {
 	return replace(layers, id, (layer) => ({ ...layer, name }));

@@ -1,4 +1,5 @@
 import { fetchAnnotationsFromApi } from '@allmaps/stdlib';
+import { SvelteSet } from 'svelte/reactivity';
 
 import {
 	Autosave,
@@ -7,6 +8,7 @@ import {
 	ProjectDirectoryCollisionError,
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
+	UndoSlot,
 	Workspace,
 	addLayer,
 	alignmentPath,
@@ -20,12 +22,15 @@ import {
 	imageManifestPath,
 	imageModeOf,
 	ingestImageFile,
+	insertLayerAt,
 	installFlushOnHide,
 	listIngestedImages,
 	listReferencedImages,
 	localCopySource,
 	mirrorRemoteImage,
 	moveLayer,
+	isControlPointUndo,
+	layerFileRef,
 	newAlignment,
 	newAnnotationLayer,
 	newMapLayer,
@@ -39,6 +44,7 @@ import {
 	readProjectZip,
 	referencedImage,
 	referencedImageStorePath,
+	removeLayer,
 	renameLayer,
 	serialiseAlignment,
 	serialiseAnnotations,
@@ -53,6 +59,7 @@ import {
 	type Alignment,
 	type AnnotationCollection,
 	type AnnotationLayer,
+	type Bytes,
 	type FetchFn,
 	type IngestProgress,
 	type IngestedImage,
@@ -69,6 +76,7 @@ import {
 	type SaveState,
 	type SimpleStyle,
 	type TransferProgress,
+	type UndoRecord,
 	type WorkspaceSize
 } from '@ballastella/core';
 
@@ -144,6 +152,27 @@ export class EditorSession {
 	readonly #store: ProjectStore;
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
 	#openGeneration = 0;
+	/**
+	 * The one destructive action that can be reversed (ADR-0014, ticket 11).
+	 *
+	 * Here rather than in a component because it is one slot for the whole session — the four covered
+	 * actions happen in two different panes, and two slots would mean two things each claiming to be
+	 * "the last destructive action". {@link undoable} is its projection into reactive state.
+	 */
+	readonly #undo = new UndoSlot();
+	/**
+	 * The Alignments a map Layer is being made for right now, claimed synchronously.
+	 *
+	 * {@link #ensureMapLayer} is a check-then-act across an `await`, so two Alignment writes in flight
+	 * could each see no Layer and each add one — two rows, two `WarpedMapLayer`s fetching the same
+	 * pyramid, and a duplicate the user has to delete. This is claimed before the first `await` and
+	 * released in a `finally`, so the window closes without the answer being cached: the Layer is still
+	 * decided against the document as it is *after* the read.
+	 *
+	 * A `SvelteSet` because the lint rule asks for one; nothing renders from it, and nothing should —
+	 * it is a lock, not state.
+	 */
+	readonly #placingMapLayers = new SvelteSet<string>();
 
 	status = $state<WorkspaceStatus>('loading');
 	/** The underlying failure, shown beneath "Workspace not reachable" so it is diagnosable. */
@@ -178,6 +207,15 @@ export class EditorSession {
 	openDirectory = $state<string | null>(null);
 	openProject = $state<ProjectFile | null>(null);
 	projectProblem = $state<ProjectProblem | null>(null);
+
+	/**
+	 * What undo would reverse, or `null` when there is nothing to reverse (SPEC story 38).
+	 *
+	 * Rendered by `UndoControl`, which names the action rather than saying "Undo": a bare button after
+	 * an accidental delete does not answer the question the user actually has. `null` is what makes "a
+	 * second undo does nothing **and is not offered**" one fact rather than two.
+	 */
+	undoable = $state<UndoRecord | null>(null);
 
 	/**
 	 * The Historical Maps in the open Project, and the ingest running now if one is.
@@ -230,6 +268,11 @@ export class EditorSession {
 		this.#workspace = new Workspace(store, { autosave: this.#autosave });
 		this.#autosave.subscribe((state) => {
 			this.saveState = state;
+		});
+		// The same shape as the save state above: a plain core object that publishes, projected into
+		// reactive state here, so there is one implementation of the semantics and one thing that renders.
+		this.#undo.subscribe((record) => {
+			this.undoable = record;
 		});
 	}
 
@@ -457,6 +500,11 @@ export class EditorSession {
 		this.openDirectory = directory;
 		this.openProject = null;
 		this.projectProblem = null;
+		// The undo record is cleared when the Project is closed and does not persist (ADR-0014). Here
+		// rather than on navigation, because this is the one place that knows the Project has changed —
+		// and it is *after* the "already showing it" return above, so moving between the panes of one
+		// Project leaves a pending undo alone.
+		this.#undo.clear();
 		this.images = [];
 		this.referencedImages = [];
 		this.referencedImageErrors = [];
@@ -677,6 +725,19 @@ export class EditorSession {
 	 * SPEC story 54 is that they can then rename it, so the list describes their argument rather than
 	 * their filenames.
 	 *
+	 * **"Is there a Layer for this Alignment" is not the whole idempotence key, because a Layer can be
+	 * deleted** (ticket 11). This runs on every Alignment write, so with that as the only test, deleting
+	 * a map Layer and then nudging one Control Point recreates it — with a fresh id, a fresh name, and at
+	 * the top of the stack, discarding the user's ordering — and undo cannot help, because from here
+	 * nothing was undone and a Layer was legitimately created. The second half of the key is
+	 * `ProjectFile.removedMapLayers`, which is in the file rather than in memory because the write that
+	 * would resurrect the Layer can happen in a later session. Undoing the deletion lifts it.
+	 *
+	 * **And two Alignment writes in flight must not each add one.** The two questions are asked either
+	 * side of an `await`, so this claims the Alignment in {@link #placingMapLayers} synchronously before
+	 * the read and releases it afterwards; a second write inside that window does nothing rather than
+	 * adding a second row over the same pyramid.
+	 *
 	 * **Nothing is read out of `openProject` before the `await` and used after it.** Reading the
 	 * image's label is a store read, and the version that took its snapshot of the document first wrote
 	 * that snapshot back — so anything else that changed `project.json` inside the window was silently
@@ -688,21 +749,33 @@ export class EditorSession {
 	 */
 	async #ensureMapLayer(directory: string, imageId: string): Promise<void> {
 		const alignmentRef = alignmentPath(imageId);
-		const drawsIt = (project: ProjectFile): boolean =>
-			project.layers.some((layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef);
+		const settled = (project: ProjectFile): boolean =>
+			project.layers.some((layer) => layer.kind === 'map' && layer.alignmentRef === alignmentRef) ||
+			project.removedMapLayers.includes(alignmentRef);
 
 		const before = this.openProject;
-		if (!before || drawsIt(before)) return;
+		if (!before || settled(before)) return;
+		if (this.#placingMapLayers.has(alignmentRef)) return;
+		this.#placingMapLayers.add(alignmentRef);
 
-		const name = (await this.#imageLabel(directory, imageId)) || imageId;
+		try {
+			const name = (await this.#imageLabel(directory, imageId)) || imageId;
 
-		const project = this.openProject;
-		if (!project || drawsIt(project)) return;
-		this.openProject = {
-			...project,
-			layers: addLayer(project.layers, newMapLayer({ id: crypto.randomUUID(), name, alignmentRef }))
-		};
-		await this.#write(directory);
+			const project = this.openProject;
+			if (!project || settled(project)) return;
+			this.openProject = {
+				...project,
+				layers: addLayer(
+					project.layers,
+					newMapLayer({ id: crypto.randomUUID(), name, alignmentRef })
+				)
+			};
+			await this.#write(directory);
+		} finally {
+			// Released whatever happened, so a write the store refused does not leave the Layer
+			// permanently unmakeable — the next completed pair tries again.
+			this.#placingMapLayers.delete(alignmentRef);
+		}
 	}
 
 	/**
@@ -801,7 +874,14 @@ export class EditorSession {
 			alignmentRef,
 			imageMode: imageModeOf(source)
 		});
-		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
+		this.openProject = {
+			...project,
+			layers: addLayer(project.layers, layer),
+			// Adding this map again is the user asking for it, so the tombstone a previous deletion left
+			// (ticket 11) is lifted rather than obeyed — it exists to stop an *Alignment write* recreating
+			// a Layer nobody asked for, not to make a deletion permanent.
+			removedMapLayers: project.removedMapLayers.filter((ref) => ref !== alignmentRef)
+		};
 		await this.#write(directory);
 		if (this.saveError !== '') return null;
 		this.referencedImages = [...this.referencedImages, record];
@@ -1017,6 +1097,170 @@ export class EditorSession {
 	/** Move a Layer to a position in the stack, 0 being the top (SPEC stories 52 and 53). */
 	async moveLayerTo(id: string, toIndex: number): Promise<void> {
 		await this.#changeLayers((layers) => moveLayer(layers, id, toIndex));
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// SINGLE-LEVEL UNDO (ADR-0014, SPEC story 38)
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Record a destructive action and how to reverse it.
+	 *
+	 * Called by whoever owns the state that changed — the pairing drafts for a Control Point, the
+	 * Layers pane for an Annotation, this class for a Layer — because those are three different
+	 * places and a session that reached into all of them would be the command-object architecture
+	 * ADR-0014 defers. What is central is the *slot*: one record, replaced by the next destructive
+	 * action, and no non-destructive path calls this at all.
+	 */
+	record(record: UndoRecord, apply: () => Promise<void>): void {
+		this.#undo.offer(record, apply);
+	}
+
+	/**
+	 * Reverse the last destructive action (SPEC story 38).
+	 *
+	 * **A mutation like any other**, so it coalesces and flushes through the same {@link Autosave} as
+	 * the action it reverses — there is no bespoke save path here and nothing that reads "the last
+	 * saved state", which is what makes undo work after autosave has already written the deletion to
+	 * disk (ADR-0017's consequence). The slot is emptied before the work starts, so a second press has
+	 * nothing to find and a slow undo cannot run twice.
+	 */
+	async undo(): Promise<void> {
+		await this.#undo.take()?.();
+	}
+
+	/**
+	 * Forget an undo that belongs to a Historical Map the user is no longer aligning.
+	 *
+	 * A Control Point record names its image, and an affordance offering to put back a point that is
+	 * not on screen — in a pane showing a different map — is worse than no affordance: it describes an
+	 * edit the user cannot see happen. Everything else in the slot is about the Project rather than
+	 * about one image, so it survives.
+	 */
+	forgetUndoOfOtherImages(imageId: string): void {
+		this.#undo.clearIf((record) => isControlPointUndo(record) && record.imageId !== imageId);
+	}
+
+	/**
+	 * Delete a Layer, and the file it draws, so that undo can put both back (SPEC stories 38, 49).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE ORDER, WHICH IS THE CREATION ORDER IN REVERSE
+	 *
+	 *   1. flush, so the bytes about to be recorded are the ones the user can see, and so no debounced
+	 *      write can land after the file has gone and put it back unrecorded;
+	 *   2. read the referenced file, which is the only copy the undo record will have;
+	 *   3. `project.json`, losing the Layer and gaining the tombstone;
+	 *   4. the referenced file.
+	 *
+	 * **`project.json` before the file, because every other path here writes the file first.** A Layer
+	 * whose reference names nothing is a Project ticket 13's import refuses by name; written the other
+	 * way round, a failure between the two steps would leave exactly that. This way the worst
+	 * intermediate state is a file nothing references — bytes, not breakage.
+	 *
+	 * The tombstone is the whole reason a delete button can exist at all: see
+	 * `ProjectFile.removedMapLayers` and {@link #ensureMapLayer}. Without it, deleting a map Layer and
+	 * then touching one Control Point creates a *new* Layer with a fresh id at the top of the stack,
+	 * and undo cannot help — from the app's point of view nothing was undone.
+	 *
+	 * @returns whether the Layer went
+	 */
+	async deleteLayer(id: string): Promise<boolean> {
+		const directory = this.openDirectory;
+		const opened = this.openProject;
+		if (!directory || !opened) return false;
+		const at = opened.layers.findIndex((layer) => layer.id === id);
+		const layer = opened.layers[at];
+		if (!layer) return false;
+
+		// Everything pending, before anything is read: an Annotation typed into a moment ago is still
+		// inside its debounce window, and recording the bytes without it would make undo restore the
+		// file as it was one keystroke ago.
+		await this.flush();
+		const ref = layerFileRef(layer);
+		const path = ref === '' ? '' : `${directory}/${ref}`;
+		let bytes: Bytes | null = null;
+		if (path !== '') {
+			try {
+				bytes = await this.#store.read(path);
+			} catch (cause) {
+				// No file is the ordinary case for a Layer nothing has been put in yet. Anything else is
+				// not: deleting a file we could not read would be deleting work we cannot give back.
+				if (!(cause instanceof PathNotFoundError)) {
+					this.saveError = cause instanceof Error ? cause.message : String(cause);
+					return false;
+				}
+			}
+		}
+
+		// Taken again after the await, never from the snapshot above: `#ensureMapLayer` and
+		// `addAnnotationLayer` both had to learn this, and the document is the one whose loss is "not one
+		// annotation but the map of everything" (ADR-0017 rule 4).
+		const project = this.openProject;
+		if (!project || !project.layers.some((one) => one.id === id)) return false;
+		this.openProject = {
+			...project,
+			layers: removeLayer(project.layers, id),
+			removedMapLayers:
+				layer.kind === 'map' && !project.removedMapLayers.includes(layer.alignmentRef)
+					? [...project.removedMapLayers, layer.alignmentRef]
+					: project.removedMapLayers
+		};
+		await this.#write(directory);
+		if (this.saveError !== '') {
+			// The document did not reach storage, so the Layer has not been deleted. Put the stack back as
+			// it was rather than leaving the screen claiming a deletion the file does not carry.
+			this.openProject = project;
+			return false;
+		}
+
+		if (path !== '' && bytes !== null) await this.#store.delete(path);
+
+		const undo: UndoRecord = { kind: 'layer-deleted', at, layer, path: ref, bytes };
+		this.record(undo, () => this.#restoreLayer(undo));
+		return true;
+	}
+
+	/**
+	 * Put a deleted Layer and its file back — the undo of {@link deleteLayer}, in reverse order again.
+	 *
+	 * The file first, so the reference never names a file that is not there, and through
+	 * {@link Autosave} like every other write. The bytes come from the record rather than from anything
+	 * on disk, which is what makes the restored file byte-identical to the deleted one: a
+	 * re-serialisation of a parsed model would be merely equivalent, and ticket 09 asserts these files
+	 * survive display-state edits byte-for-byte.
+	 *
+	 * The tombstone is lifted with the Layer, so the two can never both be true.
+	 */
+	async #restoreLayer(record: UndoRecord): Promise<void> {
+		if (record.kind !== 'layer-deleted') return;
+		const directory = this.openDirectory;
+		if (!directory || !this.openProject) return;
+
+		if (record.path !== '' && record.bytes !== null) {
+			try {
+				await this.#autosave.commit(`${directory}/${record.path}`, record.bytes);
+				this.saveError = '';
+			} catch (cause) {
+				// Without its file the Layer would be a reference to nothing, so the entry is not restored
+				// either: the state to be in is the one the delete left, with the failure said.
+				this.saveError = cause instanceof Error ? cause.message : String(cause);
+				return;
+			}
+		}
+
+		const project = this.openProject;
+		if (!project) return;
+		const layers = insertLayerAt(project.layers, record.layer, record.at);
+		// The array it was given means a Layer with this id is already back — `parseLayers` drops a
+		// duplicate id, so writing one would produce a document whose next read loses one of the two.
+		if (layers === project.layers) return;
+		this.openProject = {
+			...project,
+			layers,
+			removedMapLayers: project.removedMapLayers.filter((ref) => ref !== layerFileRef(record.layer))
+		};
+		await this.#write(directory);
 	}
 
 	/**

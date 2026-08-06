@@ -16,6 +16,9 @@
 		canSolve,
 		detectFold,
 		type Alignment,
+		type ControlPoint,
+		type ControlPointDeletedUndo,
+		type ControlPointMovedUndo,
 		type DistortionView,
 		type FetchFn,
 		type GeoPoint,
@@ -101,6 +104,10 @@
 	$effect(() => {
 		void imageId;
 		generation += 1;
+		// For the same reason, and only for a Control Point record: an offer to put back point 3 of a map
+		// that is no longer on screen describes an edit the user cannot watch happen. A pending undo of a
+		// deleted Layer or Annotation is about the Project rather than about one image, and survives.
+		session.forgetUndoOfOtherImages(imageId);
 		pairing = undefined;
 		warped = null;
 		failure = '';
@@ -136,6 +143,60 @@
 	/** Write the Alignment as it now stands. Every caller is a discrete act or a gesture end. */
 	const save = (current: AlignmentPairing): void => {
 		void session.writeAlignment(current.alignment);
+	};
+
+	/**
+	 * Reversing a Control Point edit: put the pair back, then write, exactly as the edit itself did.
+	 *
+	 * **No bespoke save path**, which is ADR-0017's rule for undo as much as for anything else — and
+	 * awaited rather than fired, so the save indicator reaches "Saved" for the undo the way it does for
+	 * the edit.
+	 */
+	const putBack = async (
+		current: AlignmentPairing,
+		record: ControlPointMovedUndo | ControlPointDeletedUndo
+	): Promise<void> => {
+		if (current.restore(record)) await session.writeAlignment(current.alignment);
+	};
+
+	/**
+	 * Record where a pair was before this gesture moved it (SPEC story 38).
+	 *
+	 * Called with the point as it was *rendered*, which is its pre-gesture value: nothing here sets
+	 * `onmove`, so no state changes during a drag or a held arrow key, and the closure the handle calls
+	 * still carries where the point started. Dragging a Control Point is the easiest thing in this
+	 * application to mis-aim, which is why ADR-0014 refuses to ship without an undo of it.
+	 */
+	const rememberMove = (current: AlignmentPairing, point: ControlPoint): void => {
+		const record: ControlPointMovedUndo = {
+			kind: 'control-point-moved',
+			imageId,
+			pointId: point.id,
+			ordinal: point.ordinal,
+			resource: point.resource,
+			geo: point.geo
+		};
+		session.record(record, () => putBack(current, record));
+	};
+
+	/**
+	 * Record a pair about to be deleted, with the index that is what restores its ordinal.
+	 *
+	 * The index is taken among the *drafts* rather than from the ordinal, because a pending half is a
+	 * draft too — and because the ordinal is derived from position (ADR-0022), so the position is the
+	 * thing that has to go back.
+	 */
+	const rememberDelete = (current: AlignmentPairing, point: ControlPoint): void => {
+		const at = current.drafts.findIndex((draft) => draft.id === point.id);
+		if (at === -1) return;
+		const record: ControlPointDeletedUndo = {
+			kind: 'control-point-deleted',
+			imageId,
+			ordinal: point.ordinal,
+			at,
+			point: { id: point.id, resource: point.resource, geo: point.geo }
+		};
+		session.record(record, () => putBack(current, record));
 	};
 
 	const controlPoints = $derived(pairing?.controlPoints ?? []);
@@ -184,10 +245,12 @@
 			selected: point.id === current.selectedId,
 			onselect: () => current.toggleSelected(point.id),
 			ondelete: () => {
+				rememberDelete(current, point);
 				current.remove(point.id);
 				save(current);
 			},
 			onmoveend: (to) => {
+				rememberMove(current, point);
 				current.moveResource(point.id, to);
 				save(current);
 			}
@@ -302,10 +365,12 @@
 			selected: point.id === current.selectedId,
 			onselect: () => current.toggleSelected(point.id),
 			ondelete: () => {
+				rememberDelete(current, point);
 				current.remove(point.id);
 				save(current);
 			},
 			onmoveend: (to) => {
+				rememberMove(current, point);
 				current.moveGeo(point.id, to);
 				save(current);
 			}
@@ -349,6 +414,8 @@
 	const removePair = (id: string): void => {
 		const current = pairing;
 		if (!current) return;
+		const point = current.controlPoints.find((one) => one.id === id);
+		if (point) rememberDelete(current, point);
 		current.remove(id);
 		save(current);
 	};

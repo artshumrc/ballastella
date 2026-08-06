@@ -1392,9 +1392,13 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 			[0, 'layer-visible'],
 			[0, 'layer-name'],
 			[0, 'layer-move-down'],
+			// Ticket 11's delete, which is the one control here that cannot be shrugged off — so it has to
+			// be on the keyboard path, and the undo that makes it safe has one of its own.
+			[0, 'layer-delete'],
 			[1, 'layer-visible'],
 			[1, 'layer-name'],
 			[1, 'layer-move-up'],
+			[1, 'layer-delete'],
 			[1, 'layer-opacity']
 		];
 

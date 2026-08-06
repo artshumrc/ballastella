@@ -27,7 +27,8 @@
 		oncommit,
 		onshow,
 		ondragopacity,
-		onmove
+		onmove,
+		ondelete
 	}: {
 		/** The stack, top first. Index 0 draws over everything else. */
 		layers: readonly Layer[];
@@ -40,6 +41,16 @@
 		ondragopacity: (id: string, opacity: number) => void;
 		/** Move the Layer to a position in the stack, 0 being the top. */
 		onmove: (id: string, toIndex: number) => void;
+		/**
+		 * Delete the Layer **and the file it draws** (SPEC story 49, ticket 11).
+		 *
+		 * No confirmation dialog, and that is a decision rather than an omission: ticket 09 deliberately
+		 * shipped `removeLayer` with no button at all, on the reasoning that the affordance belongs with
+		 * the single-level undo that makes it safe (ADR-0014). The undo is that safety, and it works after
+		 * autosave has written the deletion — which a dialog does not give you, since a user who means to
+		 * delete confirms without reading and one who does not needs the way back either way.
+		 */
+		ondelete: (id: string) => void;
 	} = $props();
 
 	/**
@@ -73,6 +84,28 @@
 	 */
 	const upButton: Record<string, HTMLButtonElement | undefined> = {};
 	const downButton: Record<string, HTMLButtonElement | undefined> = {};
+	const deleteButton: Record<string, HTMLButtonElement | undefined> = {};
+
+	/**
+	 * Delete a Layer, and leave the keyboard somewhere in the list.
+	 *
+	 * The same problem `moveByButton` solves, in its sharpest form: the focused button is *removed*, so
+	 * focus falls to `document.body` and a keyboard user has to Tab back in from the top of the document,
+	 * past MapLibre's own controls, to do anything else — including reaching the undo they may want.
+	 * CONTRIBUTING makes focus management a criterion of every change that adds UI, and a delete is where
+	 * it is most obviously owed.
+	 *
+	 * The row that takes this one's place, or the last row when the bottom Layer went — the same place a
+	 * user's eye is. Focus is only *taken* here because the element that had it no longer exists.
+	 */
+	const deleteByButton = async (id: string, index: number): Promise<void> => {
+		ondelete(id);
+		await tick();
+		if (document.activeElement !== document.body) return;
+		const remaining = layers.filter((layer) => layer.id !== id);
+		const next = remaining[Math.min(index, remaining.length - 1)];
+		if (next) deleteButton[next.id]?.focus();
+	};
 
 	/**
 	 * Move a Layer by button, and leave the keyboard on the Layer that moved.
@@ -263,6 +296,19 @@
 								onclick={() => void moveByButton(layer.id, layer.name, index + 1, 'down')}
 							>
 								Move down<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+							</button>
+							<!--
+								The Layer's name is in the accessible name for the same reason it is on the two
+								buttons beside it: "Delete" four times over is four identical controls to a screen
+								reader, and this is the one of them that cannot be shrugged off.
+							-->
+							<button
+								bind:this={deleteButton[layer.id]}
+								class="btn btn-ghost btn-sm"
+								data-testid="layer-delete"
+								onclick={() => void deleteByButton(layer.id, index)}
+							>
+								Delete<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
 							</button>
 						</div>
 					</div>
