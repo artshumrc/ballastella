@@ -11,6 +11,9 @@ node_modules
 /blob-report
 /playwright/.cache
 coverage
+# Vitest browser mode writes these per run, one per browser context it tears down.
+.vitest-attachments
+__screenshots__
 
 # Agent worktrees
 /.claude/worktrees
