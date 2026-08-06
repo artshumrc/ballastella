@@ -353,6 +353,7 @@ export {
 	type FetchCommunityAnnotations
 } from './remote-iiif/community-alignments.js';
 export {
+	PROBE_ATTEMPTS,
 	RemoteImageUnusableError,
 	measureTileWithImageBitmap,
 	probeRemoteImageService,

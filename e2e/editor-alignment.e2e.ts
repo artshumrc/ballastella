@@ -766,3 +766,94 @@ test.describe('the Alignment on disk', () => {
 		await expect(rows(page)).toHaveCount(0);
 	});
 });
+
+/**
+ * Choosing the Base Map from the pane you are aligning onto.
+ *
+ * **This is a reachability test, and that is the point of it.** The switcher's *behaviour* was
+ * already covered — `editor-base-map.e2e.ts` drives it thoroughly — but every one of those tests
+ * arrives by `page.goto('./base-map/?p=…')`, and so does every test of the Layers pane. A control
+ * that no test ever has to *find* can stop being findable without a single assertion going red,
+ * which is exactly what happened: the deployment default is a regional extract (ADR-0020), an
+ * author aligning a sheet from anywhere else zoomed in and watched the Base Map go blank, and the
+ * only way to change it was a URL typed by hand or a button labelled with a Layer count.
+ *
+ * So this test never navigates. It reaches the switcher the way a scholar does — from the
+ * workspace where the wrong Base Map is discovered — and that is the assertion.
+ */
+test.describe('choosing the Base Map while aligning', () => {
+	const switcher = (page: Page) => page.getByRole('combobox', { name: 'Base Map' });
+
+	/**
+	 * The Project's recorded Base Map, out of OPFS.
+	 *
+	 * Polled rather than read once: `chooseBaseMap` writes asynchronously, so the `<select>` shows
+	 * the new value before the bytes land — and reading in that window would fail as "the choice was
+	 * not recorded", which is the opposite of what happened.
+	 */
+	const storedBaseMap = async (page: Page): Promise<unknown> => {
+		const written = await page.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			const project = await root.getDirectoryHandle('amsterdam-1625');
+			const handle = await project.getFileHandle('project.json');
+			return await (await handle.getFile()).text();
+		});
+		return JSON.parse(written).baseMap;
+	};
+
+	/**
+	 * A bundled entry, deliberately — **not** the worldwide one this whole investigation was about.
+	 *
+	 * `streets-worldwide` reads Protomaps' demo bucket over the network, and no test in this suite
+	 * selects it for that reason (`editor-base-map.e2e.ts` names it only in the expected option
+	 * list). What is under test here is that the control is reachable and that operating it records
+	 * the author's choice; making that depend on a third party's bucket would buy nothing and cost
+	 * a flake on every reading-room wifi this suite is ever run on.
+	 */
+	const OFFLINE_ENTRY = 'physical';
+
+	test('the switcher is on the alignment workspace, with no navigation', async ({ page }) => {
+		await start(page);
+
+		// Present beside the pane, on the page the author is already on. `getByRole` rather than a
+		// testid, because "can a user find and operate this" is the question and the accessible name
+		// is what answers it.
+		await expect(switcher(page)).toBeVisible();
+	});
+
+	test('choosing one records it as the Project default and leaves the pane live', async ({
+		page
+	}) => {
+		await start(page);
+
+		await switcher(page).selectOption(OFFLINE_ENTRY);
+
+		// The choice is the author's default for the Project (ADR-0020), written through the same
+		// `chooseBaseMap` every other switcher calls — so it is one piece of state, not a third copy.
+		await expect.poll(() => storedBaseMap(page)).toBe(OFFLINE_ENTRY);
+
+		// And the pane in front of the author is still a live map afterwards. `setStyle` tears down
+		// every layer this workspace put on it (see `BaseMapPane`), so a repaint that left the pane
+		// broken would be the same defect wearing a different face.
+		await expect(baseMap(page)).toBeVisible();
+		await page.waitForFunction(
+			() => window.ballastellaBaseMap?.isStyleLoaded() === true,
+			undefined,
+			{
+				timeout: 30_000
+			}
+		);
+	});
+
+	test('the choice survives a reload, and the workspace opens on it', async ({ page }) => {
+		await start(page);
+		await switcher(page).selectOption(OFFLINE_ENTRY);
+		await expect.poll(() => storedBaseMap(page)).toBe(OFFLINE_ENTRY);
+
+		await page.reload();
+
+		// Reopened from `project.json` rather than from anything held in the page, which is what makes
+		// it the author's default rather than a setting that lasts as long as the tab.
+		await expect(switcher(page)).toHaveValue(OFFLINE_ENTRY);
+	});
+});

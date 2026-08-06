@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { RemoteImageUnusableError, probeRemoteImageService, type MeasureTile } from './cors-probe';
+import {
+	PROBE_ATTEMPTS,
+	RemoteImageUnusableError,
+	probeRemoteImageService,
+	type MeasureTile
+} from './cors-probe';
 import { acceptRemoteImageService, type RemoteImageService } from './image-service';
 
 // The gate this file tests is the one ADR-0007 exists for: without it, a host that serves
@@ -33,6 +38,38 @@ const corsRejection = (url: string) =>
 	);
 
 const jpeg = () => new Response(new Blob([new Uint8Array([0xff, 0xd8, 0xff])]), { status: 200 });
+
+/**
+ * A host that never answers — what a `fetch` does when the timeout aborts it.
+ *
+ * The probe distinguishes this from {@link corsRejection} by the abort signal rather than by the
+ * error, so the signal is what this honours. It must not resolve, or the case under test is a fast
+ * host rather than a hanging one.
+ */
+const hangs = (init?: RequestInit) =>
+	new Promise<Response>((_resolve, reject) => {
+		init?.signal?.addEventListener('abort', () =>
+			reject(new DOMException('The user aborted a request.', 'AbortError'))
+		);
+	});
+
+/** Records the waits instead of taking them, so a retry test costs no wall-clock time. */
+const instantly = () => {
+	const waits: number[] = [];
+	return {
+		waits,
+		delay: async (ms: number) => {
+			waits.push(ms);
+		}
+	};
+};
+
+/** Nothing in a transient refusal may read as a verdict on the host's CORS policy. */
+const saysNothingAboutCors = (message: string | undefined) => {
+	expect(message).not.toContain('Access-Control-Allow-Origin');
+	expect(message).not.toContain('cross-origin');
+	expect(message).not.toContain('completely blank');
+};
 
 /** Measures whatever the caller says it measures, so Node needs no image decoder. */
 const measuring =
@@ -166,5 +203,181 @@ describe('the exact-resize assumption, which cannot be asserted of a stranger', 
 
 		expect(failure?.stage).toBe('tile');
 		expect(failure?.message).toContain('could not decode it as an image');
+	});
+});
+
+// The host that prompted all of this is `cdm17272.contentdm.oclc.org`: it serves its pyramid with
+// `Access-Control-Allow-Origin: *`, and roughly one cold-derivative request in five hangs for a
+// minute and then answers 502. Because the probe asks for the far-corner ragged tile — by
+// construction the coldest tile in the pyramid — it walked into that failure and refused a map that
+// works, with a sentence blaming CORS headers that were already correct.
+describe('a host that is briefly broken rather than refusing', () => {
+	it('is accepted when a retry succeeds, and the map is not refused for one bad request', async () => {
+		const remote = await service();
+		const tile = remote.probeTiles[0]!.url;
+		let tileRequests = 0;
+		const clock = instantly();
+
+		const probe = await probeRemoteImageService(remote, {
+			measureTile: measuring(remote.probeTiles[0]!.request.size),
+			timeoutMs: 10,
+			delay: clock.delay,
+			fetch: async (input, init) => {
+				if (String(input) !== tile) return jpeg();
+				tileRequests += 1;
+				// Exactly the observed behaviour: hang, then 502, then serve it perfectly.
+				if (tileRequests === 1) return hangs(init);
+				if (tileRequests === 2) return new Response('Bad Gateway', { status: 502 });
+				return jpeg();
+			}
+		});
+
+		expect(probe.tileUrls).toEqual([tile]);
+		expect(tileRequests).toBe(3);
+		// Backoff between attempts, not a hot loop against a host that is already struggling.
+		expect(clock.waits).toEqual([500, 2000]);
+	});
+
+	it('is refused only after every attempt, and the refusal blames the host and not CORS', async () => {
+		const remote = await service();
+		const tile = remote.probeTiles[0]!.url;
+		let tileRequests = 0;
+
+		const failure = await probeRemoteImageService(remote, {
+			measureTile: measuring(remote.probeTiles[0]!.request.size),
+			timeoutMs: 10,
+			delay: instantly().delay,
+			fetch: async (input, init) => {
+				if (String(input) !== tile) return jpeg();
+				tileRequests += 1;
+				return hangs(init);
+			}
+		}).then(
+			() => null,
+			(cause: unknown) => cause as RemoteImageUnusableError
+		);
+
+		expect(tileRequests).toBe(PROBE_ATTEMPTS);
+		expect(failure?.stage).toBe('tile');
+		expect(failure?.attempts).toBe(PROBE_ATTEMPTS);
+		// The field a "Try again" button would read, and the difference between this refusal and a
+		// host that genuinely will not allow the read.
+		expect(failure?.transient).toBe(true);
+		expect(failure?.message).toContain('fault at the host');
+		expect(failure?.message).toContain('trying again');
+		expect(failure?.message).toContain(tile);
+		// **The regression this whole section exists for.** A timeout is evidence about nothing but
+		// the host's responsiveness, and the sentence it produced used to be a confident, wrong
+		// diagnosis of the host's CORS policy — which sent a user to argue about headers that were
+		// already correct.
+		saysNothingAboutCors(failure?.message);
+	});
+
+	it('names the status it kept receiving when the host answers 5xx', async () => {
+		const remote = await service();
+		const failure = await probeRemoteImageService(remote, {
+			measureTile: measuring(remote.probeTiles[0]!.request.size),
+			delay: instantly().delay,
+			fetch: async (input) =>
+				String(input).endsWith('/info.json') ? jpeg() : new Response('Bad Gateway', { status: 502 })
+		}).then(
+			() => null,
+			(cause: unknown) => cause as RemoteImageUnusableError
+		);
+
+		expect(failure?.transient).toBe(true);
+		expect(failure?.attempts).toBe(PROBE_ATTEMPTS);
+		expect(failure?.message).toContain('the last answer was 502');
+		saysNothingAboutCors(failure?.message);
+	});
+
+	it('retries a 429, because that is the host asking to be asked more slowly', async () => {
+		const remote = await service();
+		const tile = remote.probeTiles[0]!.url;
+		let tileRequests = 0;
+
+		const probe = await probeRemoteImageService(remote, {
+			measureTile: measuring(remote.probeTiles[0]!.request.size),
+			delay: instantly().delay,
+			fetch: async (input) => {
+				if (String(input) !== tile) return jpeg();
+				tileRequests += 1;
+				return tileRequests === 1 ? new Response('Slow down', { status: 429 }) : jpeg();
+			}
+		});
+
+		expect(probe.tileUrls).toEqual([tile]);
+		expect(tileRequests).toBe(2);
+	});
+});
+
+describe('a definite answer, which is not retried', () => {
+	it('asks once when the browser refuses the read, because a missing header will not appear', async () => {
+		const remote = await service();
+		const tile = remote.probeTiles[0]!.url;
+		let tileRequests = 0;
+		const clock = instantly();
+
+		const failure = await probeRemoteImageService(remote, {
+			measureTile: measuring(remote.probeTiles[0]!.request.size),
+			delay: clock.delay,
+			fetch: async (input) => {
+				if (String(input).endsWith('/info.json')) return jpeg();
+				tileRequests += 1;
+				return corsRejection(String(input));
+			}
+		}).then(
+			() => null,
+			(cause: unknown) => cause as RemoteImageUnusableError
+		);
+
+		// Retrying this would only make the commonest real failure three times slower to report.
+		expect(tileRequests).toBe(1);
+		expect(clock.waits).toEqual([]);
+		expect(failure?.attempts).toBe(1);
+		expect(failure?.transient).toBe(false);
+		expect(failure?.message).toContain('completely blank');
+		expect(failure?.message).toContain(tile);
+	});
+
+	it('asks once for a 4xx, and says the host declined rather than blaming CORS', async () => {
+		const remote = await service();
+		let tileRequests = 0;
+
+		const failure = await probeRemoteImageService(remote, {
+			measureTile: measuring(remote.probeTiles[0]!.request.size),
+			delay: instantly().delay,
+			fetch: async (input) => {
+				if (String(input).endsWith('/info.json')) return jpeg();
+				tileRequests += 1;
+				return new Response('Not Found', { status: 404 });
+			}
+		}).then(
+			() => null,
+			(cause: unknown) => cause as RemoteImageUnusableError
+		);
+
+		expect(tileRequests).toBe(1);
+		expect(failure?.transient).toBe(false);
+		expect(failure?.message).toContain('answered 404 for a tile its own image description says');
+		saysNothingAboutCors(failure?.message);
+	});
+
+	it('does not blame CORS for an info.json that answers 404', async () => {
+		const remote = await service();
+		const failure = await probeRemoteImageService(remote, {
+			measureTile: measuring({ width: 1, height: 1 }),
+			delay: instantly().delay,
+			fetch: async () => new Response('Not Found', { status: 404 })
+		}).then(
+			() => null,
+			(cause: unknown) => cause as RemoteImageUnusableError
+		);
+
+		expect(failure?.stage).toBe('info');
+		expect(failure?.attempts).toBe(1);
+		expect(failure?.message).toContain('answered 404');
+		expect(failure?.message).toContain('IIIF');
+		saysNothingAboutCors(failure?.message);
 	});
 });

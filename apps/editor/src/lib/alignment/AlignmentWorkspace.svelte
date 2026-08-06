@@ -58,6 +58,7 @@
 	import type { WarpedRender } from '@ballastella/core/render';
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
+	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import HistoricalMapPane from '$lib/image-pane/HistoricalMapPane.svelte';
 	import type { PaneOverlayPoint } from '$lib/image-pane/ImagePane.svelte';
 
@@ -740,7 +741,24 @@
 		</section>
 
 		<section aria-labelledby="base-map-pane-heading" class="min-w-0">
-			<h4 id="base-map-pane-heading" class="mb-2 text-sm font-semibold">Base Map</h4>
+			<!--
+				The Base Map heading and the choice of Base Map, together.
+
+				**Here because this is where the wrong one is discovered.** The deployment default is a
+				regional extract (ADR-0020), so an author aligning a sheet of anywhere outside its bounds
+				zooms in and watches the earth go blank — and the switcher lived only on the Layers pane,
+				behind a button labelled with a Layer count, which says nothing about Base Maps. The
+				control belongs beside the pane whose emptiness sends you looking for it.
+
+				It writes through `session.chooseBaseMap`, the same one every other switcher calls, so the
+				choice is the Project's author default (ADR-0020) rather than a third copy of that state.
+			-->
+			<div class="mb-2 flex flex-wrap items-end justify-between gap-2">
+				<h4 id="base-map-pane-heading" class="text-sm font-semibold">Base Map</h4>
+				<div class="max-w-xs grow">
+					<BaseMapSwitcher entryId={baseMapId} onSelect={(id) => session.chooseBaseMap(id)} />
+				</div>
+			</div>
 			<div class="h-96 overflow-hidden rounded border border-base-300">
 				<BaseMapPane
 					entryId={baseMapId}

@@ -41,6 +41,33 @@
 // at 0.6% of one tile along two margins of the sheet, it is inside the same order as the JPEG noise
 // the tiles already carry, and "make an offline copy" removes it outright by re-cutting the pyramid
 // with the tiler ticket 05 *does* assert exact-resize of.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// A GATE THAT REFUSES A FLAKY HOST IS A BUG, NOT A STRICTER GATE
+//
+// This started as one request per URL, no retries, and a refusal sentence per *stage* with the
+// cause interpolated into it. Both halves of that were wrong, and a real host showed it:
+// `cdm17272.contentdm.oclc.org` (Cantaloupe behind an F5) serves this pyramid perfectly and
+// intermittently hangs for sixty seconds on a **cold** derivative before answering `502` — measured
+// at roughly one request in five. The gate asks for the far-corner ragged tile, which is by
+// construction the coldest tile in the pyramid, so it walked straight into it, timed out, and
+// refused an entirely usable map.
+//
+// So two rules, and they are the reason this file has more prose than logic:
+//
+// **A timeout, a 5xx, or a 429 is asked again.** Those are the signatures of a host that is busy or
+// briefly broken, not of one that will never work — and the whole cost of being wrong is a few
+// seconds. A rejected `fetch` and a 4xx are *not* retried: a missing
+// `Access-Control-Allow-Origin` header will not appear on the second ask, and a service that says
+// `404` for a tile it declares has answered the question. Retrying those would only make the
+// common failure three times slower to report.
+//
+// **The refusal is chosen by the evidence, not by the stage.** The sentence about WebGL textures
+// and blank maps is a claim about the *host's CORS policy*, and it may only be said when the
+// browser really refused the read — a `fetch` that rejects with no status. A timeout says nothing
+// whatsoever about CORS. Saying it anyway sent a user to argue with their library about headers
+// that were already correct (`Access-Control-Allow-Origin: *`, in that case), which is worse than
+// no diagnosis: it is a confident wrong one. See {@link ProbeRefusals} for the three-way split.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import type { RemoteImageService } from './image-service.js';
@@ -67,13 +94,34 @@ export class RemoteImageUnusableError extends Error {
 	readonly host: string;
 	readonly url: string;
 	readonly stage: RemoteProbeStage;
+	/** How many times {@link url} was asked for before the gate gave up. */
+	readonly attempts: number;
+	/**
+	 * Whether the evidence says asking again later might succeed.
+	 *
+	 * A field rather than only a turn of phrase in the message, because the two outcomes want
+	 * different UI: a transient fault deserves a "Try again" button beside the sentence, and a host
+	 * that refuses cross-origin reads deserves no such button — there is nothing for it to change.
+	 * Nothing offers that button yet; the field is what makes offering it a change to one component
+	 * rather than a re-derivation of the diagnosis from the prose.
+	 */
+	readonly transient: boolean;
 
-	constructor(options: { host: string; url: string; stage: RemoteProbeStage; reason: string }) {
+	constructor(options: {
+		host: string;
+		url: string;
+		stage: RemoteProbeStage;
+		reason: string;
+		attempts?: number;
+		transient?: boolean;
+	}) {
 		super(options.reason);
 		this.name = 'RemoteImageUnusableError';
 		this.host = options.host;
 		this.url = options.url;
 		this.stage = options.stage;
+		this.attempts = options.attempts ?? 1;
+		this.transient = options.transient ?? false;
 	}
 }
 
@@ -98,10 +146,34 @@ export const measureTileWithImageBitmap: MeasureTile = async (bytes) => {
 	}
 };
 
+/**
+ * How many times one URL is asked for before the gate gives up on it.
+ *
+ * Three, and only for a transient fault (see the note at the top of this file). Two would not have
+ * survived the host that prompted this — at one failure in five, two attempts still refuse a good
+ * map 4% of the time, where three brings it under 1% — and more than three turns a genuinely dead
+ * host into a minute of waiting before the user is told anything.
+ */
+export const PROBE_ATTEMPTS = 3;
+
+/**
+ * The waits before the second and third attempts, in milliseconds.
+ *
+ * Short, because a person is watching a dialog. The point of pausing at all is that the thing being
+ * waited out is usually a derivative being generated or a worker being restarted, and asking again
+ * instantly mostly just queues behind the same work.
+ */
+const TRANSIENT_BACKOFF_MS: readonly number[] = [500, 2000];
+
 export type ProbeRemoteImageOptions = {
 	readonly fetch: FetchFn;
 	readonly measureTile: MeasureTile;
 	readonly timeoutMs?: number;
+	/**
+	 * How the pause between attempts is taken. Injected so the tests can assert the retry policy
+	 * without spending {@link TRANSIENT_BACKOFF_MS} of real time on every case.
+	 */
+	readonly delay?: (ms: number) => Promise<void>;
 };
 
 /**
@@ -146,12 +218,20 @@ export async function probeRemoteImageService(
 		host,
 		stage: 'info',
 		timeoutMs,
-		reason: (detail) =>
-			`${host} will not let another website read its image descriptions${detail}. Ballastella ` +
-			`needs to read ${infoUrl} from your browser, and this host does not send the ` +
-			`Access-Control-Allow-Origin header that permits it. Nothing has been added. Ask whoever ` +
-			`runs ${host} to allow cross-origin reads — most IIIF services do — or download the image ` +
-			`and add it from a file.`
+		refusals: {
+			subject: 'its description of this image',
+			crossOrigin: (detail) =>
+				`${host} will not let another website read its image descriptions${detail}. Ballastella ` +
+				`needs to read ${infoUrl} from your browser, and this host does not send the ` +
+				`Access-Control-Allow-Origin header that permits it. Nothing has been added. Ask whoever ` +
+				`runs ${host} to allow cross-origin reads — most IIIF services do — or download the image ` +
+				`and add it from a file.`,
+			declined: (status) =>
+				`${host} answered ${status} for ${infoUrl}. That is the image description Ballastella ` +
+				`has to read before it can draw anything, so there is nothing to add. Check the address ` +
+				`— if you copied it from a viewer page rather than from a “IIIF” link, it may name a page ` +
+				`rather than the image service.`
+		}
 	});
 
 	const tileUrls: string[] = [];
@@ -166,21 +246,38 @@ export async function probeRemoteImageService(
 			host,
 			stage: 'tile',
 			timeoutMs,
-			reason: (detail) =>
-				synthesised
-					? // A level this app worked out rather than one the service declared — see
-						// `extendedTileset`. The service said it serves any region at any size, and it does
-						// not, so the honest report says exactly that rather than blaming CORS.
-						`${host} declares tiles only down to a zoom at which this image is still ` +
-						`${Math.ceil(service.width / (service.tileSize * (service.synthesisedCoarsestScaleFactor ?? 1)))} ` +
-						`tiles across, and it also declares that it serves any region at any size — so ` +
-						`Ballastella asked for the wider tile it needs to show the whole sheet at once, and ` +
-						`the answer was no${detail}. Nothing has been added. The request was ${tileUrl}.`
-					: `${host} serves its image descriptions to other websites but not its image ` +
-						`tiles${detail}. Ballastella draws a Historical Map by uploading tiles into the ` +
-						`graphics card, which the browser only permits for a response marked readable ` +
-						`cross-origin — so this map would appear completely blank with nothing to say why. ` +
-						`Nothing has been added. The tile that was refused is ${tileUrl}.`
+			refusals: {
+				subject: synthesised
+					? 'the wider tile Ballastella needs to show the whole sheet at once'
+					: 'a tile of this image',
+				// CORS is a property of the host, not of which tile was asked for, so both kinds of probe
+				// tile get the same sentence here. What differs between them is `declined` — see below.
+				crossOrigin: (detail) =>
+					`${host} serves its image descriptions to other websites but not its image ` +
+					`tiles${detail}. Ballastella draws a Historical Map by uploading tiles into the ` +
+					`graphics card, which the browser only permits for a response marked readable ` +
+					`cross-origin — so this map would appear completely blank with nothing to say why. ` +
+					`Nothing has been added. The tile that was refused is ${tileUrl}.`,
+				declined: (status) =>
+					synthesised
+						? // A level this app worked out rather than one the service declared — see
+							// `extendedTileset`. The service said it serves any region at any size, and a
+							// definite answer proves it does not, so the honest report says exactly that.
+							`${host} declares tiles only down to a zoom at which this image is still ` +
+							`${Math.ceil(service.width / (service.tileSize * (service.synthesisedCoarsestScaleFactor ?? 1)))} ` +
+							`tiles across, and it also declares that it serves any region at any size — so ` +
+							`Ballastella asked for the wider tile it needs to show the whole sheet at once, and ` +
+							`the answer was no — it answered ${status}. Nothing has been added. The request was ` +
+							`${tileUrl}.`
+						: // A tile the service's own `info.json` declares, refused by the service. Not a CORS
+							// matter and not something the user can fix by asking for headers, so it does not
+							// get the CORS sentence.
+							`${host} answered ${status} for a tile its own image description says it serves. ` +
+							`Ballastella asked for ${tileUrl}, which is the ${tile.request.size.width}×` +
+							`${tile.request.size.height} tile at the corner of the sheet. Either this image is ` +
+							`incomplete on the host or its description does not match what it will serve — ` +
+							`nothing has been added, and this is one to report to whoever runs ${host}.`
+			}
 		});
 
 		const requested = tile.request.size;
@@ -221,12 +318,65 @@ export async function probeRemoteImageService(
 }
 
 /**
- * Fetch one URL and hand back its bytes, or refuse with the caller's sentence.
+ * The three sentences one probed URL can be refused with, chosen by what the host actually did.
  *
- * **A cross-origin `fetch` that the host does not permit rejects**, so the `catch` here *is* the
- * CORS failure in a real browser; a 4xx or 5xx is a different fault and is reported with its
- * status. Both land in the same refusal because the user's options are the same either way, and
- * the detail says which happened.
+ * Two are the caller's to write, because only the caller knows what this URL was for; the third is
+ * composed from {@link subject} in {@link unavailableReason}, because "the host is having a bad
+ * day" reads the same whatever was being fetched.
+ */
+type ProbeRefusals = {
+	/**
+	 * The browser would not let the response be read: a `fetch` that rejected with no status, or a
+	 * body that could not be read. **This and only this is the CORS verdict** — the one the
+	 * `Access-Control-Allow-Origin` and blank-map prose belongs to.
+	 *
+	 * @param detail a parenthesised aside naming the browser's own message
+	 */
+	readonly crossOrigin: (detail: string) => string;
+	/**
+	 * The host answered, and the answer was a definite no — a 4xx. It read the request, understood
+	 * it, and declined; nothing about headers and nothing to retry.
+	 */
+	readonly declined: (status: number) => string;
+	/**
+	 * What the host failed to provide, as a noun phrase that follows "did not manage to serve".
+	 * Used for the transient case only.
+	 */
+	readonly subject: string;
+};
+
+/** What one attempt at reading a URL produced. */
+type Attempt =
+	| { readonly ok: true; readonly bytes: Blob }
+	/** The `fetch` rejected: no status, no headers, nothing but the browser's own message. */
+	| { readonly ok: false; readonly fault: 'refused'; readonly detail: string }
+	/** Nothing arrived inside the timeout. */
+	| { readonly ok: false; readonly fault: 'timeout' }
+	/** Something arrived, with a status that is not a success. */
+	| { readonly ok: false; readonly fault: 'status'; readonly status: number }
+	/** A response arrived and its body could not be read. */
+	| { readonly ok: false; readonly fault: 'opaque'; readonly detail: string };
+
+type Failed = Extract<Attempt, { ok: false }>;
+
+/**
+ * Whether asking again could plausibly give a different answer.
+ *
+ * A timeout and a 5xx are the host being busy or briefly broken. A 429 is the host asking to be
+ * asked more slowly, which is exactly what the backoff does. Everything else is an answer.
+ */
+const isTransient = (attempt: Failed): boolean =>
+	attempt.fault === 'timeout' ||
+	(attempt.fault === 'status' && (attempt.status >= 500 || attempt.status === 429));
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Fetch one URL, retrying a transient fault, and hand back its bytes or refuse.
+ *
+ * The refusal is chosen by the evidence — see {@link ProbeRefusals} and the note at the top of
+ * this file. This function is where "the host did not answer" stopped being reported as "the host
+ * forbids cross-origin reads".
  */
 async function readOrRefuse(
 	url: string,
@@ -234,9 +384,91 @@ async function readOrRefuse(
 		host: string;
 		stage: RemoteProbeStage;
 		timeoutMs: number;
-		reason: (detail: string) => string;
+		refusals: ProbeRefusals;
 	}
 ): Promise<Blob> {
+	const wait = options.delay ?? sleep;
+	let attempts = 0;
+	let failure: Failed;
+
+	for (;;) {
+		if (attempts > 0) await wait(TRANSIENT_BACKOFF_MS[attempts - 1] ?? 0);
+		attempts += 1;
+
+		const attempt = await attemptRead(url, options);
+		if (attempt.ok) return attempt.bytes;
+
+		failure = attempt;
+		if (attempts >= PROBE_ATTEMPTS || !isTransient(attempt)) break;
+	}
+
+	const refuse = (reason: string, transient = false) =>
+		new RemoteImageUnusableError({
+			host: options.host,
+			url,
+			stage: options.stage,
+			reason,
+			attempts,
+			transient
+		});
+
+	switch (failure.fault) {
+		case 'refused':
+			throw refuse(options.refusals.crossOrigin(` (${failure.detail})`));
+		case 'opaque':
+			// An opaque response reaching here means somebody made the request `no-cors`. Reading its
+			// body yields nothing, and that is the state this whole module exists to refuse.
+			throw refuse(
+				options.refusals.crossOrigin(` (its response could not be read: ${failure.detail})`)
+			);
+		case 'status':
+			if (!isTransient(failure)) throw refuse(options.refusals.declined(failure.status));
+			throw refuse(
+				unavailableReason(options, url, attempts, `the last answer was ${failure.status}`),
+				true
+			);
+		case 'timeout':
+			throw refuse(
+				unavailableReason(options, url, attempts, 'nothing came back inside the time allowed'),
+				true
+			);
+	}
+}
+
+/**
+ * The sentence for a host that is neither refusing nor answering — the one the flaky Cantaloupe
+ * that prompted the retry policy earns.
+ *
+ * It says three things on purpose: that the fault is at the host, that it is not about the user's
+ * Project or this particular map, and that trying again later is a reasonable thing to do. A user
+ * who has just been told a map cannot be added will otherwise go looking for what they did wrong.
+ */
+function unavailableReason(
+	options: { host: string; refusals: ProbeRefusals },
+	url: string,
+	attempts: number,
+	detail: string
+): string {
+	const { host, refusals } = options;
+	return (
+		`${host} did not manage to serve ${refusals.subject}. Ballastella asked ${attempts} times, ` +
+		`pausing between each, and ${detail}. That is a fault at the host — it says nothing about ` +
+		`your Project or about this map, and a service that answers most requests and fails some is ` +
+		`usually busy or briefly broken rather than unable to do it at all. Nothing has been added; ` +
+		`trying again, now or in a few minutes, is often all it takes. The request was ${url}.`
+	);
+}
+
+/**
+ * One request, classified.
+ *
+ * Returns rather than throws, so that {@link readOrRefuse} owns the whole retry-and-refuse
+ * decision and this function owns only "what did the network do".
+ */
+async function attemptRead(
+	url: string,
+	options: { fetch: FetchFn; timeoutMs: number }
+): Promise<Attempt> {
 	const abort = new AbortController();
 	const timer = setTimeout(() => abort.abort(), options.timeoutMs);
 	try {
@@ -248,36 +480,24 @@ async function readOrRefuse(
 			// an opaque response — the single most tempting way to make this gate useless.
 			response = await options.fetch(url, { signal: abort.signal });
 		} catch (cause) {
-			throw new RemoteImageUnusableError({
-				host: options.host,
-				url,
-				stage: options.stage,
-				reason: options.reason(
-					abort.signal.aborted ? ' (it did not answer in time)' : ` (${message(cause)})`
-				)
-			});
+			// **A cross-origin `fetch` the host does not permit rejects**, so this branch is the real
+			// CORS failure in a real browser. The timeout arrives here too, as an abort, and the two
+			// must not be conflated — which is the whole point of the signal check.
+			return abort.signal.aborted
+				? { ok: false, fault: 'timeout' }
+				: { ok: false, fault: 'refused', detail: message(cause) };
 		}
 
-		if (!response.ok) {
-			throw new RemoteImageUnusableError({
-				host: options.host,
-				url,
-				stage: options.stage,
-				reason: options.reason(` — it answered ${response.status}`)
-			});
-		}
+		if (!response.ok) return { ok: false, fault: 'status', status: response.status };
 
 		try {
-			return await response.blob();
+			return { ok: true, bytes: await response.blob() };
 		} catch (cause) {
-			// An opaque response reaching here means somebody made the request `no-cors`. Reading its
-			// body yields nothing, and that is the state this whole module exists to refuse.
-			throw new RemoteImageUnusableError({
-				host: options.host,
-				url,
-				stage: options.stage,
-				reason: options.reason(` (its response could not be read: ${message(cause)})`)
-			});
+			// The body can also be cut off by the timeout, mid-stream. That is a slow host, not an
+			// unreadable response, and it is retried as one.
+			return abort.signal.aborted
+				? { ok: false, fault: 'timeout' }
+				: { ok: false, fault: 'opaque', detail: message(cause) };
 		}
 	} finally {
 		clearTimeout(timer);
