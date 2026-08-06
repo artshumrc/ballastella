@@ -5,13 +5,21 @@ import {
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
 	Workspace,
+	ingestImageFile,
 	installFlushOnHide,
+	listIngestedImages,
+	openDecodeAndCropSource,
 	projectFilePath,
+	streamingTiler,
+	type IngestProgress,
+	type IngestedImage,
 	type ProjectFile,
 	type ProjectStore,
 	type ProjectSummary,
 	type SaveState
 } from '@ballastella/core';
+
+import { loadLibvips } from './ingest/libvips-loader.js';
 
 /**
  * Whether the workspace can be reached. Not reachable is a **normal state** with a
@@ -43,6 +51,8 @@ export type ProjectProblem =
 export class EditorSession {
 	readonly #workspace: Workspace;
 	readonly #autosave: Autosave;
+	/** Held for the tiler, which writes tens of thousands of files that are not `project.json`. */
+	readonly #store: ProjectStore;
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
 	#openGeneration = 0;
 
@@ -66,7 +76,20 @@ export class EditorSession {
 	openProject = $state<ProjectFile | null>(null);
 	projectProblem = $state<ProjectProblem | null>(null);
 
+	/**
+	 * The Historical Maps in the open Project, and the ingest running now if one is.
+	 *
+	 * `ingest` is `null` between jobs rather than a finished-looking value, so the progress region
+	 * disappears when there is nothing to report instead of sitting at 100% forever.
+	 */
+	images = $state<IngestedImage[]>([]);
+	ingest = $state<IngestProgress | null>(null);
+	/** The name of the file being ingested, for the progress message (SPEC story 23). */
+	ingestLabel = $state('');
+	ingestError = $state('');
+
 	constructor(store: ProjectStore) {
+		this.#store = store;
 		this.#autosave = new Autosave(store);
 		this.#workspace = new Workspace(store, { autosave: this.#autosave });
 		this.#autosave.subscribe((state) => {
@@ -155,6 +178,8 @@ export class EditorSession {
 		this.openDirectory = directory;
 		this.openProject = null;
 		this.projectProblem = null;
+		this.images = [];
+		this.ingestError = '';
 		// The hub is what a null `?p=` shows, and it needs the list. Listing here rather than on
 		// every mutation is what keeps typing a Project name from walking the whole Workspace once
 		// per keystroke — a 2 GB pyramid is tens of thousands of files.
@@ -167,6 +192,9 @@ export class EditorSession {
 			this.openProject = file;
 			this.status = 'ready';
 			this.unreachableDetail = '';
+			// A read, like everything else on this path: `listIngestedImages` looks for `info.json`
+			// files and writes nothing (ADR-0010).
+			this.images = await listIngestedImages(this.#store, directory);
 		} catch (cause) {
 			if (generation !== this.#openGeneration) return;
 			const problem = describeProblem(cause, directory);
@@ -176,6 +204,53 @@ export class EditorSession {
 			}
 			this.status = 'unreachable';
 			this.unreachableDetail = cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	/**
+	 * Add a Historical Map from a file on the user's computer (SPEC stories 21, 22, 23).
+	 *
+	 * Deliberately not routed through {@link #mutate} or {@link Autosave}. A pyramid is thousands of
+	 * immutable files written once, not a document edited repeatedly, so coalescing writes would only
+	 * add a buffer the size of the image; and ADR-0017's autosave rules are about an edit that is
+	 * ending, which this is not. It also must not touch `project.json`: the Layer that refers to this
+	 * image arrives in ticket 09, and stamping `updatedAt` now would be a write with nothing behind
+	 * it.
+	 *
+	 * The two tilers are handed in from here — the one place in the app that knows both that
+	 * `wasm-vips` exists and that it must not be fetched until it is needed (ADR-0019).
+	 */
+	async ingestImage(file: File): Promise<void> {
+		const directory = this.openDirectory;
+		if (!directory || this.ingest) return;
+
+		this.ingestError = '';
+		this.ingestLabel = file.name;
+		this.ingest = {
+			phase: 'inspecting',
+			tiler: undefined,
+			tilesWritten: 0,
+			tileCount: 0,
+			fraction: 0
+		};
+
+		try {
+			await ingestImageFile({
+				store: this.#store,
+				projectDirectory: directory,
+				file,
+				openDecodeAndCrop: openDecodeAndCropSource,
+				openStreaming: streamingTiler(loadLibvips),
+				onProgress: (progress) => {
+					this.ingest = progress;
+				}
+			});
+			this.images = await listIngestedImages(this.#store, directory);
+		} catch (cause) {
+			this.ingestError = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			this.ingest = null;
+			this.ingestLabel = '';
 		}
 	}
 
