@@ -102,8 +102,17 @@ export interface StackRender {
 	 * expensive thing in the application (ADR-0017 rule 1 is about exactly this shape).
 	 */
 	setOpacity(layerId: string, opacity: number): void;
-	/** Take the whole stack off the map. Survivable after a `setStyle` has already removed it. */
-	destroy(): void;
+	/**
+	 * Take the whole stack off the map. Survivable after a `setStyle` has already removed it.
+	 *
+	 * @param options.mapIsGone the **map itself** has been removed, not just its style. Then its layers
+	 *   and sources went with it and it can no longer be asked about them at all: `Map#remove` deletes
+	 *   the style, so `getLayer` — the guard this uses before removing anything — throws. The caller
+	 *   knows this and MapLibre offers no supported way to ask, so it is passed in rather than detected.
+	 *   Letting go of the browser-test handle still happens, because a handle on a dead map is worse
+	 *   than none.
+	 */
+	destroy(options?: { mapIsGone?: boolean }): void;
 }
 
 /**
@@ -327,8 +336,9 @@ export function drawLayerStack(options: {
 		setOpacity(layerId, opacity) {
 			warped[layerId]?.setOpacity(opacity);
 		},
-		destroy() {
+		destroy({ mapIsGone = false } = {}) {
 			unexpose();
+			if (mapIsGone) return;
 			// `setStyle` on a theme change removes our layers along with everything else, so removing one
 			// that has already gone has to be survivable rather than an exception in a teardown.
 			for (const id of added.toReversed()) if (map.getLayer(id)) map.removeLayer(id);

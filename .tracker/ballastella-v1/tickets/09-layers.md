@@ -298,3 +298,77 @@ What is **not** established, and should not be:
   list then says "Remote reference — needs the network" beside a Layer that will render blank whatever
   the network does. Ticket 14 makes the badge true; until then it is a claim about a state that cannot
   arrive through the interface.
+
+### Two pane-lifecycle defects found by ticket 15, and what they turned out to be
+
+Ticket 15 needed to measure the same Layer twice — once referenced, once copied — and found that each
+of the two ways into this pane worked for exactly one of them. **The asymmetry was the finding:** every
+test in the suite used a fresh load of `/layers?p=…` or the link from the Project page, never both, so
+neither defect could be seen. Both are pre-existing and neither has anything to do with mirroring.
+
+**They do not share a root cause.** One is an exception in a teardown; the other is a missing rebuild
+key. They shared only a symptom — a Layer stack that is not on the map — and a cause of *invisibility*.
+
+**A. A removed MapLibre map cannot be asked anything, and asking it abandoned the next page's mount.**
+`Map#remove` calls `setStyle(null)`, which does `delete this.style`; `Map#getLayer` is
+`return this.style.getLayer(id)`, so it throws `TypeError: Cannot read properties of undefined (reading
+'getLayer')` on a removed map — and `getLayer` is exactly the guard the pane's teardowns use before
+taking a layer off, the guard that exists because a theme change's `setStyle` has already removed them.
+Svelte destroys a component's effects **in the order they were created** (measured, not assumed), and
+`onMount` is registered above every effect in `BaseMapPane.svelte`, so the map went first and the
+effects holding layers on it asked it afterwards.
+
+What made that more than a noisy console: an exception thrown while Svelte is destroying one page
+abandons the rest of that synchronous flush, and the *mount* of the page being navigated to is in the
+same flush. So clicking through from a Project page that had a local Historical Map — and therefore a
+warped layer to take off — produced a Layers pane with **no MapLibre map inside it at all**: the pane's
+`<div>` was in the DOM, its `onMount` never ran, `window.ballastellaLayerStack` was never set, and the
+region read "0 of 1 Layers are drawn" with "Not aligned yet" beside a Layer that was aligned. The only
+trace anywhere was one `TypeError` attributed to a page the user had already left.
+
+**The same throw happens leaving this pane, and there it is invisible on screen.** Going back to the
+Project page tore the stack off a removed map, threw, and abandoned the Project page's effects — but
+that page's markup is derived state rather than effects, so it rendered correctly and only its effects
+were skipped. The existing "links back to the Project" test passed throughout. It now also asserts that
+nothing was thrown, because on that route the exception is the entire signal.
+
+`removed` in `BaseMapPane.svelte` is the fix: set before `created.remove()`, read by the two teardowns
+that talk to MapLibre. `StackRender.destroy` takes `{ mapIsGone }` for the same reason and still lets go
+of the browser-test handle, because a handle on a dead map is worse than none. Detected rather than
+guessed: MapLibre offers no supported way to ask a map whether it has been removed (`_removed` is in the
+`.d.ts` but is not API), and the pane is the thing that knows.
+
+**B. `service` was missing from the stack-rebuild key, so a `'referenced'` Layer drew blank on a fresh
+load.** Where a referenced image's tiles come from is read out of `remote.json`, which `EditorSession.open`
+lists **after** `project.json`. On a fresh load the pane therefore had each Layer's Alignment before it
+had any remote record, built the stack from `service: ''` — the ADR-0004 placeholder document — and asked
+the injection shim for a pyramid a referenced image by definition does not have locally. The record
+arriving a moment later recomputed `drawn` and changed `stackStructure` **not at all**, because the
+service was not in it: measured at one build, nought tiles, and nought requests to the library.
+
+`service` is now in `stackStructure`. It is not a display setting and cannot be applied in place —
+`@allmaps/maplibre` builds every tile URL from the document it was handed, so the library's address
+versus the placeholder is a different document and a different drawn map. **Opacity is still out**, and
+the existing assertion that dragging the slider does not change `builds` is what holds that line; for a
+local copy `service` is always `''`, so nothing about the ordinary case rebuilds more often.
+
+**Is B the same shape as the Base Map style that never finishes loading? Yes, and it still needs its own
+fix.** Both are "built before an input was ready". But a style is a *precondition of attaching at all*,
+which is why `whenStyleLoaded` waits and reports rather than rebuilding, and it is not something the
+stack is built *from* — there is no key it could be added to. A service is an input, and the answer to a
+changed input is the rebuild key. One statement, two mechanisms; there was no single place to fix both.
+
+**Rejected, with the measurement:** the doc comment on `remoteServiceFor` claims a `'referenced'` Layer
+with `service: ''` is "refused visibly by `showAlignment`". **It is not.** `showAlignment` builds the
+placeholder document, the renderer accepts it and names a map, and the pane reports "1 of 1 Layer is
+drawn over the Base Map" over a blank map — which is what made B invisible. Nothing was changed about
+that here: the state it describes now only arrives for a Layer whose `remote.json` is genuinely missing
+or unreadable, which is a hand-edited or half-written Project rather than anything the interface makes,
+and turning it into a refusal would mean the pane could tell "not read yet" from "not there", which
+needs a signal `EditorSession` does not currently expose. **Left for whoever adds that signal**; the
+comment has been corrected to say what happens.
+
+**Coverage, which is the part that must not regress.** `editor-layers.e2e.ts`'s `openLayers` takes the
+way in as a parameter and there is a test on the link route; `editor-remote-iiif.e2e.ts` draws a
+referenced Layer through both routes. Both new assertions include `pageerror`, because asserting only
+the drawn count would leave the next version of this failure free to arrive silently.

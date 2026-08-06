@@ -171,10 +171,19 @@
 	/**
 	 * Where a `'referenced'` Layer's tiles are served from, or `''` for a local copy (ticket 14).
 	 *
-	 * Keyed off `imageMode` rather than off "is there a record for this image", so a referenced Layer
-	 * whose `remote.json` is missing or unreadable comes back `''` and is **refused visibly** by
-	 * `showAlignment` rather than drawn from the ADR-0004 placeholder — which would send it into the
-	 * injection layer looking for a pyramid that by definition is not there, and render blank.
+	 * Keyed off `imageMode` rather than off "is there a record for this image", so this answers `''` for
+	 * a local copy and only for a local copy — a referenced Layer is never accidentally handed a service
+	 * because some other image happened to have a record.
+	 *
+	 * **`''` on a `'referenced'` Layer renders blank, and is not refused.** `showAlignment` builds the
+	 * ADR-0004 placeholder document from it, the renderer accepts that and names a map, and the pane
+	 * reports the Layer as drawn while the injection shim looks for a pyramid a referenced image by
+	 * definition does not have locally. That used to be reachable on every fresh load of this pane,
+	 * because `remote.json` is listed after `project.json` and the stack was not rebuilt when the record
+	 * arrived — see `stackStructure` in `BaseMapPane.svelte`, which now depends on the service. What is
+	 * left is a Layer whose `remote.json` really is missing or unreadable, which is a hand-edited or
+	 * half-written Project; telling that apart from "not read yet" needs a signal `EditorSession` does
+	 * not expose, and is recorded on ticket 09 rather than guessed at here.
 	 */
 	const remoteServiceFor = (layer: MapLayer): string => {
 		if (layer.imageMode !== 'referenced') return '';

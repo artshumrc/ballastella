@@ -662,77 +662,102 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		await expect(page.getByTestId('unwarped-view')).toHaveCount(0);
 	});
 
-	test('draws a referenced Layer warped, from tiles the remote host served', async ({ page }) => {
-		test.slow();
-		// The other half of "a referenced image produces a Layer with `imageMode: 'referenced'` **and
-		// renders from the remote host**". The Layer part is asserted above, on `project.json`; this is
-		// the rendering, and it is asserted the way ticket 09 asserts it — on the warped Layer's own
-		// tile cache — because the failure this path has is an error `@allmaps/render` logs and
-		// swallows, so a check for an absence of console errors goes green over a blank map.
-		//
-		// It is also the assertion that catches the specific mistake this ticket could make: handing the
-		// renderer an Alignment whose `resource.id` is the ADR-0004 placeholder. That document parses,
-		// solves, and reports a map id — and then asks the injection layer for a pyramid the Project
-		// does not contain, and draws nothing.
-		await installFixtureHosts(page, {
-			communityAnnotations: [communityAnnotation('images.test', 'florida')]
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * BOTH WAYS IN TO THE LAYERS PANE, BECAUSE THEY WERE NOT EQUIVALENT
+	 *
+	 * A fresh load of `/layers?p=…` **drew this Layer blank**, while the client-side navigation from the
+	 * Project page drew it correctly. On a load the pane builds the stack as soon as it has each Layer's
+	 * Alignment, and `remote.json` — the only record of where a referenced image's tiles are — is read
+	 * after that: the Layer was handed `service: ''`, which is the ADR-0004 placeholder document, and
+	 * asked the injection shim for a pyramid the Project does not contain. The record arriving a moment
+	 * later changed nothing, because the remote service was not part of what the pane rebuilds the stack
+	 * for.
+	 *
+	 * Only this test's `'load'` half can see that, and only `editor-layers.e2e.ts`'s link-route test can
+	 * see the defect that went the other way round — so both files now cover both routes. Left with one
+	 * route each, either defect could come back unnoticed.
+	 */
+	for (const via of ['link', 'load'] as const) {
+		test(`draws a referenced Layer warped, from tiles the remote host served (reached by ${via})`, async ({
+			page
+		}) => {
+			test.slow();
+			// The other half of "a referenced image produces a Layer with `imageMode: 'referenced'` **and
+			// renders from the remote host**". The Layer part is asserted above, on `project.json`; this is
+			// the rendering, and it is asserted the way ticket 09 asserts it — on the warped Layer's own
+			// tile cache — because the failure this path has is an error `@allmaps/render` logs and
+			// swallows, so a check for an absence of console errors goes green over a blank map.
+			//
+			// It is also the assertion that catches the specific mistake this ticket could make: handing the
+			// renderer an Alignment whose `resource.id` is the ADR-0004 placeholder. That document parses,
+			// solves, and reports a map id — and then asks the injection layer for a pyramid the Project
+			// does not contain, and draws nothing.
+			await installFixtureHosts(page, {
+				communityAnnotations: [communityAnnotation('images.test', 'florida')]
+			});
+			await openNewProject(page);
+
+			await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+			await page.getByTestId('remote-canvas').nth(1).click();
+			await expect(page.getByTestId('community-offer')).toBeVisible();
+			await page.getByTestId('remote-add').click();
+			await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+			// The record of where the tiles are has reached the Workspace before the pane is opened, so the
+			// `'load'` half is about the pane's own ordering rather than about a write that had not happened.
+			await expect(page.getByRole('status')).toHaveText('Saved');
+
+			const tileRequests: string[] = [];
+			page.on('request', (request) => {
+				if (/images\.test.*default\.(jpg|png)$/.test(request.url()))
+					tileRequests.push(request.url());
+			});
+			// And nothing may go to the placeholder host: that is what a referenced image drawn as though it
+			// were a local copy would ask for.
+			const placeholderRequests: string[] = [];
+			page.on('request', (request) => {
+				if (request.url().includes('unset.invalid')) placeholderRequests.push(request.url());
+			});
+
+			if (via === 'link') await page.getByTestId('open-layers').click();
+			else await page.goto('/layers?p=amsterdam-1625');
+			await expect(page.getByRole('heading', { name: 'Layers in this Project' })).toBeVisible();
+
+			// The Layer is on the map, not refused.
+			await expect
+				.poll(
+					() =>
+						page.evaluate(() => {
+							const handle = window.ballastellaLayerStack;
+							if (!handle) return -1;
+							return Object.keys(handle.warped).length;
+						}),
+					{ timeout: 30_000 }
+				)
+				.toBe(1);
+
+			// It carried bytes, and they came from the library. `fitBounds` first, exactly as
+			// `editor-layers.e2e.ts` does: the renderer has no reason to ask for a tile for a Layer that is
+			// not on screen, and the fixture's Control Points put this one off the coast of Florida.
+			await expect
+				.poll(
+					() =>
+						page.evaluate(async () => {
+							const handle = window.ballastellaLayerStack;
+							const layer = Object.values(handle?.warped ?? {})[0];
+							if (!handle || !layer) return 0;
+							handle.map.fitBounds(layer.getBounds(), { animate: false });
+							await new Promise((resolve) => setTimeout(resolve, 1500));
+							return layer.renderer?.tileCache?.getCachedTiles?.()?.length ?? 0;
+						}),
+					{ timeout: 60_000, intervals: [2000] }
+				)
+				.toBeGreaterThan(0);
+
+			expect(tileRequests.length).toBeGreaterThan(0);
+			expect(placeholderRequests).toEqual([]);
 		});
-		await openNewProject(page);
-
-		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
-		await page.getByTestId('remote-canvas').nth(1).click();
-		await expect(page.getByTestId('community-offer')).toBeVisible();
-		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
-
-		const tileRequests: string[] = [];
-		page.on('request', (request) => {
-			if (/images\.test.*default\.(jpg|png)$/.test(request.url())) tileRequests.push(request.url());
-		});
-		// And nothing may go to the placeholder host: that is what a referenced image drawn as though it
-		// were a local copy would ask for.
-		const placeholderRequests: string[] = [];
-		page.on('request', (request) => {
-			if (request.url().includes('unset.invalid')) placeholderRequests.push(request.url());
-		});
-
-		await page.getByTestId('open-layers').click();
-		await expect(page.getByRole('heading', { name: 'Layers in this Project' })).toBeVisible();
-
-		// The Layer is on the map, not refused.
-		await expect
-			.poll(
-				() =>
-					page.evaluate(() => {
-						const handle = window.ballastellaLayerStack;
-						if (!handle) return -1;
-						return Object.keys(handle.warped).length;
-					}),
-				{ timeout: 30_000 }
-			)
-			.toBe(1);
-
-		// It carried bytes, and they came from the library. `fitBounds` first, exactly as
-		// `editor-layers.e2e.ts` does: the renderer has no reason to ask for a tile for a Layer that is
-		// not on screen, and the fixture's Control Points put this one off the coast of Florida.
-		await expect
-			.poll(
-				() =>
-					page.evaluate(async () => {
-						const handle = window.ballastellaLayerStack;
-						const layer = Object.values(handle?.warped ?? {})[0];
-						if (!handle || !layer) return 0;
-						handle.map.fitBounds(layer.getBounds(), { animate: false });
-						await new Promise((resolve) => setTimeout(resolve, 1500));
-						return layer.renderer?.tileCache?.getCachedTiles?.()?.length ?? 0;
-					}),
-				{ timeout: 60_000, intervals: [2000] }
-			)
-			.toBeGreaterThan(0);
-
-		expect(tileRequests.length).toBeGreaterThan(0);
-		expect(placeholderRequests).toEqual([]);
-	});
+	}
 
 	test('uses triiiceratops as a Svelte component, never its web-component export', async ({
 		page
