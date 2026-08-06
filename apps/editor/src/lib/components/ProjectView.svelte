@@ -29,9 +29,20 @@
 {:else if session.openProject}
 	<div class="mt-8 flex flex-wrap items-center justify-between gap-4">
 		<h2 class="text-2xl font-semibold">{session.openProject.name}</h2>
-		<SaveIndicator saveState={session.saveState} />
+		<div class="flex flex-col items-end">
+			<SaveIndicator saveState={session.saveState} />
+			{#if session.saveError}
+				<p class="text-sm text-warning">{session.saveError}</p>
+			{/if}
+		</div>
 	</div>
 
+	<!--
+		`onchange` and `onblur` both mean "the edit is over" (ADR-0017 rule 1). Neither writes on its
+		own: `commitProjectName` is a no-op unless there is a pending write, because tabbing into and
+		out of this field must not rewrite `project.json` — the write stamps a fresh `updatedAt`, and
+		ADR-0010 is explicit that merely looking at an old Project must not modify files.
+	-->
 	<label class="floating-label mt-6 block max-w-md">
 		<span>Project name</span>
 		<input
