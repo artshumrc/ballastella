@@ -180,6 +180,25 @@ async function delayReadsOf(page: Page, name: string, ms: number): Promise<void>
 	);
 }
 
+/** Hold up every write whose file name contains `needle` by `ms`. See {@link delayReadsOf}. */
+async function delayWritesTo(page: Page, needle: string, ms: number): Promise<void> {
+	await page.evaluate(
+		([match, delay]) => {
+			const proto = FileSystemFileHandle.prototype as unknown as {
+				createWritable: (...args: unknown[]) => Promise<unknown>;
+			};
+			const original = proto.createWritable;
+			proto.createWritable = async function (this: FileSystemFileHandle, ...args: unknown[]) {
+				if (this.name.includes(match as string)) {
+					await new Promise((resolve) => setTimeout(resolve, delay as number));
+				}
+				return original.call(this, ...args);
+			};
+		},
+		[needle, ms] as const
+	);
+}
+
 /** The names of a Project's stored Historical Maps, which are random identifiers (ADR-0015). */
 const storedImageIds = (page: Page, directory: string): Promise<string[]> =>
 	page.evaluate(async (project) => {
@@ -939,6 +958,7 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(2);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(3);
 		const [top] = (await rowIds(page)) as [string, string, string];
@@ -1181,6 +1201,48 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 			// build silently destroying a colleague's work (ADR-0010, ADR-0017 rule 4).
 			webAnnotationRef: 'image-annotations/l-cartouche.json'
 		});
+	});
+});
+
+test.describe('adding an Annotation Layer (SPEC stories 55 and 56)', () => {
+	/**
+	 * Two clicks, two Layers — the same stale-snapshot failure as `#ensureMapLayer`, found by a test
+	 * that clicked twice and flaked.
+	 *
+	 * `addAnnotationLayer` writes the empty `FeatureCollection` before the Layer that references it, on
+	 * purpose: a `geojsonRef` naming nothing is a Project ticket 13's import refuses. But it read
+	 * `project.json` out of memory *before* that write and wrote the snapshot back after, so a user
+	 * double-clicking the button got one Layer instead of two — and an orphaned `.geojson` in
+	 * `annotations/` that nothing references and no UI can reach.
+	 */
+	test('gives two clicks two Layers, and leaves no orphaned FeatureCollection', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		// Widens the window between the snapshot and the write, which is real at any speed.
+		await delayWritesTo(page, '.geojson.', 1000);
+		const add = page.getByTestId('add-annotation-layer');
+
+		// Deliberately not awaiting the first to land, which is what a double-click is.
+		await add.click();
+		await add.click();
+
+		await expect(rows(page)).toHaveCount(3, { timeout: 15_000 });
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// And every file in `annotations/` belongs to a Layer that is in the stack. An orphan there is a
+		// file the user can neither see nor delete.
+		const refs = (await projectJson(page, directory)).layers
+			.filter((layer: { kind: string }) => layer.kind === 'annotation')
+			.map((layer: { geojsonRef: string }) => layer.geojsonRef)
+			.sort();
+		const files = (await hashesUnder(page, directory, 'annotations/'))
+			.map((line) => line.split(' ')[0])
+			.sort();
+
+		expect(refs).toHaveLength(2);
+		expect(files).toEqual(refs);
 	});
 });
 

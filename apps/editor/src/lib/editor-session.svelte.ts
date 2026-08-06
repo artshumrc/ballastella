@@ -646,12 +646,17 @@ export class EditorSession {
 	 * a Project that ticket 13's import refuses, so the reference must never exist without its file.
 	 * Drawing into it is ticket 10.
 	 *
+	 * **And `project.json` is read after that write rather than before it**, for the same reason as
+	 * {@link #ensureMapLayer}: a snapshot taken before an `await` and written back after it discards
+	 * whatever else changed in between. Here the "whatever else" is the other click — a user
+	 * double-clicking the button got one Layer instead of two, plus an orphaned `.geojson` in
+	 * `annotations/` that nothing references and no part of the interface can reach.
+	 *
 	 * @returns the Layer, or `null` when it could not be created
 	 */
 	async addAnnotationLayer(name: string): Promise<AnnotationLayer | null> {
 		const directory = this.openDirectory;
-		const project = this.openProject;
-		if (!directory || !project) return null;
+		if (!directory || !this.openProject) return null;
 		const layer = newAnnotationLayer({ id: crypto.randomUUID(), name });
 		try {
 			await this.#autosave.commit(
@@ -662,6 +667,8 @@ export class EditorSession {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
 			return null;
 		}
+		const project = this.openProject;
+		if (!project) return null;
 		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
 		await this.#write(directory);
 		return layer;

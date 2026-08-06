@@ -155,7 +155,13 @@ refuses **by name** — `assertReferencesPresent` says the Layer "needs it to be
 whose disk filled up mid-alignment could not import their own export. The map half of this was wrong on
 first delivery: `#ensureMapLayer` sat outside the `try` that turns a rejected write into `saveError`.
 
-**Nothing reads `project.json` out of memory before an `await` and writes it back after.**
+**Nothing reads `project.json` out of memory before an `await` and writes it back after.** This was the
+same mistake in two places, and the second was found by a test that flaked rather than by reading the
+code. `addAnnotationLayer` commits the empty `FeatureCollection` first — correctly — and then wrote back
+a snapshot of the document taken before that write, so **a user double-clicking "Add an Annotation Layer"
+got one Layer instead of two, plus an orphaned `.geojson` in `annotations/` that nothing references and
+no part of the interface can reach.** Ticket 10 would have inherited that.
+
 `#ensureMapLayer` reads the image's `manifest.json` for the Layer's name, and the version that took its
 snapshot of the document first wrote that snapshot back — silently discarding anything else that changed
 `project.json` inside the window. The Project name field is on the same page as the alignment workspace,
