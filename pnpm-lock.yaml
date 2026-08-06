@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   default:
+    '@allmaps/annotation':
+      specifier: 1.0.0-beta.37
+      version: 1.0.0-beta.37
     '@allmaps/id':
       specifier: 1.0.0-beta.38
       version: 1.0.0-beta.38
@@ -15,6 +18,9 @@ catalogs:
     '@allmaps/maplibre':
       specifier: 1.0.0-beta.43
       version: 1.0.0-beta.43
+    '@allmaps/transform':
+      specifier: 1.0.0-beta.52
+      version: 1.0.0-beta.52
     '@allmaps/types':
       specifier: 1.0.0-beta.23
       version: 1.0.0-beta.23
@@ -214,12 +220,18 @@ importers:
 
   packages/core:
     dependencies:
+      '@allmaps/annotation':
+        specifier: 'catalog:'
+        version: 1.0.0-beta.37
       '@allmaps/id':
         specifier: 'catalog:'
         version: 1.0.0-beta.38
       '@allmaps/iiif-parser':
         specifier: 'catalog:'
         version: 1.0.0-beta.48
+      '@allmaps/transform':
+        specifier: 'catalog:'
+        version: 1.0.0-beta.52
       '@maplibre/maplibre-gl-style-spec':
         specifier: 'catalog:'
         version: 24.10.0
