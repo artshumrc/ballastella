@@ -33,6 +33,19 @@ catalog:
   '@allmaps/iiif-parser': 1.0.0-beta.48
   '@allmaps/types': 1.0.0-beta.23
 
+  # `@allmaps/id` mints the id a locally ingested image is stored under (ticket 05).
+  # `generateRandomId()` for local files; `generateId(uri)` is for remote resources.
+  '@allmaps/id': 1.0.0-beta.38
+
+  # The streaming tiler (ADR-0003), for images above the measured `createImageBitmap` decode
+  # ceiling. **Single-threaded build only**: the threaded one needs COOP/COEP cross-origin
+  # isolation headers, which GitHub Pages cannot set, and that would break "anyone can fork and
+  # host their own instance". It is a dependency of `apps/editor` and never of `@ballastella/core`
+  # or `apps/viewer` (ADR-0019) — core takes the module through an injected loader — and it is
+  # reached only by dynamic import, so it is fetched when the streaming path is taken and not
+  # before. The artefact is compiled libvips, LGPL-2.1-or-later; see THIRD-PARTY-NOTICES.md.
+  'wasm-vips': 0.0.18
+
   # UI (ADR-0016: daisyUI is the only UI dependency)
   '@tailwindcss/vite': ^4.3.3
   daisyui: ^5.7.16
