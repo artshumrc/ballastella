@@ -63,23 +63,23 @@ This delivers something the placeholder cannot: **the tiles become a real, citab
 
 ## Acceptance criteria
 
-- [ ] Publishing writes `index.html` and the viewer bundle at the workspace root and **modifies no Project data** — verified by hashing every Project file before and after
-- [ ] No image pyramid is copied or duplicated by publishing
-- [ ] The built site works served from a **domain root** and from a **subdirectory**, from the same build, with no reconfiguration
-- [ ] All asset references in the output are relative — no leading `/`
-- [ ] The hub page lists every Project and `?p=<dir>` opens one
-- [ ] The viewer file set is enumerated and recorded, and ticket 13's data-only zip excludes exactly that set
-- [ ] The viewer bundle carries a version stamp readable by the editor
-- [ ] `apps/viewer`'s built output contains no `terra-draw`, tiler, or `wasm-vips` code
-- [ ] The resolved base map catalog is present in the bundle
-- [ ] Publishing with a referenced Layer warns that the site needs a network
-- [ ] Bundling a pmtiles extract states its size before adding it
-- [ ] A workspace approaching 1 GB produces a warning naming the hosting limit, computed via `ProjectStore#size` without reading tile bytes
-- [ ] Publishing a **second** time after adding a Project extends the hub page to include it, leaves every earlier Project's files byte-identical, and refreshes the bundle's version stamp — the semester-long, one-repository workflow
-- [ ] Building, publishing, and serving the site require no API key, token, or secret: CI builds with no project-specific environment variables set, and no `*_KEY`, `*_TOKEN`, or `*_SECRET` reference exists in either app's source
-- [ ] Stamping a canonical URL rewrites every `info.json` `id`, and the value is remembered
-- [ ] A stamped Project still opens in the editor, because load-time override wins
-- [ ] Publish is reachable and operable by keyboard, and progress and warnings are announced
+- [x] Publishing writes `index.html` and the viewer bundle at the workspace root and **modifies no Project data** — verified by hashing every Project file before and after
+- [x] No image pyramid is copied or duplicated by publishing
+- [x] The built site works served from a **domain root** and from a **subdirectory**, from the same build, with no reconfiguration
+- [x] All asset references in the output are relative — no leading `/`
+- [x] The hub page lists every Project and `?p=<dir>` opens one
+- [x] The viewer file set is enumerated and recorded, and ticket 13's data-only zip excludes exactly that set
+- [x] The viewer bundle carries a version stamp readable by the editor
+- [x] `apps/viewer`'s built output contains no `terra-draw`, tiler, or `wasm-vips` code
+- [x] The resolved base map catalog is present in the bundle
+- [x] Publishing with a referenced Layer warns that the site needs a network
+- [x] Bundling a pmtiles extract states its size before adding it
+- [x] A workspace approaching 1 GB produces a warning naming the hosting limit, computed via `ProjectStore#size` without reading tile bytes
+- [x] Publishing a **second** time after adding a Project extends the hub page to include it, leaves every earlier Project's files byte-identical, and refreshes the bundle's version stamp — the semester-long, one-repository workflow
+- [x] Building, publishing, and serving the site require no API key, token, or secret: CI builds with no project-specific environment variables set, and no `*_KEY`, `*_TOKEN`, or `*_SECRET` reference exists in either app's source
+- [x] Stamping a canonical URL rewrites every `info.json` `id`, and the value is remembered
+- [x] A stamped Project still opens in the editor, because load-time override wins
+- [x] Publish is reachable and operable by keyboard, and progress and warnings are announced
 
 ```bash
 pnpm -r build
@@ -99,3 +99,26 @@ Success: all exit 0; both `grep`s print their OK line; and the e2e suite loads t
 
 - Ticket 09
 - Ticket 10
+
+## Implementation notes
+
+**How the Published Site is asserted.** `e2e/editor-publish.e2e.ts` publishes through the UI, reads the whole Workspace out of OPFS, writes it to a temporary directory, and serves **that one directory** behind two plain file servers — one at `/`, one at `/student/atlas-2026` — with no rewriting and no SPA fallback (`e2e/support/static-site.ts`), because a static host does none of those either. It then drives the site: the hub lists the Project, the link the hub rendered opens `?p=`, the Layer names come out of the Project's own `project.json` fetched over HTTP, nothing 404s, and no request escapes the published folder. Inspecting the files is a separate, weaker assertion kept beside it.
+
+Verified by mutation that the subdirectory case is the load-bearing half: with the data reads pointed at `/` instead of at the document, the root site still passes and only the subdirectory fails — which is the discrimination the ticket's success criterion asks for.
+
+**The site record.** A static host has no directory listing, so the viewer cannot discover a Project the way the editor's Workspace does. `ballastella-site.json` at the Workspace carries the Project list, the viewer's version stamp, and the resolved Base Map catalog. It is not an index *of the data*: it holds no file paths and nothing a Project needs, so deleting it leaves every Project complete and readable with no proprietary index (SPEC story 94).
+
+**`VIEWER_FILE_PATHS` is now an invariant, not a comment.** `publishSite` refuses to write a path the recorded list does not name. The list stayed in `transfer/viewer-files.ts` — a leaf module importing nothing — so that the zip exporter reaching it does not drag the publish machinery into `apps/viewer`'s bundle through core's barrel, which a review of `check-viewer-deps.mjs` had already identified as a hole. `e2e/viewer.e2e.ts` now asserts the built viewer carries none of publishing's marker strings, with the counterpart that every marker *is* present in the built editor.
+
+**`canonicalUrl` is omitted from `project.json` when unset.** Writing it as `null` would have changed the bytes of every Project ever written and broken the byte-identity contract across reorder, rename, toggle, and opacity — asserted by a test that mutation-checks red when the field is written unconditionally.
+
+**No keys, tokens, or secrets.** CI sets no project-specific environment variables, and `grep -rn "_KEY\|_TOKEN\|_SECRET"` over both apps' and core's source finds no credential: every `*_KEY` hit is a `localStorage` or IndexedDB key name or an object-key list, and there is no `*_TOKEN` or `*_SECRET` at all.
+
+**The hosting-limit total.** Computed by ticket 15's `workspaceSize(store)` — `reclaimAbandonedWrites`, then `list`, then `size` per path — and never by reading a file. Asserted with a spy on the public `read`: the only path publishing reads while planning is each `project.json`, which it needs for the referenced-image warning. The sentence is publishing's own, but the arithmetic is `crossesHostingLimit` and the figures `describeBytes`, so the two moments ticket 15 and this ticket warn at cannot give one Workspace two different answers.
+
+## Follow-ups
+
+- **The HTTP `ProjectStore` adapter ADR-0006 names is not built.** The viewer reads `ballastella-site.json` and `project.json` through a two-function helper (`apps/viewer/src/lib/site-files.ts`) rather than through a third adapter. Nothing in this ticket needs one — two JSON reads — but ticket 17 reads Annotations, Alignments, and tiles, and that is the point at which the adapter earns its place and the shared reading code pays out a third time.
+- **`e2e/editor-image-pane.e2e.ts:86` is missing an `await`**: `expect(page.getByTestId('pane-tiles')).toHaveAttribute('data-tiles-loaded', 'true')` returns a promise nothing waits on, so that assertion cannot fail the test. Left alone deliberately — fixing it may turn a green test red for reasons unrelated to this ticket — but it is the epic's recurring shape and should be someone's ticket.
+- **Per-Project pretty URLs and a per-Project `index.html` remain out of scope** (ADR-0008), which is why `VIEWER_FILE_PATHS` records Workspace-relative names. `isViewerFile` still bites for a Project directory that *holds* a viewer — the shape a folder has when somebody unpacks a Published Site into one — which is the case ADR-0006 means by "the two export flavours are indistinguishable", and it is asserted.
+- **The version stamp covers the viewer's files only**, not the bundled Base Map. Changing the pmtiles extract therefore does not mark a Published Site as out of date. Deliberate — ADR-0006 stamps *the viewer* — but worth knowing before anyone repoints the catalog.

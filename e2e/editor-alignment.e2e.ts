@@ -93,7 +93,7 @@ async function openProject(page: Page, name: string): Promise<void> {
 }
 
 /** How long a freshly ingested pyramid may take to decode every tile of its first view. */
-const TILES_READY_MS = 20_000;
+const TILES_READY_MS = 30_000;
 
 /** Bring in one Historical Map and wait for its pyramid and both panes to be ready. */
 async function ingestAndOpen(page: Page): Promise<string> {

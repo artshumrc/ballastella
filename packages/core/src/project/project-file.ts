@@ -82,6 +82,25 @@ export interface ProjectFile {
 	 */
 	readonly removedMapLayers: readonly string[];
 	/**
+	 * The address this Project's Historical Maps have been stamped for, or `null` (ADR-0004).
+	 *
+	 * Set only by the opt-in publish step that rewrites each `info.json` `id`, and remembered here so
+	 * that a later publish can offer the same address rather than asking again — which is what makes
+	 * a stamped `id` a *citable* IIIF endpoint rather than a value nobody can reproduce (SPEC story
+	 * 92).
+	 *
+	 * **An address, and the one field in this file that is one.** It is not read to fetch anything:
+	 * the editor assigns `Image#uri` from wherever the tiles really are, so moving a stamped Project
+	 * cannot break it (ADR-0004's load-time override always wins). Compare `baseMap`, which is an id
+	 * precisely *because* an address in Project data is the mistake ADR-0020 exists to prevent — the
+	 * difference is that this one is a record of where the user published, not a place to fetch from.
+	 *
+	 * `null` is written as *absence*: an unstamped `project.json` is byte-identical to one written
+	 * before this field existed, which is what keeps every byte-identity assertion in this codebase
+	 * true and keeps a Workspace in git from gaining a diff on the day the app is updated.
+	 */
+	readonly canonicalUrl: string | null;
+	/**
 	 * Anything else the file carried, kept so that writing it back cannot drop it. The refusal
 	 * below means we never write a file from a newer version, but the same-version case matters
 	 * too: a field added by a build one commit ahead is not worth destroying (ADR-0010).
@@ -148,8 +167,15 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		throw new ProjectFileUnreadableError('the file does not contain a JSON object');
 	}
 
-	const { formatVersion, name, updatedAt, layers, removedMapLayers, ...unknownFields } =
-		raw as Record<string, unknown>;
+	const {
+		formatVersion,
+		name,
+		updatedAt,
+		layers,
+		removedMapLayers,
+		canonicalUrl,
+		...unknownFields
+	} = raw as Record<string, unknown>;
 	// Removed by the same key `readBaseMapId` reads it under, so the field cannot be recognised in
 	// one place and treated as unknown in the other.
 	delete unknownFields[PROJECT_BASE_MAP_KEY];
@@ -178,6 +204,11 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		removedMapLayers: Array.isArray(removedMapLayers)
 			? removedMapLayers.filter((ref): ref is string => typeof ref === 'string' && ref !== '')
 			: [],
+		// Anything that is not a usable address reads as unstamped rather than as an error, which is
+		// the same tolerance every other field here gets: a `project.json` is a document somebody
+		// else's build may have written, and one bad field must not make a Project unopenable.
+		canonicalUrl:
+			typeof canonicalUrl === 'string' && canonicalUrl.trim() !== '' ? canonicalUrl : null,
 		unknownFields
 	};
 }
@@ -187,7 +218,16 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
  * produces diffs a human can read and every write of an unchanged Project is byte-identical.
  */
 export function serialiseProjectFile(file: ProjectFile): Bytes {
-	const { unknownFields, formatVersion, name, updatedAt, layers, baseMap, removedMapLayers } = file;
+	const {
+		unknownFields,
+		formatVersion,
+		name,
+		updatedAt,
+		layers,
+		baseMap,
+		removedMapLayers,
+		canonicalUrl
+	} = file;
 	const json = JSON.stringify(
 		{
 			formatVersion,
@@ -198,6 +238,11 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			// Omitted when empty, which is the common case: a Project nobody has deleted a Layer from
 			// writes exactly the bytes it wrote before this field existed.
 			...(removedMapLayers.length === 0 ? {} : { removedMapLayers: [...removedMapLayers] }),
+			// Omitted entirely when there is none, rather than written as `null`. An unstamped Project's
+			// bytes are then exactly what they were before this field existed — which is what keeps the
+			// byte-identity assertions across reorder, rename, toggle, and opacity true, and keeps a
+			// Workspace kept in git from gaining a diff on every Project the day the app is updated.
+			...(canonicalUrl === null ? {} : { canonicalUrl }),
 			...unknownFields
 		},
 		null,
@@ -215,6 +260,7 @@ export function newProjectFile(name: string, updatedAt: Date): ProjectFile {
 		layers: [],
 		baseMap: null,
 		removedMapLayers: [],
+		canonicalUrl: null,
 		unknownFields: {}
 	};
 }

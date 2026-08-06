@@ -1,7 +1,8 @@
 import { base } from '$app/paths';
 
 /**
- * Turn a deployment-relative asset path from the Base Map catalog into a URL MapLibre can use.
+ * Turn a deployment-relative asset path — the Base Map catalog's, and the staged viewer bundle's
+ * (`$lib/publish/viewer-bundle-source`) — into a URL that can be fetched or handed to MapLibre.
  *
  * Two constraints meet here.
  *

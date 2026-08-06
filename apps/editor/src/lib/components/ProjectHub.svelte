@@ -3,6 +3,7 @@
 	import { toDirectoryName, type ProjectSummary } from '@ballastella/core';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
+	import PublishDialog from '../publish/PublishDialog.svelte';
 	import ModalDialog from './ModalDialog.svelte';
 
 	/**
@@ -21,6 +22,15 @@
 	let renamedTo = $state('');
 
 	let deleting = $state<ProjectSummary | null>(null);
+
+	/**
+	 * The Publish dialog is open (ticket 16).
+	 *
+	 * On the hub rather than inside a Project, because ADR-0008 makes the **Workspace** the Published
+	 * Site: one `index.html`, one shared viewer, one hub page listing every Project. Publishing from
+	 * inside one Project would imply a per-Project site, which is the deferred second output mode.
+	 */
+	let publishing = $state(false);
 
 	/**
 	 * The import dialog is open. Tracked separately from `session.pendingImport`, which only exists
@@ -143,9 +153,14 @@
 			<!-- The only way in for a Firefox, Safari, or iPad user, whose Workspace lives in storage
 			     they cannot see (ADR-0001), so it sits beside New Project rather than in a menu. -->
 			<button class="btn" onclick={startImporting}>Import Project…</button>
+			<!-- The Workspace is the site (ADR-0008), so Publish belongs to the hub and not to a
+			     Project. -->
+			<button class="btn" onclick={() => (publishing = true)}>Publish…</button>
 			<button class="btn btn-primary" onclick={startCreating}>New Project</button>
 		</div>
 	</div>
+
+	<PublishDialog {session} bind:open={publishing} />
 
 	<!-- Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its
 	     first text is not reliably announced. -->

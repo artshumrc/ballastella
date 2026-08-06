@@ -1,0 +1,774 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { CATALOG_WITH_STALE_DEFAULT, FORKED_CATALOG } from '../base-map/fixture-catalogs.js';
+import { newMapLayer, newAnnotationLayer } from '../project/layer.js';
+import { newProjectFile, parseProjectFile, serialiseProjectFile } from '../project/project-file.js';
+import { Workspace } from '../project/workspace.js';
+import { STATIC_HOSTING_LIMIT_BYTES } from '../project/workspace-size.js';
+import { MemoryProjectStore } from '../store/memory-project-store.js';
+import type { Bytes, StorePath } from '../store/project-store.js';
+import { exportProjectZip } from '../transfer/export-project-zip.js';
+import { readProjectZip } from '../transfer/import-project-zip.js';
+import { VIEWER_FILE_PATHS, isViewerFile } from '../transfer/viewer-files.js';
+import {
+	PublishRefusedError,
+	canonicalImageServiceId,
+	normaliseCanonicalUrl,
+	parsePublishedSite,
+	planPublish,
+	publishSite,
+	publishedSiteStaleness,
+	readPublishedSite,
+	stampCanonicalUrl,
+	type PublishPlan,
+	type ViewerBundle
+} from '../index.js';
+import { parseViewerBundle } from './viewer-bundle.js';
+
+// SPEC's Seam 1. Publishing is a file-level behaviour end to end — "these paths now hold these
+// bytes, and every Project file is exactly as it was" — so the in-memory ProjectStore is not
+// standing in for anything. What only a browser can settle is whether the files it wrote *serve a
+// working site*, at a domain root and at a subdirectory, and that is `e2e/editor-publish.e2e.ts`.
+
+const encode = (text: string): Bytes => new TextEncoder().encode(text);
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+/**
+ * A staged viewer bundle, shaped exactly as `scripts/stage-viewer-bundle.mjs` writes it.
+ *
+ * Small and fictional on purpose: the real chunk names are content hashes that change on every
+ * viewer edit, so a test naming them would be a test about the bundler. What matters here is the
+ * shape — an `index.html`, hashed assets under `_app/`, and a Base Map set that is written only on
+ * request.
+ */
+const bundle: ViewerBundle = {
+	version: 'v1-abcdef0123456789',
+	files: [
+		{ path: 'index.html', source: 'viewer-bundle/index.html', bytes: 640 },
+		{ path: 'robots.txt', source: 'viewer-bundle/robots.txt', bytes: 32 },
+		{
+			path: '_app/immutable/entry/start.AAAA.js',
+			source: 'viewer-bundle/_app/immutable/entry/start.AAAA.js',
+			bytes: 2048
+		},
+		{
+			path: '_app/immutable/nodes/0.BBBB.js',
+			source: 'viewer-bundle/_app/immutable/nodes/0.BBBB.js',
+			bytes: 4096
+		},
+		{ path: '_app/version.json', source: 'viewer-bundle/_app/version.json', bytes: 30 }
+	],
+	baseMap: [
+		{ path: 'base-map/extract.pmtiles', source: 'base-map/extract.pmtiles', bytes: 4_000_000 },
+		{
+			path: 'base-map/fonts/Noto Sans Regular/0-255.pbf',
+			source: 'base-map/fonts/Noto Sans Regular/0-255.pbf',
+			bytes: 60_000
+		},
+		{ path: 'base-map/sprites/light.png', source: 'base-map/sprites/light.png', bytes: 12_000 }
+	]
+};
+
+/**
+ * The bytes the editor's deployment would serve for each of those paths.
+ *
+ * Keyed on `source` rather than on `path`, because that is the distinction that goes wrong: fetching
+ * the Workspace-relative `index.html` from the editor's own base fetches the *editor's* page, and a
+ * Published Site whose `index.html` is the authoring app is the whole failure in one file.
+ */
+const asset = (file: { source: string }): Promise<Bytes> =>
+	Promise.resolve(encode(`bytes of ${file.source}`));
+
+describe('planning a publish', () => {
+	let store: MemoryProjectStore;
+	let workspace: Workspace;
+
+	beforeEach(async () => {
+		store = new MemoryProjectStore();
+		workspace = new Workspace(store, { now: () => new Date('2026-01-02T03:04:05.000Z') });
+		await workspace.createProject('Amsterdam 1625');
+	});
+
+	const plan = async (options: { includeBaseMap?: boolean } = {}): Promise<PublishPlan> =>
+		planPublish(store, {
+			bundle,
+			projects: await workspace.listProjects(),
+			includeBaseMap: options.includeBaseMap ?? false
+		});
+
+	it('names every Project the hub page will list, by folder and display name', async () => {
+		await workspace.createProject('Boston 1775');
+
+		expect((await plan()).projects).toEqual([
+			{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' },
+			{ directory: 'boston-1775', name: 'Boston 1775' }
+		]);
+	});
+
+	it('writes nothing while planning, because two of its warnings are questions', async () => {
+		const before = await store.list('');
+
+		await plan({ includeBaseMap: true });
+
+		expect(await store.list('')).toEqual(before);
+	});
+
+	it('weighs the Workspace through size() and never by reading a file', async () => {
+		// ADR-0008's cliff has to be answerable about a Workspace holding a mirrored pyramid, which is
+		// tens of thousands of tiles. The spy is the assertion: a version of this written with `read`
+		// would satisfy every other claim about the number it returns.
+		await store.write('amsterdam-1625/images/x/0,0,256,256/256,256/0/default.jpg', encode('tile'));
+		const read = vi.spyOn(store, 'read');
+		const size = vi.spyOn(store, 'size');
+
+		const planned = await plan();
+
+		expect(size).toHaveBeenCalled();
+		// `project.json` is read — the referenced-image warning is a fact about the Layer stack — but
+		// nothing else is, and in particular no tile.
+		expect(
+			read.mock.calls.map(([path]) => path).filter((path) => !path.endsWith('/project.json'))
+		).toEqual([]);
+		expect(planned.workspace.files).toBe(2);
+	});
+
+	it('states the Base Map’s size before it is added, and leaves it out otherwise', async () => {
+		const without = await plan();
+		const withBaseMap = await plan({ includeBaseMap: true });
+
+		expect(without.files.map((file) => file.path)).not.toContain('base-map/extract.pmtiles');
+		expect(without.warnings.map((warning) => warning.kind)).not.toContain('base-map-size');
+
+		const stated = withBaseMap.warnings.find((warning) => warning.kind === 'base-map-size');
+		expect(stated?.message).toContain('4.1 MB');
+		expect(stated?.message).toContain('3 more files');
+		expect(withBaseMap.bytes).toBeGreaterThan(4_000_000);
+		expect(withBaseMap.files.map((file) => file.path)).toContain('base-map/extract.pmtiles');
+	});
+
+	it('warns that a referenced Historical Map leaves a Reader with no network seeing nothing', async () => {
+		const file = await workspace.readProject('amsterdam-1625');
+		await workspace.writeProject('amsterdam-1625', {
+			...file,
+			layers: [
+				newMapLayer({
+					id: 'l1',
+					name: 'Blaeu’s plan',
+					alignmentRef: 'alignments/x.json',
+					imageMode: 'referenced'
+				}),
+				newMapLayer({ id: 'l2', name: 'My own scan', alignmentRef: 'alignments/y.json' }),
+				newAnnotationLayer({ id: 'l3', name: 'Warehouses' })
+			]
+		});
+
+		const warning = (await plan()).warnings.find((entry) => entry.kind === 'referenced-images');
+
+		expect(warning?.message).toContain('Blaeu’s plan');
+		expect(warning?.message).toContain('Amsterdam 1625');
+		expect(warning?.message).toContain('no network');
+		// Only the referenced one. A warning that named every Layer would train the user to ignore it.
+		expect(warning?.message).not.toContain('My own scan');
+		expect(warning?.message).not.toContain('Warehouses');
+	});
+
+	it('says nothing about the network when every Historical Map is a local copy', async () => {
+		const file = await workspace.readProject('amsterdam-1625');
+		await workspace.writeProject('amsterdam-1625', {
+			...file,
+			layers: [newMapLayer({ id: 'l1', name: 'My own scan', alignmentRef: 'alignments/y.json' })]
+		});
+
+		expect((await plan()).warnings).toEqual([]);
+	});
+
+	it('names the hosting limit when the site would take the Workspace past it', async () => {
+		// One large file rather than many, because what is being asserted is the arithmetic and the
+		// sentence, not the walk.
+		await store.write(
+			'amsterdam-1625/images/x/big.jpg',
+			new Uint8Array(STATIC_HOSTING_LIMIT_BYTES - 1_000_000)
+		);
+
+		const warning = (await plan({ includeBaseMap: true })).warnings.find(
+			(entry) => entry.kind === 'hosting-limit'
+		);
+
+		expect(warning?.message).toContain('1.0 GB');
+		expect(warning?.message).toContain('GitHub Pages');
+		expect(warning?.message).toContain('999 MB');
+	});
+
+	it('says nothing about the hosting limit for a Workspace nowhere near it', async () => {
+		await store.write('amsterdam-1625/images/x/small.jpg', new Uint8Array(1000));
+
+		expect((await plan({ includeBaseMap: true })).warnings.map((entry) => entry.kind)).toEqual([
+			'base-map-size'
+		]);
+	});
+
+	it('carries this deployment’s Base Map catalog, so the site keeps working when it changes', async () => {
+		const planned = await planPublish(store, {
+			bundle,
+			projects: await workspace.listProjects(),
+			includeBaseMap: false,
+			catalog: FORKED_CATALOG
+		});
+
+		expect(planned.baseMap).toEqual(FORKED_CATALOG);
+	});
+
+	it('refuses a Workspace whose Project folder is named after a file the site needs', async () => {
+		// `toDirectoryName('Base Map')` is `base-map`, which is where the Base Map extract goes, so
+		// this is reachable by naming a Project rather than by contriving anything.
+		const created = await workspace.createProject('Base Map');
+		expect(created.directory).toBe('base-map');
+
+		const planned = await plan();
+
+		expect(planned.collisions).toEqual(['base-map']);
+		expect(planned.warnings.map((entry) => entry.kind)).toContain('name-collision');
+		await expect(publishSite({ store, plan: planned, readAsset: asset })).rejects.toThrow(
+			PublishRefusedError
+		);
+		// Refused before anything was written, so the Project it was protecting is still whole.
+		expect(await store.list('base-map/')).toEqual(['base-map/project.json']);
+		expect(await store.list('index.html')).toEqual([]);
+	});
+});
+
+describe('publishing', () => {
+	let store: MemoryProjectStore;
+	let workspace: Workspace;
+
+	beforeEach(async () => {
+		store = new MemoryProjectStore();
+		workspace = new Workspace(store, { now: () => new Date('2026-01-02T03:04:05.000Z') });
+		await workspace.createProject('Amsterdam 1625');
+		await store.write('amsterdam-1625/alignments/x.json', encode('{"type":"Annotation","id":"x"}'));
+		await store.write(
+			'amsterdam-1625/images/x/info.json',
+			encode('{"id":"https://unset.invalid/x"}')
+		);
+		await store.write(
+			'amsterdam-1625/images/x/0,0,256,256/256,256/0/default.jpg',
+			encode('a tile')
+		);
+	});
+
+	const publish = async (options: { includeBaseMap?: boolean; at?: string } = {}) =>
+		publishSite({
+			store,
+			plan: await planPublish(store, {
+				bundle,
+				projects: await workspace.listProjects(),
+				includeBaseMap: options.includeBaseMap ?? false
+			}),
+			readAsset: asset,
+			now: () => new Date(options.at ?? '2026-02-03T04:05:06.000Z')
+		});
+
+	/** Every file in the Workspace, with its bytes, so "unchanged" can be a claim about bytes. */
+	const snapshot = async (prefix: string): Promise<Record<string, string>> => {
+		const files: Record<string, string> = {};
+		for (const path of await store.list(prefix)) files[path] = decode(await store.read(path));
+		return files;
+	};
+
+	it('writes the viewer and the site record at the Workspace, beside the Projects', async () => {
+		await publish();
+
+		expect(await store.list('')).toEqual(
+			[
+				'_app/immutable/entry/start.AAAA.js',
+				'_app/immutable/nodes/0.BBBB.js',
+				'_app/version.json',
+				'amsterdam-1625/alignments/x.json',
+				'amsterdam-1625/images/x/0,0,256,256/256,256/0/default.jpg',
+				'amsterdam-1625/images/x/info.json',
+				'amsterdam-1625/project.json',
+				'ballastella-site.json',
+				'index.html',
+				'robots.txt'
+			].sort()
+		);
+		expect(decode(await store.read('index.html'))).toBe('bytes of viewer-bundle/index.html');
+	});
+
+	it('writes nothing at all inside a Project directory', async () => {
+		// Stronger than comparing bytes before and after, and it has to be. A publish that re-serialised
+		// `project.json` to the same bytes passes a byte comparison — while still touching the file's
+		// modification time, which is a Dropbox sync to every other machine and a rewrite in a folder
+		// Workspace, the two failures ADR-0010 names. So the claim asserted is that no write is even
+		// addressed at a Project.
+		const write = vi.spyOn(store, 'write');
+
+		await publish({ includeBaseMap: true });
+
+		expect(
+			write.mock.calls.map(([path]) => path).filter((path) => path.includes('/project.json'))
+		).toEqual([]);
+		expect(
+			write.mock.calls.map(([path]) => path).filter((path) => path.startsWith('amsterdam-1625/'))
+		).toEqual([]);
+		// The counterpart: it did write, so this is not passing because nothing happened.
+		expect(write.mock.calls.length).toBeGreaterThan(1);
+	});
+
+	it('modifies no Project data, asserted on the bytes of every Project file', async () => {
+		const before = await snapshot('amsterdam-1625/');
+
+		await publish({ includeBaseMap: true });
+
+		expect(await snapshot('amsterdam-1625/')).toEqual(before);
+	});
+
+	it('duplicates no image pyramid: nothing inside a Project is even read', async () => {
+		// ADR-0006 rejected copying the data outright, on tile bytes. The strongest form of that claim
+		// is not "the tiles are still there" — a copy leaves them there too — but that publishing
+		// never opens one.
+		const read = vi.spyOn(store, 'read');
+
+		await publishSite({
+			store,
+			plan: await planPublish(store, {
+				bundle,
+				projects: await workspace.listProjects(),
+				includeBaseMap: true
+			}),
+			readAsset: asset
+		});
+
+		// `project.json` is read while planning, for the referenced-image warning. Nothing else in the
+		// Project is — no `info.json`, no Alignment, and above all no tile.
+		expect(
+			read.mock.calls
+				.map(([path]) => path)
+				.filter((path) => path.startsWith('amsterdam-1625/') && !path.endsWith('/project.json'))
+		).toEqual([]);
+	});
+
+	it('records exactly the paths it writes, so the data-only zip can exclude them', async () => {
+		await publish({ includeBaseMap: true });
+
+		const written = (await store.list('')).filter((path) => !path.startsWith('amsterdam-1625/'));
+		// Every file publishing wrote is recognised by the recorded list…
+		expect(written.filter((path) => !isViewerFile(path))).toEqual([]);
+		// …and nothing in the list is idle: each recorded path matched something that was written.
+		expect(
+			VIEWER_FILE_PATHS.filter(
+				(recorded) =>
+					!written.some((path) =>
+						recorded.endsWith('/') ? path.startsWith(recorded) : path === recorded
+					)
+			)
+		).toEqual([]);
+	});
+
+	it('refuses to write a bundle file the recorded list does not name', async () => {
+		// The failure this guards is a chunk arriving in the bundle at a path nobody added to
+		// `VIEWER_FILE_PATHS`, after which a data-only zip carries it and nothing says so.
+		const planned = await planPublish(store, {
+			bundle: {
+				...bundle,
+				files: [
+					...bundle.files,
+					{ path: 'viewer-extras/x.js', source: 'viewer-bundle/viewer-extras/x.js', bytes: 10 }
+				]
+			},
+			projects: await workspace.listProjects(),
+			includeBaseMap: false
+		});
+
+		await expect(publishSite({ store, plan: planned, readAsset: asset })).rejects.toThrow(
+			'VIEWER_FILE_PATHS does not record'
+		);
+	});
+
+	it('carries the version stamp and the Project list into the site record', async () => {
+		await workspace.createProject('Boston 1775');
+
+		const site = await publish();
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+
+		expect(record).toEqual(site);
+		expect(record.viewerVersion).toBe('v1-abcdef0123456789');
+		expect(record.publishedAt).toBe('2026-02-03T04:05:06.000Z');
+		expect(record.projects.map((project) => project.directory).sort()).toEqual([
+			'amsterdam-1625',
+			'boston-1775'
+		]);
+		expect(record.baseMap.entries.length).toBeGreaterThan(0);
+		expect(record.baseMapBundled).toBe(false);
+	});
+
+	it('writes the site record last, so an interrupted publish leaves a site that works', async () => {
+		const order: string[] = [];
+		vi.spyOn(store, 'write').mockImplementation(async function (
+			this: MemoryProjectStore,
+			path: StorePath,
+			bytes: Bytes
+		) {
+			order.push(path);
+			return MemoryProjectStore.prototype.write.call(this, path, bytes);
+		});
+
+		await publish();
+
+		expect(order.at(-1)).toBe('ballastella-site.json');
+	});
+
+	it('extends the hub page on a second publish and leaves the first Project byte-identical', async () => {
+		// The semester-long, one-repository workflow (SPEC story 81).
+		await publish();
+		const before = await snapshot('amsterdam-1625/');
+
+		await workspace.createProject('Boston 1775');
+		await publish({ at: '2026-03-04T05:06:07.000Z' });
+
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+		expect(record.projects.map((project) => project.name)).toEqual([
+			'Amsterdam 1625',
+			'Boston 1775'
+		]);
+		expect(await snapshot('amsterdam-1625/')).toEqual(before);
+		expect(record.publishedAt).toBe('2026-03-04T05:06:07.000Z');
+	});
+
+	it('refreshes a version stamp that has gone stale, rather than leaving what is there', async () => {
+		await publish();
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+		await store.write(
+			'ballastella-site.json',
+			encode(JSON.stringify({ ...record, viewerVersion: 'v0-an-older-viewer' }))
+		);
+		expect((await readPublishedSite(store))?.viewerVersion).toBe('v0-an-older-viewer');
+
+		await publish();
+
+		expect((await readPublishedSite(store))?.viewerVersion).toBe('v1-abcdef0123456789');
+	});
+
+	it('reports progress that reaches the total it announced, the record included', async () => {
+		const seen: { files: number; totalFiles: number; path: string | null }[] = [];
+
+		await publishSite({
+			store,
+			plan: await planPublish(store, {
+				bundle,
+				projects: await workspace.listProjects(),
+				includeBaseMap: false
+			}),
+			readAsset: asset,
+			onProgress: (progress) => seen.push(progress)
+		});
+
+		const last = seen.at(-1);
+		expect(last).toEqual({
+			files: bundle.files.length + 1,
+			totalFiles: bundle.files.length + 1,
+			path: 'ballastella-site.json'
+		});
+		expect(seen[0]).toEqual({ files: 0, totalFiles: bundle.files.length + 1, path: null });
+	});
+
+	it('has never been published until it has, and says so as null rather than as a failure', async () => {
+		expect(await readPublishedSite(store)).toBeNull();
+
+		await publish();
+
+		expect(await readPublishedSite(store)).not.toBeNull();
+	});
+
+	it('surfaces a site record that is there and unreadable', async () => {
+		await store.write('ballastella-site.json', encode('{ not json'));
+
+		await expect(readPublishedSite(store)).rejects.toThrow('could not be read');
+	});
+
+	it('leaves the published viewer out of a data-only Project zip', async () => {
+		// The end-to-end form of ADR-0006's requirement, across the two features: publish, then
+		// export. The bundle is at the Workspace and a Project zip is rooted at the Project, so this
+		// asserts the arrangement as much as the list.
+		await publish({ includeBaseMap: true });
+
+		const zip = await readProjectZip(
+			await collect((await exportProjectZip(store, 'amsterdam-1625')).body)
+		);
+
+		expect([...zip.paths].sort()).toEqual([
+			'alignments/x.json',
+			'images/x/0,0,256,256/256,256/0/default.jpg',
+			'images/x/info.json',
+			'project.json'
+		]);
+	});
+});
+
+describe('telling the author a Published Site is behind', () => {
+	const site = {
+		formatVersion: 1,
+		viewerVersion: 'v1',
+		publishedAt: '2026-01-01T00:00:00.000Z',
+		projects: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }],
+		baseMap: FORKED_CATALOG,
+		baseMapBundled: false
+	};
+	const summary = (directory: string, name: string) => ({
+		directory,
+		name,
+		updatedAt: '2026-01-01T00:00:00.000Z',
+		problem: null
+	});
+
+	it('says nothing when the site matches the Workspace', () => {
+		expect(
+			publishedSiteStaleness(site, {
+				viewerVersion: 'v1',
+				projects: [summary('amsterdam-1625', 'Amsterdam 1625')]
+			})
+		).toBe('');
+	});
+
+	it('says nothing at all about a Workspace that has never been published', () => {
+		expect(publishedSiteStaleness(null, { viewerVersion: 'v1', projects: [] })).toBe('');
+	});
+
+	it('names a Project the hub page does not list yet', () => {
+		const notice = publishedSiteStaleness(site, {
+			viewerVersion: 'v1',
+			projects: [summary('amsterdam-1625', 'Amsterdam 1625'), summary('boston-1775', 'Boston 1775')]
+		});
+
+		expect(notice).toContain('Boston 1775');
+		expect(notice).toContain('not on it yet');
+	});
+
+	it('names a Project the hub page still lists, and one listed under an older name', () => {
+		expect(publishedSiteStaleness(site, { viewerVersion: 'v1', projects: [] })).toContain(
+			'still on it'
+		);
+		expect(
+			publishedSiteStaleness(site, {
+				viewerVersion: 'v1',
+				projects: [summary('amsterdam-1625', 'Amsterdam, 1625')]
+			})
+		).toContain('an older name');
+	});
+
+	it('notices an older viewer even when the Project list agrees', () => {
+		expect(
+			publishedSiteStaleness(site, {
+				viewerVersion: 'v2',
+				projects: [summary('amsterdam-1625', 'Amsterdam 1625')]
+			})
+		).toContain('an older version of the viewer');
+	});
+});
+
+describe('stamping a canonical URL', () => {
+	let store: MemoryProjectStore;
+	let workspace: Workspace;
+
+	beforeEach(async () => {
+		store = new MemoryProjectStore();
+		workspace = new Workspace(store, { now: () => new Date('2026-01-02T03:04:05.000Z') });
+		await workspace.createProject('Amsterdam 1625');
+		for (const imageId of ['aaa', 'bbb']) {
+			await store.write(
+				`amsterdam-1625/images/${imageId}/info.json`,
+				encode(
+					`${JSON.stringify(
+						{
+							'@context': 'http://iiif.io/api/image/3/context.json',
+							id: `https://unset.invalid/${imageId}`,
+							type: 'ImageService3',
+							profile: 'level0',
+							width: 4096,
+							height: 3072,
+							somethingNewer: 'kept'
+						},
+						null,
+						'\t'
+					)}\n`
+				)
+			);
+		}
+	});
+
+	const infoJson = async (imageId: string) =>
+		JSON.parse(decode(await store.read(`amsterdam-1625/images/${imageId}/info.json`)));
+
+	it('rewrites every info.json id to the address the tiles are published at', async () => {
+		const stamp = await stampCanonicalUrl(
+			store,
+			'amsterdam-1625',
+			'https://scholar.example/atlas/',
+			['aaa', 'bbb']
+		);
+
+		expect(stamp.url).toBe('https://scholar.example/atlas');
+		expect(stamp.images).toEqual(['aaa', 'bbb']);
+		expect((await infoJson('aaa')).id).toBe(
+			'https://scholar.example/atlas/amsterdam-1625/images/aaa'
+		);
+		expect((await infoJson('bbb')).id).toBe(
+			'https://scholar.example/atlas/amsterdam-1625/images/bbb'
+		);
+	});
+
+	it('is the address a IIIF client concatenates a tile path onto', async () => {
+		// The whole value of stamping is that somebody else's client can fetch these tiles
+		// (ADR-0004, SPEC story 92), and it builds every URL by concatenating onto `id`. So the
+		// stamped base plus a real IIIF tile path has to be where the tile actually is.
+		const id = canonicalImageServiceId('https://scholar.example', 'amsterdam-1625', 'aaa');
+		const tile = '0,0,256,256/256,256/0/default.jpg';
+
+		expect(`${id}/${tile}`).toBe(`https://scholar.example/amsterdam-1625/images/aaa/${tile}`);
+	});
+
+	it('keeps every other field of info.json, including one it does not understand', async () => {
+		await stampCanonicalUrl(store, 'amsterdam-1625', 'https://scholar.example', ['aaa']);
+
+		expect(await infoJson('aaa')).toMatchObject({
+			'@context': 'http://iiif.io/api/image/3/context.json',
+			type: 'ImageService3',
+			profile: 'level0',
+			width: 4096,
+			height: 3072,
+			somethingNewer: 'kept'
+		});
+	});
+
+	it('is remembered in the Project, and only in the Project it stamped', async () => {
+		await workspace.createProject('Boston 1775');
+		const stamp = await stampCanonicalUrl(store, 'amsterdam-1625', 'https://scholar.example', [
+			'aaa'
+		]);
+		const file = await workspace.readProject('amsterdam-1625');
+		await workspace.writeProject('amsterdam-1625', { ...file, canonicalUrl: stamp.url });
+
+		expect((await workspace.readProject('amsterdam-1625')).canonicalUrl).toBe(
+			'https://scholar.example'
+		);
+		expect((await workspace.readProject('boston-1775')).canonicalUrl).toBeNull();
+		// And it survives the round trip through the file rather than only through the object.
+		expect(decode(await store.read('amsterdam-1625/project.json'))).toContain(
+			'"canonicalUrl": "https://scholar.example"'
+		);
+	});
+
+	it('leaves an unstamped project.json byte-identical to one written before the field existed', async () => {
+		// The byte-identity contract this codebase asserts across reorder, rename, toggle, and
+		// opacity. A `canonicalUrl: null` written out would break every one of them and would put a
+		// diff in every Project of every Workspace kept in git, on the day the app was updated.
+		const file = newProjectFile('Amsterdam 1625', new Date('2026-01-02T03:04:05.000Z'));
+
+		expect(decode(serialiseProjectFile(file))).not.toContain('canonicalUrl');
+		expect(decode(serialiseProjectFile(parseProjectFile(serialiseProjectFile(file))))).toBe(
+			decode(serialiseProjectFile(file))
+		);
+	});
+
+	it('refuses an address a IIIF client could not fetch from, before touching a file', async () => {
+		const before = decode(await store.read('amsterdam-1625/images/aaa/info.json'));
+
+		for (const bad of ['', '   ', 'scholar.example', 'ftp://scholar.example', 'not a url']) {
+			await expect(stampCanonicalUrl(store, 'amsterdam-1625', bad, ['aaa'])).rejects.toThrow(
+				PublishRefusedError
+			);
+		}
+
+		expect(decode(await store.read('amsterdam-1625/images/aaa/info.json'))).toBe(before);
+	});
+
+	it('normalises what the user typed into a base other paths hang off', () => {
+		expect(normaliseCanonicalUrl('  https://scholar.example/atlas/  ')).toBe(
+			'https://scholar.example/atlas'
+		);
+		expect(normaliseCanonicalUrl('https://scholar.example/atlas?utm=x#top')).toBe(
+			'https://scholar.example/atlas'
+		);
+		expect(normaliseCanonicalUrl('http://localhost:8080')).toBe('http://localhost:8080');
+		expect(normaliseCanonicalUrl('mailto:someone@example.com')).toBe('');
+	});
+});
+
+describe('reading the staged viewer bundle index', () => {
+	it('reads the shape the build script writes', () => {
+		expect(
+			parseViewerBundle({
+				version: 'abc',
+				files: [{ path: 'index.html', source: 'viewer-bundle/index.html', bytes: 10 }],
+				baseMap: []
+			})
+		).toEqual({
+			version: 'abc',
+			files: [{ path: 'index.html', source: 'viewer-bundle/index.html', bytes: 10 }],
+			baseMap: []
+		});
+	});
+
+	it('refuses an index that would publish an incomplete site', () => {
+		// A staging step that half ran is the failure here, and its symptom without this check is a
+		// Published Site missing whichever chunks the index forgot — a blank page and a 404.
+		for (const bad of [
+			null,
+			{ files: [{ path: 'index.html', source: 'a', bytes: 1 }] },
+			{ version: 'abc', files: [] },
+			{ version: 'abc', files: [{ path: '_app/x.js', source: 'a', bytes: 1 }] },
+			{ version: 'abc', files: [{ path: 'index.html', source: 'a' }] },
+			{ version: 'abc', files: [{ path: 'index.html', bytes: 1 }] },
+			{ version: 'abc', files: [{ path: '/index.html', source: 'a', bytes: 1 }] },
+			{ version: 'abc', files: 'index.html' }
+		]) {
+			expect(() => parseViewerBundle(bad)).toThrow('could not be read');
+		}
+	});
+});
+
+describe('the site record a Reader’s page is drawn from', () => {
+	it('falls back to this build’s catalog rather than leaving a Reader with no Base Map', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode('{"projects":[{"directory":"x"}],"baseMap":{"entries":[]}}')
+		);
+
+		expect(record.baseMap.entries.length).toBeGreaterThan(0);
+		expect(record.projects).toEqual([{ directory: 'x', name: 'x' }]);
+	});
+
+	it('keeps a catalog it does not fully understand, because resolution already falls back', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(
+				JSON.stringify({ projects: [], baseMap: CATALOG_WITH_STALE_DEFAULT })
+			)
+		);
+
+		expect(record.baseMap).toEqual(CATALOG_WITH_STALE_DEFAULT);
+	});
+
+	it('drops a Project entry with no folder, which is the one field ?p= needs', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode('{"projects":[{"name":"nameless"},{"directory":"x","name":"X"}]}')
+		);
+
+		expect(record.projects).toEqual([{ directory: 'x', name: 'X' }]);
+	});
+});
+
+const collect = async (body: ReadableStream<Uint8Array>): Promise<Bytes> => {
+	const chunks: Uint8Array[] = [];
+	const reader = body.getReader();
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		chunks.push(value);
+	}
+	const archive = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0));
+	let at = 0;
+	for (const chunk of chunks) {
+		archive.set(chunk, at);
+		at += chunk.length;
+	}
+	return archive;
+};

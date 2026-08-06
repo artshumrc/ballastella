@@ -177,6 +177,9 @@ importers:
         specifier: 'catalog:'
         version: 0.0.18
     devDependencies:
+      '@ballastella/viewer':
+        specifier: workspace:*
+        version: link:../viewer
       '@maplibre/maplibre-gl-style-spec':
         specifier: 'catalog:'
         version: 24.10.0

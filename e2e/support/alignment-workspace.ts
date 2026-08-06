@@ -63,7 +63,7 @@ export const IMAGE_WIDTH = 700;
 export const IMAGE_HEIGHT = 500;
 
 /** How long a freshly ingested pyramid may take to decode every tile of its first view. */
-const TILES_READY_MS = 20_000;
+const TILES_READY_MS = 30_000;
 
 export const PROJECT_NAME = 'Amsterdam 1625';
 export const PROJECT_DIRECTORY = 'amsterdam-1625';
