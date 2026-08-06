@@ -1,5 +1,7 @@
 <script module lang="ts">
-	import type { ResourcePoint as OverlayPoint } from '@ballastella/core';
+	import type { ResourcePoint } from '@ballastella/core';
+
+	import type { OverlayPoint } from '$lib/overlay/overlay-points';
 
 	/**
 	 * A labelled point drawn over the pane at an image pixel.
@@ -11,16 +13,15 @@
 	 * through this exact interface, so a banned word in the name would become the name of the
 	 * seam Control Points arrive on, and renaming it then is a cross-ticket change.
 	 *
-	 * These are **not** Control Points. A Control Point pairs an image pixel with a place on the
-	 * earth and is incomplete without both halves (ADR-0022); these are one-sided annotations of
-	 * the pane's own coordinate space — `reference` for the fixed points whose pixel is known in
-	 * advance, `reported` for the pixel the user last asked about.
+	 * `reference` and `reported` are **not** Control Points. A Control Point pairs an image pixel
+	 * with a place on the earth and is incomplete without both halves (ADR-0022); those two are
+	 * one-sided annotations of the pane's own coordinate space — `reference` for the fixed points
+	 * whose pixel is known in advance, `reported` for the pixel the user last asked about.
+	 *
+	 * A Control Point's image half arrives here as `kind: 'control-point'`, through this same
+	 * interface and not a parallel one, which is what ticket 03 renamed `PaneMarker` for.
 	 */
-	export type PaneOverlayPoint = {
-		point: OverlayPoint;
-		label: string;
-		kind: 'reference' | 'reported';
-	};
+	export type PaneOverlayPoint = OverlayPoint<ResourcePoint>;
 </script>
 
 <script lang="ts">
@@ -34,12 +35,12 @@
 	// synthetic geography is an implementation detail of the fact that MapLibre is Web Mercator
 	// only (ADR-0005), and letting it escape is how it would end up stored somewhere.
 
-	import type { FetchFn, ImagePane, ResourcePoint } from '@ballastella/core';
-	// `Marker` is MapLibre's own class name, so the word is unavoidable at this one seam. It goes
-	// no further: nothing this component exports or renders uses it (CONTEXT.md, Control Point).
-	import { MapLibreMap, Marker, NavigationControl } from 'maplibre-gl';
+	import type { FetchFn, ImagePane } from '@ballastella/core';
+	import { MapLibreMap, NavigationControl } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount } from 'svelte';
+
+	import { createOverlayPointLayer, type OverlayPointLayer } from '$lib/overlay/overlay-points';
 
 	import { imagePaneTileTemplate, registerImagePaneTiles } from './tile-protocol';
 
@@ -83,6 +84,7 @@
 
 	let container: HTMLDivElement;
 	let map: MapLibreMap | undefined = $state.raw();
+	let overlayLayer: OverlayPointLayer<ResourcePoint> | undefined = $state.raw();
 	let pointer: ResourcePoint | undefined;
 	let tilesLoaded = false;
 
@@ -199,35 +201,39 @@
 		};
 	});
 
-	// Overlay points are rebuilt wholesale rather than diffed: there are a handful of them, and a
-	// stale one is a coordinate claim that is no longer true.
+	// Overlay points live in a keyed layer shared with the Base Map pane, so a Control Point is
+	// drawn the same way on both panes by the same code. Reconciled rather than rebuilt, because a
+	// Control Point is draggable and focusable and rebuilding drops the gesture — see
+	// `overlay-points.ts`.
 	$effect(() => {
 		const current = map;
-		if (!current) {
-			return;
-		}
+		if (!current) return;
 
-		const handles = overlayPoints.map(({ point, label: pointLabel, kind }) => {
-			const element = document.createElement('div');
-			element.className = `pane-overlay-point pane-overlay-point-${kind}`;
-			element.dataset.testid = `pane-overlay-point-${kind}`;
-			element.dataset.resourceX = String(point.x);
-			element.dataset.resourceY = String(point.y);
-			// A native `title`, which is a tooltip, and CONTRIBUTING says tooltips are not an
-			// information channel. Compliant because it is not one here: the element is
-			// `aria-hidden`, so nothing is announced from it, and the same text is in the page as
-			// visible prose in the footer. The attribute is a mouse-hover convenience on a purely
-			// decorative element, not the only place the information lives.
-			element.title = pointLabel;
-			// The same information is in the page as text; announcing it twice is noise.
-			element.setAttribute('aria-hidden', 'true');
-
-			return new Marker({ element, anchor: 'center' })
-				.setLngLat(pane.resourceToSynthetic(point))
-				.addTo(current);
+		const layer = createOverlayPointLayer<ResourcePoint>({
+			map: current,
+			// The synthetic geography stays inside this component: the layer only ever sees the image
+			// pixels this pane speaks, and converts through these two (ADR-0005).
+			toLngLat: (point) => pane.resourceToSynthetic(point),
+			fromLngLat: (lngLat) => pane.syntheticToResource(lngLat),
+			// The image pixel each point claims to be at, for the browser tests. A reference point
+			// states its pixel, the test clicks it, and the pane has to report the same pixel back —
+			// which goes out through `resourceToSynthetic` and comes back through `syntheticToResource`,
+			// two different directions rather than one function inverted by its own inverse.
+			datasetFor: (point) => ({ resourceX: String(point.x), resourceY: String(point.y) })
 		});
+		overlayLayer = layer;
 
-		return () => handles.forEach((handle) => handle.remove());
+		return () => {
+			overlayLayer = undefined;
+			layer.destroy();
+		};
+	});
+
+	// A second effect, on purpose: the layer above is built once per map, and this one runs on every
+	// change to the points. Folding them together would tear down and rebuild every element — and
+	// therefore every drag and every focus — whenever a single coordinate moved.
+	$effect(() => {
+		overlayLayer?.update(overlayPoints);
 	});
 </script>
 
@@ -239,24 +245,8 @@
 	data-testid="image-pane"
 ></div>
 
-<style>
-	/* These elements are created imperatively for MapLibre, so their styles cannot be scoped. */
-	:global(.pane-overlay-point) {
-		/* Clicks must reach the map underneath: this is a label, not a target. */
-		pointer-events: none;
-		box-sizing: border-box;
-		width: 17px;
-		height: 17px;
-		border-radius: 9999px;
-	}
-
-	:global(.pane-overlay-point-reference) {
-		border: 2px solid oklch(0.55 0.22 25);
-		box-shadow: 0 0 0 1px oklch(1 0 0 / 0.85);
-	}
-
-	:global(.pane-overlay-point-reported) {
-		border: 3px solid oklch(0.6 0.19 250);
-		box-shadow: 0 0 0 1px oklch(1 0 0 / 0.85);
-	}
-</style>
+<!--
+	The overlay points' styles are in `routes/layout.css`, not here. Their elements are created
+	imperatively for MapLibre so nothing scoped can reach them, and the Base Map pane draws the same
+	points — rules shipped with this component would be missing on a route that mounts only that one.
+-->

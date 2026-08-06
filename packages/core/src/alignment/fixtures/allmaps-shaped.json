@@ -1,0 +1,91 @@
+{
+	"id": "https://annotations.allmaps.org/maps/f4f1c0a9b2d3e4f5",
+	"type": "Annotation",
+	"@context": [
+		"http://iiif.io/api/extension/georef/1/context.json",
+		"http://iiif.io/api/presentation/3/context.json"
+	],
+	"created": "2024-03-11T09:14:02.000Z",
+	"modified": "2024-11-02T16:41:55.000Z",
+	"motivation": "georeferencing",
+	"target": {
+		"type": "SpecificResource",
+		"source": {
+			"id": "https://iiif.leidenuniv.nl/iiif/3/item%3A1234567",
+			"type": "ImageService3",
+			"height": 4096,
+			"width": 5120,
+			"partOf": [
+				{
+					"id": "https://iiif.leidenuniv.nl/iiif/3/manifest/1234567",
+					"type": "Manifest",
+					"label": { "nl": ["Kaart van Amsterdam, 1625"] }
+				}
+			],
+			"provider": [
+				{
+					"id": "https://www.library.universiteitleiden.nl/",
+					"label": { "en": ["Leiden University Libraries"] }
+				}
+			]
+		},
+		"selector": {
+			"type": "SvgSelector",
+			"value": "<svg width=\"5120\" height=\"4096\"><polygon points=\"312,204 4832,196 4844,3902 296,3914 312,204\" /></svg>"
+		}
+	},
+	"body": {
+		"type": "FeatureCollection",
+		"transformation": {
+			"type": "polynomial",
+			"options": {
+				"order": 1
+			}
+		},
+		"features": [
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [1204, 892]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [4.88969, 52.37403]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [3908, 1044]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [4.90721, 52.37218]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [2560, 3012]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [4.89512, 52.36104]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [742, 2488]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [4.88103, 52.36489]
+				}
+			}
+		],
+		"_allmaps": {
+			"note": "A private extension key. It must not stop the Alignment being read."
+		}
+	}
+}

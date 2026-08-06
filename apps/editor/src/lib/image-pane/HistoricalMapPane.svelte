@@ -11,14 +11,23 @@
 	// question with a *load* behind it: switching Historical Maps replaces the pane, and a read that
 	// resolves after the user has already moved on must not be allowed to draw the wrong map.
 
-	import { createImagePane, imageServiceId, type FetchFn, type ImagePane } from '@ballastella/core';
+	import {
+		createImagePane,
+		imageServiceId,
+		type FetchFn,
+		type ImagePane,
+		type ResourcePoint
+	} from '@ballastella/core';
 
-	import ImagePaneView from './ImagePane.svelte';
+	import ImagePaneView, { type PaneOverlayPoint } from './ImagePane.svelte';
 
 	let {
 		imageId,
 		fetchTile,
-		label
+		label,
+		overlayPoints = [],
+		onclickpoint,
+		onpane
 	}: {
 		/** Which Historical Map of the open Project to show. */
 		imageId: string;
@@ -26,6 +35,19 @@
 		fetchTile: FetchFn;
 		/** Accessible name for the map region, from the page. */
 		label: string;
+		/** Control Points' image halves, and the pending half when it is on this pane (ticket 07). */
+		overlayPoints?: PaneOverlayPoint[];
+		/** An image pixel the user clicked, which is how a Control Point is started (ADR-0022). */
+		onclickpoint?: (point: ResourcePoint) => void;
+		/**
+		 * The pyramid, once it has been read.
+		 *
+		 * Reported rather than loaded twice. Everything above this component that needs the image's
+		 * pixel dimensions — the Alignment's Resource Mask, the Control Point coordinate space — needs
+		 * exactly what this pane is drawing, and a second `createImagePane` on the same `info.json`
+		 * would be a second answer that can disagree.
+		 */
+		onpane?: (pane: ImagePane) => void;
 	} = $props();
 
 	let pane: ImagePane | undefined = $state.raw();
@@ -70,6 +92,7 @@
 				if (mine !== generation) return;
 				pane = built;
 				shownImageId = wanted;
+				onpane?.(built);
 			} catch (cause) {
 				if (mine !== generation) return;
 				// ADR-0008: a Historical Map that cannot be read is a normal state to render, not an
@@ -116,6 +139,8 @@
 				paneId={shownImageId}
 				{fetchTile}
 				{label}
+				{overlayPoints}
+				{onclickpoint}
 				onview={(view) => {
 					mapZoom = view.mapZoom;
 					pointer = view.pointer;

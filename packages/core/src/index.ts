@@ -90,6 +90,33 @@ export type {
 	SyntheticProjection
 } from './image-pane/synthetic-projection';
 
+// The Alignment (CONTEXT.md, Align / Alignment). `georeference-annotation.js` is the only module
+// in the codebase permitted the words "Georeference Annotation" and `GeoreferencedMap`; nothing
+// above it needs them, so nothing above it names them.
+export {
+	ALIGNMENT_DIRECTORY,
+	DEFAULT_TRANSFORMATION_TYPE,
+	MINIMUM_CONTROL_POINTS,
+	alignmentPath,
+	alignmentStorePath,
+	canSolve,
+	collectControlPoints,
+	fullImageResourceMask,
+	newAlignment,
+	toDraftControlPoints,
+	type Alignment,
+	type ControlPoint,
+	type DraftControlPoint,
+	type GeoPoint,
+	type TransformationType
+} from './alignment/alignment.js';
+export {
+	AlignmentUnreadableError,
+	parseAlignment,
+	serialiseAlignment,
+	toGeoreferencedMap
+} from './alignment/georeference-annotation.js';
+
 export { createImagePane } from './image-pane/iiif-image-pane';
 export type {
 	ImagePane,

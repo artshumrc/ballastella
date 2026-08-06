@@ -1,0 +1,112 @@
+{
+	"type": "Annotation",
+	"@context": [
+		"http://iiif.io/api/extension/georef/1/context.json",
+		"http://iiif.io/api/presentation/3/context.json"
+	],
+	"motivation": "georeferencing",
+	"target": {
+		"type": "SpecificResource",
+		"source": {
+			"id": "https://unset.invalid/awkward-coordinates",
+			"type": "ImageService3",
+			"height": 24000,
+			"width": 60000
+		},
+		"selector": {
+			"type": "SvgSelector",
+			"value": "<svg width=\"60000\" height=\"24000\"><polygon points=\"0.00000015,0.00000025 59999.5,0.5 59999.5,12000.25 30000.125,18000.0625 59999.5,23999.5 0.5,23999.5\" /></svg>"
+		}
+	},
+	"body": {
+		"type": "FeatureCollection",
+		"transformation": {
+			"type": "polynomial",
+			"options": {
+				"order": 1
+			}
+		},
+		"features": [
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						0.1,
+						0.30000000000000004
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						-179.98765432109877,
+						-85.05112877980659
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						59999.999999999985,
+						1.7976931348623158e-8
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						179.98765432109877,
+						85
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						12345.678901234567,
+						23456.78901234568
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						-0.000001,
+						0.000001
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						0.3333333333333333,
+						0.6666666666666666
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						0.14285714285714285,
+						-0.1111111111111111
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						30000.5,
+						12000.5
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						4.883403778076172,
+						52.37842512255111
+					]
+				}
+			}
+		]
+	}
+}
