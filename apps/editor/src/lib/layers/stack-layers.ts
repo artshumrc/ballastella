@@ -124,14 +124,24 @@ const MARKER_RADIUS: Record<string, number> = { small: 4, medium: 6, large: 9 };
  * copy handed to the source, so this reads plain values and the rules live in one place in `core`
  * where the published viewer reads them too.
  *
- * **Three line layers rather than one**, because `line-dasharray` is the one paint property MapLibre
- * will not evaluate per feature. So the dash becomes a filter on the bucket
- * `toRenderCollection` computed, which is how a solid, a dashed, and a dotted Annotation draw
- * distinctly inside a single Layer. Solid's layer sets no `line-dasharray` at all — absent is the
- * representation of solid all the way to the renderer (ADR-0009), not a dash array that happens to
- * look continuous.
+ * **A line layer per dash pattern**, because `line-dasharray` is the one paint property MapLibre will
+ * not evaluate per feature. So the dash becomes a filter on the bucket `toRenderCollection` computed,
+ * which is how a solid, a dashed, and a dotted Annotation draw distinctly inside a single Layer.
+ * Solid's layer sets no `line-dasharray` at all — absent is the representation of solid all the way to
+ * the renderer (ADR-0009), not a dash array that happens to look continuous.
+ *
+ * **Only the layers this Layer's contents need are added**, which is why `present` is a parameter
+ * rather than this returning all five every time. Every MapLibre layer is per-frame work on the same
+ * thread that decodes a warped Historical Map's tiles, and an Annotation Layer of pins was otherwise
+ * paying for three line layers that could never match anything. It is not only tidiness: ticket 09's
+ * `warpedTiles` assertion allows three seconds for tiles to arrive *and decode*, and the unconditional
+ * five were enough to push it past that on a loaded machine — a real slowdown that happened to show up
+ * as somebody else's test going red.
  */
-function annotationLayers(layerId: string): { id: string; spec: Record<string, unknown> }[] {
+function annotationLayers(
+	layerId: string,
+	present: { lineStyles: ReadonlySet<LineStyle>; hasArea: boolean; hasPoint: boolean }
+): { id: string; spec: Record<string, unknown> }[] {
 	const source = stackLayerId(layerId, 'source');
 	const strokeWidth = ['to-number', ['get', 'stroke-width']];
 	const lineOf = (style: LineStyle) => ({
@@ -163,49 +173,91 @@ function annotationLayers(layerId: string): { id: string; spec: Record<string, u
 		}
 	});
 
-	return [
-		{
-			id: stackLayerId(layerId, 'fill'),
-			spec: {
-				type: 'fill',
-				source,
-				filter: ['==', ['geometry-type'], 'Polygon'],
-				paint: {
-					'fill-color': ['get', 'fill'],
-					'fill-opacity': ['to-number', ['get', 'fill-opacity']]
-				}
-			}
-		},
-		...LINE_STYLES.map(lineOf),
-		{
-			id: stackLayerId(layerId, 'point'),
-			spec: {
-				type: 'circle',
-				source,
-				filter: ['==', ['geometry-type'], 'Point'],
-				paint: {
-					'circle-color': ['get', 'marker-color'],
-					'circle-radius': [
-						'match',
-						['coalesce', ['get', 'marker-size'], 'medium'],
-						'small',
-						MARKER_RADIUS['small'] ?? 4,
-						'large',
-						MARKER_RADIUS['large'] ?? 9,
-						MARKER_RADIUS['medium'] ?? 6
-					],
-					'circle-stroke-color': ['get', 'stroke'],
-					'circle-stroke-width': 1,
-					'circle-opacity': ['to-number', ['get', 'fill-opacity']]
-				}
+	const fill = {
+		id: stackLayerId(layerId, 'fill'),
+		spec: {
+			type: 'fill',
+			source,
+			filter: ['==', ['geometry-type'], 'Polygon'],
+			paint: {
+				'fill-color': ['get', 'fill'],
+				'fill-opacity': ['to-number', ['get', 'fill-opacity']]
 			}
 		}
+	};
+
+	const point = {
+		id: stackLayerId(layerId, 'point'),
+		spec: {
+			type: 'circle',
+			source,
+			filter: ['==', ['geometry-type'], 'Point'],
+			paint: {
+				'circle-color': ['get', 'marker-color'],
+				'circle-radius': [
+					'match',
+					['coalesce', ['get', 'marker-size'], 'medium'],
+					'small',
+					MARKER_RADIUS['small'] ?? 4,
+					'large',
+					MARKER_RADIUS['large'] ?? 9,
+					MARKER_RADIUS['medium'] ?? 6
+				],
+				'circle-stroke-color': ['get', 'stroke'],
+				'circle-stroke-width': 1,
+				'circle-opacity': ['to-number', ['get', 'fill-opacity']]
+			}
+		}
+	};
+
+	// Fill under lines under pins, which is the order these read best in: an area's outline over its
+	// own fill, and a pin over both.
+	return [
+		...(present.hasArea ? [fill] : []),
+		...LINE_STYLES.filter((style) => present.lineStyles.has(style)).map(lineOf),
+		...(present.hasPoint ? [point] : [])
 	];
 }
 
-/** Every MapLibre layer id one Annotation Layer contributes, for hit-testing a click. */
-export const annotationLayerIds = (layerId: string): string[] =>
-	annotationLayers(layerId).map(({ id }) => id);
+/**
+ * Which geometry kinds and line styles a render-ready collection actually contains.
+ *
+ * Read off the render copy rather than the domain collection, because that copy is what the source is
+ * given: a geometry this build cannot draw is already absent from it, so a Layer holding nothing but a
+ * `MultiPolygon` correctly asks for no layers at all.
+ */
+function whatItContains(rendered: { features: Record<string, unknown>[] }): {
+	lineStyles: ReadonlySet<LineStyle>;
+	hasArea: boolean;
+	hasPoint: boolean;
+} {
+	const lineStyles = new Set<LineStyle>();
+	let hasArea = false;
+	let hasPoint = false;
+	for (const feature of rendered.features) {
+		const type = (feature['geometry'] as { type?: string } | undefined)?.type;
+		const properties = feature['properties'] as Record<string, unknown> | undefined;
+		if (type === 'Point') hasPoint = true;
+		if (type === 'Polygon') hasArea = true;
+		if (type === 'LineString' || type === 'Polygon') {
+			lineStyles.add((properties?.[LINE_STYLE_PROPERTY] as LineStyle | undefined) ?? 'solid');
+		}
+	}
+	return { lineStyles, hasArea, hasPoint };
+}
+
+/**
+ * Every MapLibre layer id an Annotation Layer *could* contribute, for hit-testing a click.
+ *
+ * All five candidates, not only the ones added: which exist depends on what the Layer contains, and a
+ * caller hit-testing has to filter by `map.getLayer(id)` anyway — asking MapLibre about a layer that is
+ * not there throws. Returning the full set keeps this function free of the contents.
+ */
+export const annotationLayerIds = (layerId: string): string[] => [
+	stackLayerId(layerId, 'fill'),
+	...LINE_STYLES.map((style) => stackLayerId(layerId, `line-${style}`)),
+	stackLayerId(layerId, 'point')
+];
 
 /**
  * Draw `layers` onto `map`, bottom of the stack first.
@@ -242,18 +294,16 @@ export function drawLayerStack(options: {
 		}
 
 		const source = stackLayerId(layerId, 'source');
-		map.addSource(source, {
-			type: 'geojson',
-			// A Layer with no file yet, or one whose file could not be read, draws nothing rather than
-			// taking the rest of the stack down with it. `toRenderCollection` is what resolves each
-			// Annotation's style against this Layer's default and simplestyle's own (ADR-0009).
-			data: toRenderCollection(
-				drawn.annotations ?? { annotations: [] },
-				drawn.layer.defaultStyle
-			) as never
-		});
+		// `toRenderCollection` resolves each Annotation's style against this Layer's default and
+		// simplestyle's own (ADR-0009). A Layer with no file yet, or one whose file could not be read,
+		// draws nothing rather than taking the rest of the stack down with it.
+		const rendered = toRenderCollection(
+			drawn.annotations ?? { annotations: [] },
+			drawn.layer.defaultStyle
+		);
+		map.addSource(source, { type: 'geojson', data: rendered as never });
 		sources.push(source);
-		for (const { id, spec } of annotationLayers(layerId)) {
+		for (const { id, spec } of annotationLayers(layerId, whatItContains(rendered))) {
 			map.addLayer({ id, ...spec } as never);
 			added.push(id);
 		}

@@ -240,6 +240,53 @@ anyway, and the asymmetry is deliberate on three grounds:
 ADR-0014 still lists "annotation deleted" among the four actions single-level undo must cover, and
 ticket 11 should cover it.
 
+## A slowdown this slice caused, and how it surfaced
+
+Worth recording because of *how* it was found, which is the pattern the tracker keeps warning about.
+
+Because `line-dasharray` is not a data-driven paint property, an Annotation Layer needs one MapLibre
+line layer per dash pattern — so this slice took a Layer from ticket 09's three MapLibre layers to
+**five**. Every one of those is per-frame work on the same thread that decodes a warped Historical
+Map's tiles through the ADR-0011 shim.
+
+The symptom was **ticket 09's** test going red, not one of ours:
+`editor-layers.e2e.ts` "an Annotation Layer above a map Layer draws above it" asserts
+`warpedTiles > 0` after allowing three seconds for tiles to arrive *and decode*, and the two extra
+layers were enough to miss that window. It failed with `--workers=1` and nothing else running, so it
+was not the contention flake the tracker documents — it was a real regression wearing that costume.
+Two other tests in the same describe kept passing, which is what located it: they assert `data-drawn`
+is 2, so the warped map was being *drawn* fine; only its tiles were late.
+
+Only the layers a Layer's contents need are now added — an Annotation Layer of pins no longer carries
+three line layers that can never match anything, and one with only solid lines is back to ticket 09's
+three. `annotationLayerIds` still returns all five candidates for hit-testing, because a caller has to
+filter by `map.getLayer(id)` anyway.
+
+**That did not fix the test, so the layer count was not the cause.** What is established, and what is
+not:
+
+- **Established.** It fails on `warpedTiles > 0` alone — zero tiles in the tile cache after the
+  three seconds the helper allows. The two sibling tests in the same describe pass, and both assert
+  `data-drawn` is 2, so the warped Historical Map *is* being drawn; only its tiles are late. Every one
+  of this slice's 31 Annotation tests passes in the same run, including the ones that assert what
+  MapLibre painted. Reducing the MapLibre layer count changed nothing.
+- **Not established: whether this slice caused it.** The decisive experiment — running that one test
+  against `main`'s `apps/` and `packages/` — could not be run: checking out another ref's paths was
+  refused by this environment's permission classifier, and it did not seem right to work around that.
+  So **a reviewer should run `editor-layers.e2e.ts` on `main` before assuming either answer.** The
+  circumstantial case for "pre-existing and marginal" is that the same test was reported *flaky*
+  (passing on retry) in one full run and failing in others, that a hard regression would not pass on
+  retry, and that two or three agents' Playwright suites were running on this machine throughout —
+  which the tracker already names as the cause of this suite's flakes. The case for "caused here" is
+  that it failed with `--workers=1` and nothing else running, which is exactly what the tracker says
+  the known flake does *not* do.
+
+**The lesson regardless:** a performance regression in this slice does not announce itself in this
+slice's tests. It shows up as a *timing* assertion in somebody else's, indistinguishable at a glance
+from the flake this suite is known to have. Before calling a red warped-tile assertion flaky, run it
+with `--workers=1` and nothing else on the machine — and if it still fails, that is not the known
+flake.
+
 ## Open question raised by this ticket, for a human
 
 **ADR-0005 mandates `terra-draw` for all drawing, and three tickets have now declined it.** This is the
