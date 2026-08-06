@@ -8,7 +8,9 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: none — tickets 02, 03, and 04 have landed and are merged into `main`. Tickets 05, 12, and 13 (all depending only on 02) are now unblocked and can run in parallel. Ticket 06 additionally needs 05.
+Current ticket: none. Tickets 02, 03, and 04 are merged into `main` and have been code-reviewed; remediation of the confirmed findings is in flight. Tickets 05, 12, and 13 (all depending only on 02) are unblocked once remediation lands. Ticket 06 additionally needs 05.
+
+**Two items need a human decision before the epic can claim what it currently claims — see [Open questions for a human](#open-questions-for-a-human).**
 
 Last updated: 2026-08-05
 
@@ -38,6 +40,14 @@ Last updated: 2026-08-05
 | 18 | [18-pwa-manifest-and-service-worker.md](./tickets/18-pwa-manifest-and-service-worker.md) | Not Started | 16 | 6, 8, 9 |
 
 Stories **95 and 96** are deliberately absent from the table. Accessibility is a criterion inside every ticket that adds UI rather than a slice of its own (see Cross-cutting constraints below), so attributing them to any one ticket would be misleading in both directions. Story 97 is listed against ticket 02 because that is where the `<dialog>` + `showModal()` rule is established and asserted; later tickets reuse it. Every other story appears at least once.
+
+## Open questions for a human
+
+Raised by the code reviews of tickets 02–04. Neither is a defect an implementer can decide away.
+
+1. **What is the canonical instance URL?** `BALLASTELLA_CANONICAL_URL` in `packages/core/src/project/project-file.ts` is currently `https://artshumrc.github.io/ballastella/`, derived from the git remote because nothing in the repo records one. ADR-0010 requires the format-refusal message to name a URL, and this is the one string a user reads at the moment their work is at risk. Two problems: it 404s unless Pages is enabled on that repo with no custom domain, and [ADR-0006](../../docs/adr/0006-relative-asset-paths.md) says we cannot know at build time whether a deployment lives at a subpath or a domain root — so a compile-time constant is wrong on every fork until hand-edited. Decide the value, or decide it must be deployment configuration with a guard like ADR-0020's catalog lint rule.
+
+2. **Is story 4 in or out for v1 as written?** Story 4 claims Firefox and Safari "work fully", and ticket 02 is credited with it. But `FileSystemFileHandle.move()` is Chromium-only, and the non-Chromium fallback overwrites the destination in place — the very thing ADR-0017's temp-file rule exists to avoid. Both test runners are Chromium-only, so that branch is dead code no test executes. Either cross-browser runners join the toolchain (a CI cost decision) or the claim needs narrowing. Do not leave it claimed and untested.
 
 ## Sequencing notes
 
