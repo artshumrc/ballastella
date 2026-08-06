@@ -24,12 +24,14 @@
 		otherTheme,
 		removeAnnotation,
 		resolveBaseMap,
+		restoreAnnotation,
 		setGeometry,
 		setLineStyle,
 		setStyle,
 		setText,
 		type Alignment,
 		type AnnotationCollection,
+		type AnnotationDeletedUndo,
 		type AnnotationGeometry,
 		type AnnotationLayer,
 		type GeoPoint,
@@ -47,6 +49,7 @@
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import LayerList from '$lib/layers/LayerList.svelte';
 	import type { DrawnLayer, DrawnOutcome } from '$lib/layers/stack-layers';
+	import UndoControl from '$lib/undo/UndoControl.svelte';
 	import { startTheme, theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
@@ -417,14 +420,41 @@
 		await commitAnnotations(setGeometry(collection, annotation.id, next));
 	}
 
-	/** Delete the selected Annotation (SPEC story 66). */
+	/**
+	 * Delete the selected Annotation (SPEC story 66), recording what it takes away (SPEC story 38).
+	 *
+	 * The record holds the Annotation itself, so every one of its `properties` comes back — including
+	 * `stroke-dasharray`, where "solid" is the property being *absent* (ADR-0009): an undo that rebuilt
+	 * the Annotation from the controls' current values would silently turn a dotted conjectural route
+	 * into a solid certain one.
+	 */
 	async function deleteSelected(): Promise<void> {
 		const collection = activeCollection;
+		const layer = activeLayer;
 		const id = selectedAnnotationId;
-		if (!collection || !id) return;
+		if (!collection || !layer || !id) return;
+		const at = collection.annotations.findIndex((one) => one.id === id);
+		const annotation = collection.annotations[at];
 		selectedAnnotationId = null;
 		popupAt = null;
 		await commitAnnotations(removeAnnotation(collection, id));
+		if (!annotation || !session) return;
+		const record: AnnotationDeletedUndo = {
+			kind: 'annotation-deleted',
+			layerId: layer.id,
+			at,
+			annotation
+		};
+		// Recorded *after* the write, so a deletion the store refused is not offered as something to undo
+		// — the same discipline `writeAlignment` follows when it counts a write.
+		session.record(record, async () => {
+			// Restored into the collection as it is *now* rather than into a snapshot: whatever else has
+			// been drawn or edited since must survive an undo of one deletion.
+			const current = activeCollection;
+			if (!current) return;
+			selectedAnnotationId = annotation.id;
+			await commitAnnotations(restoreAnnotation(current, record));
+		});
 	}
 
 	/** Type into the title or the description. Coalesced per file (ADR-0017 rule 2). */
@@ -516,6 +546,14 @@
 		<p class="grow text-sm text-base-content/70" aria-live="polite">{notice ?? ''}</p>
 
 		{#if session !== null}
+			<!--
+				What the last destructive action was, and the way back from it (SPEC story 38). Beside the
+				save indicator because the two answer the same worry from opposite directions: one says the
+				tool has the change, and this one says the change can be taken back — including after the
+				other has said "Saved", which is the whole point of ADR-0014's undo.
+			-->
+			<UndoControl {session} />
+
 			<!-- ADR-0017 rule 5: there is no Save button, so this is the only signal that a reorder,
 			     a rename, or a visibility toggle reached storage. -->
 			<div class="flex flex-col items-end">
@@ -568,6 +606,7 @@
 					onshow={(id, visible) => session.showLayer(id, visible)}
 					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
+					ondelete={(id) => void session.deleteLayer(id)}
 				/>
 
 				<button

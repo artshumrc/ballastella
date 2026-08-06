@@ -7,6 +7,7 @@
 	import MirrorMap from '$lib/remote-iiif/MirrorMap.svelte';
 	import { MirrorMap as MirrorMapJob } from '$lib/remote-iiif/mirror-map.svelte.js';
 	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
+	import UndoControl from '$lib/undo/UndoControl.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -95,6 +96,12 @@
 {:else if session.openProject}
 	<div class="mt-8 flex flex-wrap items-center justify-between gap-4">
 		<h2 class="text-2xl font-semibold">{session.openProject.name}</h2>
+		<!--
+			The way back from a mis-aimed drag or a wrongly deleted Control Point (SPEC story 38), beside
+			the save indicator: one says the tool has the change and the other says it can be taken back,
+			which is the pair a scholar needs on the page where the destructive gestures are.
+		-->
+		<UndoControl {session} />
 		<div class="flex flex-col items-end">
 			<SaveIndicator saveState={session.saveState} />
 			{#if session.saveError}
