@@ -11,7 +11,9 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@ballastella/core": "workspace:*"
+		"@ballastella/core": "workspace:*",
+		"dompurify": "catalog:",
+		"marked": "catalog:"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "catalog:",

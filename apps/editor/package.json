@@ -13,7 +13,9 @@
 	"dependencies": {
 		"@allmaps/maplibre": "catalog:",
 		"@ballastella/core": "workspace:*",
+		"dompurify": "catalog:",
 		"maplibre-gl": "catalog:",
+		"marked": "catalog:",
 		"pmtiles": "catalog:",
 		"wasm-vips": "catalog:"
 	},

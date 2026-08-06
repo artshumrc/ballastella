@@ -12,7 +12,15 @@ Each Annotation Layer is one GeoJSON `FeatureCollection` that opens correctly in
 
 [ADR-0009](../../../docs/adr/0009-annotations-use-simplestyle-spec.md) (the whole slice), [ADR-0002](../../../docs/adr/0002-display-state-separate-from-portable-documents.md) (default style lives on the Layer), [ADR-0005](../../../docs/adr/0005-maplibre-and-terra-draw.md) (data-driven styling).
 
-`terra-draw` and its MapLibre adapter arrived in ticket 07; the Layer list in ticket 09.
+~~`terra-draw` and its MapLibre adapter arrived in ticket 07~~ — **this was never true.** Ticket 07
+declined `terra-draw` for the Control Point pairing (ADR-0022: pairing is linked markers across two
+panes, which no drawing library models) and built the `overlayPoints` seam instead; ticket 08
+declined it for the Resource Mask and *widened that seam* with `mask-vertex` and `mask-edge` handles.
+It has never been in the repository. Ticket 10 declined it too — the reasoning is in
+`apps/editor/src/lib/annotations/drawing.svelte.ts` and summarised under "Decisions" below.
+
+The Layer list did arrive in ticket 09, along with `SimpleStyle`, `annotationPath`,
+`emptyAnnotationCollection`, and the `kind: 'annotation'` render path in `stack-layers.ts`.
 
 ```
 marked        Markdown → HTML

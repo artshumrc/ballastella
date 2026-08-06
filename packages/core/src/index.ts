@@ -122,6 +122,68 @@ export type {
 	SyntheticProjection
 } from './image-pane/synthetic-projection';
 
+// Annotations (CONTEXT.md, Annotation; ADR-0009). Note this is a **different thing** from the
+// Georeference Annotation below: that is the IIIF document an Alignment serialises to, and these are
+// the scholarly content a user places on the map. `geojson.js` is the only module here permitted
+// GeoJSON's own vocabulary — `Feature`, `FeatureCollection` — for the same reason.
+//
+// Both apps: the editor draws and edits them, and the published viewer renders them and their
+// popups through the very same `renderAnnotationPopup` (ADR-0019), which is what makes ticket 17's
+// assertion that the same payload is inert in a Published Site mean anything at all.
+export {
+	DASHED_DASHARRAY,
+	DOTTED_DASHARRAY,
+	MARKER_SIZES,
+	SIMPLESTYLE_DEFAULTS,
+	SIMPLESTYLE_PROPERTIES,
+	addAnnotation,
+	dashArrayFor,
+	emptyCollection,
+	findAnnotation,
+	lineStyleOf,
+	newAnnotation,
+	removeAnnotation,
+	resolveStyle,
+	setGeometry,
+	setLineStyle,
+	setStyle,
+	setText,
+	simpleStyleViolations,
+	type Annotation,
+	type AnnotationCollection,
+	type AnnotationGeometry,
+	type AnnotationProperties,
+	type DrawnGeometryType,
+	type ForeignGeometry,
+	type LineStringGeometry,
+	type LineStyle,
+	type PointGeometry,
+	type PolygonGeometry,
+	type ResolvedStyle
+} from './annotation/annotation.js';
+export {
+	AnnotationsUnreadableError,
+	parseAnnotations,
+	serialiseAnnotations
+} from './annotation/geojson.js';
+// The `description` pipeline: `marked` → DOMPurify → insert, in one function so the order cannot be
+// reversed by a later edit (ADR-0009). **The one place in this epic where a bug is a security
+// vulnerability rather than a defect.**
+export {
+	DescriptionRendererUnavailableError,
+	isDescriptionRendererSupported,
+	renderAnnotationPopup,
+	renderDescription,
+	type AnnotationText
+} from './annotation/markdown.js';
+export {
+	ANNOTATION_ID_PROPERTY,
+	LINE_STYLES,
+	LINE_STYLE_PROPERTY,
+	mapLibreDashArray,
+	toRenderCollection
+} from './annotation/render.js';
+
 // The Alignment (CONTEXT.md, Align / Alignment). `georeference-annotation.js` is the only module
 // in the codebase permitted the words "Georeference Annotation" and `GeoreferencedMap`; nothing
 // above it needs them, so nothing above it names them.

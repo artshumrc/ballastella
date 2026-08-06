@@ -94,6 +94,30 @@ catalog:
   maplibre-gl: ^5.24.0
   pmtiles: ^4.4.1
 
+  # NOTE: `terra-draw` is deliberately **not** here, and this is now the third ticket to decline it —
+  # ticket 07 for the Control Point pairing, ticket 08 for the Resource Mask, and ticket 10 for
+  # Annotation drawing. ADR-0005 says all drawing goes through it, so the ADR and the code now
+  # disagree; that is recorded as an open question for a human in the tracker rather than decided
+  # here. The reasons are in `apps/editor/src/lib/annotations/drawing.svelte.ts`.
+
+  # The Annotation `description` rendering pipeline (ADR-0009): `marked` parses the Markdown,
+  # DOMPurify sanitises the HTML it produced, and the order is not negotiable — sanitising before
+  # parsing is a known bypass shape, because a parser downstream of the sanitiser can reconstruct
+  # markup out of text the sanitiser already cleared as inert.
+  #
+  # Both are direct dependencies of `@ballastella/core` **and of both apps**. Core is where the one
+  # function that owns both stages lives, so that the order cannot be reversed by a later edit; the
+  # apps declare them because ADR-0018 is explicit that `dompurify` arriving in triiiceratops' tree
+  # explains why it costs nothing extra to install and is *not* permission to import it undeclared —
+  # pnpm's isolated `node_modules` exists to prevent exactly that, and a transitive dependency can be
+  # dropped or majored by its parent without warning.
+  #
+  # `marked` over `markdown-it` and `remark` on bundle size, because the renderer ships in
+  # `apps/viewer` too and ADR-0019 requires that build to stay lean. The parser is not the security
+  # boundary — DOMPurify is.
+  dompurify: ^3.4.13
+  marked: ^18.0.9
+
   # Zip export and import (ticket 13, ADR-0001: the only way in and out for Firefox, Safari,
   # and iPad).
   #
