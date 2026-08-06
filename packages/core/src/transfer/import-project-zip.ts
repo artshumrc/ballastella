@@ -1,7 +1,7 @@
 import { unzip, type UnzipFileInfo, type Unzipped } from 'fflate';
 
 import { PROJECT_FILE_NAME, parseProjectFile, type ProjectFile } from '../project/project-file.js';
-import type { Bytes } from '../store/project-store.js';
+import { isTempPath, type Bytes } from '../store/project-store.js';
 import type { ProjectFileSource, TransferFile } from './transfer.js';
 
 /** Why a zip cannot be imported. Each one is refused before a single byte is written. */
@@ -281,6 +281,13 @@ function assertSafeEntryName(name: string): void {
 		if (segment === '.') reject('contains a “.” segment');
 		if (segment === '') reject('contains an empty path segment');
 	}
+	// The store's reserved suffix, checked here for the same reason as everything above it: the store
+	// refuses it too, but only at the moment of writing — by which point the entries that sort before
+	// it are on disk, `project.json` is not (it is written last), and the user has a directory they
+	// cannot see on the hub, cannot delete, and cannot import over. The suffix marks a path `list`
+	// hides, so an entry claiming one is asking to put a file in the Workspace that nothing there can
+	// see — which is not something a Project zip has any reason to do.
+	if (isTempPath(name)) reject(`uses the name Ballastella reserves for its own unfinished writes`);
 }
 
 /**

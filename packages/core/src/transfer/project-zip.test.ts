@@ -679,18 +679,25 @@ describe('rejecting a zip before writing anything', () => {
 		await nothingWritten();
 	});
 
-	it('keeps a zip entry named like a reserved temporary file out of the Workspace', async () => {
-		// The store refuses the reserved suffix, and it refuses it at the moment of writing — which
-		// on an import means after earlier entries have landed. A zip is another person's file, so
-		// the failure has to be the whole import failing rather than a directory left half full.
-		const zip = await readProjectZip(
-			buildZip({ ...projectFiles(), 'sneaky.ballastella-tmp': 'invisible to list()' })
+	it.each([
+		['sneaky.ballastella-tmp', "the store's reserved suffix"],
+		['sneaky.ballastella-tmp.crswap', "Chromium's swap file for one"]
+	])('refuses %s, which the store would hide rather than store', async (name) => {
+		// The store refuses the reserved suffix, but at the moment of *writing* — which on an import
+		// means after the entries that sort before it have landed. So this has to be a validation
+		// refusal like any other traversal: a zip is another person's file, and the alternative is a
+		// directory holding five of six files, invisible on the hub because `project.json` is written
+		// last, and holding the name for good.
+		const failure = await attemptImport(buildZip({ ...projectFiles(), [name]: 'x' })).catch(
+			(c) => c
 		);
 
-		await expect(target.importProject('amsterdam-1625', zip)).rejects.toBeInstanceOf(
-			InvalidPathError
-		);
-		// `project.json` is written last, so the half-written directory is not a listed Project.
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('path-traversal');
+		expect(failure.message).toContain(name);
+		// The assertion the previous version of this test was missing, which is why it passed against
+		// exactly the behaviour its own comment forbids.
+		await nothingWritten();
 		expect((await target.listProjects()).map((p) => p.directory)).toEqual([]);
 	});
 

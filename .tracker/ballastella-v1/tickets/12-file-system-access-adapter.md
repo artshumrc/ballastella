@@ -76,14 +76,25 @@ Success: all exit 0. Playwright must grant and revoke the file-system permission
 Recorded on completion. Status in `TRACKER.md` is the orchestrator's to set; this ticket needs
 no human decision, but the last note below is worth one human minute before release.
 
-### The shared adapter suite ran with literally zero changes
+### The shared adapter suite needed no widening
 
-`packages/core/src/store/project-store-suite.ts` and `project-store.ts` are byte-identical to
-what ticket 02's remediation left. Nothing needed widening, because there was nothing to widen: a
+Nothing about the *interface* changed for this backend, because there was nothing to widen: a
 picked `FileSystemDirectoryHandle` and the OPFS root are the *same interface*. So the byte path
 was extracted into `store/directory-handle-store.ts` and both backends now inherit it —
 `OpfsProjectStore` keeps only `open()` and `isSupported()`, and `FileSystemAccessProjectStore`
 adds only the folder's name and handle. ADR-0001's bet paid off exactly as written.
+
+The suite did gain one *case* on review, which is a different thing from widening the interface:
+`.crswap`. Chromium's `createWritable()` writes a visible swap file beside its destination, so a
+crash during the first step of an atomic write leaves `<name>.ballastella-tmp.crswap` — which did
+not end in `TEMP_PATH_SUFFIX`, so `isTempPath` missed it, `list` reported it **as project data**,
+and `reclaimAbandonedWrites` — written for exactly this — could not remove it. It then rode into a
+zip on export and on into a colleague's Workspace, and tickets 15 and 16 would have counted it in
+their size totals. The predicate now matches the reserved suffix with or without one further
+extension, and import refuses an entry claiming either. Planted rather than provoked in the suite,
+because only one backend writes one and every backend owes the same answer about it; the
+*exception* path is asserted for real in `e2e/editor-folder-workspace.e2e.ts`, and the crash path
+is what nothing in CI can stage.
 
 Two of ticket 02's files did move, neither in what it asserts:
 

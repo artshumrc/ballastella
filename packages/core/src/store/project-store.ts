@@ -100,7 +100,25 @@ export class InvalidPathError extends Error {
  */
 export const TEMP_PATH_SUFFIX = '.ballastella-tmp';
 
-export const isTempPath = (path: string): boolean => path.endsWith(TEMP_PATH_SUFFIX);
+/**
+ * The reserved suffix, optionally followed by **one further extension**.
+ *
+ * The extension is the part that was missing. Writing a file is itself not one step: Chromium's
+ * `createWritable()` creates a visible `<name>.crswap` beside its destination and exchanges the two
+ * on `close()`, so a tab that dies mid-write leaves `<name>.ballastella-tmp.crswap` — which does not
+ * end in the reserved suffix. Outside the machinery, that file was invisible to
+ * `reclaimAbandonedWrites`, which exists for exactly this, while `list` reported it **as project
+ * data**: counted in the size totals tickets 15 and 16 warn from, swept into a zip on export, and
+ * carried on into whoever was handed that zip.
+ *
+ * Written for the *shape* rather than for `.crswap` by name, because the swap file is an
+ * implementation's private business and Safari's may not be spelled the same. The cost is that a
+ * user's own `notes.ballastella-tmp.txt` would be hidden, which is the reserved suffix working as
+ * intended — nothing may be stored under a name the store has claimed.
+ */
+const TEMP_PATH_PATTERN = new RegExp(`${TEMP_PATH_SUFFIX.replace('.', '\\.')}(\\.[^./]+)?$`);
+
+export const isTempPath = (path: string): boolean => TEMP_PATH_PATTERN.test(path);
 
 /** Validates a caller-supplied path, returning it unchanged so it can be used inline. */
 export function assertStorePath(path: string): StorePath {
@@ -114,7 +132,10 @@ export function assertStorePath(path: string): StorePath {
 		throw new InvalidPathError(path, 'must use "/" as its separator');
 	}
 	if (isTempPath(path)) {
-		throw new InvalidPathError(path, `must not end with the reserved ${TEMP_PATH_SUFFIX}`);
+		throw new InvalidPathError(
+			path,
+			`must not end with the reserved ${TEMP_PATH_SUFFIX}, with or without a further extension`
+		);
 	}
 	for (const segment of path.split('/')) {
 		if (segment === '') throw new InvalidPathError(path, 'must not contain an empty segment');
