@@ -44,16 +44,16 @@ The distortion overlay, its measure choice, and the bent grid move behind a sing
 
 ## Acceptance criteria
 
-- [ ] `/align/?p=<project>&layer=<layer-id>` renders the sheet and the Base Map side by side and places a Control Point pair by click-then-click.
-- [ ] The route builds and prerenders under the static adapter, and the built output contains no SPA fallback file.
-- [ ] Opening the route with no `?p=`, with a missing Project, with an unopenable Project, and with a `layer` id not in the Project each render a named state with a link back — never a blank split screen and never an unhandled rejection.
-- [ ] Placing a Control Point, navigating back to the Project, and returning to the alignment view shows that Control Point.
-- [ ] The undo control still reverses a Control Point move after navigating away from the alignment view and back.
-- [ ] The distortion overlay, its measure choice, and the bent grid are absent from the accessibility tree until the disclosure is opened.
-- [ ] The fold warning appears for a self-intersecting set of Control Points **with the disclosure closed**.
-- [ ] The transformation guidance is present as text in the accessibility tree, not as a `title` or CSS-generated tooltip.
-- [ ] Reloading the alignment view does not reopen the disclosure.
-- [ ] Every control on the route is reachable by keyboard, and the way back is among them.
+- [x] `/align/?p=<project>&layer=<layer-id>` renders the sheet and the Base Map side by side and places a Control Point pair by click-then-click.
+- [x] The route builds and prerenders under the static adapter, and the built output contains no SPA fallback file.
+- [x] Opening the route with no `?p=`, with a missing Project, with an unopenable Project, and with a `layer` id not in the Project each render a named state with a link back — never a blank split screen and never an unhandled rejection.
+- [x] Placing a Control Point, navigating back to the Project, and returning to the alignment view shows that Control Point.
+- [x] The undo control still reverses a Control Point move after navigating away from the alignment view and back.
+- [x] The distortion overlay, its measure choice, and the bent grid are absent from the accessibility tree until the disclosure is opened.
+- [x] The fold warning appears for a self-intersecting set of Control Points **with the disclosure closed**.
+- [x] The transformation guidance is present as text in the accessibility tree, not as a `title` or CSS-generated tooltip.
+- [x] Reloading the alignment view does not reopen the disclosure.
+- [x] Every control on the route is reachable by keyboard, and the way back is among them.
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check
@@ -68,6 +68,38 @@ For the fold-warning and disclosure criteria, break each behaviour and confirm t
 ## Blocked by
 
 - Ticket 01
+
+## Mutation evidence
+
+Every criterion was checked by breaking the behaviour and confirming the test went red. Each mutation
+was applied alone, the editor rebuilt, and the named test run; all were reverted afterwards.
+
+| Criterion | Mutation | What went red |
+| --- | --- | --- |
+| 1 | the route matches `?layer=` against `MapLayer.imageId` instead of `.id` | `image-pane` never appears |
+| 2 | `adapter({ fallback: '200.html' })` | `200.html is an SPA fallback` |
+| 3 | the `{:else if layer === null}` branch removed | `layer-missing` not found |
+| 3 | the heading hard-coded to `Project not found` | `This Project cannot be opened` not found |
+| 4 | `readAlignment` returns `newAlignment` and discards the stored bytes | 0 Control Point rows after the round trip |
+| 5 | `putBack` reverses `recordedOn` instead of resolving `live` | the Alignment on disk drops to 3 pairs from 4 |
+| 6 | `DistortionControls` rendered unconditionally | the overlay checkbox is in the accessibility tree with the disclosure closed |
+| 7 | the fold warning moved inside `{#if checking}` | `fold-warning` not found with the disclosure closed |
+| 8 | the guidance paragraph emptied and moved to `title=` | the guidance is `hidden` |
+| 9 | `checking` persisted in `sessionStorage` and restored on mount | `aria-expanded` is `true` after a reload |
+| 10 | `tabindex="-1"` on the way back | `these controls cannot be reached by Tab: A[back-to-project]` |
+| contract: fit | `fitTo` left empty in `loadAlignment` | the Base Map does not move when the route is reopened |
+
+Two notes on what the mutations revealed rather than confirmed.
+
+**Criterion 6's first mutation was not a violation.** Replacing the conditional render with
+`class:hidden` was caught only by the `data-testid` count, not by the `getByRole` queries — because
+`display: none` genuinely does remove a subtree from the accessibility tree, so the criterion as
+written was still met. The mutation that breaks the criterion is rendering the controls with no
+hiding at all, and that is the one recorded above.
+
+**Criterion 2's prerender half is structural rather than asserted against a matcher.** `statSync` on
+`build/align.html` throws when the file is absent, so it cannot pass vacuously; only the fallback half
+needed a mutation.
 
 ## Implementation notes
 
@@ -110,6 +142,13 @@ cost is that reopening starts from the default rather than the last measure.
 `url.searchParams` while prerendering, and the header renders outside the route's state chain, so
 reading `?p=` there killed the build. `session` is `null` in exactly the same condition, and every
 named state below the header carries its own way back.
+
+**Every e2e number here was measured on isolated ports, and that is not a formality.**
+`playwright.config.ts` pins 4173/4174 with `reuseExistingServer: !CI`, so a run in one worktree
+silently serves — or is served by — a sibling worktree's `apps/*/build`. The runs behind this ticket
+used a throwaway copy of that config on 4213/4214, deleted afterwards; the shared config is untouched,
+because three sibling tickets are in flight and it would conflict on merge. Whoever consolidates this
+epic should decide whether the ports become configurable.
 
 **Two e2e helpers needed a `scrollIntoViewIfNeeded`-shaped fix.** The route's header and its
 screen-reader explainer make the page ~120px taller than `ProjectView` was, which pushed a Resource
