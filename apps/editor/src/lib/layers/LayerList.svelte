@@ -81,7 +81,7 @@
 
 <section aria-labelledby="layer-stack-heading">
 	<div class="flex flex-wrap items-baseline justify-between gap-4">
-		<h3 id="layer-stack-heading" class="text-lg font-semibold">Layers</h3>
+		<h2 id="layer-stack-heading" class="text-lg font-semibold">Layers in this Project</h2>
 		<p class="text-sm opacity-70">The top of this list draws over everything below it.</p>
 	</div>
 
@@ -230,9 +230,13 @@
 									oninput={(event) => ondragopacity(layer.id, Number(event.currentTarget.value))}
 									onchange={() => oncommit()}
 								/>
-								<output data-testid="layer-opacity-value">
-									{Math.round(layer.opacity * 100)}%
-								</output>
+								<!--
+									A `<span>`, not an `<output>`: `<output>` carries an implicit `role="status"`, and the
+									save indicator already owns that role on this page — a second one makes
+									`getByRole('status')` ambiguous, which is a hint that a screen-reader user would have
+									to disambiguate too. The value is already announced by the range's own label.
+								-->
+								<span data-testid="layer-opacity-value">{Math.round(layer.opacity * 100)}%</span>
 							</label>
 						{/if}
 

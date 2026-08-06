@@ -252,6 +252,37 @@
 
 	let stack = $state.raw<StackRender | undefined>(undefined);
 
+	/**
+	 * Run `attach` once the map's style is complete, and hand back the way to stop waiting.
+	 *
+	 * **`isStyleLoaded()` is the gate, not the event.** `styledata` fires repeatedly while a style
+	 * loads — the first one arrives long before the sprites and the PMTiles header are in — so
+	 * attaching on it is attaching to a map that will refuse to take a layer. The symptom was a Layer
+	 * stack that never appeared at all, with nothing logged: the one `once('styledata')` fired early,
+	 * found the style unloaded, and there was no second chance. Waiting on `load` instead is no better,
+	 * because a theme change repaints a map that loaded minutes ago.
+	 */
+	const whenStyleLoaded = (target: MapLibreMap, attach: () => void): (() => void) => {
+		if (target.isStyleLoaded()) {
+			attach();
+			return () => undefined;
+		}
+		const stop = () => {
+			target.off('styledata', retry);
+			target.off('idle', retry);
+		};
+		const retry = () => {
+			if (!target.isStyleLoaded()) return;
+			stop();
+			attach();
+		};
+		target.on('styledata', retry);
+		// `idle` as well, because a style that is already complete when the last `styledata` fires
+		// leaves nothing else to listen for.
+		target.on('idle', retry);
+		return stop;
+	};
+
 	/** The Project's Layer stack (ticket 09), on the same `fetchFn` injection point (ADR-0011). */
 	$effect(() => {
 		// The only tracked dependencies, so that an opacity change cannot reach this effect.
@@ -266,18 +297,15 @@
 
 		let built: StackRender | undefined;
 		const attach = () => {
-			if (!current.isStyleLoaded()) return;
 			built = drawLayerStack({ map: current, layers: drawn, fetchTile: readTiles });
 			stack = built;
 			onstack?.(built.outcomes);
 		};
 
-		if (current.isStyleLoaded()) attach();
-		// `styledata` rather than `load`, because a theme change repaints a map that has long since
-		// loaded and this has to re-add the stack that `setStyle` just removed.
-		else current.once('styledata', attach);
+		const stopWaiting = whenStyleLoaded(current, attach);
 
 		return () => {
+			stopWaiting();
 			built?.destroy();
 			stack = undefined;
 			onstack?.({});

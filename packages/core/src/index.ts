@@ -181,7 +181,7 @@ export {
 } from './tiler/decode-ceiling.js';
 export { openDecodeAndCropSource } from './tiler/decode-and-crop-tiler.js';
 export { readImageHeader, type ImageHeader } from './tiler/image-header.js';
-export { buildImageManifest, type ImageManifest } from './tiler/image-manifest.js';
+export { buildImageManifest, readImageLabel, type ImageManifest } from './tiler/image-manifest.js';
 export {
 	NoStreamingTilerError,
 	UnreadableImageError,

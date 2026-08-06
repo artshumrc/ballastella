@@ -21,6 +21,8 @@ import {
 	type WarpedRender
 } from '$lib/warped/warped-map-layer';
 
+import { exposeLayerStackToBrowserTests } from './browser-test-handle';
+
 /**
  * One Layer of the stack with the documents it references already read.
  *
@@ -166,7 +168,7 @@ export function drawLayerStack(options: {
 }): StackRender {
 	const { map, layers, fetchTile } = options;
 	const outcomes: Record<string, DrawnOutcome> = {};
-	const warped = new Map<string, ReturnType<typeof createWarpedMapLayer>>();
+	const warped: Record<string, ReturnType<typeof createWarpedMapLayer>> = {};
 	const added: string[] = [];
 	const sources: string[] = [];
 
@@ -176,7 +178,7 @@ export function drawLayerStack(options: {
 			const layer = createWarpedMapLayer(fetchTile, stackLayerId(layerId));
 			map.addLayer(layer);
 			added.push(layer.id);
-			warped.set(layerId, layer);
+			warped[layerId] = layer;
 			layer.setOpacity(drawn.layer.opacity);
 			const render: WarpedRender = showAlignment(layer, drawn.alignment);
 			outcomes[layerId] = describe(render);
@@ -198,12 +200,15 @@ export function drawLayerStack(options: {
 		outcomes[layerId] = { status: 'drawn' };
 	}
 
+	const unexpose = exposeLayerStackToBrowserTests(map, warped);
+
 	return {
 		outcomes,
 		setOpacity(layerId, opacity) {
-			warped.get(layerId)?.setOpacity(opacity);
+			warped[layerId]?.setOpacity(opacity);
 		},
 		destroy() {
+			unexpose();
 			// `setStyle` on a theme change removes our layers along with everything else, so removing one
 			// that has already gone has to be survivable rather than an exception in a teardown.
 			for (const id of added.toReversed()) if (map.getLayer(id)) map.removeLayer(id);

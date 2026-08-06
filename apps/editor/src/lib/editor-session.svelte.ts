@@ -14,6 +14,7 @@ import {
 	emptyAnnotationCollection,
 	exportProjectZip,
 	imageIdFromAlignmentRef,
+	imageManifestPath,
 	ingestImageFile,
 	installFlushOnHide,
 	listIngestedImages,
@@ -24,6 +25,7 @@ import {
 	openDecodeAndCropSource,
 	parseAlignment,
 	projectFilePath,
+	readImageLabel,
 	readProjectZip,
 	renameLayer,
 	serialiseAlignment,
@@ -584,8 +586,10 @@ export class EditorSession {
 	 * times during one alignment. The Layer is recognised by its `alignmentRef`, because that is the
 	 * Layer's link to this image and there is one Layer per Alignment in this slice.
 	 *
-	 * The name starts as the image id, which is derived from the file the user chose. SPEC story 54 is
-	 * that they can then rename it, so the list describes their argument rather than their filenames.
+	 * The name starts as the file the user picked, which is the only place that is recorded — an image
+	 * id is a random identifier (ADR-0015), so naming the Layer from it would name it after a hash.
+	 * SPEC story 54 is that they can then rename it, so the list describes their argument rather than
+	 * their filenames.
 	 */
 	async #ensureMapLayer(directory: string, imageId: string): Promise<void> {
 		const project = this.openProject;
@@ -600,10 +604,25 @@ export class EditorSession {
 			...project,
 			layers: addLayer(
 				project.layers,
-				newMapLayer({ id: crypto.randomUUID(), name: imageId, alignmentRef })
+				newMapLayer({
+					id: crypto.randomUUID(),
+					name: (await this.#imageLabel(directory, imageId)) || imageId,
+					alignmentRef
+				})
 			)
 		};
 		await this.#write(directory);
+	}
+
+	/** What the user calls one Historical Map, or `''` when its manifest cannot be read. */
+	async #imageLabel(directory: string, imageId: string): Promise<string> {
+		try {
+			const bytes = await this.#store.read(`${directory}/${imageManifestPath(imageId)}`);
+			return readImageLabel(JSON.parse(new TextDecoder().decode(bytes)));
+		} catch {
+			// A Layer named after its image id is a poor name; a failed Alignment write is worse.
+			return '';
+		}
 	}
 
 	/**

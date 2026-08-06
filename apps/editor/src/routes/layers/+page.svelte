@@ -163,6 +163,11 @@
 
 	const fetchTile = $derived(session?.imageServiceFetch() ?? undefined);
 
+	/** How many Layers are actually on the map. Said, because "nothing is drawn" has many reasons. */
+	const drawnCount = $derived(
+		Object.values(outcomes).filter((outcome) => outcome.status === 'drawn').length
+	);
+
 	const annotationLayerCount = $derived(
 		layers.filter((layer) => layer.kind === 'annotation').length
 	);
@@ -253,13 +258,34 @@
 				<p class="mt-6"><a class="link" href={resolve('/')}>Back to all Projects</a></p>
 			</div>
 
-			<div class="h-[36rem] overflow-hidden rounded border border-base-300">
-				<BaseMapPane
-					entryId={resolution.entry.id}
-					layers={drawn}
-					{fetchTile}
-					onstack={(reported) => (rendered = reported)}
-				/>
+			<div>
+				<div class="h-[36rem] overflow-hidden rounded border border-base-300">
+					<BaseMapPane
+						entryId={resolution.entry.id}
+						layers={drawn}
+						{fetchTile}
+						onstack={(reported) => (rendered = reported)}
+					/>
+				</div>
+				<!--
+					What is on the map, in words. `aria-live` rather than `role="status"`, because the save
+					indicator already owns that role on this page — the same reason the ingest progress region
+					and the pairing prompt are `aria-live` too.
+				-->
+				<p
+					class="mt-2 min-h-6 text-sm"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="stack-status"
+					data-drawn={drawnCount}
+				>
+					{#if layers.length === 0}
+						Nothing is on the map yet.
+					{:else}
+						{drawnCount} of {layers.length}
+						{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
+					{/if}
+				</p>
 			</div>
 		</div>
 	{/if}
