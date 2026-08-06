@@ -92,6 +92,19 @@ bucket rather than shipping it. Its data carries the same ODbL obligation, met t
 hosting carries no published terms. See
 [`apps/editor/static/base-map/PROVENANCE.md`](apps/editor/static/base-map/PROVENANCE.md).
 
+## Bundled test fixtures
+
+The image pane's fixture pyramid also ships as bytes rather than as a dependency, so the same
+"not in any `node_modules` manifest" caveat applies. Provenance and rights are recorded beside the
+files in [`apps/editor/static/fixtures/README.md`](apps/editor/static/fixtures/README.md).
+
+| Content                                  | Licence       | What it is                                     |
+| ---------------------------------------- | ------------- | ---------------------------------------------- |
+| `fixtures/images/floride-1657/**`        | public domain | Nicolas Sanson, _La Floride_, Paris [1657], from the US Library of Congress via Wikimedia Commons |
+
+No attribution is required for a 1657 work the Library of Congress records no known restrictions
+on, so there is no runtime obligation here — unlike the base map's ODbL condition above.
+
 ## Open: two licence texts do not ship
 
 **Needs a human.** OFL 1.1 and BSD-3-Clause both require the licence text to accompany

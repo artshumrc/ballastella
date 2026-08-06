@@ -8,9 +8,9 @@ This document tracks the status of all tickets in the epic. The goal of `ballast
 
 Overall status: `In Progress`
 
-Current ticket: none. Tickets 02, 03, and 04 are merged into `main` and have been code-reviewed; remediation of the confirmed findings is in flight. Tickets 05, 12, and 13 (all depending only on 02) are unblocked once remediation lands. Ticket 06 additionally needs 05.
+Current ticket: none. Tickets 02, 03, and 04 are merged into `main`, code-reviewed, and their confirmed findings remediated and re-verified (247 unit tests, 40 e2e, lint/typecheck/build clean). **Tickets 05, 12, and 13 are ready to start** — all three depend only on 02. Ticket 06 additionally needs 05.
 
-**Two items need a human decision before the epic can claim what it currently claims — see [Open questions for a human](#open-questions-for-a-human).**
+**Three items need a human — see [Open questions for a human](#open-questions-for-a-human).** None blocks tickets 05, 12, or 13.
 
 Last updated: 2026-08-05
 
@@ -47,7 +47,9 @@ Raised by the code reviews of tickets 02–04. Neither is a defect an implemente
 
 1. **What is the canonical instance URL?** `BALLASTELLA_CANONICAL_URL` in `packages/core/src/project/project-file.ts` is currently `https://artshumrc.github.io/ballastella/`, derived from the git remote because nothing in the repo records one. ADR-0010 requires the format-refusal message to name a URL, and this is the one string a user reads at the moment their work is at risk. Two problems: it 404s unless Pages is enabled on that repo with no custom domain, and [ADR-0006](../../docs/adr/0006-relative-asset-paths.md) says we cannot know at build time whether a deployment lives at a subpath or a domain root — so a compile-time constant is wrong on every fork until hand-edited. Decide the value, or decide it must be deployment configuration with a guard like ADR-0020's catalog lint rule.
 
-2. **Is story 4 in or out for v1 as written?** Story 4 claims Firefox and Safari "work fully", and ticket 02 is credited with it. But `FileSystemFileHandle.move()` is Chromium-only, and the non-Chromium fallback overwrites the destination in place — the very thing ADR-0017's temp-file rule exists to avoid. Both test runners are Chromium-only, so that branch is dead code no test executes. Either cross-browser runners join the toolchain (a CI cost decision) or the claim needs narrowing. Do not leave it claimed and untested.
+2. **Should the Playwright suite run on Firefox and WebKit too?** Largely resolved during remediation, and the premise the review started from turned out to be stale: `FileSystemFileHandle.move()` is **no longer Chromium-only** — Playwright's Firefox 153 has it. So the ProjectStore adapter suite now runs in both Chromium and Firefox (`packages/core/vitest.config.ts`, and CI installs both), and the in-place-overwrite fallback is covered by a test that hides `move` the way Safari still does. What remains is purely a CI cost decision: the **Playwright** suite is still Chromium-only, so the app's UI is unasserted on other engines even though the storage layer is not. Story 4 is no longer claimed-and-untested; it is claimed and tested at the layer where it can silently corrupt data.
+
+3. **The two licence texts still do not ship.** OFL 1.1 and BSD-3-Clause both require the text to accompany redistribution, and neither is in this repository or in `node_modules` — `@protomaps/basemaps` ships no `LICENSE`, and substituting `maplibre-gl`'s BSD text would fabricate an attribution to the wrong copyright holder. Recorded in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md) under "Open: two licence texts do not ship"; the texts must be fetched from upstream by a human.
 
 ## Sequencing notes
 

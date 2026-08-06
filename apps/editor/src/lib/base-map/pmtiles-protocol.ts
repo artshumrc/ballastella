@@ -11,8 +11,12 @@ let registered = false;
  * tile server, no API key, no tile-provider terms of service, no per-fork registration — and it
  * works offline. SPEC stories 88 and 101 both rest on this one call.
  *
- * MapLibre's protocol registry is global and a second registration for the same scheme throws, so
- * this is idempotent: panes come and go with navigation, the protocol does not.
+ * MapLibre's protocol registry is page-global, but `addProtocol` does not throw on a second
+ * registration — in maplibre-gl 5 it is a plain assignment into `config.REGISTERED_PROTOCOLS`, so
+ * re-registering silently replaces the handler. This is idempotent anyway, because panes come and
+ * go with navigation and the protocol does not. Note the flag is module state while the registry
+ * is page state: after a Vite HMR reload of this module the flag resets while the registration
+ * survives, which is harmless here precisely because the second call is not an error.
  */
 export function registerPmtilesProtocol(): void {
 	if (registered) return;
