@@ -11,6 +11,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
+		"@allmaps/maplibre": "catalog:",
 		"@ballastella/core": "workspace:*",
 		"maplibre-gl": "catalog:",
 		"pmtiles": "catalog:",
