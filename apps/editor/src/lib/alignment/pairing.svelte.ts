@@ -15,14 +15,23 @@
 // write goes through that function (ADR-0022 contract 2).
 
 import {
+	DEFAULT_TRANSFORMATION_TYPE,
+	MINIMUM_MASK_VERTICES,
 	collectControlPoints,
+	fullImageResourceMask,
+	insertMaskVertexAfter,
+	maskEdgeMidpoints,
+	moveMaskVertex,
 	newAlignment,
+	removeMaskVertex,
+	resetMaskToFullImage,
 	toDraftControlPoints,
 	type Alignment,
 	type ControlPoint,
 	type DraftControlPoint,
 	type GeoPoint,
-	type ResourcePoint
+	type ResourcePoint,
+	type TransformationType
 } from '@ballastella/core';
 
 /** Which pane a pending half was placed on, and therefore which click completes it. */
@@ -46,6 +55,21 @@ export class AlignmentPairing {
 	/** Which pair is selected, so both panes can highlight it (ADR-0022 contract 4). `null` for none. */
 	selectedId = $state<string | null>(null);
 
+	/**
+	 * How the Historical Map is stretched (ADR-0013). Part of the Alignment, so it is held here
+	 * beside the Control Points rather than in a component: changing it must not be able to disturb
+	 * them, and holding both in one object is what makes that structural.
+	 */
+	transformationType = $state<TransformationType>(DEFAULT_TRANSFORMATION_TYPE);
+
+	/**
+	 * Which part of the sheet is actually the map (CONTEXT.md, Resource Mask).
+	 *
+	 * A ring of image pixels, never empty and never shorter than three vertices — see
+	 * `removeMaskVertex`, which is where that is enforced.
+	 */
+	resourceMask = $state<readonly ResourcePoint[]>([]);
+
 	readonly #imageId: string;
 	readonly #image: { readonly width: number; readonly height: number };
 	/** Bumped per pair, so ids are unique within the session and independent of position. */
@@ -54,10 +78,13 @@ export class AlignmentPairing {
 	constructor(imageId: string, image: { width: number; height: number }, stored?: Alignment) {
 		this.#imageId = imageId;
 		this.#image = { width: image.width, height: image.height };
+		this.resourceMask = fullImageResourceMask(this.#image);
 		if (stored) {
 			this.drafts = [...toDraftControlPoints(stored)];
 			// Past whatever the stored ids were, so a new pair cannot collide with a resumed one.
 			this.#nextId = this.drafts.length;
+			this.transformationType = stored.transformationType;
+			this.resourceMask = stored.resourceMask;
 		}
 	}
 
@@ -103,8 +130,64 @@ export class AlignmentPairing {
 	get alignment(): Alignment {
 		return {
 			...newAlignment(this.#imageId, this.#image),
-			controlPoints: this.controlPoints
+			controlPoints: this.controlPoints,
+			resourceMask: this.resourceMask,
+			transformationType: this.transformationType
 		};
+	}
+
+	/**
+	 * Choose how the Historical Map is stretched (ADR-0013).
+	 *
+	 * **Nothing else changes.** The Control Points are the user's actual labour and the transformation
+	 * is a lens over them, so the obvious implementation — reset on change — destroys work. Here that
+	 * is structural rather than careful: this method touches one field, and `drafts` is not one of
+	 * them.
+	 *
+	 * Deliberately not gated on the Control Point count. The picker disables an option the count
+	 * cannot support, which is where ADR-0013 puts the gate and where the shortfall can be named;
+	 * refusing here as well would mean a stored Alignment could not hold the type it was saved with
+	 * while its Control Points were still loading.
+	 */
+	setTransformationType(type: TransformationType): void {
+		this.transformationType = type;
+	}
+
+	/** The midpoint of every edge of the mask, in edge order — where a new vertex would go. */
+	readonly maskEdgeMidpoints: readonly ResourcePoint[] = $derived(
+		maskEdgeMidpoints(this.resourceMask)
+	);
+
+	/** Whether a vertex can still be taken out, or the mask is down to its last three. */
+	readonly canRemoveMaskVertex: boolean = $derived(
+		this.resourceMask.length > MINIMUM_MASK_VERTICES
+	);
+
+	/** Move one Resource Mask vertex. Called on gesture end, so it is already one commit. */
+	moveMaskVertex(index: number, to: ResourcePoint): void {
+		this.resourceMask = moveMaskVertex(this.alignment, index, to).resourceMask;
+	}
+
+	/** Add a vertex at the midpoint of the edge leaving `index`, changing the outline by nothing. */
+	insertMaskVertexAfter(index: number): void {
+		this.resourceMask = insertMaskVertexAfter(this.alignment, index).resourceMask;
+	}
+
+	/**
+	 * Remove one Resource Mask vertex.
+	 *
+	 * @returns whether it went. `false` at the minimum, so the caller can say why rather than leaving
+	 * a keypress that appears to do nothing.
+	 */
+	removeMaskVertex(index: number): boolean {
+		const before = this.resourceMask;
+		this.resourceMask = removeMaskVertex(this.alignment, index).resourceMask;
+		return this.resourceMask !== before;
+	}
+
+	/** Show the whole sheet again. The recovery for a mask that has been outlined into a corner. */
+	resetMask(): void {
+		this.resourceMask = resetMaskToFullImage(this.alignment).resourceMask;
 	}
 
 	/**

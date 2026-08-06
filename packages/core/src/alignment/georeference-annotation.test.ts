@@ -17,6 +17,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { parseAnnotation, validateAnnotation } from '@allmaps/annotation';
+import {
+	transformationTypeToTypeAndOrder,
+	typeAndOrderToTransformationType
+} from '@allmaps/transform';
 
 import {
 	ROUND_TRIP_TOLERANCE_PX,
@@ -24,8 +28,12 @@ import {
 } from '../image-pane/synthetic-projection.js';
 import { imageServiceId } from '../tiler/pyramid.js';
 import {
+	TRANSFORMATION_CHOICES,
 	collectControlPoints,
+	insertMaskVertexAfter,
+	moveMaskVertex,
 	newAlignment,
+	withTransformationType,
 	type Alignment,
 	type DraftControlPoint
 } from './alignment.js';
@@ -240,6 +248,58 @@ describe('the Resource Mask’s SVG round-trip, which is the one lossy-looking p
 		expect(written).not.toMatch(/points="[^"]*e-/);
 	});
 
+	// **The path that makes the defect reachable in the field.** Ticket 07 fixed it while the mask
+	// was still the full image rectangle and its vertices were therefore integers; editing the mask
+	// is what lets a user put a vertex under 1e-6 — by dragging one towards the image origin, or by
+	// inserting one at the midpoint of an edge that already has a tiny coordinate. So the assertion
+	// is made through the editing operations, not by hand-building a mask.
+	it('survives an edited vertex below 1e-6, dragged there and inserted there', () => {
+		const dragged = moveMaskVertex(newAlignment('sheet', { width: 1200, height: 851 }), 0, {
+			x: 1.5e-7,
+			y: 2.5e-7
+		});
+
+		const written = text(serialiseAlignment(dragged));
+		// Plain decimal, every significant digit kept — the notation changes, the value does not.
+		expect(written).toContain('0.00000015,0.00000025');
+		expect(written).not.toMatch(/points="[^"]*e-/);
+
+		const back = parseAlignment(serialiseAlignment(dragged), { imageId: 'sheet' });
+		expect(back.resourceMask[0]).toStrictEqual({ x: 1.5e-7, y: 2.5e-7 });
+		// Exactly zero error, not a tolerance: an exponential vertex does not lose precision, it makes
+		// the *entire* Alignment unreadable, so there is nothing to be within.
+		expect(back.resourceMask).toStrictEqual(dragged.resourceMask);
+		expect(back.controlPoints).toStrictEqual(dragged.controlPoints);
+
+		// Inserting on the edge that leaves it halves the coordinate again, taking the new vertex
+		// under 1e-6 as well — the second way a user reaches this without doing anything unusual.
+		const inserted = insertMaskVertexAfter(moveMaskVertex(dragged, 1, { x: 3.5e-7, y: 4.5e-7 }), 0);
+		expect(inserted.resourceMask[1]).toStrictEqual({ x: 2.5e-7, y: 3.5e-7 });
+
+		const reread = parseAlignment(serialiseAlignment(inserted), { imageId: 'sheet' });
+		expect(reread.resourceMask).toStrictEqual(inserted.resourceMask);
+		expect(text(serialiseAlignment(reread))).toBe(text(serialiseAlignment(inserted)));
+	});
+
+	// An edited mask has to be readable by upstream's own validator, not merely by us: a mask with
+	// five or six vertices, sub-pixel coordinates, and a concave corner is the ordinary product of
+	// outlining a real sheet.
+	it('keeps an edited mask a valid Georeference Annotation', () => {
+		let alignment = newAlignment('sheet', { width: 1200, height: 851 });
+		alignment = insertMaskVertexAfter(alignment, 1);
+		alignment = moveMaskVertex(alignment, 2, { x: 1199.999999, y: 425.0000001 });
+		alignment = insertMaskVertexAfter(alignment, 3);
+		alignment = moveMaskVertex(alignment, 4, { x: 600.5, y: 300.25 });
+
+		const document = JSON.parse(text(serialiseAlignment(alignment)));
+		expect(() => validateAnnotation(document)).not.toThrow();
+		expect(parseAnnotation(document)).toHaveLength(1);
+
+		const back = parseAlignment(serialiseAlignment(alignment), { imageId: 'sheet' });
+		expect(back.resourceMask).toStrictEqual(alignment.resourceMask);
+		expect(back.resourceMask).toHaveLength(6);
+	});
+
 	// Pinned because `toPlainDecimal` relies on it: it does no non-finite check of its own, since
 	// one would be unreachable. `String(NaN)` is the text `NaN`, which matches no branch of
 	// upstream's polygon regex, so a vertex that got through would make the file unreadable.
@@ -341,6 +401,126 @@ describe('the transformation type in the file', () => {
 
 		expect(parseAlignment(bytes, { imageId: 'floride-1657' }).transformationType).toBe(
 			'polynomial1'
+		);
+	});
+});
+
+describe('every offered transformation type round-trips through @allmaps/annotation', () => {
+	// The criterion, and the one that would otherwise silently misplace every Alignment in the field.
+	// Six types are offered, and every one is measured rather than assumed: `@allmaps/annotation`'s
+	// `transformation` is a Zod enum that does not contain four of the six names, so what survives
+	// the file is a question about upstream and not about our writer.
+	const base = (type: (typeof TRANSFORMATION_CHOICES)[number]['type']): Alignment =>
+		withTransformationType(
+			{
+				...newAlignment('floride-1657', { width: 1200, height: 851 }),
+				controlPoints: collectControlPoints(
+					// Ten pairs, so that even `polynomial3` is above its minimum and the document is one a
+					// user could actually have produced.
+					Array.from({ length: 10 }, (_, index) => ({
+						id: `p${index}`,
+						resource: { x: 40 + index * 90, y: 30 + index * 60 },
+						geo: { lng: -87.2 + index * 0.7, lat: 30.4 - index * 0.5 }
+					}))
+				)
+			},
+			type
+		);
+
+	it.each(TRANSFORMATION_CHOICES.map((choice) => choice.type))(
+		'%s survives serialise → deserialise as itself',
+		(type) => {
+			const written = serialiseAlignment(base(type));
+			const back = parseAlignment(written, { imageId: 'floride-1657' });
+
+			expect(back.transformationType).toBe(type);
+			// Upstream's own validator, and its own parser: the criterion is that the document is a
+			// Georeference Annotation, so it is upstream that has to say so.
+			expect(() => validateAnnotation(JSON.parse(text(written)))).not.toThrow();
+			expect(parseAnnotation(JSON.parse(text(written)))).toHaveLength(1);
+			// And the Control Points came through unchanged, not merely the type. Compared by coordinate
+			// and ordinal rather than wholesale, because the id is *derived from position* on read —
+			// the file carries none, and inventing one would be the proprietary index story 94 rules out.
+			expect(
+				back.controlPoints.map(({ ordinal, resource, geo }) => ({ ordinal, resource, geo }))
+			).toStrictEqual(
+				base(type).controlPoints.map(({ ordinal, resource, geo }) => ({
+					ordinal,
+					resource,
+					geo
+				}))
+			);
+		}
+	);
+
+	it.each(TRANSFORMATION_CHOICES.map((choice) => choice.type))(
+		'%s is idempotent over five round-trips',
+		(type) => {
+			let alignment = parseAlignment(serialiseAlignment(base(type)), { imageId: 'floride-1657' });
+			const first = alignment;
+			for (let pass = 0; pass < 5; pass += 1) {
+				alignment = parseAlignment(serialiseAlignment(alignment), { imageId: 'floride-1657' });
+			}
+			expect(alignment).toStrictEqual(first);
+		}
+	);
+
+	it('writes none of the three banned names, under any offered type', () => {
+		for (const { type } of TRANSFORMATION_CHOICES) {
+			const written = text(serialiseAlignment(base(type)));
+			expect(written, type).not.toContain('straight');
+			expect(written, type).not.toContain('linear');
+			// The bare alias is forbidden only *without* an order beside it. Every polynomial is written
+			// as `"type": "polynomial"` with `options.order`, which is the one form the format can carry
+			// — so what is asserted is that the order is never missing.
+			const document = JSON.parse(written) as { body: { transformation?: unknown } };
+			const transformation = document.body.transformation as
+				{ type?: string; options?: { order?: number } } | undefined;
+			if (transformation?.type === 'polynomial') {
+				expect(transformation.options?.order, type).toBeGreaterThanOrEqual(1);
+			}
+		}
+	});
+
+	// **A live upstream defect, pinned here so an upstream fix is noticed rather than assumed.**
+	// `typeAndOrderToTransformationType` is the documented inverse of `transformationTypeToTypeAndOrder`
+	// and for orders 2 and 3 it is not: its first branch claims `type === 'polynomial'` before the
+	// order is looked at, so the `order === 2` and `order === 3` branches are unreachable. The file is
+	// written correctly — the order is there and comes back — but trusting the helper to read it would
+	// turn a user's Higher-order (3rd) Alignment into an affine one on reopening, with every
+	// coordinate intact and the map placed wrongly. `readTransformationType` reads the order itself.
+	//
+	// **When upstream fixes the helper, this test fails** and the direct read can be removed.
+	it.each([
+		['polynomial2', 2],
+		['polynomial3', 3]
+	])('has its order dropped by upstream’s own inverse for %s', (name, order) => {
+		const written = transformationTypeToTypeAndOrder(name as 'polynomial2' | 'polynomial3');
+		expect(written).toStrictEqual({ type: 'polynomial', options: { order } });
+
+		// Upstream writes and reads the order faithfully…
+		const document = JSON.parse(text(serialiseAlignment(base(name as 'polynomial2'))));
+		expect(document.body.transformation).toStrictEqual({ type: 'polynomial', options: { order } });
+		expect(parseAnnotation(document)[0]?.transformation).toStrictEqual({
+			type: 'polynomial',
+			options: { order }
+		});
+
+		// …and then throws the order away on the way back to a name.
+		expect(typeAndOrderToTransformationType(written)).toBe('polynomial1');
+
+		// Which is exactly what `parseAlignment` must not do.
+		expect(
+			parseAlignment(serialiseAlignment(base(name as 'polynomial2')), { imageId: 'floride-1657' })
+				.transformationType
+		).toBe(name);
+	});
+
+	// `straight` is the third name ADR-0013 bans, and this is why: upstream's own inverse throws on
+	// it, so a document carrying it is one that cannot be read back into a type at all.
+	it('is why straight is banned: upstream throws turning it back into a name', () => {
+		expect(() => typeAndOrderToTransformationType({ type: 'straight' })).toThrow(
+			/Unrecognised transformationType/
 		);
 	});
 });

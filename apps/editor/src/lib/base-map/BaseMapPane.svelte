@@ -17,9 +17,11 @@
 	import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 	import {
 		BASE_MAP_CATALOG,
+		DEFAULT_DISTORTION_VIEW,
 		baseMapStyle,
 		resolveBaseMap,
 		type Alignment,
+		type DistortionView,
 		type FetchFn
 	} from '@ballastella/core';
 	import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
@@ -39,6 +41,7 @@
 	import {
 		createWarpedMapLayer,
 		showAlignment,
+		showDistortion,
 		type WarpedRender
 	} from '$lib/warped/warped-map-layer';
 
@@ -51,6 +54,7 @@
 		overlayPoints = [],
 		alignment = null,
 		layers = [],
+		distortion = DEFAULT_DISTORTION_VIEW,
 		fetchTile,
 		onclickpoint,
 		onwarped,
@@ -75,6 +79,15 @@
 		 * what, including across kinds (ADR-0002) — see `drawLayerStack`.
 		 */
 		layers?: readonly DrawnLayer[];
+		/**
+		 * What the warped Historical Map is colourised with, and whether the graticule is drawn.
+		 *
+		 * A working view rather than a property of the work, so it is a prop and **not** persisted
+		 * (ADR-0013): a Published Site could otherwise load colourised, and a Reader would have no way
+		 * to interpret it. Changing it updates the drawn map in place rather than rebuilding it — see
+		 * `showDistortion`.
+		 */
+		distortion?: DistortionView;
 		/**
 		 * Where the aligned Historical Map's tiles are read from (ADR-0011). Required for anything to
 		 * be drawn warped, since a locally stored pyramid has no URL.
@@ -195,6 +208,19 @@
 	 * keyed on the document's content, so a moved Control Point is a different map to the layer
 	 * and there is nothing to update in place.
 	 */
+	/**
+	 * The drawn map, for the display-only updates below.
+	 *
+	 * `$state.raw` and set from inside the effect that owns the layer, so that turning the distortion
+	 * overlay on can reach the same map rather than provoking a rebuild. `addGeoreferencedMap` is
+	 * keyed on the document's content, so a rebuild throws away the tile cache — the user would watch
+	 * their Historical Map vanish and come back for a checkbox.
+	 */
+	let drawn = $state.raw<{
+		layer: ReturnType<typeof createWarpedMapLayer>;
+		mapId: string;
+	} | null>(null);
+
 	$effect(() => {
 		const current = map;
 		const shown = alignment;
@@ -202,6 +228,7 @@
 		if (!current || !shown || !readTiles) {
 			// Nothing to draw. Said rather than left implicit, so the page's account of what is on the
 			// Base Map cannot outlive the layer that was on it.
+			drawn = null;
 			onwarped?.(null);
 			return;
 		}
@@ -215,7 +242,11 @@
 			current.addLayer(layer);
 			added = true;
 			unexpose = exposeWarpedLayerToBrowserTests(current, layer);
-			onwarped?.(showAlignment(layer, shown));
+			// The distortion view is read here rather than being a dependency of this effect: it is a
+			// display setting, and making it a dependency is exactly the rebuild this avoids.
+			const render = showAlignment(layer, shown, distortionNow());
+			drawn = render.status === 'drawn' ? { layer, mapId: render.mapId } : null;
+			onwarped?.(render);
 		};
 
 		if (current.isStyleLoaded()) attach();
@@ -223,6 +254,7 @@
 
 		return () => {
 			unexpose();
+			drawn = null;
 			// `setStyle` on a theme change removes our layer along with everything else, so removing
 			// one that has already gone has to be survivable rather than an exception in a teardown.
 			if (added && current.getLayer(layer.id)) current.removeLayer(layer.id);
@@ -319,6 +351,29 @@
 		for (const drawn of layers) {
 			if (isDrawnMap(drawn)) built.setOpacity(drawn.layer.id, drawn.layer.opacity);
 		}
+	});
+
+	/**
+	 * Read the distortion view without registering it as a dependency of the effect above.
+	 *
+	 * A plain function over the prop, called from inside `attach`. Svelte tracks reads inside an
+	 * effect, so reading `distortion` there directly would make every toggle rebuild the layer —
+	 * which is the one thing the separate effect below exists to prevent. Untracked because the
+	 * function is invoked, not because of anything about the function.
+	 */
+	const distortionNow = (): DistortionView => untrack(() => distortion);
+
+	// Display only: the same map, recolourised. Runs on every change to the view *and* to the theme,
+	// because the ramp is read out of the live document — a flavour change has to repaint the overlay
+	// in the same action that repaints the interface (ADR-0016).
+	$effect(() => {
+		const shown = drawn;
+		const view = distortion;
+		const currentTheme = theme.current;
+		const forAlignment = alignment;
+		if (!shown || !forAlignment) return;
+		void currentTheme;
+		showDistortion(shown.layer, shown.mapId, forAlignment, view);
 	});
 </script>
 

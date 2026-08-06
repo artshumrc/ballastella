@@ -26,6 +26,7 @@
 		fetchTile,
 		label,
 		overlayPoints = [],
+		maskRing = [],
 		onclickpoint,
 		onpane
 	}: {
@@ -37,6 +38,9 @@
 		label: string;
 		/** Control Points' image halves, and the pending half when it is on this pane (ticket 07). */
 		overlayPoints?: PaneOverlayPoint[];
+		/** The Alignment's Resource Mask, in image pixels. This pane only: the mask has no meaning on
+		 * the Base Map, which speaks lng/lat (ticket 08's out-of-scope note). */
+		maskRing?: readonly ResourcePoint[];
 		/** An image pixel the user clicked, which is how a Control Point is started (ADR-0022). */
 		onclickpoint?: (point: ResourcePoint) => void;
 		/**
@@ -140,6 +144,7 @@
 				{fetchTile}
 				{label}
 				{overlayPoints}
+				{maskRing}
 				{onclickpoint}
 				onview={(view) => {
 					mapZoom = view.mapZoom;

@@ -24,8 +24,26 @@ import { Marker, type LngLatLike, type Map as MapLibreMap } from 'maplibre-gl';
  * `reference` and `reported` are the image pane's one-sided annotations of its own coordinate
  * space, from ticket 03 — **not** Control Points, which pair an image pixel with a place on the
  * earth and are incomplete without both halves (ADR-0022).
+ *
+ * `mask-vertex` and `mask-edge` are the Resource Mask's handles, on the image pane only: the mask
+ * is in image pixel space, so it has no meaning on the Base Map. A vertex can be moved and
+ * removed; an edge handle sits at the midpoint of an edge and adds a vertex there.
  */
-export type OverlayPointKind = 'reference' | 'reported' | 'control-point';
+export type OverlayPointKind =
+	'reference' | 'reported' | 'control-point' | 'mask-vertex' | 'mask-edge';
+
+/**
+ * The kinds a user can operate: focusable `<button>`s, draggable, arrow-key movable, Delete-able.
+ *
+ * A set rather than a comparison, because there are now three of them and the list is the whole of
+ * the distinction. Anything not here is a label — `aria-hidden`, `pointer-events: none`, so clicks
+ * reach the map underneath.
+ */
+const INTERACTIVE_KINDS: ReadonlySet<OverlayPointKind> = new Set<OverlayPointKind>([
+	'control-point',
+	'mask-vertex',
+	'mask-edge'
+]);
 
 /** How far one arrow-key press moves a point, in screen pixels. */
 const NUDGE_PIXELS = 1;
@@ -50,6 +68,14 @@ export type OverlayPoint<TPoint> = {
 	 * Absent for a half still waiting for its partner, which has no ordinal yet.
 	 */
 	ordinal?: number;
+	/**
+	 * A single character drawn inside the point instead of an ordinal — `+` on a Resource Mask edge
+	 * handle, which is the affordance for "a vertex goes here".
+	 *
+	 * Decoration only: it is never the accessible name, which is always {@link label}, so a handle
+	 * still announces what it does rather than announcing "plus".
+	 */
+	glyph?: string;
 	/** Drawn highlighted. Set on **both** halves of a selected pair, which is what links the panes. */
 	selected?: boolean;
 	/** The half clicked but not yet matched (ADR-0022 contract 1: visible, and labelled as pending). */
@@ -154,7 +180,7 @@ export function createOverlayPointLayer<TPoint>(
 	const paint = (handle: Handle<TPoint>, point: OverlayPoint<TPoint>): void => {
 		handle.current = point;
 		const { element } = handle;
-		const interactive = point.kind === 'control-point';
+		const interactive = INTERACTIVE_KINDS.has(point.kind);
 
 		// Set here rather than at construction so it cannot go stale: only a point that has somewhere
 		// to report a move to can be picked up, and a point that stops being movable stops being
@@ -186,7 +212,8 @@ export function createOverlayPointLayer<TPoint>(
 			// The ordinal is *in the element*, as text, so it is visible without hovering and is read
 			// out as part of the point's name. ADR-0022 wants "look at point 7" to work over a
 			// student's shoulder and in a written comment, which a tooltip does not serve.
-			element.textContent = point.ordinal === undefined ? '' : String(point.ordinal);
+			element.textContent =
+				point.ordinal === undefined ? (point.glyph ?? '') : String(point.ordinal);
 			element.setAttribute('aria-label', point.label);
 			// The selected state is what links the two panes, so it has to be announced and not merely
 			// drawn: a screen-reader user selecting point 7 needs to be told which point is current.
@@ -203,7 +230,7 @@ export function createOverlayPointLayer<TPoint>(
 	};
 
 	const create = (point: OverlayPoint<TPoint>): Handle<TPoint> => {
-		const interactive = point.kind === 'control-point';
+		const interactive = INTERACTIVE_KINDS.has(point.kind);
 		const element = document.createElement(interactive ? 'button' : 'div');
 		const handle: Handle<TPoint> = {
 			marker: new Marker({ element, anchor: 'center' }),

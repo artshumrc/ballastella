@@ -113,6 +113,15 @@ const KNOWN_TRANSFORMATION_TYPES: readonly TransformationType[] = [
  * the renderer's caller can pass an `Alignment` and never assemble a `GeoreferencedMap` of its own
  * — two places building this object is how the *stored* Alignment and the *rendered* one come to
  * disagree, which is a Historical Map drawn somewhere other than where it was saved.
+ *
+ * **The renderer must still be told the transformation type separately, and this object cannot
+ * carry it.** `WarpedMap` reads `georeferencedMap.transformation?.type` and nothing else — the
+ * order beside it is ignored — so `{ type: 'polynomial', options: { order: 3 } }` reaches the
+ * solver as plain `polynomial`, which is first order. Everything up to `polynomial1` is therefore
+ * right by accident, and second and third order are silently downgraded. The fix is the layer's
+ * own `transformationType` map option, which wins over what it read from the document; see
+ * `warped-map-layer.ts`. Nothing can be done about it here, because the field this object writes
+ * is the field the format defines.
  */
 export function toGeoreferencedMap(alignment: Alignment): unknown {
 	return {
@@ -155,10 +164,12 @@ export function serialiseAlignment(alignment: Alignment): Bytes {
  * Alignment down with it: `parseAnnotation` throws on the selector and the Control Points are
  * unreachable. Verified against the pinned `@allmaps/annotation@1.0.0-beta.37`.
  *
- * Nothing in this slice can reach that state — the mask is the full image rectangle and its
- * vertices are integers (ADR-0013; editing it is ticket 08). It is fixed here anyway because the
- * failure is silent, arrives on *reopening* rather than on saving, and costs the user everything
- * rather than the one vertex that provoked it.
+ * **Editing the mask is what makes that state reachable**, and it is now editable: a vertex
+ * dragged towards the image origin, or a vertex inserted at the midpoint of an edge that already
+ * has a tiny coordinate, lands under 1e-6 without anything unusual happening. This was fixed
+ * before the mask was editable, on the grounds that the failure is silent, arrives on *reopening*
+ * rather than on saving, and costs the user everything rather than the one vertex that provoked
+ * it; the editing path is asserted against it directly.
  *
  * **No precision is given up.** This changes the notation and not the value: the shortest
  * representation of a float64 round-trips by definition, and expanding it to plain decimal is an
@@ -290,9 +301,49 @@ function toControlPoint(
  * still leaves the Control Points — the user's actual labour — perfectly readable, and
  * `@allmaps/render` itself defaults to first-order polynomial when the field is absent. Refusing
  * the whole Alignment over it would discard the work to protect a field with a safe default.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * THE POLYNOMIAL ORDER IS READ HERE, BECAUSE UPSTREAM'S OWN INVERSE DROPS IT
+ *
+ * `typeAndOrderToTransformationType` is the documented inverse of
+ * `transformationTypeToTypeAndOrder`, and for second- and third-order polynomials **it is not**.
+ * Measured against the pinned `@allmaps/transform@1.0.0-beta.52`, its first branch is
+ *
+ *     if (type == 'polynomial1' || type === 'polynomial') transformationType = 'polynomial1'
+ *
+ * and the `order === 2` and `order === 3` branches that follow are guarded on
+ * `type === 'polynomial'` — which the first branch has already claimed. So they are unreachable,
+ * and `{ type: 'polynomial', options: { order: 3 } }` comes back as `polynomial1`.
+ *
+ * **The file is fine; the helper is not.** `generateAnnotation` writes the order and
+ * `parseAnnotation` reads it back unchanged, verified in both directions, so a document written by
+ * this module is correct and interoperable — anything that reads the order gets the order. What
+ * would be lost by trusting the helper is our *own* read: a user who chose Higher-order (3rd),
+ * saved, and reopened would silently get an affine Alignment, with every coordinate in the file
+ * intact and the map placed wrongly. That is precisely the failure mode ADR-0010's round-trip
+ * fixtures exist to catch, so the order is read directly and pinned by a test that fails when
+ * upstream fixes the helper.
  */
 function readTransformationType(transformation: unknown): TransformationType {
 	if (!transformation) return DEFAULT_TRANSFORMATION_TYPE;
+
+	const { type, options } = transformation as {
+		type?: unknown;
+		options?: { order?: unknown };
+	};
+
+	// The polynomial family, where the order is the whole of the distinction. `polynomial` is the
+	// only name upstream's Zod enum accepts for it, so this is the branch every order arrives on.
+	if (type === 'polynomial' || type === 'polynomial1') {
+		const order = options?.order;
+		if (order === undefined || order === 1) return 'polynomial1';
+		if (order === 2) return 'polynomial2';
+		if (order === 3) return 'polynomial3';
+		// A fourth-order polynomial is a real thing upstream's solver does not offer and this
+		// codebase cannot hold. The Control Points are still readable, so the lens falls back.
+		return DEFAULT_TRANSFORMATION_TYPE;
+	}
+
 	let name: string;
 	try {
 		name = typeAndOrderToTransformationType(

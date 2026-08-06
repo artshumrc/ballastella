@@ -36,7 +36,7 @@
 	// only (ADR-0005), and letting it escape is how it would end up stored somewhere.
 
 	import type { FetchFn, ImagePane } from '@ballastella/core';
-	import { MapLibreMap, NavigationControl } from 'maplibre-gl';
+	import { MapLibreMap, NavigationControl, type GeoJSONSource } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount } from 'svelte';
 
@@ -50,6 +50,7 @@
 		label,
 		fetchTile,
 		overlayPoints = [],
+		maskRing = [],
 		onclickpoint,
 		onview,
 		onready
@@ -65,6 +66,15 @@
 		 */
 		fetchTile?: FetchFn;
 		overlayPoints?: PaneOverlayPoint[];
+		/**
+		 * The Resource Mask to draw over the image, as a ring of image pixels, or `[]` for none.
+		 *
+		 * Drawn as the *inverse* — the part of the sheet the mask leaves out is dimmed, and what it
+		 * keeps stays as it is. That is the direction that answers the user's question: the mask is
+		 * "which part of this is the map", so what has to be legible is the margins and the cartouche
+		 * falling away, not a rectangle drawn on top of the map.
+		 */
+		maskRing?: readonly ResourcePoint[];
 		/** An image pixel the user clicked. */
 		onclickpoint?: (point: ResourcePoint) => void;
 		/**
@@ -234,6 +244,90 @@
 	// therefore every drag and every focus — whenever a single coordinate moved.
 	$effect(() => {
 		overlayLayer?.update(overlayPoints);
+	});
+
+	/**
+	 * The Resource Mask, as a dimmed hole in the sheet.
+	 *
+	 * One polygon with two rings: the whole image, then the mask as a hole in it. So the paint covers
+	 * exactly the part the mask leaves out, and there is no second layer whose extent has to agree
+	 * with the first's. A ring of fewer than three vertices is not an area and is drawn as nothing —
+	 * which cannot arise from the app (`MINIMUM_MASK_VERTICES`) but can arise from a pane that has
+	 * been handed `[]` because no Alignment has loaded yet.
+	 */
+	const maskGeoJson = $derived.by(() => {
+		const bounds = projection.bounds;
+		const outer = [
+			[bounds[0], bounds[1]],
+			[bounds[2], bounds[1]],
+			[bounds[2], bounds[3]],
+			[bounds[0], bounds[3]],
+			[bounds[0], bounds[1]]
+		];
+		const hole = maskRing.map((point) => {
+			const at = pane.resourceToSynthetic(point);
+			return [at.lng, at.lat];
+		});
+		// GeoJSON rings are closed, and the model's is not — the closing vertex is redundant data that
+		// upstream's own parser strips (SPEC story 91), so it is added here rather than stored.
+		if (hole.length >= 3) hole.push(hole[0] as number[]);
+
+		return {
+			type: 'FeatureCollection' as const,
+			features:
+				hole.length >= 4
+					? [
+							{
+								type: 'Feature' as const,
+								properties: {},
+								geometry: { type: 'Polygon' as const, coordinates: [outer, hole] }
+							},
+							{
+								// The outline itself, so the mask is visible as a line and not only as the edge of
+								// the dimming — on a dark scan the dimming alone is nearly invisible.
+								type: 'Feature' as const,
+								properties: {},
+								geometry: { type: 'LineString' as const, coordinates: hole }
+							}
+						]
+					: []
+		};
+	});
+
+	const MASK_SOURCE = 'resource-mask';
+
+	$effect(() => {
+		const current = map;
+		if (!current) return;
+		const data = maskGeoJson;
+
+		const install = () => {
+			const source = current.getSource<GeoJSONSource>(MASK_SOURCE);
+			if (source) {
+				source.setData(data);
+				return;
+			}
+			current.addSource(MASK_SOURCE, { type: 'geojson', data });
+			current.addLayer({
+				id: 'resource-mask-outside',
+				type: 'fill',
+				source: MASK_SOURCE,
+				filter: ['==', ['geometry-type'], 'Polygon'],
+				// Deliberately not black: on a dark theme a black scrim over a dark scan is invisible, and
+				// what has to read is *that the margin is excluded* rather than that it is darker.
+				paint: { 'fill-color': '#000000', 'fill-opacity': 0.45 }
+			});
+			current.addLayer({
+				id: 'resource-mask-outline',
+				type: 'line',
+				source: MASK_SOURCE,
+				filter: ['==', ['geometry-type'], 'LineString'],
+				paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [3, 2] }
+			});
+		};
+
+		if (current.isStyleLoaded()) install();
+		else current.once('load', install);
 	});
 </script>
 
