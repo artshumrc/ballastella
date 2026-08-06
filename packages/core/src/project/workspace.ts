@@ -8,7 +8,38 @@ import {
 	serialiseProjectFile,
 	type ProjectFile
 } from './project-file.js';
-import { PathNotFoundError, topLevelSegment, type ProjectStore } from '../store/project-store.js';
+import {
+	InvalidPathError,
+	PathNotFoundError,
+	topLevelSegment,
+	type ProjectStore
+} from '../store/project-store.js';
+import type { ProjectFileSource, TransferProgressListener } from '../transfer/transfer.js';
+
+/**
+ * An import would land on a directory name that is already taken (ADR-0008: the directory name
+ * *is* the Project's identity).
+ *
+ * Thrown before anything is written, and carrying a free name, because the user must be offered a
+ * choice rather than told what happened: they may be importing a colleague's version of work they
+ * also have, and silently overwriting it is the one failure a zip-based workflow makes easy.
+ */
+export class ProjectDirectoryCollisionError extends Error {
+	readonly directory: string;
+	/** A name that is free right now, for the rename affordance. */
+	readonly suggestion: string;
+
+	constructor(directory: string, suggestion: string) {
+		super(
+			`This Workspace already has a folder called “${directory}”. ` +
+				`Import under a different name — “${suggestion}” is free — or cancel. ` +
+				`Nothing has been changed.`
+		);
+		this.name = 'ProjectDirectoryCollisionError';
+		this.directory = directory;
+		this.suggestion = suggestion;
+	}
+}
 
 /** What the hub page needs about one Project without opening it. */
 export interface ProjectSummary {
@@ -156,6 +187,67 @@ export class Workspace {
 		}
 		await this.writeProject(copy, { ...file, name });
 		return this.#summarise(copy);
+	}
+
+	/**
+	 * Write a Project that came from somewhere else into `directory`, which must be free.
+	 *
+	 * Zip-agnostic on purpose: `source` is any {@link ProjectFileSource}, so this is also the path
+	 * ticket 14's remote ingest and ticket 15's mirroring will take. What it knows about is the two
+	 * things only the Workspace can decide.
+	 *
+	 * **The collision.** `directory` is the Project's identity (ADR-0008), and if it is taken this
+	 * throws {@link ProjectDirectoryCollisionError} *before writing anything*. Display names are not
+	 * checked at all: two Projects may share one, so a colleague's "Amsterdam 1625" must import
+	 * alongside yours rather than be refused because of it.
+	 *
+	 * **The bytes are written exactly as they arrive, `project.json` included.** Unlike every other
+	 * method here it does not stamp `updatedAt`, because importing is not editing: the Project was
+	 * last changed when its author last changed it, and that is the one record of it that survives a
+	 * zip round trip, which destroys filesystem modification times outright. Still the same single
+	 * writer — every byte goes through this Workspace and the store's atomic `write` (ADR-0017 rule
+	 * 4) — so an interrupted import cannot leave a torn file.
+	 *
+	 * @throws ProjectDirectoryCollisionError when `directory` is already in use
+	 */
+	async importProject(
+		directory: string,
+		source: ProjectFileSource,
+		options: { onProgress?: TransferProgressListener } = {}
+	): Promise<ProjectSummary> {
+		if (directory.includes('/') || directory === '') {
+			throw new InvalidPathError(directory, 'must be a single directory name');
+		}
+		const taken = new Set((await this.#store.list('')).map(topLevelSegment));
+		if (taken.has(directory)) {
+			throw new ProjectDirectoryCollisionError(directory, await this.#unusedDirectory(directory));
+		}
+
+		let files = 0;
+		let bytes = 0;
+		const report = (path: string | null) =>
+			options.onProgress?.({
+				files,
+				totalFiles: source.paths.length,
+				bytes,
+				totalBytes: source.totalBytes,
+				path
+			});
+
+		report(null);
+		for await (const file of source.files()) {
+			await this.#store.write(`${directory}/${file.path}`, file.bytes);
+			files += 1;
+			bytes += file.bytes.length;
+			report(file.path);
+		}
+		report(null);
+		return this.#summarise(directory);
+	}
+
+	/** A free directory name near `preferred`, for offering a way past a collision. */
+	async suggestDirectory(preferred: string): Promise<string> {
+		return this.#unusedDirectory(preferred);
 	}
 
 	/** Remove a Project and everything in it. */

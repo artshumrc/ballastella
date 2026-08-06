@@ -36,6 +36,9 @@ catalogs:
     daisyui:
       specifier: ^5.7.16
       version: 5.7.16
+    fflate:
+      specifier: ^0.8.3
+      version: 0.8.3
     maplibre-gl:
       specifier: ^5.24.0
       version: 5.24.0
@@ -86,6 +89,9 @@ importers:
       eslint-plugin-svelte:
         specifier: ^3.22.0
         version: 3.22.0(eslint@10.8.0(jiti@2.7.0))(svelte@5.56.8(@typescript-eslint/types@8.66.0))
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.3
       globals:
         specifier: ^17.9.0
         version: 17.9.0
@@ -202,6 +208,9 @@ importers:
       '@protomaps/basemaps':
         specifier: 'catalog:'
         version: 5.7.2
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.3
     devDependencies:
       '@allmaps/types':
         specifier: 'catalog:'

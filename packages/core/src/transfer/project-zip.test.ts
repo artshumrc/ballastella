@@ -1,0 +1,637 @@
+import { zipSync, type Zippable } from 'fflate';
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { ProjectFormatTooNewError, ProjectFileUnreadableError } from '../project/project-file.js';
+import { ProjectDirectoryCollisionError, Workspace } from '../project/workspace.js';
+import { MemoryProjectStore } from '../store/memory-project-store.js';
+import { InvalidPathError, type Bytes, type StorePath } from '../store/project-store.js';
+import { exportProjectZip } from './export-project-zip.js';
+import { ProjectZipRejectedError, readProjectZip } from './import-project-zip.js';
+import type { TransferProgress } from './transfer.js';
+import { createViewerFileFilter } from './viewer-files.js';
+
+// SPEC's Seam 1. Export and import are file-level behaviours end to end — "the zip contains
+// exactly these bytes", "after importing, the Workspace holds exactly these files" — so the
+// in-memory ProjectStore is not standing in for anything. The one thing this seam cannot see is
+// the UI, which `e2e/editor-transfer.e2e.ts` covers.
+
+const encode = (text: string): Bytes => new TextEncoder().encode(text);
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+/** A `project.json` a scholar's Project would really have, with two Layers that point at files. */
+const projectJson = (overrides: Record<string, unknown> = {}) =>
+	`${JSON.stringify(
+		{
+			formatVersion: 1,
+			name: 'Amsterdam 1625',
+			updatedAt: '2025-03-04T11:22:33.000Z',
+			layers: [
+				{
+					id: 'l1',
+					name: 'The 1625 plan',
+					visible: true,
+					order: 0,
+					kind: 'map',
+					opacity: 0.8,
+					alignmentRef: 'alignments/amsterdam-1625.json',
+					imageMode: 'mirrored'
+				},
+				{
+					id: 'l2',
+					name: 'Warehouses',
+					visible: true,
+					order: 1,
+					kind: 'annotation',
+					geojsonRef: 'annotations/warehouses.geojson',
+					defaultStyle: {}
+				}
+			],
+			baseMap: 'protomaps-light',
+			...overrides
+		},
+		null,
+		'\t'
+	)}\n`;
+
+/** The files of a Project that is a bit more than a manifest: an Alignment, GeoJSON, a pyramid. */
+const projectFiles = (): Record<string, string> => ({
+	'project.json': projectJson(),
+	'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"amsterdam-1625"}',
+	'annotations/warehouses.geojson': '{"type":"FeatureCollection","features":[]}',
+	'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
+	'images/amsterdam-1625/0,0,256,256/256,256/0/default.jpg': 'not really a jpeg, but bytes',
+	'images/amsterdam-1625/256,0,256,256/256,256/0/default.jpg': 'nor is this one'
+});
+
+async function seed(
+	store: MemoryProjectStore,
+	directory: string,
+	files: Record<string, string>
+): Promise<void> {
+	for (const [path, text] of Object.entries(files)) {
+		await store.write(`${directory}/${path}` as StorePath, encode(text));
+	}
+}
+
+/** Everything under a prefix as text, keyed by the path relative to it. */
+async function contents(
+	store: MemoryProjectStore,
+	prefix: string
+): Promise<Record<string, string>> {
+	const out: Record<string, string> = {};
+	for (const path of await store.list(prefix)) {
+		out[path.slice(prefix.length)] = decode(await store.read(path));
+	}
+	return out;
+}
+
+const collect = async (body: ReadableStream<Uint8Array>): Promise<Bytes> => {
+	const chunks: Uint8Array[] = [];
+	const reader = body.getReader();
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		chunks.push(value);
+	}
+	const archive = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0));
+	let at = 0;
+	for (const chunk of chunks) {
+		archive.set(chunk, at);
+		at += chunk.length;
+	}
+	return archive;
+};
+
+/** Export a Project and hand back the archive bytes. */
+async function exportArchive(store: MemoryProjectStore, directory: string): Promise<Bytes> {
+	const { body } = await exportProjectZip(store, directory);
+	return collect(body);
+}
+
+/** A zip built by something other than us, so import is tested against arbitrary archives. */
+const buildZip = (files: Record<string, string | Uint8Array>): Bytes => {
+	const zippable: Zippable = {};
+	for (const [name, content] of Object.entries(files)) {
+		zippable[name] = typeof content === 'string' ? encode(content) : content;
+	}
+	return zipSync(zippable);
+};
+
+describe('exporting a Project as a zip', () => {
+	let store: MemoryProjectStore;
+
+	beforeEach(async () => {
+		store = new MemoryProjectStore();
+		await seed(store, 'amsterdam-1625', projectFiles());
+		// A second Project, so "export one Project" is a claim and not a coincidence.
+		await seed(store, 'boston-1775', { 'project.json': projectJson({ name: 'Boston 1775' }) });
+	});
+
+	it('is named for the Project directory and rooted there, not at the Workspace', async () => {
+		const exported = await exportProjectZip(store, 'amsterdam-1625');
+
+		expect(exported.fileName).toBe('amsterdam-1625.zip');
+		const zip = await readProjectZip(await collect(exported.body));
+		// Relative to the Project directory: `project.json` at the root, no `amsterdam-1625/` prefix,
+		// and nothing at all from the other Project.
+		expect([...zip.paths].sort()).toEqual(Object.keys(projectFiles()).sort());
+	});
+
+	it('refuses a directory that holds no Project rather than exporting an empty zip', async () => {
+		await expect(exportProjectZip(store, 'not-a-project')).rejects.toThrow(
+			'Nothing is stored at not-a-project/project.json'
+		);
+	});
+
+	it('reports progress that reaches the totals it announced up front', async () => {
+		const seen: TransferProgress[] = [];
+		const exported = await exportProjectZip(store, 'amsterdam-1625', {
+			onProgress: (progress) => seen.push(progress)
+		});
+		await collect(exported.body);
+
+		expect(exported.totalFiles).toBe(6);
+		expect(exported.totalBytes).toBeGreaterThan(0);
+		expect(seen[0]).toEqual({
+			files: 0,
+			totalFiles: 6,
+			bytes: 0,
+			totalBytes: exported.totalBytes,
+			path: null
+		});
+		expect(seen.at(-1)).toEqual({
+			files: 6,
+			totalFiles: 6,
+			bytes: exported.totalBytes,
+			totalBytes: exported.totalBytes,
+			path: null
+		});
+		// Every file named, once, and the counts only ever go up.
+		expect(seen.map((p) => p.path).filter((path) => path !== null)).toHaveLength(6);
+		expect(seen.map((p) => p.files)).toEqual([...seen.map((p) => p.files)].sort((a, b) => a - b));
+	});
+
+	it('does not hold the whole archive in memory: bytes leave before the last file is read', async () => {
+		// The claim in the acceptance criteria is about memory, and memory is not directly
+		// assertable — but its cause is. If the archive were assembled first and streamed second,
+		// every read would precede every chunk. Interleaving is the observable form of "one file at
+		// a time", and it is also what makes backpressure real: `pull` is what triggers the next read.
+		const log: string[] = [];
+		const watched = new (class extends MemoryProjectStore {
+			override async read(path: StorePath): Promise<Bytes> {
+				log.push(`read ${path}`);
+				return super.read(path);
+			}
+		})();
+		await seed(watched, 'amsterdam-1625', projectFiles());
+
+		const { body } = await exportProjectZip(watched, 'amsterdam-1625');
+		const reader = body.getReader();
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			log.push(`chunk ${value.length}`);
+		}
+
+		const firstChunk = log.findIndex((line) => line.startsWith('chunk'));
+		const lastRead = log.findLastIndex((line) => line.startsWith('read'));
+		expect(firstChunk).toBeGreaterThanOrEqual(0);
+		expect(firstChunk).toBeLessThan(lastRead);
+		// And only one file has been read by the time the first bytes are out.
+		expect(log.slice(0, firstChunk).filter((line) => line.startsWith('read'))).toHaveLength(1);
+	});
+
+	it('excludes whatever is on the viewer-file list', async () => {
+		await seed(store, 'amsterdam-1625', {
+			'index.html': '<!doctype html>',
+			'_app/immutable/entry/start.js': 'export {}'
+		});
+
+		const { body } = await exportProjectZip(store, 'amsterdam-1625', {
+			// Ticket 16 populates `VIEWER_FILE_PATHS`; the mechanism is what exists now, so it is
+			// exercised with the shape of list ticket 16 will record.
+			excluded: createViewerFileFilter(['index.html', '_app/'])
+		});
+
+		const zip = await readProjectZip(await collect(body));
+		expect(zip.paths).not.toContain('index.html');
+		expect(zip.paths.filter((path) => path.startsWith('_app/'))).toEqual([]);
+		expect(zip.paths).toContain('annotations/warehouses.geojson');
+	});
+
+	it('leaves the Project untouched, including one from a newer version of the app', async () => {
+		// The Project a user most needs to get out of a browser they cannot see into is the one this
+		// build refuses to open, so export must not parse `project.json` at all (ADR-0010).
+		await seed(store, 'from-the-future', {
+			'project.json': projectJson({ formatVersion: 99 })
+		});
+		const before = await contents(store, 'from-the-future/');
+
+		const archive = await exportArchive(store, 'from-the-future');
+
+		expect(archive.length).toBeGreaterThan(0);
+		expect(await contents(store, 'from-the-future/')).toEqual(before);
+	});
+});
+
+describe('a round trip through export and import', () => {
+	let source: MemoryProjectStore;
+	let destination: MemoryProjectStore;
+	let target: Workspace;
+
+	beforeEach(async () => {
+		source = new MemoryProjectStore();
+		await seed(source, 'amsterdam-1625', projectFiles());
+		destination = new MemoryProjectStore();
+		// A different Workspace with a different clock, which is what makes the `updatedAt`
+		// assertion below mean something.
+		target = new Workspace(destination, { now: () => new Date('2030-12-25T00:00:00.000Z') });
+	});
+
+	it('reproduces every file byte for byte in the new Workspace', async () => {
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+		const imported = await target.importProject('amsterdam-1625', zip);
+
+		expect(imported).toEqual({
+			directory: 'amsterdam-1625',
+			name: 'Amsterdam 1625',
+			updatedAt: '2025-03-04T11:22:33.000Z',
+			problem: null
+		});
+		// Byte identity, every file, not "the Layers look the same": the Alignment and the GeoJSON are
+		// the portable scholarship (ADR-0002) and the pyramid is what the reader actually sees.
+		expect(await contents(destination, 'amsterdam-1625/')).toEqual(projectFiles());
+	});
+
+	it('keeps updatedAt, which is the only record of it that survives a zip', async () => {
+		// `updatedAt` lives inside `project.json` rather than being taken from the file's
+		// modification time precisely because zipping and unzipping destroy those. If import stamped
+		// its own clock — as every other write in the Workspace does — a Project handed to a
+		// colleague would claim to have been last touched the moment they received it, and the hub
+		// sorts on this field.
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+		await target.importProject('amsterdam-1625', zip);
+
+		expect(await target.readProject('amsterdam-1625')).toMatchObject({
+			updatedAt: '2025-03-04T11:22:33.000Z'
+		});
+		expect(decode(await destination.read('amsterdam-1625/project.json'))).toBe(projectJson());
+	});
+
+	it('is still identical after a second export and import', async () => {
+		const first = await exportArchive(source, 'amsterdam-1625');
+		await target.importProject('amsterdam-1625', await readProjectZip(first));
+
+		const second = await exportArchive(destination, 'amsterdam-1625');
+		const third = new MemoryProjectStore();
+		await new Workspace(third).importProject('amsterdam-1625', await readProjectZip(second));
+
+		expect(await contents(third, 'amsterdam-1625/')).toEqual(projectFiles());
+		// And the archives themselves match. Nothing requires that — ADR-0006's format claim is about
+		// the files, and the ticket asks only for semantic equivalence — but it holds because every
+		// entry carries a fixed timestamp, and it is the strongest available statement that the round
+		// trip adds and loses nothing at all.
+		expect([...second]).toEqual([...first]);
+	});
+
+	it('does not touch a Project that is already in the destination Workspace', async () => {
+		await seed(destination, 'boston-1775', {
+			'project.json': projectJson({ name: 'Boston 1775' })
+		});
+		const untouched = await contents(destination, 'boston-1775/');
+
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+		await target.importProject('amsterdam-1625', zip);
+
+		expect(await contents(destination, 'boston-1775/')).toEqual(untouched);
+	});
+
+	it('reports progress up to the totals it announced', async () => {
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+		const seen: TransferProgress[] = [];
+
+		await target.importProject('amsterdam-1625', zip, {
+			onProgress: (progress) => seen.push(progress)
+		});
+
+		expect(seen[0]).toMatchObject({ files: 0, totalFiles: 6, path: null });
+		expect(seen.at(-1)).toMatchObject({ files: 6, totalFiles: 6, path: null });
+		expect(seen.at(-1)?.bytes).toBe(zip.totalBytes);
+	});
+
+	it('writes project.json last, so an interrupted import is not a listed Project', async () => {
+		// The Workspace's Project list *is* whichever directories hold a `project.json` (ADR-0008).
+		// Written first, a half-finished import would appear on the hub and open with its Layers
+		// pointing at files that are not there yet.
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+
+		expect(zip.paths.at(-1)).toBe('project.json');
+	});
+});
+
+describe('importing into a directory name that is taken (SPEC story 14)', () => {
+	let destination: MemoryProjectStore;
+	let target: Workspace;
+	let archive: Bytes;
+
+	beforeEach(async () => {
+		const source = new MemoryProjectStore();
+		await seed(source, 'amsterdam-1625', projectFiles());
+		archive = await exportArchive(source, 'amsterdam-1625');
+
+		destination = new MemoryProjectStore();
+		target = new Workspace(destination);
+	});
+
+	it('refuses, offers a free name, and writes nothing', async () => {
+		await seed(destination, 'amsterdam-1625', {
+			'project.json': projectJson({ name: 'My own Amsterdam' }),
+			'annotations/mine.geojson': '{"type":"FeatureCollection","features":["mine"]}'
+		});
+		const before = await contents(destination, 'amsterdam-1625/');
+		const zip = await readProjectZip(archive);
+
+		const failure = await target.importProject('amsterdam-1625', zip).catch((cause) => cause);
+
+		expect(failure).toBeInstanceOf(ProjectDirectoryCollisionError);
+		expect(failure.suggestion).toBe('amsterdam-1625-2');
+		expect(failure.message).toContain('or cancel');
+		// Not one byte of the Project that was already there, and no partial directory beside it.
+		expect(await contents(destination, 'amsterdam-1625/')).toEqual(before);
+		expect(await destination.list('')).toEqual([
+			'amsterdam-1625/annotations/mine.geojson',
+			'amsterdam-1625/project.json'
+		]);
+	});
+
+	it('collides on any existing top-level name, not only on another Project', async () => {
+		// A directory that is there for some other reason is still a name the import cannot have.
+		await destination.write('amsterdam-1625/stray.txt', encode('not a Project'));
+
+		await expect(
+			target.importProject('amsterdam-1625', await readProjectZip(archive))
+		).rejects.toBeInstanceOf(ProjectDirectoryCollisionError);
+	});
+
+	it('imports under the offered name, leaving the existing Project alone', async () => {
+		await seed(destination, 'amsterdam-1625', {
+			'project.json': projectJson({ name: 'My own Amsterdam' })
+		});
+		const mine = await contents(destination, 'amsterdam-1625/');
+		const zip = await readProjectZip(archive);
+
+		const suggestion = await target.suggestDirectory('amsterdam-1625');
+		const imported = await target.importProject(suggestion, zip);
+
+		expect(imported.directory).toBe('amsterdam-1625-2');
+		expect(await contents(destination, 'amsterdam-1625/')).toEqual(mine);
+		expect(await contents(destination, 'amsterdam-1625-2/')).toEqual(projectFiles());
+		// Two Projects, both listed, identity carried by the directory (ADR-0008).
+		expect((await target.listProjects()).map((p) => `${p.directory}: ${p.name}`)).toEqual([
+			'amsterdam-1625: My own Amsterdam',
+			'amsterdam-1625-2: Amsterdam 1625'
+		]);
+	});
+
+	it('does not block on a display name that is already in use', async () => {
+		// Identity is the directory, never the display name (ADR-0008). A colleague's "Amsterdam
+		// 1625" must arrive alongside the user's own Project of the same name.
+		await seed(destination, 'my-amsterdam', { 'project.json': projectJson() });
+
+		const imported = await target.importProject('amsterdam-1625', await readProjectZip(archive));
+
+		expect(imported.name).toBe('Amsterdam 1625');
+		expect((await target.listProjects()).map((p) => p.name)).toEqual([
+			'Amsterdam 1625',
+			'Amsterdam 1625'
+		]);
+	});
+
+	it('refuses a directory name that is not a single path segment', async () => {
+		const zip = await readProjectZip(archive);
+
+		await expect(target.importProject('nested/name', zip)).rejects.toBeInstanceOf(InvalidPathError);
+		await expect(target.importProject('', zip)).rejects.toBeInstanceOf(InvalidPathError);
+		expect(await destination.list('')).toEqual([]);
+	});
+});
+
+describe('rejecting a zip before writing anything', () => {
+	let destination: MemoryProjectStore;
+	let target: Workspace;
+
+	/**
+	 * The whole import, exactly as the app performs it: validate, then write.
+	 *
+	 * Every case below goes through this rather than calling `readProjectZip` alone, because the
+	 * claim being tested is "nothing was written", and a test that never offers the implementation a
+	 * store would pass just as happily against one that writes first and complains afterwards.
+	 */
+	const attemptImport = (archive: Bytes, directory = 'amsterdam-1625') =>
+		readProjectZip(archive).then((zip) => target.importProject(directory, zip));
+
+	/** Every rejection has to leave the Workspace exactly as it was, so each case asserts this. */
+	const nothingWritten = async () => expect(await destination.list('')).toEqual([]);
+
+	beforeEach(() => {
+		destination = new MemoryProjectStore();
+		target = new Workspace(destination);
+	});
+
+	it('rejects bytes that are not a zip at all', async () => {
+		const failure = await attemptImport(encode('this is a JPEG, honestly')).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('not-a-zip');
+		expect(failure.message).toContain('Nothing has been imported.');
+		await nothingWritten();
+	});
+
+	it('rejects a zip with no project.json, naming what a Project zip looks like', async () => {
+		const failure = await attemptImport(buildZip({ 'annotations/warehouses.geojson': '{}' })).catch(
+			(c) => c
+		);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('no-project-file');
+		expect(failure.message).toContain('no project.json at its root');
+		await nothingWritten();
+	});
+
+	it('rejects a project.json that is not parseable, saying so specifically', async () => {
+		const failure = await attemptImport(buildZip({ 'project.json': '{ not json' })).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectFileUnreadableError);
+		expect(failure.message).toContain("This Project's project.json could not be read");
+		await nothingWritten();
+	});
+
+	it('rejects a project.json nested under a directory rather than at the root', async () => {
+		// A zip of the Workspace, or one made by dragging the folder in a file manager that adds a
+		// wrapping directory. It is not a Project zip, and saying so is better than importing a
+		// Project whose every path is one level deeper than it should be.
+		const failure = await attemptImport(
+			buildZip({ 'amsterdam-1625/project.json': projectJson() })
+		).catch((c) => c);
+
+		expect(failure.reason).toBe('no-project-file');
+		await nothingWritten();
+	});
+
+	it('refuses a formatVersion from the future, naming the remedy (ADR-0010)', async () => {
+		// The refusal a user is most likely to meet through import rather than in their own
+		// Workspace, since a zip is how a Project from a newer build reaches an older one at all.
+		const failure = await attemptImport(
+			buildZip({ 'project.json': projectJson({ formatVersion: 2 }) })
+		).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectFormatTooNewError);
+		expect(failure.message).toContain('newer version of Ballastella');
+		expect(failure.message).toContain('update your copy');
+		expect(failure.message).toContain('https://');
+		await nothingWritten();
+	});
+
+	it('rejects a missing geojsonRef, naming the file that is not there', async () => {
+		const files = projectFiles();
+		delete files['annotations/warehouses.geojson'];
+
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('missing-reference');
+		expect(failure.message).toContain('annotations/warehouses.geojson');
+		await nothingWritten();
+	});
+
+	it('rejects a missing alignmentRef, naming the file that is not there', async () => {
+		const files = projectFiles();
+		delete files['alignments/amsterdam-1625.json'];
+
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure.reason).toBe('missing-reference');
+		expect(failure.message).toContain('alignments/amsterdam-1625.json');
+		await nothingWritten();
+	});
+
+	it('rejects an image directory with no info.json, naming it', async () => {
+		const files = projectFiles();
+		delete files['images/amsterdam-1625/info.json'];
+
+		const failure = await attemptImport(buildZip(files)).catch((c) => c);
+
+		expect(failure.reason).toBe('missing-reference');
+		expect(failure.message).toContain('images/amsterdam-1625/info.json');
+		await nothingWritten();
+	});
+
+	it('tolerates a Layer kind it has never heard of, so long as its references are there', async () => {
+		// ADR-0014 expects a third Layer kind. An importer that only understood today's two would
+		// refuse next year's Projects, which is the failure ADR-0010's version check exists to make
+		// explicit rather than accidental.
+		const zip = await readProjectZip(
+			buildZip({
+				...projectFiles(),
+				'project.json': projectJson({
+					layers: [{ kind: 'something-new', geojsonRef: 'annotations/warehouses.geojson' }]
+				})
+			})
+		);
+
+		await expect(target.importProject('amsterdam-1625', zip)).resolves.toMatchObject({
+			directory: 'amsterdam-1625'
+		});
+	});
+
+	it.each([
+		['../../etc/passwd', 'climbs out'],
+		['alignments/../../escape.json', 'climbs out'],
+		['/etc/passwd', 'absolute path'],
+		['C:/Windows/system32/x', 'drive letter'],
+		['alignments\\amsterdam.json', 'backslash'],
+		['./project-notes.txt', '“.” segment'],
+		['annotations//warehouses.geojson', 'empty path segment']
+	])('rejects the entry %s and writes nothing', async (name, because) => {
+		const failure = await attemptImport(buildZip({ ...projectFiles(), [name]: 'payload' })).catch(
+			(c) => c
+		);
+
+		expect(failure).toBeInstanceOf(ProjectZipRejectedError);
+		expect(failure.reason).toBe('path-traversal');
+		expect(failure.message).toContain(because);
+		// Not merely "an error was shown": the whole archive is refused, so the Project that would
+		// otherwise have been perfectly importable is not on disk either.
+		await nothingWritten();
+	});
+
+	it('rejects a traversal entry even when it is the only thing wrong', async () => {
+		const failure = await attemptImport(
+			buildZip({ 'project.json': projectJson({ layers: [] }), '../outside.txt': 'x' })
+		).catch((c) => c);
+
+		expect(failure.reason).toBe('path-traversal');
+		await nothingWritten();
+	});
+
+	it('keeps a zip entry named like a reserved temporary file out of the Workspace', async () => {
+		// The store refuses the reserved suffix, and it refuses it at the moment of writing — which
+		// on an import means after earlier entries have landed. A zip is another person's file, so
+		// the failure has to be the whole import failing rather than a directory left half full.
+		const zip = await readProjectZip(
+			buildZip({ ...projectFiles(), 'sneaky.ballastella-tmp': 'invisible to list()' })
+		);
+
+		await expect(target.importProject('amsterdam-1625', zip)).rejects.toBeInstanceOf(
+			InvalidPathError
+		);
+		// `project.json` is written last, so the half-written directory is not a listed Project.
+		expect((await target.listProjects()).map((p) => p.directory)).toEqual([]);
+	});
+
+	it('imports a zip whose annotation description carries an XSS payload, inert', async () => {
+		// Ticket 10 owns the sanitising, and this is the reason it is required rather than
+		// theoretical (ADR-0009): the `description` in this file was written by somebody else and
+		// will be rendered on the user's own domain. What import owes is to treat the file as bytes —
+		// never to parse, interpret, or re-serialise it — so the payload arrives byte-identical and
+		// the decision about rendering it stays with the code that renders it.
+		const payload =
+			'{"type":"FeatureCollection","features":[{"type":"Feature","properties":' +
+			'{"description":"<img src=x onerror=\\"window.pwned=1\\"><script>alert(1)</script>"},' +
+			'"geometry":null}]}';
+		const zip = await readProjectZip(
+			buildZip({ ...projectFiles(), 'annotations/warehouses.geojson': payload })
+		);
+
+		await target.importProject('amsterdam-1625', zip);
+
+		expect(decode(await destination.read('amsterdam-1625/annotations/warehouses.geojson'))).toBe(
+			payload
+		);
+	});
+});
+
+describe('the viewer-file list (ADR-0006)', () => {
+	it('is empty until ticket 16 writes the files it would name', async () => {
+		const { VIEWER_FILE_PATHS, isViewerFile } = await import('./viewer-files.js');
+
+		expect(VIEWER_FILE_PATHS).toEqual([]);
+		expect(isViewerFile('project.json')).toBe(false);
+	});
+
+	it('matches an exact path and a whole directory, and nothing adjacent', async () => {
+		const excluded = createViewerFileFilter(['index.html', '_app/', 'viewer.js']);
+
+		expect(['index.html', '_app/immutable/x.js', 'viewer.js'].map(excluded)).toEqual([
+			true,
+			true,
+			true
+		]);
+		expect(['index.html.bak', 'images/_app/x', 'my_app/x', 'project.json'].map(excluded)).toEqual([
+			false,
+			false,
+			false,
+			false
+		]);
+	});
+});
