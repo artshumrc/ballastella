@@ -46,6 +46,20 @@ export type ImagePaneTile = {
 	 * systematic error, and systematic errors in this pane are what drift is made of.
 	 *
 	 * Interior tiles fill their cell exactly and need no correction.
+	 *
+	 * **This binds the writer as much as the reader.** `placement` is `region / scaleFactor`, so
+	 * it is only the right number if a ragged tile's bytes are an *exact* resize of its region by
+	 * 1 / scaleFactor — IIIF's own semantics, where a 851-pixel region at scale factor 8 becomes
+	 * 106.375 pixels' worth of content in a 107-pixel-wide file, the last row of pixels only
+	 * fractionally covered. It is **not** correct for a tiler that resizes to `floor` or `round`
+	 * and pads the remainder, nor for one that resizes to the rounded `size` and calls it done:
+	 * either of those stretches every ragged tile by up to 0.6% at the right and bottom margins
+	 * of every Historical Map in the app. Sub-pixel, systematic, in the margins — and invisible
+	 * to every test in this slice, because the coordinates would all still be right.
+	 *
+	 * The committed fixture satisfies this (verified by decoding all 29 tiles: every ragged tile
+	 * sits at the JPEG noise floor against exact-resize semantics and 20–45× above it against
+	 * resize-and-pad). Ticket 05's tiler must assert it rather than inherit it.
 	 */
 	placement: { width: number; height: number };
 };

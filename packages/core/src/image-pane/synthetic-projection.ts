@@ -337,10 +337,12 @@ export function createSyntheticProjection(pyramid: PyramidGeometry): SyntheticPr
 		tileZoomFromScaleFactor: (scaleFactor) => maxTileZoom - Math.log2(scaleFactor),
 		scaleFactorFromTileZoom: (tileZoom) => 2 ** (maxTileZoom - tileZoom),
 		tileGridOrigin: (tileZoom) => {
-			// The window's north-west corner is the middle of the world, so its origin tile at
-			// WINDOW_TILE_ZOOM is (2 ** (zoom - 1), 2 ** (zoom - 1)), and each zoom deeper
-			// doubles it.
-			const origin = 2 ** (WINDOW_TILE_ZOOM - 1 + (tileZoom - WINDOW_TILE_ZOOM));
+			// The window's north-west corner is the middle of the world, and the middle of a
+			// 2**z × 2**z grid is tile (2**(z-1), 2**(z-1)) — for any z, which is the whole point.
+			// `WINDOW_TILE_ZOOM` cancels out of this expression, so this is emphatically *not* one
+			// of the places the constant is load-bearing; writing it in as
+			// `2 ** (WINDOW_TILE_ZOOM - 1 + (tileZoom - WINDOW_TILE_ZOOM))` only hid that.
+			const origin = 2 ** (tileZoom - 1);
 			return { x: origin, y: origin };
 		},
 		mapZoomFromTileZoom: (tileZoom) => tileZoom - mapZoomOffset

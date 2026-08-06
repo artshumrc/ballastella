@@ -45,8 +45,16 @@ export const imagePaneTileTemplate = (paneId: string) => `${PROTOCOL}://${paneId
  */
 export function registerImagePaneTiles(paneId: string, pane: ImagePane): () => void {
 	if (!protocolRegistered) {
-		// `addProtocol` is global to the page and cannot be re-registered, so the pane registry
-		// rather than the protocol is what varies.
+		// MapLibre's protocol registry is one object for the whole page, so the pane registry
+		// rather than the protocol is what varies: panes come and go, `PROTOCOL` is installed once.
+		//
+		// It does *not* throw on a second registration — maplibre-gl 5.24's `addProtocol` is a
+		// plain assignment into `config.REGISTERED_PROTOCOLS` (`src/source/protocol_crud.ts`), so
+		// re-registering silently replaces the handler. This flag is therefore a tidiness measure,
+		// not a guard against an exception. The one consequence worth knowing: under Vite HMR the
+		// flag and `panes` are module state and reset together while the page-global registry does
+		// not, so a map still alive from before the reload finds no pane registered and is served
+		// transparent tiles until the component remounts. Dev only.
 		addProtocol(PROTOCOL, loadTile);
 		protocolRegistered = true;
 	}
@@ -118,6 +126,43 @@ async function padToCell(
 
 		context.imageSmoothingQuality = 'high';
 		context.drawImage(served, 0, 0, placement.width, placement.height);
+
+		// Then clamp the edge outward by a pixel. MapLibre samples the tile texture with linear
+		// filtering, so along the boundary between the content and the transparent remainder it
+		// blends the two — and transparent black darkens, leaving a roughly one-screen-pixel dark
+		// fringe down the image's right and bottom edges at full resolution. Replicating the last
+		// column and row into the dead area is the standard clamp-to-edge remedy and changes
+		// nothing about geometry: `placement` is untouched, and the replicated pixels sit outside
+		// the image's own extent, which only ragged margin tiles have.
+		const edge = 1;
+
+		if (placement.width < tileSize) {
+			context.drawImage(
+				served,
+				served.width - 1,
+				0,
+				1,
+				served.height,
+				placement.width,
+				0,
+				edge,
+				placement.height
+			);
+		}
+
+		if (placement.height < tileSize) {
+			context.drawImage(
+				served,
+				0,
+				served.height - 1,
+				served.width,
+				1,
+				0,
+				placement.height,
+				placement.width + edge,
+				edge
+			);
+		}
 
 		return canvas.transferToImageBitmap();
 	} finally {

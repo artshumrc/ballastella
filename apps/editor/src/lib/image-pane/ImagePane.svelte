@@ -1,10 +1,25 @@
 <script module lang="ts">
-	import type { ResourcePoint as MarkerPoint } from '@ballastella/core';
+	import type { ResourcePoint as OverlayPoint } from '@ballastella/core';
 
-	export type PaneMarker = {
-		point: MarkerPoint;
+	/**
+	 * A labelled point drawn over the pane at an image pixel.
+	 *
+	 * Deliberately not called a marker and deliberately not called a registration point.
+	 * CONTEXT.md lists **marker** under the words to avoid for a Control Point and **register**
+	 * under those to avoid for an Alignment, and CONTRIBUTING makes that binding on the code as
+	 * well as the UI. It matters more than usual here: ticket 07 adds Control Points to this pane
+	 * through this exact interface, so a banned word in the name would become the name of the
+	 * seam Control Points arrive on, and renaming it then is a cross-ticket change.
+	 *
+	 * These are **not** Control Points. A Control Point pairs an image pixel with a place on the
+	 * earth and is incomplete without both halves (ADR-0022); these are one-sided annotations of
+	 * the pane's own coordinate space — `reference` for the fixed points whose pixel is known in
+	 * advance, `reported` for the pixel the user last asked about.
+	 */
+	export type PaneOverlayPoint = {
+		point: OverlayPoint;
 		label: string;
-		kind: 'registration' | 'reported';
+		kind: 'reference' | 'reported';
 	};
 </script>
 
@@ -20,6 +35,8 @@
 	// only (ADR-0005), and letting it escape is how it would end up stored somewhere.
 
 	import type { ImagePane, ResourcePoint } from '@ballastella/core';
+	// `Marker` is MapLibre's own class name, so the word is unavoidable at this one seam. It goes
+	// no further: nothing this component exports or renders uses it (CONTEXT.md, Control Point).
 	import { MapLibreMap, Marker, NavigationControl } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount } from 'svelte';
@@ -30,7 +47,7 @@
 		pane,
 		paneId,
 		label,
-		markers = [],
+		overlayPoints = [],
 		onclickpoint,
 		onview,
 		onready
@@ -40,7 +57,7 @@
 		paneId: string;
 		/** Accessible name for the map region. */
 		label: string;
-		markers?: PaneMarker[];
+		overlayPoints?: PaneOverlayPoint[];
 		/** An image pixel the user clicked. */
 		onclickpoint?: (point: ResourcePoint) => void;
 		/**
@@ -176,21 +193,26 @@
 		};
 	});
 
-	// Markers are rebuilt wholesale rather than diffed: there are a handful of them, and a
-	// stale marker is a coordinate claim that is no longer true.
+	// Overlay points are rebuilt wholesale rather than diffed: there are a handful of them, and a
+	// stale one is a coordinate claim that is no longer true.
 	$effect(() => {
 		const current = map;
 		if (!current) {
 			return;
 		}
 
-		const handles = markers.map(({ point, label: markerLabel, kind }) => {
+		const handles = overlayPoints.map(({ point, label: pointLabel, kind }) => {
 			const element = document.createElement('div');
-			element.className = `pane-marker pane-marker-${kind}`;
-			element.dataset.testid = `pane-marker-${kind}`;
+			element.className = `pane-overlay-point pane-overlay-point-${kind}`;
+			element.dataset.testid = `pane-overlay-point-${kind}`;
 			element.dataset.resourceX = String(point.x);
 			element.dataset.resourceY = String(point.y);
-			element.title = markerLabel;
+			// A native `title`, which is a tooltip, and CONTRIBUTING says tooltips are not an
+			// information channel. Compliant because it is not one here: the element is
+			// `aria-hidden`, so nothing is announced from it, and the same text is in the page as
+			// visible prose in the footer. The attribute is a mouse-hover convenience on a purely
+			// decorative element, not the only place the information lives.
+			element.title = pointLabel;
 			// The same information is in the page as text; announcing it twice is noise.
 			element.setAttribute('aria-hidden', 'true');
 
@@ -212,9 +234,9 @@
 ></div>
 
 <style>
-	/* Marker elements are created imperatively by MapLibre, so their styles cannot be scoped. */
-	:global(.pane-marker) {
-		/* Clicks must reach the map underneath: a marker is a label, not a target. */
+	/* These elements are created imperatively for MapLibre, so their styles cannot be scoped. */
+	:global(.pane-overlay-point) {
+		/* Clicks must reach the map underneath: this is a label, not a target. */
 		pointer-events: none;
 		box-sizing: border-box;
 		width: 17px;
@@ -222,12 +244,12 @@
 		border-radius: 9999px;
 	}
 
-	:global(.pane-marker-registration) {
+	:global(.pane-overlay-point-reference) {
 		border: 2px solid oklch(0.55 0.22 25);
 		box-shadow: 0 0 0 1px oklch(1 0 0 / 0.85);
 	}
 
-	:global(.pane-marker-reported) {
+	:global(.pane-overlay-point-reported) {
 		border: 3px solid oklch(0.6 0.19 250);
 		box-shadow: 0 0 0 1px oklch(1 0 0 / 0.85);
 	}

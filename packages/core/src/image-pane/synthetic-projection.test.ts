@@ -314,7 +314,12 @@ describe('createSyntheticProjection', () => {
 
 		// One level shallower is the deepest pyramid the pane supports, and it must be accepted:
 		// tile zoom 25 exactly, a window 2 097 152 image pixels on a side.
-		const deepest = createSyntheticProjection({ ...fixture, width: 1, height: 1, maxScaleFactor: 2 ** 13 });
+		const deepest = createSyntheticProjection({
+			...fixture,
+			width: 1,
+			height: 1,
+			maxScaleFactor: 2 ** 13
+		});
 		expect(deepest.maxTileZoom).toBe(25);
 		expect(deepest.windowSize).toBe(2_097_152);
 	});
