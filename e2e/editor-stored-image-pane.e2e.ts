@@ -96,8 +96,22 @@ async function emptyWorkspace(page: Page): Promise<void> {
 	});
 }
 
-/** Start collecting the app's log of tiles it drew, and clear anything already there. */
-const watchServedTiles = (page: Page) =>
+/**
+ * Collect the app's log of tiles it drew, from the first line of script the page runs.
+ *
+ * **Installed before navigation, not after the pane appears, and that is the whole point.**
+ * MapLibre caches tiles by URL, so a tile it has already fetched is never fetched again — and a
+ * log started after the pane had opened therefore missed every tile of the opening view *and*
+ * every later visit to those levels. The symptom was scale factor 2 intermittently absent, which
+ * read exactly like the pane failing to load a level.
+ */
+const collectServedTiles = (page: Page) =>
+	page.addInitScript(() => {
+		window.ballastellaServedTiles = [];
+	});
+
+/** Forget the tiles drawn so far, so what follows can be attributed to what follows. */
+const clearServedTiles = (page: Page) =>
 	page.evaluate(() => {
 		window.ballastellaServedTiles = [];
 	});
@@ -175,6 +189,7 @@ test.describe('a Historical Map read from the Project', () => {
 		page
 	}) => {
 		const requested = recordRequests(page);
+		await collectServedTiles(page);
 
 		await page.goto('/');
 		await emptyWorkspace(page);
@@ -183,7 +198,6 @@ test.describe('a Historical Map read from the Project', () => {
 		await openProject(page, 'Amsterdam 1625');
 
 		const imageId = await ingest(page, 700, 500, 'la-floride.png');
-		await watchServedTiles(page);
 		await waitForTiles(page);
 
 		// The pyramid on screen is the one that was just written, stated as text so a pane showing
@@ -193,15 +207,48 @@ test.describe('a Historical Map read from the Project', () => {
 		await expect(pyramidReadout(page)).toContainText('scale factors 1, 2, 4');
 		await expect(page.getByTestId('image-pane')).toBeVisible();
 
-		// Walk every level of the pyramid: out to the coarsest and back in past full resolution,
-		// so MapLibre asks for each zoom the pyramid offers rather than only the opening view's.
+		// Walk out to the coarsest level and back in one level at a time, requiring each level of
+		// the pyramid to have been served before moving on.
+		//
+		// **Waiting for the level, and logging tiles from page load, is what makes this
+		// deterministic.** Two earlier versions were not, and both failed the same way — scale factor
+		// 2 absent about one run in ten, which reads exactly like the pane failing to load a level.
+		// The cause was not the walk but the log: MapLibre never fetches a tile twice, so starting
+		// the log after the pane had opened permanently lost the levels the opening view had already
+		// visited. `collectServedTiles` is therefore installed before navigation. Waiting on
+		// `data-tiles-loaded` per step was a second, smaller race: the attribute is `true` from the
+		// previous settle until MapLibre's `zoom` event clears it.
 		await button(page, 'Fit whole map').click();
 		await waitForTiles(page);
 		for (let step = 0; step < 6; step++) {
 			await button(page, 'Zoom out one level').click();
-			await waitForTiles(page);
 		}
-		await button(page, 'Zoom to full resolution').click();
+		await waitForTiles(page);
+
+		// A 700 × 500 image fits one 256-pixel tile at scale factor 4, so the pyramid's tile zooms
+		// are 12, 13 and 14. MapLibre asks a 256-pixel raster source for tile zoom `map zoom + 1`,
+		// which pairs map zoom 11 with scale factor 4, 12 with 2, and 13 with 1.
+		expect(await mapZoom(page)).toBe(11);
+
+		for (const [zoom, scaleFactor] of [
+			[11, 4],
+			[12, 2],
+			[13, 1]
+		] as const) {
+			while ((await mapZoom(page)) < zoom) {
+				await button(page, 'Zoom in one level').click();
+			}
+			await expect
+				.poll(async () => (await servedTiles(page)).some((t) => t.scaleFactor === scaleFactor), {
+					message: `no tile at scale factor ${scaleFactor} was served by map zoom ${zoom}`,
+					// Past the default 5 s, because every tile here is an OPFS read and the suite runs
+					// ten workers each driving a real WebGL map against real OPFS — the contention the
+					// tracker already records against it. A level that is genuinely never requested
+					// still fails, just later.
+					timeout: 15_000
+				})
+				.toBe(true);
+		}
 		await waitForTiles(page);
 
 		const tiles = await servedTiles(page);
@@ -242,6 +289,7 @@ test.describe('a Historical Map read from the Project', () => {
 		page
 	}) => {
 		const requested = recordRequests(page);
+		await collectServedTiles(page);
 
 		await page.goto('/');
 		await emptyWorkspace(page);
@@ -281,7 +329,7 @@ test.describe('a Historical Map read from the Project', () => {
 			size: { width: number; height: number },
 			levels: number
 		) => {
-			await watchServedTiles(page);
+			await clearServedTiles(page);
 			await page.getByRole('button', { name: imageId }).click();
 			await waitForTiles(page);
 			await expect(pyramidReadout(page)).toHaveAttribute('data-image-id', imageId);
