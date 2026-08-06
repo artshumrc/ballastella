@@ -28,6 +28,12 @@ jobs:
       - name: Viewer dependency fence
         run: node scripts/check-viewer-deps.mjs
 
+      # The other half of ADR-0019, which the manifest cannot see: wasm-vips reachable only by
+      # dynamic import, and no tiler in the viewer. `pnpm lint` runs the source half; the
+      # built-output half runs after `pnpm -r build` below, where there is something to look at.
+      - name: Tiler laziness fence (source)
+        run: node scripts/check-tiler-lazy.mjs
+
       # `pnpm lint` runs this too; it is called out here because the thing it guards fails silently.
       # Without the patch, warped rendering — the whole point of the application — renders blank with
       # nothing in the console, and `@allmaps/render` arrives transitively so a bump of
@@ -40,6 +46,13 @@ jobs:
       - run: pnpm check
 
       - run: pnpm -r build
+
+      # ADR-0019 against the built output, which is the only place the question can be settled:
+      # a lazy import is lazy because the bundler put it in its own chunk, and the viewer's
+      # leanness must not rest on tree-shaking. Same script as the lint step, now with something
+      # to inspect, and `--require-build` makes a missing build fatal rather than skipped.
+      - name: Tiler laziness fence (built bundles)
+        run: pnpm check:bundles
 
       # ADR-0006: one build has to serve a domain root and a project subdirectory, so no
       # asset may be referenced by absolute path. Checked against the built output rather

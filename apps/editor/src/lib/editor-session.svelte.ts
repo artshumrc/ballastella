@@ -66,7 +66,7 @@ import {
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
 import { recordAnnotationWrite } from './annotations/browser-test-handle.js';
-import { loadLibvips } from './ingest/libvips-loader.js';
+import { libvipsUnavailableReason, loadLibvips } from './ingest/libvips-loader.js';
 import { saveFile } from './save-file.js';
 
 /**
@@ -200,6 +200,8 @@ export class EditorSession {
 	/** The name of the file being ingested, for the progress message (SPEC story 23). */
 	ingestLabel = $state('');
 	ingestError = $state('');
+	/** Not `$state`: nothing renders it, and `cancelIngest` is the only reader. */
+	#ingestAbort: AbortController | null = null;
 
 	/**
 	 * Why the Historical Map's stored Alignment could not be read, if it could not.
@@ -520,6 +522,12 @@ export class EditorSession {
 			fraction: 0
 		};
 
+		// A gigapixel scan is thousands of tiles and minutes of work, and picking the wrong file is
+		// ordinary. `ingestImageFile` has taken a signal and cleaned up after itself since it was
+		// written; nothing supplied one, so the claim was in a comment and not in the app.
+		const controller = new AbortController();
+		this.#ingestAbort = controller;
+
 		try {
 			await ingestImageFile({
 				store: this.#store,
@@ -527,17 +535,33 @@ export class EditorSession {
 				file,
 				openDecodeAndCrop: openDecodeAndCropSource,
 				openStreaming: streamingTiler(loadLibvips),
+				// Asked before the module is imported, so an over-threshold image on a static host is
+				// refused with the reason it cannot be tiled rather than with a claim about the file.
+				streamingTilerUnavailableReason: libvipsUnavailableReason,
 				onProgress: (progress) => {
 					this.ingest = progress;
-				}
+				},
+				signal: controller.signal
 			});
 			this.images = await listIngestedImages(this.#store, directory);
 		} catch (cause) {
-			this.ingestError = cause instanceof Error ? cause.message : String(cause);
+			// A cancellation is not a failure and must not be reported as one: the user asked for it,
+			// and the job has already removed the tiles it had written.
+			this.ingestError = controller.signal.aborted
+				? ''
+				: cause instanceof Error
+					? cause.message
+					: String(cause);
 		} finally {
+			this.#ingestAbort = null;
 			this.ingest = null;
 			this.ingestLabel = '';
 		}
+	}
+
+	/** Stop the ingest in progress, if there is one. Leaves the Project as it was. */
+	cancelIngest(): void {
+		this.#ingestAbort?.abort();
 	}
 
 	/**

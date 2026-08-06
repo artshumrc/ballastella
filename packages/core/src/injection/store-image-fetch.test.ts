@@ -318,11 +318,19 @@ describe('a pyramid the tiler wrote, read back through the pane', () => {
 		// Not "most of them": a hole in this list is a hole in the pane, and the reader and the
 		// writer agreeing everywhere is the whole reason both go through `getTileImageRequest`.
 		expect(statuses.filter((tile) => tile.status !== 200)).toEqual([]);
-		// Every tile the pane asked for is the tile the tiler wrote there, not merely *a* tile.
+		// Every tile the pane asked for is the tile the tiler wrote there, not merely *a* tile —
+		// **paired per URL**, not compared as two sorted lists. Sorting both sides accepted any
+		// bijection of the pyramid's paths, so a shim that resolved each URL to the *next* tile's
+		// file would have answered 200 nine times, matched as a set, and drawn the pyramid scrambled.
 		expect(
-			statuses.map((tile) => tile.body).sort(),
+			statuses.map(({ url, body }) => ({ url, body })),
 			'the pane and the tiler disagree about which tile is where'
-		).toEqual(tiles.map((tile) => `${tile.scaleFactor}/${tile.column},${tile.row}`).sort());
+		).toEqual(
+			tiles.map((tile) => ({
+				url: tile.url,
+				body: `${tile.scaleFactor}/${tile.column},${tile.row}`
+			}))
+		);
 
 		// Every level is represented, and the right and bottom margins are ragged at each of them.
 		expect([...new Set(tiles.map((tile) => tile.scaleFactor))]).toEqual([1, 2, 4]);

@@ -247,6 +247,7 @@ export type {
 	ImagePaneTileBase,
 	XyzTile
 } from './image-pane/iiif-image-pane';
+export { padTileToCell } from './image-pane/pad-tile-to-cell.js';
 
 // The injection layer (ADR-0011): the one `ProjectStore` → `Response` shim every consumer of a
 // stored pyramid resolves through. Free of the tiler and of `wasm-vips`, because `apps/viewer`
@@ -345,10 +346,14 @@ export {
 	STREAMING_TILER_THRESHOLD_PIXELS
 } from './tiler/decode-ceiling.js';
 export { openDecodeAndCropSource } from './tiler/decode-and-crop-tiler.js';
-export { readImageHeader, type ImageHeader } from './tiler/image-header.js';
+export {
+	readImageHeader,
+	readImageHeaderFromBlob,
+	type ImageHeader
+} from './tiler/image-header.js';
 export { buildImageManifest, readImageLabel, type ImageManifest } from './tiler/image-manifest.js';
 export {
-	NoStreamingTilerError,
+	StreamingTilerUnavailableError,
 	UnreadableImageError,
 	ingestImageFile,
 	listIngestedImages,

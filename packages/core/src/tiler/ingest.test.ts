@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { STREAMING_TILER_THRESHOLD_PIXELS } from './decode-ceiling.js';
 import {
-	NoStreamingTilerError,
+	StreamingTilerUnavailableError,
 	UnreadableImageError,
 	ingestImageFile,
 	listIngestedImages,
@@ -222,9 +222,74 @@ describe('ingestImageFile', () => {
 				file: imageFile(40_000, 30_000),
 				openDecodeAndCrop: stubTiler({ width: 40_000, height: 30_000 })
 			})
-		).rejects.toThrow(NoStreamingTilerError);
+		).rejects.toThrow(StreamingTilerUnavailableError);
 
 		expect(await store.list('')).toEqual([]);
+	});
+
+	it('refuses with the reason the streaming tiler cannot run, not with a decode diagnosis', async () => {
+		// **This is the refusal the shipped app actually produces**, and it used to be a different
+		// code path from the one under test. `apps/editor` always supplies `openStreaming`, so the
+		// "no streaming tiler in this build" refusal above is unreachable there; what a scholar on
+		// GitHub Pages meets is a streaming tiler that exists and cannot run, because npm publishes
+		// only the threaded `wasm-vips` and a static host cannot send COOP/COEP.
+		//
+		// That reason used to arrive wrapped in `UnreadableImageError`, whose first sentence told the
+		// user their valid JPEG "could not be read as an image" and to convert a TIFF they do not
+		// have. SPEC's *On the audience* makes "errors must name what is wrong and what to do"
+		// binding, so the reason is asked for **before** the tiler is opened and is not wrapped.
+		const opened: string[] = [];
+		const reason = 'The streaming tiler cannot run here: this deployment does not send COOP/COEP.';
+
+		const failure = await ingestImageFile({
+			store,
+			projectDirectory: 'p',
+			file: imageFile(20_000, 15_000, 'archival-master.jpg'),
+			openDecodeAndCrop: stubTiler(
+				{ width: 20_000, height: 15_000 },
+				{
+					opened,
+					kind: 'decode-and-crop'
+				}
+			),
+			openStreaming: stubTiler({ width: 20_000, height: 15_000 }, { opened, kind: 'streaming' }),
+			streamingTilerUnavailableReason: () => reason
+		}).then(
+			() => undefined,
+			(cause: unknown) => cause as Error
+		);
+
+		expect(failure).toBeInstanceOf(StreamingTilerUnavailableError);
+		expect(failure?.message).toContain(reason);
+		expect(failure?.message).toContain('300 megapixels');
+		expect(failure?.message, 'the refusal blames the file instead of the deployment').not.toContain(
+			'could not be read as an image'
+		);
+		// Refused before anything was opened, so nothing fetched a 5 MB WebAssembly module either.
+		expect(opened).toEqual([]);
+		expect(await store.list('')).toEqual([]);
+	});
+
+	it('ingests normally when the streaming tiler reports itself available', async () => {
+		const opened: string[] = [];
+
+		const result = await ingestImageFile({
+			store,
+			projectDirectory: 'p',
+			file: imageFile(20_000, 15_000),
+			openDecodeAndCrop: stubTiler(
+				{ width: 20_000, height: 15_000 },
+				{
+					opened,
+					kind: 'decode-and-crop'
+				}
+			),
+			openStreaming: stubTiler({ width: 600, height: 400 }, { opened, kind: 'streaming' }),
+			streamingTilerUnavailableReason: () => ''
+		});
+
+		expect(opened).toEqual(['streaming']);
+		expect(result.tiler).toBe('streaming');
 	});
 
 	it('says what is wrong when nothing can read the file', async () => {
@@ -240,6 +305,28 @@ describe('ingestImageFile', () => {
 		).rejects.toThrow(UnreadableImageError);
 
 		expect(await store.list('')).toEqual([]);
+	});
+
+	it('does not blame the browser’s format support for a libvips failure', async () => {
+		// The decode-and-crop message lists the formats *browsers* read and tells the user a TIFF
+		// needs converting first. Said about a libvips failure it is simply false — libvips reads
+		// TIFF, which is why the streaming path exists at all.
+		const failure = await ingestImageFile({
+			store,
+			projectDirectory: 'p',
+			file: imageFile(20_000, 15_000, 'master.tif'),
+			openDecodeAndCrop: stubTiler({ width: 20_000, height: 15_000 }),
+			openStreaming: async () => {
+				throw new Error('vips: bad extension');
+			}
+		}).then(
+			() => undefined,
+			(cause: unknown) => cause as Error
+		);
+
+		expect(failure).toBeInstanceOf(UnreadableImageError);
+		expect(failure?.message).toContain('vips: bad extension');
+		expect(failure?.message).not.toContain('Browsers read JPEG');
 	});
 
 	it('writes info.json last, so its presence means the pyramid is complete', async () => {

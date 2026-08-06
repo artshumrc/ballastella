@@ -9,7 +9,9 @@
 // shows up in a diff.
 //
 // The tiler is not listed here because it lives inside @ballastella/core rather than in a
-// manifest, so this check cannot see it. That half of ADR-0019 is a standing review item.
+// manifest, so this check cannot see it — and the viewer does depend on that package. That half
+// of ADR-0019 is `scripts/check-tiler-lazy.mjs`, which reads the source and the built bundles.
+// It used to be a standing review item that no script checked.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

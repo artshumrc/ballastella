@@ -17,14 +17,24 @@
 
 import type { VipsModule } from '@ballastella/core';
 
-/** Why libvips cannot run in this document, or `''` when it can. */
+/**
+ * Why libvips cannot run in this document, or `''` when it can.
+ *
+ * Handed to `ingestImageFile` as `streamingTilerUnavailableReason`, so that an over-threshold
+ * image is refused with **this** sentence before anything is imported. That is the whole point of
+ * separating the question from the loading: asked afterwards, the refusal arrives as a rejection
+ * from `open(file)` and is indistinguishable from a file the tiler could not read — which is how
+ * a scholar with a valid 20000 × 15000 JPEG came to be told to convert a TIFF.
+ *
+ * It does not restate the image's size; `StreamingTilerUnavailableError` puts that in front of it.
+ */
 export function libvipsUnavailableReason(): string {
 	if (typeof SharedArrayBuffer === 'undefined' || !globalThis.crossOriginIsolated) {
 		return (
-			'This image is too large for the built-in tiler, and the streaming tiler cannot run here: ' +
-			'it needs the Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy headers, which ' +
-			'this deployment does not send. Static hosts such as GitHub Pages cannot send them. Use a ' +
-			'smaller version of the image, or convert it to a IIIF pyramid outside the browser.'
+			'The streaming tiler cannot run here: it needs the Cross-Origin-Opener-Policy and ' +
+			'Cross-Origin-Embedder-Policy headers, which this deployment does not send — static hosts ' +
+			'such as GitHub Pages cannot. Use a smaller version of the image, or convert it to a IIIF ' +
+			'pyramid outside the browser.'
 		);
 	}
 	return '';
