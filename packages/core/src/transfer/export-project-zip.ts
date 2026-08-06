@@ -201,7 +201,7 @@ function zipStream(
 function zipEntry(relative: string): ZipPassThrough | ZipDeflate {
 	// Tiles are JPEG or PNG and a mirrored pyramid is nearly all tiles: deflating them costs real
 	// seconds per hundred megabytes and saves close to nothing. `project.json`, `info.json`,
-	// manifests, Georeference Annotations, and GeoJSON are text, where it saves most of the file.
+	// manifests, Alignments, and GeoJSON are text, where it saves most of the file.
 	const entry = ALREADY_COMPRESSED.test(relative)
 		? new ZipPassThrough(relative)
 		: new ZipDeflate(relative, { level: 6 });

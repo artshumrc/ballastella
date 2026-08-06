@@ -1,6 +1,12 @@
 import { unzip, type UnzipFileInfo, type Unzipped } from 'fflate';
 
-import { PROJECT_FILE_NAME, parseProjectFile, type ProjectFile } from '../project/project-file.js';
+import {
+	BALLASTELLA_CANONICAL_URL,
+	PROJECT_FILE_NAME,
+	ProjectFormatTooNewError,
+	parseProjectFile,
+	type ProjectFile
+} from '../project/project-file.js';
 import { isTempPath, type Bytes } from '../store/project-store.js';
 import type { ProjectFileSource, TransferFile } from './transfer.js';
 
@@ -223,10 +229,12 @@ export async function readProjectZip(
 	// document as readily as into a syntax error — a truncated one that happens to end after a
 	// closing brace is valid JSON naming half the Layers.
 	assertUndamaged(PROJECT_FILE_NAME, manifest, checksums);
-	// Parsed, not merely present. Both failures it can raise are the right message to show as they
-	// are, and the format refusal has to happen here rather than after the files land: an imported
-	// zip is the likeliest way a Project from a newer version reaches an older build at all.
-	const project = parseProjectFile(manifest);
+	// Parsed, not merely present. The format refusal has to happen here rather than after the files
+	// land: an imported zip is the likeliest way a Project from a newer version reaches an older build
+	// at all. Its message is re-ended for this path, because "it has been left untouched" describes a
+	// Project in the Workspace and there is none here — what the reader needs, and what every other
+	// refusal on this path says, is that nothing arrived.
+	const project = reendFormatRefusal(() => parseProjectFile(manifest));
 
 	assertReferencesPresent(project, new Set(paths));
 
@@ -237,6 +245,28 @@ export async function readProjectZip(
 		totalBytes,
 		files: () => inflateInBatches(archive, ordered, entries, checksums)
 	};
+}
+
+/**
+ * Run `read`, re-ending ADR-0010's refusal for the import path.
+ *
+ * The same class and the same `formatVersion`, so everything catching it still does; only the closing
+ * sentence changes, from a promise about a local Project that does not exist to the one every other
+ * refusal here makes.
+ */
+function reendFormatRefusal(read: () => ProjectFile): ProjectFile {
+	try {
+		return read();
+	} catch (cause) {
+		if (cause instanceof ProjectFormatTooNewError) {
+			throw new ProjectFormatTooNewError(
+				cause.formatVersion,
+				BALLASTELLA_CANONICAL_URL,
+				'Nothing has been imported.'
+			);
+		}
+		throw cause;
+	}
 }
 
 /**
@@ -318,9 +348,9 @@ function assertReferencesPresent(project: ProjectFile, present: ReadonlySet<stri
 
 	// An image directory without its `info.json` is a heap of tiles no IIIF client can open
 	// (ADR-0006's layout), so the pyramid is missing whether or not any Layer has been wired to it
-	// yet. Checked from the archive's own contents rather than from a reference, because the link
-	// from a Layer to its image runs through the Georeference Annotation, whose shape ticket 07
-	// defines — see the note on this ticket.
+	// yet. Checked from the archive's own contents rather than from a reference, because the link from
+	// a Layer to its image runs through its Alignment, and following it would mean parsing an
+	// untrusted Annotation during validation — see ticket 09's checklist.
 	const imageDirectories = new Set<string>();
 	for (const path of present) {
 		const segments = path.split('/');

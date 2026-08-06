@@ -66,12 +66,22 @@ export class ProjectFormatTooNewError extends Error {
 	readonly formatVersion: number;
 	readonly supportedFormatVersion: number;
 
-	constructor(formatVersion: number, appUrl: string = BALLASTELLA_CANONICAL_URL) {
+	/**
+	 * @param closing the reassurance the message ends on. The default is right for a Project sitting
+	 *   in the Workspace, which is the common case and the one where "untouched" is the fact the user
+	 *   needs. It is slightly wrong on an import, where there is no local Project to leave alone and
+	 *   the fact that matters is that nothing arrived — which every other refusal on that path says.
+	 */
+	constructor(
+		formatVersion: number,
+		appUrl: string = BALLASTELLA_CANONICAL_URL,
+		closing: string = 'It has been left untouched.'
+	) {
 		super(
 			`This Project was made with a newer version of Ballastella ` +
 				`(format ${formatVersion}; this copy understands ${CURRENT_FORMAT_VERSION}). ` +
 				`Open it at ${appUrl}, or update your copy. ` +
-				`It has been left untouched.`
+				closing
 		);
 		this.name = 'ProjectFormatTooNewError';
 		this.formatVersion = formatVersion;

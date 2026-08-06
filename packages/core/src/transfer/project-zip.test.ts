@@ -367,6 +367,12 @@ describe('a round trip through export and import', () => {
 		// the files, and the ticket asks only for semantic equivalence — but it holds because every
 		// entry carries a fixed timestamp, and it is the strongest available statement that the round
 		// trip adds and loses nothing at all.
+		//
+		// **If only this line fails after a dependency bump, read it as a change in fflate rather than
+		// as a regression here.** Byte identity additionally depends on fflate's deflate producing the
+		// same output for the same input, which nothing promises: `fflate` is `^0.8.3` in the catalog,
+		// and CONTRIBUTING pins only `@allmaps/*` exactly. The assertion above it — that the files come
+		// back identical — is the one the ticket actually asks for and is unaffected by deflate output.
 		expect([...second]).toEqual([...first]);
 	});
 
@@ -637,6 +643,11 @@ describe('rejecting a zip before writing anything', () => {
 		expect(failure.message).toContain('newer version of Ballastella');
 		expect(failure.message).toContain('update your copy');
 		expect(failure.message).toContain('https://');
+		// Ends the way every other refusal on this path ends. "It has been left untouched" is the right
+		// reassurance for a Project sitting in the Workspace and the wrong one here, where the thing the
+		// reader needs to know is that nothing arrived.
+		expect(failure.message).toContain('Nothing has been imported.');
+		expect(failure.message).not.toContain('left untouched');
 		await nothingWritten();
 	});
 
