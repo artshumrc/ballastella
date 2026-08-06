@@ -15,6 +15,7 @@
 		"@ballastella/core": "workspace:*",
 		"maplibre-gl": "catalog:",
 		"pmtiles": "catalog:",
+		"triiiceratops": "catalog:",
 		"wasm-vips": "catalog:"
 	},
 	"devDependencies": {

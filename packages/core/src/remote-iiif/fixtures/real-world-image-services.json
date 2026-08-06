@@ -1,0 +1,822 @@
+{
+	"what": "Live info.json documents from real IIIF image services, captured verbatim.",
+	"why": "Ticket 03 refuses two pyramid shapes that render plausibly and wrongly, and ticket 14 is where the info.json stops being ours. A corpus of real documents is the only way to know what real services actually declare — and, when one of them trips a guard, to keep that fact in the tree rather than in a report nobody reads again.",
+	"capturedOn": "2026-08-06",
+	"howToRefresh": "Each entry records the URL it came from. Re-fetching is a network test, not a unit test — see the `describe` that only runs with BALLASTELLA_NETWORK_TESTS=1.",
+	"doNotEdit": "These are other people’s documents. Fix a failing test by changing our code or by recording a finding, never by editing a captured document into passing.",
+	"services": [
+		{
+			"name": "loc-gmd-map",
+			"note": "Library of Congress, Geography and Map Division — a real historical map sheet (loc.gov/item/2022594752).",
+			"fetchedFrom": "https://tile.loc.gov/image-services/iiif/service:gmd:gmdtitlecolfold:ma:-0:27:ma-027:ma-027-00001/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/json",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://tile.loc.gov/image-services/iiif/service:gmd:gmdtitlecolfold:ma:-0:27:ma-027:ma-027-00001",
+				"protocol": "http://iiif.io/api/image",
+				"height": 3622,
+				"width": 2781,
+				"tiles": [
+					{
+						"width": 512,
+						"scaleFactors": [1, 2, 4, 8, 16, 32]
+					}
+				],
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["jpg", "txt", "jp2", "tif", "pdf", "gif", "png", "webp"],
+						"qualities": ["default", "native", "color", "gray", "bitonal"],
+						"supports": [
+							"baseUriRedirect",
+							"cors",
+							"jsonldMediaType",
+							"mirroring",
+							"regionByPct",
+							"regionByPx",
+							"rotationBy90s",
+							"sizeByWhListed",
+							"sizeByForcedWh",
+							"sizeByH",
+							"sizeByPct",
+							"sizeByW",
+							"sizeByWh"
+						]
+					}
+				]
+			}
+		},
+		{
+			"name": "loc-world-digital-library",
+			"note": "Library of Congress, World Digital Library map (loc.gov/item/2021668642).",
+			"fetchedFrom": "https://tile.loc.gov/image-services/iiif/service:gdc:gdcwdl:wd:l_:15:49:4:wdl_15494:F0000001/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/json",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://tile.loc.gov/image-services/iiif/service:gdc:gdcwdl:wd:l_:15:49:4:wdl_15494:F0000001",
+				"protocol": "http://iiif.io/api/image",
+				"height": 4283,
+				"width": 6274,
+				"tiles": [
+					{
+						"width": 512,
+						"scaleFactors": [1, 2, 4, 8, 16, 32]
+					}
+				],
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["jpg", "txt", "jp2", "tif", "pdf", "gif", "png", "webp"],
+						"qualities": ["default", "native", "color", "gray", "bitonal"],
+						"supports": [
+							"baseUriRedirect",
+							"cors",
+							"jsonldMediaType",
+							"mirroring",
+							"regionByPct",
+							"regionByPx",
+							"rotationBy90s",
+							"sizeByWhListed",
+							"sizeByForcedWh",
+							"sizeByH",
+							"sizeByPct",
+							"sizeByW",
+							"sizeByWh"
+						]
+					}
+				]
+			}
+		},
+		{
+			"name": "bodleian",
+			"note": "Digital Bodleian. Also the image whose generateId the live Allmaps API was observed to key on.",
+			"fetchedFrom": "https://iiif.bodleian.ox.ac.uk/iiif/image/e32a277e-91e2-4a6d-8ba6-cc4bad230410/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json;profile=\"http://iiif.io/api/image/2/context.json\"",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"protocol": "http://iiif.io/api/image",
+				"width": 1000,
+				"height": 1500,
+				"sizes": [
+					{
+						"width": 125,
+						"height": 187
+					},
+					{
+						"width": 250,
+						"height": 375
+					},
+					{
+						"width": 500,
+						"height": 750
+					}
+				],
+				"tiles": [
+					{
+						"width": 256,
+						"height": 256,
+						"scaleFactors": [1, 2, 4, 8]
+					}
+				],
+				"@id": "https://iiif.bodleian.ox.ac.uk/iiif/image/e32a277e-91e2-4a6d-8ba6-cc4bad230410",
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["jpg", "png", "tif", "webp", "avif"],
+						"qualities": ["native", "color", "gray", "bitonal"],
+						"supports": [
+							"regionByPct",
+							"regionSquare",
+							"max",
+							"sizeByConfinedWh",
+							"sizeByForcedWh",
+							"sizeByWh",
+							"sizeAboveFull",
+							"rotationBy90s",
+							"mirroring"
+						],
+						"maxWidth": 4000,
+						"maxHeight": 4000
+					}
+				],
+				"service": [
+					{
+						"@context": "http://iiif.io/api/annex/services/physdim/1/context.json",
+						"profile": "http://iiif.io/api/annex/services/physdim",
+						"physicalScale": 0.0352778,
+						"physicalUnits": "cm"
+					}
+				]
+			}
+		},
+		{
+			"name": "harvard-ids",
+			"note": "Harvard Library IDS. Redirects: the document declares an id on a DIFFERENT host from the URL fetched.",
+			"fetchedFrom": "https://ids.lib.harvard.edu/ids/iiif/47174896/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/json; charset=utf-8",
+				"access-control-allow-origin": "https://example.org"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://mps.lib.harvard.edu/assets/images/drs:47174896",
+				"protocol": "http://iiif.io/api/image",
+				"width": 2087,
+				"height": 2550,
+				"sizes": [
+					{
+						"width": 65,
+						"height": 80
+					},
+					{
+						"width": 130,
+						"height": 159
+					},
+					{
+						"width": 261,
+						"height": 319
+					},
+					{
+						"width": 522,
+						"height": 638
+					},
+					{
+						"width": 1044,
+						"height": 1275
+					},
+					{
+						"width": 2087,
+						"height": 2550
+					}
+				],
+				"tiles": [
+					{
+						"width": 512,
+						"height": 512,
+						"scaleFactors": [1, 2, 4, 8, 16, 32]
+					}
+				],
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["tif", "jpg", "gif", "png"],
+						"qualities": ["bitonal", "default", "gray", "color"],
+						"supports": [
+							"regionByPx",
+							"sizeByW",
+							"sizeByWhListed",
+							"cors",
+							"regionSquare",
+							"sizeByDistortedWh",
+							"canonicalLinkHeader",
+							"sizeByConfinedWh",
+							"sizeByPct",
+							"jsonldMediaType",
+							"regionByPct",
+							"rotationArbitrary",
+							"sizeByH",
+							"baseUriRedirect",
+							"rotationBy90s",
+							"profileLinkHeader",
+							"sizeByForcedWh",
+							"sizeByWh",
+							"mirroring"
+						]
+					}
+				]
+			}
+		},
+		{
+			"name": "cambridge",
+			"note": "Cambridge Digital Library.",
+			"fetchedFrom": "https://images.lib.cam.ac.uk/iiif/MS-ADD-04002-000-00001.jp2/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://images.lib.cam.ac.uk/iiif/MS-ADD-04002-000-00001.jp2",
+				"protocol": "http://iiif.io/api/image",
+				"width": 4880,
+				"height": 6174,
+				"sizes": [
+					{
+						"width": 152,
+						"height": 192
+					},
+					{
+						"width": 305,
+						"height": 385
+					},
+					{
+						"width": 610,
+						"height": 771
+					},
+					{
+						"width": 1220,
+						"height": 1543
+					}
+				],
+				"tiles": [
+					{
+						"width": 256,
+						"height": 256,
+						"scaleFactors": [1, 2, 4, 8, 16, 32]
+					}
+				],
+				"profile": [
+					"http://iiif.io/api/image/2/level1.json",
+					{
+						"formats": ["jpg"],
+						"qualities": ["native", "color", "gray", "bitonal"],
+						"supports": [
+							"regionByPct",
+							"regionSquare",
+							"sizeByForcedWh",
+							"sizeByWh",
+							"sizeAboveFull",
+							"rotationBy90s",
+							"mirroring"
+						],
+						"maxWidth": 2000,
+						"maxHeight": 2000
+					}
+				]
+			}
+		},
+		{
+			"name": "stanford",
+			"note": "Stanford Digital Repository.",
+			"fetchedFrom": "https://stacks.stanford.edu/image/iiif/hg676jb4964%2F0380_796-44/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json; charset=utf-8",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://stacks.stanford.edu/image/iiif/hg676jb4964/0380_796-44",
+				"protocol": "http://iiif.io/api/image",
+				"width": 5426,
+				"height": 3820,
+				"sizes": [
+					{
+						"width": 170,
+						"height": 119
+					},
+					{
+						"width": 339,
+						"height": 239
+					},
+					{
+						"width": 678,
+						"height": 478
+					},
+					{
+						"width": 1357,
+						"height": 955
+					},
+					{
+						"width": 2713,
+						"height": 1910
+					},
+					{
+						"width": 5426,
+						"height": 3820
+					},
+					{
+						"width": 5426,
+						"height": 3820
+					}
+				],
+				"tiles": [
+					{
+						"width": 1024,
+						"height": 1024,
+						"scaleFactors": [1, 2, 4, 8, 16, 32]
+					}
+				],
+				"profile": ["http://iiif.io/api/image/2/level2.json"]
+			}
+		},
+		{
+			"name": "wellcome",
+			"note": "Wellcome Collection.",
+			"fetchedFrom": "https://iiif.wellcomecollection.org/image/b18035723_0001.JP2/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/json",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://iiif.wellcomecollection.org/image/b18035723_0001.JP2",
+				"@type": "iiif:Image",
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["jpg", "tif", "gif", "png"],
+						"qualities": ["bitonal", "default", "gray", "color"],
+						"supports": [
+							"regionByPx",
+							"sizeByW",
+							"sizeByWhListed",
+							"cors",
+							"regionSquare",
+							"sizeByDistortedWh",
+							"canonicalLinkHeader",
+							"sizeByConfinedWh",
+							"sizeByPct",
+							"jsonldMediaType",
+							"regionByPct",
+							"rotationArbitrary",
+							"sizeByH",
+							"baseUriRedirect",
+							"rotationBy90s",
+							"profileLinkHeader",
+							"sizeByForcedWh",
+							"sizeByWh",
+							"mirroring"
+						]
+					}
+				],
+				"protocol": "http://iiif.io/api/image",
+				"width": 2569,
+				"height": 3543,
+				"sizes": [
+					{
+						"width": 725,
+						"height": 1000
+					},
+					{
+						"width": 290,
+						"height": 400
+					},
+					{
+						"width": 145,
+						"height": 200
+					},
+					{
+						"width": 73,
+						"height": 100
+					}
+				],
+				"tiles": [
+					{
+						"width": 1024,
+						"height": 1024,
+						"scaleFactors": [1, 2, 4, 8, 16, 32]
+					}
+				]
+			}
+		},
+		{
+			"name": "e-codices",
+			"note": "e-codices (Loris). Omits tiles[].height — the ADR-0003 non-square pitfall, in the wild.",
+			"fetchedFrom": "https://www.e-codices.unifr.ch/loris/bge/bge-gr0044/bge-gr0044_e001.jp2/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/json",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["jpg", "png", "gif", "webp"],
+						"supports": [
+							"canonicalLinkHeader",
+							"profileLinkHeader",
+							"mirroring",
+							"rotationArbitrary",
+							"regionSquare",
+							"sizeAboveFull"
+						],
+						"qualities": ["default", "bitonal", "gray", "color"]
+					}
+				],
+				"width": 5478,
+				"height": 7304,
+				"tiles": [
+					{
+						"width": 1024,
+						"scaleFactors": [1, 2, 4, 8, 16, 32]
+					}
+				],
+				"sizes": [
+					{
+						"width": 172,
+						"height": 229
+					},
+					{
+						"width": 343,
+						"height": 457
+					},
+					{
+						"width": 685,
+						"height": 913
+					},
+					{
+						"width": 1370,
+						"height": 1826
+					},
+					{
+						"width": 2739,
+						"height": 3652
+					},
+					{
+						"width": 5478,
+						"height": 7304
+					}
+				],
+				"@id": "https://www.e-codices.unifr.ch/loris/bge%2Fbge-gr0044%2Fbge-gr0044_e001.jp2",
+				"protocol": "http://iiif.io/api/image"
+			}
+		},
+		{
+			"name": "leipzig",
+			"note": "Universitätsbibliothek Leipzig.",
+			"fetchedFrom": "https://iiif.ub.uni-leipzig.de/iiif/j2k/0000/0034/0000003431/00000001.jpx/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json;profile=\"http://iiif.io/api/image/2/context.json\"",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"protocol": "http://iiif.io/api/image",
+				"width": 4029,
+				"height": 5760,
+				"sizes": [
+					{
+						"width": 125,
+						"height": 180
+					},
+					{
+						"width": 251,
+						"height": 360
+					},
+					{
+						"width": 503,
+						"height": 720
+					},
+					{
+						"width": 1007,
+						"height": 1440
+					},
+					{
+						"width": 2014,
+						"height": 2880
+					}
+				],
+				"tiles": [
+					{
+						"width": 256,
+						"height": 256,
+						"scaleFactors": [1, 2, 4, 8, 16, 32]
+					}
+				],
+				"@id": "https://iiif.ub.uni-leipzig.de/iiif/j2k/0000/0034/0000003431/00000001.jpx",
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["jpg", "png", "webp"],
+						"qualities": ["native", "color", "gray", "bitonal"],
+						"supports": [
+							"regionByPct",
+							"regionSquare",
+							"sizeByForcedWh",
+							"sizeByWh",
+							"sizeAboveFull",
+							"sizeUpscaling",
+							"rotationBy90s",
+							"mirroring"
+						],
+						"maxWidth": 20000,
+						"maxHeight": 20000
+					}
+				],
+				"service": [
+					{
+						"@context": "http://iiif.io/api/annex/services/physdim/1/context.json",
+						"profile": "http://iiif.io/api/annex/services/physdim",
+						"physicalScale": 0.00635,
+						"physicalUnits": "cm"
+					}
+				]
+			}
+		},
+		{
+			"name": "nypl",
+			"note": "New York Public Library.",
+			"fetchedFrom": "https://iiif.nypl.org/iiif/2/1269013/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json;charset=UTF-8",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://iiif.nypl.org/iiif/2/1269013",
+				"protocol": "http://iiif.io/api/image",
+				"width": 1721,
+				"height": 2773,
+				"sizes": [
+					{
+						"width": 108,
+						"height": 173
+					},
+					{
+						"width": 215,
+						"height": 347
+					},
+					{
+						"width": 430,
+						"height": 693
+					},
+					{
+						"width": 861,
+						"height": 1387
+					},
+					{
+						"width": 1721,
+						"height": 2773
+					}
+				],
+				"tiles": [
+					{
+						"width": 512,
+						"height": 512,
+						"scaleFactors": [1, 2, 4, 8, 16]
+					}
+				],
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["jpg", "tif", "gif", "png"],
+						"maxArea": 400000000,
+						"qualities": ["bitonal", "default", "gray", "color"],
+						"supports": [
+							"regionByPx",
+							"sizeByW",
+							"sizeByWhListed",
+							"cors",
+							"regionSquare",
+							"sizeByDistortedWh",
+							"sizeAboveFull",
+							"canonicalLinkHeader",
+							"sizeByConfinedWh",
+							"sizeByPct",
+							"jsonldMediaType",
+							"regionByPct",
+							"rotationArbitrary",
+							"sizeByH",
+							"baseUriRedirect",
+							"rotationBy90s",
+							"profileLinkHeader",
+							"sizeByForcedWh",
+							"sizeByWh",
+							"mirroring"
+						]
+					}
+				]
+			}
+		},
+		{
+			"name": "rijks-micrio",
+			"note": "Micrio, as used by the Rijksmuseum. Image API 3.",
+			"fetchedFrom": "https://iiif.micr.io/JGeNP/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/3/context.json",
+				"id": "https://iiif.micr.io/JGeNP",
+				"type": "ImageService3",
+				"protocol": "http://iiif.io/api/image",
+				"profile": "level2",
+				"qualities": ["default", "gray", "color"],
+				"formats": ["jpg", "png", "webp"],
+				"tiles": [
+					{
+						"scaleFactors": [1, 2, 4, 8],
+						"width": 1024,
+						"height": 1024
+					}
+				],
+				"created": 1593449734494,
+				"width": 6560,
+				"height": 4224,
+				"title": "RP-T-1905-207-Original-Cropped.jpg",
+				"tileSize": 1024,
+				"version": "3.1",
+				"viewsWH": false,
+				"organisation": {
+					"name": "Rijks Collectie",
+					"slug": "rijks-collectie",
+					"logo": null,
+					"baseUrl": "https://micrio.rijksmuseum.nl/"
+				},
+				"tileBasePath": "https://micrio.rijksmuseum.nl/",
+				"maxArea": 17550000,
+				"extraFeatures": [
+					"baseUriRedirect",
+					"cors",
+					"jsonldMediaType",
+					"regionByPct",
+					"regionByPx",
+					"regionSquare",
+					"rotationBy90s",
+					"sizeByConfinedWh",
+					"sizeByH",
+					"sizeByPct",
+					"sizeByW",
+					"sizeByWh",
+					"sizeUpscaling"
+				]
+			}
+		},
+		{
+			"name": "iiif-cookbook",
+			"note": "The IIIF Image API 3.0 reference example.",
+			"fetchedFrom": "https://iiif.io/api/image/3.0/example/reference/918ecd18c2592080851777620de9bcb5-gottingen/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/3/context.json",
+				"extraFormats": ["jpg", "png"],
+				"extraQualities": ["default", "color", "gray"],
+				"height": 3024,
+				"id": "https://iiif.io/api/image/3.0/example/reference/918ecd18c2592080851777620de9bcb5-gottingen",
+				"profile": "level1",
+				"protocol": "http://iiif.io/api/image",
+				"tiles": [
+					{
+						"height": 512,
+						"scaleFactors": [1, 2, 4],
+						"width": 512
+					}
+				],
+				"type": "ImageService3",
+				"width": 4032
+			}
+		},
+		{
+			"name": "iiif-2-1-reference",
+			"note": "The IIIF Image API 2.1 reference example.",
+			"fetchedFrom": "https://iiif.io/api/image/2.1/example/reference/4ce82cef49fb16798f4c2440307c3d6f-newspaper-p2/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://iiif.io/api/image/2.1/example/reference/4ce82cef49fb16798f4c2440307c3d6f-newspaper-p2",
+				"height": 4999,
+				"profile": [
+					"http://iiif.io/api/image/2/level1.json",
+					{
+						"formats": ["jpg", "png"],
+						"qualities": ["default", "color", "gray"]
+					}
+				],
+				"protocol": "http://iiif.io/api/image",
+				"tiles": [
+					{
+						"height": 512,
+						"scaleFactors": [1, 2, 4, 8],
+						"width": 512
+					}
+				],
+				"width": 3536
+			}
+		},
+		{
+			"name": "mdz-bayerische-staatsbibliothek",
+			"note": "Münchener DigitalisierungsZentrum, Bayerische Staatsbibliothek. Declares sizes and NO tiles at all.",
+			"fetchedFrom": "https://api.digitale-sammlungen.de/iiif/image/v2/bsb00001234_00001/info.json",
+			"status": 200,
+			"observedHeaders": {
+				"content-type": "application/ld+json;profile=\"http://iiif.io/api/image/2/context.json\"",
+				"access-control-allow-origin": "*"
+			},
+			"info": {
+				"@context": "http://iiif.io/api/image/2/context.json",
+				"@id": "https://api.digitale-sammlungen.de/iiif/image/v2/bsb00001234_00001",
+				"@type": "iiif:Image",
+				"protocol": "http://iiif.io/api/image",
+				"profile": [
+					"http://iiif.io/api/image/2/level2.json",
+					{
+						"formats": ["tif", "gif", "jp2", "webp"],
+						"supports": [
+							"sizeByWh",
+							"regionSquare",
+							"sizeAboveFull",
+							"mirroring",
+							"rotationArbitrary",
+							"profileLinkHeader",
+							"canonicalLinkHeader"
+						]
+					}
+				],
+				"width": 4098,
+				"height": 3109,
+				"sizes": [
+					{
+						"@type": "iiif:Size",
+						"width": 4098,
+						"height": 3109
+					},
+					{
+						"@type": "iiif:Size",
+						"width": 2049,
+						"height": 1555
+					},
+					{
+						"@type": "iiif:Size",
+						"width": 1025,
+						"height": 778
+					},
+					{
+						"@type": "iiif:Size",
+						"width": 513,
+						"height": 389
+					},
+					{
+						"@type": "iiif:Size",
+						"width": 257,
+						"height": 195
+					},
+					{
+						"@type": "iiif:Size",
+						"width": 129,
+						"height": 98
+					}
+				]
+			}
+		}
+	]
+}
