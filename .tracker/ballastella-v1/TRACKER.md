@@ -10,11 +10,11 @@ Overall status: `In Progress`
 
 Current ticket: 07 is in progress, on the scope the upstream blocker leaves open (see open question 5). Tickets 12 and 13 are reviewed and remediated; ticket 05 is merged and green but is `Needs Human Validation or Intervention` — see open question 3.
 
-The tree runs **475 unit tests and 82 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
+The tree runs **495 unit tests and 89 e2e**, with lint, typecheck, build, the ADR-0006 fence, and the `wasm-vips`-is-lazy and viewer-carries-no-vips checks all clean.
 
 Ticket 12 passed ticket 02's shared adapter suite with **zero changes to the suite**, which is the outcome ADR-0001 was aiming for: a picked `FileSystemDirectoryHandle` and the OPFS root turned out to be the same interface, so the byte path is now shared by both backends via `directory-handle-store.ts`.
 
-**Six items need a human — see [Open questions for a human](#open-questions-for-a-human).** Items 3 and 4 constrain what v1 can claim; none blocks ticket 06.
+**Six items need a human — see [Open questions for a human](#open-questions-for-a-human).** Items 3, 4, and 5 constrain what v1 can claim. Item 5 blocks two of ticket 07's acceptance criteria; the rest of ticket 07 is unaffected.
 
 ### A note on how much to trust a green ticket
 
@@ -51,7 +51,7 @@ Stories **95 and 96** are deliberately absent from the table. Accessibility is a
 
 ## Open questions for a human
 
-Raised by the code reviews of tickets 02–04 and 12–13, and by ticket 05's implementation. None is a defect an implementer can decide away.
+Raised by the code reviews of tickets 02–04 and 12–13, and by tickets 05 and 06 in implementation. None is a defect an implementer can decide away.
 
 1. **What is the canonical instance URL?** `BALLASTELLA_CANONICAL_URL` in `packages/core/src/project/project-file.ts` is currently `https://artshumrc.github.io/ballastella/`, derived from the git remote because nothing in the repo records one. ADR-0010 requires the format-refusal message to name a URL, and this is the one string a user reads at the moment their work is at risk. Two problems: it 404s unless Pages is enabled on that repo with no custom domain, and [ADR-0006](../../docs/adr/0006-relative-asset-paths.md) says we cannot know at build time whether a deployment lives at a subpath or a domain root — so a compile-time constant is wrong on every fork until hand-edited. Decide the value, or decide it must be deployment configuration with a guard like ADR-0020's catalog lint rule.
 
