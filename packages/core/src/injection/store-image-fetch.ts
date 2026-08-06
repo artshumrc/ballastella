@@ -27,7 +27,7 @@
 import {
 	PathNotFoundError,
 	assertStorePath,
-	type ProjectStore,
+	type ReadOnlyProjectStore,
 	type StorePath
 } from '../store/project-store.js';
 import { imageDirectory } from '../project/image-files.js';
@@ -94,7 +94,13 @@ export class MissingImageServiceOverrideError extends Error {
 }
 
 export type StoreImageFetchOptions = {
-	readonly store: ProjectStore;
+	/**
+	 * The store to resolve a pyramid out of. **The read half only** — this shim writes nothing, and
+	 * saying so in the type is what lets ticket 17's HTTP backend (ADR-0006) be handed to it: a
+	 * Published Site's pyramid is read through exactly this function, and the viewer has no `write`
+	 * to give. See {@link ReadOnlyProjectStore}.
+	 */
+	readonly store: ReadOnlyProjectStore;
 	/** The Project directory whose `images/` the placeholder resolves against (ADR-0008). */
 	readonly projectDirectory: string;
 	/**

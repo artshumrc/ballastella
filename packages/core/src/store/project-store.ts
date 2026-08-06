@@ -71,6 +71,26 @@ export interface ProjectStore {
 	reclaimAbandonedWrites(prefix: string): Promise<void>;
 }
 
+/**
+ * The read half of {@link ProjectStore}: everything a Reader of a Published Site needs, and
+ * nothing that could change a byte of it.
+ *
+ * **A type, and it is the whole of ticket 17's "the viewer has no store `write`".** ADR-0006 names an
+ * HTTP adapter as the third backend, and a static host can answer exactly one question: what are the
+ * bytes at this path? It cannot list a directory, it will not accept a `PUT`, and there is nothing for
+ * `reclaimAbandonedWrites` to sweep. An adapter that satisfied the full interface by rejecting from
+ * four of its six methods would put a `write` in the viewer's reach and make "read-only" a runtime
+ * promise rather than a fact the compiler holds — so the narrow type is the interface the viewer is
+ * given, and `createHttpProjectStore` returns this.
+ *
+ * `Pick` rather than a hand-written interface, so `read`'s signature cannot drift from
+ * {@link ProjectStore.read} and the same {@link PathNotFoundError} contract holds for a 404 as for a
+ * missing file in OPFS. Every consumer that only reads — {@link createStoreImageFetch} is the one that
+ * matters, since it is how a pyramid reaches a renderer — takes this rather than the full interface,
+ * which is what lets one shim serve all three backends.
+ */
+export type ReadOnlyProjectStore = Pick<ProjectStore, 'read'>;
+
 /** Rejected from `read` and `size` when nothing is stored at the path. */
 export class PathNotFoundError extends Error {
 	readonly path: StorePath;

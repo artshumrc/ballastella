@@ -276,6 +276,34 @@ export const annotationLayerIds = (layerId: string): string[] => [
 ];
 
 /**
+ * The live objects a built stack consists of, handed to {@link StackBuiltListener}.
+ *
+ * Named rather than left inline so that an app can type a Playwright handle against it **without naming
+ * `@allmaps/maplibre`**. `apps/viewer` deliberately does not depend on that package — it reaches warped
+ * rendering through this module, which is where ADR-0019 wants that dependency to live — so an app-side
+ * `Record<string, WarpedMapLayer>` would be an undeclared import of somebody else's dependency.
+ */
+export type DrawnStackObjects = {
+	readonly map: MapLibreMap;
+	/** The live warped layer for each `kind: 'map'` Layer of the stack, by Layer id. */
+	readonly warped: Readonly<Record<string, WarpedMapLayer>>;
+};
+
+/**
+ * Called with the live objects once a stack is on the map, returning the way to let go of them.
+ *
+ * **The seam that keeps each app's Playwright handle in its own app.** SPEC's Seam 2 is a real browser
+ * with no map abstraction, so a browser test needs the `WarpedMapLayer`s themselves — but a
+ * `declare global` on `Window` inside `@ballastella/core` would put one app's test scaffolding into the
+ * other's types, and into a published Reader's bundle. So the exposure is injected and this module knows
+ * nothing about `window`.
+ */
+export type StackBuiltListener = (
+	map: DrawnStackObjects['map'],
+	warped: DrawnStackObjects['warped']
+) => (() => void) | void;
+
+/**
  * Draw `layers` onto `map`, bottom of the stack first.
  *
  * The whole stack is built and torn down together rather than diffed. Handing an Alignment to the
@@ -289,19 +317,7 @@ export function drawLayerStack(options: {
 	layers: readonly DrawnLayer[];
 	/** Where an aligned Historical Map's tiles are read from (ADR-0011). */
 	fetchTile: FetchFn;
-	/**
-	 * Called with the live objects once the stack is on the map, returning the way to let go of them.
-	 *
-	 * **The seam that keeps each app's Playwright handle in its own app.** SPEC's Seam 2 is a real
-	 * browser with no map abstraction, so a browser test needs the `WarpedMapLayer`s themselves — but
-	 * a `declare global` on `Window` inside `@ballastella/core` would put one app's test scaffolding
-	 * into the other's types, and into a published Reader's bundle. So the exposure is injected and
-	 * this module knows nothing about `window`.
-	 */
-	onBuilt?: (
-		map: MapLibreMap,
-		warped: Readonly<Record<string, WarpedMapLayer>>
-	) => (() => void) | void;
+	onBuilt?: StackBuiltListener;
 }): StackRender {
 	const { map, layers, fetchTile } = options;
 	const outcomes: Record<string, DrawnOutcome> = {};

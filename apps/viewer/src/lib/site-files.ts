@@ -1,4 +1,10 @@
 import { base } from '$app/paths';
+import {
+	createHttpProjectStore,
+	type Bytes,
+	type ReadOnlyProjectStore,
+	type StorePath
+} from '@ballastella/core';
 
 /**
  * A file of the Published Site, by its Workspace-relative path, as a URL this page can fetch.
@@ -17,8 +23,49 @@ import { base } from '$app/paths';
  * `resolveDeploymentAsset`, and for the same reason.
  */
 export function siteUrl(path: string): string {
-	const prefix = new URL(base === '' ? '.' : `${base}/`, document.baseURI);
-	return new URL(path, prefix).href;
+	return new URL(path, sitePrefix()).href;
+}
+
+/**
+ * The site's own address, with a trailing slash: the document's base, plus `paths.base`.
+ *
+ * Two callers, and they want it for different reasons. `siteUrl` resolves data paths against it, and
+ * the Base Map's Reader preference is keyed on it so that two Published Sites on one origin do not
+ * share a choice (ADR-0020) — a department domain with a folder per student is the ordinary case.
+ */
+export function sitePrefix(): string {
+	return new URL(base === '' ? '.' : `${base}/`, document.baseURI).href;
+}
+
+/**
+ * A deployment-relative asset of the Published Site — the Base Map's pmtiles archive, its glyphs, and
+ * its sprites — as a URL MapLibre can be given.
+ *
+ * Separate from {@link siteUrl}, and the difference is not cosmetic. MapLibre hands the glyph and
+ * sprite URLs to workers and substitutes `{fontstack}`, `{range}`, and `{flavor}` into them by plain
+ * string replacement, so `new URL()` would percent-encode those braces and the substitution would
+ * silently stop matching — a Base Map with no labels and no error. This concatenates onto an absolute
+ * prefix instead. Exactly the editor's `resolveDeploymentAsset`, for exactly that reason.
+ */
+export function resolveSiteAsset(path: string): string {
+	return `${sitePrefix().replace(/\/+$/, '')}/${path}`;
+}
+
+/**
+ * The Published Site as a {@link ReadOnlyProjectStore}: ADR-0006's HTTP adapter, wired to this
+ * document's own base.
+ *
+ * **This is the viewer's only way to bytes, and it is read-only by type.** Everything a Reader sees —
+ * the site record, every `project.json`, every Alignment, every Annotation Layer, every `info.json`,
+ * and every tile through ADR-0011's shim — comes through here. There is no second data path and
+ * nothing in this app can write, because `createHttpProjectStore` returns an object whose only method
+ * is `read` (ticket 17: "the viewer has no store `write`").
+ *
+ * A function rather than a module-level constant: `document.baseURI` does not exist while this app is
+ * being prerendered, and a store built at import time would be built against nothing.
+ */
+export function siteStore(): ReadOnlyProjectStore {
+	return createHttpProjectStore({ resolve: (path: StorePath) => siteUrl(path) });
 }
 
 /**
@@ -28,14 +75,10 @@ export function siteUrl(path: string): string {
  * editor uses, and a `project.json` a Reader is shown must be read by exactly the code that wrote
  * it or the two can disagree about what a Layer is.
  *
- * A missing file is a `Response` with a status, not a rejection, so this raises one deliberately —
- * a static host answers a wrong `?p=` with 404 and an HTML error page, and `JSON.parse` on that
- * would blame the file's contents for a URL problem.
+ * Through the store rather than through its own `fetch`, so that a 404 is a `PathNotFoundError` and a
+ * host that is not answering is a `SiteFileUnreachableError` — the distinction ticket 17's degradation
+ * table rests on, and one this module used to flatten into a single sentence about a status code.
  */
-export async function readSiteFile(path: string): Promise<Uint8Array> {
-	const response = await fetch(siteUrl(path), { cache: 'no-cache' });
-	if (!response.ok) {
-		throw new Error(`${path} is not on this site (the server answered ${response.status}).`);
-	}
-	return new Uint8Array(await response.arrayBuffer());
+export async function readSiteFile(path: string): Promise<Bytes> {
+	return siteStore().read(path);
 }

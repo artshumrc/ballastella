@@ -97,8 +97,13 @@ export async function serveDirectory(directory: string, prefix = ''): Promise<St
 		requests,
 		failures,
 		close: () =>
-			new Promise<void>((resolve, reject) =>
-				server.close((error) => (error ? reject(error) : resolve()))
-			)
+			new Promise<void>((resolve, reject) => {
+				// Keep-alive sockets first, or `close()` waits for a browser that has no reason to hang up and
+				// the teardown times out. A page that has just loaded a site holds one open by default, so
+				// this is the ordinary case rather than a stuck request — and a static host closing its
+				// listener does not owe a browser its connection either.
+				server.closeAllConnections();
+				server.close((error) => (error ? reject(error) : resolve()));
+			})
 	};
 }

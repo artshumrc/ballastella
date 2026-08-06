@@ -24,9 +24,11 @@ export {
 	isDrawnMap,
 	stackLayerId,
 	type DrawnAnnotationLayer,
+	type DrawnStackObjects,
 	type DrawnLayer,
 	type DrawnMapLayer,
 	type DrawnOutcome,
+	type StackBuiltListener,
 	type StackRender
 } from './stack-layers.js';
 export {

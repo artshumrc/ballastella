@@ -86,13 +86,21 @@ catalog:
   # contract with the first is the URI boundary in ADR-0018. A release that changed how a
   # canvas's image service URI is reported would move that boundary silently.
   #
-  # `apps/editor` only. `apps/viewer` gains it at ticket 17, if story 85 needs it.
+  # **Both apps as of ticket 17**, because story 85 does need it: a Reader viewing a Historical Map on
+  # its own, unwarped, to read it as a document. It is the one thing the editor could not do for a
+  # locally ingested pyramid — triiiceratops 1.0.0-rc.35 offers no way to hand OpenSeadragon a
+  # `TileSource`, and a stored pyramid has no URL (see `UnwarpedView.svelte`). On a Published Site the
+  # pyramid *does* have a URL: it is static files beside `index.html`, so the same component reads it
+  # over HTTP with nothing injected.
   triiiceratops: 1.0.0-rc.35
 
   # `@allmaps/maplibre` is the ADR-0011 injection point for warped rendering: `fetchFn` on
   # `WarpedMapLayer` is how a locally stored pyramid reaches it (ticket 06). Wired now, used in
   # anger by ticket 07. It depends on `maplibre-gl` ^5, which is the range the catalog holds —
   # two MapLibre copies in one page is a broken map rather than a warning.
+  #
+  # A dependency of `@ballastella/core` as of ticket 17, not of either app: both draw the same warped
+  # Historical Maps, and `core/src/render/` is where that stopped being two copies of the same rules.
   '@allmaps/maplibre': 1.0.0-beta.43
 
   # The streaming tiler (ADR-0003), for images above the measured `createImageBitmap` decode

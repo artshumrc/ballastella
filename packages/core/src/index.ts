@@ -78,6 +78,15 @@ export {
 } from './project/workspace-size.js';
 export { DirectoryHandleStore, type DirectoryResolver } from './store/directory-handle-store.js';
 export { FileSystemAccessProjectStore } from './store/file-system-access-project-store.js';
+// ADR-0006's third backend: a Published Site read over HTTP. Read-only by *type* rather than by
+// promise — see `ReadOnlyProjectStore` — because ticket 17 requires that the viewer have no store
+// `write` at all.
+export {
+	SiteFileUnreachableError,
+	createHttpProjectStore,
+	type HttpFetch,
+	type HttpProjectStoreOptions
+} from './store/http-project-store.js';
 export { MemoryProjectStore } from './store/memory-project-store.js';
 export { OpfsProjectStore } from './store/opfs-project-store.js';
 export {
@@ -87,6 +96,7 @@ export {
 	isTempPath,
 	type Bytes,
 	type ProjectStore,
+	type ReadOnlyProjectStore,
 	type StorePath
 } from './store/project-store.js';
 export { TempFileWriteStore } from './store/temp-file-write-store.js';
