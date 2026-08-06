@@ -636,6 +636,13 @@ test.describe('publishing a Workspace', () => {
 		const status = page.getByTestId('publish-status');
 		await expect(status).toContainText('Published:', { timeout: 30_000 });
 		await expect(status).toContainText('1 Project');
-		expect(await status.evaluate((element) => element.getAttribute('role'))).toBe('status');
+		// A live region rather than `role="status"`, because the hub's transfer region already holds that
+		// role and two of them make it ambiguous — for a screen reader as much as for a locator.
+		expect(
+			await status.evaluate((element) => [
+				element.getAttribute('aria-live'),
+				element.getAttribute('aria-atomic')
+			])
+		).toEqual(['polite', 'true']);
 	});
 });

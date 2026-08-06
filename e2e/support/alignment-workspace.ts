@@ -147,9 +147,16 @@ export async function start(page: Page): Promise<string> {
 	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
 
 	await expect(page.getByTestId('image-pane')).toBeVisible();
+	// The timeout is not decoration. Every tile here is an OPFS read and the suite runs four workers
+	// each driving a real WebGL map against the same origin's storage — the contention the tracker
+	// already records. The default 5 s is a measurement of the machine rather than of the pane, and it
+	// was reached: two tests in this file failed on both attempts on a full run and all 21 passed in
+	// isolation on the same tree. `waitForTiles` in this file already carried an overridable timeout
+	// for exactly this reason; the opening wait did not.
 	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 		'data-tiles-loaded',
-		'true'
+		'true',
+		{ timeout: 30_000 }
 	);
 	// The pairing status only renders once the Alignment has been read, so waiting for it is waiting
 	// for the whole surface to be live rather than for a timeout.
@@ -163,7 +170,8 @@ export async function waitForSurface(page: Page): Promise<void> {
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 		'data-tiles-loaded',
-		'true'
+		'true',
+		{ timeout: 30_000 }
 	);
 }
 

@@ -103,9 +103,14 @@ async function ingestAndOpen(page: Page): Promise<string> {
 	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
 
 	await expect(page.getByTestId('image-pane')).toBeVisible();
+	// The same timeout `support/alignment-workspace.ts` carries, and for the same measured reason:
+	// every tile is an OPFS read, four workers each drive a real WebGL map against one origin's
+	// storage, and the default 5 s here is a measurement of the machine rather than of the pane. It
+	// was reached on a full run and not in isolation.
 	await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 		'data-tiles-loaded',
-		'true'
+		'true',
+		{ timeout: 30_000 }
 	);
 	// The pairing status only renders once the Alignment has been read, so waiting for it is waiting
 	// for the whole surface to be live rather than for a timeout.

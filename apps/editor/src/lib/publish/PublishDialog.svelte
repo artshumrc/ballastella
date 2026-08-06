@@ -139,12 +139,31 @@
 	});
 </script>
 
-<!-- Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its first
-     text is not reliably announced. -->
-<p role="status" class="mt-2 text-sm opacity-80" data-testid="publish-status">{status}</p>
+<!--
+	Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its first
+	text is not reliably announced.
+
+	`aria-live="polite"` rather than `role="status"`, which would be the idiomatic choice but for the
+	hub's transfer region already being its one `status` role — two of them make `getByRole('status')`
+	ambiguous, and ADR-0016's own note on this says a test that has to disambiguate is a hint that a
+	screen-reader user would have to as well. `aria-atomic` so each update is read as a whole sentence
+	rather than as the words that changed.
+-->
+<p
+	aria-live="polite"
+	aria-atomic="true"
+	class="mt-2 text-sm opacity-80"
+	data-testid="publish-status"
+>
+	{status}
+</p>
 
 {#if staleness && !open}
-	<div role="status" class="mt-2 alert flex-col items-start alert-info" data-testid="publish-stale">
+	<div
+		aria-live="polite"
+		class="mt-2 alert flex-col items-start alert-info"
+		data-testid="publish-stale"
+	>
 		<p>{staleness}</p>
 	</div>
 {/if}
