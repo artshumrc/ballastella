@@ -167,6 +167,19 @@
 					max="1"
 					aria-label="Preparing {session.ingestLabel}"
 				></progress>
+				<!--
+					A real button, beside the bar and reachable by tab (stories 95 and 96). A gigapixel
+					scan is thousands of tiles and several minutes; picking the wrong file and having no
+					way out of it is the thing `ingest.ts` claimed to support and the app never wired up.
+					The job cleans up after itself, so cancelling leaves the Project as it was.
+				-->
+				<button
+					type="button"
+					class="btn mt-2 btn-sm"
+					aria-label="Cancel preparing {session.ingestLabel}"
+					onclick={() => session.cancelIngest()}
+					disabled={ingest.phase === 'done'}>Cancel</button
+				>
 			{/if}
 		</div>
 
