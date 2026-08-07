@@ -836,6 +836,9 @@
 	const originFor = (layer: MapLayer) =>
 		session.referencedImages.find((image) => image.imageId === layer.imageId);
 
+	/** The Historical Maps this Project draws, which is one Layer each (ADR-0023). */
+	const mapLayers = $derived(layers.filter((layer): layer is MapLayer => layer.kind === 'map'));
+
 	/** The map Layers of this Project whose tiles are fetched from a library. */
 	const referencedLayers = $derived(
 		layers.filter(
@@ -1130,6 +1133,22 @@
 						<div role="alert" class="mt-4 alert max-w-prose alert-warning">
 							<p>{session.ingestError}</p>
 						</div>
+					{/if}
+
+					{#if mapLayers.length === 0 && session.ingest === null}
+						<!--
+							The empty state, and it names the one useful next action (SPEC story 106). Derived from
+							the Layers rather than from the Workspace's pyramids, which is the change ADR-0023
+							makes to what this sentence *means*: the Workspace may hold a dozen Historical Maps
+							and this Project draw none of them, and "you have no maps" would be false while "this
+							Project has none" stays true. It is also what says a cancelled or refused ingest left
+							the Project exactly as it was.
+						-->
+						<p class="mt-4 max-w-prose text-sm">
+							This Project has no Historical Maps yet. What works now is bringing one in — the image
+							is converted to a IIIF pyramid, written into the Workspace as you watch, and then
+							Align opens it beside the Base Map to place onto the world.
+						</p>
 					{/if}
 
 					<!--

@@ -203,7 +203,14 @@ async function importZip(
  * There is one `role="status"` per page here by convention; the Historical Maps list beside this one
  * is an `aria-live="polite"` region for exactly that reason.
  */
-const transferStatus = (page: Page) => page.getByRole('status');
+/**
+ * The transfer announcement.
+ *
+ * `[data-transfer]` rather than `getByRole('status')`: since ticket 04 the save indicator is on the
+ * navigation bar and therefore on the hub too, so the hub has one `status` role of its own and this
+ * region is an `aria-live="polite"` one — this repo's settled convention wherever the two meet.
+ */
+const transferStatus = (page: Page) => page.locator('[data-transfer]');
 
 test.beforeEach(async ({ page }) => {
 	await page.goto('./');

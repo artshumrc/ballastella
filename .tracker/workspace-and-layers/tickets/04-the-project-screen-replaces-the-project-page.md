@@ -68,17 +68,17 @@ The visible control is a **two-state toggle**: the first click writes an explici
 
 ## Acceptance criteria
 
-- [ ] `/?p=<dir>` renders a Base Map with the Layer stack beside it; the map is taller than the sidebar is wide.
-- [ ] `/layers/` and `/base-map/` return no page, and no link anywhere in the app points at either.
-- [ ] `/image-pane/` still renders the fixture pane, and no user-facing navigation links to it.
-- [ ] The navigation bar is present on the hub, the Project screen, and the alignment route, with exactly the four controls named above.
-- [ ] Exactly one theme toggle exists in the app; toggling it changes both the interface and the Base Map flavour in one action.
-- [ ] A chosen theme survives a reload. With no theme ever chosen, changing the OS preference while the page is open changes the theme without a reload.
-- [ ] Project settings opens as a `<dialog>` via `showModal()`, closes on Escape, and returns focus to the control that opened it.
-- [ ] Focusing the Project name field and tabbing away without typing causes no write and leaves `updatedAt` unchanged.
-- [ ] Typing a Project name coalesces into one write, committed when the edit ends.
-- [ ] Align on a Historical Map Layer navigates to `/align/`, and returning lands on `/?p=` with the same Project open.
-- [ ] Every control on the Project screen is reachable by keyboard.
+- [x] `/?p=<dir>` renders a Base Map with the Layer stack beside it; the map is taller than the sidebar is wide.
+- [x] `/layers/` and `/base-map/` return no page, and no link anywhere in the app points at either.
+- [x] `/image-pane/` still renders the fixture pane, and no user-facing navigation links to it.
+- [x] The navigation bar is present on the hub, the Project screen, and the alignment route, with exactly the four controls named above.
+- [x] Exactly one theme toggle exists in the app; toggling it changes both the interface and the Base Map flavour in one action.
+- [x] A chosen theme survives a reload. With no theme ever chosen, changing the OS preference while the page is open changes the theme without a reload.
+- [x] Project settings opens as a `<dialog>` via `showModal()`, closes on Escape, and returns focus to the control that opened it.
+- [x] Focusing the Project name field and tabbing away without typing causes no write and leaves `updatedAt` unchanged.
+- [x] Typing a Project name coalesces into one write, committed when the edit ends.
+- [x] Align on a Historical Map Layer navigates to `/align/`, and returning lands on `/?p=` with the same Project open.
+- [x] Every control on the Project screen is reachable by keyboard.
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check && pnpm test:e2e
@@ -89,3 +89,39 @@ All green. `e2e/editor-layers.e2e.ts`, `e2e/editor-annotations.e2e.ts`, and `e2e
 ## Blocked by
 
 - Ticket 03
+
+## Implementation notes
+
+**What moved where.** `routes/layers/+page.svelte` became `lib/project/ProjectScreen.svelte` — the
+same script, extracted rather than rewritten, so the `documentKey` guard and the once-only opening
+fit are the ones that were already there. `ProjectView.svelte`, `routes/layers/` and
+`routes/base-map/` are deleted. `routes/+page.svelte` renders the hub or the Project screen off
+`?p=`; `/align/` and `/image-pane/` are untouched routes.
+
+**The navigation bar** is `lib/components/NavigationBar.svelte`, mounted in the root layout before
+`children()` so it is first in the tab order. It carries the four: Workspace identity (a label —
+ticket 12 makes it a switcher), the theme toggle, the undo slot, the save slot. The align route's
+own copies of the last three are gone.
+
+**`ThemeSignal`** gains `localStorage` persistence and a live `prefers-color-scheme` listener behind
+a two-state toggle. `startTheme()` moved out of the three routes into the layout and returns its own
+teardown.
+
+**Where `ProjectView`'s Referenced and Offline-copies sections went.** Onto the Layer, as the
+contract says, via a `mapActions` snippet `LayerList` renders inside a map Layer's row: Align, the
+serving host, "View unwarped", `MirrorMap`, and a mirrored copy's source URI. Tickets 05 and 07 own
+their final form. The Project page's list of the Workspace's Historical Maps is gone with the
+sections, so `data-image-id` on a Layer row is where a test reads an image id now.
+
+**Two consequences worth naming for the reviewer.**
+
+- The save indicator is on every screen now, so the hub has a `role="status"` it did not have.
+  `ProjectHub`'s transfer announcement became `aria-live="polite"`, which is this repo's settled
+  convention wherever the two meet.
+- A Historical Map the Workspace holds but **this Project does not draw** has no place on the
+  Project screen any more (ADR-0023). `ProjectView`'s `align-unavailable` alert is therefore gone;
+  the sentence that covers the case is the sidebar's empty state.
+
+**Not done here, deliberately:** no progressive disclosure (ticket 05), no Alignment written from
+this screen at all — the Align affordance is an `<a href>` and cannot write one — and `/image-pane/`
+is kept and unlinked.

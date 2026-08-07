@@ -33,6 +33,7 @@ import {
 	readProjectFile,
 	storedAnnotations,
 	waitForStack,
+	seedMapLayer,
 	writeProjectFile
 } from './support/annotations';
 
@@ -177,6 +178,19 @@ async function startProjectWithMap(page: Page): Promise<string> {
 	await expect(addedRow).toBeVisible({ timeout: 30_000 });
 	return (await addedRow.getAttribute('data-image-id'))!;
 }
+
+/**
+ * Press Align on the Layer that draws `imageId`.
+ *
+ * Align is on the Layer since ticket 04, so a Project with two Historical Maps has two of them —
+ * naming the image is how a test says which one it means, and `data-image-id` on the row is where
+ * that is readable.
+ */
+const alignLayerFor = (page: Page, imageId: string) =>
+	page
+		.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`)
+		.getByTestId('align-historical-map')
+		.click();
 
 /** Whatever has focus, said in enough detail that a change of focus is a change of string. */
 const focusedDescription = (page: Page) =>
@@ -359,9 +373,11 @@ test.describe('the web app manifest and the service worker scope', () => {
 				await page.goto(startUrl);
 				await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
 
-				// 2. A direct load of a page that is not the root, which is what a bookmark is.
-				await page.goto(`${site.url}base-map?p=nothing-here`);
-				await expect(page.getByRole('heading', { level: 1, name: 'Base Map' })).toBeVisible();
+				// 2. A direct load of a page that is not the root, which is what a bookmark is. `/align`
+				// since ticket 04 deleted `/base-map`: it is the app's one other entry route, and it is
+				// the one SPEC story 8 is actually about — a scholar with no wifi placing Control Points.
+				await page.goto(`${site.url}align?p=nothing-here&layer=none`);
+				await expect(page.getByRole('heading', { level: 1, name: 'Align' })).toBeVisible();
 
 				// 3. The link route: a client-side navigation from that page back to the hub. Driven from
 				// the second entry route rather than the first, because a class of navigation bug in this
@@ -372,10 +388,10 @@ test.describe('the web app manifest and the service worker scope', () => {
 
 				// And the trailing-slash spelling of the same bookmark, which a static host answers with a
 				// redirect and which offline nobody is left to answer. The worker does it, because HTML
-				// served at `/base-map/` resolves its own relative `./_app/…` references to nothing.
-				await page.goto(`${site.url}base-map/?p=nothing-here`);
-				await expect(page).toHaveURL(`${site.url}base-map?p=nothing-here`);
-				await expect(page.getByRole('heading', { level: 1, name: 'Base Map' })).toBeVisible();
+				// served at `/align/` resolves its own relative `./_app/…` references to nothing.
+				await page.goto(`${site.url}align/?p=nothing-here&layer=none`);
+				await expect(page).toHaveURL(`${site.url}align?p=nothing-here&layer=none`);
+				await expect(page.getByRole('heading', { level: 1, name: 'Align' })).toBeVisible();
 
 				// The network was genuinely absent: the server heard nothing the app asked for after the
 				// switch. This is what separates "served from the cache" from "the offline flag did not
@@ -786,6 +802,10 @@ test.describe('a working session that reaches other people’s servers', () => {
 			// its record sits beside every other map's rather than inside one Project (ADR-0023).
 			''
 		);
+		// And the Layer of *this* Project that draws it. Since ticket 04 the referenced map's host is
+		// Layer state on the Project screen rather than a Workspace-wide list, so a fixture that writes
+		// only the Workspace's half is writing a map no Project uses.
+		await seedMapLayer(page, 'btv1b8592433v', 'Carte de la Floride', project!);
 		await page.reload();
 		await expect(page.getByTestId('referenced-image-host')).toHaveText(LIBRARY);
 
@@ -797,8 +817,9 @@ test.describe('a working session that reaches other people’s servers', () => {
 		await page.getByTestId('unwarped-close').click();
 
 		// A Control Point pair, so that this is a working session and not a tour. On `/align/` since
-		// ticket 03.
-		await page.getByTestId('align-historical-map').click();
+		// ticket 03, and reached from **this Project's own** Layer — Align is per Layer since ticket 04,
+		// and the referenced map seeded above has one of its own.
+		await alignLayerFor(page, imageId);
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
 			'true',
@@ -810,7 +831,7 @@ test.describe('a working session that reaches other people’s servers', () => {
 		// And the Base Map this deployment's catalog marks as needing the network — chosen *by that
 		// marking* rather than by its id, because ADR-0020 makes the catalog a fork's to replace and a
 		// test naming an entry would be one more thing a fork had to change.
-		await page.goto(`${site.url}base-map?p=${project}`);
+		await page.goto(`${site.url}?p=${project}`);
 		const switcher = page.getByRole('combobox', { name: 'Base Map' });
 		// Located rather than read out of an `evaluateAll`, which does not auto-wait: straight after
 		// `goto` that ran against the options the client had not rendered yet, found none, and failed
@@ -871,6 +892,8 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 			// The Workspace root (ADR-0023).
 			''
 		);
+		// And the Layer of this Project that draws it — see the note in the session test above.
+		await seedMapLayer(page, 'btv1b8592433v', 'Carte de la Floride');
 		await page.reload();
 		await expect(page.getByTestId('referenced-image-host')).toHaveText('gallica.example.test');
 		await expect(page.getByTestId('referenced-offline')).toBeHidden();
@@ -896,8 +919,9 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 		await expect(page.getByTestId('referenced-image-host')).toHaveText('gallica.example.test');
-		// The Project's *own* Historical Map still aligns, on `/align/` (ticket 03).
-		await page.getByTestId('align-historical-map').click();
+		// The Project's *own* Historical Map still aligns, on `/align/` (ticket 03), reached from its
+		// own Layer (ticket 04).
+		await alignLayerFor(page, imageId);
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
 			'true',

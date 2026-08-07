@@ -357,14 +357,29 @@ async function emptyProject(page: Page): Promise<string> {
 	return 'amsterdam-1625';
 }
 
-/** Pick the gradient PNG in the file input. Returns once the pyramid is listed. */
+/**
+ * Pick the gradient PNG in the file input, and return once the whole add is over.
+ *
+ * **The barrier is the pyramid on disk, not the Layer.** Ticket 04 deleted the Project page's list
+ * of the Workspace's Historical Maps, which is what this used to wait on — and the obvious
+ * replacement, waiting for the Layer row, is wrong here: one caller below is about the add whose
+ * Layer is deliberately *never made*, so waiting for it would hang for thirty seconds and then fail
+ * on the wrong line. `images/<id>/info.json` is written by the tiler last, so it lands when the
+ * ingest ends and the Layer is on its way.
+ */
 async function addHistoricalMap(page: Page): Promise<void> {
 	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
-	await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
+	await expect.poll(() => completedPyramid(page), { timeout: 30_000 }).not.toBeNull();
+	// And the *whole* add is over, Layer write included: `ingestImage` clears its job in a `finally`,
+	// which re-enables the file input — so this is one signal for the success and the failure alike,
+	// which is exactly what the failing-Alignment test below needs.
+	await expect(page.getByLabel('Add a Historical Map from a file')).toBeEnabled({
+		timeout: 30_000
+	});
 }
 
 /**
@@ -832,10 +847,14 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		await expect(page.getByText('Quota exceeded')).toBeVisible();
 
 		// **And there is no way to align it into existence either**, which is ticket 03's half of the
-		// same rule: with no Layer in the stack there is no `?layer=` to address, so the Project page
+		// same rule: with no Layer in the stack there is no `?layer=` to address, so the Project screen
 		// offers no Align link for this map at all rather than a control that would make one.
 		await expect(page.getByTestId('align-historical-map')).toHaveCount(0);
-		await expect(page.getByTestId('align-unavailable')).toBeVisible();
+		// Said, not merely absent. The Project page used to carry a dedicated "this map is in the
+		// Workspace but not in this Project" alert beside its list of the Workspace's Historical Maps;
+		// ticket 04 deleted that list, so the sentence that has to be true here is the sidebar's own
+		// empty state — and it names the next action rather than only the fact (SPEC story 106).
+		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
 	});
 
 	/**

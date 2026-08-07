@@ -266,7 +266,7 @@ test.describe('choosing a folder as the Workspace', () => {
 
 		for (const name of ['Amsterdam 1625', 'Boston 1775']) {
 			await page.getByRole('link', { name }).click();
-			await expect(page.getByRole('heading', { level: 2, name })).toBeVisible();
+			await expect(page.getByTestId('project-name')).toHaveText(name);
 			await page.getByRole('link', { name: 'Back to all Projects' }).click();
 			await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 		}

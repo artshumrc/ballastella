@@ -359,7 +359,18 @@ test.describe('the theme (SPEC stories 109, 110)', () => {
 		await page.getByTestId('theme-toggle').click();
 		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
+		// **The operating system has to actually move, twice.** Re-emulating the scheme the page is
+		// already under fires no `change` event at all, so an assertion that only re-states the
+		// starting preference passes against an implementation where the OS overrides the choice —
+		// verified: with the explicit preference ignored entirely, this test still went green.
+		await page.emulateMedia({ colorScheme: 'dark' });
+		await expect
+			.poll(() => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches))
+			.toBe(true);
 		await page.emulateMedia({ colorScheme: 'light' });
+		await expect
+			.poll(() => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches))
+			.toBe(false);
 		// A settle, because this asserts an absence: nothing must move it back.
 		await page.waitForTimeout(500);
 		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');

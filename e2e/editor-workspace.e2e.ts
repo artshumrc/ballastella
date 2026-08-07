@@ -703,7 +703,8 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		// By role, because being announced is the claim (SPEC story 112, ADR-0017 rule 5): a
 		// `[data-save-state]` locator goes on passing with the live region deleted. One `role="status"`
 		// per page is the convention this repo keeps for exactly that reason — every other announcement
-		// on a page that has a save indicator is an `aria-live="polite"` region.
+		// on a page that has a save indicator is an `aria-live="polite"` region, and since ticket 04
+		// the indicator is on the navigation bar and therefore on every page.
 		const indicator = page.getByRole('status');
 		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
 

@@ -855,13 +855,13 @@ test.describe('making an offline copy', () => {
 		};
 		expect(project.layers).toHaveLength(1);
 		expect(project.layers[0]).toMatchObject({ kind: 'map', imageId });
-		// Read off the files instead, which is where the answer lives.
+		// Read off the files instead, which is where the answer lives — on the Layer, on the Project
+		// screen, with no navigation in between since ticket 04.
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
 			'data-image-mode',
 			'mirrored'
 		);
-		await page.goBack();
 
 		// And the source URI is still on screen, so the copy can be cited.
 		await expect(page.getByTestId('mirrored-image-source').first()).toBeVisible();
