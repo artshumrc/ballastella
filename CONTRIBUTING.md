@@ -156,6 +156,49 @@ There are two seams and no others: an in-memory `ProjectStore` for application l
 Playwright against headless Chromium for the running app. There is deliberately no
 map-abstraction layer — Playwright drives real MapLibre.
 
+### A green test is not evidence until you have watched it go red
+
+Every ticket reviewed in this project so far — all of `ballastella-v1` and, at the time of writing,
+eight of eight in `workspace-and-layers` — reported all its acceptance criteria passing and still had
+substantive defects. Several criteria passed **vacuously**: delete the code under test and the test
+stays green. Three of those were data loss.
+
+So the mutation check is part of writing a test, not a review step someone else performs. Break the
+behaviour, watch the assertion fail, restore it. Record what you broke and what went red, because
+that record is the only evidence anyone has that the assertion is load-bearing.
+
+Two patterns from real examples here, both of which passed review reading:
+
+- **Assert on the thing, not on the page.** An offline test proved the Base Map drew by calling
+  `queryRenderedFeatures()` over the whole map — which the Project's own Annotation Layer satisfied.
+  The cached Base Map could be blank and the assertion stayed green. Filtering for the Base Map's own
+  layers (`roads_`, `water`) is what made the claim real.
+- **A resource nobody requests cannot prove it was cached.** An assertion that no console complaint
+  named `base-map/` was the only proof glyphs still shipped — but with no archive, MapLibre never
+  requests a glyph range, so nothing complained and nothing was proved. The fix was to fetch the
+  glyph and the sprite directly.
+
+**Fences need a positive control.** This repo has shipped a fence that printed its success message
+unconditionally. `scripts/check-alignment-writers.mjs` and `scripts/check-workspace-rooted-paths.mjs`
+show the shape: a `KNOWN_BAD` specimen per pattern, asserted to be caught before the real scan runs,
+so a pattern that has stopped matching fails the fence instead of passing it. Write the escape out,
+watch it pass, then close it.
+
+### When the browser suite is red
+
+It flakes at roughly one run in three — a different test each time, green when its own file is
+re-run. The measured profile is in `playwright.config.ts`'s `workers` comment. Before reporting a
+failure as a known flake, prove it:
+
+```sh
+pnpm flake:check --against main e2e/editor-pwa.e2e.ts
+```
+
+That re-runs the spec alone and then against the merge-base in a throwaway worktree, and prints
+`REAL` / `PRE-EXISTING` / `SUSPECT` / `CONSISTENT WITH FLAKE`. Doing this by hand is what people
+skip when they are tired, and the cost of skipping it is shipping a regression labelled "known
+flake". Someone who did it properly found a defect the suite had been red on for three commits.
+
 **The browser suite runs against `apps/*/build`, so development mode is not covered by it.** That is
 the right default — the shipped Published Site is prerendered static files with no server (ADR-0006),
 so the build is what a Reader gets. But it left `vite dev` as the one configuration nothing exercised,

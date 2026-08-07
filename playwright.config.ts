@@ -39,13 +39,30 @@ const basePort = (() => {
 const editorPort = basePort;
 const viewerPort = basePort + 1;
 
-/** @param app the workspace package name suffix, e.g. `editor` */
+/**
+ * The build is *inside* this command, and that is what makes reuse dangerous.
+ *
+ * `reuseExistingServer` decides whether to run the command by asking only whether something answers
+ * on the port. If something does, the command is skipped **whole** — the build with it — and the
+ * suite runs against whatever that process is serving. An implementer here read eighteen
+ * simultaneous failures as a code defect before finding the cause was a reused `vite preview`
+ * serving pre-change HTML; a later sweep found seven stray preview processes still listening. The
+ * port hashing above closed the cross-checkout half of this. It cannot close the same-tree half,
+ * because the port is stable per checkout on purpose.
+ *
+ * So the command frees its own port first, and reuse is opt-in rather than the default. The cost is
+ * a rebuild per run. `BALLASTELLA_E2E_REUSE=1` takes the old behaviour back for fast iteration
+ * against a build you know is current.
+ *
+ * @param app the workspace package name suffix, e.g. `editor`
+ */
 const serveStatic = (app: string, port: number) => ({
 	command:
+		`node scripts/free-e2e-port.mjs ${port} && ` +
 		`pnpm --filter @ballastella/${app} run build && ` +
 		`pnpm --filter @ballastella/${app} exec vite preview --port ${port} --strictPort`,
 	port,
-	reuseExistingServer: !process.env.CI,
+	reuseExistingServer: !process.env.CI && process.env.BALLASTELLA_E2E_REUSE === '1',
 	timeout: 120_000
 });
 
@@ -58,9 +75,20 @@ export default defineConfig({
 	// Every worker drives a real WebGL context and the same origin's OPFS, and at the default (7
 	// here) the suite flaked in roughly one full run in three — a *different* test each time, never
 	// reproducible in isolation even at `--repeat-each=10 --workers=6`. That profile is contention,
-	// not a race in any one test. It matters because `retries` below makes CI green anyway, so a
-	// flaky suite is one that can absorb a genuine race without anyone noticing. Four costs about
-	// ten seconds of wall clock; raise it only with the flake rate measured over several full runs.
+	// not a race in any one test.
+	//
+	// ⚠ **The cap did not fix it, and this comment used to imply it had.** Measured across four
+	// implementers and roughly a dozen full runs at `workers: 4`: still about one run in three, one
+	// to four failures each time, a *different* set every time, every one green when its own file is
+	// re-run. One run failed `pwa`+`transfer`, the next `remote-iiif`+`transfer`. So four workers is
+	// the current setting, not a remedy, and lowering the number further has not been tried against
+	// a measured rate.
+	//
+	// This matters more than the wasted wall clock. `retries` below makes CI green regardless, so a
+	// suite in this state can absorb a genuine race without anyone noticing — and it taxes every
+	// implementer, who must re-run and often bisect against the merge-base to show a failure is not
+	// theirs. `pnpm flake:check` exists so that costs one command. Ticket 17 owns the real fix and
+	// should start from the numbers above rather than re-deriving them.
 	workers: 4,
 	retries: process.env.CI ? 1 : 0,
 	reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
