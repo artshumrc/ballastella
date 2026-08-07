@@ -56,7 +56,7 @@
 	import { theme } from '$lib/theme.svelte';
 	import { exposeWarpedLayerToBrowserTests } from '$lib/warped/browser-test-handle';
 
-	import { exposeBaseMapToBrowserTests } from './browser-test-handle';
+	import { exposeBaseMapToBrowserTests, recordCachedBaseMapTiles } from './browser-test-handle';
 	import { resolveDeploymentAsset } from './deployment-assets';
 
 	let {
@@ -354,7 +354,7 @@
 	$effect(() => {
 		const cache = cachedBaseMap;
 		if (!cache) return;
-		return registerCachedBaseMapTiles(cache.readTile);
+		return registerCachedBaseMapTiles(cache.readTile, recordCachedBaseMapTiles());
 	});
 
 	$effect(() => {

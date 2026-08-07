@@ -38,14 +38,34 @@ const TILE_URL = new RegExp(`^${BASE_MAP_TILE_PROTOCOL}://tiles/(\\d+)/(\\d+)/(\
 export const cachedBaseMapTileTemplate = (): string =>
 	`${BASE_MAP_TILE_PROTOCOL}://tiles/{z}/{x}/{y}`;
 
+/** One tile of the pyramid, as this protocol names it. */
+export type CachedTileRef = { z: number; x: number; y: number };
+
 /** Where a cached tile's bytes come from. `null` when the cache has nothing at that tile. */
-export type ReadCachedTile = (tile: {
-	z: number;
-	x: number;
-	y: number;
-}) => Promise<Uint8Array | null>;
+export type ReadCachedTile = (tile: CachedTileRef) => Promise<Uint8Array | null>;
+
+/**
+ * What the handler did with each request, for the app that registered it.
+ *
+ * **The seam that keeps each app's Playwright handle in its own app**, and it is the same one
+ * `StackBuiltListener` exists for two files away: a `declare global` on `Window` inside
+ * `@ballastella/core` would put one app's test scaffolding into the other's types **and into a
+ * published Reader's bundle** — and `ReaderMapPane` imports this module, so those arrays really would
+ * ship to every site. So the exposure is injected and this module knows nothing about `window`.
+ *
+ * Both are needed and neither substitutes for the other. `onServed` fires only for a tile answered
+ * *with bytes*, which is what makes "the map drew from the cache" mean something: ADR-0025's failure
+ * is bytes served and nothing drawn. `onMissed` fires for a tile requested and answered empty, which
+ * is the only trace such a request leaves anywhere — an empty tile is not an error — and is how "the
+ * source's `maxzoom` stops MapLibre asking past the pyramid" can be asserted at all.
+ */
+export interface CachedTileListeners {
+	readonly onServed?: (tile: CachedTileRef & { bytes: number }) => void;
+	readonly onMissed?: (tile: CachedTileRef) => void;
+}
 
 let reader: ReadCachedTile | null = null;
+let listeners: CachedTileListeners = {};
 let protocolRegistered = false;
 
 /**
@@ -60,17 +80,24 @@ let protocolRegistered = false;
  * registration — in maplibre-gl 5 it is a plain assignment into `config.REGISTERED_PROTOCOLS` — so
  * the flag is tidiness rather than a guard, exactly as it is in the other two protocol modules.
  */
-export function registerCachedBaseMapTiles(readTile: ReadCachedTile): () => void {
+export function registerCachedBaseMapTiles(
+	readTile: ReadCachedTile,
+	watch: CachedTileListeners = {}
+): () => void {
 	if (!protocolRegistered) {
 		addProtocol(BASE_MAP_TILE_PROTOCOL, loadTile);
 		protocolRegistered = true;
 	}
 	reader = readTile;
+	listeners = watch;
 	const mine = readTile;
 	return () => {
 		// Only if nothing has replaced it since: a pane that mounts before the outgoing one tears down
 		// would otherwise be unregistered by its predecessor's cleanup.
-		if (reader === mine) reader = null;
+		if (reader === mine) {
+			reader = null;
+			listeners = {};
+		}
 	};
 }
 
@@ -89,54 +116,19 @@ async function loadTile(
 
 	const readTile = reader;
 	if (readTile === null) {
-		recordMissedBaseMapTile(tile);
+		listeners.onMissed?.(tile);
 		return { data: EMPTY_TILE() };
 	}
 
 	const bytes = await readTile(tile);
 	if (abortController.signal.aborted || bytes === null || bytes.byteLength === 0) {
-		if (!abortController.signal.aborted) recordMissedBaseMapTile(tile);
+		// An aborted request is not a miss: MapLibre changed its mind, and counting it would make
+		// "nothing was asked for past the pyramid" fail on an ordinary pan.
+		if (!abortController.signal.aborted) listeners.onMissed?.(tile);
 		return { data: EMPTY_TILE() };
 	}
-	recordServedBaseMapTile({ ...tile, bytes: bytes.byteLength });
+	listeners.onServed?.({ ...tile, bytes: bytes.byteLength });
 	// A fresh buffer, because the store's `Uint8Array` may be a view into a larger one and MapLibre
 	// takes the whole `ArrayBuffer` it is given.
 	return { data: bytes.slice().buffer };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// The Playwright handle
-//
-// SPEC's Seam 2 rules out a map abstraction, so a browser test asking "did a cached tile actually
-// reach MapLibre" needs the live thing to have said so.
-//
-// **Two lists, because served and requested are different questions and each is vacuous for the
-// other's claim.** `ballastellaServedBaseMapTiles` records only tiles answered *with bytes*, which is
-// what makes "the map drew from the cache" mean something: the criterion ADR-0025 warns about is
-// bytes served and nothing drawn, and an assertion that the map has a source, or that no error
-// appeared, passes in exactly that case.
-//
-// `ballastellaMissedBaseMapTiles` records the tiles MapLibre **asked for and did not get** — and that
-// list is the only way to see a request that produced nothing, because an empty tile is not an error
-// and leaves no other trace. It is what "the source's `maxzoom` stops MapLibre asking past the
-// pyramid" is asserted with: written first without it, that assertion filtered the *served* list for
-// deep tiles, which cannot contain a miss by construction and so passed with `maxzoom` removed.
-
-declare global {
-	interface Window {
-		/** Cached Base Map tiles served with bytes, in order. Read only by `e2e/`; not an API. */
-		ballastellaServedBaseMapTiles?: { z: number; x: number; y: number; bytes: number }[];
-		/** Cached Base Map tiles requested and answered empty. Read only by `e2e/`; not an API. */
-		ballastellaMissedBaseMapTiles?: { z: number; x: number; y: number }[];
-	}
-}
-
-function recordServedBaseMapTile(tile: { z: number; x: number; y: number; bytes: number }): void {
-	if (typeof window === 'undefined') return;
-	(window.ballastellaServedBaseMapTiles ??= []).push(tile);
-}
-
-function recordMissedBaseMapTile(tile: { z: number; x: number; y: number }): void {
-	if (typeof window === 'undefined') return;
-	(window.ballastellaMissedBaseMapTiles ??= []).push(tile);
 }

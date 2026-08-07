@@ -62,7 +62,10 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount, untrack } from 'svelte';
 
-	import { exposeReaderMapToBrowserTests } from '$lib/browser-test-handle';
+	import {
+		exposeReaderMapToBrowserTests,
+		recordCachedBaseMapTiles
+	} from '$lib/browser-test-handle';
 	import { resolveSiteAsset } from '$lib/site-files';
 	import { theme } from '$lib/theme.svelte';
 
@@ -341,7 +344,7 @@
 	$effect(() => {
 		const cache = cachedBaseMap;
 		if (!cache) return;
-		return registerCachedBaseMapTiles(cache.readTile);
+		return registerCachedBaseMapTiles(cache.readTile, recordCachedBaseMapTiles());
 	});
 
 	$effect(() => {
