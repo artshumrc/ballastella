@@ -892,6 +892,41 @@ describe('the site record a Reader’s page is drawn from', () => {
 		expect(record.baseMap).toEqual(CATALOG_WITH_STALE_DEFAULT);
 	});
 
+	it('reads a record written before the field split as having its Base Map files', () => {
+		// ⚠ ADR-0025 moved `baseMapBundled` from "the deployment's Base Map files were copied" to "this
+		// Workspace carries cached tiles". A site published before that move records the old meaning and
+		// has no `baseMapAssetsBundled` at all — and `ReaderMapPane` drops `glyphs`, `sprite`, and every
+		// symbol layer when that field is false. Read strictly, every already-published site reopened
+		// with no place names on its map and a notice saying the labels had not been copied, while
+		// `base-map/fonts/` sat on the host. Nothing threw, and nothing else would have noticed.
+		const record = parsePublishedSite(
+			new TextEncoder().encode(JSON.stringify({ projects: [], baseMapBundled: true }))
+		);
+
+		expect(record.baseMapAssetsBundled).toBe(true);
+	});
+
+	it('does not invent Base Map files for an old record that had none', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(JSON.stringify({ projects: [], baseMapBundled: false }))
+		);
+
+		expect(record.baseMapAssetsBundled).toBe(false);
+	});
+
+	it('lets a record that states both fields disagree with itself', () => {
+		// The state ticket 11 makes ordinary: tiles cached, labels left out. The fallback above must not
+		// override an explicit `false`, or a site that deliberately omitted its glyphs would claim them.
+		const record = parsePublishedSite(
+			new TextEncoder().encode(
+				JSON.stringify({ projects: [], baseMapBundled: true, baseMapAssetsBundled: false })
+			)
+		);
+
+		expect(record.baseMapBundled).toBe(true);
+		expect(record.baseMapAssetsBundled).toBe(false);
+	});
+
 	it('drops a Project entry with no folder, which is the one field ?p= needs', () => {
 		const record = parsePublishedSite(
 			new TextEncoder().encode('{"projects":[{"name":"nameless"},{"directory":"x","name":"X"}]}')

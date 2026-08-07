@@ -152,7 +152,21 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 		}),
 		baseMap: isCatalog(record.baseMap) ? record.baseMap : BASE_MAP_CATALOG,
 		baseMapBundled: record.baseMapBundled === true,
-		baseMapAssetsBundled: record.baseMapAssetsBundled === true,
+		// ⚠ **A record written before ticket 11 has no `baseMapAssetsBundled`, and its `baseMapBundled`
+		// meant exactly what this field means now** — the deployment's Base Map files were copied. The
+		// meaning moved; the sites did not. Reading the new field strictly made every already-published
+		// site reopen with `glyphs`, `sprite`, and every symbol layer dropped and a notice saying the
+		// labels were not copied, while `base-map/fonts/` sat on the host untouched. Nothing errored.
+		//
+		// So an absent field falls back to the old field's old meaning. Not a migration and not a
+		// `formatVersion` bump: the record is read-only to this build, no byte is rewritten, and the
+		// fallback costs one `??`. `parsePublishedSite` is already the tolerant reader for exactly this
+		// class of thing — "a record written by a newer viewer must still list the Projects", and a
+		// record written by an *older* one must still draw its labels.
+		baseMapAssetsBundled:
+			typeof record.baseMapAssetsBundled === 'boolean'
+				? record.baseMapAssetsBundled
+				: record.baseMapBundled === true,
 		baseMapMaxZoom: typeof record.baseMapMaxZoom === 'number' ? record.baseMapMaxZoom : null
 	};
 }
