@@ -85,14 +85,20 @@ async function loadTile(
 	if (!parsed) throw new Error(`Not a cached Base Map tile URL: ${url}`);
 	const [, z, x, y] = parsed as unknown as [string, string, string, string];
 
-	const readTile = reader;
-	if (readTile === null) return { data: EMPTY_TILE() };
+	const tile = { z: Number(z), x: Number(x), y: Number(y) };
 
-	const bytes = await readTile({ z: Number(z), x: Number(x), y: Number(y) });
-	if (abortController.signal.aborted || bytes === null || bytes.byteLength === 0) {
+	const readTile = reader;
+	if (readTile === null) {
+		recordMissedBaseMapTile(tile);
 		return { data: EMPTY_TILE() };
 	}
-	recordServedBaseMapTile({ z: Number(z), x: Number(x), y: Number(y), bytes: bytes.byteLength });
+
+	const bytes = await readTile(tile);
+	if (abortController.signal.aborted || bytes === null || bytes.byteLength === 0) {
+		if (!abortController.signal.aborted) recordMissedBaseMapTile(tile);
+		return { data: EMPTY_TILE() };
+	}
+	recordServedBaseMapTile({ ...tile, bytes: bytes.byteLength });
 	// A fresh buffer, because the store's `Uint8Array` may be a view into a larger one and MapLibre
 	// takes the whole `ArrayBuffer` it is given.
 	return { data: bytes.slice().buffer };
@@ -102,20 +108,35 @@ async function loadTile(
 // The Playwright handle
 //
 // SPEC's Seam 2 rules out a map abstraction, so a browser test asking "did a cached tile actually
-// reach MapLibre" needs the live thing to have said so. **This records only tiles that were served
-// with bytes**, which is the whole of its value: the criterion ADR-0025 warns about is bytes served
-// and nothing drawn, and an assertion that the map has a source, or that no error appeared, passes in
-// exactly that case. A test that reads this is asserting on a request MapLibre itself made for a tile
-// it then parsed.
+// reach MapLibre" needs the live thing to have said so.
+//
+// **Two lists, because served and requested are different questions and each is vacuous for the
+// other's claim.** `ballastellaServedBaseMapTiles` records only tiles answered *with bytes*, which is
+// what makes "the map drew from the cache" mean something: the criterion ADR-0025 warns about is
+// bytes served and nothing drawn, and an assertion that the map has a source, or that no error
+// appeared, passes in exactly that case.
+//
+// `ballastellaMissedBaseMapTiles` records the tiles MapLibre **asked for and did not get** — and that
+// list is the only way to see a request that produced nothing, because an empty tile is not an error
+// and leaves no other trace. It is what "the source's `maxzoom` stops MapLibre asking past the
+// pyramid" is asserted with: written first without it, that assertion filtered the *served* list for
+// deep tiles, which cannot contain a miss by construction and so passed with `maxzoom` removed.
 
 declare global {
 	interface Window {
 		/** Cached Base Map tiles served with bytes, in order. Read only by `e2e/`; not an API. */
 		ballastellaServedBaseMapTiles?: { z: number; x: number; y: number; bytes: number }[];
+		/** Cached Base Map tiles requested and answered empty. Read only by `e2e/`; not an API. */
+		ballastellaMissedBaseMapTiles?: { z: number; x: number; y: number }[];
 	}
 }
 
 function recordServedBaseMapTile(tile: { z: number; x: number; y: number; bytes: number }): void {
 	if (typeof window === 'undefined') return;
 	(window.ballastellaServedBaseMapTiles ??= []).push(tile);
+}
+
+function recordMissedBaseMapTile(tile: { z: number; x: number; y: number }): void {
+	if (typeof window === 'undefined') return;
+	(window.ballastellaMissedBaseMapTiles ??= []).push(tile);
 }

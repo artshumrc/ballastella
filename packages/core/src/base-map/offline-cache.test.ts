@@ -198,6 +198,21 @@ describe('fetchTilesIntoCache', () => {
 	});
 });
 
+describe('an extent past the threshold', () => {
+	it('is never reported as available offline, whatever the cache holds', async () => {
+		// The empty-list trap: `complete` is "nothing missing", and a refused extent carries no list at
+		// all — so without an explicit refusal a continent-sized Project would call itself available
+		// offline having cached not one tile.
+		const store = new MemoryProjectStore();
+		const world: GeoBounds = { west: -179, south: -85, east: 179, north: 85 };
+		const coverage = await offlineCoverage(store, world, 14);
+		expect(coverage.budget.overThreshold).toBe(true);
+		expect(coverage.complete).toBe(false);
+		expect(coverage.missing).toEqual([]);
+		expect(coverage.present).toBe(0);
+	});
+});
+
 describe('baseMapCacheSize', () => {
 	it('reports the deepest zoom on disk, which is how the map draws with no network', async () => {
 		// The source archive's own maximum is the right number and needs the archive to be reachable.

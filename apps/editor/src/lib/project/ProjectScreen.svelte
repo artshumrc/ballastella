@@ -50,6 +50,7 @@
 		type LineStyle,
 		type MapLayer,
 		type BaseMapCacheSize,
+		type BaseMapEntry,
 		type OpeningViewFit,
 		type OpeningViewOutcome
 	} from '@ballastella/core';
@@ -66,6 +67,7 @@
 	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
+	import type { EditorSession } from '$lib/editor-session.svelte.js';
 	import LayerList from '$lib/layers/LayerList.svelte';
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
@@ -793,6 +795,18 @@
 	let offlineGeneration = $state(0);
 
 	/**
+	 * Which Base Map is shown, as a plain string.
+	 *
+	 * **A `$derived` over a primitive, and that is the whole of it.** `resolution` is a fresh object on
+	 * every change to `project.json`, so an effect reading `resolution?.entry.id` depends on
+	 * `resolution` and re-runs on a rename and on every step of a dragged opacity slider — which is the
+	 * same trap `documentKey` was written for, one signal along. Svelte does not propagate a derived
+	 * whose value is unchanged, so this reduces the dependency to "did the author pick another Base
+	 * Map?", which is the question the effect below actually asks.
+	 */
+	const baseMapEntryId = $derived(resolution?.entry.id ?? '');
+
+	/**
 	 * Re-read the cache and the coverage.
 	 *
 	 * Cheap and store-only in its first half — one `list` of `base-map/tiles/` — so the map can be
@@ -801,13 +815,14 @@
 	 * goes, and claiming completeness against a number read off our own cache is exactly the vacuous
 	 * claim ADR-0025 refuses.
 	 */
-	async function readOfflineState(): Promise<void> {
-		const current = session;
-		const entry = resolution?.entry;
-		if (!current || !entry) return;
+	async function readOfflineState(
+		current: EditorSession,
+		entry: BaseMapEntry,
+		forLayers: readonly Layer[]
+	): Promise<void> {
 		cache = await current.baseMapCacheSize();
 		try {
-			const read = await readOfflineCoverage(current, entry, layers);
+			const read = await readOfflineCoverage(current, entry, forLayers);
 			offlineReady = read.coverage?.complete ?? false;
 			offlineSummary =
 				read.bounds === null
@@ -841,15 +856,26 @@
 		return { maxZoom: held.maxZoom, readTile };
 	});
 
-	// Re-read when the Project opens, when its Layers' documents change, and when the Base Map does —
-	// each of those changes the extent or the pyramid the question is about. Not on every render: the
-	// first half is a `list` and the second opens the archive's header.
+	/**
+	 * Re-read when the Project opens, when its Layers' documents change, and when the Base Map does —
+	 * each of those changes the extent or the pyramid the question is about.
+	 *
+	 * **Everything the body reads is read untracked, and that is the same trap `documentKey` exists
+	 * for.** `readOfflineCoverage` walks every Layer's Alignment, and `layers` is a `$derived` that is
+	 * a fresh array on any change to `project.json` — so reading it inside the effect made a *rename*
+	 * and a dragged *opacity slider* each re-read every Alignment in the Project. `editor-layers.e2e.ts`
+	 * counts those reads and caught it. The dependencies are exactly the four lines below.
+	 */
 	$effect(() => {
 		void openDirectory;
 		void documentKey;
-		void resolution?.entry.id;
+		void baseMapEntryId;
 		void offlineGeneration;
-		void readOfflineState();
+		const current = untrack(() => session);
+		const entry = untrack(() => resolution?.entry);
+		const forLayers = untrack(() => layers);
+		if (!current || !entry) return;
+		void readOfflineState(current, entry, forLayers);
 	});
 
 	// A finished run changes the files, so the sentence and the source both have to be re-read from

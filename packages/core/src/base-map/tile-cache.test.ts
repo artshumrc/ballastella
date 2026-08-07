@@ -8,6 +8,7 @@ import {
 	ESTIMATED_BYTES_PER_TILE,
 	OFFLINE_TILE_LIMIT,
 	cachedTilePath,
+	countTilesForBounds,
 	parseCachedTilePath,
 	tileBudget,
 	tilesForBounds
@@ -59,7 +60,7 @@ describe('tilesForBounds', () => {
 	it('is a neighbourhood at 23 tiles and a continent at hundreds of thousands', () => {
 		// The contrast ADR-0025 rests its refusal threshold on, in one assertion rather than in prose.
 		const africa: GeoBounds = { west: -18, south: -35, east: 52, north: 38 };
-		expect(tilesForBounds(africa, 14).length).toBeGreaterThan(100_000);
+		expect(countTilesForBounds(africa, 14)).toBeGreaterThan(100_000);
 	});
 
 	it('never lists the same tile twice', () => {
@@ -89,6 +90,26 @@ describe('tilesForBounds', () => {
 	});
 });
 
+describe('countTilesForBounds', () => {
+	it('agrees with the list it does not build', () => {
+		expect(countTilesForBounds(CANAL_BELT, 14)).toBe(tilesForBounds(CANAL_BELT, 14).length);
+		expect(countTilesForBounds({ west: -180, south: -80, east: 180, north: 80 }, 4)).toBe(
+			tilesForBounds({ west: -180, south: -80, east: 180, north: 80 }, 4).length
+		);
+	});
+
+	it('answers for a world-spanning extent without building 358 million entries', () => {
+		// **Not a performance test.** One Annotation drawn as a polygon round the planet is an ordinary
+		// Project, and the Project screen asks this question every time it opens. Building the list to
+		// find out it is over the threshold allocated gigabytes and left the Layer stack undrawn —
+		// `editor-layers.e2e.ts`'s whole-world fixture is where that showed up.
+		const world: GeoBounds = { west: -179, south: -85, east: 179, north: 85 };
+		const started = Date.now();
+		expect(countTilesForBounds(world, 14)).toBeGreaterThan(100_000_000);
+		expect(Date.now() - started).toBeLessThan(50);
+	});
+});
+
 describe('tileBudget', () => {
 	it('counts and estimates from the same list the fetch loop consumes', () => {
 		const budget = tileBudget(CANAL_BELT, 14);
@@ -105,6 +126,15 @@ describe('tileBudget', () => {
 		expect(budget.count).toBeGreaterThan(OFFLINE_TILE_LIMIT);
 		expect(budget.overThreshold).toBe(true);
 		expect(budget.limit).toBe(OFFLINE_TILE_LIMIT);
+		// And it does not carry the list, because nothing will walk it and building it is the hang.
+		expect(budget.tiles).toEqual([]);
+	});
+
+	it('still reports the honest count for an extent it refuses to enumerate', () => {
+		const world: GeoBounds = { west: -179, south: -85, east: 179, north: 85 };
+		const budget = tileBudget(world, 14);
+		expect(budget.count).toBe(countTilesForBounds(world, 14));
+		expect(budget.estimatedBytes).toBe(budget.count * ESTIMATED_BYTES_PER_TILE);
 	});
 });
 

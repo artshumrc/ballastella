@@ -25,6 +25,7 @@ export {
 	ESTIMATED_BYTES_PER_TILE,
 	OFFLINE_TILE_LIMIT,
 	cachedTilePath,
+	countTilesForBounds,
 	parseCachedTilePath,
 	tileBudget,
 	tilesForBounds,

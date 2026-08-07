@@ -24,6 +24,8 @@ declare global {
 		ballastellaBaseMap?: BaseMapHandle;
 		/** Cached Base Map tiles the protocol handler answered **with bytes** (ticket 11). */
 		ballastellaServedBaseMapTiles?: { z: number; x: number; y: number; bytes: number }[];
+		/** Cached Base Map tiles requested and answered empty (ticket 11). */
+		ballastellaMissedBaseMapTiles?: { z: number; x: number; y: number }[];
 	}
 }
 
@@ -622,6 +624,9 @@ async function cachedTilePaths(page: Page): Promise<string[]> {
 /** Tiles the protocol handler answered **with bytes**, in order. Not a count of requests. */
 const servedTiles = (page: Page) => page.evaluate(() => window.ballastellaServedBaseMapTiles ?? []);
 
+/** Tiles MapLibre asked the cache for and did not get. The only trace an empty tile leaves. */
+const missedTiles = (page: Page) => page.evaluate(() => window.ballastellaMissedBaseMapTiles ?? []);
+
 const layersUrl = (directory: string = PROJECT_DIRECTORY) => `./layers?p=${directory}`;
 
 /** Open the Project screen and wait for its map. */
@@ -723,9 +728,7 @@ test.describe('making a Project available offline', () => {
 			.toBe(true);
 		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
 
-		// And at the source's deepest zoom, which is where the cache's `maxzoom` has to be right: set
-		// too low, MapLibre overzooms and never asks for these at all; set too high, every request past
-		// the pyramid comes back empty and the map goes blank exactly where the user zoomed in.
+		// And at the source's deepest zoom.
 		await page.evaluate(() => {
 			window.ballastellaBaseMap?.jumpTo({ center: [4.9, 52.37], zoom: 14 });
 		});
@@ -735,6 +738,31 @@ test.describe('making a Project available offline', () => {
 			})
 			.toBe(true);
 		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
+
+		// ── Past the source's deepest zoom, which is what the cached source's `maxzoom` is for ──
+		//
+		// A scholar keeps zooming. The archive stops at 14; the cache therefore stops at 14; and what
+		// has to happen is that MapLibre *overzooms* the z14 tiles rather than asking for z15 and z16.
+		// Without `maxzoom` on the source it asks anyway, every one of those comes back as an empty
+		// tile, and the map goes blank at exactly the zoom the user was told works offline — silently,
+		// because an empty tile is not an error.
+		//
+		// **Asserted as "nothing deeper than 14 was ever asked for", not as "something drew"**: the
+		// deeper request is the mechanism, and a rendered-features check alone stays green when the
+		// blank tiles have not arrived yet. Dropping `maxzoom` left every other assertion in this test
+		// passing, which is how this one came to be written.
+		await page.evaluate(() => {
+			window.ballastellaBaseMap?.jumpTo({ center: [4.9, 52.37], zoom: 16 });
+		});
+		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
+		expect(
+			(await missedTiles(page)).map((tile) => tile.z).filter((z) => z > 14),
+			'MapLibre asked the cache for tiles deeper than the source has'
+		).toEqual([]);
+		expect(
+			await page.evaluate(() => window.ballastellaBaseMap?.getZoom() ?? 0),
+			'the map did not actually reach zoom 16'
+		).toBeGreaterThan(14);
 
 		// The archive really was unreachable throughout, so nothing above was drawn over the network.
 		expect(await servedTiles(page)).not.toEqual([]);

@@ -66,6 +66,13 @@ export async function offlineCoverage(
 	maxZoom: number
 ): Promise<OfflineCoverage> {
 	const budget = tileBudget(bounds, maxZoom);
+	// A refused extent carries no tile list — see `countTilesForBounds` — so there is nothing to look
+	// for and nothing to claim. **Said explicitly rather than falling out of an empty `missing`**: an
+	// empty list of missing tiles is exactly what "complete" is computed from, so without this a
+	// continent-sized Project would report itself available offline having cached nothing at all.
+	if (budget.overThreshold) {
+		return { budget, missing: [], present: 0, complete: false };
+	}
 	const have = await cachedPaths(store);
 	const missing = budget.tiles.filter((tile) => !have.has(cachedTilePath(tile)));
 	return {

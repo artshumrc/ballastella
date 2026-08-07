@@ -164,9 +164,42 @@ export function tilesForBounds(bounds: GeoBounds, maxZoom: number): TileCoordina
 	return tiles;
 }
 
+/**
+ * How many tiles {@link tilesForBounds} would return, **without building the list**.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * THIS IS NOT AN OPTIMISATION
+ *
+ * The Project screen asks "is this Project available offline?" every time it opens, before anybody
+ * has pressed anything — and a Project can legitimately have a world-spanning extent, because one
+ * Annotation drawn as a polygon round the planet is enough. At z0–14 that is 358 million tiles.
+ * Materialising that list to find out it is over the threshold allocates gigabytes and hangs the tab
+ * before the Layer stack has drawn; `editor-layers.e2e.ts`'s whole-world fixture found it, and what
+ * it looked like was "the Project screen draws no Layers at all".
+ *
+ * So the count is arithmetic — one multiplication per zoom level — and the list is built only once
+ * the count is known to be small enough to be worth having. See {@link tileBudget}.
+ */
+export function countTilesForBounds(bounds: GeoBounds, maxZoom: number): number {
+	if (!Number.isFinite(maxZoom) || maxZoom < 0) return 0;
+	let total = 0;
+	for (let z = 0; z <= Math.floor(maxZoom); z += 1) {
+		const width = 2 ** z;
+		const columns = Math.min(tileX(bounds.east, z) - tileX(bounds.west, z) + 1, width);
+		const rows = tileY(bounds.south, z) - tileY(bounds.north, z) + 1;
+		total += columns * rows;
+	}
+	return total;
+}
+
 /** What making a Project available offline would cost, before anything is fetched. */
 export interface TileBudget {
-	/** Every tile the extent needs, in the order the fetch loop will walk them. */
+	/**
+	 * Every tile the extent needs, in the order the fetch loop will walk them — **or empty when
+	 * {@link overThreshold}**, because a refused request has no work to enumerate and enumerating it
+	 * anyway is what hangs the tab. See {@link countTilesForBounds}. {@link count} is the honest number
+	 * in both cases, and it is the number the refusal quotes.
+	 */
 	readonly tiles: readonly TileCoordinate[];
 	/** `tiles.length`, spelled out because it is the number the dialog shows. */
 	readonly count: number;
@@ -187,13 +220,15 @@ export interface TileBudget {
  * done cannot diverge — see the note at the top of this file.
  */
 export function tileBudget(bounds: GeoBounds, maxZoom: number): TileBudget {
-	const tiles = tilesForBounds(bounds, maxZoom);
+	// Counted first, and the list built only if the count is small enough to be worth building.
+	const count = countTilesForBounds(bounds, maxZoom);
+	const overThreshold = count > OFFLINE_TILE_LIMIT;
 	return {
-		tiles,
-		count: tiles.length,
-		estimatedBytes: tiles.length * ESTIMATED_BYTES_PER_TILE,
+		tiles: overThreshold ? [] : tilesForBounds(bounds, maxZoom),
+		count,
+		estimatedBytes: count * ESTIMATED_BYTES_PER_TILE,
 		maxZoom: Math.max(0, Math.floor(maxZoom)),
-		overThreshold: tiles.length > OFFLINE_TILE_LIMIT,
+		overThreshold,
 		limit: OFFLINE_TILE_LIMIT
 	};
 }
