@@ -8,11 +8,11 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 18. In flight: 11 (implemented, in review).
+Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 18. Nothing in flight.
 
-**Unblocked now that 04 has landed:** 05, 12, 16 and 17. 19 unblocks once 11 merges. 16 and 17 were held until 04 because 16 is a repo-wide rename and 17 rewrites the e2e suite; either would have collided with 04's restructuring of the Project screen across the same files.
+**Unblocked and ready:** 05, 12, 16, 17 and 19. 16 and 17 were held until 04 because 16 is a repo-wide rename and 17 rewrites the e2e suite; either would have collided with 04's restructuring of the Project screen across the same files.
 
-**11 was written before 04 and has now been rebased onto it.** Its offline control, dialog, and live regions sit on `ProjectScreen.svelte`; the offline-copy action it had added to `LayerList` was dropped in favour of 04's `mapActions` snippet, which makes the same move by a better mechanism. Keeping both would have given two `mirror-done` regions and two `MirrorMap` mounts per referenced Layer.
+**One deferral 11 left, for ticket 12.** The Base Map tile cache records which archive filled it and refuses a foreign one, but the directory itself is not keyed by archive. Keying it is a published-format change — the path is copied verbatim into a Published Site, read by the viewer's HTTP store, and named in the service worker — so it belongs with 12's several named Workspaces rather than in a Base Map ticket.
 
 **Pull 17 forward.** The e2e flake is no longer a background annoyance: it cost three separate implementers a clean full-suite run in a single session, and one of them saw a *different* failing pair on each of two consecutive runs. A suite that rotates its failures under parallel load cannot be trusted to catch the races this epic keeps finding, and every ticket after it pays the same tax.
 
