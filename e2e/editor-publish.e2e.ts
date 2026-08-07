@@ -718,8 +718,11 @@ test.describe('publishing a Workspace', () => {
 			mimeType: 'image/png',
 			buffer: gradientPng(600, 400)
 		});
-		await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
-		const imageId = (await page.getByRole('listitem').first().innerText()).trim();
+		// The image id off the Layer the map arrived with (ADR-0023, ticket 04): the Project's list of
+		// image ids is gone, because the Layer already says which image it draws.
+		const row = page.getByTestId('layer-row').first();
+		await expect(row).toBeVisible({ timeout: 30_000 });
+		const imageId = (await row.getAttribute('data-image-id'))!;
 		// The pane that reads through the shim is the `/align/` route since ticket 03, so this is where
 		// `ballastellaServedTiles` is filled from.
 		await page.getByTestId('align-historical-map').click();

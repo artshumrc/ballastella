@@ -102,8 +102,12 @@ async function ingestAndOpen(page: Page): Promise<string> {
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
-	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
-	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
+	// The image id off the Layer the map arrived with (ADR-0023). Ticket 04 removed the Project's
+	// separate list of image ids: the Layer already says which Historical Map it draws, and two
+	// renderings of one fact is one of them going stale.
+	const addedRow = page.getByTestId('layer-row').first();
+	await expect(addedRow).toBeVisible({ timeout: 30_000 });
+	const imageId = (await addedRow.getAttribute('data-image-id'))!;
 
 	// **The workspace is a route of its own since ticket 03**, so getting to it is a navigation and no
 	// longer a scroll. The id is read above, before the click: the Historical Maps list is on the

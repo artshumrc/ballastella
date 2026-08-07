@@ -19,13 +19,10 @@
 
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { otherTheme, resolveBaseMap, type MapLayer } from '@ballastella/core';
+	import { resolveBaseMap, type MapLayer } from '@ballastella/core';
 
 	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
-	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
-	import { startTheme, theme } from '$lib/theme.svelte';
-	import UndoControl from '$lib/undo/UndoControl.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	const openDirectory = $derived(page.url.searchParams.get('p'));
@@ -34,10 +31,6 @@
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
 	const session = $derived(storage?.session ?? null);
-
-	$effect(() => {
-		startTheme();
-	});
 
 	$effect(() => {
 		void session?.open(openDirectory);
@@ -87,7 +80,7 @@
 
 <svelte:head><title>Align — Ballastella Editor</title></svelte:head>
 
-<div class="flex min-h-screen flex-col">
+<div class="flex min-h-full flex-col">
 	<header class="flex flex-wrap items-end gap-4 border-b border-base-300 bg-base-200 p-4">
 		<h1 class="text-xl font-bold">Align</h1>
 
@@ -117,30 +110,14 @@
 			No Base Map switcher here, deliberately. `AlignmentWorkspace` already carries one beside the
 			pane whose emptiness sends you looking for it, and a second control writing the same author
 			default (ADR-0020) would be a third place that state can be written from.
+
+			**And no theme toggle, no save indicator and no undo control** (ticket 04). All three are
+			true on every screen and are on the app's navigation bar, in the root layout. A Control Point
+			undo outlives this route anyway — the record is on `EditorSession`, which a navigation does
+			not close — so mounting a second `UndoControl` here only ever meant two affordances over one
+			session-wide slot.
 		-->
-		<button type="button" class="btn btn-sm" onclick={() => theme.toggle()}>
-			Switch to {otherTheme(theme.current)} theme
-		</button>
-
 		<div class="grow"></div>
-
-		{#if session !== null}
-			<!--
-				A Control Point undo outlives this route: the record is on `EditorSession` and a navigation
-				away does not close the session, which is exactly why `AlignmentWorkspace` resolves the live
-				pairing when the closure runs rather than capturing it. See its module-level `live`.
-			-->
-			<UndoControl {session} />
-
-			<!-- ADR-0017 rule 5: there is no Save button, so this is the only signal that a Control
-			     Point, a mask edit, or a transformation change reached storage. -->
-			<div class="flex flex-col items-end">
-				<SaveIndicator saveState={session.saveState} />
-				{#if session.saveError}
-					<p class="text-sm text-warning">{session.saveError}</p>
-				{/if}
-			</div>
-		{/if}
 	</header>
 
 	<div class="grow p-4">

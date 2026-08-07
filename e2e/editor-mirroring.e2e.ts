@@ -501,7 +501,7 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
 	await page.getByTestId('remote-read').click();
 	await expect(page.getByTestId('remote-add')).toBeVisible();
 	await page.getByTestId('remote-add').click();
-	await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+	await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 }
 
 /**
@@ -584,8 +584,11 @@ async function drawTheStack(
 	via: 'link' | 'load',
 	directory = 'amsterdam-1625'
 ): Promise<void> {
-	if (via === 'link') await page.getByTestId('open-layers').click();
-	else await page.goto(`/layers?p=${directory}`);
+	// `via: 'link'` used to mean "follow the Project page's Layers link". Ticket 04 deleted
+	// that page: the Layer stack is the Project, so arriving is already being there and the two
+	// paths differ only in whether the screen was loaded fresh.
+	if (via === 'link') await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+	else await page.goto(`/?p=${directory}`);
 	await expect(page.getByRole('heading', { name: 'Layers in this Project' })).toBeVisible();
 
 	await expect
@@ -640,7 +643,7 @@ test.describe('making an offline copy', () => {
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('remote-add')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		await expect(page.getByTestId('mirror-open')).toHaveCount(1);
 
@@ -853,7 +856,7 @@ test.describe('making an offline copy', () => {
 		expect(project.layers).toHaveLength(1);
 		expect(project.layers[0]).toMatchObject({ kind: 'map', imageId });
 		// Read off the files instead, which is where the answer lives.
-		await page.getByTestId('open-layers').click();
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
 			'data-image-mode',
 			'mirrored'
@@ -861,12 +864,12 @@ test.describe('making an offline copy', () => {
 		await page.goBack();
 
 		// And the source URI is still on screen, so the copy can be cited.
-		await expect(page.getByRole('heading', { name: 'Offline copies' })).toBeVisible();
+		await expect(page.getByTestId('mirrored-image-source').first()).toBeVisible();
 		await expect(page.getByTestId('mirrored-image-source')).toHaveText(
 			service('images.test', 'florida')
 		);
 		// It has left the referenced list, because it is not referenced any more.
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toHaveCount(0);
+		await expect(page.getByTestId('referenced-image-host')).toHaveCount(0);
 	});
 
 	test('reports progress, and announces it to assistive technology', async ({ page }) => {
@@ -925,8 +928,8 @@ test.describe('making an offline copy', () => {
 		await expect(
 			readJson(page, '', `images/${generateId(service('images.test', 'florida'))}/info.json`)
 		).rejects.toThrow();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
-		await expect(page.getByRole('heading', { name: 'Offline copies' })).toHaveCount(0);
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
+		await expect(page.getByTestId('mirrored-image-source')).toHaveCount(0);
 	});
 
 	test('leaves the Layer referenced and working when the copy fails', async ({ page }) => {
@@ -1046,7 +1049,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('community-offer')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		const imageId = generateId(service('images.test', 'florida'));
 
@@ -1066,7 +1069,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		beforeCopy.stop();
 
 		await page.goto('/?p=amsterdam-1625');
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		await openMirrorDialog(page);
 		await page.getByTestId('mirror-start').click();
@@ -1151,14 +1154,15 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await page.context().setOffline(true);
 		try {
 			await page.reload();
-			await expect(page.getByRole('heading', { name: 'Offline copies' })).toBeVisible();
-			await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toHaveCount(
-				0
+			await expect(page.getByTestId('mirrored-image-source').first()).toBeVisible();
+			await expect(page.getByTestId('referenced-image-host')).toHaveCount(0);
+			// It is one of the Project's own Historical Maps now — one Layer, drawing local tiles — and
+			// the source URI is still on it. The Layer stack *is* that list since ticket 04.
+			await expect(page.getByTestId('layer-row')).toHaveCount(1);
+			await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
+				'data-image-mode',
+				'mirrored'
 			);
-			// It is listed as one of the Project's own Historical Maps now, and the source URI is still there.
-			await expect(
-				page.getByLabel('Historical Maps in this Project').getByRole('listitem')
-			).toHaveCount(1);
 			await expect(page.getByTestId('mirrored-image-source')).toHaveText(
 				service('images.test', 'florida')
 			);
@@ -1209,7 +1213,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('community-offer')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		await openMirrorDialog(page);
 		await page.getByTestId('mirror-start').click();

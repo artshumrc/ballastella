@@ -15,8 +15,8 @@
 	// each row as well, and `aria-hidden` there, because the `<ol>` already says it — announcing
 	// "1 of 2" twice per row is worse than not drawing it.
 
-	import type { Layer } from '@ballastella/core';
-	import { tick } from 'svelte';
+	import type { Layer, MapLayer } from '@ballastella/core';
+	import { tick, type Snippet } from 'svelte';
 
 	import type { DrawnOutcome } from '@ballastella/core/render';
 
@@ -29,7 +29,8 @@
 		onshow,
 		ondragopacity,
 		onmove,
-		ondelete
+		ondelete,
+		mapActions
 	}: {
 		/** The stack, top first. Index 0 draws over everything else. */
 		layers: readonly Layer[];
@@ -62,6 +63,14 @@
 		 * delete confirms without reading and one who does not needs the way back either way.
 		 */
 		ondelete: (id: string) => void;
+		/**
+		 * What a Historical Map Layer can be *done to*, rendered inside its own row.
+		 *
+		 * A snippet, so the row stays the one place a Layer is described and the actions stay with the
+		 * screen that knows the routes and the Workspace's remote-origin records. Optional because a
+		 * Layer stack is also rendered where there is nothing to do to it.
+		 */
+		mapActions?: Snippet<[MapLayer]>;
 	} = $props();
 
 	/**
@@ -220,6 +229,7 @@
 					data-layer-id={layer.id}
 					data-layer-kind={layer.kind}
 					data-layer-order={layer.order}
+					data-image-id={layer.kind === 'map' ? layer.imageId : undefined}
 					ondragover={(event) => {
 						// Without this the drop never fires: the default action of `dragover` is to refuse.
 						event.preventDefault();
@@ -379,6 +389,16 @@
 							<span class="text-warning" data-testid="layer-problem">{outcome.reason}</span>
 						{/if}
 					</div>
+
+					{#if layer.kind === 'map' && mapActions}
+						<!--
+							What can be done to this Historical Map, on the Layer that holds it (SPEC story 37:
+							one button, on the Layer that needs aligning). Supplied by the screen rather than
+							built here — see the snippet's own comment in `ProjectScreen.svelte` for why the
+							Align link cannot be a string passed in.
+						-->
+						{@render mapActions(layer)}
+					{/if}
 				</li>
 			{/each}
 		</ol>

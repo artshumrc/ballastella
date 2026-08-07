@@ -3,8 +3,10 @@
 	import { refuseUnroutedImageServiceRequests } from '@ballastella/core';
 	import { asset } from '$app/paths';
 	import favicon from '$lib/assets/favicon.svg';
+	import NavigationBar from '$lib/components/NavigationBar.svelte';
 	import UpdatePrompt from '$lib/pwa/UpdatePrompt.svelte';
 	import { provideInstalledApp } from '$lib/pwa/installed-app.svelte.js';
+	import { startTheme } from '$lib/theme.svelte';
 	import { provideWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	let { children } = $props();
@@ -13,10 +15,10 @@
 	 * The one Workspace, for every route.
 	 *
 	 * Here rather than per page because the layout mounts once for the whole app: a client-side
-	 * navigation between `/` and `/base-map/` then carries the live session — a resumed folder
-	 * included — instead of each route resolving the backing store for itself. `/base-map/` used to
-	 * call `EditorSession.opfs()` directly, so a folder-Workspace user's Base Map choice was written
-	 * into the wrong Workspace (ticket 12).
+	 * navigation between `/` and `/align/` then carries the live session — a resumed folder
+	 * included — instead of each route resolving the backing store for itself. The deleted
+	 * `/base-map/` used to call `EditorSession.opfs()` directly, so a folder-Workspace user's Base
+	 * Map choice was written into the wrong Workspace (ticket 12).
 	 *
 	 * `setContext` has to run during initialisation; the storage inside it is created in the effect,
 	 * because it reaches for browser storage that does not exist while prerendering.
@@ -57,6 +59,19 @@
 	const installedApp = provideInstalledApp();
 
 	$effect(() => installedApp.start());
+
+	/**
+	 * The theme, applied once for the whole app (ticket 04, SPEC stories 109 and 110).
+	 *
+	 * Here rather than in each route, which is where it was: three routes called `startTheme()` and
+	 * the hub did not, so a stored preference was applied only after navigating to one of the three.
+	 * It also has to be *one* call, because the unset state subscribes to `prefers-color-scheme` and
+	 * a per-route subscription would be one listener per visited route.
+	 *
+	 * In an effect for the reason every other browser-facing thing here is: a module body runs during
+	 * prerendering, where there is no `document` to paint and no `matchMedia` to follow.
+	 */
+	$effect(() => startTheme());
 </script>
 
 <svelte:head>
@@ -72,7 +87,21 @@
 	<link rel="manifest" href={asset('/manifest.webmanifest')} />
 	<meta name="theme-color" content="#134e4a" />
 </svelte:head>
-{@render children()}
+<!--
+	The app is one screen tall and the routes divide it, rather than each route setting its own
+	`min-h-screen` and hoping the bar above it is the height it guessed. The scrolling region is the
+	one below the bar, so the bar stays put on the hub — which is the only long page — and the Project
+	screen can be exactly as tall as what is left, which is what makes its map full height without
+	arithmetic on the bar's own size.
+-->
+<div class="flex h-screen flex-col">
+	<!--
+		Outside `children()` so it is on every route, and *before* it so it is first in the tab order
+		and first for a screen reader: a bar announced after the page it belongs to is a footer.
+	-->
+	<NavigationBar />
+	<div class="min-h-0 grow overflow-y-auto">{@render children()}</div>
+</div>
 <!--
 	Outside `children()` so that it is present on every route, including the two panes a scholar is
 	mid-alignment in. It renders a fixed-position region and inserts nothing into the page's flow.

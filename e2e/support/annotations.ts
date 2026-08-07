@@ -268,7 +268,11 @@ export async function centreOnAmsterdam(page: Page): Promise<void> {
 }
 
 /**
- * Open the Layers pane.
+ * Open the Project: a Base Map with the Layer stack beside it (ticket 04).
+ *
+ * `/?p=<dir>`, because `/layers/` is gone — the Layer stack is not a page of its own any more, it is
+ * one column of the Project. The name is kept: every caller means "get me to the Layers", and that is
+ * still what this does.
  *
  * Deliberately does **not** wait for the map's stack handle: `drawLayerStack` is not called at all
  * when the Project has no visible Layers, so a Project that has only just been created would wait for
@@ -276,8 +280,8 @@ export async function centreOnAmsterdam(page: Page): Promise<void> {
  * after a Layer exists.
  */
 export async function openLayers(page: Page, directory = PROJECT_DIRECTORY): Promise<void> {
-	await page.goto(`/layers?p=${directory}`);
-	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+	await page.goto(`/?p=${directory}`);
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toBeVisible();
 	await waitForOpeningView(page);
 }

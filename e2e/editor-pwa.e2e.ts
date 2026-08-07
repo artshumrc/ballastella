@@ -172,8 +172,10 @@ async function startProjectWithMap(page: Page): Promise<string> {
 		mimeType: 'image/png',
 		buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
 	});
-	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
-	return (await page.getByRole('listitem').first().innerText()).trim();
+	// The image id off the Layer the map arrived with (ADR-0023, ticket 04).
+	const addedRow = page.getByTestId('layer-row').first();
+	await expect(addedRow).toBeVisible({ timeout: 30_000 });
+	return (await addedRow.getAttribute('data-image-id'))!;
 }
 
 /** Whatever has focus, said in enough detail that a change of focus is a change of string. */
@@ -297,7 +299,10 @@ test.describe('the web app manifest and the service worker scope', () => {
 				// `/align` is here because aligning is a route of its own since ticket 03, and it is the
 				// route SPEC story 8 is actually about: a scholar in a reading room with no wifi placing
 				// Control Points. An entry page missing from this list is a page that 404s offline.
-				const entryHtml = ['/', '/align', '/base-map', '/image-pane', '/layers'];
+				// `/base-map` and `/layers` are absent because ticket 04 deleted both: the Base Map with
+				// its Layer stack *is* `/`, addressed by `?p=`. `/image-pane` stays — retained and
+				// unlinked, it is the only storage-independent projection coverage there is.
+				const entryHtml = ['/', '/align', '/image-pane'];
 				expect(shell.length, 'nothing was precached').toBeGreaterThan(10);
 				for (const path of shell) {
 					expect(
@@ -474,7 +479,7 @@ test.describe('the app with the network off', () => {
 			mimeType: 'image/png',
 			buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
 		});
-		await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
 
 		// Nothing was asked of the server across the whole session.
 		expect(
@@ -579,12 +584,11 @@ test.describe('the app with the network off', () => {
 			'the aligned Historical Map did not render over the Base Map offline'
 		).toBeGreaterThan(0);
 
-		// An Annotation drawn on the Layers pane, and written to disk. Back out of the alignment route
-		// first: the Layers button is on the Project page (ticket 03).
+		// An Annotation drawn on the Project screen, and written to disk. Back out of the alignment
+		// route first: the Layer stack is on the Project (ticket 04), which is where this lands.
 		await page.getByTestId('back-to-project').click();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-		await page.getByTestId('open-layers').click();
-		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await page.getByTestId('add-annotation-layer').click();
 		await waitForStack(page);
 		await centreOnAmsterdam(page);

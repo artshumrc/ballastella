@@ -277,7 +277,7 @@ async function open(page: Page, files: Record<string, string>): Promise<void> {
 	await page.goto('/');
 	await emptyWorkspace(page);
 	await seed(page, files);
-	await page.goto(`/layers?p=${PROJECT_DIRECTORY}`);
+	await page.goto(`/?p=${PROJECT_DIRECTORY}`);
 	await settled(page);
 }
 
@@ -658,7 +658,7 @@ test.describe('opening a Project', () => {
 		const before = await hashesUnder(page);
 
 		await watchWrites(page);
-		await page.goto(`/layers?p=${PROJECT_DIRECTORY}`);
+		await page.goto(`/?p=${PROJECT_DIRECTORY}`);
 		await settled(page);
 		// Framed, so the assertion is about a Project that really did compute and apply an opening view.
 		expect((await viewport(page)).lng).toBeCloseTo(BOSTON_CENTRE.lng, 3);

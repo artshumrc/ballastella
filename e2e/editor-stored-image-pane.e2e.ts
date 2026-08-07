@@ -140,8 +140,20 @@ async function openProject(page: Page, name: string): Promise<void> {
 	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 }
 
+/**
+ * Every Historical Map this Project draws, by image id.
+ *
+ * Read off the Layer rows since ticket 04: a Historical Map arrives with its Layer (ADR-0023), and
+ * the separate list of image ids on the Project page is gone.
+ */
 const listedImageIds = async (page: Page): Promise<string[]> =>
-	(await page.getByRole('listitem').allInnerTexts()).map((text) => text.trim());
+	(
+		await page
+			.getByTestId('layer-row')
+			.evaluateAll((rows) =>
+				rows.map((row) => (row as HTMLElement).dataset.imageId ?? '').filter(Boolean)
+			)
+	).sort();
 
 /**
  * Ingest one image, wait for its pyramid to be complete, and return **its** image id.
@@ -158,25 +170,30 @@ async function ingest(page: Page, width: number, height: number, name: string): 
 		mimeType: 'image/png',
 		buffer: gradientPng(width, height)
 	});
-	await expect(page.getByRole('listitem')).toHaveCount(before.length + 1, { timeout: 30_000 });
+	await expect(page.getByTestId('layer-row')).toHaveCount(before.length + 1, { timeout: 30_000 });
 	const added = (await listedImageIds(page)).filter((id) => !before.includes(id));
 	expect(added, `expected exactly one new Historical Map after ingesting ${name}`).toHaveLength(1);
 	return added[0]!;
 }
 
 /**
- * Press Align and land on the pane, which is `/align/?p=…&layer=…` since ticket 03.
+ * Press Align **on a Layer** and land on the pane, which is `/align/?p=…&layer=…`.
  *
- * The Historical Maps list and the per-map selector buttons stay on the Project page; the pane this
- * file is about moved. Every test below therefore ingests on the Project page, reads its ids there,
- * and then comes here.
+ * Ticket 04 moved Align onto the Layer that needs it and deleted the Project page's separate list of
+ * image ids with its per-map selector buttons — there is one door per Historical Map now, and it is
+ * on the Historical Map. Naming the image is therefore choosing a row rather than pressing a
+ * selector and then a shared button; with no name given, the first Layer in the stack is taken.
  */
-async function openPane(page: Page): Promise<void> {
-	await page.getByTestId('align-historical-map').click();
+async function openPane(page: Page, imageId?: string): Promise<void> {
+	const row =
+		imageId === undefined
+			? page.getByTestId('layer-row').first()
+			: page.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`);
+	await row.getByTestId('align-historical-map').click();
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 }
 
-/** Back to the Project page, where the Historical Maps are chosen between. */
+/** Back to the Project, where the Layers — and their Historical Maps — are. */
 async function backToProject(page: Page): Promise<void> {
 	await page.getByTestId('back-to-project').click();
 	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
@@ -342,9 +359,9 @@ test.describe('a Historical Map read from the Project', () => {
 		const tall = await ingest(page, 300, 1300, 'tall.png');
 		expect(wide).not.toBe(tall);
 
-		// One of them is on screen without being asked for, and it is one of these two. *Which* one
-		// is not asserted on purpose: the list is ordered by image id, so the default is whichever
-		// sorts first, and pinning it here would be pinning `generateRandomId`.
+		// The first Layer in the stack, and it is one of these two. *Which* one is not asserted on
+		// purpose: Layer order follows the order the maps were added and the ids are random, so
+		// pinning it here would be pinning `generateRandomId`.
 		await openPane(page);
 		await waitForTiles(page);
 		await expect(pyramidReadout(page)).toHaveAttribute(
@@ -368,13 +385,12 @@ test.describe('a Historical Map read from the Project', () => {
 			levels: number
 		) => {
 			await clearServedTiles(page);
-			// Choosing between this Project's Historical Maps is on the Project page and aligning one is
-			// a route (ticket 03), so the switch is now a round trip rather than a click. What is being
-			// defended is unchanged and is if anything harder to fake: the pane is *rebuilt* on the way
-			// back, so a source that had been repointed rather than replaced has nowhere to hide.
+			// Choosing between this Project's Historical Maps is choosing a Layer, and aligning one is a
+			// route, so the switch is a round trip rather than a click. What is being defended is
+			// unchanged and is if anything harder to fake: the pane is *rebuilt* on the way back, so a
+			// source that had been repointed rather than replaced has nowhere to hide.
 			await backToProject(page);
-			await page.getByRole('button', { name: imageId }).click();
-			await openPane(page);
+			await openPane(page, imageId);
 			await waitForTiles(page);
 			await expect(pyramidReadout(page)).toHaveAttribute('data-image-id', imageId);
 			// On the attributes, which are exact: "scale factors 1, 2, 4" is a substring of

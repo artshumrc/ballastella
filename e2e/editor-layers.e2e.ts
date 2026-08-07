@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { projectNameField } from './support/project-screen.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -363,7 +364,7 @@ async function addHistoricalMap(page: Page): Promise<void> {
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
-	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+	await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
 }
 
 /**
@@ -468,9 +469,12 @@ async function openLayers(
 	directory: string,
 	{ drawn = 1, via = 'load' }: { drawn?: number; via?: 'load' | 'link' } = {}
 ): Promise<void> {
-	if (via === 'link') await page.getByTestId('open-layers').click();
-	else await page.goto(`/layers?p=${directory}`);
-	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+	// `via: 'link'` used to mean "follow the Project page's Layers link". Ticket 04 deleted
+	// that page: the Layer stack is the Project, so arriving is already being there and the two
+	// paths differ only in whether the screen was loaded fresh.
+	if (via === 'link') await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+	else await page.goto(`/?p=${directory}`);
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', String(drawn), {
 		timeout: STACK_READY_MS
 	});
@@ -817,7 +821,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 
 		// No Layer, because the Alignment it would draw is not there. Read off the page, which renders
 		// the count out of the one in-memory `project.json`, and out of the file.
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (0)');
+		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		expect((await projectJson(page, directory)).layers).toEqual([]);
 		// The pyramid did land — this is the Alignment write failing, not the ingest.
 		expect(await storedImageIds(page)).toHaveLength(1);
@@ -880,7 +884,10 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		await expect
 			.poll(() => completedPyramid(page), { timeout: 30_000, intervals: [50] })
 			.not.toBeNull();
-		const name = page.getByLabel('Project name');
+		// Renaming is behind the Project settings dialog since ticket 04. Opening it is two clicks
+		// inside the same window — the delayed `manifest.json` read is what holds the window open, and
+		// it is three seconds wide.
+		const name = await projectNameField(page);
 		await name.fill('Amsterdam, 1625');
 		await name.blur();
 
@@ -893,8 +900,9 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		const file = await projectJson(page, directory);
 		expect(file.layers).toHaveLength(1);
 		expect(file.name).toBe('Amsterdam, 1625');
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 		await expect(name).toHaveValue('Amsterdam, 1625');
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam, 1625');
 	});
 
 	test('shows the Layer as a local copy, which is what decides whether a reader needs the network', async ({
@@ -987,8 +995,8 @@ test.describe('a Base Map that never finishes loading', () => {
 
 		// Neither fulfilled nor aborted: the request stays open for the life of the page.
 		await page.route(/\.pmtiles$/, () => undefined);
-		await page.goto(`/layers?p=${directory}`);
-		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await page.goto(`/?p=${directory}`);
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await expect(rows(page)).toHaveCount(1);
 
 		// The Layer's own row carries the reason, and the region still counts honestly.
@@ -1605,29 +1613,39 @@ test.describe('adding an Annotation Layer (SPEC stories 55 and 56)', () => {
 	});
 });
 
-test.describe('getting back out of the Layers pane', () => {
-	// The stack is where a user *notices* that a Control Point needs fixing — the Historical Map is
-	// visibly in the wrong place — so the way back to the alignment workspace has to be one click rather
-	// than a trip out to the hub and in again.
-	test('links back to the Project it belongs to, not only to the hub', async ({ page }) => {
+test.describe('leaving the Project screen and coming back', () => {
+	/**
+	 * The round trip the stack is *for*: notice a Historical Map sitting crooked, go and fix it, come
+	 * back and look again.
+	 *
+	 * This used to be "the Layers pane links back to its Project", because the two were different
+	 * pages. Ticket 04 makes them one, so the hop that remains is the one that was always the point —
+	 * Project → Align → Project — and it is the hop that carries the defect: leaving took the stack
+	 * off a map that had already been removed, `Map#getLayer` threw, and Svelte abandoned the rest of
+	 * the flush. **`pageerror` is the whole signal**, because the screen's markup is derived state
+	 * rather than effects and rendered anyway; only its effects were skipped.
+	 */
+	test('goes to Align from the Layer and lands back on the same Project', async ({ page }) => {
 		const directory = await alignedProject(page);
-		// The other direction of the same defect the link-route test above covers, and it needs asserting
-		// separately because it is **invisible on screen**: leaving this pane took the stack off a map that
-		// had already been removed, `Map#getLayer` threw, and Svelte abandoned the rest of the flush — but
-		// the Project page's own markup is derived state rather than effects, so it rendered anyway and only
-		// its effects were skipped. Nothing below would have failed; the exception is the whole signal.
 		const crashes: string[] = [];
 		page.on('pageerror', (error) => crashes.push(error.message));
 		await openLayers(page, directory);
 
+		await rows(page).first().getByTestId('align-historical-map').click();
+		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
+		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+
 		await page.getByTestId('back-to-project').click();
 
-		// *This* Project rather than the hub: its own name in the field, and its own Layer count.
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-		await expect(page.getByLabel('Project name')).toHaveValue('Amsterdam 1625');
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		// *This* Project rather than the hub: its own name, its own Layer, and the stack drawn again.
+		await expect(page).toHaveURL(new RegExp(`\\?p=${directory}$`));
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
+			timeout: STACK_READY_MS
+		});
 
-		expect(crashes, 'leaving the pane threw while taking the stack off the map').toEqual([]);
+		expect(crashes, 'the round trip threw while taking the stack off the map').toEqual([]);
 	});
 });
 

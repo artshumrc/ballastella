@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { projectNameField } from './support/project-screen';
+
 /**
  * SPEC's Seam 2 for the File System Access Workspace: the running app, a real browser, real
  * IndexedDB, real user gestures, and a real `FileSystemDirectoryHandle`.
@@ -422,7 +424,7 @@ test.describe('choosing a folder as the Workspace', () => {
 
 		await inBrowserStorage(page);
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 	});
 });
 
@@ -534,11 +536,13 @@ test.describe('the Workspace is the same one on every route', () => {
 		page
 	}) => {
 		// The state this asserts against is one the suite above deliberately creates: the same
-		// directory name in browser storage *and* in the folder. `/base-map/` reached for OPFS
-		// directly while `/` went through the backing the user had chosen, and there was no shared
+		// directory name in browser storage *and* in the folder. The deleted `/base-map/` reached for
+		// OPFS directly while `/` went through the backing the user had chosen, and there was no shared
 		// context, so the choice did not cross the route boundary — the OPFS namesake was written with
-		// a fresh `updatedAt`, the indicator said "Saved", and the folder file was untouched. Ticket 07
-		// puts this pane on the Project page, which makes this the default path rather than a corner.
+		// a fresh `updatedAt`, the indicator said "Saved", and the folder file was untouched. Ticket 04
+		// leaves one route for both screens, so the switcher is on the Project itself and the class of
+		// defect is structurally gone; the assertion stays, because the Workspace it writes into is
+		// still the thing that has to be right.
 		await chooseFolder(page);
 		await inFolder(page);
 		await createProject(page, 'Amsterdam 1625');
@@ -556,7 +560,7 @@ test.describe('the Workspace is the same one on every route', () => {
 			await writable.close();
 		});
 
-		await page.goto('./base-map/?p=amsterdam-1625');
+		await page.goto('./?p=amsterdam-1625');
 		// A bookmarked Project on a route that cannot resume the folder without a gesture. The pane
 		// has to say so and offer the gesture, rather than quietly using the other Workspace.
 		const reopen = page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` });
@@ -600,7 +604,7 @@ test.describe('the Workspace is the same one on every route', () => {
 		await expect(reopen).toBeVisible();
 		await reopen.click();
 
-		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 	});
 
 	test('a Project page reports an unreachable Workspace with a locate-again action', async ({
@@ -620,7 +624,7 @@ test.describe('the Workspace is the same one on every route', () => {
 		await inFolder(page);
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByLabel('Project name')).toBeVisible();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 
 		await page.evaluate(async (folder) => {
 			const root = await navigator.storage.getDirectory();
@@ -679,7 +683,7 @@ test.describe('an interrupted write to a real folder (ADR-0017 rule 4)', () => {
 		page
 	}) => {
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByLabel('Project name')).toBeVisible();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
 
 		// Fail the next write where a full disk is reported, restoring itself as it fires so exactly
@@ -694,7 +698,7 @@ test.describe('an interrupted write to a real folder (ADR-0017 rule 4)', () => {
 			};
 		});
 
-		await page.getByLabel('Project name').fill('Amsterdam 1626');
+		await (await projectNameField(page)).fill('Amsterdam 1626');
 		// Force the write instead of waiting out the debounce, and then wait for the interruption to
 		// have actually happened. Without this the assertions below are satisfied by the state
 		// *before* the write — the edit is legitimately "unsaved" while its timer is still running and

@@ -194,7 +194,7 @@ test.describe('adding a Historical Map from a file', () => {
 
 		// 700 × 500 at 256-pixel tiles: 3 × 2 at scale factor 1, 2 × 1 at 2, and 1 at 4.
 		const expectedTiles = 9;
-		await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
 		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeHidden();
 
 		// SPEC story 23: the tool said what it was doing, in a live region, with real numbers.
@@ -208,7 +208,7 @@ test.describe('adding a Historical Map from a file', () => {
 		// of story 23: a scholar cannot tell a finished ingest from a stuck one.
 		await expect(page.getByRole('progressbar')).toHaveCount(0);
 
-		const imageId = (await page.getByRole('listitem').first().innerText()).trim();
+		const imageId = (await page.getByTestId('layer-row').first().getAttribute('data-image-id'))!;
 		expect(imageId).toMatch(/^[0-9a-f]{16}$/);
 
 		// The whole Workspace, because the pyramid is the Workspace's (ADR-0023).
@@ -359,10 +359,10 @@ test.describe('adding a Historical Map from a file', () => {
 			mimeType: 'image/png',
 			buffer: gradientPng(700, 500)
 		});
-		await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
 
 		// Reopening reads it back from the store rather than remembering it.
 		await page.reload();
-		await expect(page.getByRole('listitem')).toHaveCount(1);
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 	});
 });
