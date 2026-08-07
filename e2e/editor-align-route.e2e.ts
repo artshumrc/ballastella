@@ -217,6 +217,7 @@ test.describe('the alignment route', () => {
 		await page.goto(`/align?p=${PROJECT_DIRECTORY}&layer=anything`);
 		await expect(page.getByRole('heading', { name: 'No storage for a Workspace' })).toBeVisible();
 		await expect(page.getByText('not offering storage for a Workspace')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Back to all Projects' })).toBeVisible();
 		// Not a blank split screen behind the message.
 		await expect(historicalMap(page)).toHaveCount(0);
 
@@ -257,7 +258,9 @@ test.describe('the alignment route', () => {
 			path.dirname(fileURLToPath(import.meta.url)),
 			'../apps/editor/build'
 		);
-		expect(readFileSync(path.join(build, 'align.html'), 'utf8')).toContain('Starting…');
+		const served = readFileSync(path.join(build, 'align.html'), 'utf8');
+		expect(served).toContain('Starting…');
+		expect(served).toContain('Back to all Projects');
 	});
 
 	/**
@@ -268,7 +271,7 @@ test.describe('the alignment route', () => {
 	 * than it sounds, because `alignments/<id>.json` belongs to the **Workspace** and is shared by
 	 * every Project that draws the map, published sites included — so a route that wrote one on the
 	 * way in would make opening a view a sync event in a git or Dropbox Workspace, and would push any
-	 * field of a third-party Georeference Annotation that `Alignment` does not model through
+	 * field of a third-party Alignment document that `Alignment` does not model through
 	 * `serialiseAlignment` and out of existence (SPEC story 60).
 	 *
 	 * A draft of this route did exactly that: the Align control resolved its Layer by routing
@@ -479,7 +482,9 @@ test.describe('“Check this alignment”', () => {
 		await checkToggle(page).click();
 		await expect(overlay).toHaveCount(0);
 		await expect(measure).toHaveCount(0);
-		await expect.poll(async () => (await drawnMeasure(page)) ?? '').toBe('');
+		await checkToggle(page).click();
+		await expect(overlay).not.toBeChecked();
+		await expect(measure).toHaveCount(0);
 	});
 
 	test('does not reopen after a reload, and is not in project.json', async ({ page }) => {
@@ -528,24 +533,6 @@ test.describe('“Check this alignment”', () => {
 		await expect(foldWarning(page)).toHaveAttribute('role', 'alert');
 	});
 });
-
-/** The measure the renderer is actually colouring by, or `undefined`. */
-const drawnMeasure = (page: Page): Promise<string | undefined> =>
-	page.evaluate(() => {
-		const layer = (
-			window as {
-				ballastellaWarped?: {
-					layer: {
-						getMapIds?(): string[];
-						getMapOptions?(id: string): Record<string, unknown> | undefined;
-					};
-				};
-			}
-		).ballastellaWarped?.layer;
-		const mapId = layer?.getMapIds?.()[0];
-		if (!layer || mapId === undefined) return undefined;
-		return layer.getMapOptions?.(mapId)?.['distortionMeasure'] as string | undefined;
-	});
 
 test.describe('the route from the keyboard', () => {
 	/**

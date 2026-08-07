@@ -57,6 +57,7 @@
 		type ResourcePoint
 	} from '@ballastella/core';
 	import type { WarpedRender } from '@ballastella/core/render';
+	import { onDestroy } from 'svelte';
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
@@ -166,6 +167,14 @@
 	 * user can pick another Historical Map while this one's Alignment is in flight.
 	 */
 	let generation = 0;
+	let destroyed = false;
+
+	// A pane or Alignment read can finish after route navigation has destroyed this workspace. Neither
+	// may replace the module-level pairing used by Undo with an instance that is no longer on screen.
+	onDestroy(() => {
+		destroyed = true;
+		generation += 1;
+	});
 
 	// Cleared as soon as the Historical Map changes, before its pyramid has been read. Control Points
 	// from the previous Alignment left drawn over a different image are a coordinate claim about the
@@ -228,11 +237,12 @@
 	 * `createImagePane` on the same `info.json` would be a second answer that can disagree.
 	 */
 	const loadAlignment = (wanted: string, pane: ImagePane): void => {
+		if (destroyed) return;
 		const mine = ++generation;
 		void (async () => {
 			try {
 				const stored = await session.readAlignment(wanted, pane.image);
-				if (mine !== generation) return;
+				if (destroyed || mine !== generation) return;
 				pairing = new AlignmentPairing(wanted, pane.image, stored);
 				// The one place a pairing comes into existence, and so the one place {@link live} is set: a
 				// pending undo recorded before this component was last destroyed has to reverse *this*
@@ -246,7 +256,7 @@
 				// which a bare list of pair positions can do.
 				frameOn(wanted, stored, mine);
 			} catch (cause) {
-				if (mine !== generation) return;
+				if (destroyed || mine !== generation) return;
 				failure = `The Alignment for “${wanted}” could not be opened: ${
 					cause instanceof Error ? cause.message : String(cause)
 				}`;

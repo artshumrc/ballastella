@@ -148,9 +148,13 @@
 			<div role="alert" class="alert flex-col items-start alert-warning">
 				<h2 class="font-semibold">No storage for a Workspace</h2>
 				<p>{host.unsupported}</p>
+				<a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a>
 			</div>
 		{:else if storage === null || session === null}
-			<p>Starting…</p>
+			<div>
+				<p>Starting…</p>
+				<p class="mt-6"><a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a></p>
+			</div>
 		{:else if openDirectory === null}
 			<div role="alert" class="alert flex-col items-start alert-info">
 				<h2 class="font-semibold">No Project chosen</h2>

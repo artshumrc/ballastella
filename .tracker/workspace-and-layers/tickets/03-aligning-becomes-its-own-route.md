@@ -190,3 +190,30 @@ screen-reader explainer make the page ~120px taller than `ProjectView` was, whic
 Mask handle below the fold — `page.mouse` takes viewport coordinates and does no actionability check,
 so the drag landed on nothing and reported no error. `dragBy` already documents this hazard; the one
 inline drag in `editor-alignment-refinement.e2e.ts` now takes the same precaution.
+
+## Review remediation
+
+The alignment workspace now invalidates its asynchronous generation when route teardown destroys it
+and refuses a pane callback that arrives afterwards. Without both guards, a delayed Historical Map
+pane could replace module-level `live` with a pairing no longer on screen: Undo restored the file but
+left the visible replacement pairing unchanged. The regression delays one `info.json` read, destroys
+that route, opens a replacement, and asserts Undo restores both the stored Alignment and its rendered
+Control Point row.
+
+The unsupported-storage and prerendered startup states now carry a route back to all Projects, as the
+contract's “every state” requirement intended. The distortion reset test now observes the rendered
+checkbox after reopening “Check this alignment”, rather than reading an upstream renderer's private
+map options.
+
+Mutation checks were run separately and reverted afterwards:
+
+| What it protects | Mutation | What went red |
+| --- | --- | --- |
+| route teardown cannot replace the live pairing | remove destruction's generation invalidation | Undo restored the stored bytes but the visible Control Point row stayed moved |
+| every route state has a way out | remove the unsupported and startup links | the live unsupported-state link assertion and prerendered-file assertion both failed |
+| closing the disclosure resets its working view | stop resetting `distortion` on close | the rendered overlay checkbox was still checked after reopening |
+
+Two review findings remain deliberately outside this ticket. Naming every Project that uses the
+shared Historical Map is story 56 and belongs to ticket 07. The cross-Project shared-Alignment case is
+the invariant and coverage ticket 18 was created to own; restoring it here would pre-implement that
+later ticket.

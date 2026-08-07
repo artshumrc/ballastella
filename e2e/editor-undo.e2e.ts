@@ -98,6 +98,25 @@ async function delayReadsOf(page: Page, name: string, ms: number): Promise<void>
 	);
 }
 
+/** Delay only the next matching read, so the replacement workspace can finish loading first. */
+async function delayNextReadOf(page: Page, name: string, ms: number): Promise<void> {
+	await page.evaluate(
+		async ([match, delay]) => {
+			const proto = FileSystemFileHandle.prototype;
+			const original = proto.getFile;
+			let delayed = false;
+			proto.getFile = async function (this: FileSystemFileHandle) {
+				if (!delayed && this.name === match) {
+					delayed = true;
+					await new Promise((resolve) => setTimeout(resolve, delay as number));
+				}
+				return original.call(this);
+			};
+		},
+		[name, ms] as const
+	);
+}
+
 /** How long the Layer stack may take to reach the map — a whole Base Map style, then a warped map. */
 const STACK_READY_MS = 20_000;
 
@@ -250,6 +269,41 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		await expect(page.getByTestId('undo-done')).toHaveText('Undone: move of Control Point 1.');
 		await page.keyboard.press('Control+z');
 		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
+	});
+
+	test('ignores a pane that finishes opening after its alignment route was destroyed', async ({
+		page
+	}) => {
+		test.setTimeout(120_000);
+		const imageId = await alignedProject(page);
+		const before = await storedAlignment(page, imageId);
+		const wasAt = await rowText(page, 1);
+
+		await imagePoints(page).first().focus();
+		await page.keyboard.press('Shift+ArrowRight');
+		await saved(page);
+		await expect.poll(() => storedAlignment(page, imageId)).not.toBe(before);
+		expect(await rowText(page, 1)).not.toBe(wasAt);
+
+		await page.getByTestId('back-to-project').click();
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await delayNextReadOf(page, 'info.json', 3000);
+
+		// This workspace starts opening, but is destroyed before its Historical Map pane calls `onpane`.
+		await page.getByTestId('align-historical-map').click();
+		await page.getByTestId('back-to-project').click();
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+
+		// A replacement workspace becomes live before the stale pane finishes its delayed read.
+		await page.getByTestId('align-historical-map').click();
+		await waitForSurface(page);
+		await expect(controlPointRows(page)).toHaveCount(3);
+		await page.waitForTimeout(3500);
+
+		await undoButton(page).click();
+		await saved(page);
+		await expect.poll(() => storedAlignment(page, imageId)).toBe(before);
+		expect(await rowText(page, 1)).toBe(wasAt);
 	});
 
 	/**

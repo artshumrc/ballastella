@@ -943,7 +943,7 @@ export class EditorSession {
 	 * produce one. An earlier draft of the `/align/` route asked the same question with a method that
 	 * *created* the Layer when there was none, by routing `readAlignment` into `writeAlignment`; for a
 	 * map already aligned in another Project that rewrote a Workspace-shared `alignments/<id>.json`
-	 * through `serialiseAlignment`, dropping every field of a third-party Georeference Annotation that
+	 * through `serialiseAlignment`, dropping every field of a third-party Alignment document that
 	 * `Alignment` does not model (SPEC story 60). Merely opening a view is not a write, and this cannot
 	 * become one.
 	 *
