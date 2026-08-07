@@ -54,6 +54,8 @@ type MapWindow = {
 	ballastellaBaseMap?: BaseMapHandle;
 	/** Every OPFS file opened for writing since the spy was installed — see {@link watchWrites}. */
 	ballastellaOpfsWrites?: string[];
+	/** Every `localStorage`/`sessionStorage` mutation since then. Same spy, same reason. */
+	ballastellaWebStorageWrites?: string[];
 };
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -557,6 +559,15 @@ test.describe('the alignment view', () => {
 		await waitForBaseMap(page);
 		const before = await viewport(page);
 
+		// Announced before a pair exists, because this pane moves the Base Map on open exactly as the
+		// Project screen and the viewer do, and a WebGL canvas says nothing (SPEC story 112). The Project
+		// this fixture opens has no other content either, so the sentence is the "nothing to frame on"
+		// one — which is the one nobody would guess from an unmoved map.
+		const announced = page.getByTestId('alignment-opening-view');
+		await expect(announced).toHaveAttribute('data-opening-view', 'default', { timeout: 30_000 });
+		await expect(announced).toContainText('No Control Points yet');
+		expect(await announced.getAttribute('aria-live')).toBe('polite');
+
 		await makePairs(page, 3);
 		await waitForStored(page, imageId, 3);
 		const placed = controlPointBox(
@@ -578,6 +589,10 @@ test.describe('the alignment view', () => {
 		expect(landed.lat).toBeCloseTo((placed.south + placed.north) / 2, 3);
 		// Closer in than the deployment default, because the points span a fraction of what it shows.
 		expect(landed.zoom).toBeGreaterThan(before.zoom);
+
+		// And said out loud, now that there is something to have landed on.
+		await expect(announced).toHaveAttribute('data-opening-view', 'control-points');
+		await expect(announced).toContainText('Control Points, where the work was left');
 
 		// And now the other half: with the Alignment open, editing it must not move the earth under the
 		// gesture doing the editing. The handle dragged is on the **Historical Map** pane, so nothing
@@ -633,6 +648,10 @@ test.describe('opening a Project', () => {
 		// every one of its writes goes through, `FileSystemFileHandle#createWritable`, which is also what
 		// the atomic temp-file replace uses. Hashes alone would pass a byte-identical rewrite, which is
 		// still a modified file to git, to Dropbox, and to `updatedAt`.
+		//
+		// **And `localStorage`, which the contract names in the same breath and which OPFS says nothing
+		// about.** "Remember where we put the map" is one `setItem` away and would leave every file on
+		// disk untouched, so the two spies together are what the sentence actually claims.
 		await page.goto('/');
 		await emptyWorkspace(page);
 		await seed(page, workspaceFiles({ layers: [{ kind: 'annotation', id: 'l-pins' }] }));
@@ -647,6 +666,10 @@ test.describe('opening a Project', () => {
 		expect(
 			await page.evaluate(() => (window as unknown as MapWindow).ballastellaOpfsWrites ?? [])
 		).toEqual([]);
+		expect(
+			await page.evaluate(() => (window as unknown as MapWindow).ballastellaWebStorageWrites ?? [])
+		).toEqual([]);
+		expect(await page.evaluate(() => ({ ...window.localStorage }))).toEqual({});
 		expect(await hashesUnder(page)).toEqual(before);
 	});
 });
@@ -669,6 +692,28 @@ async function watchWrites(page: Page): Promise<void> {
 		) {
 			names.push(this.name);
 			return original.call(this, options);
+		};
+
+		// `Storage.prototype`, so `localStorage` and `sessionStorage` are both covered by one patch and
+		// neither can be the place a remembered viewport quietly lands.
+		const web: string[] = [];
+		(window as unknown as { ballastellaWebStorageWrites?: string[] }).ballastellaWebStorageWrites =
+			web;
+		const storage = Storage.prototype;
+		const setItem = storage.setItem;
+		storage.setItem = function (this: Storage, key: string, value: string) {
+			web.push(`set ${key}`);
+			return setItem.call(this, key, value);
+		};
+		const removeItem = storage.removeItem;
+		storage.removeItem = function (this: Storage, key: string) {
+			web.push(`remove ${key}`);
+			return removeItem.call(this, key);
+		};
+		const clear = storage.clear;
+		storage.clear = function (this: Storage) {
+			web.push('clear');
+			return clear.call(this);
 		};
 	});
 }

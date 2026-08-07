@@ -1522,6 +1522,17 @@ const BOSTON_CENTRE = { lng: -71.0657, lat: 42.35615 };
 const DEPLOYMENT_VIEW = { lng: 4.9041, lat: 52.3676, zoom: 13 };
 
 /**
+ * The fixture sheet moved to Boston, for the one test that is about a *map* Layer's place on the earth.
+ *
+ * The Control Points cover pixels 70 → 630 of a 700-wide sheet and 50 → 450 of a 500-tall one, so the
+ * Resource Mask extends an eighth of the point span past each edge: −71.1075 → −71.0325 by
+ * 42.33625 → 42.37375. That overshoot is the Resource-Mask-versus-Control-Points distinction, asserted
+ * numerically in `packages/core/src/project/opening-view.test.ts`.
+ */
+const BOSTON_SHEET = { west: -71.1, east: -71.04, south: 42.34, north: 42.37 };
+const BOSTON_SHEET_CENTRE = { lng: -71.07, lat: 42.355 };
+
+/**
  * A Project whose whole stack is one Annotation Layer of pins, wherever the test wants them.
  *
  * **The Layer is present even when there are no pins**, which is what makes "nothing on the earth"
@@ -1638,6 +1649,56 @@ test.describe('a Published Site opens on the Project’s content', () => {
 		expect(at.lat).toBeCloseTo(DEPLOYMENT_VIEW.lat, 4);
 		expect(at.zoom).toBeCloseTo(DEPLOYMENT_VIEW.zoom, 4);
 		await expect(page.getByTestId('opening-view')).toContainText('default view');
+	});
+
+	test('frames on a sheet whose Alignment reads, even when its image record does not', async ({
+		page
+	}) => {
+		// The divergence this criterion exists to catch. The editor's `readProjectContent` reads the
+		// Alignment and nothing else, so a Layer whose Alignment parses places its sheet there whatever
+		// happened to its tiles. The viewer used to contribute a Layer only at `status: 'ready'`, which
+		// is a claim about *drawing* — so a Historical Map whose library server was down was on the earth
+		// in the editor and nowhere at all on the Published Site, and the two apps framed one Project two
+		// ways.
+		//
+		// Set up with the failure ticket 17's degradation table already covers: the `remote.json` that
+		// says which server holds the tiles is answered 503. The Alignment beside it is untouched and
+		// puts the sheet in Boston, four thousand miles from this deployment's default — so "framed on the
+		// work" and "framed on the default" are different answers rather than the same coordinates twice.
+		site = await published(
+			oneProject({
+				imageMode: 'referenced',
+				remoteService: 'https://maps.library.example/iiif/x',
+				sheetAt: BOSTON_SHEET,
+				// No Annotations, so the box can only have come from the sheet. The Layer itself stays, so
+				// the stack is built and the Reader's map handle is published.
+				annotations: []
+			})
+		);
+		await page.route('**/images/aaa/remote.json', (route) =>
+			route.fulfill({ status: 503, body: 'the library is down' })
+		);
+
+		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
+		await mapReady(page);
+		await openingSettled(page);
+
+		// The Layer is still reported unreadable and still not drawn — this changes what the sheet
+		// contributes to the *box*, not what goes on the map.
+		await expect(
+			page.locator(`[data-layer-id="${MAP_LAYER_ID}"]`).getByTestId('reader-layer-problem')
+		).toContainText('did not answer');
+		expect(
+			await page.evaluate(() => window.ballastellaReaderMap!.map.getLayersOrder())
+		).not.toContain(`ballastella-layer-${MAP_LAYER_ID}`);
+
+		// And the map is on the sheet's own Resource Mask extent, which for these Control Points over a
+		// 700 × 500 sheet is −71.1075 → −71.0325 by 42.33625 → 42.37375.
+		const at = await readerViewport(page);
+		expect(at.lng).toBeCloseTo(BOSTON_SHEET_CENTRE.lng, 3);
+		expect(at.lat).toBeCloseTo(BOSTON_SHEET_CENTRE.lat, 3);
+		expect(Math.abs(at.lng - DEPLOYMENT_VIEW.lng)).toBeGreaterThan(50);
+		await expect(page.getByTestId('opening-view')).toContainText('this Project’s own content');
 	});
 
 	test('does not move the map when a Reader hides a Layer, and re-frames when asked', async ({

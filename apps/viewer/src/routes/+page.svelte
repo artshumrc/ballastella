@@ -51,8 +51,8 @@
 		projectFilePath,
 		readBaseMapPreference,
 		resolveBaseMap,
-		openingViewFit,
-		projectOpeningBounds,
+		openingViewSentence,
+		projectOpeningFit,
 		setLayerVisible,
 		setMapLayerOpacity,
 		writeBaseMapPreference,
@@ -63,6 +63,7 @@
 		type Layer,
 		type MapLayer,
 		type OpeningViewFit,
+		type OpeningViewOutcome,
 		type ProjectFile,
 		type PublishedSite
 	} from '@ballastella/core';
@@ -285,7 +286,7 @@
 
 	let openingFit = $state.raw<OpeningViewFit | null>(null);
 	/** `content` when the map was framed on the Project, `default` when there was nothing to frame on. */
-	let openingOutcome = $state<'pending' | 'content' | 'default'>('pending');
+	let openingOutcome = $state<OpeningViewOutcome>('pending');
 	/** Whether the last framing was the Reader asking, so the sentence can say which. */
 	let refitted = $state(false);
 
@@ -311,9 +312,9 @@
 		}
 		if (framedProject === open.directory) return;
 		framedProject = open.directory;
-		const bounds = projectOpeningBounds(content);
-		openingFit = bounds === null ? null : openingViewFit(bounds);
-		openingOutcome = bounds === null ? 'default' : 'content';
+		const fit = projectOpeningFit(content);
+		openingFit = fit;
+		openingOutcome = fit === null ? 'default' : 'content';
 		refitted = false;
 	}
 
@@ -328,9 +329,9 @@
 	 * a Reader pressing this twice has panned away in between.
 	 */
 	function fitToProject(): void {
-		const bounds = projectOpeningBounds(toContentLayers(layers, documents));
-		openingFit = bounds === null ? null : openingViewFit(bounds);
-		openingOutcome = bounds === null ? 'default' : 'content';
+		const fit = projectOpeningFit(toContentLayers(layers, documents));
+		openingFit = fit;
+		openingOutcome = fit === null ? 'default' : 'content';
 		refitted = true;
 	}
 
@@ -960,11 +961,7 @@
 							data-testid="opening-view"
 							data-opening-view={openingOutcome}
 						>
-							{#if openingOutcome === 'content'}
-								{refitted ? 'Framed on' : 'Opened framed on'} this Project’s own content.
-							{:else if openingOutcome === 'default'}
-								This Project has nothing placed on the earth, so the map is on the default view.
-							{/if}
+							{openingViewSentence(openingOutcome, refitted)}
 						</p>
 					</div>
 				</div>

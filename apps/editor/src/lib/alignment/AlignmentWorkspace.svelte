@@ -150,6 +150,7 @@
 		// The distortion view is about *drawing* rather than about a coordinate, so it stays.
 		editingMask = false;
 		openingFit = null;
+		openingOutcome = 'pending';
 	});
 
 	/**
@@ -164,6 +165,17 @@
 	 * place in the application for it to happen — see {@link framedImage}.
 	 */
 	let openingFit = $state.raw<OpeningViewFit | null>(null);
+
+	/**
+	 * What the pane was framed on, for the sentence beside it (SPEC story 112).
+	 *
+	 * The Project screen and the viewer both publish one, and this pane moves the Base Map on open
+	 * exactly as they do — so a user who cannot see the canvas was the only one not told that it had
+	 * moved, and not told *why* when the Alignment is new and it did not. Its own vocabulary rather
+	 * than core's {@link OpeningViewOutcome}, because what it frames on is one Historical Map's Control
+	 * Points and that is a different sentence.
+	 */
+	let openingOutcome = $state<'pending' | 'control-points' | 'content' | 'default'>('pending');
 
 	/**
 	 * The Historical Map the pane has already been framed for.
@@ -215,10 +227,12 @@
 	const frameOn = (wanted: string, alignment: Alignment, mine: number): void => {
 		if (framedImage === wanted) return;
 		framedImage = wanted;
+		const onItsOwnPoints = alignment.controlPoints.length > 0;
 		void (async () => {
 			const fit = await fitToAlignment(session, alignment, session.openProject?.layers ?? []);
 			if (mine !== generation || framedImage !== wanted) return;
 			openingFit = fit;
+			openingOutcome = fit === null ? 'default' : onItsOwnPoints ? 'control-points' : 'content';
 		})();
 	};
 
@@ -817,6 +831,27 @@
 					onwarped={(render) => (warped = render)}
 				/>
 			</div>
+			<!--
+				Where the Base Map pane is looking and why (SPEC story 112, ADR-0026). Opening a Historical
+				Map moves this pane, and a WebGL canvas announces nothing — so without this the one person
+				who cannot see it happen is the one person not told it happened.
+			-->
+			<p
+				class="mt-2 min-h-5 text-sm text-base-content/70"
+				aria-live="polite"
+				aria-atomic="true"
+				data-testid="alignment-opening-view"
+				data-opening-view={openingOutcome}
+			>
+				{#if openingOutcome === 'control-points'}
+					Framed on this Historical Map’s Control Points, where the work was left.
+				{:else if openingOutcome === 'content'}
+					No Control Points yet, so the Base Map is framed on this Project’s own content.
+				{:else if openingOutcome === 'default'}
+					No Control Points yet and nothing else placed on the earth, so the Base Map is on the
+					default view.
+				{/if}
+			</p>
 		</section>
 	</div>
 

@@ -103,6 +103,16 @@ export type LayerDocuments =
 			 * owed to the Reader either way. Absent when the image itself could not be placed.
 			 */
 			readonly referenced?: boolean;
+			/**
+			 * The Alignment, when it parsed but something *else* about the Layer did not.
+			 *
+			 * A sheet whose tiles cannot be fetched still has a place on the earth, and ADR-0026's opening
+			 * view is about places rather than about pixels — so this Layer contributes to the box even
+			 * though it draws nothing. Present because the editor has always framed on it and the two apps
+			 * are required to frame a Project the same way: while this was absent, a Layer with a good
+			 * Alignment and a bad image record placed the sheet in the editor and not on the Published Site.
+			 */
+			readonly alignment?: Alignment;
 	  };
 
 /** Every Layer's documents, by Layer id. A Layer absent from this has not been asked for. */
@@ -145,8 +155,15 @@ export async function readLayerDocuments(
  * than on the deployment's default — which is a different question from what is *drawn*, and is why
  * this is not built from `drawn`.
  *
- * A Layer whose documents are still loading or could not be read contributes nothing. It is not an
- * error here: the map is framed on what is known, and the Layer's own row already says what happened.
+ * A Layer whose documents are still loading contributes nothing. Nor does one that could not be read
+ * *at all*: the map is framed on what is known, and the Layer's own row already says what happened.
+ *
+ * **But an Alignment that parsed is a place, whatever else about the Layer failed.** `'ready'` is a
+ * claim about drawing — it means this Layer can go on the map — and framing is a different question
+ * from drawing. A Historical Map whose library server is down, or whose `remote.json` was never
+ * copied, is still a sheet somewhere on the earth, and the editor's `readProjectContent` has always
+ * counted it. Reading `'ready'` here instead made the two apps disagree about what a Project contains,
+ * which is the one thing ADR-0026 puts this computation in `core` to prevent.
  */
 export function toContentLayers(
 	layers: readonly Layer[],
@@ -154,7 +171,8 @@ export function toContentLayers(
 ): ContentLayer[] {
 	return layers.map((layer): ContentLayer => {
 		const read = documents[layer.id];
-		if (read?.status !== 'ready') return { layer };
+		if (read === undefined || read.status === 'loading') return { layer };
+		if (read.status === 'unreadable') return { layer, alignment: read.alignment ?? null };
 		return { layer, alignment: read.alignment ?? null, annotations: read.annotations ?? null };
 	});
 }
@@ -170,12 +188,20 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 		};
 	}
 
-	// ── Where the tiles are, asked first ────────────────────────────────────────────────────────
+	// ── Where on the earth it goes ──────────────────────────────────────────────────────────────
 	//
-	// **Before the Alignment, so that "this Layer needs the network" survives an Alignment that will
-	// not parse.** The two are independent facts and SPEC story 29 is owed to the Reader either way:
-	// answering it out of the Alignment's success is how the warning quietly stopped appearing for
-	// exactly the Projects most likely to have something wrong with them.
+	// Read before anything is returned, and **kept even when the rest of the Layer is unreadable**: an
+	// Alignment is where the sheet is, which is a different fact from whether its tiles can be fetched,
+	// and ADR-0026 frames a Project on places. See {@link toContentLayers}.
+	const placed = await readPlacement(store, imageId);
+	const placement = 'alignment' in placed ? { alignment: placed.alignment } : {};
+
+	// ── Where the tiles are ─────────────────────────────────────────────────────────────────────
+	//
+	// **Reported ahead of the Alignment, so that "this Layer needs the network" survives an Alignment
+	// that will not parse.** The two are independent facts and SPEC story 29 is owed to the Reader
+	// either way: answering it out of the Alignment's success is how the warning quietly stopped
+	// appearing for exactly the Projects most likely to have something wrong with them.
 	//
 	// A local copy needs no address: its tiles are files of this site, and ADR-0011's shim resolves the
 	// `unset.invalid` placeholder in its `info.json` against them. The presence of that file is what says
@@ -189,7 +215,10 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 		// A host that did not answer is not a map held elsewhere, and asking a second question of a site
 		// that is not there would only repeat the same failure under a worse sentence.
 		if (!(cause instanceof PathNotFoundError)) {
-			return unreadable(cause, `${named} is aligned, but this site did not answer for its image`);
+			return {
+				...unreadable(cause, `${named} is aligned, but this site did not answer for its image`),
+				...placement
+			};
 		}
 		try {
 			const record = parseReferencedImage(await store.read(referencedImagePath(imageId)), {
@@ -200,11 +229,14 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 		} catch (second) {
 			// **Not `service: ''`.** See the module comment: `''` here is a blank warped Layer reported as
 			// drawn, which is the defect recorded on ticket 09.
-			return unreadable(
-				second,
-				`${named} has neither its own tiles on this site nor a readable record of the server that ` +
-					`holds them`
-			);
+			return {
+				...unreadable(
+					second,
+					`${named} has neither its own tiles on this site nor a readable record of the server ` +
+						`that holds them`
+				),
+				...placement
+			};
 		}
 	}
 
@@ -212,21 +244,33 @@ async function readMapLayer(store: ReadOnlyProjectStore, layer: MapLayer): Promi
 	// failing is a `return` above — so this is `'in-workspace'` or `'referenced'` and never `null`.
 	const referenced = tileLocation(observed) === 'referenced';
 
-	// ── And where on the earth it goes ──────────────────────────────────────────────────────────
-	try {
-		// The image id comes from the Layer and the Alignment's path is derived from it, so the document's
-		// own `resource.id` is never consulted — the same discipline the editor reads an Alignment with, so
-		// a file copied under another name cannot claim the image it used to describe.
-		const alignment = parseAlignment(await store.read(alignmentPath(imageId)), { imageId });
-		return { status: 'ready', alignment, service, referenced };
-	} catch (cause) {
+	if (!('alignment' in placed)) {
 		return {
 			...unreadable(
-				cause,
+				placed.cause,
 				`${named} is aligned, but this site does not carry the Alignment that places it`
 			),
 			referenced
 		};
+	}
+	return { status: 'ready', alignment: placed.alignment, service, referenced };
+}
+
+/**
+ * One map Layer's Alignment, or whatever stopped it being read.
+ *
+ * The image id comes from the Layer and the Alignment's path is derived from it, so the document's own
+ * `resource.id` is never consulted — the same discipline the editor reads an Alignment with, so a file
+ * copied under another name cannot claim the image it used to describe.
+ */
+async function readPlacement(
+	store: ReadOnlyProjectStore,
+	imageId: string
+): Promise<{ alignment: Alignment } | { cause: unknown }> {
+	try {
+		return { alignment: parseAlignment(await store.read(alignmentPath(imageId)), { imageId }) };
+	} catch (cause) {
+		return { cause };
 	}
 }
 

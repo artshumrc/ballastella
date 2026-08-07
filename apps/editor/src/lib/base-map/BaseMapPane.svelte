@@ -19,6 +19,7 @@
 		ANNOTATION_ID_PROPERTY,
 		BASE_MAP_CATALOG,
 		DEFAULT_DISTORTION_VIEW,
+		applyOpeningFit,
 		baseMapStyle,
 		resolveBaseMap,
 		type Alignment,
@@ -337,24 +338,13 @@
 	/**
 	 * Frame the map on {@link openingFit}, once per request (ADR-0026).
 	 *
-	 * Object identity is the guard, and it has to be: `fitBounds` moves the map, MapLibre's `moveend`
-	 * is nothing this effect reads, and the *same* box asked for twice is what "Fit to this Project"
-	 * pressed twice means. Comparing coordinates instead would make the second press do nothing, which
-	 * is precisely the case a user presses it in — they have panned away and want to come back.
-	 *
-	 * `animate: false` travels inside the request, so the map lands rather than flying: there was
-	 * nothing on screen to fly from, and an animation is a second thing to wait for.
+	 * The rule itself — identity as the guard, so that "Fit to this Project" pressed twice frames
+	 * twice — is core's {@link applyOpeningFit}, shared with the viewer's `ReaderMapPane`. This effect
+	 * is only the wiring: the two panes held the same body verbatim, which is how "the editor and the
+	 * Published Site frame a Project the same way" quietly becomes a claim about the past.
 	 */
 	$effect(() => {
-		const request = openingFit;
-		const current = map;
-		if (current === undefined || request === null || request === fitted) return;
-		fitted = request;
-		current.fitBounds(request.bounds, {
-			padding: request.padding,
-			maxZoom: request.maxZoom,
-			animate: request.animate
-		});
+		fitted = applyOpeningFit(map, openingFit, fitted);
 	});
 
 	// Built once per map. The points themselves are updated by the effect below, so that moving one

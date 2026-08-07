@@ -25,8 +25,20 @@ export const IMAGE_HEIGHT = 500;
 export const MAP_LAYER_ID = 'l-map';
 export const ANNOTATION_LAYER_ID = 'l-notes';
 
+/**
+ * Where the fixture sheet lands on the earth, as the box its four Control Points describe.
+ *
+ * Amsterdam, beside the fixture Annotation and the deployment default, so that most of this suite can
+ * ignore geography. A test about *where the map opened* passes its own box instead — see
+ * {@link alignmentJson} — because a sheet on top of the default is a sheet that cannot tell a right
+ * answer from a wrong one.
+ */
+export type SheetBox = { west: number; east: number; south: number; north: number };
+
+const AMSTERDAM_SHEET: SheetBox = { west: 4.88, east: 4.92, south: 52.36, north: 52.375 };
+
 /** A Georeference Annotation over the fixture image, as `serialiseAlignment` writes one. */
-export const alignmentJson = (): string =>
+export const alignmentJson = (at: SheetBox = AMSTERDAM_SHEET): string =>
 	asJson({
 		type: 'Annotation',
 		'@context': [
@@ -54,10 +66,10 @@ export const alignmentJson = (): string =>
 			type: 'FeatureCollection',
 			transformation: { type: 'polynomial', options: { order: 1 } },
 			features: [
-				gcp([70, 50], [4.88, 52.375]),
-				gcp([630, 50], [4.92, 52.375]),
-				gcp([630, 450], [4.92, 52.36]),
-				gcp([70, 450], [4.88, 52.36])
+				gcp([70, 50], [at.west, at.north]),
+				gcp([630, 50], [at.east, at.north]),
+				gcp([630, 450], [at.east, at.south]),
+				gcp([70, 450], [at.west, at.south])
 			]
 		}
 	});
@@ -149,6 +161,8 @@ export type ProjectFixture = {
 	projectOverrides?: Record<string, unknown>;
 	/** Leave the pyramid out, so the unwarped view has nothing to read. */
 	withoutPyramid?: boolean;
+	/** Where the sheet's Control Points put it. Amsterdam unless a test needs it somewhere it can see. */
+	sheetAt?: SheetBox;
 	/**
 	 * The address the pyramid's `info.json` declares as its own image service `id`.
 	 *
@@ -198,7 +212,7 @@ export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 			...(fixture.projectOverrides ?? {})
 		}),
 		// At the Workspace root, shared by every Project (ADR-0023).
-		[`alignments/${IMAGE_ID}.json`]: alignmentJson(),
+		[`alignments/${IMAGE_ID}.json`]: alignmentJson(fixture.sheetAt),
 		[`${directory}/annotations/${ANNOTATION_LAYER_ID}.geojson`]: asJson({
 			type: 'FeatureCollection',
 			features: fixture.annotations ?? [annotation({ title: 'A warehouse' })]

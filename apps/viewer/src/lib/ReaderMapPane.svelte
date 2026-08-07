@@ -35,6 +35,7 @@
 	import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 	import {
 		ANNOTATION_ID_PROPERTY,
+		applyOpeningFit,
 		baseMapStyle,
 		defaultEntry,
 		isAbsoluteUrl,
@@ -295,21 +296,12 @@
 	/**
 	 * Frame the map on {@link openingFit}, once per request (ADR-0026).
 	 *
-	 * Identity is the guard rather than the coordinates, so that "Fit to this Project" pressed twice
-	 * frames twice — which is the case a Reader presses it in, having panned away and wanting to come
-	 * back. See the editor's `BaseMapPane`, which does exactly this: the two are deliberately the same
-	 * few lines over the same core function rather than two framings that agree until one is edited.
+	 * Core's {@link applyOpeningFit}, the same function the editor's `BaseMapPane` calls — not the same
+	 * few lines written twice, which is what it was, and which is the shape ADR-0026 warns about: a
+	 * Published Site that frames a Project differently from the editor that made it.
 	 */
 	$effect(() => {
-		const request = openingFit;
-		const current = map;
-		if (current === undefined || request === null || request === fitted) return;
-		fitted = request;
-		current.fitBounds(request.bounds, {
-			padding: request.padding,
-			maxZoom: request.maxZoom,
-			animate: request.animate
-		});
+		fitted = applyOpeningFit(map, openingFit, fitted);
 	});
 
 	/**

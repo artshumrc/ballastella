@@ -1,12 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { GcpTransformer } from '@allmaps/transform';
 
 import {
 	OPENING_VIEW_MAX_ZOOM,
 	OPENING_VIEW_PADDING,
 	alignmentOpeningBounds,
+	alignmentOpeningFit,
+	applyOpeningFit,
 	openingViewFit,
 	projectOpeningBounds,
-	type ContentLayer
+	projectOpeningFit,
+	type ContentLayer,
+	type OpeningViewFit
 } from './opening-view';
 import { newAnnotationLayer, newMapLayer, type AnnotationLayer, type MapLayer } from './layer';
 import type { Alignment, ControlPoint, TransformationType } from '../alignment/alignment';
@@ -45,9 +50,22 @@ const pin = (id: string, lng: number, lat: number): Annotation =>
 
 const collection = (...annotations: Annotation[]): AnnotationCollection => ({ annotations });
 
-/** An Alignment over a 1000 × 800 sheet, with the mask left at the whole image. */
+/** The whole of a 1000 × 800 sheet, as a Resource Mask. */
+const WHOLE_SHEET = [
+	{ x: 0, y: 0 },
+	{ x: 1000, y: 0 },
+	{ x: 1000, y: 800 },
+	{ x: 0, y: 800 }
+] as const;
+
+/**
+ * An Alignment over a 1000 × 800 sheet, with the mask left at the whole image.
+ *
+ * Each Control Point is written `[x, y, lng, lat]` — the resource pixel it is pinned to and the
+ * place on the earth it names.
+ */
 const alignedSheet = (
-	gcps: readonly (readonly [number, number, number, number])[],
+	controlPoints: readonly (readonly [number, number, number, number])[],
 	options: {
 		type?: TransformationType;
 		mask?: readonly { x: number; y: number }[];
@@ -55,18 +73,13 @@ const alignedSheet = (
 ): Alignment => ({
 	imageId: 'sheet',
 	image: { width: 1000, height: 800 },
-	controlPoints: gcps.map(([x, y, lng, lat], index): ControlPoint => ({
-		id: `gcp-${index}`,
+	controlPoints: controlPoints.map(([x, y, lng, lat], index): ControlPoint => ({
+		id: `point-${index}`,
 		ordinal: index + 1,
 		resource: { x, y },
 		geo: { lng, lat }
 	})),
-	resourceMask: options.mask ?? [
-		{ x: 0, y: 0 },
-		{ x: 1000, y: 0 },
-		{ x: 1000, y: 800 },
-		{ x: 0, y: 800 }
-	],
+	resourceMask: options.mask ?? WHOLE_SHEET,
 	transformationType: options.type ?? 'polynomial1'
 });
 
@@ -323,6 +336,191 @@ describe('projectOpeningBounds', () => {
 		expect(bounds?.north).toBeCloseTo(37.7749, 6);
 	});
 
+	it('frames a whole-world Polygon on the world, not on the sliver between its corners', () => {
+		// The regression that made two `editor-layers` tests fail: a rectangle with corners at ±179 is
+		// the whole world, because GeoJSON cuts content at the antimeridian (RFC 7946 §3.1.9) and this
+		// one is not cut — so its bottom edge runs from −179 all the way east to 179, and MapLibre draws
+		// it that way. A rule that read only the four corners saw a 358° "empty" gap that the edge runs
+		// straight through, and framed the Project on what was left.
+		const content: ContentLayer[] = [
+			{
+				layer: annotationLayerNamed('everywhere'),
+				annotations: collection(
+					feature('world', {
+						type: 'Polygon',
+						coordinates: [
+							[
+								[-179, -85],
+								[179, -85],
+								[179, 85],
+								[-179, 85],
+								[-179, -85]
+							]
+						]
+					}),
+					// Amsterdam as well, exactly as the e2e Project has it: the sheet sits inside the
+					// polygon and the gap the old rule chose ran from −179 to it.
+					pin('dam', 4.9041, 52.3676)
+				)
+			}
+		];
+
+		expect(projectOpeningBounds(content)).toEqual({
+			west: -179,
+			south: -85,
+			east: 179,
+			north: 85
+		});
+	});
+
+	it('follows a two-vertex LineString the way it is written, however far that is', () => {
+		// More than half the planet, and the segment really does go that way: MapLibre draws a line
+		// from −170 to 170 straight across the map through 0°, not through the antimeridian. Framing on
+		// the 20° between its endpoints the other way round would put the entire line off screen while
+		// looking like a confident answer.
+		const theLongWay: ContentLayer[] = [
+			{
+				layer: annotationLayerNamed('transect'),
+				annotations: collection(
+					feature('line', {
+						type: 'LineString',
+						coordinates: [
+							[-170, 10],
+							[170, 20]
+						]
+					})
+				)
+			}
+		];
+
+		expect(projectOpeningBounds(theLongWay)).toEqual({
+			west: -170,
+			south: 10,
+			east: 170,
+			north: 20
+		});
+
+		// And the same line written the way RFC 7946 has an author write one that *does* cross the
+		// antimeridian — past 180 rather than wrapped — is 20° wide and framed as such.
+		const acrossTheAntimeridian: ContentLayer[] = [
+			{
+				layer: annotationLayerNamed('transect'),
+				annotations: collection(
+					feature('line', {
+						type: 'LineString',
+						coordinates: [
+							[170, 10],
+							[190, 20]
+						]
+					})
+				)
+			}
+		];
+
+		expect(projectOpeningBounds(acrossTheAntimeridian)).toEqual({
+			west: 170,
+			south: 10,
+			east: 190,
+			north: 20
+		});
+	});
+
+	it('keeps two separate Annotations separate, however close their edges would have been', () => {
+		// The other half of the edge rule, and the one that must not be broken by it: two pins are not
+		// a line. 179 and −179 are 2° apart across the antimeridian and 358° apart the other way, and
+		// nothing joins them, so the box is the short one.
+		const content: ContentLayer[] = [
+			{
+				layer: annotationLayerNamed('pair'),
+				annotations: collection(pin('east', 179, 10), pin('west', -179, 12))
+			}
+		];
+
+		expect(projectOpeningBounds(content)).toEqual({ west: 179, south: 10, east: 181, north: 12 });
+	});
+
+	it('frames three continents on the complement of the widest gap between them', () => {
+		const content: ContentLayer[] = [
+			{
+				layer: annotationLayerNamed('continents'),
+				annotations: collection(
+					pin('lisbon', -9.1393, 38.7223),
+					pin('boston', -71.0589, 42.3601),
+					pin('nairobi', 36.8219, -1.2921)
+				)
+			}
+		];
+
+		// The gaps are 61.9° (Boston→Lisbon), 46.0° (Lisbon→Nairobi) and 252.1° (Nairobi→Boston, the
+		// long way across the Pacific). The complement of the widest is Boston eastward to Nairobi.
+		expect(projectOpeningBounds(content)).toEqual({
+			west: -71.0589,
+			south: -1.2921,
+			east: 36.8219,
+			north: 42.3601
+		});
+	});
+
+	it('leaves exactly antipodal content on the arc that does not cross ±180', () => {
+		// Nothing distinguishes the two answers, so the tie is decided and written down — here, in the
+		// module, and in ADR-0026. The wrap gap is the starting candidate and only a strictly wider gap
+		// displaces it, which means the box is the one that stays inside ±180.
+		const antipodal = (west: number, east: number): ContentLayer[] => [
+			{
+				layer: annotationLayerNamed('antipodal'),
+				annotations: collection(pin('a', west, 0), pin('b', east, 0))
+			}
+		];
+
+		expect(projectOpeningBounds(antipodal(0, 180))).toEqual({
+			west: -180,
+			south: 0,
+			east: 0,
+			north: 0
+		});
+		expect(projectOpeningBounds(antipodal(-90, 90))).toEqual({
+			west: -90,
+			south: 0,
+			east: 90,
+			north: 0
+		});
+		expect(projectOpeningBounds(antipodal(45, -135))).toEqual({
+			west: -135,
+			south: 0,
+			east: 45,
+			north: 0
+		});
+	});
+
+	it('gives ±180 one longitude, however it was written', () => {
+		// 180 and −180 are the same meridian. Two pins there are one place, not a pair to choose a way
+		// round between.
+		const content: ContentLayer[] = [
+			{
+				layer: annotationLayerNamed('dateline'),
+				annotations: collection(pin('plus', 180, 10), pin('minus', -180, 12))
+			}
+		];
+
+		expect(projectOpeningBounds(content)).toEqual({
+			west: -180,
+			south: 10,
+			east: -180,
+			north: 12
+		});
+	});
+
+	it('takes the short way for a degree either side of the prime meridian', () => {
+		const content: ContentLayer[] = [
+			{
+				layer: annotationLayerNamed('greenwich'),
+				annotations: collection(pin('west', -1, 51), pin('east', 1, 52))
+			}
+		];
+
+		expect(projectOpeningBounds(content)).toEqual({ west: -1, south: 51, east: 1, north: 52 });
+	});
+
 	it('still takes the ordinary way round for content that does not cross the antimeridian', () => {
 		const content: ContentLayer[] = [
 			{
@@ -337,6 +535,36 @@ describe('projectOpeningBounds', () => {
 			south: 38.7223,
 			east: 4.9041,
 			north: 52.3676
+		});
+	});
+
+	it('breaks a path at a damaged position rather than joining across it', () => {
+		// A truncated LineString. Dropping the bad position and closing the line up would invent a
+		// segment the author never drew — here a 250° one — and that invented edge would then be used
+		// to decide which way round the world the box goes.
+		const content: ContentLayer[] = [
+			{
+				layer: annotationLayerNamed('torn'),
+				annotations: collection(
+					feature('route', {
+						type: 'LineString',
+						coordinates: [
+							[-71.2, 42.3],
+							[Number.NaN, 42.35],
+							[179, 42.4]
+						]
+					})
+				)
+			}
+		];
+
+		// Two surviving places and no edge between them, so the box is the short way round: 109.8°
+		// across the Pacific. Joining them would have given the 250.2° box `west: -71.2, east: 179`.
+		expect(projectOpeningBounds(content)).toEqual({
+			west: 179,
+			south: 42.3,
+			east: 288.8,
+			north: 42.4
 		});
 	});
 
@@ -397,6 +625,94 @@ describe('projectOpeningBounds', () => {
 		).toBeNull();
 	});
 
+	it('declines a sheet whose solve is singular on either axis, and keeps the Project', () => {
+		// Both collinear axes, because the guard used to bound latitude only and the two axes fail
+		// differently. Measured with the real `GcpTransformer` on a 1000 × 800 sheet:
+		//
+		//   vertically collinear   → [[-64, 56], [-564, 56], [-563.2, 56.4], [-63.2, 56.4]]
+		//   horizontally collinear → [[-32, 48], [-31, 48.5], [-231, 198.5], [-232, 198]]
+		//
+		// Neither throws. The horizontal one is caught by the latitude bound — 198.5° is not a place —
+		// which is why the diagonal case above passed and this hole survived. The vertical one has
+		// latitudes 56 to 56.4, which are perfectly ordinary, and longitudes spanning 500.8°: with
+		// longitude unchecked it returned `{west: 156, east: 296.8, south: 56, north: 56.4}` and a
+		// Boston Project opened on the Bering Strait.
+		const verticallyCollinear = alignedSheet([
+			[100, 100, -71.1, 42.3],
+			[100, 200, -71.0, 42.35],
+			[100, 300, -70.9, 42.4]
+		]);
+		const horizontallyCollinear = alignedSheet([
+			[100, 100, -71.1, 42.3],
+			[200, 100, -71.0, 42.35],
+			[300, 100, -70.9, 42.4]
+		]);
+
+		for (const singular of [verticallyCollinear, horizontallyCollinear]) {
+			expect(
+				projectOpeningBounds([{ layer: mapLayerNamed('sheet'), alignment: singular }])
+			).toBeNull();
+
+			// And the sheet alone is declined, not the Project: the Annotations beside it still decide
+			// where it opens. That is the whole reason the guard matters — a sheet that is *kept* drags
+			// the union with it, and no Annotation can pull the box back.
+			expect(
+				projectOpeningBounds([
+					{ layer: mapLayerNamed('sheet'), alignment: singular },
+					{
+						layer: annotationLayerNamed('walk'),
+						annotations: collection(pin('common', -71.0656, 42.3554))
+					}
+				])
+			).toEqual({ west: -71.0656, south: 42.3554, east: -71.0656, north: 42.3554 });
+		}
+	});
+
+	it('follows a warped edge outside the quadrilateral its corners describe', () => {
+		// The Resource Mask is a ring rather than a box because a `thinPlateSpline` bends its *edges*,
+		// and a box built from four transformed corners cuts the sheet off along them. That protection
+		// is upstream's refinement, and upstream does none unless it is asked: `maxDepth` defaults to 0.
+		const spline = alignedSheet(
+			[
+				[100, 100, -71.12, 42.4],
+				[900, 120, -70.98, 42.398],
+				[920, 700, -70.985, 42.305],
+				[120, 680, -71.115, 42.31],
+				[500, 400, -71.02, 42.36]
+			],
+			{ type: 'thinPlateSpline' }
+		);
+
+		const bounds = projectOpeningBounds([{ layer: mapLayerNamed('sheet'), alignment: spline }]);
+
+		// The four corners transformed one at a time — which is exactly what `transformToGeo` returns
+		// with refinement off, so this is the box the module would produce if the option were dropped.
+		const transformer = new GcpTransformer(
+			spline.controlPoints.map((point) => ({
+				resource: [point.resource.x, point.resource.y] as [number, number],
+				geo: [point.geo.lng, point.geo.lat] as [number, number]
+			})),
+			'thinPlateSpline'
+		);
+		const corners = WHOLE_SHEET.map((vertex) =>
+			transformer.transformToGeo([vertex.x, vertex.y] as [number, number])
+		);
+		const cornersEast = Math.max(...corners.map(([lng]) => lng as number));
+		const cornersNorth = Math.max(...corners.map(([, lat]) => lat as number));
+
+		// Stated as numbers, because "a box was produced" is what a wrong opening view also looks like.
+		expect(cornersEast).toBeCloseTo(-70.9696766, 6);
+		expect(cornersNorth).toBeCloseTo(42.4153825, 6);
+		expect(bounds?.east).toBeCloseTo(-70.9672005, 6);
+		expect(bounds?.north).toBeCloseTo(42.4186507, 6);
+
+		// And as the distinction: the bowed edges reach 0.00248° further east and 0.00327° further
+		// north than the corners do — a couple of hundred metres of the sheet's own edge that a
+		// four-corner box leaves off screen.
+		expect(bounds!.east).toBeGreaterThan(cornersEast);
+		expect(bounds!.north).toBeGreaterThan(cornersNorth);
+	});
+
 	it('says nothing when a Control Point’s own coordinate is not a number', () => {
 		// A hand-edited Alignment. The solve succeeds and every transformed corner comes back with a
 		// `null` longitude — which is not a place, and which `Math.min` would turn into 0°.
@@ -447,5 +763,62 @@ describe('alignmentOpeningBounds', () => {
 
 	it('has nothing to say when neither the Alignment nor the Project has a place', () => {
 		expect(alignmentOpeningBounds(null, [])).toBeNull();
+	});
+});
+
+describe('the fits both apps use', () => {
+	const bostonPin: ContentLayer[] = [
+		{
+			layer: annotationLayerNamed('walk'),
+			annotations: collection(pin('common', -71.0656, 42.3554))
+		}
+	];
+
+	it('is the bounds and the fit in one call, so neither app writes that line for itself', () => {
+		// Four copies of `bounds === null ? null : openingViewFit(bounds)` across two apps is how "the
+		// published site frames a Project the way the editor does" stops being true.
+		expect(projectOpeningFit(bostonPin)).toEqual(openingViewFit(projectOpeningBounds(bostonPin)!));
+		expect(projectOpeningFit([])).toBeNull();
+
+		expect(alignmentOpeningFit(BOSTON_SHEET, [])).toEqual(
+			openingViewFit(alignmentOpeningBounds(BOSTON_SHEET, [])!)
+		);
+		expect(alignmentOpeningFit(null, [])).toBeNull();
+	});
+
+	it('frames the map once per request, and again when the same box is asked for again', () => {
+		const map = { fitBounds: vi.fn() };
+		const first = projectOpeningFit(bostonPin) as OpeningViewFit;
+
+		let fitted = applyOpeningFit(map, first, null);
+
+		expect(fitted).toBe(first);
+		expect(map.fitBounds).toHaveBeenCalledTimes(1);
+		expect(map.fitBounds).toHaveBeenLastCalledWith(first.bounds, {
+			padding: OPENING_VIEW_PADDING,
+			maxZoom: OPENING_VIEW_MAX_ZOOM,
+			animate: false
+		});
+
+		// The same object again is the effect re-running, not the user asking, and must not move a map
+		// they have since panned.
+		fitted = applyOpeningFit(map, first, fitted);
+		expect(map.fitBounds).toHaveBeenCalledTimes(1);
+
+		// A *fresh* object for the same box is "Fit to this Project" pressed a second time, which is
+		// exactly the case a user presses it in — they have panned away and want to come back.
+		const again = projectOpeningFit(bostonPin) as OpeningViewFit;
+		expect(again).toEqual(first);
+		fitted = applyOpeningFit(map, again, fitted);
+		expect(map.fitBounds).toHaveBeenCalledTimes(2);
+		expect(fitted).toBe(again);
+	});
+
+	it('does nothing before there is a map, and nothing when there is nothing to frame on', () => {
+		const map = { fitBounds: vi.fn() };
+
+		expect(applyOpeningFit(undefined, projectOpeningFit(bostonPin), null)).toBeNull();
+		expect(applyOpeningFit(map, null, null)).toBeNull();
+		expect(map.fitBounds).not.toHaveBeenCalled();
 	});
 });

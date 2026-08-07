@@ -76,6 +76,8 @@ declare global {
 				fitBounds(bounds: unknown, options?: unknown): void;
 				queryRenderedFeatures(point?: unknown, options?: unknown): { layer: { id: string } }[];
 				getCanvas(): { width: number; height: number };
+				/** Style parsed, sources loaded, nothing left to repaint — see {@link renderedAtCentre}. */
+				loaded(): boolean;
 			};
 			warped: Record<
 				string,
@@ -504,9 +506,23 @@ const warpedTiles = (page: Page, layerId: string): Promise<number> =>
 const warpedOpacity = (page: Page, layerId: string): Promise<number> =>
 	page.evaluate((id) => window.ballastellaLayerStack?.warped[id]?.getOpacity() ?? -1, layerId);
 
-/** The MapLibre layers that actually painted something at the centre of the canvas. */
-const renderedAtCentre = (page: Page): Promise<string[]> =>
-	page.evaluate(() => {
+/**
+ * The MapLibre layers that actually painted something at the centre of the canvas.
+ *
+ * **Waits for the map to settle first**, and that is not politeness. `queryRenderedFeatures` reads
+ * what is *painted*, so while a camera move is still resolving it answers `[]` for every layer on the
+ * map, base map and all — which reads as "the Annotation Layer is not above the Historical Map" and is
+ * really "ask again". Both callers query immediately after `warpedTiles`, which jumps the camera onto
+ * the sheet; before ADR-0026 that jump was a couple of zoom levels from the deployment default and
+ * mostly landed on tiles already in hand, and now it is a jump back from wherever the Project's own
+ * content put the map. Same assertion, honest waiting — the same distinction `warpedTiles` itself
+ * records about polling rather than sleeping.
+ */
+const renderedAtCentre = async (page: Page): Promise<string[]> => {
+	await page.waitForFunction(() => window.ballastellaLayerStack?.map.loaded() === true, undefined, {
+		timeout: 15_000
+	});
+	return page.evaluate(() => {
 		const stack = window.ballastellaLayerStack;
 		if (!stack) return [];
 		const canvas = stack.map.getCanvas();
@@ -514,6 +530,7 @@ const renderedAtCentre = (page: Page): Promise<string[]> =>
 			.queryRenderedFeatures([canvas.width / 2, canvas.height / 2])
 			.map((feature) => feature.layer.id);
 	});
+};
 
 /** The Layer ids of the rows on screen, top of the stack first. */
 const rowIds = (page: Page): Promise<(string | null)[]> =>

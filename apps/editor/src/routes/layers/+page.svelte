@@ -21,6 +21,7 @@
 		findAnnotation,
 		insertAnnotationAt,
 		newAnnotation,
+		openingViewSentence,
 		otherTheme,
 		removeAnnotation,
 		resolveBaseMap,
@@ -37,7 +38,8 @@
 		type Layer,
 		type LineStyle,
 		type MapLayer,
-		type OpeningViewFit
+		type OpeningViewFit,
+		type OpeningViewOutcome
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
 	import { untrack } from 'svelte';
@@ -46,7 +48,7 @@
 	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
-	import { fitToProjectContent, type OpeningViewOutcome } from '$lib/base-map/opening-view';
+	import { fitToProjectContent } from '$lib/base-map/opening-view';
 	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import LayerList from '$lib/layers/LayerList.svelte';
@@ -922,11 +924,7 @@
 					data-testid="opening-view"
 					data-opening-view={openingOutcome}
 				>
-					{#if openingOutcome === 'content'}
-						{refitted ? 'Framed on' : 'Opened framed on'} this Project’s own content.
-					{:else if openingOutcome === 'default'}
-						This Project has nothing placed on the earth yet, so the map is on the default view.
-					{/if}
+					{openingViewSentence(openingOutcome, refitted)}
 				</p>
 			</div>
 		</div>

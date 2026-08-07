@@ -18,12 +18,7 @@
 // So this is a separate, one-shot pass over every Layer, run once per Project opened. It is a read and
 // nothing else: opening a Project must not modify a byte (ADR-0010), and there is no write on this path.
 
-import {
-	alignmentOpeningBounds,
-	openingViewFit,
-	projectOpeningBounds,
-	type ContentLayer
-} from '@ballastella/core';
+import { alignmentOpeningFit, projectOpeningFit, type ContentLayer } from '@ballastella/core';
 import type { Alignment, Layer, OpeningViewFit } from '@ballastella/core';
 
 import type { EditorSession } from '../editor-session.svelte.js';
@@ -58,16 +53,12 @@ export async function readProjectContent(
 	);
 }
 
-/** What the opening view settled on, for the sentence beside the map. */
-export type OpeningViewOutcome = 'pending' | 'content' | 'default';
-
 /** The fit for a Project's current content, or `null` when it has nothing on the earth. */
 export async function fitToProjectContent(
 	session: EditorSession,
 	layers: readonly Layer[]
 ): Promise<OpeningViewFit | null> {
-	const bounds = projectOpeningBounds(await readProjectContent(session, layers));
-	return bounds === null ? null : openingViewFit(bounds);
+	return projectOpeningFit(await readProjectContent(session, layers));
 }
 
 /**
@@ -87,6 +78,5 @@ export async function fitToAlignment(
 		alignment && alignment.controlPoints.length > 0
 			? []
 			: await readProjectContent(session, layers);
-	const bounds = alignmentOpeningBounds(alignment, content);
-	return bounds === null ? null : openingViewFit(bounds);
+	return alignmentOpeningFit(alignment, content);
 }

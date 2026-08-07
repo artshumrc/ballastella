@@ -92,8 +92,60 @@ The "fit once" criteria are the ones that will pass vacuously if asserted by rea
 - **`/base-map/?p=…` is deliberately not fitted.** That route draws no Layer stack, so framing it on
   content it does not show would be misleading; the Project screen `/layers?p=…` is what a scholar
   opens from the hub. Ticket 04 folds the two together and is where the question is properly settled.
-- **`playwright.config.ts` pins ports 4173/4174 with `reuseExistingServer`.** With sibling worktrees
-  running on one machine a suite silently tests another worktree's build, or fails with
-  `ERR_CONNECTION_REFUSED` when that run ends. Every e2e number recorded for this ticket was taken
-  with the ports temporarily moved to 4373/4374 and the config reverted before committing. Worth a
-  ticket of its own: the ports should come from the environment.
+- **`playwright.config.ts` pinned ports 4173/4174 with `reuseExistingServer`.** With sibling worktrees
+  running on one machine a suite silently tested another worktree's build, or failed with
+  `ERR_CONNECTION_REFUSED` when that run ended. The e2e numbers first recorded for this ticket were
+  taken with the ports temporarily moved to 4373/4374. **Fixed on `main` since**: the ports are derived
+  from the checkout path, so every worktree gets its own pair.
+
+## Notes from the review remediation
+
+- **The longitude rule read vertices and never edges, and that is a wrong box rather than a rough
+  one.** A Polygon Annotation with corners at ±179 is the whole world — GeoJSON has content that
+  crosses the antimeridian *cut* at it (RFC 7946 §3.1.9), so an uncut edge runs the long way, and that
+  is where MapLibre draws it. The old rule saw four vertices, found a 183.9° "empty" gap that the
+  polygon's own bottom edge runs straight through, and returned `west: 4.888, east: 181` for
+  `e2e/editor-layers.e2e.ts`'s Project — the whole western hemisphere left out. The rule now sweeps
+  **arcs**: a segment contributes the arc between its endpoints as written, a Point contributes a
+  degenerate one, and two separate Annotations are never joined. Same box, to the digit, for every
+  point-only case that was already right.
+- **`pnpm test:e2e` was red for a second, independent reason, and fixing the box alone did not clear
+  it.** `renderedAtCentre` queried `queryRenderedFeatures` immediately after `warpedTiles` had jumped
+  the camera onto the sheet; while a map is still repainting that call answers `[]` for *every* layer,
+  base map included. Before ADR-0026 the jump was two zoom levels from the deployment default and
+  usually landed on tiles already in hand; now it is a jump back from wherever the Project's content
+  put the map, so the race started losing. The helper waits for `map.loaded()` first. Verified both
+  ways: with the settle-wait in place and the vertex-only rule restored, the two tests pass — so the
+  e2e is *not* the proof of the box fix, and `packages/core/src/project/opening-view.test.ts` is.
+- **The degenerate-solve guard bounded latitude only, and the two collinear axes fail differently.**
+  Measured on a 1000 × 800 sheet: horizontally collinear Control Points give latitudes 48 → 198.5,
+  which the latitude bound caught; vertically collinear ones give
+  `[[-64, 56], [-564, 56], [-563.2, 56.4], [-63.2, 56.4]]` — latitudes 56 to 56.4, perfectly ordinary,
+  and longitudes spanning 500.8°. `projectOpeningBounds` returned `{west: 156, east: 296.8, south: 56,
+  north: 56.4}` and a Boston Project opened on the Bering Strait. Longitude is now bounded too, at a
+  revolution either side of the prime meridian and a revolution of span. The sheet alone is declined
+  and the Project keeps everything else, which is what makes the guard worth having: a sheet that is
+  *kept* drags the union and no Annotation can pull the box back.
+- **The "passed as a polygon so the mask's edges bend" comment described a protection that was not
+  configured.** `transformToGeo`'s `maxDepth` defaults to `0`, so the call returned exactly the four
+  corners transformed one at a time. Configured at `{ maxDepth: 2, minOffsetRatio: 0 }`. Measured on a
+  five-point `thinPlateSpline`: the four-corner box is `east: -70.9696766, north: 42.4153825` and the
+  refined one is `east: -70.9672005, north: 42.4186507` — 0.0025° and 0.0033°, a couple of hundred
+  metres of the sheet's own edge that the unrefined box cut off. A third level moves it a further
+  0.0006° (46 m), below the resolution of anything this decides. `minOffsetRatio: 0` means a segment
+  splits only where the warp actually bends it, so an affine Alignment's four-corner mask stays
+  four-cornered and pays nothing.
+- **ADR-0026's tie sentence was factually inverted.** "Exactly antipodal content resolves eastward"
+  reads as the opposite of what the code does: the wrap gap winning leaves the box on the arc that
+  does **not** cross ±180. Verified against the shipped rule and now asserted:
+  `[0°, 180°] → {west: -180, east: 0}`, `[-90°, 90°] → {west: -90, east: 90}`,
+  `[45°, -135°] → {west: -135, east: 45}`.
+- **The editor and the Published Site disagreed about what counts as placeable content.** The viewer
+  contributed a Layer only at `status: 'ready'`, which is a claim about *drawing*; the editor reads the
+  Alignment and nothing else. So a Layer with a good Alignment and a bad image record placed the sheet
+  in the editor and nowhere at all on the Published Site. The viewer now reads the Alignment
+  independently of the image probe and carries it on the `unreadable` case too.
+- **Four copies of the framing across two apps are now one.** `OpeningViewOutcome`,
+  `projectOpeningFit`, `alignmentOpeningFit`, `applyOpeningFit`, and `openingViewSentence` are core's;
+  both map panes' fit effects are three lines over the same function, and both live regions say the
+  same sentence because there is one.

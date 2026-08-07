@@ -70,11 +70,17 @@ export {
 	OPENING_VIEW_MAX_ZOOM,
 	OPENING_VIEW_PADDING,
 	alignmentOpeningBounds,
+	alignmentOpeningFit,
+	applyOpeningFit,
 	openingViewFit,
+	openingViewSentence,
 	projectOpeningBounds,
+	projectOpeningFit,
 	type ContentLayer,
+	type FittableMap,
 	type GeoBounds,
-	type OpeningViewFit
+	type OpeningViewFit,
+	type OpeningViewOutcome
 } from './project/opening-view.js';
 export {
 	BALLASTELLA_CANONICAL_URL,
