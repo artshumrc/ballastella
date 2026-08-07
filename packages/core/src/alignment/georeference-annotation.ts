@@ -56,6 +56,7 @@ import { imageServiceId } from '../tiler/pyramid.js';
 import {
 	DEFAULT_TRANSFORMATION_TYPE,
 	fullImageResourceMask,
+	newAlignment,
 	type Alignment,
 	type ControlPoint,
 	type GeoPoint,
@@ -235,6 +236,7 @@ export function toRendererResourceMask(alignment: Alignment): [number, number][]
 export function serialiseAlignment(alignment: Alignment, address: AlignmentAddress = {}): Bytes {
 	const annotation = generateAnnotation(toRendererDocument(alignment, address));
 	rewriteResourceMaskInPlainDecimal(annotation, alignment.resourceMask);
+	restoreUnmodelledMembers(annotation, alignment.unmodelled);
 	// **The write path checks its own output, with upstream's own validator.** `generateAnnotation`
 	// does not: it will happily emit a `polygon points` attribute or an `<svg width>` that
 	// `Annotation1Schema` then refuses, and the two known instances of that were both found by
@@ -250,6 +252,89 @@ export function serialiseAlignment(alignment: Alignment, address: AlignmentAddre
 		);
 	}
 	return new TextEncoder().encode(`${JSON.stringify(annotation, null, '\t')}\n`);
+}
+
+/**
+ * The top-level members `generateAnnotation` writes, computed from a specimen rather than listed.
+ *
+ * Listing them by hand is how the list drifts: upstream adds a member, this module keeps calling it
+ * unmodelled, and a round trip then writes the *stale* value from the document alongside the fresh
+ * one this build just generated. Asking `generateAnnotation` what it produces cannot drift, because
+ * it is the same function whose output is being classified.
+ *
+ * Memoised: it is the same set every time, and `parseAlignment` runs once per map Layer in the
+ * sidebar (ADR-0023's accepted cost).
+ */
+let authoredMemberNames: ReadonlySet<string> | null = null;
+function authoredMembers(): ReadonlySet<string> {
+	if (authoredMemberNames === null) {
+		const specimen = generateAnnotation(
+			toRendererDocument(newAlignment('specimen', { width: 1, height: 1 }))
+		) as Record<string, unknown>;
+		// **A member whose value is `undefined` is not authored, whatever `Object.keys` says.**
+		// `generateAnnotation` puts `created` and `modified` on the object and leaves them undefined —
+		// `JSON.stringify` then drops them, which is the determinism this module depends on (no clock
+		// in the output). Counting them as authored would classify a *colleague's* `created` as ours
+		// and drop it, which is precisely the loss this preservation exists to stop.
+		authoredMemberNames = new Set(
+			Object.entries(specimen)
+				.filter(([, value]) => value !== undefined)
+				.map(([member]) => member)
+		);
+	}
+	return authoredMemberNames;
+}
+
+/**
+ * The members of the document `raw` that this build does not model, or `undefined` when there are
+ * none.
+ *
+ * **Only for a single `Annotation`.** An `AnnotationPage`'s own members describe the *page* — its
+ * `items` above all — and copying them onto the single Annotation this module writes would produce
+ * a document carrying a stale list of maps beside the one map it actually holds, which is worse
+ * than dropping them. Nothing puts a page on disk: `serialiseAlignment` writes an `Annotation`, and
+ * `community-alignments.ts` splits an API page into individual annotations before any of them
+ * reaches {@link parseAlignment}.
+ */
+function unmodelledMembers(raw: unknown): Readonly<Record<string, unknown>> | undefined {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+	const document = raw as Record<string, unknown>;
+	if (document['type'] !== 'Annotation') return undefined;
+
+	const authored = authoredMembers();
+	const carried: Record<string, unknown> = {};
+	for (const [member, value] of Object.entries(document)) {
+		if (!authored.has(member)) carried[member] = value;
+	}
+	return Object.keys(carried).length > 0 ? carried : undefined;
+}
+
+/**
+ * Put back the members {@link unmodelledMembers} carried, onto the document about to be written.
+ *
+ * **A member this build authors always wins**, which is why the `in` check is here rather than a
+ * spread: the carried members were classified as unmodelled when the file was *read*, and if
+ * upstream has since started writing one of them, the value this build just generated is the
+ * current one and the carried value is a year old. Silently preferring the stale one would be the
+ * same class of defect this whole preservation exists to fix, pointing the other way.
+ *
+ * Appended after the generated members, so a document this build authored and one it round-tripped
+ * differ only by the members that were actually in the file — and serialising is still
+ * deterministic, because object key order here is insertion order over a fixed input.
+ */
+function restoreUnmodelledMembers(
+	annotation: unknown,
+	unmodelled: Readonly<Record<string, unknown>> | undefined
+): void {
+	if (!unmodelled || typeof annotation !== 'object' || annotation === null) return;
+	const document = annotation as Record<string, unknown>;
+	for (const [member, value] of Object.entries(unmodelled)) {
+		// `!== undefined` rather than `in`, for the same reason {@link authoredMembers} filters on it:
+		// `created` and `modified` are present on the generated object and undefined, so `in` would
+		// refuse to restore a colleague's timestamp in favour of a member that is about to disappear.
+		if (document[member] !== undefined) continue;
+		document[member] = value;
+	}
 }
 
 /**
@@ -384,6 +469,7 @@ export function parseAlignment(bytes: Uint8Array, options: { imageId: string }):
 	// moves, and the only things derived from these numbers are the *fallback* Resource Mask and the
 	// renderer's full-image extent. The map itself is placed by the Control Points.
 	const image = { width: Math.round(width), height: Math.round(height) };
+	const unmodelled = unmodelledMembers(raw);
 
 	return {
 		imageId,
@@ -395,7 +481,11 @@ export function parseAlignment(bytes: Uint8Array, options: { imageId: string }):
 			map.resourceMask.length >= 3
 				? map.resourceMask.map(([x, y]) => ({ x, y }) as ResourcePoint)
 				: fullImageResourceMask(image),
-		transformationType: readTransformationType(map.transformation)
+		transformationType: readTransformationType(map.transformation),
+		// Whatever else was in the file. Carried rather than understood, and written straight back by
+		// `serialiseAlignment` — see {@link Alignment.unmodelled} for why an Alignment shared by every
+		// Project cannot afford to regenerate a third party's document from this build's own model.
+		...(unmodelled ? { unmodelled } : {})
 	};
 }
 

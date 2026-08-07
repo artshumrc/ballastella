@@ -224,6 +224,7 @@ function workspaceFiles(options: {
 	for (const layer of options.layers) {
 		if (layer.kind === 'map' && !options.unaligned) {
 			// The Workspace root, with no Project in front of it — see the note above.
+			// alignment-write-is-the-fixture: the Workspace this spec opens; the opening view is computed from an Alignment already on disk
 			files[`alignments/${IMAGE_ID}.json`] = alignmentJson();
 		}
 		if (layer.kind === 'annotation') {

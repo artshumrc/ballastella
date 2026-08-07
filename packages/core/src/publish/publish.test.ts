@@ -312,6 +312,7 @@ describe('publishing', () => {
 		workspace = new Workspace(store, { now: () => new Date('2026-01-02T03:04:05.000Z') });
 		await workspace.createProject('Amsterdam 1625');
 		// At the Workspace root, shared by every Project (ADR-0023).
+		// alignment-write-is-the-fixture: the arrange step for publishing, which copies the Alignment and never writes one
 		await store.write('alignments/x.json', encode('{"type":"Annotation","id":"x"}'));
 		await store.write('images/x/info.json', encode('{"id":"https://unset.invalid/x"}'));
 		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('a tile'));

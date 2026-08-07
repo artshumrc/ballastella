@@ -7,6 +7,7 @@
 // `@allmaps/*` so that the shape the app reasons about is ours rather than a pre-1.0 package's.
 
 import type { ResourcePoint } from '../image-pane/synthetic-projection.js';
+import type { AlignmentPath } from '../store/project-store.js';
 
 /** A place on the earth, in the coordinates the Base Map pane speaks. */
 export type GeoPoint = { lng: number; lat: number };
@@ -246,6 +247,26 @@ export interface Alignment {
 	 */
 	readonly resourceMask: readonly ResourcePoint[];
 	readonly transformationType: TransformationType;
+	/**
+	 * The top-level members of the file this Alignment was read from that this build does not model
+	 * — **carried rather than understood**, and written back verbatim (SPEC story 60, ticket 18).
+	 *
+	 * Absent for an Alignment this build made; present only for one parsed from a document somebody
+	 * else wrote. Nothing reads it but `serialiseAlignment`, which puts every member back exactly as
+	 * it found it and never lets one overwrite a field this build authors.
+	 *
+	 * **Why it exists at all.** ADR-0023 made `alignments/<image-id>.json` the Workspace's, shared by
+	 * every Project, and `serialiseAlignment` regenerates the whole document from this type — so
+	 * before this field, any member of a third-party Georeference Annotation that `Alignment` does
+	 * not model was dropped the first time anybody nudged a Control Point. Silently, and in a file a
+	 * librarian is meant to be able to preserve. Story 60 asks that an Alignment made here stay
+	 * usable by other IIIF tools; that has to include the ones that put something in the file.
+	 *
+	 * It is deliberately the *whole* member and not a parsed shape: this build has no idea what the
+	 * member means, and the only safe thing to do with a value you do not understand is hand it back
+	 * unchanged.
+	 */
+	readonly unmodelled?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -265,8 +286,16 @@ export const ALIGNMENT_DIRECTORY = 'alignments';
  * The path is the Alignment's identity, the same way a Project's is its folder, which is why
  * `parseAlignment` takes the image id from the caller and never from the document's own
  * `resource.id`.
+ *
+ * **{@link AlignmentPath}, not `string`, and that is the fence** (ticket 18). The brand is a phantom
+ * property — the value is the same string it always was — and its whole job is that `store.write`
+ * and `Autosave.commit` take a `WritablePath`, which an `AlignmentPath` is not. Reading, listing,
+ * sizing and deleting take it unchanged; writing does not compile. `alignment-file.ts` is the only
+ * module that may cross, and it will not do so without being told which of create / update /
+ * replace the caller means.
  */
-export const alignmentPath = (imageId: string): string => `${ALIGNMENT_DIRECTORY}/${imageId}.json`;
+export const alignmentPath = (imageId: string): AlignmentPath =>
+	`${ALIGNMENT_DIRECTORY}/${imageId}.json` as AlignmentPath;
 
 /**
  * The whole image, clockwise from its top-left corner.

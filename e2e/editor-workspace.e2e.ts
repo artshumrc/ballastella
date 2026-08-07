@@ -337,6 +337,7 @@ test.describe('the Workspace’s Historical Maps', () => {
 				`images/${imageId}/0,0,256,256/256,256/0/default.jpg`,
 				'x'.repeat(50_000)
 			);
+			// alignment-write-is-the-fixture: the Historical Maps this spec lists and deletes, seeded rather than added through the UI
 			await seedFile(page, `alignments/${imageId}.json`, '{}');
 		}
 		// A fourth whose tiles are on a Library's server: a `remote.json` and no `info.json`.

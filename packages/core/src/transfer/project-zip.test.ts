@@ -68,6 +68,7 @@ const projectJson = (overrides: Record<string, unknown> = {}) =>
  */
 const projectFiles = (): Record<string, string> => ({
 	'project.json': projectJson(),
+	// alignment-write-is-the-fixture: the Project on disk that these export tests read from; nothing here writes an Alignment through the app
 	'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"amsterdam-1625"}',
 	'annotations/warehouses.geojson': '{"type":"FeatureCollection","features":[]}',
 	'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
@@ -400,6 +401,7 @@ describe('a round trip through export and import', () => {
 			'images/boston-1775/info.json' as StorePath,
 			encode('{"id":"https://unset.invalid/boston-1775"}')
 		);
+		// alignment-write-is-the-fixture: a second Project's Alignment, seeded so the export can be shown to leave it out
 		await source.write('alignments/boston-1775.json' as StorePath, encode('{"type":"Annotation"}'));
 
 		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
@@ -417,6 +419,7 @@ describe('a round trip through export and import', () => {
 			'images/amsterdam-1625/info.json' as StorePath,
 			encode('{"width":1,"height":1}')
 		);
+		// alignment-write-is-the-fixture: the destination's own Alignment, seeded so the import can be shown not to overwrite it
 		await destination.write(
 			'alignments/amsterdam-1625.json' as StorePath,
 			encode('{"type":"Annotation","id":"mine"}')

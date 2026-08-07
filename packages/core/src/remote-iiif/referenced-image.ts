@@ -43,7 +43,11 @@
 // service's URI is not our address; it is the citation, and it is the intent.
 
 import type { Alignment } from '../alignment/alignment.js';
-import { serialiseAlignment, toRendererDocument } from '../alignment/georeference-annotation.js';
+import {
+	serialiseAlignment,
+	toRendererDocument,
+	type AlignmentAddress
+} from '../alignment/georeference-annotation.js';
 import type { ImagePaneTileBase } from '../image-pane/iiif-image-pane.js';
 import { imageDirectory, IMAGE_DIRECTORY } from '../project/image-files.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
@@ -334,7 +338,23 @@ export const referencedRendererDocument = (alignment: Alignment, service: string
  * edited into its output afterwards, which is what stops a second reader of the format existing.
  */
 export const serialiseReferencedAlignment = (alignment: Alignment, service: string): Bytes =>
-	serialiseAlignment(alignment, { imageService: canonicalServiceUri(service) });
+	serialiseAlignment(alignment, referencedAlignmentAddress(service));
+
+/**
+ * Where a referenced image's Alignment says its tiles are — the address, not the bytes.
+ *
+ * **The value rather than a serialiser, because ticket 18 made the bytes somebody else's business.**
+ * `alignment-file.ts` is the one writer of `alignments/<image-id>.json` and it takes an
+ * `AlignmentAddress`; handing it a `serialise` callback instead would put a second call to
+ * `serialiseAlignment` at the call site, which is precisely the "two writers of one file that could
+ * disagree" that `addReferencedMap` already had once and had to have removed.
+ *
+ * `canonicalServiceUri` is applied here, once, so that "which spelling of the service URI goes in
+ * the file" has one answer rather than one per call site.
+ */
+export const referencedAlignmentAddress = (service: string): AlignmentAddress => ({
+	imageService: canonicalServiceUri(service)
+});
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 

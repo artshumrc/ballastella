@@ -1,0 +1,135 @@
+{
+	"type": "Annotation",
+	"@context": [
+		"http://iiif.io/api/extension/georef/1/context.json",
+		"http://iiif.io/api/presentation/3/context.json"
+	],
+	"motivation": "georeferencing",
+	"target": {
+		"type": "SpecificResource",
+		"source": {
+			"id": "https://unset.invalid/floride-1657",
+			"type": "ImageService3",
+			"height": 851,
+			"width": 1200
+		},
+		"selector": {
+			"type": "SvgSelector",
+			"value": "<svg width=\"1200\" height=\"851\"><polygon points=\"0,0 1200,0 1200,851 0,851\" /></svg>"
+		}
+	},
+	"body": {
+		"type": "FeatureCollection",
+		"transformation": {
+			"type": "polynomial",
+			"options": {
+				"order": 1
+			}
+		},
+		"features": [
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						263,
+						200
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						-87.216,
+						30.401
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						612,
+						168
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						-81.508,
+						30.332
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						700,
+						545
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						-80.191,
+						25.774
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						489,
+						601
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						-82.457,
+						27.951
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						1044,
+						371
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						-77.345,
+						25.043
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						148,
+						470
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						-90.071,
+						29.951
+					]
+				}
+			}
+		]
+	},
+	"created": "2019-04-02T10:15:00Z",
+	"creator": {
+		"id": "https://scholar.example/people/vermeer",
+		"type": "Person",
+		"name": "A colleague"
+	},
+	"http://example.org/vocab#sheetNumber": 7
+}

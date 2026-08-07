@@ -4,7 +4,8 @@ import {
 	TEMP_PATH_SUFFIX,
 	type Bytes,
 	type ProjectStore,
-	type StorePath
+	type StorePath,
+	type WritablePath
 } from './project-store.js';
 
 /**
@@ -24,7 +25,11 @@ export abstract class TempFileWriteStore implements ProjectStore {
 		return this.readBytes(assertStorePath(path));
 	}
 
-	async write(path: string, bytes: Bytes): Promise<void> {
+	// `WritablePath` and not `string`, which is the same narrowing `ProjectStore.write` makes and has
+	// to be repeated here: a caller holding the *concrete* store — every test does — would otherwise
+	// be typed against this wider signature and could hand it an `AlignmentPath`, which is the whole
+	// of what ticket 18's brand exists to refuse.
+	async write(path: WritablePath, bytes: Bytes): Promise<void> {
 		const destination = assertStorePath(path);
 		const temp = tempPathFor(destination);
 		try {

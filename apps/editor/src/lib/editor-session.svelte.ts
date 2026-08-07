@@ -47,13 +47,12 @@ import {
 	readPublishedSite,
 	readImageLabel,
 	readProjectZip,
+	referencedAlignmentAddress,
 	referencedImage,
 	referencedImagePath,
 	removeLayer,
 	renameLayer,
-	serialiseAlignment,
 	serialiseAnnotations,
-	serialiseReferencedAlignment,
 	serialiseReferencedImage,
 	setLayerVisible,
 	setMapLayerOpacity,
@@ -63,7 +62,10 @@ import {
 	streamingTiler,
 	toDirectoryName,
 	workspaceSize,
+	writeAlignmentFile,
 	type Alignment,
+	type AlignmentAddress,
+	type AlignmentFilePort,
 	type AnnotationCollection,
 	type AnnotationLayer,
 	type Bytes,
@@ -188,15 +190,6 @@ export type ReferencedMapAdded = {
 	 */
 	readonly keptExistingAlignment: boolean;
 };
-
-/** Byte-for-byte equality, for deciding whether a stored document has ever been touched. */
-function sameBytes(left: Bytes, right: Bytes): boolean {
-	if (left.length !== right.length) return false;
-	for (let index = 0; index < left.length; index += 1) {
-		if (left[index] !== right[index]) return false;
-	}
-	return true;
-}
 
 /**
  * Everything the editor knows about the user's workspace, and the only place the app talks to
@@ -817,6 +810,13 @@ export class EditorSession {
 	 * that made a Layer here needed a tombstone list in `project.json` to stop a deleted Layer coming
 	 * back on the next nudge; with the Layer made by the gesture alone there is nothing to resurrect it,
 	 * and that field went with it.
+	 *
+	 * **An `update`, said out loud** (ticket 18). This is the one write in the application that is a
+	 * user editing the Alignment in front of them, so it is the one write that does not have to ask
+	 * what is already on disk. Saying so is what distinguishes it from the two blind overwrites this
+	 * epic wrote by accident, and it is checked: `writeAlignmentFile` is the only thing that can turn
+	 * an `AlignmentPath` into a path the store will accept, and it does not take a caller that has
+	 * not named its intent.
 	 */
 	async writeAlignment(alignment: Alignment): Promise<void> {
 		// The Alignment is the Workspace's (ADR-0023), but the surface that writes one is inside a
@@ -825,7 +825,7 @@ export class EditorSession {
 		if (!this.openDirectory) return;
 		const path = alignmentPath(alignment.imageId);
 		try {
-			await this.#autosave.commit(path, serialiseAlignment(alignment));
+			await writeAlignmentFile(this.#alignmentFile, { alignment, write: { intent: 'update' } });
 			this.saveError = '';
 			// After the write resolved, so an attempt the store refused is not counted as one that
 			// happened. This is what lets the drag test assert the *number* of writes.
@@ -833,41 +833,6 @@ export class EditorSession {
 		} catch (cause) {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
 		}
-	}
-
-	/**
-	 * What this Workspace already holds for a Historical Map, as far as writing over it goes.
-	 *
-	 * Three answers rather than the two `#hasAlignment` used to give, because "there is a file there"
-	 * is not the question. An Alignment nobody has touched — the starter this build writes on the add
-	 * — holds no work at all, so replacing it destroys nothing; an Alignment with one Control Point in
-	 * it is somebody's afternoon, and since ADR-0023 made `alignments/<id>.json` **Workspace-scoped**
-	 * it may well be somebody in a different Project.
-	 *
-	 * The comparison is on the bytes rather than on `controlPoints.length`, and that is the point of
-	 * doing it this way: the Resource Mask is editable without placing a single Control Point, so a
-	 * count would read a cropped sheet as untouched and throw the crop away. Byte-identity with the
-	 * starter this build would write means *nothing has happened to this file since it was created*,
-	 * with nothing to reason about.
-	 *
-	 * @param starter the bytes this build would write for a brand-new Alignment of this map.
-	 */
-	async #existingAlignment(
-		imageId: string,
-		starter: Bytes
-	): Promise<'none' | 'untouched' | 'worked on'> {
-		let stored: Bytes;
-		try {
-			stored = await this.#store.read(alignmentPath(imageId));
-		} catch (cause) {
-			// Only "no such path" means there is nothing there. A folder whose permission was revoked or
-			// a backend that is down answers `'worked on'`, which is the safe direction: the cost of a
-			// false "there is one" is a Historical Map added without its starter Alignment — bytes
-			// missing, which the next add of the same map writes — and the cost of a false "there is
-			// none" is Control Points somebody spent an afternoon placing, gone with no message.
-			return cause instanceof PathNotFoundError ? 'none' : 'worked on';
-		}
-		return sameBytes(stored, starter) ? 'untouched' : 'worked on';
 	}
 
 	/**
@@ -898,40 +863,54 @@ export class EditorSession {
 	 * all, or a file still byte-identical to the starter. Anything else is kept, and the caller says
 	 * so — because the user did ask for something, and a silent no-op is its own kind of wrong.
 	 *
-	 * @param options.serialise how to write it. A referenced image's Alignment names the Library's
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE DECISION ITSELF IS NOT HERE, AND THAT IS TICKET 18
+	 *
+	 * Everything above describes `writeAlignmentFile`'s `create` intent, which is where the rule now
+	 * lives — in `@ballastella/core`, beside the type that makes a blind write fail to compile, so
+	 * that the next author of an Alignment write inherits it instead of rediscovering it. This method
+	 * is what is left once the decision moves out: which Alignment, and where the image is served
+	 * from.
+	 *
+	 * @param options.address where the tiles are. A referenced image's Alignment names the Library's
 	 *   service as its `resource.id` rather than the ADR-0004 placeholder (ADR-0007, SPEC story 91),
-	 *   so the caller that knows the service supplies it. **This is the one writer of a referenced
-	 *   Alignment on the add path**; a second `serialiseReferencedAlignment` call beside it is how the
-	 *   two spellings drift.
+	 *   so the caller that knows the service supplies it. A value rather than a `serialise` callback,
+	 *   because a callback is a second serialiser at the call site and the two spellings drift.
 	 * @param options.offered an Alignment the user chose to import, or `null` for the starter.
 	 */
 	async #writeInitialAlignment(
 		imageId: string,
 		image: { width: number; height: number },
 		options: {
-			serialise?: (alignment: Alignment) => Bytes;
+			address?: AlignmentAddress;
 			offered?: Alignment | null;
 		} = {}
 	): Promise<InitialAlignment> {
-		const serialise = options.serialise ?? serialiseAlignment;
-		const starter = serialise(newAlignment(imageId, image));
 		// Re-keyed onto this Workspace's image id: a community Alignment arrives keyed on the Allmaps
 		// identifier of the resource, which is the same string here, but the record is the authority.
-		const offered = options.offered ? serialise({ ...options.offered, imageId }) : null;
+		const alignment = options.offered
+			? { ...options.offered, imageId }
+			: newAlignment(imageId, image);
+		return writeAlignmentFile(this.#alignmentFile, {
+			alignment,
+			write: { intent: 'create' },
+			...(options.address ? { address: options.address } : {})
+		});
+	}
 
-		const existing = await this.#existingAlignment(imageId, starter);
-		if (existing === 'none') {
-			await this.#autosave.commit(alignmentPath(imageId), offered ?? starter);
-			return 'written';
-		}
-		// There is one and the user asked for nothing: the ordinary re-add, and the repair of a Project
-		// whose Alignment went missing. Neither is worth a word to anybody.
-		if (!offered) return 'left alone';
-		if (existing === 'untouched') {
-			await this.#autosave.commit(alignmentPath(imageId), offered);
-			return 'written';
-		}
-		return 'kept over the offer';
+	/**
+	 * Storage as `writeAlignmentFile` needs it: read from the store, commit through {@link Autosave}.
+	 *
+	 * Through `Autosave` and not straight to the store, which is the whole reason this is a port and
+	 * not a `ProjectStore`: an Alignment write that went round `Autosave` would bypass ADR-0017 rule
+	 * 2's per-file debounce and rule 5's save state, so the Saved indicator would stop describing the
+	 * file the user is actually editing.
+	 */
+	get #alignmentFile(): AlignmentFilePort {
+		return {
+			read: (path) => this.#store.read(path),
+			commit: (path, bytes) => this.#autosave.commit(path, bytes)
+		};
 	}
 
 	/**
@@ -1009,8 +988,8 @@ export class EditorSession {
 		image: { width: number; height: number };
 		/** What to call it, when the caller knows better than `manifest.json` does. */
 		name?: string;
-		/** How to serialise the Alignment. See {@link #writeInitialAlignment}. */
-		serialiseAlignmentAs?: (alignment: Alignment) => Bytes;
+		/** Where the image is served from. See {@link #writeInitialAlignment}. */
+		address?: AlignmentAddress;
 		/** A community Alignment the user chose to import. See {@link #writeInitialAlignment}. */
 		alignment?: Alignment | null;
 	}): Promise<MapLayerAdded | null> {
@@ -1031,7 +1010,7 @@ export class EditorSession {
 			// build's own import refuses. Written this way, the worst a failure leaves is an Alignment
 			// nothing draws — bytes, not breakage.
 			alignment = await this.#writeInitialAlignment(imageId, fields.image, {
-				serialise: fields.serialiseAlignmentAs,
+				...(fields.address ? { address: fields.address } : {}),
 				offered: fields.alignment
 			});
 			this.saveError = '';
@@ -1148,7 +1127,10 @@ export class EditorSession {
 			image: { width: service.width, height: service.height },
 			alignment: fields.alignment,
 			name: record.label || record.imageId,
-			serialiseAlignmentAs: (alignment) => serialiseReferencedAlignment(alignment, record.service)
+			// The Library's service rather than the ADR-0004 placeholder, which for a referenced image is
+			// both what makes the file resolvable by Allmaps (SPEC story 91) and what makes the warped
+			// Layer render at all — `@allmaps/maplibre` fetches its tiles from that `id`.
+			address: referencedAlignmentAddress(record.service)
 		});
 		if (!added) return null;
 		// The record is refreshed even when the Layer was already there: the add re-read the resource's
@@ -1442,17 +1424,25 @@ export class EditorSession {
 	 * Idempotent: re-serialising an Alignment that already names the ADR-0004 placeholder produces the
 	 * same bytes, so a copy repeated over a map already copied changes nothing.
 	 *
+	 * **An `update`, and it has to be** (ticket 18). It is not a `create` — there is certainly an
+	 * Alignment there and the whole point is to change it — and it is not a `replace`, because nothing
+	 * of the user's is discarded: every Control Point, the Resource Mask and the transformation type
+	 * are read out of the existing file and written straight back, and since ticket 18 so is every
+	 * member of the document this build does not model. The one thing that changes is the address,
+	 * which is not the user's work but a statement of where the tiles now are — and the user asked for
+	 * exactly that by asking for the copy.
+	 *
 	 * @returns `true` when the Alignment names the placeholder and the pyramid is on disk
 	 */
 	async #recordLocalCopy(imageId: string): Promise<boolean> {
 		const path = alignmentPath(imageId);
 		try {
-			// Re-serialised from the parsed Alignment rather than string-edited: `serialiseAlignment` is
-			// the one writer of that document, and it is what puts the placeholder back.
-			await this.#autosave.commit(
-				path,
-				serialiseAlignment(parseAlignment(await this.#store.read(path), { imageId }))
-			);
+			// Round-tripped through the parser rather than string-edited: `alignment-file.ts` is the one
+			// writer of that document, and omitting the address is what puts the placeholder back.
+			await writeAlignmentFile(this.#alignmentFile, {
+				alignment: parseAlignment(await this.#store.read(path), { imageId }),
+				write: { intent: 'update' }
+			});
 			this.saveError = '';
 		} catch (cause) {
 			// No Alignment yet is the ordinary case for a map nobody has placed. Anything else is not:

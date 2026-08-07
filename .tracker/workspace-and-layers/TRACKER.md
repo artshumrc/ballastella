@@ -8,7 +8,9 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Current ticket: none. 01, 02, 03, 08, 09 and 10 are merged to `main`. Five tickets are unblocked: 04 (critical path), 11, 16, 17 and 18. 12 needs 04; 05 needs 04 and 02.
+Current ticket: none. 01, 02, 03, 08, 09, 10 and 18 are merged to `main`. Four tickets are unblocked: 04 (critical path), 11, 16 and 17. 12 needs 04; 05 needs 04 and 02.
+
+**18 closed the epic's one missing invariant, and its shape is worth reusing.** An Alignment shared by every Project had no single writer, and tickets 02 and 03 independently wrote the same blind overwrite. It is now inexpressible rather than merely forbidden: `alignmentPath` returns a branded `AlignmentPath`, `ProjectStore.write` and `Autosave.commit` take a `WritablePath` that excludes it, and the one module that crosses will not write without being told which of create / update / replace the caller means. `scripts/check-alignment-writers.mjs` covers the spelling a type cannot see — the path written out by hand — and lists every opted-out fixture write on success. **The same two-layer shape (a brand the compiler enforces, plus a fence for the literal) is the answer to any "one writer of one file" rule this epic still needs**, and it is cheaper than the regex-only fence ticket 01 shipped.
 
 **16 and 17 are deliberately held until 04 lands.** 16 is a repo-wide rename and 17 rewrites the e2e suite; either would conflict with 04's restructuring of the Project screen across the same files. Sequencing them after 04 is cheaper than merging them into it.
 
@@ -47,7 +49,7 @@ Last updated: 2026-08-07
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Not Started | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Not Started | 02, 03, 09 | — |
-| 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Not Started | 02, 03 | 60 |
+| 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
 
 **16, 17 and 18 were added during implementation, not planning.** They are debt the epic's own reviews surfaced. 16 is a rename the ubiquitous language already mandates and the code never did. 17 is the e2e suite, which flakes at roughly one run in three and therefore cannot be trusted to catch the races this epic keeps finding.
 

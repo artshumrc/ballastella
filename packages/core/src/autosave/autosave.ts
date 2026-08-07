@@ -1,4 +1,4 @@
-import type { Bytes, ProjectStore, StorePath } from '../store/project-store.js';
+import type { Bytes, ProjectStore, StorePath, WritablePath } from '../store/project-store.js';
 
 /**
  * What the indicator shows. There is no Save button, so this is the user's only signal that
@@ -92,8 +92,13 @@ export class Autosave {
 	 *
 	 * **Rejects when the store rejected**, so a caller cannot report a mutation as saved when it
 	 * was not. The bytes stay pending, so a later {@link flush} still has them.
+	 *
+	 * **A `WritablePath`, which excludes an Alignment's** (ticket 18). Autosave is the route every
+	 * edit in the editor takes to storage, so branding `ProjectStore.write` alone would have left the
+	 * whole app one `autosave.commit(alignmentPath(id), …)` away from the blind overwrite the brand
+	 * exists to prevent. `alignment/alignment-file.ts` is the one module that may cross it.
 	 */
-	commit(path: StorePath, bytes: Bytes): Promise<void> {
+	commit(path: WritablePath, bytes: Bytes): Promise<void> {
 		const file = this.#file(path);
 		if (file.timer !== undefined) {
 			clearTimeout(file.timer);

@@ -156,6 +156,7 @@ const projectJson = (overrides: Record<string, unknown> = {}) =>
 const projectFiles = (overrides: Record<string, string> = {}): Record<string, string> => ({
 	'project.json': projectJson(),
 	'annotations/warehouses.geojson': '{"type":"FeatureCollection","features":[]}',
+	// alignment-write-is-the-fixture: the Workspace this spec exports and imports, laid down before the app starts
 	'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"amsterdam-1625"}',
 	'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
 	'images/amsterdam-1625/0,0,256,256/256,256/0/default.jpg': 'stands in for a tile',

@@ -9,6 +9,51 @@
 export type StorePath = string;
 
 /**
+ * The brand that makes a blind Alignment write **fail to compile** (ticket 18).
+ *
+ * A phantom property and nothing else: `AlignmentPath` is still a `string` at runtime and there is
+ * no cost to carrying it. It exists so that {@link WritablePath} can name every store path *except*
+ * an Alignment's, and so `store.write(alignmentPath(id), …)` is a type error rather than a review
+ * comment.
+ */
+declare const alignmentPathBrand: unique symbol;
+
+/**
+ * The path of one Historical Map's Alignment in the Workspace (ADR-0023).
+ *
+ * Produced by `alignmentPath` alone. It is assignable to {@link StorePath}, so **reads, `list`,
+ * `size`, and `delete` take it unchanged** — reading an Alignment is the ordinary thing to do with
+ * one. It is deliberately *not* assignable to {@link WritablePath}.
+ */
+export type AlignmentPath = StorePath & {
+	readonly [alignmentPathBrand]: 'alignments/<image-id>.json';
+};
+
+/**
+ * A path a caller may hand to a **write**: every {@link StorePath} except an {@link AlignmentPath}.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THE ONE WRITER OF AN ALIGNMENT IS A TYPE AND NOT A CONVENTION
+ *
+ * ADR-0023 made `alignments/<image-id>.json` belong to the **Workspace**, shared by every Project
+ * that draws the map. Nothing in the code changed to reflect what that means for a write, and three
+ * separate tickets in this epic then independently wrote a blind overwrite of it — in one case two
+ * lines from a correct guard. Two authors reaching for the same mistake is a missing invariant, not
+ * two lapses.
+ *
+ * The failure mode is why this is structural rather than reviewed: an overwrite does not throw, does
+ * not log, and does not 404. It shows up as a colleague's Control Points quietly gone, in a Project
+ * nobody had open. So the blind write is made **inexpressible**: the only way to turn an
+ * `AlignmentPath` into a `WritablePath` is `alignment/alignment-file.ts`, which will not let the
+ * caller past without saying which of create / update / replace they mean.
+ *
+ * The optional-and-`undefined` phantom property is what does it. A plain `string` — every other
+ * store path in the codebase, literal or computed — has no such property and is assignable; an
+ * `AlignmentPath` carries it as a string literal, which is not assignable to `undefined`.
+ */
+export type WritablePath = StorePath & { readonly [alignmentPathBrand]?: undefined };
+
+/**
  * File contents as they cross the store boundary.
  *
  * `Uint8Array<ArrayBuffer>` rather than the default `Uint8Array<ArrayBufferLike>`: the write
@@ -30,8 +75,11 @@ export interface ProjectStore {
 	 * parseable rather than truncated. `project.json` holds the layer list — the map of
 	 * everything — and is the most frequently written file, so a torn write there is the
 	 * worst loss the storage layer can inflict.
+	 *
+	 * **{@link WritablePath} rather than {@link StorePath}**, so an Alignment cannot be written from
+	 * here at all (ticket 18). Every other path in the codebase is a plain string and is unaffected.
 	 */
-	write(path: StorePath, bytes: Bytes): Promise<void>;
+	write(path: WritablePath, bytes: Bytes): Promise<void>;
 
 	/**
 	 * Every existing file path that begins with `prefix`, sorted. A plain string-prefix
