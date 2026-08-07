@@ -75,8 +75,8 @@ For each criterion above, break the behaviour and confirm the test goes red befo
 
 ## Implementation notes
 
-Eight things worth knowing. One is a deviation from an acceptance criterion as literally written —
-the `removedMapLayers` grep, second from last.
+Ten things worth knowing. One is a deviation from an acceptance criterion as literally written — the
+`removedMapLayers` grep, fourth from last.
 
 **The list of the Workspace's Historical Maps is now refreshed *after* the Layer is written, not
 before.** `ingestImage` used to set `images` the moment the pyramid was complete; the add now has a
@@ -139,6 +139,23 @@ containing it opens; a file containing it does not re-serialise it). The criteri
 written it is unsatisfiable together with "the parser must not carry the field forward"; read as
 intended — no `removedMapLayers` **field**, no `#ensureMapLayer`, no `#placingMapLayers` — it holds,
 and `ensureMapLayer` and `placingMapLayers` have no matches at all.
+
+**Ticket 18 still has work here, and this is not it.** Ticket 18 asks for *one* writer of
+`alignments/<id>.json` across the whole application, with a create / update / replace vocabulary
+every caller must choose from and a fence that keeps it true. What is done here is the narrower
+thing ticket 02's review named and ticket 18's criterion 1 also states — the add path can no longer
+destroy Control Points, and says so when it declines. `#writeInitialAlignment` is the single writer
+*on the add path* only: `writeAlignment` still writes the same file for a Control Point edit, ticket
+03's `ensureMapLayerFor` is untouched, there is no fence, and a Georeference Annotation's unmodelled
+fields are still dropped by `serialiseAlignment` on a round trip. Ticket 18 owns all four.
+
+**Two tests in the full suite fail under four workers and pass in isolation, and both are ticket
+17's by name.** `editor-transfer` "says so when an export fails" (the Export button detaches
+mid-click) failed in all three full runs; `editor-workspace`'s `saved → saving → saved` and
+`viewer-reader:1283` failed once each. Ticket 17 lists exactly these as the known, pre-existing
+flakes it is opened to measure and fix. Both files are byte-identical to `main` here, neither
+touches a map Layer or an Alignment, and each passes at `--workers=1` on its own file. Nothing in
+this change is upstream of any of them.
 
 **Ports are no longer a hazard.** `playwright.config.ts` now derives its pair from the checkout path,
 so each worktree gets its own and a run cannot drive a sibling branch's build. The full suite below
