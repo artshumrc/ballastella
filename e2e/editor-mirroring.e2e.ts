@@ -522,6 +522,9 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
  * need a settled dialog with that button still disabled.
  */
 async function openMirrorDialog(page: Page): Promise<void> {
+	// "Make an offline copy" lives on the Layer card, which ticket 04 made the Project screen itself —
+	// so arriving is already being there, and there is no navigation left for this to do.
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	await page.getByTestId('mirror-open').click();
 	await expect(page.getByRole('dialog', { name: 'Make an offline copy' })).toBeVisible();
 	await expect(page.getByTestId('mirror-status')).toHaveAttribute('data-step', 'deciding');
@@ -645,6 +648,8 @@ test.describe('making an offline copy', () => {
 		await page.getByTestId('remote-add').click();
 		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
+		// On the Layer card, and only there — one Layer, one offer (ADR-0007, ADR-0025).
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await expect(page.getByTestId('mirror-open')).toHaveCount(1);
 
 		const requestsBefore: string[] = [];
@@ -924,7 +929,8 @@ test.describe('making an offline copy', () => {
 		await page.getByTestId('mirror-dismiss').click();
 
 		// The map is still referenced, and it is still there. Said by the files — no `info.json` beside its
-		// `remote.json` — because that is the only thing that says it (ADR-0023).
+		// `remote.json` — because that is the only thing that says it (ADR-0023) — and by the Layer card,
+		// which is where the badge and the offer both live since ticket 11.
 		await expect(
 			readJson(page, '', `images/${generateId(service('images.test', 'florida'))}/info.json`)
 		).rejects.toThrow();
@@ -963,6 +969,7 @@ test.describe('making an offline copy', () => {
 		await installFixtureHosts(page);
 		await openNewProject(page);
 		await addReferenced(page, 'images.test');
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 
 		const button = page.getByTestId('mirror-open');
 		await button.focus();

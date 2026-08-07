@@ -12,7 +12,7 @@ Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 18. In flight: 11 (implemented, in
 
 **Unblocked now that 04 has landed:** 05, 12, 16 and 17. 19 unblocks once 11 merges. 16 and 17 were held until 04 because 16 is a repo-wide rename and 17 rewrites the e2e suite; either would have collided with 04's restructuring of the Project screen across the same files.
 
-**11 was written before 04 and puts its offline control on `/layers` and `ProjectView`, both of which 04 deleted.** Porting it onto `ProjectScreen.svelte` and the `mapActions` snippet in `LayerList` is real integration work, not a textual conflict, and it belongs to whoever merges 11.
+**11 was written before 04 and has now been rebased onto it.** Its offline control, dialog, and live regions sit on `ProjectScreen.svelte`; the offline-copy action it had added to `LayerList` was dropped in favour of 04's `mapActions` snippet, which makes the same move by a better mechanism. Keeping both would have given two `mirror-done` regions and two `MirrorMap` mounts per referenced Layer.
 
 **Pull 17 forward.** The e2e flake is no longer a background annoyance: it cost three separate implementers a clean full-suite run in a single session, and one of them saw a *different* failing pair on each of two consecutive runs. A suite that rotates its failures under parallel load cannot be trusted to catch the races this epic keeps finding, and every ticket after it pays the same tax.
 
@@ -25,7 +25,7 @@ These apply to every remaining ticket. They are not advice.
 - **The mutation check is mandatory, not advisory.** Break the behaviour, confirm the test goes red, restore. Every reviewed ticket in v1 *and* in this epic has yielded substantive defects after its implementer reported all criteria passing — including criteria passing **vacuously**, where the code under test can be deleted and the test stays green. Assume your own green report is wrong until you have watched each assertion fail.
 - **Stories 111–114 are cross-cutting and deliberately absent from the ledger.** Visible text rather than tooltips, screen-reader announcement of what the map does, no silent service-worker activation, and refusal of a newer `formatVersion` belong inside every ticket that adds UI, the same treatment v1 gave accessibility. Attributing them to one ticket would be misleading in both directions.
 - **Story 96 — publishing from one place — is already built and only has to keep working.** Several tickets assert that it does.
-- **Two spec claims rest on documentation rather than measurement, and no ticket may commit to them unverified:** `modern-tar`'s streaming and PAX behaviour, and the tile counts and byte totals for a realistic Project extent. The tar claim carries more weight — ADR-0024 justifies the entire format change on it.
+- **Two spec claims rest on documentation rather than measurement, and no ticket may commit to them unverified:** `modern-tar`'s streaming and PAX behaviour, and the tile counts and byte totals for a realistic Project extent. **The tile claim is discharged.** Ticket 11 measured it against a real Protomaps basemaps v4 extract and ADR-0025 survives: a city-centre Project at every zoom from 0 to 14 is 23 tiles and 3.49 MB. The numbers are not prose — `e2e/support/editor-deployment.ts` re-measures them and `tile-cache.test.ts` asserts the totals, so the figures in the module comment cannot rot unnoticed. The tar claim is still open and carries more weight: ADR-0024 justifies the entire format change on it.
 
 ## What 18 established, and what it does not cover
 
@@ -53,7 +53,7 @@ Every Alignment write now goes through `alignment/alignment-file.ts` and names w
 | 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
-| 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | In Progress | 08, 10 | 6, 69–73, 75–79, 97, 99 |
+| 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | In Review | 08, 10 | 6, 69–73, 75–79, 97, 99 |
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Not Started | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Not Started | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Not Started | 13 | 89–95 |

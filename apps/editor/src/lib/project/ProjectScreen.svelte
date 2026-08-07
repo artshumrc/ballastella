@@ -49,16 +49,20 @@
 		type Layer,
 		type LineStyle,
 		type MapLayer,
+		type BaseMapCacheSize,
+		type BaseMapEntry,
 		type OpeningViewFit,
 		type OpeningViewOutcome
 	} from '@ballastella/core';
-	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
+	import type { DrawnLayer, DrawnOutcome, ReadCachedTile } from '@ballastella/core/render';
 	import { untrack } from 'svelte';
 
 	import AnnotationPanel from '$lib/annotations/AnnotationPanel.svelte';
 	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
+	import MakeOfflineDialog from '$lib/base-map/MakeOfflineDialog.svelte';
+	import { MakeProjectOffline, readOfflineCoverage } from '$lib/base-map/make-offline.svelte.js';
 	import { fitToProjectContent } from '$lib/base-map/opening-view';
 	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
@@ -762,6 +766,148 @@
 		await commitAnnotations(setLineStyle(collection, id, line));
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// Making this Project available offline (ADR-0025, SPEC stories 6, 70–73)
+	//
+	// **Nothing here is stored and nothing is a flag.** Whether this Project is available offline is
+	// `offlineCoverage`'s answer to "are the tiles this extent needs on disk?", re-asked whenever the
+	// Project's content changes and after every fetch. That is what makes a second Project in the same
+	// city offline for free, a Project whose work has spread not offline any more, and the hub's clear
+	// action able to unmake every claim at once — none of which is code here.
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	const offline = new MakeProjectOffline(() => session!);
+
+	/** What the Workspace's cache holds. `null` until it has been looked at. */
+	let cache = $state.raw<BaseMapCacheSize | null>(null);
+	/**
+	 * Whether this Project is available offline, or `null` when it could not be decided.
+	 *
+	 * Three states rather than two, and the third is the one that matters: deciding needs the source
+	 * archive's maximum zoom, which needs the network. With no connection the honest answer is "not
+	 * known", and the map is drawn from whatever the cache holds regardless — see {@link cachedBaseMap}.
+	 */
+	let offlineReady = $state<boolean | null>(null);
+	/** What to say about it, beside the map. */
+	let offlineSummary = $state('');
+	/** Bumped to re-ask after a fetch, so the sentence and the source both follow the disk. */
+	let offlineGeneration = $state(0);
+
+	/**
+	 * Which Base Map is shown, as a plain string.
+	 *
+	 * **A `$derived` over a primitive, and that is the whole of it.** `resolution` is a fresh object on
+	 * every change to `project.json`, so an effect reading `resolution?.entry.id` depends on
+	 * `resolution` and re-runs on a rename and on every step of a dragged opacity slider — which is the
+	 * same trap `documentKey` was written for, one signal along. Svelte does not propagate a derived
+	 * whose value is unchanged, so this reduces the dependency to "did the author pick another Base
+	 * Map?", which is the question the effect below actually asks.
+	 */
+	const baseMapEntryId = $derived(resolution?.entry.id ?? '');
+
+	/**
+	 * Re-read the cache and the coverage.
+	 *
+	 * Cheap and store-only in its first half — one `list` of `base-map/tiles/` — so the map can be
+	 * drawn from the cache before anything has been asked of the network. The coverage half opens the
+	 * archive and is allowed to fail: with no connection there is no way to know how deep the source
+	 * goes, and claiming completeness against a number read off our own cache is exactly the vacuous
+	 * claim ADR-0025 refuses.
+	 */
+	async function readOfflineState(
+		current: EditorSession,
+		entry: BaseMapEntry,
+		forLayers: readonly Layer[]
+	): Promise<void> {
+		cache = await current.baseMapCacheSize();
+		try {
+			const read = await readOfflineCoverage(current, entry, forLayers);
+			offlineReady = read.coverage?.complete ?? false;
+			// Answered from the record the last fetch left rather than from the archive, because the
+			// archive could not be reached. Said aloud rather than passed off as a live answer: the depth
+			// is a snapshot, and an archive rebuilt a zoom deeper would make it quietly wrong.
+			const asOf = read.fromRecord
+				? ' Checked against what this Workspace recorded when the tiles were fetched, because there is no connection.'
+				: '';
+			offlineSummary =
+				read.bounds === null
+					? 'This Project has nothing placed on the earth yet, so there is no area to make available offline.'
+					: read.coverage?.complete
+						? `Available offline: all ${read.coverage.budget.count} Base Map tiles this Project’s work covers are in this Workspace.${asOf}`
+						: `Not available offline: ${read.coverage?.present ?? 0} of ${read.coverage?.budget.count ?? 0} Base Map tiles this Project’s work covers are in this Workspace.${asOf}`;
+		} catch {
+			offlineReady = null;
+			offlineSummary =
+				(cache?.tiles ?? 0) > 0
+					? `The Base Map is being drawn from the ${cache?.tiles} tiles in this Workspace. Whether that covers everything this Project needs cannot be checked without a connection.`
+					: 'The Base Map needs a network connection, and there is none. Your Historical Maps, Alignments, and Annotations are all still here.';
+		}
+	}
+
+	/**
+	 * Which Base Map the pane draws: the Workspace's tiles, or the deployment's archive.
+	 *
+	 * The cache wins when it is **known to be complete for this Project**, and also when the archive
+	 * could not be reached at all. It deliberately loses to the network when the cache is known to be
+	 * partial: one MapLibre source cannot mix the two, and a half-filled cache preferred while online
+	 * would draw holes in a map that could have drawn properly. The line beside the map says which of
+	 * the three it is, so none of it is silent.
+	 */
+	/**
+	 * The last value {@link cachedBaseMap} produced, so an unchanged answer stays the same object.
+	 *
+	 * ⚠ Not `$state`: it is written from inside the derived, and reading it there is deliberate. The
+	 * consumer is a `$effect` that registers a MapLibre protocol handler, and Svelte propagates a
+	 * derived by *identity* — a fresh `{ maxZoom, readTile }` on every recompute made every Layer
+	 * rename and every dragged opacity slider tear the protocol down and register it again, with the
+	 * map's source pointing at a handler that is briefly `null` in between. Nothing about which tiles
+	 * are served has changed unless `maxZoom` has.
+	 */
+	let servedCache: { maxZoom: number; readTile: ReadCachedTile } | null = null;
+
+	const cachedBaseMap = $derived.by(() => {
+		const held = cache;
+		const readTile = session?.readCachedBaseMapTile();
+		if (!held || held.maxZoom === null || !readTile || offlineReady === false) {
+			servedCache = null;
+			return null;
+		}
+		if (servedCache?.maxZoom !== held.maxZoom || servedCache.readTile !== readTile) {
+			servedCache = { maxZoom: held.maxZoom, readTile };
+		}
+		return servedCache;
+	});
+
+	/**
+	 * Re-read when the Project opens, when its Layers' documents change, and when the Base Map does —
+	 * each of those changes the extent or the pyramid the question is about.
+	 *
+	 * **Everything the body reads is read untracked, and that is the same trap `documentKey` exists
+	 * for.** `readOfflineCoverage` walks every Layer's Alignment, and `layers` is a `$derived` that is
+	 * a fresh array on any change to `project.json` — so reading it inside the effect made a *rename*
+	 * and a dragged *opacity slider* each re-read every Alignment in the Project. `editor-layers.e2e.ts`
+	 * counts those reads and caught it. The dependencies are exactly the four lines below.
+	 */
+	$effect(() => {
+		void openDirectory;
+		void documentKey;
+		void baseMapEntryId;
+		void offlineGeneration;
+		const current = untrack(() => session);
+		const entry = untrack(() => resolution?.entry);
+		const forLayers = untrack(() => layers);
+		if (!current || !entry) return;
+		void readOfflineState(current, entry, forLayers);
+	});
+
+	// A finished run changes the files, so the sentence and the source both have to be re-read from
+	// them. Keyed off the job's completion message rather than off a callback, because the job also
+	// finishes by being cancelled and by finding nothing to do, and all three change the disk.
+	$effect(() => {
+		if (offline.completed === '') return;
+		untrack(() => (offlineGeneration += 1));
+	});
+
 	/** Choosing another Layer abandons a part-drawn shape and clears the selection with it. */
 	function chooseLayer(id: string): void {
 		chosenLayerId = id;
@@ -951,6 +1097,19 @@
 				onclick={() => void fitToProject()}
 			>
 				Fit to this Project
+			</button>
+
+			<!--
+				ADR-0025's opt-in. A button with words on it, and it opens a dialog rather than starting
+				anything: the tile count and the megabytes come first, always (SPEC stories 70, 71).
+			-->
+			<button
+				type="button"
+				class="btn btn-sm"
+				data-testid="make-offline"
+				onclick={() => void offline.ask(resolution.entry, layers)}
+			>
+				Make this Project available offline
 			</button>
 
 			<!--
@@ -1229,6 +1388,7 @@
 				<div class="min-h-0 grow overflow-hidden" data-testid="project-map">
 					<BaseMapPane
 						entryId={resolution.entry.id}
+						{cachedBaseMap}
 						layers={drawn}
 						{openingFit}
 						overlayPoints={annotationPoints}
@@ -1283,6 +1443,37 @@
 					>
 						{openingViewSentence(openingOutcome, refitted)}
 					</p>
+					<!--
+						Whether this Project works with no network, in words (SPEC stories 73, 112). Visible text
+						rather than a badge, and announced, because it is the fact a scholar checks before they
+						travel — and because "available offline" is computed from the files each time this is
+						read, so it can never be a label that outlived the tiles behind it.
+
+						`data-offline` carries the three states the sentence distinguishes: `yes`, `no`, and
+						`unknown` for a Base Map that could not be reached to be asked about.
+					-->
+					<p
+						class="min-h-6 text-sm text-base-content/70"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="offline-availability"
+						data-offline={offlineReady === null ? 'unknown' : offlineReady ? 'yes' : 'no'}
+						data-cache-serving={cachedBaseMap === null ? 'no' : 'yes'}
+					>
+						{offlineSummary}
+					</p>
+					<!--
+						Held outside the dialog's own tree so its completion announcement survives the dialog
+						closing — the same reason `MirrorMap.completed` lives on the job.
+					-->
+					<p
+						class="min-h-6 text-sm"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="offline-done"
+					>
+						{offline.completed}
+					</p>
 				</div>
 
 				<!--
@@ -1299,6 +1490,16 @@
 			</div>
 		</div>
 	</div>
+
+	<!--
+		ADR-0025's dialog, **outside `project-screen` on purpose**, beside the settings dialog and for
+		the same reason. daisyUI's `.modal` keeps a closed `<dialog>` laid out — it has a box, it is
+		merely transparent — so its buttons answer a `querySelectorAll` of visible controls while being
+		unreachable by keyboard. Inside the subtree it made `editor-project-screen.e2e.ts`'s tab walk
+		fail on "Not now" and "Count again"; a modal's whole point is that one tab order cannot cover
+		both it and the page behind it.
+	-->
+	<MakeOfflineDialog job={offline} entry={resolution.entry} {layers} />
 
 	<!--
 		Project settings (SPEC stories 10, 11): the one editable field and the two facts a scholar needs

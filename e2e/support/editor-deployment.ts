@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import type { Page } from '@playwright/test';
+import { PMTiles } from 'pmtiles';
 
 // A static web server for the **editor's own build**, so that the PWA slice can be driven at a
 // domain root and in a project subdirectory, and so that a second version of the app can be
@@ -163,6 +164,129 @@ export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<
 		});
 	});
 }
+
+/**
+ * `base-map/tiles/{z}/{x}/{y}.mvt`, and the tiles a box needs from zoom 0 up.
+ *
+ * Duplicated from `@ballastella/core`'s `base-map/tile-cache.ts` rather than imported, because the
+ * workspace-level tsconfig deliberately covers only `e2e/` and `playwright.config.ts` — the same
+ * reason `viewer-reader.e2e.ts` re-declares the Reader's map handle structurally. The duplication is
+ * safe in the direction that matters: this harness *produces* the layout the app *reads*, so a drift
+ * between the two makes the offline assertion fail rather than pass quietly.
+ */
+const cachedTilePath = (tile: { z: number; x: number; y: number }): string =>
+	`base-map/tiles/${tile.z}/${tile.x}/${tile.y}.mvt`;
+
+function tilesForBounds(
+	bounds: { west: number; south: number; east: number; north: number },
+	maxZoom: number
+): { z: number; x: number; y: number }[] {
+	const limit = 85.0511287798066;
+	const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
+	const tileX = (lng: number, z: number) => Math.floor(((lng + 180) / 360) * 2 ** z);
+	const tileY = (lat: number, z: number) => {
+		const radians = (clamp(lat, -limit, limit) * Math.PI) / 180;
+		const fraction = (1 - Math.log(Math.tan(radians) + 1 / Math.cos(radians)) / Math.PI) / 2;
+		return clamp(Math.floor(fraction * 2 ** z), 0, 2 ** z - 1);
+	};
+	const tiles: { z: number; x: number; y: number }[] = [];
+	for (let z = 0; z <= maxZoom; z += 1) {
+		const width = 2 ** z;
+		const first = tileX(bounds.west, z);
+		const columns = Math.min(tileX(bounds.east, z) - first + 1, width);
+		for (let step = 0; step < columns; step += 1) {
+			const x = (((first + step) % width) + width) % width;
+			for (let y = tileY(bounds.north, z); y <= tileY(bounds.south, z); y += 1)
+				tiles.push({ z, x, y });
+		}
+	}
+	return tiles;
+}
+
+/**
+ * The fixture archive's tiles as the Workspace cache holds them: `base-map/tiles/{z}/{x}/{y}.mvt`.
+ *
+ * **Real bytes out of the real archive, decompressed exactly as the app decompresses them.**
+ * `PMTiles#getZxy` applies `decompress(data, header.tileCompression)` before returning, which is why
+ * the cache stores decompressed MVT and why the protocol handler serves it unconverted (ADR-0025).
+ * Producing these any other way — a zero-filled placeholder, or the archive's gzipped bytes — would
+ * make the Published Site's offline assertion vacuous in the exact direction the ADR warns about: the
+ * tiles would arrive, MapLibre would parse nothing, and no error would be raised anywhere.
+ *
+ * **It also weighs them, and that is not a by-product.** ADR-0025's per-tile byte estimate and the
+ * refusal threshold both rest on a measurement of this archive, and the epic's tracker forbids a
+ * ticket committing to that measurement unverified. A table in a comment is prose; this returns the
+ * totals so a test can assert them, and `editor-base-map.e2e.ts` does — the same arrangement
+ * `editor-pwa.e2e.ts` uses for the `wasm-vips` byte count, so the figure cannot rot unnoticed.
+ *
+ * @param bounds the extent to cache, defaulting to the whole fixture archive's own extent
+ * @param maxZoom the deepest zoom to include, defaulting to the archive's own maximum
+ */
+export async function cachedBaseMapTiles(
+	bounds?: { west: number; south: number; east: number; north: number },
+	maxZoom?: number
+): Promise<CachedBaseMapTiles> {
+	const bytes = await baseMapArchiveFixture();
+	const source = {
+		getKey: () => 'fixture',
+		async getBytes(offset: number, length: number) {
+			const end = Math.min(offset + length, bytes.length);
+			return {
+				data: bytes.buffer.slice(bytes.byteOffset + offset, bytes.byteOffset + end) as ArrayBuffer
+			};
+		}
+	};
+	const archive = new PMTiles(source);
+	// The same archive read with decompression switched off, so the gzipped size of each tile can be
+	// weighed beside the decompressed one. That difference is the measured cost of ADR-0025's
+	// compression decision, and it is quoted in `tile-cache.ts`.
+	const compressed = new PMTiles(source, undefined, async (data: ArrayBuffer) => data);
+	const header = await archive.getHeader();
+	const extent = bounds ?? {
+		west: header.minLon,
+		south: header.minLat,
+		east: header.maxLon,
+		north: header.maxLat
+	};
+	const top = maxZoom ?? header.maxZoom;
+	const files: Record<string, Uint8Array> = {};
+	let decompressedBytes = 0;
+	let gzippedBytes = 0;
+	let asked = 0;
+	for (const tile of tilesForBounds(extent, top)) {
+		asked += 1;
+		const found = await archive.getZxy(tile.z, tile.x, tile.y);
+		if (!found) continue;
+		files[cachedTilePath(tile)] = new Uint8Array(found.data);
+		decompressedBytes += found.data.byteLength;
+		gzippedBytes += (await compressed.getZxy(tile.z, tile.x, tile.y))?.data.byteLength ?? 0;
+	}
+	return {
+		files,
+		maxZoom: top,
+		archiveBytes: bytes.length,
+		tilesInExtent: asked,
+		tilesPresent: Object.keys(files).length,
+		decompressedBytes,
+		gzippedBytes
+	};
+}
+
+/** What {@link cachedBaseMapTiles} produced, and what it weighed on the way. */
+export type CachedBaseMapTiles = {
+	readonly files: Record<string, Uint8Array>;
+	readonly maxZoom: number;
+	/** The archive's own size on disk, for the row of the table that names it. */
+	readonly archiveBytes: number;
+	/** How many tiles the extent needs, from `tilesForBounds`. */
+	readonly tilesInExtent: number;
+	/** How many of those the archive actually carries. */
+	readonly tilesPresent: number;
+	/** What the cache holds, in bytes: decompressed MVT, as ADR-0025 decided. */
+	readonly decompressedBytes: number;
+	/** What those same tiles weigh inside the archive, for the cost of that decision. */
+	readonly gzippedBytes: number;
+};
 
 export type EditorDeployment = {
 	/** The deployment's address, with a trailing slash. This is what `start_url` must resolve to. */

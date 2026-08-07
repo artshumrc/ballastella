@@ -28,6 +28,55 @@ describe('baseMapStyle', () => {
 		expect(source && 'url' in source ? source.url : '').toMatch(/^pmtiles:\/\//);
 	});
 
+	it('reads the Workspace cache instead of the archive when asked, and keeps the attribution', () => {
+		// ADR-0025: the cached case is a `tiles` template under our own protocol, with no archive
+		// anywhere in it — and the ODbL obligation does not lapse because no request leaves the
+		// machine, so the source carries the very same attribution string the networked one does.
+		const cached = baseMapStyle(entry('streets'), {
+			theme: 'light',
+			cachedTiles: { maxZoom: 14, tileTemplate: 'ballastella-base-map://tiles/{z}/{x}/{y}' }
+		});
+		const source = cached.sources[BASE_MAP_SOURCE_ID];
+
+		expect(source).toMatchObject({
+			type: 'vector',
+			tiles: ['ballastella-base-map://tiles/{z}/{x}/{y}'],
+			minzoom: 0,
+			maxzoom: 14
+		});
+		expect(source && 'url' in source ? source.url : undefined).toBeUndefined();
+		expect(source && 'attribution' in source ? source.attribution : '').toBe(
+			BASE_MAP_CATALOG.attribution
+		);
+		expect(source && 'attribution' in source ? source.attribution : '').toContain('OpenStreetMap');
+	});
+
+	it('caps the cached source at the zoom the cache was filled to', () => {
+		// Without this MapLibre asks for tiles the cache has none of, every one of them comes back
+		// empty, and the map goes blank at exactly the zoom the user was told works offline.
+		const cached = baseMapStyle(entry('streets'), {
+			theme: 'light',
+			cachedTiles: { maxZoom: 11, tileTemplate: 'x://{z}/{x}/{y}' }
+		});
+		const source = cached.sources[BASE_MAP_SOURCE_ID];
+		expect(source && 'maxzoom' in source ? source.maxzoom : undefined).toBe(11);
+	});
+
+	it('keeps the glyphs, the sprite, and every layer when reading the cache', () => {
+		// The cache changes where the *tiles* come from and nothing else: the same style documents over
+		// one vector dataset is ADR-0020's zero-extra-bytes claim, and it has to survive caching.
+		const networked = baseMapStyle(entry('muted'), { theme: 'dark' });
+		const cached = baseMapStyle(entry('muted'), {
+			theme: 'dark',
+			cachedTiles: { maxZoom: 14, tileTemplate: 'x://{z}/{x}/{y}' }
+		});
+		expect(cached.layers.map((layer) => layer.id)).toEqual(
+			networked.layers.map((layer) => layer.id)
+		);
+		expect(cached.glyphs).toBe(networked.glyphs);
+		expect(cached.sprite).toBe(networked.sprite);
+	});
+
 	it('builds the streets and physical variants over the very same archive URL', () => {
 		const streets = baseMapStyle(entry('streets'), { theme: 'light' });
 		const physical = baseMapStyle(entry('physical'), { theme: 'light' });

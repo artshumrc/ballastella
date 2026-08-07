@@ -17,12 +17,20 @@ import {
 	alignmentPath,
 	annotationStorePath,
 	assembleWithCanvas,
+	// Aliased for the same reason `stampCanonicalUrl` is: the session has methods of these names, and
+	// two things called one word is how a later edit calls the wrong one.
+	baseMapCacheSize as readBaseMapCacheSize,
+	cachedTilePath,
+	clearBaseMapCache as emptyBaseMapCache,
 	createStoreImageFetch,
+	readCachedTileSource,
+	writeCachedTileSource,
 	deleteHistoricalMap,
 	emptyAnnotationCollection,
 	exportProjectZip,
 	imageManifestPath,
 	ingestImageFile,
+	fetchTilesIntoCache,
 	insertLayerAt,
 	installFlushOnHide,
 	listIngestedImages,
@@ -36,6 +44,7 @@ import {
 	newAnnotationLayer,
 	newMapLayer,
 	normaliseCanonicalUrl,
+	offlineCoverage,
 	emptyCollection,
 	openDecodeAndCropSource,
 	parseAlignment,
@@ -69,14 +78,19 @@ import {
 	type AlignmentWriteOutcome,
 	type AnnotationCollection,
 	type AnnotationLayer,
+	type BaseMapCacheSize,
 	type Bytes,
+	type CachedTileSource,
 	type FetchFn,
+	type FetchTilesOptions,
+	type GeoBounds,
 	type IngestProgress,
 	type IngestedImage,
 	type Layer,
 	type MapLayer,
 	type MirrorPlan,
 	type MirrorProgress,
+	type OfflineCoverage,
 	type ProjectFile,
 	type ProjectStore,
 	type ProjectSummary,
@@ -87,6 +101,8 @@ import {
 	type RemoteImageService,
 	type SaveState,
 	type SimpleStyle,
+	type TileCoordinate,
+	type TileFetchResult,
 	type TransferProgress,
 	type UndoRecord,
 	type ViewerBundle,
@@ -1269,6 +1285,77 @@ export class EditorSession {
 	 */
 	async workspaceBytes(): Promise<WorkspaceSize> {
 		return workspaceSize(this.#store);
+	}
+
+	// ── The Base Map's offline tile cache (ADR-0025) ─────────────────────────────────────────────
+	//
+	// Workspace-level, so these take no Project directory: two Projects in the same city share tiles,
+	// which is what makes "is this Project available offline?" a question about which files exist.
+	// Every one of these is a thin pass-through to core, for the same reason the rest of this class is
+	// — the store is held here and nowhere else.
+
+	/** How much of what `bounds` needs is already cached, and what filling it would take. */
+	async offlineBaseMapCoverage(bounds: GeoBounds, maxZoom: number): Promise<OfflineCoverage> {
+		return offlineCoverage(this.#store, bounds, maxZoom);
+	}
+
+	/** Fetch the tiles a coverage says are missing into the Workspace. */
+	async fetchBaseMapTiles(options: Omit<FetchTilesOptions, 'store'>): Promise<TileFetchResult> {
+		return fetchTilesIntoCache({ ...options, store: this.#store });
+	}
+
+	/** What the cache is taking up, for the hub's reclaim list. `list` + `size`, never `read`. */
+	async baseMapCacheSize(): Promise<BaseMapCacheSize> {
+		return readBaseMapCacheSize(this.#store);
+	}
+
+	/** Which archive filled the cache and how deep it said it went, or `null` if unrecorded. */
+	async cachedBaseMapTileSource(): Promise<CachedTileSource | null> {
+		return readCachedTileSource(this.#store);
+	}
+
+	/** Record where the cache came from. Called after a run, never before one. */
+	async recordBaseMapTileSource(source: CachedTileSource): Promise<void> {
+		await writeCachedTileSource(this.#store, source);
+	}
+
+	/** Delete every cached tile, and report how many went. */
+	async clearBaseMapCache(): Promise<number> {
+		return emptyBaseMapCache(this.#store);
+	}
+
+	/**
+	 * Serve one cached tile to MapLibre, or `null` when the cache has none there (ADR-0011).
+	 *
+	 * The Base Map's counterpart to {@link imageServiceFetch}: the store is reached from the page
+	 * through a function, never by a service worker holding a directory handle. Bound rather than
+	 * returned as a method reference so a protocol registration keeps working across a re-render.
+	 *
+	 * ⚠ **The same function every time**, which the doc above used to claim and the code did not do.
+	 * A fresh closure per call makes `{ maxZoom, readTile }` a new value on every recompute, and the
+	 * `$effect` that registers it tears the protocol down and puts it back on every document change —
+	 * MapLibre keeps a `maxzoom`-bearing source pointed at a handler that is briefly `null`. The store
+	 * is fixed for the life of a session, so there is nothing for a second closure to capture.
+	 */
+	readCachedBaseMapTile(): (tile: TileCoordinate) => Promise<Uint8Array | null> {
+		return (this.#readCachedBaseMapTile ??= this.#makeCachedBaseMapTileReader());
+	}
+
+	#readCachedBaseMapTile: ((tile: TileCoordinate) => Promise<Uint8Array | null>) | null = null;
+
+	#makeCachedBaseMapTileReader(): (tile: TileCoordinate) => Promise<Uint8Array | null> {
+		const store = this.#store;
+		return async (tile) => {
+			try {
+				return await store.read(cachedTilePath(tile));
+			} catch {
+				// A tile the cache does not hold. Answered as absence rather than as an error, because a
+				// stray request outside a partly filled cache is ordinary — and the Project-level claim
+				// about being available offline is computed from `offlineCoverage`, never from whether
+				// anything here complained.
+				return null;
+			}
+		};
 	}
 
 	/**

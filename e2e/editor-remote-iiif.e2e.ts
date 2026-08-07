@@ -3,6 +3,15 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import zlib from 'node:zlib';
 
+import { routeBaseMapArchive } from './support/editor-deployment.js';
+
+// The catalog's archive is somebody else's bucket, and **no spec may reach the internet**. This suite
+// did not need the routing until ticket 11, because nothing but MapLibre opened the archive and a
+// Base Map that failed to load was harmless here. The Project screen now opens it too — to read the
+// pyramid's depth before it can say what making the Project available offline would take — so an
+// unrouted archive is both a real request and a Layer stack that waits on a style that never loads.
+test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
+
 /**
  * SPEC's Seam 2 for remote IIIF ingest: a URL pasted into the running app, in a real browser,
  * against real OPFS and a fixture host that behaves the way real ones do (SPEC stories 16–20, 24,
