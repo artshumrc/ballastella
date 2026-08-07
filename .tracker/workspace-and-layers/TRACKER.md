@@ -10,6 +10,8 @@ Overall status: `In Progress`
 
 Current ticket: none. 01, 02, 03, 08, 09 and 10 are merged to `main`. Five tickets are unblocked: 04 (critical path), 11, 16, 17 and 18. 12 needs 04; 05 needs 04 and 02.
 
+19 is queued behind 11, which is live in `service-worker.ts` — the file 19 rewrites.
+
 **16 and 17 are deliberately held until 04 lands.** 16 is a repo-wide rename and 17 rewrites the e2e suite; either would conflict with 04's restructuring of the Project screen across the same files. Sequencing them after 04 is cheaper than merging them into it.
 
 This epic follows [`ballastella-v1`](../ballastella-v1/TRACKER.md), whose implementation is complete and merged. Two things carry across and should be read before any ticket is written:
@@ -48,6 +50,16 @@ Last updated: 2026-08-07
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Not Started | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Not Started | 02, 03, 09 | — |
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Not Started | 02, 03 | 60 |
+| 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Not Started | 11 | — |
+
+**19 was added on a human decision, 2026-08-07: libvips is not needed for v1.** It is not debt the reviews
+surfaced but a scope reduction, and it is almost entirely deletion, because the path it removes cannot
+execute. `libvipsUnavailableReason()` refuses without `crossOriginIsolated`, `ingest.ts` consults it before
+opening the tiler, and nothing in this repo sends COOP/COEP — nor can GitHub Pages (ADR-0006). So 10.25 MB
+of the 18 MB editor build, a 253-line fence script, two CI steps, ~610 lines of tiler and test code, and an
+LGPLv3 notice with an unfinished open item all guard code that is dead in every environment. Dropping it
+also *raises* the ingest limit, from a 268 MP routing number to the measured 528 MP decode ceiling, and
+closes v1 ticket 05's open question and ticket 15's `[~]` criterion.
 
 **16, 17 and 18 were added during implementation, not planning.** They are debt the epic's own reviews surfaced. 16 is a rename the ubiquitous language already mandates and the code never did. 17 is the e2e suite, which flakes at roughly one run in three and therefore cannot be trusted to catch the races this epic keeps finding.
 
