@@ -43,6 +43,10 @@ Last updated: 2026-08-06
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Not Started | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Not Started | 13 | 89–95 |
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
+| 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Not Started | 02, 03, 09 | — |
+| 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Not Started | 02, 03, 09 | — |
+
+**16 and 17 were added during implementation, not planning.** Neither delivers a user story; both are debt the epic's own reviews surfaced. 16 is a rename the ubiquitous language already mandates and the code never did. 17 is the e2e suite, which flakes at roughly one run in three and therefore cannot be trusted to catch the races this epic keeps finding. Both wait on the parallel tickets merging, because both touch nearly every file those tickets touch.
 
 **Stories 111–114 are deliberately absent from the table.** Visible text rather than tooltips, screen-reader announcement of what the map does, no silent service-worker activation, and the refusal of a newer `formatVersion` are **cross-cutting constraints inside every ticket that adds UI**, the same treatment v1 gave accessibility. Attributing them to one ticket would be misleading in both directions. Story 96 — publishing from one place — is already built and only has to keep working; several tickets assert that it does.
 
