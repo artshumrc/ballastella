@@ -484,9 +484,6 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		// below cannot be satisfied by a revert to the last saved state.
 		const during = await projectJson(page);
 		expect(during.layers.map((layer: { id: string }) => layer.id)).toEqual([annotationLayer]);
-		// The tombstone is keyed on the image id, which is the one thing a map Layer carries about its
-		// Historical Map (ADR-0023).
-		expect(during.removedMapLayers).toEqual([layersBefore[1].imageId]);
 		// **And the Alignment is still there.** It belongs to the Workspace and may place this map for
 		// another Project, so a Layer delete takes nothing with it — which is the opposite of what this
 		// assertion said before ADR-0023.
@@ -503,8 +500,6 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		// field for field, at its own position.
 		expect(await hashesUnder(page, 'alignments/', '')).toEqual(before);
 		expect((await projectJson(page)).layers).toEqual(layersBefore);
-		// The tombstone is lifted with the Layer, so the two can never both be true.
-		expect((await projectJson(page)).removedMapLayers).toBeUndefined();
 		expect(await rowIds(page)).toEqual([annotationLayer, mapLayer]);
 		// And it is on the map again, which is the only honest signal that the restored file is usable:
 		// the warped renderer was given the bytes the undo wrote and made a layer out of them.
@@ -549,31 +544,36 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 });
 
 /**
- * The trap ticket 09's review recorded rather than left to be discovered.
+ * The trap ticket 09's review recorded, **closed by construction in ticket 02** (ADR-0023).
  *
- * `EditorSession` brings a map Layer into existence on **every** Alignment write, so "is there a Layer
- * for this Alignment?" is not an idempotence key a deletion can survive: without a tombstone, deleting
- * a map Layer and then writing the Alignment again recreates it with a fresh id, a fresh name, and at
- * the top of the stack — and undo cannot help, because nothing was undone and a Layer was legitimately
- * created.
+ * `EditorSession` used to bring a map Layer into existence on every Alignment write, so "is there a
+ * Layer for this Alignment?" was not an idempotence key a deletion could survive: deleting a map Layer
+ * and then writing the Alignment again recreated it, with a fresh id and at the top of the stack, and
+ * undo could not help because nothing had been undone. `ProjectFile.removedMapLayers` was the record
+ * that stopped it.
+ *
+ * A Layer is now created by exactly one thing — the user adding a Historical Map to a Project — so the
+ * record is gone and these tests assert the property directly rather than the record: **no Alignment
+ * write, in this session or a later one, touches the Layer stack at all.**
  */
 test.describe('a deleted map Layer does not come back (the resurrection trap)', () => {
 	test('survives an Alignment write, and survives one in a later session', async ({ page }) => {
 		test.setTimeout(150_000);
 		const imageId = await alignedProject(page);
 		await openLayers(page, 1);
-		const deletedImageId = (await projectJson(page)).layers[0].imageId;
 
 		await layerRows(page).first().getByTestId('layer-delete').click();
 		await expect(layerRows(page)).toHaveCount(0);
 		await saved(page);
-		expect((await projectJson(page)).removedMapLayers).toEqual([deletedImageId]);
+		// Nothing anywhere in the document records the deletion — the Layer is simply not there, which is
+		// the whole of ADR-0023's claim that there is nothing left to tombstone.
+		expect((await projectJson(page)).layers).toEqual([]);
 
 		// Back to the alignment workspace and an Alignment write — the exact gesture that resurrected the
-		// Layer before the tombstone existed.
+		// Layer before this was designed out.
 		//
 		// A **fourth** pair, because the three `alignedProject` made are still on disk: deleting the Layer
-		// leaves the Historical Map and its Alignment where they are now (ADR-0023, SPEC story 67), so
+		// leaves the Historical Map and its Alignment where they are (ADR-0023, SPEC story 67), so
 		// `makePairs` reopens onto the pairing already done rather than onto an empty Alignment.
 		await openWorkspace(page);
 		await makePairs(page, 4);
@@ -583,8 +583,8 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		expect((await projectJson(page)).layers).toEqual([]);
 		await expect(page.getByTestId('open-layers')).toHaveText('Layers (0)');
 
-		// **And in a later session**, which is the half that needs the record to be in the file rather
-		// than in memory: a reload throws away everything the running page knew.
+		// **And in a later session**, which is the half a purely in-memory guard could never survive: a
+		// reload throws away everything the running page knew.
 		await openWorkspace(page);
 		await makePairs(page, 5);
 		await waitForStored(page, imageId, 5);
@@ -592,13 +592,26 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 
 		expect((await projectJson(page)).layers).toEqual([]);
 		await expect(page.getByTestId('open-layers')).toHaveText('Layers (0)');
+
+		// **And moving one, not only adding one.** A moved Control Point writes the Alignment too, and it
+		// is the gesture a user is most likely to make on a map whose Layer they have just taken out of
+		// the stack. The keyboard nudge is the same one gesture the move-undo test uses.
+		const movedFrom = await storedAlignment(page, imageId);
+		await imagePoints(page).first().focus();
+		await page.keyboard.press('Shift+ArrowRight');
+		await saved(page);
+		// The barrier with teeth: the Alignment on disk really is a different file, so what follows is a
+		// claim about an Alignment write that *happened* rather than one that may still be pending.
+		await expect.poll(() => storedAlignment(page, imageId)).not.toBe(movedFrom);
+
+		expect((await projectJson(page)).layers).toEqual([]);
 	});
 
 	/**
 	 * And undoing the deletion has to leave the *opposite* invariant in place: one Layer, the original
 	 * one, with a later Alignment write adding nothing. `parseLayers` drops a duplicate id (ticket 09's
-	 * remediation), so a restore that raced the ensure would produce a document whose next read loses a
-	 * Layer.
+	 * remediation), so a second Layer for the same image would produce a document whose next read loses
+	 * one of the two.
 	 */
 	test('is put back by undo, and one Alignment write later there is still exactly one', async ({
 		page
@@ -624,22 +637,29 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		await waitForStored(page, imageId, 4);
 		await saved(page);
 
-		const after = await projectJson(page);
-		expect(after.layers).toHaveLength(1);
-		expect(after.layers[0].id).toBe(layerBefore.id);
-		expect(after.removedMapLayers).toBeUndefined();
+		expect((await projectJson(page)).layers).toEqual([layerBefore]);
 	});
 
 	/**
-	 * The same method's other defect: it asks "is there a Layer?" and then `await`s a read of the
-	 * image's `manifest.json` for the Layer's name, so two Alignment writes in flight could each see no
-	 * Layer and each add one — two rows and two `WarpedMapLayer`s fetching the same pyramid.
+	 * The strongest form of the same claim, and the one that catches a Layer being *renamed* or
+	 * *reordered* rather than created: a whole pairing session leaves `project.json` byte-identical.
 	 *
-	 * Driven by widening the window rather than by luck: the window is real at any speed.
+	 * This is where the old race lived — `#ensureMapLayer` asked "is there a Layer?" and then `await`ed
+	 * a read of the image's `manifest.json` for the name, so two Alignment writes in flight could each
+	 * see no Layer and each add one. The read is still delayed here, so the window is still as wide as
+	 * it ever was; there is simply nothing in it any more. Byte identity is what makes that a real
+	 * assertion rather than a count that a rewrite of the same content would satisfy — ADR-0010, and
+	 * the reason `updatedAt` must not move for an edit that is not to the document.
 	 */
-	test('two Alignment writes in flight produce one Layer, not two', async ({ page }) => {
+	test('a whole pairing session leaves project.json byte-identical', async ({ page }) => {
 		test.setTimeout(120_000);
 		await start(page);
+		await saved(page);
+		// The Layer is already there: adding the Historical Map is what put it in the stack (ADR-0023),
+		// before any Control Point exists.
+		const before = await readProjectFile(page, 'project.json');
+		expect(JSON.parse(before).layers).toHaveLength(1);
+
 		await delayReadsOf(page, 'manifest.json', 1500);
 
 		// Two completed pairs in quick succession, the second landing inside the first's manifest read.
@@ -653,7 +673,7 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		await saved(page);
 
 		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
-		expect((await projectJson(page)).layers).toHaveLength(1);
+		expect(await readProjectFile(page, 'project.json')).toBe(before);
 	});
 });
 

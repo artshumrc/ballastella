@@ -117,47 +117,6 @@ const fileReads = (page: Page): Promise<Record<string, number>> =>
 	page.evaluate(() => ({ ...window.ballastellaFileReads }));
 
 /**
- * Refuse every write whose file name contains `needle`, as a full disk or a revoked permission does.
- *
- * A quota failure part way through an alignment is not a hypothetical: OPFS has a quota, a folder
- * Workspace can have its permission revoked mid-session, and either arrives as a rejected write in the
- * middle of a gesture. `createWritable` is where `DirectoryHandleStore` opens a file to write it, and
- * the atomic write's temporary path carries the destination's own name — so naming one file is enough
- * to make exactly one of the two documents an alignment touches fail.
- *
- * @returns a function that stops refusing
- */
-async function failWritesTo(page: Page, needle: string): Promise<() => Promise<void>> {
-	await page.evaluate((match) => {
-		const proto = FileSystemFileHandle.prototype as unknown as {
-			createWritable: (...args: unknown[]) => Promise<unknown>;
-			ballastellaOriginalCreateWritable?: (...args: unknown[]) => Promise<unknown>;
-		};
-		proto.ballastellaOriginalCreateWritable ??= proto.createWritable;
-		const original = proto.ballastellaOriginalCreateWritable;
-		proto.createWritable = function (this: FileSystemFileHandle, ...args: unknown[]) {
-			if (this.name.includes(match)) {
-				return Promise.reject(
-					new DOMException(`Quota exceeded writing ${this.name}`, 'QuotaExceededError')
-				);
-			}
-			return original.call(this, ...args);
-		};
-	}, needle);
-
-	return () =>
-		page.evaluate(() => {
-			const proto = FileSystemFileHandle.prototype as unknown as {
-				createWritable: unknown;
-				ballastellaOriginalCreateWritable?: unknown;
-			};
-			if (proto.ballastellaOriginalCreateWritable) {
-				proto.createWritable = proto.ballastellaOriginalCreateWritable;
-			}
-		});
-}
-
-/**
  * Hold up every read of a file called `name` by `ms`, widening a window the machine usually closes.
  *
  * A check-then-act separated by an `await` is a race whether or not the await is usually fast, and a
@@ -178,6 +137,32 @@ async function delayReadsOf(page: Page, name: string, ms: number): Promise<void>
 		},
 		[name, ms] as const
 	);
+}
+
+/**
+ * Refuse every write into `alignments/`, and nothing else, as a full disk does.
+ *
+ * By the **directory**, which patching `FileSystemFileHandle` cannot do. An Alignment is
+ * `alignments/<image-id>.json` and a local image id is random (ADR-0015), so there is no name to match
+ * on before the file has been picked — and matching `.json` would take `info.json` and `manifest.json`
+ * with it and make this a failed *ingest* instead. `getFileHandle` is where `DirectoryHandleStore`
+ * reaches a file, and it is reached from the directory that holds it.
+ */
+async function failWritesUnderAlignments(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const proto = FileSystemDirectoryHandle.prototype;
+		const original = proto.getFileHandle;
+		proto.getFileHandle = async function (this: FileSystemDirectoryHandle, ...args) {
+			const handle = await original.apply(this, args as never);
+			if (this.name === 'alignments') {
+				handle.createWritable = () =>
+					Promise.reject(
+						new DOMException(`Quota exceeded writing ${handle.name}`, 'QuotaExceededError')
+					);
+			}
+			return handle;
+		};
+	});
 }
 
 /** Hold up every write whose file name contains `needle` by `ms`. See {@link delayReadsOf}. */
@@ -212,6 +197,38 @@ const storedImageIds = (page: Page): Promise<string[]> =>
 		const names: string[] = [];
 		for await (const name of images.keys()) names.push(name);
 		return names;
+	});
+
+/**
+ * The id of the first Historical Map whose pyramid is **complete**, or `null`.
+ *
+ * `info.json` is written last by the tiler and is therefore the completion marker for the whole
+ * directory, so its arrival is the moment the ingest is over and the rest of the add — the
+ * Alignment, the Layer, `project.json` — has begun. That is a signal nothing later in the add
+ * produces, which is what makes it usable as a barrier *inside* the add rather than after it.
+ *
+ * Through `getFileHandle` rather than `getFile`, so a test that has slowed reads down to widen a
+ * window does not slow its own barrier down with them.
+ */
+const completedPyramid = (page: Page): Promise<string | null> =>
+	page.evaluate(async () => {
+		const root = await navigator.storage.getDirectory();
+		let images: FileSystemDirectoryHandle;
+		try {
+			images = await root.getDirectoryHandle('images');
+		} catch {
+			return null;
+		}
+		for await (const name of images.keys()) {
+			try {
+				const image = await images.getDirectoryHandle(name);
+				await image.getFileHandle('info.json');
+				return name;
+			} catch {
+				// Not a finished pyramid: either not a directory, or still being written into.
+			}
+		}
+		return null;
 	});
 
 /** Empty the origin's OPFS, so no test can see another's Projects. */
@@ -315,29 +332,50 @@ async function clickAt(target: Locator, fx: number, fy: number): Promise<void> {
 }
 
 /**
- * A Project with one ingested Historical Map and not one Control Point yet — the state a scholar is in
- * when they make their first pair, and so the state an interrupted first Alignment write starts from.
+ * An empty Project, open, with nothing added to it yet.
+ *
+ * Split out of {@link projectWithImage} because adding the Historical Map is now itself the thing
+ * under test in two places — the write it can fail on and the window it can lose a rename in — and
+ * both of those have to arrange something *before* the file is picked.
  *
  * @returns the Project directory
  */
-async function projectWithImage(page: Page): Promise<string> {
+async function emptyProject(page: Page): Promise<string> {
 	await page.goto('/');
 	await emptyWorkspace(page);
 	await page.reload();
 	await createProject(page, 'Amsterdam 1625');
 	await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	return 'amsterdam-1625';
+}
 
+/** Pick the gradient PNG in the file input. Returns once the pyramid is listed. */
+async function addHistoricalMap(page: Page): Promise<void> {
 	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
 	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+}
+
+/**
+ * A Project with one ingested Historical Map and not one Control Point yet — the state a scholar is in
+ * when they make their first pair.
+ *
+ * **There is a map Layer in the stack already** (ADR-0023): adding the Historical Map is what put it
+ * there, and it says it is not aligned yet until the pairs exist.
+ *
+ * @returns the Project directory
+ */
+async function projectWithImage(page: Page): Promise<string> {
+	const directory = await emptyProject(page);
+	await addHistoricalMap(page);
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
-
-	return 'amsterdam-1625';
+	await expect(page.getByRole('status')).toHaveText('Saved');
+	return directory;
 }
 
 /** One Control Point pair, at the same fraction across both panes. */
@@ -349,11 +387,12 @@ async function pairAt(page: Page, fx: number, fy: number): Promise<void> {
 }
 
 /**
- * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack.
+ * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack with
+ * something in it that draws.
  *
- * Made through the interface rather than seeded into OPFS, because the first criterion is that
- * *aligning* is what produces the Layer — so the Layer has to come from the alignment workspace and
- * not from a fixture that already contains one.
+ * Made through the interface rather than seeded into OPFS: the Layer comes from the add (ADR-0023)
+ * and the Control Points come from the alignment workspace, so what the rest of this file measures
+ * is a stack the application built rather than a fixture that already agreed with it.
  *
  * @returns the Project directory
  */
@@ -536,9 +575,16 @@ const alignmentRefOf = async (page: Page, directory: string): Promise<string> =>
 		).imageId
 	}.json`;
 
-test.describe('a Layer for an aligned Historical Map', () => {
-	test('aligning a Historical Map produces a kind: map Layer in project.json', async ({ page }) => {
-		const directory = await alignedProject(page);
+test.describe('a Layer for a Historical Map that has just been added', () => {
+	/**
+	 * SPEC stories 18 and 68, and the criterion ticket 02 exists for: **the gesture that makes the
+	 * Layer is adding the map, not aligning it.** Asserted before a single Control Point exists, which
+	 * is what makes it a claim about the add rather than about the alignment that used to follow.
+	 */
+	test('adding a Historical Map produces a kind: map Layer in project.json, with no Control Point', async ({
+		page
+	}) => {
+		const directory = await projectWithImage(page);
 
 		const file = await projectJson(page, directory);
 
@@ -559,21 +605,105 @@ test.describe('a Layer for an aligned Historical Map', () => {
 		expect(file.layers[0].imageId).toMatch(/^[a-z0-9]+$/i);
 		expect(file.layers[0].alignmentRef).toBeUndefined();
 		expect(file.layers[0].imageMode).toBeUndefined();
-		// The Alignment is really there, at the Workspace root — where a second Project could reference it.
-		expect(await readProjectFile(page, '', `alignments/${file.layers[0].imageId}.json`)).toContain(
-			'Annotation'
+		expect(typeof file.layers[0].id).toBe('string');
+		expect(file.layers[0].id).not.toBe('');
+
+		// **The starter Alignment is on disk**, at the Workspace root, with no Control Points and a
+		// Resource Mask over the whole sheet. Without it the Layer names a file that is not there, and
+		// `assertReferencesPresent` makes the Project un-exportable and un-publishable — this build would
+		// write a zip it then refused to read.
+		const alignment = JSON.parse(
+			await readProjectFile(page, '', `alignments/${file.layers[0].imageId}.json`)
 		);
-		// And no Alignment was written inside the Project directory.
+		expect(alignment.type).toBe('Annotation');
+		expect(alignment.body?.features ?? []).toHaveLength(0);
+		// The sheet is 700 × 500, and the mask is its four corners in the order `fullImageResourceMask`
+		// produces them. Spelled out rather than derived, so a fixture built from the app's own function
+		// cannot agree with itself however wrong both are.
+		expect(alignment.target?.selector?.value).toBe(
+			'<svg width="700" height="500"><polygon points="0,0 700,0 700,500 0,500" /></svg>'
+		);
+
+		// And nothing was written inside the Project directory: a pyramid and an Alignment belong to the
+		// Workspace, shared by every Project that draws them (ADR-0023).
 		await expect(
 			readProjectFile(page, directory, `alignments/${file.layers[0].imageId}.json`)
 		).rejects.toThrow();
-		expect(typeof file.layers[0].id).toBe('string');
-		expect(file.layers[0].id).not.toBe('');
 	});
 
-	// `writeAlignment` runs on every completed pair and every released drag, so a version that
-	// appended — or that rewrote the document to say the same thing — would stamp a fresh `updatedAt`
-	// on `project.json` once per pairing click.
+	/** What an unaligned map Layer says about itself, in the sidebar, once. */
+	const NOT_ALIGNED = 'Not aligned yet, so there is nothing to draw.';
+
+	/**
+	 * The Layer says so, rather than the list being silent about a map nobody can see yet.
+	 *
+	 * **Including when it is hidden**, which is the half that was not possible before: the pane read
+	 * the Alignment only of the Layers it handed to the map, so a hidden map Layer's row had nothing to
+	 * say about it. ADR-0023 accepts the extra reads for exactly this.
+	 */
+	test('says it is not aligned yet, shown or hidden, from the moment the map is added', async ({
+		page
+	}) => {
+		const directory = await projectWithImage(page);
+		// Nothing is drawn, because nothing can be placed yet — and that is a sentence, not a silence.
+		await openLayers(page, directory, { drawn: 0 });
+
+		// **After the documents have been read**, not before. Every Layer starts with no document in
+		// hand, and a Layer with no Alignment reads as not aligned too — so asserting the sentence on
+		// the first paint would go green on the state that exists before anything has been opened, which
+		// is the vacuous version of this test.
+		await page.waitForTimeout(2000);
+		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
+
+		// Hidden, and it still says it: the sentence is about where the Historical Map sits on the earth,
+		// and a Layer does not become aligned by being ticked.
+		await rows(page).first().getByTestId('layer-visible').uncheck();
+		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
+		await rows(page).first().getByTestId('layer-visible').check();
+		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
+	});
+
+	/**
+	 * And it clears itself when the Control Points arrive, with nothing writing a flag.
+	 *
+	 * "Not aligned" is `controlPoints.length < MINIMUM_CONTROL_POINTS`, derived and never stored
+	 * (ADR-0023) — so a **partly** aligned map, two points short of the three a first-order polynomial
+	 * needs (ADR-0013), still warns. A boolean written when the map was added would get that wrong, and
+	 * it is the state a scholar interrupted half way is left in.
+	 */
+	test('stops saying it once there are enough Control Points, and not before', async ({ page }) => {
+		test.setTimeout(90_000);
+		const directory = await projectWithImage(page);
+
+		await pairAt(page, 0.3, 0.3);
+		await pairAt(page, 0.7, 0.35);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		await openLayers(page, directory, { drawn: 0 });
+		// Settled, for the reason the test above gives: a Layer whose Alignment has not been read yet
+		// reads as not aligned, so the sentence has to still be there once it has.
+		await page.waitForTimeout(2000);
+		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
+
+		// The third pair clears it, and the Layer is on the map.
+		await page.goto(`/?p=${directory}`);
+		await expect(page.getByTestId('control-point-row')).toHaveCount(2);
+		await pairAt(page, 0.5, 0.7);
+		// The barrier, and the honest one: the alignment workspace's own warped preview is drawn, so the
+		// three pairs really do solve. Without it this waits on the Layers pane for a state the Alignment
+		// may not have reached yet, and a red run would say nothing about the sentence under test.
+		await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		await openLayers(page, directory, { drawn: 1 });
+		await expect(rows(page).first().getByTestId('layer-problem')).toHaveCount(0);
+	});
+
+	/**
+	 * An Alignment write must not touch `project.json` at all (ADR-0023): not create a Layer, not
+	 * rename one, not reorder the stack. Every completed pair and every released drag reaches
+	 * `writeAlignment`, so anything it wrote to the document would be written hundreds of times during
+	 * one alignment — `updatedAt` is what would move, and it is asserted here rather than a count,
+	 * because a rewrite saying the same thing passes a count.
+	 */
 	test('does not add a second Layer, or a second write, for the next Control Point', async ({
 		page
 	}) => {
@@ -587,84 +717,105 @@ test.describe('a Layer for an aligned Historical Map', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const after = await projectJson(page, directory);
-		expect(after.layers).toHaveLength(1);
+		expect(after.layers).toEqual(before.layers);
 		expect(after.updatedAt).toBe(before.updatedAt);
 	});
 
+	// Adding a Historical Map the Project already draws is a no-op on the stack rather than a duplicate
+	// or a refusal. It needs an image id that is the *same* on the second add, which a local file never
+	// has — `generateRandomId()`, ADR-0015 — so it is covered on the referenced path, where
+	// `generateId(uri)` is deterministic: see `editor-remote-iiif.e2e.ts`.
+
 	/**
-	 * The Layer must never exist without the Alignment it names.
+	 * The Layer must never exist without the Alignment it draws.
 	 *
-	 * A Layer whose `alignmentRef` names a file that is not there is a Project ticket 13's import
-	 * refuses — `assertReferencesPresent` says the Layer "needs it to be drawn" — so an interrupted
-	 * first Alignment write leaves a scholar unable to import their own export. This is the same
-	 * discipline `addAnnotationLayer` already keeps for `geojsonRef`, and there is nothing exotic about
-	 * the interruption: OPFS has a quota, and a folder Workspace can have its permission revoked
-	 * mid-session.
+	 * A map Layer whose `alignments/<image-id>.json` is not there is a Project ticket 13's import
+	 * refuses — `assertReferencesPresent` says the Layer "needs it to be drawn" — so a Layer written
+	 * over a failed starter-Alignment write leaves a scholar unable to import their own export. This is
+	 * the same discipline `addAnnotationLayer` already keeps for `geojsonRef`, and there is nothing
+	 * exotic about the interruption: OPFS has a quota, and a folder Workspace can have its permission
+	 * revoked mid-session.
+	 *
+	 * **The failure is arranged before the file is picked**, because the write that can fail is now
+	 * part of adding the map rather than part of the first pair. The pyramid's own files are left
+	 * writable — only `alignments/*.json` is refused — so this is the Alignment failing and not the
+	 * ingest.
 	 */
-	test('does not create the Layer when the Alignment could not be written', async ({ page }) => {
-		const directory = await projectWithImage(page);
-		const [imageId] = await storedImageIds(page);
-		// The atomic write's temporary path carries the destination's own name, so this refuses the
-		// Alignment and nothing else — `project.json` is still perfectly writable.
-		const allowWrites = await failWritesTo(page, `.${imageId}.json.`);
+	test('does not create the Layer when the starter Alignment could not be written', async ({
+		page
+	}) => {
+		const directory = await emptyProject(page);
+		await failWritesUnderAlignments(page);
 
-		await pairAt(page, 0.3, 0.3);
-		await pairAt(page, 0.7, 0.35);
-		await pairAt(page, 0.5, 0.7);
-		await expect(page.getByText('Quota exceeded')).toBeVisible();
-		// The barrier that makes the claim below a claim rather than a race: the Historical Map is being
-		// drawn from three pairs, so all three refused writes — and anything either of them set in
-		// motion — are long done. The first pair alone is what used to create the Layer.
-		await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+		// The list of the Workspace's Historical Maps is written **last** by the add, so waiting for it
+		// is waiting for the whole gesture to be over — including the half that failed. The barrier is
+		// deliberately not the failure message: an implementation that made the Layer anyway would
+		// overwrite the message with the successful `project.json` write, and this test would then go
+		// red on the wrong line and say nothing about the Layer.
+		await addHistoricalMap(page);
 
-		// No Layer, because the Alignment it would name is not there. Read off the page, which renders
+		// No Layer, because the Alignment it would draw is not there. Read off the page, which renders
 		// the count out of the one in-memory `project.json`, and out of the file.
 		await expect(page.getByTestId('open-layers')).toHaveText('Layers (0)');
 		expect((await projectJson(page, directory)).layers).toEqual([]);
-
-		// And this is not Layer creation broken: once the disk is no longer full, the next pair produces
-		// the Layer, and it names an Alignment that is really there — a Project ticket 13 would accept.
-		await allowWrites();
-		await pairAt(page, 0.4, 0.5);
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
-		await expect(page.getByRole('status')).toHaveText('Saved');
-
-		const file = await projectJson(page, directory);
-		expect(file.layers).toHaveLength(1);
-		expect(await readProjectFile(page, '', `alignments/${file.layers[0].imageId}.json`)).toContain(
-			'Annotation'
-		);
+		// The pyramid did land — this is the Alignment write failing, not the ingest.
+		expect(await storedImageIds(page)).toHaveLength(1);
+		await expect(
+			readProjectFile(page, '', `alignments/${(await storedImageIds(page))[0]}.json`)
+		).rejects.toThrow();
+		// And the user is told, rather than being left with a Historical Map that quietly did not arrive.
+		await expect(page.getByText('Quota exceeded')).toBeVisible();
 	});
 
 	/**
 	 * Making the Layer must not throw away whatever else changed while it was being made.
 	 *
-	 * Putting the Layer in the stack read `project.json` out of memory, then `await`ed a read of the
-	 * image's `manifest.json` for the Layer's name, and then wrote the *snapshot it took before the
-	 * await* back with the Layer added. So any other change to the document inside that window was
-	 * silently discarded — and one of them is the Project name field, which sits on this very page: a
-	 * user renames their Project while their first Control Point pair is being saved, sees the field
-	 * revert to the old name, and the file on disk carries the old name too. `project.json` is the
-	 * document whose loss is "not one annotation but the map of everything" (ADR-0017 rule 4), and this
-	 * is the only place in the app that wrote it from a stale snapshot.
+	 * Putting the Layer in the stack reads `project.json` out of memory, `await`s a read of the image's
+	 * `manifest.json` for the Layer's name, and writes the document back. A version that wrote back the
+	 * *snapshot it took before the await* discarded whatever else changed inside that window — and one
+	 * of them is the Project name field, which sits on this very page: a user renames their Project
+	 * while their Historical Map is being added, sees the field revert to the old name, and the file on
+	 * disk carries the old name too. `project.json` is the document whose loss is "not one annotation
+	 * but the map of everything" (ADR-0017 rule 4).
+	 *
+	 * ──────────────────────────────────────────────────────────────────────────────────
+	 * THE BARRIER IS THE PYRAMID, AND IT USED TO BE THE HISTORICAL MAPS LIST
+	 *
+	 * The rename has to happen **inside** the window, or this test asserts nothing while claiming to
+	 * assert something. Waiting for the Historical Maps list to show one item no longer puts it inside
+	 * anything: `ingestImage` sets `this.images` *last*, deliberately, so that a map appears in the
+	 * list only once the whole add is done. By the time that row rendered the Layer was written, the
+	 * window was shut, and reverting the fix under test left this green.
+	 *
+	 * `images/<id>/info.json` is the signal that still means what the list used to mean: the tiler
+	 * writes it last, so it lands when the ingest ends and the Layer is on its way — with the
+	 * `manifest.json` read below still to come. See {@link completedPyramid}.
 	 */
 	test('making the Layer does not discard a Project rename made while it was being made', async ({
 		page
 	}) => {
-		const directory = await projectWithImage(page);
+		const directory = await emptyProject(page);
 		// Widens the window between the snapshot and the write. The window is real at any speed; this
 		// only makes it wide enough to drive on purpose.
-		await delayReadsOf(page, 'manifest.json', 1500);
+		await delayReadsOf(page, 'manifest.json', 3000);
 
-		await pairAt(page, 0.3, 0.3);
-		// Inside the window: the pair is made, its Alignment is written, and the Layer is on its way.
+		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+			name: 'la-floride.png',
+			mimeType: 'image/png',
+			buffer: gradientPng(700, 500)
+		});
+		// Inside the window: the pyramid has landed, and the Layer is on its way. Polled tightly,
+		// because everything after this has to happen before the delayed read resolves.
+		await expect
+			.poll(() => completedPyramid(page), { timeout: 30_000, intervals: [50] })
+			.not.toBeNull();
 		const name = page.getByLabel('Project name');
 		await name.fill('Amsterdam, 1625');
 		await name.blur();
 
 		// Long enough for the delayed read and the write it leads to. A fixed wait rather than a signal,
 		// because the claim is about a write that must *not* undo an earlier one.
-		await page.waitForTimeout(3000);
+		await page.waitForTimeout(5000);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		// The Layer was made, and the rename survived it — on screen and in the file.

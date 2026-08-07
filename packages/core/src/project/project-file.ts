@@ -21,6 +21,24 @@ export const PROJECT_FILE_NAME = 'project.json';
 export const projectFilePath = (directory: string): string => `${directory}/${PROJECT_FILE_NAME}`;
 
 /**
+ * The one field this build reads in order to **throw it away** (ADR-0023).
+ *
+ * It was a list of the image ids whose map Layer the user had deleted, and it existed only because
+ * an Alignment write created map Layers lazily: without a tombstone, deleting a Layer and then
+ * nudging a Control Point silently brought it back. A map Layer is now created by exactly one thing
+ * — the user adding a Historical Map to a Project — so nothing can resurrect one and the field is
+ * dead.
+ *
+ * Named here rather than left as an unknown field because "unknown" means *preserved*: `ProjectFile`
+ * exists partly to keep a field a build one commit ahead added (ADR-0010), and that tolerance would
+ * carry this tombstone in every existing `project.json` for the life of the Workspace — and rewrite
+ * it in a new position the first time the user changed anything, giving them a diff that says
+ * nothing. This is the opposite case: a field *this* build removed, whose meaning is known to be
+ * nothing.
+ */
+const REMOVED_MAP_LAYERS_KEY = 'removedMapLayers';
+
+/**
  * A parsed `project.json`.
  *
  * Everything here is display state, never portability data: an Alignment is a Georeference
@@ -57,30 +75,6 @@ export interface ProjectFile {
 	 * chosen. `resolveBaseMap` turns that into the deployment default.
 	 */
 	readonly baseMap: string | null;
-	/**
-	 * The map Layers the user has deleted, by the **image id** each one drew (ADR-0023).
-	 *
-	 * **A tombstone, and the only thing that stops a deleted map Layer coming back** (ticket 11).
-	 * Aligning a Historical Map is what puts it in the stack, and the app makes that true by ensuring
-	 * a Layer for the Alignment on *every* Alignment write — so without a record of the deletion,
-	 * nudging one Control Point after deleting the Layer creates a new one, with a fresh id, a name
-	 * read from the image's `manifest.json`, and at the top of the stack. Undo cannot help with that:
-	 * nothing was undone, a Layer was legitimately created.
-	 *
-	 * The idempotence key therefore cannot be "does a Layer for this image exist", and it has to
-	 * **survive a reload**, because the write that would resurrect the Layer can happen in a later
-	 * session. It lives here because `project.json` is the document `EditorSession` already owns and
-	 * writes atomically (ADR-0017 rule 4); a file of its own would be a second writer of the same
-	 * fact.
-	 *
-	 * Undoing the deletion lifts the tombstone along with putting the Layer back, so the two can
-	 * never both be true.
-	 *
-	 * Written only when there is something in it, so a Project nobody has deleted a Layer from
-	 * serialises exactly as it did before this field existed — which is what keeps ADR-0010's
-	 * "opening last year's work modifies no byte" true across the change.
-	 */
-	readonly removedMapLayers: readonly string[];
 	/**
 	 * The address this Project's Historical Maps have been stamped for, or `null` (ADR-0004).
 	 *
@@ -167,18 +161,22 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		throw new ProjectFileUnreadableError('the file does not contain a JSON object');
 	}
 
-	const {
-		formatVersion,
-		name,
-		updatedAt,
-		layers,
-		removedMapLayers,
-		canonicalUrl,
-		...unknownFields
-	} = raw as Record<string, unknown>;
+	const { formatVersion, name, updatedAt, layers, canonicalUrl, ...unknownFields } = raw as Record<
+		string,
+		unknown
+	>;
 	// Removed by the same key `readBaseMapId` reads it under, so the field cannot be recognised in
 	// one place and treated as unknown in the other.
 	delete unknownFields[PROJECT_BASE_MAP_KEY];
+	// **Dropped, not carried** (ADR-0023). `removedMapLayers` was a tombstone list that existed only
+	// because an Alignment write created map Layers lazily; a Layer is now created by exactly one
+	// thing — the user adding a Historical Map to a Project — so the field means nothing to any build
+	// that can read this one. Left in `unknownFields` it would be *preserved* by
+	// `serialiseProjectFile` for the life of the Workspace, and preserved in a new position, so every
+	// Project written by the previous build would gain a spurious diff on its first edit and keep a
+	// dead field for ever. Reading a file that has it must still work, which is why this is a delete
+	// here rather than a refusal: the value is ignored, the Project opens.
+	delete unknownFields[REMOVED_MAP_LAYERS_KEY];
 
 	if (typeof formatVersion !== 'number' || !Number.isInteger(formatVersion)) {
 		throw new ProjectFileUnreadableError('formatVersion is missing or is not an integer');
@@ -198,12 +196,6 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		// "what did the author choose?". Two of them disagreeing meant `"baseMap": "  "` behaved
 		// differently depending on which code path reached the file.
 		baseMap: readBaseMapId(raw),
-		// Tolerant in the same direction as `parseLayers`: anything that is not a list of strings reads
-		// as no tombstones at all. The cost of losing one is a Layer that comes back; the cost of
-		// throwing here is a Project that cannot be opened.
-		removedMapLayers: Array.isArray(removedMapLayers)
-			? removedMapLayers.filter((id): id is string => typeof id === 'string' && id !== '')
-			: [],
 		// Anything that is not a usable address reads as unstamped rather than as an error, which is
 		// the same tolerance every other field here gets: a `project.json` is a document somebody
 		// else's build may have written, and one bad field must not make a Project unopenable.
@@ -218,16 +210,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
  * produces diffs a human can read and every write of an unchanged Project is byte-identical.
  */
 export function serialiseProjectFile(file: ProjectFile): Bytes {
-	const {
-		unknownFields,
-		formatVersion,
-		name,
-		updatedAt,
-		layers,
-		baseMap,
-		removedMapLayers,
-		canonicalUrl
-	} = file;
+	const { unknownFields, formatVersion, name, updatedAt, layers, baseMap, canonicalUrl } = file;
 	const json = JSON.stringify(
 		{
 			formatVersion,
@@ -235,9 +218,6 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			updatedAt,
 			layers: serialiseLayers(layers),
 			baseMap,
-			// Omitted when empty, which is the common case: a Project nobody has deleted a Layer from
-			// writes exactly the bytes it wrote before this field existed.
-			...(removedMapLayers.length === 0 ? {} : { removedMapLayers: [...removedMapLayers] }),
 			// Omitted entirely when there is none, rather than written as `null`. An unstamped Project's
 			// bytes are then exactly what they were before this field existed — which is what keeps the
 			// byte-identity assertions across reorder, rename, toggle, and opacity true, and keeps a
@@ -259,7 +239,6 @@ export function newProjectFile(name: string, updatedAt: Date): ProjectFile {
 		updatedAt: updatedAt.toISOString(),
 		layers: [],
 		baseMap: null,
-		removedMapLayers: [],
 		canonicalUrl: null,
 		unknownFields: {}
 	};

@@ -72,3 +72,91 @@ For each criterion above, break the behaviour and confirm the test goes red befo
 ## Blocked by
 
 - Ticket 01
+
+## Implementation notes
+
+Ten things worth knowing. One is a deviation from an acceptance criterion as literally written — the
+`removedMapLayers` grep, fourth from last.
+
+**The list of the Workspace's Historical Maps is now refreshed *after* the Layer is written, not
+before.** `ingestImage` used to set `images` the moment the pyramid was complete; the add now has a
+second half — the starter Alignment and the Layer — and listing the map before that half finished made
+it look added while the file input beside it was still disabled. Picking a second file inside that
+window did nothing at all, silently, which is what `editor-stored-image-pane.e2e.ts`'s two-image test
+caught.
+
+**`#writeInitialAlignment` is the only thing that writes `alignments/<image-id>.json` on the add
+path**, and it never writes over an Alignment somebody has worked on. A remote resource's image id is
+`generateId(uri)`, so the same map re-added — or added by a *second Project* — lands on the same id,
+and ADR-0023 made that file the Workspace's rather than the Project's; an unconditional write is
+therefore not "overwrite the file I just made" but "silently delete a Project I am not looking at".
+`#existingAlignment` answers `'worked on'` for any read failure that is not `PathNotFoundError`,
+which is the safe direction of that trade.
+
+**The offer wins only when there is nothing to lose.** A community Alignment the user chose is
+written when there is no file at all, or when the file is still byte-identical to the starter this
+build writes — nothing has happened to it, so replacing it discards nothing. Otherwise the existing
+Alignment is kept and `AddRemoteMap` says so, in terms that name the reason: the Layer was added, the
+import did not happen, and a Historical Map has one Alignment shared by every Project that draws it.
+Byte-identity rather than `controlPoints.length === 0`, because the Resource Mask is editable without
+placing a Control Point and a count would read a cropped sheet as untouched.
+
+**Pre-existing broken Projects are repaired by re-adding the map, and deliberately not on open.** A
+Project written before the starter Alignment existed can hold a map Layer with no
+`alignments/<id>.json`, which `assertReferencesPresent` refuses by name — un-exportable and
+un-publishable. Repairing it when the Project is *opened* was considered and rejected: ADR-0010
+forbids writing when merely opening a Project, and ADR-0023 says the same thing again about
+migrations, so a repair-on-open would be this epic breaking one of its own ADRs to fix a state that
+exists only in development checkouts (nothing is deployed and no Workspace exists outside them).
+Instead the Alignment is settled **before** `#addMapLayer` returns early on "this Project already
+draws that map", so the obvious gesture — add the map again — writes the missing file. Covered by
+`re-adding a map repairs a Project whose Alignment went missing`, which goes red on its own when that
+early return is moved back above the Alignment write.
+
+**"Not aligned" overrides what the warped renderer reports, rather than being merged with it.** A map
+Layer with one Control Point of three now *has* an Alignment, so it is a Layer the renderer could be
+handed, and it would refuse it with a count of its own — "2 more Control Points and this Layer will be
+drawn". Taking that answer would mean a hidden Layer and a visible one saying different things about
+the same unplaced map, so the Layers route computes one sentence from `canSolve` for every map Layer
+and does not hand an unaligned one to the map at all. The renderer's shortfall message is still what
+the *alignment workspace* shows, where it is about the map in front of you.
+
+**The Layers route reads every map Layer's Alignment, including hidden ones — but still not on a
+rename or an opacity drag.** `documentKey` is computed from a new `withDocuments` list (every map Layer,
+plus the visible Annotation Layers) instead of from `shown`. A map Layer's visibility is deliberately
+*not* in the key: its Alignment is read either way, so ticking one costs no read. A hidden Annotation
+Layer is still not read, because nothing asks a question of its file that the stack does not.
+
+**`removedMapLayers` is dropped on parse, not merely absent from the model, and that costs the
+acceptance grep its literal reading.** Removing the field from `ProjectFile` leaves the key in
+`unknownFields`, which `serialiseProjectFile` spreads — so every existing `project.json` would carry
+the dead tombstone for the life of the Workspace and gain a spurious diff, moving it after
+`canonicalUrl`, on the first edit. `parseProjectFile` therefore deletes it by name, the way it already
+deletes the Base Map key, and the name survives in exactly two places: the
+`REMOVED_MAP_LAYERS_KEY` constant that does the deleting, and the tests that prove both halves (a file
+containing it opens; a file containing it does not re-serialise it). The criterion's grep over
+`packages/*/src` and `apps/*/src` therefore reports those two matches rather than none. Read as
+written it is unsatisfiable together with "the parser must not carry the field forward"; read as
+intended — no `removedMapLayers` **field**, no `#ensureMapLayer`, no `#placingMapLayers` — it holds,
+and `ensureMapLayer` and `placingMapLayers` have no matches at all.
+
+**Ticket 18 still has work here, and this is not it.** Ticket 18 asks for *one* writer of
+`alignments/<id>.json` across the whole application, with a create / update / replace vocabulary
+every caller must choose from and a fence that keeps it true. What is done here is the narrower
+thing ticket 02's review named and ticket 18's criterion 1 also states — the add path can no longer
+destroy Control Points, and says so when it declines. `#writeInitialAlignment` is the single writer
+*on the add path* only: `writeAlignment` still writes the same file for a Control Point edit, ticket
+03's `ensureMapLayerFor` is untouched, there is no fence, and a Georeference Annotation's unmodelled
+fields are still dropped by `serialiseAlignment` on a round trip. Ticket 18 owns all four.
+
+**Two tests in the full suite fail under four workers and pass in isolation, and both are ticket
+17's by name.** `editor-transfer` "says so when an export fails" (the Export button detaches
+mid-click) failed in all three full runs; `editor-workspace`'s `saved → saving → saved` and
+`viewer-reader:1283` failed once each. Ticket 17 lists exactly these as the known, pre-existing
+flakes it is opened to measure and fix. Both files are byte-identical to `main` here, neither
+touches a map Layer or an Alignment, and each passes at `--workers=1` on its own file. Nothing in
+this change is upstream of any of them.
+
+**Ports are no longer a hazard.** `playwright.config.ts` now derives its pair from the checkout path,
+so each worktree gets its own and a run cannot drive a sibling branch's build. The full suite below
+was run with it unmodified.

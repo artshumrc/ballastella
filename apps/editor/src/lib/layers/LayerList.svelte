@@ -187,8 +187,8 @@
 
 	{#if layers.length === 0}
 		<p class="max-w-prose">
-			No Layers yet. Aligning a Historical Map puts it here, and an Annotation Layer can be added
-			whenever you have something to say over it.
+			No Layers yet. Adding a Historical Map to this Project puts it here straight away, aligned or
+			not, and an Annotation Layer can be added whenever you have something to say over it.
 		</p>
 	{:else}
 		<!--
