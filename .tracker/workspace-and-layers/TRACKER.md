@@ -45,8 +45,11 @@ Last updated: 2026-08-06
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Not Started | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Not Started | 02, 03, 09 | — |
+| 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Not Started | 02, 03 | 60 |
 
-**16 and 17 were added during implementation, not planning.** Neither delivers a user story; both are debt the epic's own reviews surfaced. 16 is a rename the ubiquitous language already mandates and the code never did. 17 is the e2e suite, which flakes at roughly one run in three and therefore cannot be trusted to catch the races this epic keeps finding. Both wait on the parallel tickets merging, because both touch nearly every file those tickets touch.
+**16, 17 and 18 were added during implementation, not planning.** They are debt the epic's own reviews surfaced. 16 is a rename the ubiquitous language already mandates and the code never did. 17 is the e2e suite, which flakes at roughly one run in three and therefore cannot be trusted to catch the races this epic keeps finding.
+
+**18 is the important one.** ADR-0023 made an Alignment shared by every Project that uses its map, and nothing was changed to reflect what that means for a *write*. Tickets 02 and 03 then **independently invented the same blind overwrite**, and in ticket 02's case the correct guard sits two lines from the hole. Two authors reaching for the same mistake is a missing invariant, not two lapses, and the failure mode is ticket 01's: no error, no log, just a colleague's Control Points quietly gone. Each branch fixes its own instance; 18 makes a third impossible.
 
 **Stories 111–114 are deliberately absent from the table.** Visible text rather than tooltips, screen-reader announcement of what the map does, no silent service-worker activation, and the refusal of a newer `formatVersion` are **cross-cutting constraints inside every ticket that adds UI**, the same treatment v1 gave accessibility. Attributing them to one ticket would be misleading in both directions. Story 96 — publishing from one place — is already built and only has to keep working; several tickets assert that it does.
 
