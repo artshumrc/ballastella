@@ -11,7 +11,12 @@ node_modules
 /apps/editor/static/viewer-bundle
 
 # Test output
-/test-results
+#
+# Unanchored, because these are not only written at the root: Vitest's browser project writes
+# `test-results/` into `packages/core/` when it runs, and the root-anchored form left that showing up
+# as untracked. A leading slash here would be a rule that is right about the directory it was written
+# for and silently wrong everywhere else.
+test-results/
 /playwright-report
 /blob-report
 /playwright/.cache

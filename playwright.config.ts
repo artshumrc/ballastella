@@ -89,6 +89,19 @@ export default defineConfig({
 	// implementer, who must re-run and often bisect against the merge-base to show a failure is not
 	// theirs. `pnpm flake:check` exists so that costs one command. Ticket 17 owns the real fix and
 	// should start from the numbers above rather than re-deriving them.
+	//
+	// **Eight workers measured 19% faster (360s against 444s) and four is still the right number.**
+	// Recorded so the measurement does not read as an argument for raising it. This repository is
+	// worked by several agents at once on one machine, so a run does not have the box to itself; a
+	// per-run figure taken in isolation is not the figure that matters, and eight workers each would
+	// oversubscribe the cores and make every concurrent run slower and flakier. Four is a deliberate
+	// share of a shared machine. Raise it only for a checkout that genuinely runs alone.
+	//
+	// Note also what the 19% says about the ceiling: doubling the workers bought a fifth, so the
+	// suite is already close to what this CPU can do. Real speed is not in this number — it is in
+	// not asking Playwright for work that belongs one seam down. A Vitest browser test costs ~12ms
+	// against ~4.6s here, because it exercises a module rather than booting the built app and
+	// software-rasterising MapLibre. Moving forty tests down beats any worker count.
 	workers: 4,
 	retries: process.env.CI ? 1 : 0,
 	reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
