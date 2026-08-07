@@ -8,9 +8,11 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Merged to `main`: 01, 02, 03, 08, 09, 10, 18. In flight: 04 and 11.
+Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 18. In flight: 11 (implemented, in review).
 
-**Next up, once 04 and 11 merge:** 05 and 12 unblock behind 04; 19 unblocks behind 11. 16 and 17 are already unblocked but were held until 04 lands, because 16 is a repo-wide rename and 17 rewrites the e2e suite — either would have collided with 04's restructuring of the Project screen across the same files.
+**Unblocked now that 04 has landed:** 05, 12, 16 and 17. 19 unblocks once 11 merges. 16 and 17 were held until 04 because 16 is a repo-wide rename and 17 rewrites the e2e suite; either would have collided with 04's restructuring of the Project screen across the same files.
+
+**11 was written before 04 and puts its offline control on `/layers` and `ProjectView`, both of which 04 deleted.** Porting it onto `ProjectScreen.svelte` and the `mapActions` snippet in `LayerList` is real integration work, not a textual conflict, and it belongs to whoever merges 11.
 
 **Pull 17 forward.** The e2e flake is no longer a background annoyance: it cost three separate implementers a clean full-suite run in a single session, and one of them saw a *different* failing pair on each of two consecutive runs. A suite that rotates its failures under parallel load cannot be trusted to catch the races this epic keeps finding, and every ticket after it pays the same tax.
 
@@ -44,7 +46,7 @@ Every Alignment write now goes through `alignment/alignment-file.ts` and names w
 | 01 | [01-historical-maps-move-to-the-workspace.md](./tickets/01-historical-maps-move-to-the-workspace.md) | Completed | — | 61, 62, 66, 67 |
 | 02 | [02-a-layer-is-created-when-a-map-is-added.md](./tickets/02-a-layer-is-created-when-a-map-is-added.md) | Completed | 01 | 18, 34, 35, 68 |
 | 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | Completed | 01 | 37, 38, 41–55, 57–60 |
-| 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | In Review | 03 | 1, 2, 3, 10–13, 109, 110 |
+| 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Completed | 03 | 1, 2, 3, 10–13, 109, 110 |
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Not Started | 02, 04 | 14–17, 20 |
 | 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Not Started | 02, 05 | 21–30, 33, 36, 106 |
 | 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Not Started | 06 | 31, 32, 39, 40, 56, 80, 81 |
