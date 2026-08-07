@@ -8,29 +8,32 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Current ticket: none. 01, 02, 03, 08, 09, 10 and 18 are merged to `main`. Four tickets are unblocked: 04 (critical path), 11, 16 and 17. 12 needs 04; 05 needs 04 and 02.
+Merged to `main`: 01, 02, 03, 08, 09, 10, 18. In flight: 04 and 11.
 
-**18 closed the epic's one missing invariant, and its shape is worth reusing — with the limits stated.** An Alignment shared by every Project had no single writer, and tickets 02 and 03 independently wrote the same blind overwrite; a third existence check, spelled differently again, turned up in the Project-zip importer during 18's own review. Every write now goes through `alignment/alignment-file.ts` and names which of create / update / replace it means. Two layers keep it that way: `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write`, `Autosave.commit` and `Autosave.queue` refuse, and `scripts/check-alignment-writers.mjs` covers the spellings a type cannot see — the literal written by hand, the path laundered through a local, a detached write method, a second cast.
+**Next up, once 04 and 11 merge:** 05 and 12 unblock behind 04; 19 unblocks behind 11. 16 and 17 are already unblocked but were held until 04 lands, because 16 is a repo-wide rename and 17 rewrites the e2e suite — either would have collided with 04's restructuring of the Project screen across the same files.
 
-**What that shape does not buy, because 18's first cut claimed it did.** The brand refuses values that came out of `alignmentPath()` and nothing more: `WritablePath` brands with an *optional* property so ordinary string paths stay assignable, so one `const` holding a template literal launders a path past the compiler. Three live escapes survived the first cut — `Autosave.queue` was never narrowed, the local-variable spelling defeated the fence, and the importer still wrote blind — and all three were found by review rather than by anything failing. **Any future "one writer of one file" rule should copy the two layers and copy the honesty: write the escape out, watch it pass, then close it.** 18 carries a `@ts-expect-error` pair so removing the brand fails the build, which is the piece the first cut lacked.
-
-**A gap 18 deliberately did not close**, for whoever writes the conflict story: nothing detects a concurrent edit. `update` writes over whatever is there, so a colleague's change arriving through a synced Workspace between read and write is lost. ADR-0023 already accepts this — the mitigation is visibility, not prevention — and it is stated in `alignment-file.ts` rather than implied to be covered.
-
-19 is queued behind 11, which is live in `service-worker.ts` — the file 19 rewrites.
-
-**16 and 17 are deliberately held until 04 lands.** 16 is a repo-wide rename and 17 rewrites the e2e suite; either would conflict with 04's restructuring of the Project screen across the same files. Sequencing them after 04 is cheaper than merging them into it.
-
-This epic follows [`ballastella-v1`](../ballastella-v1/TRACKER.md), whose implementation is complete and merged. Two things carry across and should be read before any ticket is written:
-
-- **Four of v1's open questions are closed by this epic**, three of them by deletion rather than by answer — the Layer tombstone, `fflate`'s entry ceiling, ADR-0005's `terra-draw` mandate, and ADR-0013's unwritable `polynomial1` literal. The rest remain v1's and are untouched here; ADR-0025's build-fence pattern is a useful precedent for the canonical-URL question, which is the same shape.
-- **v1's finding about green tickets holds and should be assumed to hold again.** Every reviewed v1 ticket yielded substantive defects after its implementer reported all criteria passing, including data loss in three tickets and three criteria passing *vacuously* — delete the code under test, tests stay green. The mutation check is therefore mandatory in this epic rather than advisory: break the behaviour, confirm the test goes red.
-
-Two sequencing notes for whoever breaks this into tickets:
-
-- **The rooting of `createStoreImageFetch` is the riskiest change in the epic** and should land early, alone, and behind the new lint fence. It is the ADR-0011 injection shim resolving the ADR-0004 placeholder, which v1's SPEC calls the most fragile invariant in the project, and its failure mode is a plausible pane of the wrong map rather than an error.
-- **Two claims in the spec rest on documentation, not measurement**, and no ticket may commit to them unverified: `modern-tar`'s streaming and PAX behaviour, and the tile counts and byte totals for a realistic Project extent. The tar claim carries more weight — ADR-0024 justifies the entire format change on it.
+**Pull 17 forward.** The e2e flake is no longer a background annoyance: it cost three separate implementers a clean full-suite run in a single session, and one of them saw a *different* failing pair on each of two consecutive runs. A suite that rotates its failures under parallel load cannot be trusted to catch the races this epic keeps finding, and every ticket after it pays the same tax.
 
 Last updated: 2026-08-07
+
+## Standing constraints
+
+These apply to every remaining ticket. They are not advice.
+
+- **The mutation check is mandatory, not advisory.** Break the behaviour, confirm the test goes red, restore. Every reviewed ticket in v1 *and* in this epic has yielded substantive defects after its implementer reported all criteria passing — including criteria passing **vacuously**, where the code under test can be deleted and the test stays green. Assume your own green report is wrong until you have watched each assertion fail.
+- **Stories 111–114 are cross-cutting and deliberately absent from the ledger.** Visible text rather than tooltips, screen-reader announcement of what the map does, no silent service-worker activation, and refusal of a newer `formatVersion` belong inside every ticket that adds UI, the same treatment v1 gave accessibility. Attributing them to one ticket would be misleading in both directions.
+- **Story 96 — publishing from one place — is already built and only has to keep working.** Several tickets assert that it does.
+- **Two spec claims rest on documentation rather than measurement, and no ticket may commit to them unverified:** `modern-tar`'s streaming and PAX behaviour, and the tile counts and byte totals for a realistic Project extent. The tar claim carries more weight — ADR-0024 justifies the entire format change on it.
+
+## What 18 established, and what it does not cover
+
+Worth reading before writing any other "one writer of one file" rule; tickets 13 and 14 will need it.
+
+Every Alignment write now goes through `alignment/alignment-file.ts` and names which of create / update / replace it means. Two layers hold that: `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write`, `Autosave.commit` and `Autosave.queue` refuse, and `scripts/check-alignment-writers.mjs` covers the spellings a type cannot see — the hand-written literal, a path laundered through a local, a detached write method, a second cast. A `@ts-expect-error` pair makes removing the brand fail the build.
+
+**Copy the two layers, and copy the honesty.** 18's first cut claimed the blind write was inexpressible and it was not: `Autosave.queue` was never narrowed, the local-variable spelling walked past the fence, and a third existence check sat unnoticed in the Project-zip importer. All three were found by review, not by anything failing. The brand's real limit is now stated rather than claimed away — `WritablePath` brands with an *optional* property so ordinary paths stay assignable without casts, which means a path the compiler sees as a plain `string` is accepted. Write the escape out, watch it pass, then close it.
+
+**One gap 18 deliberately left open, for whoever writes the conflict story:** nothing detects a concurrent edit. `update` writes over whatever is there, so a colleague's change arriving through a synced Workspace between read and write is lost. ADR-0023 accepts this — the mitigation is visibility, not prevention — and `alignment-file.ts` says so rather than implying coverage.
 
 ## Ledger
 
@@ -41,14 +44,14 @@ Last updated: 2026-08-07
 | 01 | [01-historical-maps-move-to-the-workspace.md](./tickets/01-historical-maps-move-to-the-workspace.md) | Completed | — | 61, 62, 66, 67 |
 | 02 | [02-a-layer-is-created-when-a-map-is-added.md](./tickets/02-a-layer-is-created-when-a-map-is-added.md) | Completed | 01 | 18, 34, 35, 68 |
 | 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | Completed | 01 | 37, 38, 41–55, 57–60 |
-| 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Not Started | 03 | 1, 2, 3, 10–13, 109, 110 |
+| 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | In Review | 03 | 1, 2, 3, 10–13, 109, 110 |
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Not Started | 02, 04 | 14–17, 20 |
 | 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Not Started | 02, 05 | 21–30, 33, 36, 106 |
 | 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Not Started | 06 | 31, 32, 39, 40, 56, 80, 81 |
 | 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
-| 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Not Started | 08, 10 | 6, 69–73, 75–79, 97, 99 |
+| 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | In Progress | 08, 10 | 6, 69–73, 75–79, 97, 99 |
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Not Started | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Not Started | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Not Started | 13 | 89–95 |
@@ -58,23 +61,10 @@ Last updated: 2026-08-07
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
 | 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Not Started | 11 | — |
 
-**19 was added on a human decision, 2026-08-07: libvips is not needed for v1.** It is not debt the reviews
-surfaced but a scope reduction, and it is almost entirely deletion, because the path it removes cannot
-execute. `libvipsUnavailableReason()` refuses without `crossOriginIsolated`, `ingest.ts` consults it before
-opening the tiler, and nothing in this repo sends COOP/COEP — nor can GitHub Pages (ADR-0006). So 10.25 MB
-of the 18 MB editor build, a 253-line fence script, two CI steps, ~610 lines of tiler and test code, and an
-LGPLv3 notice with an unfinished open item all guard code that is dead in every environment. Dropping it
-also *raises* the ingest limit, from a 268 MP routing number to the measured 528 MP decode ceiling, and
-closes v1 ticket 05's open question and ticket 15's `[~]` criterion.
-
-**16, 17 and 18 were added during implementation, not planning.** They are debt the epic's own reviews surfaced. 16 is a rename the ubiquitous language already mandates and the code never did. 17 is the e2e suite, which flakes at roughly one run in three and therefore cannot be trusted to catch the races this epic keeps finding.
-
-**18 is the important one.** ADR-0023 made an Alignment shared by every Project that uses its map, and nothing was changed to reflect what that means for a *write*. Tickets 02 and 03 then **independently invented the same blind overwrite**, and in ticket 02's case the correct guard sits two lines from the hole. Two authors reaching for the same mistake is a missing invariant, not two lapses, and the failure mode is ticket 01's: no error, no log, just a colleague's Control Points quietly gone. Each branch fixes its own instance; 18 makes a third impossible.
-
-**Stories 111–114 are deliberately absent from the table.** Visible text rather than tooltips, screen-reader announcement of what the map does, no silent service-worker activation, and the refusal of a newer `formatVersion` are **cross-cutting constraints inside every ticket that adds UI**, the same treatment v1 gave accessibility. Attributing them to one ticket would be misleading in both directions. Story 96 — publishing from one place — is already built and only has to keep working; several tickets assert that it does.
+**16, 17 and 19 were added after planning.** 16 and 17 are debt the epic's own reviews surfaced: 16 is a rename the ubiquitous language already mandates and the code never did, and 17 is the e2e suite. 19 is a scope reduction on a human decision — libvips is not needed for v1, and the path it removes cannot execute on this deployment target, so it is almost entirely deletion. Its reasoning and measurements are in the ticket; it also closes v1 ticket 05's open question and ticket 15's `[~]` criterion, both of which have been waiting on that decision.
 
 ## Critical path
 
-01 → 03 → 04 → 05 → 06 → 07 → 15 is the long chain, seven deep. Three tickets hang off 01 directly and can run beside it once it lands: 02, 08, and 09. The Base Map pair (10, 11) and the transfer pair (13, 14) are each two-deep tails that join late.
+**04 → 05 → 06 → 07 → 15 is what remains of the long chain**, five deep, and 04 is in flight. Everything else is a short tail: 12 hangs off 04, the transfer pair 13 → 14 hangs off 12, and 19 hangs off 11.
 
-**Ticket 01 gates almost everything and is the largest and riskiest of the fifteen.** It relocates `images/` and `alignments/` to the Workspace root, reshapes `MapLayer`, deletes `imageMode` and the half-committed-copy repair path, and roots `createStoreImageFetch` at the Workspace — the ADR-0011 shim whose failure mode is a pane showing the *wrong map* rather than an error. It was deliberately not split: the blast radius is dozens of call sites rather than thousands, so expand–contract would cost more than it saved, and nothing is deployed so the tests move with it. It is nonetheless the ticket most likely to exceed a single context window, and the new lint fence it adds is what protects every later ticket from silently reintroducing a Project-rooted path.
+The two tickets most likely to hurt are **06** (three sources for adding a Historical Map, fulfilling thirteen stories) and **13** (the tar format, whose justification in ADR-0024 rests on an unverified claim — see Standing constraints). 05 and 06 both carve down `ProjectScreen.svelte`, which 04 leaves large and coherent-under-instruction at ~1400 lines; the ticket forbade rewriting the state layer, so that carving is deliberately theirs.
