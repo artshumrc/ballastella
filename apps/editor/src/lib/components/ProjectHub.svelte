@@ -3,6 +3,7 @@
 	import {
 		describeBytes,
 		toDirectoryName,
+		unusedHistoricalMaps,
 		type ProjectSummary,
 		type WorkspaceHistoricalMap
 	} from '@ballastella/core';
@@ -164,39 +165,69 @@
 	const historicalMapsBytes = $derived(
 		session.historicalMaps.reduce((sum, map) => sum + map.bytes, 0)
 	);
-	const unusedHistoricalMaps = $derived(
-		session.historicalMaps.filter((map) => map.usedBy.length === 0)
-	);
-	const unusedBytes = $derived(unusedHistoricalMaps.reduce((sum, map) => sum + map.bytes, 0));
+	// Core's figure, not a second one derived here. This is the sentence the ticket exists for — "of
+	// which 340 MB is used by no Project" — and publishing's hosting warning states the same number
+	// from `unusedHistoricalMapBytes`; two reductions spelling it out separately is how one screen ends
+	// up quoting two totals for one Workspace.
+	const unused = $derived(unusedHistoricalMaps(session.historicalMaps));
 
 	/** Where a map's tiles are, in the words the list uses. Visible text, never a colour or a title. */
 	const whereTilesAre = (map: WorkspaceHistoricalMap): string =>
 		map.tiles === 'in-workspace'
 			? 'Tiles in this Workspace'
-			: `Tiles on ${map.host || 'a Library’s server'}`;
+			: `Tiles on ${map.library || 'a Library’s server'}`;
 
-	/** Which Projects draw a map, and plainly when none do (SPEC story 63). */
-	const usedBy = (map: WorkspaceHistoricalMap): string =>
-		map.usedBy.length === 0
-			? 'No Project uses this map.'
-			: `Used by ${map.usedBy.map((project) => project.name).join(', ')}.`;
+	/** How many files a map is, beside what it weighs: 3 files and 31 000 files are different news. */
+	const fileCount = (map: WorkspaceHistoricalMap): string =>
+		`${map.files} ${map.files === 1 ? 'file' : 'files'}`;
+
+	/**
+	 * Which Projects draw a map, and plainly when none do (SPEC story 63).
+	 *
+	 * A Project this build cannot read is named separately and in its own words. It is not folded into
+	 * "used by", which would claim something unknown, and it is emphatically not left out — a map whose
+	 * only user is a Project from next year's build must not be described as one nothing uses.
+	 */
+	const usedBy = (map: WorkspaceHistoricalMap): string => {
+		const unreadable = map.mightBeUsedBy.map((project) => project.name).join(', ');
+		const caveat = unreadable
+			? ` ${map.mightBeUsedBy.length === 1 ? 'It' : 'They'} may also be drawn by ${unreadable}, made with a newer version of Ballastella, which this one cannot read.`
+			: '';
+		if (map.usedBy.length > 0) {
+			return `Used by ${map.usedBy.map((project) => project.name).join(', ')}.${caveat}`;
+		}
+		return unreadable
+			? `No Project this version can read uses this map. It may be drawn by ${unreadable}, made with a newer version of Ballastella.`
+			: 'No Project uses this map.';
+	};
 
 	/**
 	 * Ask to delete a map.
 	 *
-	 * A map a Project draws goes straight to core, which refuses it and writes the sentence naming the
-	 * Projects — **no confirmation dialog**, because a dialog asking "are you sure?" about something
-	 * that is not going to happen is a lie, and because one click that destroys three arguments is not a
-	 * click this application has. Only a map nothing draws reaches the confirmation.
+	 * **Always through the confirmation, whatever the list says**, because deletion is destructive and
+	 * irreversible and the list is a moment old. Sending an apparently-used map straight to core on the
+	 * assumption it would be refused meant that a list which had gone stale — the last Project drawing
+	 * that map deleted in another tab — deleted a pyramid on a single click, with no dialog at all: the
+	 * confirmation was skipped in exactly the case where it was doing the work.
+	 *
+	 * Whether it is in use is still core's decision, taken from the Projects' own documents at the
+	 * moment of the deletion, so what the dialog says about the Projects is the list's account and what
+	 * happens next is the Workspace's.
 	 */
-	const askToDelete = async (map: WorkspaceHistoricalMap) => {
+	const askToDelete = (map: WorkspaceHistoricalMap) => {
 		historicalMapMessage = '';
-		if (map.usedBy.length > 0) {
-			await session.deleteHistoricalMap(map.imageId);
-			return;
-		}
+		session.dismissHistoricalMapError();
 		deletingMap = map;
 	};
+
+	/** The Projects the list believes draw the map being confirmed, in one sentence, or `''`. */
+	const drawnByNow = $derived.by(() => {
+		if (!deletingMap) return '';
+		const names = [...deletingMap.usedBy, ...deletingMap.mightBeUsedBy].map(
+			(project) => project.name
+		);
+		return names.join(', ');
+	});
 
 	const removeMap = async () => {
 		const map = deletingMap;
@@ -364,8 +395,15 @@
 		</p>
 
 		<!-- Always rendered, empty when there is nothing to say: an `aria-live` region inserted at the
-		     same moment as its first text is not reliably announced. -->
-		<p role="status" class="mt-2 text-sm opacity-80" data-testid="historical-map-status">
+		     same moment as its first text is not reliably announced.
+
+		     `aria-live="polite"` and not `role="status"`, which is this app's settled convention wherever
+		     a page already has one status region — the transfer line above owns it here, exactly as the
+		     save indicator owns it inside a Project (`LayerList`, `AlignmentWorkspace`, `PublishDialog`,
+		     and `UndoControl` all say so). A second `role="status"` makes `getByRole('status')` a strict
+		     mode violation, which is what pushed two existing tests off the role and onto attribute
+		     locators that stay green with the live region deleted. -->
+		<p aria-live="polite" class="mt-2 text-sm opacity-80" data-testid="historical-map-status">
 			{historicalMapMessage}
 		</p>
 
@@ -395,7 +433,7 @@
 								<!-- Visible text rather than a tooltip or a badge colour (SPEC story 111): where
 								     the tiles are is the fact that decides whether this map works on a train. -->
 								<p class="text-sm opacity-70">
-									{describeBytes(map.bytes)} · {whereTilesAre(map)} · folder
+									{describeBytes(map.bytes)} in {fileCount(map)} · {whereTilesAre(map)} · folder
 									<code>{map.imageId}</code>
 								</p>
 								<p class="text-sm opacity-70" data-testid="used-by">{usedBy(map)}</p>
@@ -413,8 +451,8 @@
 				{session.historicalMaps.length}
 				{session.historicalMaps.length === 1 ? 'Historical Map' : 'Historical Maps'}, {describeBytes(
 					historicalMapsBytes
-				)} in all{unusedHistoricalMaps.length > 0
-					? `, of which ${describeBytes(unusedBytes)} is used by no Project`
+				)} in all{unused.maps.length > 0
+					? `, of which ${describeBytes(unused.bytes)} is used by no Project`
 					: ''}.
 			</p>
 		{/if}
@@ -430,8 +468,19 @@
 		{describeBytes(deletingMap?.bytes ?? 0)}? Its tiles, the record of where it came from, and the
 		Alignment placing it on the earth all go with it. This cannot be undone.
 	</p>
-	<p class="mt-3 text-sm opacity-70">
-		No Project draws this map, so nothing on screen will change.
+	<!-- What the list believes, said as a belief. The decision is taken again from the Projects' own
+	     documents when this is confirmed, so a map still in use is refused here rather than deleted —
+	     and a map the list thinks is in use, whose last Project has since gone, is deleted having been
+	     confirmed rather than on one unguarded click. -->
+	<p class="mt-3 text-sm opacity-70" data-testid="delete-map-consequence">
+		{#if drawnByNow}
+			{drawnByNow} still {deletingMap &&
+			deletingMap.usedBy.length + deletingMap.mightBeUsedBy.length === 1
+				? 'draws'
+				: 'draw'} this map, so deleting it will be refused rather than leaving a Layer that draws nothing.
+		{:else}
+			No Project draws this map, so nothing on screen will change.
+		{/if}
 	</p>
 	{#snippet actions()}
 		<button class="btn" onclick={() => (deletingMap = null)}>Cancel</button>
@@ -549,9 +598,16 @@
 	bind:open={() => deleting !== null, (open) => !open && (deleting = null)}
 	title="Delete Project"
 >
+	<!-- ADR-0023: a Historical Map's pyramid and its Alignment belong to the **Workspace** and are
+	     shared, so deleting a Project never deletes them. This said the opposite, a few lines above a
+	     list that says so plainly. Wording only — what `deleteProject` removes is unchanged. -->
 	<p>
-		Delete <strong>{deleting?.name}</strong> and everything in it? Its Historical Maps, Alignments, and
-		Annotations go with it. This cannot be undone.
+		Delete <strong>{deleting?.name}</strong> and everything in it? Its Layers and Annotations go with
+		it. This cannot be undone.
+	</p>
+	<p class="mt-3 text-sm opacity-70">
+		The Historical Maps it drew stay in the Workspace, with their Alignments, because other Projects
+		may use them. Delete those from the Historical Maps list if you no longer want them.
 	</p>
 	{#snippet actions()}
 		<button class="btn" onclick={() => (deleting = null)}>Cancel</button>

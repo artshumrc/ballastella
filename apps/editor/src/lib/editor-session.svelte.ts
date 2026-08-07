@@ -4,6 +4,7 @@ import { SvelteSet } from 'svelte/reactivity';
 import {
 	Autosave,
 	HistoricalMapInUseError,
+	HistoricalMapPartlyDeletedError,
 	OpfsProjectStore,
 	PathNotFoundError,
 	ProjectDirectoryCollisionError,
@@ -520,6 +521,16 @@ export class EditorSession {
 		this.projectProblem = null;
 	}
 
+	/**
+	 * Clear the last Historical Map refusal.
+	 *
+	 * Called when a deletion is asked for again, so the sentence beside the list is always about the
+	 * click the user has just made rather than about a map they have since stopped thinking about.
+	 */
+	dismissHistoricalMapError(): void {
+		this.historicalMapError = '';
+	}
+
 	/** Abandon a prepared import. Nothing was written, so there is nothing to undo. */
 	cancelImport(): void {
 		this.pendingImport = null;
@@ -982,8 +993,11 @@ export class EditorSession {
 	/**
 	 * Walk the Workspace's Historical Maps for the hub's reclaim list (SPEC story 63).
 	 *
-	 * Called by the hub when it mounts and after a deletion, and by nothing else: it weighs every file
-	 * under `images/`, so it is a walk a user asks for rather than one a render triggers.
+	 * Called by the hub when it appears, again whenever the **Project list** changes — a Project
+	 * deleted here can be the last one that drew a map, and a stale list would say "no Project uses
+	 * this map" about one still in use, or the reverse — and again after a deletion. Nothing else calls
+	 * it: it weighs every file under `images/`, so it is a walk tied to a change in what it reports and
+	 * never to a keystroke or a re-render.
 	 */
 	async refreshHistoricalMaps(): Promise<void> {
 		this.historicalMapsLoading = true;
@@ -1019,12 +1033,19 @@ export class EditorSession {
 		try {
 			await deleteHistoricalMap(this.#store, imageId, { label });
 		} catch (cause) {
+			// Two of these are sentences core has already written for the user, and they are used as
+			// written. "Could not be deleted" is the fallback and is only true when nothing was: a
+			// half-finished deletion says so itself, because telling a user nothing happened when the
+			// Alignment and half the tiles are gone is the one message here that could cost them work.
 			this.historicalMapError =
-				cause instanceof HistoricalMapInUseError
+				cause instanceof HistoricalMapInUseError || cause instanceof HistoricalMapPartlyDeletedError
 					? cause.message
 					: `“${label || imageId}” could not be deleted: ${
 							cause instanceof Error ? cause.message : String(cause)
 						}`;
+			// The listing is walked again either way: a partly deleted map is still listed, and what it
+			// now weighs is not what the row on screen says.
+			await this.refreshHistoricalMaps();
 			return false;
 		}
 		this.images = this.images.filter((image) => image.imageId !== imageId);

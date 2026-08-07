@@ -196,13 +196,14 @@ async function importZip(
 }
 
 /**
- * The hub's transfer line, addressed by its own attribute rather than by `getByRole('status')`.
+ * The hub's transfer line, addressed **by its role**, because being announced is the claim.
  *
- * The hub has more than one live region — the Historical Maps list announces a deletion from one of
- * its own — so a bare role lookup is a strict mode violation rather than an assertion. The role is
- * still what a screen reader gets; see `ProjectHub.svelte`.
+ * SPEC story 96 is that progress is announced and not merely drawn, and `[data-transfer]` would go
+ * on passing with the live region deleted — the attribute is a test hook, not an accessible name.
+ * There is one `role="status"` per page here by convention; the Historical Maps list beside this one
+ * is an `aria-live="polite"` region for exactly that reason.
  */
-const transferStatus = (page: Page) => page.locator('[data-transfer]');
+const transferStatus = (page: Page) => page.getByRole('status');
 
 test.beforeEach(async ({ page }) => {
 	await page.goto('./');
