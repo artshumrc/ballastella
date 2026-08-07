@@ -67,7 +67,6 @@
 	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
-	import type { EditorSession } from '$lib/editor-session.svelte.js';
 	import LayerList from '$lib/layers/LayerList.svelte';
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
@@ -1078,6 +1077,19 @@
 			</button>
 
 			<!--
+				ADR-0025's opt-in. A button with words on it, and it opens a dialog rather than starting
+				anything: the tile count and the megabytes come first, always (SPEC stories 70, 71).
+			-->
+			<button
+				type="button"
+				class="btn btn-sm"
+				data-testid="make-offline"
+				onclick={() => void offline.ask(resolution.entry, layers)}
+			>
+				Make this Project available offline
+			</button>
+
+			<!--
 				Why the Base Map on screen is not the one the Project asked for (ADR-0020). An
 				`aria-live="polite"` region and not a second `role="status"`: the save indicator owns that
 				role for the whole app, and a second one makes `getByRole('status')` ambiguous — which is a
@@ -1409,6 +1421,37 @@
 						data-opening-view={openingOutcome}
 					>
 						{openingViewSentence(openingOutcome, refitted)}
+					</p>
+					<!--
+						Whether this Project works with no network, in words (SPEC stories 73, 112). Visible text
+						rather than a badge, and announced, because it is the fact a scholar checks before they
+						travel — and because "available offline" is computed from the files each time this is
+						read, so it can never be a label that outlived the tiles behind it.
+
+						`data-offline` carries the three states the sentence distinguishes: `yes`, `no`, and
+						`unknown` for a Base Map that could not be reached to be asked about.
+					-->
+					<p
+						class="min-h-6 text-sm text-base-content/70"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="offline-availability"
+						data-offline={offlineReady === null ? 'unknown' : offlineReady ? 'yes' : 'no'}
+						data-cache-serving={cachedBaseMap === null ? 'no' : 'yes'}
+					>
+						{offlineSummary}
+					</p>
+					<!--
+						Held outside the dialog's own tree so its completion announcement survives the dialog
+						closing — the same reason `MirrorMap.completed` lives on the job.
+					-->
+					<p
+						class="min-h-6 text-sm"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="offline-done"
+					>
+						{offline.completed}
 					</p>
 				</div>
 

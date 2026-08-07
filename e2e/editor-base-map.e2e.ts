@@ -627,11 +627,9 @@ const servedTiles = (page: Page) => page.evaluate(() => window.ballastellaServed
 /** Tiles MapLibre asked the cache for and did not get. The only trace an empty tile leaves. */
 const missedTiles = (page: Page) => page.evaluate(() => window.ballastellaMissedBaseMapTiles ?? []);
 
-const layersUrl = (directory: string = PROJECT_DIRECTORY) => `./layers?p=${directory}`;
-
-/** Open the Project screen and wait for its map. */
-async function openProjectScreen(page: Page): Promise<void> {
-	await page.goto(layersUrl());
+/** Open the Project screen and wait for its map. Ticket 04 made `?p=` the screen itself. */
+async function openProjectScreen(page: Page, directory: string = PROJECT_DIRECTORY): Promise<void> {
+	await page.goto(paneUrl(directory));
 	await waitForLoadedMap(page);
 }
 
@@ -646,7 +644,7 @@ async function makeAvailableOffline(page: Page): Promise<void> {
 test.describe('making a Project available offline', () => {
 	test.beforeEach(async ({ context, page }) => {
 		await routeBaseMapArchive(context);
-		await page.goto(BASE_MAP_PAGE);
+		await page.goto(HUB);
 		await emptyWorkspace(page);
 		await seedProjectWithWork(page);
 	});
@@ -857,8 +855,7 @@ test.describe('making a Project available offline', () => {
 			] as const
 		);
 
-		await page.goto(layersUrl('boston-1775'));
-		await waitForLoadedMap(page);
+		await openProjectScreen(page, 'boston-1775');
 
 		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
 		// The cache is Workspace-level, so the second Project cost nothing at all (ADR-0023).
@@ -909,7 +906,7 @@ test.describe('making a Project available offline', () => {
 		await openProjectScreen(page);
 		await makeAvailableOffline(page);
 
-		await page.goto('./');
+		await page.goto(HUB);
 		const summary = page.getByTestId('base-map-cache');
 		await expect(summary).toContainText('23 tiles');
 		await expect(summary).toContainText(/[0-9.]+ MB/);
