@@ -8,7 +8,13 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Current ticket: none. 01, 02, 03, 08, 09 and 10 are merged to `main`. Five tickets are unblocked: 04 (critical path), 11, 16, 17 and 18. 12 needs 04; 05 needs 04 and 02.
+Current ticket: none. 01, 02, 03, 08, 09, 10 and 18 are merged to `main`. Four tickets are unblocked: 04 (critical path), 11, 16 and 17. 12 needs 04; 05 needs 04 and 02.
+
+**18 closed the epic's one missing invariant, and its shape is worth reusing — with the limits stated.** An Alignment shared by every Project had no single writer, and tickets 02 and 03 independently wrote the same blind overwrite; a third existence check, spelled differently again, turned up in the Project-zip importer during 18's own review. Every write now goes through `alignment/alignment-file.ts` and names which of create / update / replace it means. Two layers keep it that way: `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write`, `Autosave.commit` and `Autosave.queue` refuse, and `scripts/check-alignment-writers.mjs` covers the spellings a type cannot see — the literal written by hand, the path laundered through a local, a detached write method, a second cast.
+
+**What that shape does not buy, because 18's first cut claimed it did.** The brand refuses values that came out of `alignmentPath()` and nothing more: `WritablePath` brands with an *optional* property so ordinary string paths stay assignable, so one `const` holding a template literal launders a path past the compiler. Three live escapes survived the first cut — `Autosave.queue` was never narrowed, the local-variable spelling defeated the fence, and the importer still wrote blind — and all three were found by review rather than by anything failing. **Any future "one writer of one file" rule should copy the two layers and copy the honesty: write the escape out, watch it pass, then close it.** 18 carries a `@ts-expect-error` pair so removing the brand fails the build, which is the piece the first cut lacked.
+
+**A gap 18 deliberately did not close**, for whoever writes the conflict story: nothing detects a concurrent edit. `update` writes over whatever is there, so a colleague's change arriving through a synced Workspace between read and write is lost. ADR-0023 already accepts this — the mitigation is visibility, not prevention — and it is stated in `alignment-file.ts` rather than implied to be covered.
 
 19 is queued behind 11, which is live in `service-worker.ts` — the file 19 rewrites.
 
@@ -49,7 +55,7 @@ Last updated: 2026-08-07
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Not Started | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Not Started | 02, 03, 09 | — |
-| 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Not Started | 02, 03 | 60 |
+| 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
 | 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Not Started | 11 | — |
 
 **19 was added on a human decision, 2026-08-07: libvips is not needed for v1.** It is not debt the reviews

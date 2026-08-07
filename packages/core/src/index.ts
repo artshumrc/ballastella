@@ -326,6 +326,16 @@ export {
 	type TransformationTier,
 	type TransformationType
 } from './alignment/alignment.js';
+// The one writer of `alignments/<image-id>.json` (ticket 18). Nothing else in the codebase can turn
+// an `AlignmentPath` into a path the store will write, so every Alignment write in the application
+// arrives here and has to name which of create / update / replace it is.
+export {
+	writeAlignmentBytes,
+	writeAlignmentFile,
+	type AlignmentFilePort,
+	type AlignmentWrite,
+	type AlignmentWriteOutcome
+} from './alignment/alignment-file.js';
 // Distortion (ADR-0013). The overlay is the renderer's; the fold check is ours, because it has to
 // run whether or not anything is being colourised.
 export {
@@ -342,6 +352,7 @@ export {
 	type FoldWarning
 } from './alignment/distortion.js';
 export {
+	AlignmentUnpreservableError,
 	AlignmentUnreadableError,
 	AlignmentUnwritableError,
 	parseAlignment,
@@ -349,6 +360,7 @@ export {
 	toRendererControlPoints,
 	toRendererDocument,
 	toRendererResourceMask,
+	type AlignmentAddress,
 	type RendererControlPoint
 } from './alignment/georeference-annotation.js';
 
@@ -447,7 +459,7 @@ export {
 	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,
-	serialiseReferencedAlignment,
+	referencedAlignmentAddress,
 	serialiseReferencedImage,
 	sourceOf,
 	tileBaseFor,

@@ -1,4 +1,5 @@
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
+import { writeAlignmentBytes, type AlignmentFilePort } from '../alignment/alignment-file.js';
 import type { Autosave } from '../autosave/autosave.js';
 import { IMAGE_DIRECTORY } from './image-files.js';
 import {
@@ -150,6 +151,21 @@ export class Workspace {
 		this.#store = store;
 		this.#autosave = options.autosave;
 		this.#now = options.now ?? (() => new Date());
+	}
+
+	/**
+	 * Storage as `writeAlignmentBytes` needs it (ticket 18).
+	 *
+	 * Straight to the store rather than through {@link Autosave}, unlike the editor's port: an
+	 * import is a bulk copy of files the user is not editing, and routing thousands of archive
+	 * entries through a per-file debounce and a "Saved" indicator would be describing the wrong
+	 * thing. The rollback below is what makes an interrupted import safe here, not autosave.
+	 */
+	get #alignmentFile(): AlignmentFilePort {
+		return {
+			read: (path) => this.#store.read(path),
+			commit: (path, bytes) => this.#store.write(path, bytes)
+		};
 	}
 
 	get store(): ProjectStore {
@@ -344,17 +360,56 @@ export class Workspace {
 				// Counted as seen even when skipped, so progress reaches its total rather than stopping
 				// short of it on an import that deduplicated half the archive.
 				files += 1;
-				if (shared !== null && present.has(shared)) {
+				// ─────────────────────────────────────────────────────────────────────────────
+				// AN ALIGNMENT IS NOT THIS LOOP'S TO DECIDE ABOUT (ticket 18)
+				//
+				// **Before the `present` check below, deliberately**, so that the one writer answers
+				// the existence question rather than this loop's own version of it. It was the loop's
+				// version, and that made this a fourth independent re-invention of "is there already
+				// an Alignment for this map?" — the epic's whole defect, in a place the ticket did not
+				// list.
+				//
+				// **It was not, in the end, a live overwrite**, and saying so precisely matters more
+				// than the finding sounding worse: `present` is `#historicalMapIds`, which lists
+				// `alignments/` as well as `images/`, so an Alignment already on disk did put its id in
+				// that set and did survive. What was wrong is that the guard was somewhere else,
+				// spelled differently, and coupled to the *pyramid's* presence — a reader had to know
+				// about a helper two hundred lines away to see that a shared file was protected at all.
+				//
+				// Routed here it also gains a case it did not have: an Alignment the destination lacks
+				// for a map it *does* have now arrives, instead of being skipped along with the
+				// pyramid. That is a `create` with nothing to lose, and it repairs a Project whose
+				// Alignment went missing.
+				//
+				// The bytes go through verbatim rather than through `Alignment`. What is being copied
+				// is a document another build wrote, and re-serialising it from this build's model is
+				// the loss SPEC story 60 forbids — which is why this is `writeAlignmentBytes` and not
+				// `writeAlignmentFile`. Only the decision is shared, and that is the point.
+				const isAlignment = shared !== null && file.path.startsWith(`${ALIGNMENT_DIRECTORY}/`);
+				if (shared !== null && !isAlignment && present.has(shared)) {
 					report(file.path);
 					continue;
 				}
 				const path = shared === null ? `${directory}/${file.path}` : file.path;
 				if (shared !== null) touched.add(`${file.path.split('/').slice(0, -1).join('/')}/`);
-				// Recorded before the write rather than after, so a write that fails part way through
-				// is still cleaned up: the destination may hold a partial file, and the temporary file
-				// the atomic write created may still be beside it.
-				written.push(path);
-				await this.#store.write(path, file.bytes);
+
+				if (isAlignment) {
+					const outcome = await writeAlignmentBytes(this.#alignmentFile, {
+						imageId: shared,
+						bytes: file.bytes,
+						write: { intent: 'create' }
+					});
+					// Only a file this import actually wrote may be rolled back. Recording a declined
+					// write here would make a later failure delete the destination's *own* Alignment —
+					// the work this decline exists to protect.
+					if (outcome === 'written') written.push(path);
+				} else {
+					// Recorded before the write rather than after, so a write that fails part way through
+					// is still cleaned up: the destination may hold a partial file, and the temporary file
+					// the atomic write created may still be beside it.
+					written.push(path);
+					await this.#store.write(path, file.bytes);
+				}
 				bytes += file.bytes.length;
 				// A source that under-declares `totalBytes` would make the progress it reports a lie, and
 				// on an untrusted source — a zip somebody was handed — it is also the bound on how much

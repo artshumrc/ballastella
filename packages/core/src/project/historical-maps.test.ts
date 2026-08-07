@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { alignmentPath } from '../alignment/alignment.js';
+import { seedAlignmentFixture } from '../alignment/alignment-fixture.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes } from '../store/project-store.js';
 import {
@@ -297,7 +298,7 @@ describe('a Historical Map whose only user is a Project from a newer version', (
 	it('is refused deletion, and the pyramid survives', async () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Might be in use', 100_000);
-		await store.write(alignmentPath('aaa1'), bytes(120));
+		await seedAlignmentFixture(store, 'aaa1', 120);
 		await seedFutureProject(store, 'from-the-future');
 		const before = [...store.snapshot().keys()];
 
@@ -353,7 +354,7 @@ describe('deleting a Historical Map', () => {
 	it('is refused when two Projects use it, and the refusal names both', async () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Shared map');
-		await store.write(alignmentPath('aaa1'), bytes(120));
+		await seedAlignmentFixture(store, 'aaa1', 120);
 		await seedProject(store, 'amsterdam-1625', 'Amsterdam 1625', ['aaa1']);
 		await seedProject(store, 'boston-1775', 'Boston 1775', ['aaa1']);
 		const before = [...store.snapshot().keys()];
@@ -377,9 +378,9 @@ describe('deleting a Historical Map', () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Going');
 		await seedReferencedMap(store, 'aaa1', 'Going');
-		await store.write(alignmentPath('aaa1'), bytes(120));
+		await seedAlignmentFixture(store, 'aaa1', 120);
 		await seedLocalMap(store, 'bbb2', 'Staying');
-		await store.write(alignmentPath('bbb2'), bytes(120));
+		await seedAlignmentFixture(store, 'bbb2', 120);
 		await seedProject(store, 'boston-1775', 'Boston 1775', ['bbb2']);
 
 		await deleteHistoricalMap(store, 'aaa1');
@@ -422,7 +423,7 @@ describe('deleting a Historical Map', () => {
 		it('leaves the map listed, so the next render explains the leftover rather than hiding it', async () => {
 			const store = new MemoryProjectStore();
 			await seedLocalMap(store, 'aaa1', 'Half gone', 40_000);
-			await store.write(alignmentPath('aaa1'), bytes(120));
+			await seedAlignmentFixture(store, 'aaa1', 120);
 			// The third delete: the Alignment and one file have gone, and `info.json` has not — which is
 			// the ordering claim. Written last by the ingest, deleted last here.
 			refuseOn(store, 3);
@@ -445,7 +446,7 @@ describe('deleting a Historical Map', () => {
 		it('takes the Alignment first, so no orphan placement can outlive the map', async () => {
 			const store = new MemoryProjectStore();
 			await seedLocalMap(store, 'aaa1', 'Half gone', 40_000);
-			await store.write(alignmentPath('aaa1'), bytes(120));
+			await seedAlignmentFixture(store, 'aaa1', 120);
 			refuseOn(store, 3);
 
 			await deleteHistoricalMap(store, 'aaa1').catch(() => undefined);
@@ -458,7 +459,7 @@ describe('deleting a Historical Map', () => {
 		it('reports the failure as itself when nothing was removed', async () => {
 			const store = new MemoryProjectStore();
 			await seedLocalMap(store, 'aaa1', 'Untouched', 40_000);
-			await store.write(alignmentPath('aaa1'), bytes(120));
+			await seedAlignmentFixture(store, 'aaa1', 120);
 			const before = [...store.snapshot().keys()];
 			refuseOn(store, 1);
 

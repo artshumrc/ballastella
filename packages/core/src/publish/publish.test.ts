@@ -6,6 +6,7 @@ import { newMapLayer, newAnnotationLayer } from '../project/layer.js';
 import { newProjectFile, parseProjectFile, serialiseProjectFile } from '../project/project-file.js';
 import { Workspace } from '../project/workspace.js';
 import { STATIC_HOSTING_LIMIT_BYTES } from '../project/workspace-size.js';
+import { seedAlignmentFixture } from '../alignment/alignment-fixture.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
 import { exportProjectZip } from '../transfer/export-project-zip.js';
@@ -312,7 +313,7 @@ describe('publishing', () => {
 		workspace = new Workspace(store, { now: () => new Date('2026-01-02T03:04:05.000Z') });
 		await workspace.createProject('Amsterdam 1625');
 		// At the Workspace root, shared by every Project (ADR-0023).
-		await store.write('alignments/x.json', encode('{"type":"Annotation","id":"x"}'));
+		await seedAlignmentFixture(store, 'x', encode('{"type":"Annotation","id":"x"}'));
 		await store.write('images/x/info.json', encode('{"id":"https://unset.invalid/x"}'));
 		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('a tile'));
 	});

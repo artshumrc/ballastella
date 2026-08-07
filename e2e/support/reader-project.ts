@@ -212,6 +212,7 @@ export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 			...(fixture.projectOverrides ?? {})
 		}),
 		// At the Workspace root, shared by every Project (ADR-0023).
+		// alignment-write-is-the-fixture: the published Project the viewer specs read; the viewer never writes anything at all
 		[`alignments/${IMAGE_ID}.json`]: alignmentJson(fixture.sheetAt),
 		[`${directory}/annotations/${ANNOTATION_LAYER_ID}.geojson`]: asJson({
 			type: 'FeatureCollection',

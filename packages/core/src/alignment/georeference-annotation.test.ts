@@ -39,6 +39,7 @@ import {
 } from './alignment.js';
 import {
 	AlignmentUnreadableError,
+	AlignmentUnpreservableError,
 	AlignmentUnwritableError,
 	parseAlignment,
 	serialiseAlignment
@@ -60,10 +61,17 @@ const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
  * from the direction this fixture was built for, and leaving it out of the guarantees meant nothing
  * asserted it.
  *
- * `byteIdentical` is the one guarantee it cannot carry, and should not: we deliberately write no
- * `id`, no timestamps, and no `_allmaps`, so our output is a *different document* that has to mean
- * the same thing. Everything else — upstream's validator, exact Control Points and Resource Mask,
- * exactly-zero coordinate movement, and idempotence over five passes — applies to every fixture.
+ * `byteIdentical` is the one guarantee it cannot carry, and should not: we mint no `id` and stamp no
+ * clock of our own, so our output is a *different document* that has to mean the same thing.
+ * Everything else — upstream's validator, exact Control Points and Resource Mask, exactly-zero
+ * coordinate movement, and idempotence over five passes — applies to every fixture.
+ *
+ * **Ticket 18 narrowed what "a different document" is allowed to mean.** Those members are no longer
+ * dropped: `id`, `created`, `modified`, `partOf`, `provider` and `_allmaps` are members this build
+ * does not model, and they are now carried through a read-and-write cycle verbatim, because
+ * `alignments/<image-id>.json` is shared by every Project and regenerating a colleague's document
+ * from our own model is a silent loss (SPEC story 60). What still differs is only their *position*
+ * in the file. The direct assertions are at the bottom of this file.
  */
 const FIXTURES = [
 	{
@@ -84,6 +92,22 @@ const FIXTURES = [
 		name: 'allmaps-shaped',
 		imageId: 'allmaps-shaped',
 		controlPoints: 4,
+		maskVertices: 4,
+		byteIdentical: false
+	},
+	{
+		// Ticket 18's fixture: `floride-1657` with five members this build does not model — a
+		// timestamp, a `creator` object and a term from somebody else's vocabulary at the top level,
+		// and `target.source.partOf` and `body._allmaps` nested inside. It is registered here so it
+		// has to pass every guarantee above as well as the preservation tests below.
+		//
+		// Not `byteIdentical`, for the same reason `allmaps-shaped` is not: the members come back, but
+		// `created` comes back in the slot `generateAnnotation` reserves for it rather than at the end
+		// of the document where its author put it. Ordering is not what story 60 is about, and the
+		// tests below assert the members and their values exactly, which is.
+		name: 'third-party-with-unknown-fields',
+		imageId: 'floride-1657',
+		controlPoints: 6,
 		maskVertices: 4,
 		byteIdentical: false
 	}
@@ -122,10 +146,13 @@ describe('the committed fixture Alignments round-trip', () => {
 			// upstream bump changes how the document is written, the committed bytes stop matching and
 			// this fails — which is precisely the alarm ADR-0010 asks for on an Allmaps upgrade.
 			//
-			// Not asked of a document another producer wrote, and only there: our writer deliberately
-			// emits no `id`, no timestamps and no `_allmaps`, so byte-identity against a foreign
-			// document would be asserting that we echo fields we have decided not to keep. Not
-			// registered at all rather than skipped, so the suite carries no permanently pending test.
+			// Not asked of a document another producer wrote, and only there. Since ticket 18 those
+			// members do come back — what does not come back is their *position*: `created` returns to
+			// the slot `generateAnnotation` reserves for it rather than wherever its author put it. So
+			// byte-identity against a foreign document would be asserting key order, which is not a
+			// property of the format and not what story 60 asks for. The members and their values are
+			// asserted exactly at the bottom of this file instead. Not registered at all rather than
+			// skipped, so the suite carries no permanently pending test.
 			if (byteIdentical) {
 				it('re-serialises to the committed bytes exactly', () => {
 					const alignment = parseAlignment(fixture(name), { imageId });
@@ -831,5 +858,150 @@ describe('an Alignment that cannot be read is refused, not half-read', () => {
 		// silently aligns the wrong Historical Map — which is a misplaced map, not an error.
 		const alignment = parseAlignment(fixture('floride-1657'), { imageId: 'a-different-image' });
 		expect(alignment.imageId).toBe('a-different-image');
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// A DOCUMENT SOMEBODY ELSE WROTE SURVIVES BEING WRITTEN BACK (SPEC story 60, ticket 18)
+//
+// `serialiseAlignment` regenerates the whole document from `Alignment`, so before ticket 18 every
+// member of a third-party Georeference Annotation that this build does not model was dropped the
+// first time anybody nudged a Control Point. ADR-0023 makes that worse than it sounds: the file
+// belongs to the **Workspace** and is shared by every Project, so the nudge that discards a
+// colleague's `creator` block need not even be in the Project the colleague was working in.
+//
+// **The unguarded direction is what these assert.** Delete `restoreUnmodelledMembers`, or the
+// `unmodelled` field it reads, and every one of them fails.
+describe('the members of a third party’s document that this build does not model', () => {
+	const NAME = 'third-party-with-unknown-fields';
+	const imageId = 'floride-1657';
+
+	const written = () =>
+		JSON.parse(text(serialiseAlignment(parseAlignment(fixture(NAME), { imageId }))));
+
+	it('are carried on the Alignment rather than quietly discarded at the door', () => {
+		const alignment = parseAlignment(fixture(NAME), { imageId });
+
+		expect(Object.keys(alignment.unmodelled ?? {}).sort()).toEqual([
+			'body',
+			'created',
+			'creator',
+			'http://example.org/vocab#sheetNumber',
+			'target'
+		]);
+	});
+
+	// The first cut diffed only the top level, and this is what that missed. Every one of these is
+	// nested, and `_allmaps` is what Allmaps itself writes — so a top-level-only diff did not hold
+	// for the documents story 60 exists for. `allmaps-shaped.json`, already in this repository
+	// before ticket 18, carries all three shapes and was silently losing them.
+	it('come back from inside target and body, not only from the top level', () => {
+		const out = written();
+
+		expect(out['target']['source']['partOf']).toEqual([
+			{ id: 'https://iiif.library.example/iiif/3/manifest/plan-1657', type: 'Manifest' }
+		]);
+		expect(out['body']['_allmaps']).toEqual({
+			note: 'A private extension key, nested inside body.'
+		});
+	});
+
+	it('do not displace the members beside them that this build recomputes', () => {
+		// `target.source` carries a carried `partOf` and an authored `id`, `width` and `height`. A
+		// restore that put the whole source object back would pin the image dimensions to whatever the
+		// file said, which is the stale-value defect pointing at a nested member.
+		const out = written();
+
+		expect(out['target']['source']['id']).toBe('https://unset.invalid/floride-1657');
+		expect(out['target']['source']['width']).toBe(1200);
+		expect(out['target']['source']['height']).toBe(851);
+	});
+
+	it('come back out with their exact values after a read-and-write cycle', () => {
+		const source = JSON.parse(text(fixture(NAME)));
+		const out = written();
+
+		// Deep equality on each, not a truthiness check: a `creator` block flattened to its `id` would
+		// pass "the field survived" and still be the loss story 60 is written against.
+		expect(out['created']).toBe(source['created']);
+		expect(out['creator']).toEqual(source['creator']);
+		expect(out['http://example.org/vocab#sheetNumber']).toBe(7);
+	});
+
+	it('survive five passes, so an autosave loop cannot erode them', () => {
+		// The realistic shape of the failure: not one write, but the hundreds a session of Control
+		// Point placement produces. A member that survived once and was dropped on the second pass
+		// would be worse than one dropped immediately, because it would pass a one-pass test.
+		let alignment = parseAlignment(fixture(NAME), { imageId });
+		for (let pass = 0; pass < 5; pass += 1) {
+			alignment = parseAlignment(serialiseAlignment(alignment), { imageId });
+		}
+
+		expect(alignment.unmodelled?.['http://example.org/vocab#sheetNumber']).toBe(7);
+		expect(alignment.unmodelled?.['creator']).toEqual({
+			id: 'https://scholar.example/people/vermeer',
+			type: 'Person',
+			name: 'A colleague'
+		});
+	});
+
+	it('are still a valid Georeference Annotation with them in', () => {
+		// Upstream's own validator: carrying a member it does not know about must not produce a file
+		// it then refuses, which would take every Control Point down with it on the next open.
+		expect(() => validateAnnotation(written())).not.toThrow();
+	});
+
+	it('never overwrite a member this build authors', () => {
+		// The same defect pointing the other way. If upstream starts writing a member that was
+		// unmodelled when the file was read, the value generated now is the current one and the
+		// carried value is a year old.
+		const alignment = parseAlignment(fixture(NAME), { imageId });
+		const tampered = {
+			...alignment,
+			unmodelled: { ...alignment.unmodelled, target: 'a stale target', type: 'NotAnAnnotation' }
+		};
+		const out = JSON.parse(text(serialiseAlignment(tampered)));
+
+		expect(out['type']).toBe('Annotation');
+		expect(out['target']).toMatchObject({ type: 'SpecificResource' });
+	});
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE OTHER BRANCH OF STORY 60'S CRITERION: REFUSE, WITH A MESSAGE SAYING WHY
+	//
+	// One shape cannot be carried — an unknown member inside an element of an array both documents
+	// have, in practice a per-Control-Point note in `body.features[].properties`. The features are
+	// regenerated one per Control Point, so no element reliably corresponds to the source's.
+	// Silently dropping it is the option the criterion does not offer.
+	describe('a member that cannot be carried at all', () => {
+		const UNWRITABLE = 'third-party-with-unwritable-field';
+
+		it('still reads, so the user can open and export the Alignment', () => {
+			const alignment = parseAlignment(fixture(UNWRITABLE), { imageId });
+
+			expect(alignment.controlPoints).toHaveLength(6);
+			expect(alignment.unpreservable).toContain('body.features[0]');
+			expect(alignment.unpreservable).toContain('confidence');
+		});
+
+		it('refuses the write, naming the member and saying the file is untouched', () => {
+			const alignment = parseAlignment(fixture(UNWRITABLE), { imageId });
+
+			expect(() => serialiseAlignment(alignment)).toThrow(AlignmentUnpreservableError);
+			expect(() => serialiseAlignment(alignment)).toThrow(/confidence/);
+			expect(() => serialiseAlignment(alignment)).toThrow(/left exactly as it is/);
+		});
+
+		it('does not refuse the sibling fixture, whose unknowns are all carryable', () => {
+			// Or the refusal is just a broken writer wearing a message.
+			expect(parseAlignment(fixture(NAME), { imageId }).unpreservable).toBeUndefined();
+			expect(() => serialiseAlignment(parseAlignment(fixture(NAME), { imageId }))).not.toThrow();
+		});
+	});
+
+	it('are absent from an Alignment this build made itself', () => {
+		// So the starter written on the add is byte-identical to the starter `writeAlignmentFile`
+		// compares against — "nothing has happened to this file since it was created" depends on it.
+		expect(newAlignment('fresh', { width: 10, height: 10 }).unmodelled).toBeUndefined();
 	});
 });

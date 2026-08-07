@@ -13,7 +13,7 @@
 		"test": "pnpm -r test",
 		"test:e2e": "playwright install chromium && playwright test",
 		"check": "tsc --noEmit && pnpm -r check",
-		"lint": "node scripts/check-viewer-deps.mjs && node scripts/check-tiler-lazy.mjs && node scripts/check-base-map-catalog.mjs && node scripts/check-workspace-rooted-paths.mjs && node scripts/check-allmaps-patch.mjs && prettier --check . && eslint .",
+		"lint": "node scripts/check-viewer-deps.mjs && node scripts/check-tiler-lazy.mjs && node scripts/check-base-map-catalog.mjs && node scripts/check-workspace-rooted-paths.mjs && node scripts/check-alignment-writers.mjs && node scripts/check-allmaps-patch.mjs && prettier --check . && eslint .",
 		"check:bundles": "node scripts/check-tiler-lazy.mjs --require-build",
 		"check:deployment": "node scripts/check-base-map-catalog.mjs --deployment",
 		"check:dev": "node scripts/check-dev-boot.mjs",

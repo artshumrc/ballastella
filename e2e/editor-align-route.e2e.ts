@@ -348,6 +348,33 @@ test.describe('the alignment route', () => {
 		expect(await storedProjectFile(page)).toBe(before);
 	});
 
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE POSITIVE CONTROL FOR THE TEST ABOVE (ticket 18)
+	 *
+	 * The test above proves a write did not happen by reading an array that `recordAlignmentWrite`
+	 * pushes into. **On its own that is vacuous**, and in exactly the way this epic keeps producing:
+	 * delete the instrumentation, or arm it after the reload that throws it away, and the array is
+	 * empty for reasons that have nothing to do with the route. An assertion that something is absent
+	 * needs a companion showing the same apparatus reporting it present.
+	 *
+	 * So this places one Control Point and asserts the counter is non-empty, through the same
+	 * `watchWrites` / `writes` pair, in the same route, on the same document. Together the two say
+	 * "the counter works, and it stayed empty when the route was only opened".
+	 */
+	test('the write counter reports a write when one really happens', async ({ page }) => {
+		test.setTimeout(120_000);
+		const imageId = await start(page);
+		await watchWrites(page);
+
+		await makePair(page, [0.35, 0.4]);
+		await waitForStored(page, imageId, 1);
+
+		const recorded = await writes(page);
+		expect(recorded.length, 'placing a Control Point recorded no write').toBeGreaterThan(0);
+		expect(recorded.map((write) => write.path)).toContain(`alignments/${imageId}.json`);
+	});
+
 	test('keeps a Control Point across a trip back to the Project and in again', async ({ page }) => {
 		test.setTimeout(120_000);
 		const imageId = await start(page);

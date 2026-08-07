@@ -43,7 +43,7 @@
 // service's URI is not our address; it is the citation, and it is the intent.
 
 import type { Alignment } from '../alignment/alignment.js';
-import { serialiseAlignment, toRendererDocument } from '../alignment/georeference-annotation.js';
+import { toRendererDocument, type AlignmentAddress } from '../alignment/georeference-annotation.js';
 import type { ImagePaneTileBase } from '../image-pane/iiif-image-pane.js';
 import { imageDirectory, IMAGE_DIRECTORY } from '../project/image-files.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
@@ -319,7 +319,7 @@ export const referencedRendererDocument = (alignment: Alignment, service: string
 	toRendererDocument(alignment, { imageService: canonicalServiceUri(service) });
 
 /**
- * An Alignment of a referenced image, as a file naming the **remote** service.
+ * Where a referenced image's Alignment says its tiles are served from.
  *
  * This is what makes ADR-0007's interoperability claim true rather than aspirational: Allmaps' own
  * model is a Georeference Annotation pointing at a remote IIIF resource, so for a referenced image —
@@ -328,13 +328,19 @@ export const referencedRendererDocument = (alignment: Alignment, service: string
  * `unset.invalid` placeholder would produce a standard-shaped document nothing in the world can
  * resolve.
  *
- * A delegation for the same reason as above, so the Resource Mask's plain-decimal fix, the absent
- * timestamps, the write-path validation and the byte-for-byte formatting all still come from the
- * single writer that owns them — and now the address goes *through* that writer rather than being
- * edited into its output afterwards, which is what stops a second reader of the format existing.
+ * **An address rather than a serialiser, and that is ticket 18.** This used to be
+ * `serialiseReferencedAlignment`, which produced the bytes; but `alignment-file.ts` is now the one
+ * writer of `alignments/<image-id>.json` and it takes an `AlignmentAddress`, so a function that
+ * returned bytes could only be called by something that then had to write them itself. Handing the
+ * writer a value keeps the Resource Mask's plain-decimal fix, the absent timestamps, the write-path
+ * validation and the byte-for-byte formatting all coming from the one writer that owns them.
+ *
+ * `canonicalServiceUri` is applied here, once, so that "which spelling of the service URI goes in
+ * the file" has one answer rather than one per call site.
  */
-export const serialiseReferencedAlignment = (alignment: Alignment, service: string): Bytes =>
-	serialiseAlignment(alignment, { imageService: canonicalServiceUri(service) });
+export const referencedAlignmentAddress = (service: string): AlignmentAddress => ({
+	imageService: canonicalServiceUri(service)
+});
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 

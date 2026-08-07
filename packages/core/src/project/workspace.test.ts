@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Autosave } from '../autosave/autosave.js';
+import { seedAlignmentFixture } from '../alignment/alignment-fixture.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { TEMP_PATH_SUFFIX } from '../store/project-store.js';
-import { alignmentPath } from '../alignment/alignment.js';
 import { newMapLayer } from './layer.js';
 import { imageInfoPath } from './image-files.js';
 import { ProjectFormatTooNewError } from './project-file.js';
@@ -363,7 +363,7 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 	const addHistoricalMap = async (imageId: string, tile = 'tile bytes') => {
 		await store.write(imageInfoPath(imageId), encode(`{"id":"https://unset.invalid/${imageId}"}`));
 		await store.write(`images/${imageId}/0,0,256,256/256,256/0/default.jpg`, encode(tile));
-		await store.write(alignmentPath(imageId), encode(`{"type":"Annotation","id":"${imageId}"}`));
+		await seedAlignmentFixture(store, imageId, encode(`{"type":"Annotation","id":"${imageId}"}`));
 	};
 
 	beforeEach(() => {
@@ -512,6 +512,7 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 			'annotations/warehouses.geojson': '{"type":"FeatureCollection","features":[]}',
 			'images/floride-1657/info.json': '{"id":"https://unset.invalid/floride-1657"}',
 			'images/floride-1657/0,0,256,256/256,256/0/default.jpg': 'a tile',
+			// alignment-write-is-the-fixture: the bundle these hoisting tests import, seeded verbatim so the Alignment lands at the Workspace root
 			'alignments/floride-1657.json': '{"type":"Annotation","id":"floride-1657"}'
 		});
 

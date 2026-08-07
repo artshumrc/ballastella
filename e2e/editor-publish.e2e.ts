@@ -164,6 +164,7 @@ const projectFiles = (
 	[`${directory}/annotations/l2.geojson`]: '{"type":"FeatureCollection","features":[]}',
 	// At the Workspace root, shared by every Project (ADR-0023) — so these paths carry no Project name and
 	// are written once however many Projects the fixture lays down.
+	// alignment-write-is-the-fixture: the Workspace this spec publishes from, laid down before the app starts
 	'alignments/aaa.json': '{"type":"Annotation","id":"aaa"}',
 	...(fields.referenced
 		? {

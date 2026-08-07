@@ -9,6 +9,66 @@
 export type StorePath = string;
 
 /**
+ * The brand that makes a blind Alignment write **fail to compile** (ticket 18).
+ *
+ * A phantom property and nothing else: `AlignmentPath` is still a `string` at runtime and there is
+ * no cost to carrying it. It exists so that {@link WritablePath} can name every store path *except*
+ * an Alignment's, and so `store.write(alignmentPath(id), …)` is a type error rather than a review
+ * comment.
+ */
+declare const alignmentPathBrand: unique symbol;
+
+/**
+ * The path of one Historical Map's Alignment in the Workspace (ADR-0023).
+ *
+ * Produced by `alignmentPath` alone. It is assignable to {@link StorePath}, so **reads, `list`,
+ * `size`, and `delete` take it unchanged** — reading an Alignment is the ordinary thing to do with
+ * one. It is deliberately *not* assignable to {@link WritablePath}.
+ */
+export type AlignmentPath = StorePath & {
+	readonly [alignmentPathBrand]: 'alignments/<image-id>.json';
+};
+
+/**
+ * A path a caller may hand to a **write**: every {@link StorePath} except an {@link AlignmentPath}.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THE ONE WRITER OF AN ALIGNMENT IS A TYPE AND NOT A CONVENTION
+ *
+ * ADR-0023 made `alignments/<image-id>.json` belong to the **Workspace**, shared by every Project
+ * that draws the map. Nothing in the code changed to reflect what that means for a write, and two
+ * blind overwrites of it were then written independently — one of them two lines from a correct
+ * guard by the same author. That is a missing invariant, not two lapses.
+ *
+ * The failure mode is why this is structural rather than reviewed: an overwrite does not throw, does
+ * not log, and does not 404. It shows up as a colleague's Control Points quietly gone, in a Project
+ * nobody had open. The only way to turn an `AlignmentPath` into a `WritablePath` is
+ * `alignment/alignment-file.ts`, which will not let the caller past without saying which of create /
+ * update / replace they mean.
+ *
+ * The optional-and-`undefined` phantom property is what does it. A plain `string` — every other
+ * store path in the codebase, literal or computed — has no such property and is assignable; an
+ * `AlignmentPath` carries it as a string literal, which is not assignable to `undefined`.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHAT THIS DOES NOT REFUSE, WHICH IS NOT AN OVERSIGHT
+ *
+ * **It refuses values that came out of `alignmentPath()`, and nothing else.** The property has to be
+ * optional or every one of the thousands of ordinary `string` paths in this codebase would need a
+ * cast to be written, which would be a worse invariant than the one being protected. The exact price
+ * is that an Alignment path the compiler sees as a plain `string` is accepted:
+ *
+ *     const p = `alignments/${id}.json`;
+ *     await store.write(p, bytes);        // compiles
+ *
+ * That spelling is caught by `scripts/check-alignment-writers.mjs` instead, which follows the path
+ * through the local it is bound to. Neither layer can see a path computed at runtime from data; the
+ * one place that happens is the Project-zip importer, which is routed through the owning module
+ * rather than fenced. Read the two together — this type is the cheap half, not the whole guard.
+ */
+export type WritablePath = StorePath & { readonly [alignmentPathBrand]?: undefined };
+
+/**
  * File contents as they cross the store boundary.
  *
  * `Uint8Array<ArrayBuffer>` rather than the default `Uint8Array<ArrayBufferLike>`: the write
@@ -30,8 +90,11 @@ export interface ProjectStore {
 	 * parseable rather than truncated. `project.json` holds the layer list — the map of
 	 * everything — and is the most frequently written file, so a torn write there is the
 	 * worst loss the storage layer can inflict.
+	 *
+	 * **{@link WritablePath} rather than {@link StorePath}**, so an Alignment cannot be written from
+	 * here at all (ticket 18). Every other path in the codebase is a plain string and is unaffected.
 	 */
-	write(path: StorePath, bytes: Bytes): Promise<void>;
+	write(path: WritablePath, bytes: Bytes): Promise<void>;
 
 	/**
 	 * Every existing file path that begins with `prefix`, sorted. A plain string-prefix
