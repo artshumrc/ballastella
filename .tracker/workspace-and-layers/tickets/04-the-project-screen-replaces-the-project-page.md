@@ -125,3 +125,54 @@ sections, so `data-image-id` on a Layer row is where a test reads an image id no
 **Not done here, deliberately:** no progressive disclosure (ticket 05), no Alignment written from
 this screen at all — the Align affordance is an `<a href>` and cannot write one — and `/image-pane/`
 is kept and unlinked.
+
+## Review remediation
+
+**Fixed.**
+
+- **The offline Base Map notice was a second `role="status"`.** `SaveIndicator` owns that role and
+  ticket 04 put it on every screen, which is what made this newly wrong — the same reason
+  `ProjectHub`'s transfer announcement was changed in the first pass, and the same miss. It is
+  `role="alert"` rather than `aria-live="polite"`, because the element is *inserted* at the moment
+  its text first exists, which a polite region does not reliably announce; every conditionally
+  inserted explanation in that block, `referenced-offline` beside it, is an alert for the same
+  reason. Covered by a new test that asserts one `status` on the hub, the Project, the Project
+  offline, and the alignment route.
+- **The save error was not announced at all.** `role="alert"` and a `save-error` test id.
+  Inherited from the align route's header, where it was already wrong; it renders on every screen
+  now, which is what made it this ticket's.
+- **The `/base-map/` deletion test checked a spelling that would 404 anyway.** `trailingSlash:
+  'never'` emits `base-map.html`, so `./base-map/index.html` proves nothing. `./base-map` — the
+  canonical path, what `prerendered` carries and what a bookmark holds — is now tested too.
+- **Escape closing the Project menu abandoned a part-drawn shape.** A popover light-dismisses *and*
+  keeps the keypress propagating, exactly the case `settingsOpen` already guarded. `MenuPopover`
+  reports its open state off the platform's own `toggle` event and the window handler declines.
+- **The menu became `lib/components/MenuPopover.svelte`**, beside `ModalDialog` and for its stated
+  reason: ADR-0016 mandates a method per surface so the decision is made once, and ticket 12 and the
+  transfer tickets are already scheduled to add items here. It carries a `$props.id()` id — the
+  hardcoded one could not survive a second instance — `aria-expanded` off the same signal, and its
+  own anchor positioning, which removes the `:global([data-testid=…])` styling hook.
+- **The theme key's justification was false.** The viewer persists no theme and ADR-0020 keys the
+  Reader's Base Map choice by origin and path, so there was no collision to namespace against. The
+  key is `ballastella.theme`, which is the house pattern.
+- **The Align href now reads `session.openDirectory`**, the same source the opening-fit effect
+  compares against, so the `?p=`/`?layer=` pair cannot come from two clocks.
+- **Stale comments** naming `/base-map`, `/layers`, `routes/layers/+page.svelte` and `ProjectView`
+  as live things: `service-worker.ts`, `+layout.svelte`, `TransformationPicker.svelte`,
+  `editor-session.svelte.ts`, `apps/viewer/src/routes/+page.svelte`, two e2e suites.
+- **e2e duplication.** The new suite takes `PROJECT_NAME`, `PROJECT_DIRECTORY`, `emptyWorkspace`,
+  `createProject` and `readProjectFile` from `support/annotations.ts` instead of redeclaring them;
+  `seedMapLayer` moved to `support/project-screen.ts`, which is where a helper about Layers belongs;
+  the describe names a behaviour rather than a ticket and has the `routeBaseMapArchive` its siblings
+  have.
+
+**Recorded elsewhere, deliberately not widened into this ticket.**
+
+- A Historical Map whose starter Alignment failed leaves a pyramid with no Layer, and after a reload
+  nothing on screen connects it to "This Project has no Historical Maps yet" — `ingestError` is
+  cleared by `open()`. Written into ticket 06's Contract, which owns the sidebar's add flow and its
+  empty states.
+- `mirror` vocabulary moved into `lib/project/ProjectScreen.svelte` and a new e2e suite. Added to
+  ticket 16's known-sites list, whose grep is written against paths that no longer exist.
+- The viewer's `theme.svelte.ts` said the two modules were the same four lines. They are not any
+  more; its comment now records the divergence and why reading `matchMedia` once is right *there*.

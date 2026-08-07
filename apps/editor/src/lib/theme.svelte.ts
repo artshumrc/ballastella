@@ -5,11 +5,15 @@ import { otherTheme, type Theme } from '@ballastella/core';
  *
  * A theme is not Project data and never goes near a Workspace: it is a property of this person at
  * this browser, so it belongs in `localStorage` and not in `project.json`, where it would travel in
- * a backup and change a colleague's interface on restore. Namespaced because a Published Site and
- * the editor can be served from the same origin (ADR-0020 keeps the Reader's Base Map choice apart
- * for the same reason).
+ * a backup and change a colleague's interface on restore.
+ *
+ * `ballastella.<thing>`, which is this app's one `localStorage` naming pattern — see
+ * `remote-iiif/lookup-setting.svelte.ts`. **No app segment**, because there is nothing to tell
+ * apart: the Published Site's `ThemeSignal` deliberately persists nothing at all, and the one
+ * Reader preference that *is* persisted is scoped by ADR-0020's origin-and-path keying rather than
+ * by a name. A segment here would be guarding against a collision that cannot happen.
  */
-const STORAGE_KEY = 'ballastella.editor.theme';
+const STORAGE_KEY = 'ballastella.theme';
 
 /**
  * The one theme signal.

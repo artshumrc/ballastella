@@ -60,6 +60,7 @@
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import { fitToProjectContent } from '$lib/base-map/opening-view';
+	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import LayerList from '$lib/layers/LayerList.svelte';
@@ -782,23 +783,30 @@
 	 */
 	let settingsOpen = $state(false);
 
-	/** The menu the dialog opens from, and the element focus comes back to. */
-	let menuButton = $state<HTMLButtonElement | undefined>();
-	let menu = $state<HTMLElement | undefined>();
+	/** The Project menu the dialog opens from, and the thing that knows whether it is showing. */
+	let menu = $state<MenuPopover | undefined>();
+	/**
+	 * Whether the Project menu is open.
+	 *
+	 * Read by the window's Escape handler, and that is the whole reason it exists: Escape dismisses a
+	 * popover natively **and keeps propagating**, so without this, closing the menu would also abandon
+	 * a half-drawn Annotation the user cannot even see behind it. Exactly the problem
+	 * {@link settingsOpen} already solves for the dialog, and the menu is new in this ticket.
+	 */
+	let menuOpen = $state(false);
 
 	/**
 	 * Open Project settings from the menu.
 	 *
 	 * The popover is dismissed and focus is put **back on the menu button** before the dialog opens,
-	 * rather than left on the menu item. `ModalDialog` records `document.activeElement` at the moment
-	 * it calls `showModal()` and restores it on close, so whatever has focus then is where the user
-	 * lands afterwards — and the menu item is inside a popover that no longer exists by then, which
-	 * would drop focus to `<body>`. The menu button is the control the user reached for, it is still
-	 * on screen, and it is where they can open the menu again.
+	 * rather than left on the menu item — which is what `MenuPopover.dismiss()` does. `ModalDialog`
+	 * records `document.activeElement` at the moment it calls `showModal()` and restores it on close,
+	 * so whatever has focus then is where the user lands afterwards, and the menu item is inside a
+	 * popover that no longer exists by then. The menu button is the control the user reached for, it
+	 * is still on screen, and it is where they can open the menu again.
 	 */
 	function openSettings(): void {
-		menu?.hidePopover();
-		menuButton?.focus();
+		menu?.dismiss();
 		settingsOpen = true;
 	}
 
@@ -876,12 +884,14 @@
 	you have not moved the focus" is not a cancel affordance. It abandons rather than commits, because a
 	half-drawn shape somebody walked away from is not something they asked to keep.
 
-	**Not while the settings dialog is open.** `<dialog>`'s own Escape closes it, and swallowing the
-	keypress here as well would cancel a drawing gesture the user cannot even see.
+	**Not while the settings dialog or the Project menu is open.** Both of them consume Escape
+	themselves — `<dialog>` closes, and a popover light-dismisses — and both keep the keypress
+	propagating afterwards, so acting on it here as well would abandon a drawing gesture the user
+	cannot even see behind whichever one they were closing.
 -->
 <svelte:window
 	onkeydown={(event) => {
-		if (event.key !== 'Escape' || settingsOpen) return;
+		if (event.key !== 'Escape' || settingsOpen || menuOpen) return;
 		if (drawing.cancel()) return;
 		if (popupAt !== null) popupAt = null;
 	}}
@@ -924,29 +934,18 @@
 				dropdown). One item today; ticket 12 and the transfer tickets add theirs beside it, which
 				is the reason it is a menu rather than a button that goes straight to the dialog.
 			-->
-			<button
-				type="button"
-				class="btn btn-sm"
-				popovertarget="project-menu"
-				bind:this={menuButton}
-				data-testid="project-menu-button"
-			>
-				Project…
-			</button>
-			<div
-				popover="auto"
-				id="project-menu"
+			<MenuPopover
 				bind:this={menu}
-				class="project-menu rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
+				bind:open={menuOpen}
+				label="Project…"
+				testid="project-menu-button"
 			>
-				<ul class="menu w-56 p-0">
-					<li>
-						<button type="button" data-testid="open-project-settings" onclick={openSettings}>
-							Project settings…
-						</button>
-					</li>
-				</ul>
-			</div>
+				<li>
+					<button type="button" data-testid="open-project-settings" onclick={openSettings}>
+						Project settings…
+					</button>
+				</li>
+			</MenuPopover>
 
 			<!--
 				ADR-0026's explicit control, and it is a button with words on it rather than an icon with a
@@ -1184,8 +1183,24 @@
 
 			<div class="relative flex min-h-0 grow flex-col">
 				{#if !installedApp.online}
+					<!--
+						**`role="alert"`, and specifically not `role="status"`.** Two reasons, and the second is
+						the one that decides it.
+
+						The save indicator owns `status` for the whole app, and since ticket 04 it is on the
+						navigation bar and therefore on screen here — so a second one makes
+						`getByRole('status')` ambiguous, which is a hint that a screen-reader user would have to
+						disambiguate too. That rules `status` out; it does not by itself choose the replacement.
+
+						`aria-live="polite"` is the app's usual replacement, but it is the wrong one *here*: a
+						live region is announced only when its text changes, and this whole element is inserted
+						at the moment its text first exists — which is not reliably announced at all. That is
+						why every conditionally-inserted explanation in this block, `referenced-offline` beside
+						it included, is an `alert`. The persistent live regions in this file are the ones that
+						are always rendered and merely change their text.
+					-->
 					<div
-						role="status"
+						role="alert"
 						class="m-2 alert flex-col items-start alert-info"
 						data-testid="base-map-offline"
 					>
@@ -1355,12 +1370,22 @@
 	{@const origin = originFor(layer)}
 	{@const referenced = referencedImageIds.has(layer.imageId)}
 	<div class="mt-2 flex flex-wrap items-center gap-2">
+		<!--
+			**`session.openDirectory`, not the `?p=` prop**, and the difference is a real window rather
+			than a style preference. `open()` clears `openProject` and sets its own directory, so between
+			a navigation to another Project and that call the URL names the new folder while the Layers
+			on screen are still the old Project's — which is exactly why the opening-fit effect above
+			compares the two. Built from the prop, this link would spend that window naming the *new*
+			directory with the *old* Project's Layer id: a pair that has never been true together. The
+			align route refuses an unknown `?layer=` and says so, so the cost is a wrong explanation
+			rather than a wrong map, but the pair the link carries has to come from one source.
+		-->
 		<a
 			class="btn btn-primary btn-xs"
 			data-testid="align-historical-map"
-			href="{resolve('/align')}?p={encodeURIComponent(openDirectory)}&layer={encodeURIComponent(
-				layer.id
-			)}"
+			href="{resolve('/align')}?p={encodeURIComponent(
+				session.openDirectory ?? ''
+			)}&layer={encodeURIComponent(layer.id)}"
 		>
 			Align
 		</a>
@@ -1398,26 +1423,3 @@
 		{/if}
 	</div>
 {/snippet}
-
-<style>
-	/*
-		A popover is in the top layer, so it has no containing block to be positioned against and an
-		`absolute` offset would resolve against the viewport. Anchor positioning is what puts it under
-		the button that opened it; the plain declarations before it are what a browser without anchor
-		positioning falls back to, which is a menu below the bar rather than one in the middle of the
-		screen.
-	*/
-	.project-menu {
-		position: fixed;
-		top: 5rem;
-		left: 1rem;
-		margin: 0;
-		position-anchor: --project-menu;
-		position-area: bottom span-right;
-		margin-top: 0.25rem;
-	}
-
-	:global([data-testid='project-menu-button']) {
-		anchor-name: --project-menu;
-	}
-</style>

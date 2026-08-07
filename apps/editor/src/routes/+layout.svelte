@@ -78,7 +78,7 @@
 	<link rel="icon" href={favicon} />
 	<!--
 		ADR-0006: `asset()` prefixes with the base path, which `paths.relative` makes relative to the
-		page being rendered — so the prerendered `/base-map` carries `../manifest.webmanifest` and the
+		page being rendered — so the prerendered `/align` carries `../manifest.webmanifest` and the
 		prerendered `/` carries `./manifest.webmanifest`, and the same build is installable from a
 		domain root and from a project subdirectory. The manifest's own `start_url` and `scope` are
 		`"."`, resolved by the browser against the manifest's URL, so they land on the deployment's root

@@ -33,9 +33,9 @@ import {
 	readProjectFile,
 	storedAnnotations,
 	waitForStack,
-	seedMapLayer,
 	writeProjectFile
 } from './support/annotations';
+import { seedMapLayer } from './support/project-screen';
 
 /**
  * SPEC's Seam 2 for the PWA slice (stories 6, 8, 9; ADR-0012).

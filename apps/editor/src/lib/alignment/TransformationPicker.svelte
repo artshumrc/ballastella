@@ -201,10 +201,12 @@
 			guidance paragraph above — a list wrapper adds "list, three items" around three sentences
 			that are already inside a named group, which is noise rather than structure.
 
-			It also matters on this page specifically. `ProjectView` lists Historical Maps as a `<ul>` and
-			several browser tests count them with a bare `getByRole('listitem')`; a third list here made
-			two of them fail, exactly as ticket 07 predicted it would. That hazard is still live for
-			ticket 09's Layer list, which cannot avoid being a list.
+			The hazard it avoids is still live even though the page that produced it is gone. `ProjectView`
+			listed Historical Maps as a `<ul>` and several browser tests counted them with a bare
+			`getByRole('listitem')`; a third list here made two of them fail. Ticket 04 deleted that page
+			and the list with it, so those tests read the Layer stack now — but the Layer stack is also a
+			list, and the Annotation list beside it is a third, so a bare `listitem` count on the Project
+			screen is as ambiguous as it ever was.
 		-->
 		<div class="max-w-prose text-sm opacity-70" data-testid="transformation-shortfalls">
 			{#each shortfalls as one (one.type)}

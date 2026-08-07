@@ -92,7 +92,22 @@
 		<div class="flex flex-col items-end" data-testid="save-slot">
 			<SaveIndicator saveState={session.saveState} />
 			{#if session.saveError}
-				<p class="text-sm text-warning">{session.saveError}</p>
+				<!--
+					**Why the work is not kept, and it has to be announced.** `SaveIndicator`'s own live
+					region says "Unsaved changes"; the reason — a full disk, a folder grant that lapsed, a
+					Project another tab deleted — is this sentence, and it sits outside that region. Without
+					a role of its own it is inserted silently, so a screen-reader user is told that something
+					went wrong and never what. `role="alert"` because it is inserted at the moment its text
+					first exists, which a `polite` region does not reliably announce, and because it is what
+					every other error in this app uses.
+
+					This bug is inherited: the same markup sat in the align route's header and on
+					`ProjectView`, where it was wrong on two screens. It is on **every** screen now, which is
+					what makes fixing it part of this ticket rather than a note for a later one.
+				-->
+				<p role="alert" class="text-sm text-warning" data-testid="save-error">
+					{session.saveError}
+				</p>
 			{/if}
 		</div>
 	{/if}

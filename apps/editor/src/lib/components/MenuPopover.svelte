@@ -1,0 +1,117 @@
+<script lang="ts">
+	import type { Snippet } from 'svelte';
+
+	/**
+	 * The one menu in the app.
+	 *
+	 * The Popover API — `popover` plus `popovertarget` — is **mandated, not merely available**
+	 * (ADR-0016), and for the same reason `<dialog>` is: daisyUI documents a `<details>` dropdown and
+	 * a CSS-`:focus` dropdown as well, neither of which dismisses on Escape or on a click elsewhere,
+	 * and an implementer copying whichever snippet they land on produces a different accessibility
+	 * outcome each time. Both of those are named as *banned* in CONTRIBUTING. This component exists so
+	 * the decision is made once and every later slice inherits it — {@link ModalDialog} beside it is
+	 * the same argument for modals, and its comment says so.
+	 *
+	 * The second call site is already scheduled: ticket 12 puts Workspace switching on this menu and
+	 * the transfer tickets add theirs, so the alternative to this file is three hand-rolled popovers.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHAT IT OWNS THAT A HAND-ROLLED ONE FORGETS
+	 *
+	 * - **A hydration-stable id.** `popovertarget` is an *id reference*, so the button and the
+	 *   popover have to agree on a string that is the same on the server and in the browser and
+	 *   unique if two of these are ever on one screen. `$props.id()` is what gives that; a hardcoded
+	 *   id is a collision waiting for the second instance.
+	 * - **Positioning under its own button.** A popover is in the top layer and therefore has no
+	 *   ancestor containing block, so an `absolute` offset resolves against the viewport. CSS anchor
+	 *   positioning is what ties it to the button, and the plain declarations before it are the
+	 *   fallback a browser without anchor positioning gets — a menu below the bar rather than one in
+	 *   the middle of the screen.
+	 * - **Saying whether it is open, to the page and to a screen reader.** `aria-expanded` on the
+	 *   button comes off the same signal the page reads, so the two cannot disagree.
+	 * - **Telling the page whether it is open.** Escape dismisses a popover natively *and* keeps
+	 *   propagating, so a page with its own Escape handling — the Project screen abandons a
+	 *   part-drawn shape on Escape — will act on the keypress that only closed this menu. {@link open}
+	 *   is bindable so the page can decline, and it is driven off the platform's own `toggle` event
+	 *   rather than off our clicks, which is the only source that cannot disagree with the top layer.
+	 */
+	let {
+		label,
+		open = $bindable(false),
+		buttonClass = 'btn btn-sm',
+		testid,
+		children
+	}: {
+		/** The button's visible text. Visible words, never an icon with a tooltip (SPEC story 111). */
+		label: string;
+		/** Whether the menu is showing. Bindable, so a page can tell an Escape for it from its own. */
+		open?: boolean;
+		buttonClass?: string;
+		/** Test id for the button; the popover gets `<testid>-menu`. */
+		testid?: string;
+		/** The menu's items, rendered inside its `<ul>`. Each should be a `<li>` with a control. */
+		children: Snippet;
+	} = $props();
+
+	const id = $props.id();
+
+	let button = $state<HTMLButtonElement | undefined>();
+	let popover = $state<HTMLElement | undefined>();
+
+	/**
+	 * Close the menu and put focus back on the button that opens it.
+	 *
+	 * Exported so a menu item can hand focus back *before* it opens something else — see
+	 * `ProjectScreen`'s settings item. `ModalDialog` restores focus to whatever was focused when it
+	 * called `showModal()`, and a menu item inside a popover that no longer exists by then is not a
+	 * place to land.
+	 */
+	export function dismiss(): void {
+		popover?.hidePopover();
+		button?.focus();
+	}
+</script>
+
+<button
+	type="button"
+	class={buttonClass}
+	popovertarget={id}
+	bind:this={button}
+	data-testid={testid}
+	aria-expanded={open}
+	aria-controls={id}
+	style="anchor-name: --{id}"
+>
+	{label}
+</button>
+
+<div
+	{id}
+	popover="auto"
+	bind:this={popover}
+	data-testid={testid ? `${testid}-menu` : undefined}
+	class="menu-popover rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
+	aria-label={label}
+	style="position-anchor: --{id}"
+	ontoggle={(event) => (open = (event as ToggleEvent).newState === 'open')}
+>
+	<ul class="menu w-56 p-0">
+		{@render children()}
+	</ul>
+</div>
+
+<style>
+	/*
+		Plain declarations first — the fallback for a browser with no anchor positioning — then the
+		anchored ones, which put the menu under its own button. `position-anchor` itself is set inline,
+		because the anchor name is per instance and a scoped stylesheet cannot know it.
+	*/
+	.menu-popover {
+		position: fixed;
+		top: 5rem;
+		left: 1rem;
+		margin: 0;
+		position-area: bottom span-right;
+		margin-top: 0.25rem;
+	}
+</style>

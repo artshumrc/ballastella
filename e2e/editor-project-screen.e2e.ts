@@ -1,6 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { gradientPng } from './support/alignment-workspace.js';
+import {
+	PROJECT_DIRECTORY,
+	PROJECT_NAME,
+	baseMap,
+	chooseTool,
+	clickAt,
+	createProject,
+	emptyWorkspace,
+	readProjectFile
+} from './support/annotations.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { openProjectSettings } from './support/project-screen.js';
 
@@ -10,10 +20,11 @@ import { openProjectSettings } from './support/project-screen.js';
  * SPEC Seam 2 — the running app in a real browser. Everything here is a claim that can only be made
  * against a laid-out page with a live MapLibre context and real OPFS behind it: which controls are
  * on screen, which are *not*, what has focus after a dialog closes, and how tall the map is.
+ *
+ * The Project name, its folder, `emptyWorkspace`, `createProject` and `readProjectFile` all come
+ * from `support/annotations.ts` rather than being declared again here — they were, with the same
+ * names and the same two constants, which is the duplication ticket 17 would have inherited.
  */
-
-const PROJECT_NAME = 'Amsterdam 1625';
-const PROJECT_DIRECTORY = 'amsterdam-1625';
 
 declare global {
 	interface Window {
@@ -22,29 +33,13 @@ declare global {
 	}
 }
 
-async function emptyWorkspace(page: Page): Promise<void> {
-	await page.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
-		const names: string[] = [];
-		for await (const name of root.keys()) names.push(name);
-		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
-	});
-}
-
-async function createProject(page: Page, name = PROJECT_NAME): Promise<void> {
-	await page.getByRole('button', { name: 'New Project' }).click();
-	const dialog = page.getByRole('dialog', { name: 'New Project' });
-	await dialog.getByLabel('Project name').fill(name);
-	await dialog.getByRole('button', { name: 'Create' }).click();
-	await expect(page.getByRole('link', { name })).toBeVisible();
-}
-
 /** A Workspace holding one empty Project, with the hub on screen. */
 async function freshWorkspace(page: Page): Promise<void> {
 	await page.goto('./');
 	await emptyWorkspace(page);
 	await page.reload();
 	await createProject(page);
+	await expect(page.getByRole('link', { name: PROJECT_NAME })).toBeVisible();
 }
 
 /** The Project open, with its Base Map settled. */
@@ -73,12 +68,7 @@ const hrefs = (page: Page) =>
 	page.locator('a[href]').evaluateAll((links) => links.map((link) => link.getAttribute('href')!));
 
 /** `project.json` exactly as it sits on disk. */
-const readProjectFile = (page: Page) =>
-	page.evaluate(async (directory) => {
-		const root = await navigator.storage.getDirectory();
-		const project = await root.getDirectoryHandle(directory);
-		return await (await project.getFileHandle('project.json')).getFile().then((f) => f.text());
-	}, PROJECT_DIRECTORY);
+const projectFile = (page: Page) => readProjectFile(page, 'project.json');
 
 /**
  * Count every file the page opens for writing.
@@ -144,8 +134,15 @@ test.describe('the Project screen', () => {
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
 
-		// Every visible, enabled, natively focusable control on the screen — asked of the DOM rather
-		// than listed here, so a control added later is covered without anybody remembering to add it.
+		// Every visible, enabled, natively focusable control **inside `project-screen`** — asked of the
+		// DOM rather than listed here, so a control added to the screen later is covered without anybody
+		// remembering to add it.
+		//
+		// **The settings dialog and the Project menu are deliberately outside that subtree** and are
+		// therefore outside this walk: both render into the top layer, and a modal dialog's whole point
+		// is that the rest of the page is inert while it is up, so one tab order cannot cover both. They
+		// have keyboard tests of their own — the dialog's Escape-and-focus test below, and the menu's
+		// Escape test above, which both drive it from the keyboard.
 		const wanted = await page.evaluate(() => {
 			const inside = document.querySelector('[data-testid="project-screen"]')!;
 			return [...inside.querySelectorAll('a[href], button, input, select, textarea')]
@@ -178,6 +175,35 @@ test.describe('the Project screen', () => {
 		expect([...wanted].filter((id) => !reached.has(id))).toEqual([]);
 	});
 
+	test('Escape that closes the Project menu does not abandon a part-drawn shape', async ({
+		page
+	}) => {
+		// Escape dismisses a popover natively **and keeps propagating**, so the window handler that
+		// abandons a drawing gesture hears the keypress that only closed the menu. The dialog already
+		// had a guard for exactly this; the menu is new in this ticket and did not.
+		await freshWorkspace(page);
+		await openProject(page);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
+
+		await chooseTool(page, 'polygon');
+		await clickAt(baseMap(page), 0.4, 0.4);
+		await clickAt(baseMap(page), 0.6, 0.4);
+		const drawingStatus = page.getByTestId('annotation-status');
+		await expect(drawingStatus).toHaveAttribute('data-drawing', 'true');
+
+		// Open the menu and press Escape. The menu closes; the two vertices stay.
+		await page.getByTestId('project-menu-button').click();
+		await expect(page.getByTestId('open-project-settings')).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('open-project-settings')).toBeHidden();
+		await expect(drawingStatus).toHaveAttribute('data-drawing', 'true');
+
+		// And Escape still cancels when the menu is not in the way, so the guard did not swallow it.
+		await page.keyboard.press('Escape');
+		await expect(drawingStatus).toHaveAttribute('data-drawing', 'false');
+	});
+
 	test('Align on a Historical Map Layer goes to /align/, and coming back reopens the Project', async ({
 		page
 	}) => {
@@ -200,12 +226,22 @@ test.describe('the Project screen', () => {
 	});
 });
 
-test.describe('the routes this ticket removes', () => {
+test.describe('the Layer stack and the Base Map are not pages of their own', () => {
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
+	});
+
 	test('/layers/ and /base-map/ answer no page at all', async ({ page }) => {
 		// Not "renders an empty screen" — *absent*. A prerendered SvelteKit route is a file in the
 		// build, so a route that still exists would answer 200 with the app inside it, and a page that
 		// merely looked empty is exactly what a half-done deletion produces.
-		for (const path of ['./layers', './layers/', './base-map/index.html']) {
+		//
+		// **Both spellings of each, and the bare one matters most.** `trailingSlash: 'never'` makes the
+		// build emit flat files — `base-map.html`, never `base-map/index.html` — so asking only for
+		// `./base-map/index.html` would 404 against a build where the route was still there. `./layers`
+		// and `./base-map` are the canonical paths: what `prerendered` carries, what the service worker
+		// precaches, and what a bookmark holds.
+		for (const path of ['./layers', './layers/', './base-map', './base-map/index.html']) {
 			const response = await page.goto(path);
 			expect(response?.status(), `${path} still answers a page`).toBe(404);
 		}
@@ -377,6 +413,76 @@ test.describe('the theme (SPEC stories 109, 110)', () => {
 	});
 });
 
+test.describe('what the app says when something is wrong (SPEC stories 111, 112)', () => {
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
+	});
+
+	test('the save indicator is the only role="status" in the app, on every screen', async ({
+		page,
+		context
+	}) => {
+		// **This is a consequence of ticket 04 and not a general tidiness rule.** `SaveIndicator` owns
+		// `role="status"` and is now in the root layout, so it is on screen everywhere — which turns
+		// every *other* `status` role in the app into an ambiguity that did not exist before. The repo's
+		// answer is one `status` per page and `aria-live="polite"` for everything else; a screen reader
+		// user who has to disambiguate is the same user `getByRole('status')` cannot serve.
+		await freshWorkspace(page);
+		// The hub, which carries the transfer announcement.
+		await expect(page.getByRole('status')).toHaveCount(1);
+		await expect(page.getByRole('status')).toHaveAttribute('data-save-state');
+
+		// The Project screen, with a Historical Map on it.
+		await openProject(page);
+		await addHistoricalMap(page);
+		await expect(page.getByRole('status')).toHaveCount(1);
+
+		// **Offline**, which is where the second one was: the Base Map notice. It still has to be
+		// announced — it is inserted at the moment it becomes true, which is what `alert` is for and
+		// what a `polite` region inserted with its own text is not.
+		await context.setOffline(true);
+		const notice = page.getByTestId('base-map-offline');
+		await expect(notice).toBeVisible();
+		await expect(notice).toHaveAttribute('role', 'alert');
+		await expect(page.getByRole('status')).toHaveCount(1);
+		await context.setOffline(false);
+
+		// And the alignment route.
+		await page.getByTestId('layer-row').first().getByTestId('align-historical-map').click();
+		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveCount(1);
+	});
+
+	test('a save that failed says why, in a region a screen reader is given', async ({ page }) => {
+		// `SaveIndicator` says "Unsaved changes"; the *reason* — a full disk, a lapsed folder grant — is
+		// a sentence beside it and outside its live region. Without a role of its own it is inserted
+		// silently, so a screen-reader user is told that something went wrong and never what.
+		await freshWorkspace(page);
+		await openProject(page);
+		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
+
+		// Chromium reports OPFS quota exhaustion from `close()`. Injected at the browser API, so the
+		// app cannot tell it is being lied to.
+		await page.evaluate(() => {
+			FileSystemWritableFileStream.prototype.close = () =>
+				Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'));
+		});
+		// **The Base Map switcher rather than the name field**, because only a write the app awaits
+		// produces a reason at all: `chooseBaseMap` is a discrete choice and is written now, while
+		// typing a name is debounced and its failure surfaces inside the autosave timer, where
+		// `EditorSession.#write` is not the thing that catches it. That gap is real and is not this
+		// ticket's — what is this ticket's is that the reason, once there is one, is announced.
+		await page.getByRole('combobox', { name: 'Base Map' }).selectOption('physical');
+
+		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'unsaved');
+		const reason = page.getByTestId('save-error');
+		await expect(reason).toBeVisible();
+		await expect(reason).not.toBeEmpty();
+		// Announced, and as an `alert` rather than a second `status` — see the test above.
+		await expect(reason).toHaveAttribute('role', 'alert');
+	});
+});
+
 test.describe('Project settings (SPEC stories 10, 11)', () => {
 	test.beforeEach(async ({ context }) => {
 		await routeBaseMapArchive(context);
@@ -421,7 +527,7 @@ test.describe('Project settings (SPEC stories 10, 11)', () => {
 		await openProject(page);
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
 
-		const before = await readProjectFile(page);
+		const before = await projectFile(page);
 		const writesBefore = await projectWrites(page);
 
 		const dialog = await openProjectSettings(page);
@@ -440,7 +546,7 @@ test.describe('Project settings (SPEC stories 10, 11)', () => {
 		await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
 		await page.waitForTimeout(700);
 
-		expect(await readProjectFile(page)).toBe(before);
+		expect(await projectFile(page)).toBe(before);
 		expect(await projectWrites(page), 'looking at the name field wrote project.json').toBe(
 			writesBefore
 		);
@@ -466,7 +572,7 @@ test.describe('Project settings (SPEC stories 10, 11)', () => {
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
 		await page.waitForTimeout(700);
 
-		expect(JSON.parse(await readProjectFile(page)).name).toBe('Amsterdam 1626');
+		expect(JSON.parse(await projectFile(page)).name).toBe('Amsterdam 1626');
 		const writes = (await projectWrites(page)) - writesBefore;
 		expect(writes, `one rename wrote project.json ${writes} times`).toBeLessThanOrEqual(2);
 		expect(writes).toBeGreaterThan(0);

@@ -1322,9 +1322,10 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		// that draws nothing and no sentence anywhere. Opening the Project must not fail either — the
 		// other Historical Maps are fine — so the readable ones are listed and the broken one is named.
 		//
-		// Two maps, because one is not the same test: the reason is shown inside the referenced-maps
-		// section, so a Project whose *only* referenced record is unreadable currently says nothing at
-		// all. That gap is recorded against `ProjectView.svelte` rather than asserted here.
+		// Two maps, because one is not the same test: the reason is shown beside the Layer stack, so a
+		// Project whose *only* referenced record is unreadable currently says nothing at all. That gap
+		// is recorded against `apps/editor/src/lib/project/ProjectScreen.svelte` rather than asserted
+		// here — ticket 04 moved the markup, not the gap.
 		await installFixtureHosts(page);
 		await openNewProject(page);
 

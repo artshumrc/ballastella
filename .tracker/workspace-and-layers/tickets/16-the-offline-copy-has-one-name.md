@@ -28,6 +28,11 @@ Known sites at the time of writing:
 - `apps/editor/src/lib/remote-iiif/MirrorMap.svelte` and `mirror-map.svelte.ts`.
 - `packages/core/src/index.ts` — whatever of the above is exported.
 - `e2e/editor-mirroring.e2e.ts`, and test names and `data-testid`s throughout.
+- `apps/editor/src/lib/project/ProjectScreen.svelte` — the `mirror` job, the `mirrored-image-label`
+  and `mirrored-image-source` test ids on a Layer's actions, and the `mirror-done` region. **Ticket
+  04 moved these here from the deleted `ProjectView.svelte`**, so the vocabulary is unchanged but the
+  address is: a `grep` written against the old path finds nothing. `e2e/editor-project-screen.e2e.ts`
+  is new surface in the same sweep.
 
 ## Contract
 

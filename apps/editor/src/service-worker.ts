@@ -201,9 +201,9 @@ const BASE_MAP_PATHS = new Set(BASE_MAP.map(asRequested));
 /**
  * Where a navigation lands, by the pathname a browser would ask for.
  *
- * `prerendered` carries the canonical paths — `/`, `/base-map`, `/layers`, … each already prefixed
- * with the deployment's own directory — while a browser may ask for `/base-map/` or
- * `/base-map/index.html`, and a Project is addressed by `?p=` on top of that (ADR-0008). So the
+ * `prerendered` carries the canonical paths — `/`, `/align`, `/image-pane`, each already prefixed
+ * with the deployment's own directory — while a browser may ask for `/align/` or
+ * `/align/index.html`, and a Project is addressed by `?p=` on top of that (ADR-0008). So the
  * lookup is over a normalised pathname, and the query string is dropped: it selects a Project
  * inside the page and never a different document.
  */
@@ -267,11 +267,11 @@ worker.addEventListener('fetch', (event) => {
 			// ──────────────────────────────────────────────────────────────────────────────────────
 			// THE STATIC HOST'S REDIRECT, PERFORMED OFFLINE
 			//
-			// `trailingSlash: 'never'`, so the prerendered pages are flat files — `base-map.html`, not
-			// `base-map/index.html` — and their asset references are relative. That makes `/base-map`
-			// the only URL those references resolve correctly from: at `/base-map/`, `./_app/…` means
-			// `/base-map/_app/…`, which is nothing. A static host and `vite preview` both answer
-			// `/base-map/` with a redirect to `/base-map`, and offline nobody is left to do that — so
+			// `trailingSlash: 'never'`, so the prerendered pages are flat files — `align.html`, not
+			// `align/index.html` — and their asset references are relative. That makes `/align`
+			// the only URL those references resolve correctly from: at `/align/`, `./_app/…` means
+			// `/align/_app/…`, which is nothing. A static host and `vite preview` both answer
+			// `/align/` with a redirect to `/align`, and offline nobody is left to do that — so
 			// this does, rather than serving HTML from a URL its own `<link>`s are wrong at. Handing
 			// back the right bytes at the wrong address is precisely how a page renders blank.
 			return event.respondWith(
