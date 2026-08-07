@@ -110,6 +110,37 @@ describe('the measured numbers ADR-0025 quotes', () => {
 	});
 });
 
+describe('a box with no area', () => {
+	// ⚠ `GeoBounds` lets `east` run past 180 for a box crossing the antimeridian, so nothing in the
+	// type stops `east < west`. `last - first + 1` was then negative and `countTilesForBounds`
+	// returned a negative total — the dialog offering to fetch minus four tiles for about minus
+	// 600 kB, and `overThreshold` false, so it would have offered the button too.
+	const INVERTED: GeoBounds = { west: 4.92, south: 52.36, east: 4.88, north: 52.38 };
+	/** And the other axis on its own, which fails the same way through `rows`. */
+	const UPSIDE_DOWN: GeoBounds = { west: 4.88, south: 52.38, east: 4.92, north: 52.36 };
+
+	it('needs a whole number of tiles, never a negative one', () => {
+		// It is not zero: at the coarse zooms both corners land in the same tile, which is a real tile
+		// and the honest answer for a box that degenerates to a point. What it must never be is
+		// *below* zero, and every deep zoom where the inversion actually bites now contributes none.
+		for (const bounds of [INVERTED, UPSIDE_DOWN]) {
+			const counted = countTilesForBounds(bounds, 14);
+			expect(counted).toBeGreaterThanOrEqual(0);
+			// The two enumerations still agree, which is the property the whole budget rests on — and
+			// the one that broke first: the list simply skipped a negative span, so the arithmetic
+			// count and the list it is supposed to predict disagreed by hundreds.
+			expect(counted).toBe(tilesForBounds(bounds, 14).length);
+		}
+	});
+
+	it('is quoted as a cost a user could agree to, not a negative refund', () => {
+		const budget = tileBudget(INVERTED, 14);
+		expect(budget.count).toBeGreaterThanOrEqual(0);
+		expect(budget.estimatedBytes).toBeGreaterThanOrEqual(0);
+		expect(budget.overThreshold).toBe(false);
+	});
+});
+
 describe('countTilesForBounds', () => {
 	it('agrees with the list it does not build', () => {
 		expect(countTilesForBounds(CANAL_BELT, 14)).toBe(tilesForBounds(CANAL_BELT, 14).length);

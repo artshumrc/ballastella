@@ -77,27 +77,29 @@ export function baseMapStyle(
 		glyphs: resolveAsset(catalog.glyphs),
 		sprite: resolveAsset(catalog.sprite).replace('{flavor}', flavorName),
 		sources: {
-			[BASE_MAP_SOURCE_ID]: options.cachedTiles
-				? {
-						type: 'vector',
-						// One tile file per request through the `addProtocol` handler, out of the Workspace.
-						// No archive and no range requests — see ADR-0025 for why the cache is files.
-						tiles: [options.cachedTiles.tileTemplate],
-						minzoom: 0,
-						maxzoom: options.cachedTiles.maxZoom,
-						// ODbL does not lapse because no request left the machine. The obligation is the
-						// data's, not the transport's, so the cached source carries the same string the
-						// networked one does — and it is the *same* string, from the same catalog, rather
-						// than a second copy that could be edited on one path only.
-						attribution: catalog.attribution
-					}
-				: {
-						type: 'vector',
-						// The pmtiles protocol reads a single archive over HTTP Range requests, so this URL
-						// is a static file and there is no tile server anywhere in the picture (ADR-0005).
-						url: `pmtiles://${archiveUrl(entry, resolveAsset)}`,
-						attribution: catalog.attribution
-					}
+			// **One vector source, two ways of reaching the same bytes**, so `type` and `attribution` are
+			// stated once. ODbL does not lapse because no request left the machine — the obligation is
+			// the data's, not the transport's — and writing the attribution on each branch would be two
+			// copies of one contract, editable on one path only.
+			[BASE_MAP_SOURCE_ID]: {
+				type: 'vector',
+				attribution: catalog.attribution,
+				...(options.cachedTiles
+					? {
+							// One tile file per request through the `addProtocol` handler, out of the
+							// Workspace. No archive and no range requests — ADR-0025 for why the cache is
+							// files. `maxzoom` is the source's own depth: without it MapLibre asks past the
+							// pyramid and the map goes blank instead of overzooming.
+							tiles: [options.cachedTiles.tileTemplate],
+							minzoom: 0,
+							maxzoom: options.cachedTiles.maxZoom
+						}
+					: {
+							// The pmtiles protocol reads a single archive over HTTP Range requests, so this
+							// URL is a static file and there is no tile server in the picture (ADR-0005).
+							url: `pmtiles://${archiveUrl(entry, resolveAsset)}`
+						})
+			}
 		},
 		layers: emphasisedLayers(
 			layers(BASE_MAP_SOURCE_ID, flavor, { lang: LABEL_LANGUAGE }),

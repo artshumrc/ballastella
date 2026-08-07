@@ -158,6 +158,19 @@ const tileY = (lat: number, z: number): number => {
 };
 
 /**
+ * How many columns or rows a span covers: never more than the pyramid, and never fewer than none.
+ *
+ * ⚠ **The lower clamp is the one that matters.** {@link GeoBounds} lets `east` run past 180 for a box
+ * crossing the antimeridian, so nothing in the type stops `east < west` — an inverted or degenerate
+ * box, which a Layer with one malformed Alignment can produce. `last - first + 1` is then negative.
+ * {@link tilesForBounds} simply skipped that zoom, but {@link countTilesForBounds} multiplied it out
+ * — so the two enumerations the whole budget rests on being *one* disagreed, and the dialog quoted a
+ * negative tile count and a negative byte estimate. Zero is the honest span: an axis with no extent
+ * needs no tiles along it.
+ */
+const spanOf = (span: number, width: number): number => Math.min(Math.max(0, span), width);
+
+/**
  * Every `{z}/{x}/{y}` a box needs, from zoom 0 to `maxZoom` inclusive, in ascending order.
  *
  * **From zoom 0, always** (ADR-0025). Low zooms are one or two tiles each; leaving them out makes
@@ -181,7 +194,7 @@ export function tilesForBounds(bounds: GeoBounds, maxZoom: number): TileCoordina
 		const last = tileX(bounds.east, z);
 		// A box spanning the world, or more, is the whole row: `last - first` can exceed the pyramid's
 		// width, and taking each column modulo it would otherwise repeat tiles already listed.
-		const columns = Math.min(last - first + 1, width);
+		const columns = spanOf(last - first + 1, width);
 		const north = tileY(bounds.north, z);
 		const south = tileY(bounds.south, z);
 		for (let step = 0; step < columns; step += 1) {
@@ -213,8 +226,8 @@ export function countTilesForBounds(bounds: GeoBounds, maxZoom: number): number 
 	let total = 0;
 	for (let z = 0; z <= Math.floor(maxZoom); z += 1) {
 		const width = 2 ** z;
-		const columns = Math.min(tileX(bounds.east, z) - tileX(bounds.west, z) + 1, width);
-		const rows = tileY(bounds.south, z) - tileY(bounds.north, z) + 1;
+		const columns = spanOf(tileX(bounds.east, z) - tileX(bounds.west, z) + 1, width);
+		const rows = Math.max(0, tileY(bounds.south, z) - tileY(bounds.north, z) + 1);
 		total += columns * rows;
 	}
 	return total;

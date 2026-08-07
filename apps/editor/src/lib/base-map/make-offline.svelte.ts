@@ -22,7 +22,6 @@
 // screen are always the last read rather than a running tally.
 
 import {
-	OFFLINE_TILE_LIMIT,
 	archiveUrl,
 	cachedTilesMatchArchive,
 	describeBytes,
@@ -256,9 +255,6 @@ export class MakeProjectOffline {
 	cancel(): void {
 		this.#abort?.abort();
 	}
-
-	/** The threshold, for the sentence that explains the limit before it is met. */
-	readonly limit = OFFLINE_TILE_LIMIT;
 }
 
 /**

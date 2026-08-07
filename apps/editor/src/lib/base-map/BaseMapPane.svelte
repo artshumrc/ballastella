@@ -347,9 +347,17 @@
 	/**
 	 * Serve the Workspace's cached tiles, for as long as this pane is asking for them (ADR-0011).
 	 *
-	 * Registered *before* the style that reads them is applied — MapLibre requests a source's tiles as
-	 * soon as it is given one, and a template under an unregistered protocol throws per tile. Its own
-	 * effect rather than a line inside the repaint below, so the registration outlives a theme change.
+	 * Its own effect rather than a line inside the repaint below, so the registration outlives a theme
+	 * change.
+	 *
+	 * ⚠ **It is declared before the effect that builds the style, and that is ordering rather than a
+	 * guarantee.** The map is created in `onMount`, which runs before either effect, so the style
+	 * carrying the cached-tile template is handed to MapLibre before this line has run. Nothing
+	 * throws only because MapLibre does not request a source's tiles synchronously — by the time it
+	 * does, both effects have run. The registration is idempotent and a tile requested before it is
+	 * answered as an empty tile rather than an error, so the worst case is a frame of nothing rather
+	 * than a broken pane; making it a real guarantee would mean registering inside `onMount`, which
+	 * would then have to be torn down somewhere other than where it was set up.
 	 */
 	$effect(() => {
 		const cache = cachedBaseMap;

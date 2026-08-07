@@ -251,7 +251,24 @@
 	let baseMapCache = $state<{ tiles: number; bytes: number } | null>(null);
 	/** What just happened to the cache, for the live region. `''` when nothing has. */
 	let baseMapCacheMessage = $state('');
-	let clearingCache = $state(false);
+	/**
+	 * Whether the confirmation dialog is open — **not** whether a clear is running.
+	 *
+	 * Named for what it holds. It was `clearingCache`, which reads as a busy flag and is set to
+	 * `false` on the *first* line of {@link clearCache}, so the name said the opposite of the state
+	 * at exactly the moment somebody reaching for a busy flag would have used it.
+	 */
+	let confirmingCacheRemoval = $state(false);
+
+	/**
+	 * The line that reports what happened, focused after a clear.
+	 *
+	 * The button that opened the dialog is gone by then — there are no tiles left to remove — so
+	 * without this a keyboard user's focus fell to `<body>` and they tabbed in from the top of the
+	 * page to find out what they had just done (WCAG 2.4.3, the same rule the Export buttons above
+	 * are shaped by).
+	 */
+	let cacheStatusLine: HTMLElement | null = $state(null);
 
 	// Re-read whenever the Project list changes, alongside the Historical Maps walk: this is one
 	// `list` of `base-map/tiles/` and a `size` per tile, never a `read`.
@@ -267,13 +284,14 @@
 	let cacheGeneration = $state(0);
 
 	const clearCache = async () => {
-		clearingCache = false;
+		confirmingCacheRemoval = false;
 		const cleared = await session.clearBaseMapCache();
 		cacheGeneration += 1;
 		baseMapCacheMessage =
 			cleared === 0
 				? 'There were no cached Base Map tiles to remove.'
 				: `Removed ${cleared} cached Base Map ${cleared === 1 ? 'tile' : 'tiles'}. Every Project now needs a network connection for its Base Map until you make it available offline again.`;
+		cacheStatusLine?.focus();
 	};
 
 	/** A transfer in flight, which the Export buttons must not lose focus to (SPEC story 95). */
@@ -525,14 +543,20 @@
 				here.
 			{/if}
 		</p>
-		<p aria-live="polite" class="mt-2 text-sm opacity-80" data-testid="base-map-cache-status">
+		<p
+			bind:this={cacheStatusLine}
+			tabindex="-1"
+			aria-live="polite"
+			class="mt-2 text-sm opacity-80"
+			data-testid="base-map-cache-status"
+		>
 			{baseMapCacheMessage}
 		</p>
 		{#if baseMapCache !== null && baseMapCache.tiles > 0}
 			<button
 				class="btn mt-2 btn-outline btn-error btn-sm"
 				data-testid="clear-base-map-cache"
-				onclick={() => (clearingCache = true)}
+				onclick={() => (confirmingCacheRemoval = true)}
 			>
 				Remove the offline Base Map
 			</button>
@@ -541,7 +565,7 @@
 {/if}
 
 <ModalDialog
-	bind:open={() => clearingCache, (open) => (clearingCache = open)}
+	bind:open={() => confirmingCacheRemoval, (open) => (confirmingCacheRemoval = open)}
 	title="Remove the offline Base Map"
 >
 	<p>
@@ -555,7 +579,7 @@
 		Annotations are not part of this, and any Project can be made available offline again.
 	</p>
 	{#snippet actions()}
-		<button class="btn" onclick={() => (clearingCache = false)}>Cancel</button>
+		<button class="btn" onclick={() => (confirmingCacheRemoval = false)}>Cancel</button>
 		<button class="btn btn-error" onclick={clearCache}>Remove the offline Base Map</button>
 	{/snippet}
 </ModalDialog>
