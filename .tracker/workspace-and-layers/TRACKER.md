@@ -8,7 +8,9 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Current ticket: none. 10 is completed on the current branch. 01, 02, 03, 08 and 09 are merged to `main`. 04 and 12 are unblocked; 05 needs 04 as well.
+Current ticket: none. 01, 02, 03, 08, 09 and 10 are merged to `main`. Five tickets are unblocked: 04 (critical path), 11, 16, 17 and 18. 12 needs 04; 05 needs 04 and 02.
+
+**16 and 17 are deliberately held until 04 lands.** 16 is a repo-wide rename and 17 rewrites the e2e suite; either would conflict with 04's restructuring of the Project screen across the same files. Sequencing them after 04 is cheaper than merging them into it.
 
 This epic follows [`ballastella-v1`](../ballastella-v1/TRACKER.md), whose implementation is complete and merged. Two things carry across and should be read before any ticket is written:
 
