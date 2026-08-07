@@ -58,8 +58,8 @@ import { canonicalServiceUri } from './service-uri.js';
  * "referenced, address unknown" is a Layer that draws nothing, and it is unrepresentable here.
  *
  * **In memory only.** ADR-0023 deleted the stored `imageMode`: which case a Historical Map is in is
- * read off the files beside it — see {@link partitionByLocalCopy} — so this type describes an
- * observation rather than a claim a `project.json` could get wrong.
+ * read off the files beside it — see `tileLocation` in `project/historical-maps.ts` — so this type
+ * describes an observation rather than a claim a `project.json` could get wrong.
  */
 export type HistoricalMapSource =
 	| { readonly imageMode: 'mirrored'; readonly imageId: string }
@@ -91,7 +91,7 @@ export function tileBaseFor(source: HistoricalMapSource): ImagePaneTileBase {
  * Whether this Historical Map's tiles are on somebody else's server.
  *
  * No production caller: every place that asks reads `imageMode` directly, or asks
- * {@link partitionByLocalCopy} what is on disk, which is the better question. Kept only because it
+ * `tileLocation` what is on disk, which is the better question. Kept only because it
  * is part of the package's published surface; a follow-up that drops it from `index.ts` should drop
  * it from here in the same change.
  */
@@ -256,7 +256,7 @@ export function parseReferencedImage(
  * than a defect.** A copy writes a pyramid into the same directory and deliberately leaves this record
  * where it is: the record is the citation ADR-0007 exists to protect, and a copy that deleted it would
  * have orphaned the one thing that says where the map came from. An image in *both* lists is one that
- * has been mirrored, which is what {@link partitionByLocalCopy} exists to say. This function answers
+ * has been mirrored, which is what `partitionByLocalCopy` exists to say. This function answers
  * "what does the Workspace record about where its images came from" and nothing about where their bytes
  * are now.
  *
@@ -295,32 +295,10 @@ export const sourceOf = (image: ReferencedImage): HistoricalMapSource => ({
 	service: image.service
 });
 
-/**
- * Split the **Workspace's** remote-origin records by whether a pyramid of ours is beside them.
- *
- * **The one place that answers "referenced or local copy?", and it answers from what is on disk**
- * (ADR-0023). There is nothing else to ask: the stored `imageMode` is gone precisely because a claim in
- * `project.json` could disagree with the bytes, and the whole interrupted-copy repair path existed to
- * reconcile that disagreement. Read off the files, the answer cannot be wrong, and a copy whose pyramid
- * landed while the document write did not is simply a copy — nothing left to finish.
- *
- * **A Workspace-wide question rather than a per-Project one.** One Historical Map has one answer,
- * whichever Projects reference it.
- *
- * `mirrored` keeps its record for the citation, which is why it is a partition of the records rather
- * than a removal from them: a mirrored Historical Map must still be able to say where it came from
- * (ADR-0007 — "mirroring must not orphan the copy").
- */
-export function partitionByLocalCopy(
-	images: readonly ReferencedImage[],
-	ingested: readonly { readonly imageId: string }[]
-): { referenced: ReferencedImage[]; mirrored: ReferencedImage[] } {
-	const local = new Set(ingested.map((image) => image.imageId));
-	return {
-		referenced: images.filter((image) => !local.has(image.imageId)),
-		mirrored: images.filter((image) => local.has(image.imageId))
-	};
-}
+// `partitionByLocalCopy` used to be here, and is now `project/historical-maps.ts`'s — beside
+// `tileLocation`, which is the single implementation of "referenced or local copy?" it and
+// `referencedHistoricalMaps` now share. It was one of five readings of that rule; see that module's
+// header for the other four and for why the split had to be a module rather than a comment.
 
 /**
  * The document a renderer takes for a referenced Historical Map: the Alignment, addressed at the

@@ -185,10 +185,13 @@
 	 * `MapLayer` used to carry an `imageMode` saying it, and a claim in `project.json` outlived the
 	 * offline copy that made it false — so this pane kept handing the renderer a library's address for
 	 * tiles already in the folder.
+	 *
+	 * **Taken from the session rather than derived here**, which is where this used to be built by hand.
+	 * It is the same question core's `tileLocation` answers for publishing, for the hub's reclaim list,
+	 * and for the viewer's 404 probe; a set assembled in a page is how one rule ends up with five
+	 * readings that can disagree.
 	 */
-	const referencedImageIds = $derived(
-		new Set((session?.remoteOrigins.referenced ?? []).map((image) => image.imageId))
-	);
+	const referencedImageIds = $derived(session?.referencedImageIds ?? new Set<string>());
 
 	/**
 	 * Where a referenced Layer's tiles are served from, or `''` for a local copy.

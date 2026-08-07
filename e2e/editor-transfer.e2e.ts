@@ -195,6 +195,16 @@ async function importZip(
 	await page.getByRole('button', { name: 'Import Project', exact: true }).click();
 }
 
+/**
+ * The hub's transfer line, addressed **by its role**, because being announced is the claim.
+ *
+ * SPEC story 96 is that progress is announced and not merely drawn, and `[data-transfer]` would go
+ * on passing with the live region deleted — the attribute is a test hook, not an accessible name.
+ * There is one `role="status"` per page here by convention; the Historical Maps list beside this one
+ * is an `aria-live="polite"` region for exactly that reason.
+ */
+const transferStatus = (page: Page) => page.getByRole('status');
+
 test.beforeEach(async ({ page }) => {
 	await page.goto('./');
 	await emptyWorkspace(page);
@@ -221,7 +231,7 @@ test.describe('exporting a Project as a zip (SPEC story 5)', () => {
 		expect(new TextDecoder().decode(entries['project.json'])).toBe(projectJson());
 
 		// Progress is announced, not merely drawn (SPEC story 96).
-		await expect(page.getByRole('status')).toHaveText(/Exported Amsterdam 1625: 5 files\./);
+		await expect(transferStatus(page)).toHaveText(/Exported Amsterdam 1625: 5 files\./);
 	});
 
 	test('says so when an export fails, rather than blanking the status line', async ({ page }) => {
@@ -262,7 +272,7 @@ test.describe('exporting a Project as a zip (SPEC story 5)', () => {
 		await page.keyboard.press('Enter');
 		await download;
 
-		await expect(page.getByRole('status')).toHaveText(/Exported/);
+		await expect(transferStatus(page)).toHaveText(/Exported/);
 		await expect(exportButton).toBeFocused();
 	});
 
@@ -292,7 +302,7 @@ test.describe('importing a Project zip (SPEC story 13)', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		await expect(page.getByRole('dialog', { name: 'Import Project' })).toBeHidden();
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(projectFiles());
-		await expect(page.getByRole('status')).toHaveText(/Imported Amsterdam 1625: 5 files\./);
+		await expect(transferStatus(page)).toHaveText(/Imported Amsterdam 1625: 5 files\./);
 	});
 
 	test('takes the folder name from the file name, not from the display name', async ({ page }) => {

@@ -369,6 +369,11 @@
 	 * Out of `documents`, which is where the observation was made — see `readMapLayer`. A Layer whose
 	 * documents have not arrived yet is in neither state and is absent, so nothing claims a map needs the
 	 * network before anything has looked for it.
+	 *
+	 * **A projection of that observation and not a second reading of the rule.** `readMapLayer` hands its
+	 * two 404 probes to core's `tileLocation`, the same function the editor and publishing answer this
+	 * with; what is local to this page is only the three-state handling `documents` needs and the store
+	 * behind it does not have.
 	 */
 	const referencedImageIds = $derived(
 		new Set(

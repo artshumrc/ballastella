@@ -30,8 +30,8 @@
 // instead of many.
 
 import { BASE_MAP_CATALOG, type BaseMapCatalog } from '../base-map/index.js';
-import { IMAGE_DIRECTORY, imageDirectory, imageInfoPath } from '../project/image-files.js';
-import { REFERENCED_IMAGE_FILE } from '../remote-iiif/referenced-image.js';
+import { referencedHistoricalMaps, unusedHistoricalMapBytes } from '../project/historical-maps.js';
+import { imageDirectory, imageInfoPath } from '../project/image-files.js';
 import { parseProjectFile, projectFilePath, type ProjectFile } from '../project/project-file.js';
 import {
 	STATIC_HOSTING_LIMIT_BYTES,
@@ -159,6 +159,15 @@ export type PublishPlan = {
 	readonly bytes: number;
 	/** What the Workspace holds now, from `ProjectStore#size` and never from reading a tile. */
 	readonly workspace: WorkspaceSize;
+	/**
+	 * How much of {@link workspace} is Historical Maps no Project's Layers draw (SPEC story 98).
+	 *
+	 * **Publishing is additive and cannot leave them out** — they are already in the directory the site
+	 * is written into — so the honest thing is to say what they weigh. That sentence is what gives the
+	 * hub's reclaim list a reason to be visited, and `{ bytes: 0, maps: 0 }` for a Workspace where every
+	 * map is in use is the answer rather than the absence of one.
+	 */
+	readonly unusedHistoricalMaps: { readonly bytes: number; readonly maps: number };
 	readonly baseMapBundled: boolean;
 	readonly baseMap: BaseMapCatalog;
 	/**
@@ -220,6 +229,9 @@ export async function planPublish(
 	// Workspace already held. `workspaceSize` is `list` + `size` and never `read` — a Workspace with
 	// a mirrored pyramid in it is tens of thousands of files (ADR-0001, ADR-0008).
 	const workspace = await workspaceSize(store);
+	// Cheap even beside that walk: the classification and the used-by are one `list` of `images/` and
+	// one read per Project, and the `size` calls happen only for the maps nothing draws — usually none.
+	const unusedHistoricalMaps = await unusedHistoricalMapBytes(store);
 
 	const baseMap = includeBaseMap ? bundle.baseMap : [];
 	// The record is weighed with a plausible length rather than skipped: it is a file publishing
@@ -269,7 +281,10 @@ export async function planPublish(
 	}
 
 	if (crossesHostingLimit(workspace.bytes, bytes)) {
-		warnings.push({ kind: 'hosting-limit', message: hostingWarning(workspace.bytes, bytes) });
+		warnings.push({
+			kind: 'hosting-limit',
+			message: hostingWarning(workspace.bytes, bytes, unusedHistoricalMaps)
+		});
 	}
 
 	return {
@@ -278,6 +293,7 @@ export async function planPublish(
 		files,
 		bytes,
 		workspace,
+		unusedHistoricalMaps,
 		baseMapBundled: includeBaseMap && baseMap.length > 0,
 		baseMap: catalog,
 		canonicalUrl,
@@ -317,7 +333,7 @@ async function inspectProjects(
 	referenced: { project: PublishedProject; layers: string[] }[];
 	canonicalUrl: string | null;
 }> {
-	const remote = await referencedImageIds(store);
+	const remote = await referencedHistoricalMaps(store);
 	const referenced: { project: PublishedProject; layers: string[] }[] = [];
 	let canonicalUrl: string | null = null;
 	for (const project of projects) {
@@ -336,37 +352,10 @@ async function inspectProjects(
 	return { referenced, canonicalUrl };
 }
 
-/**
- * The Historical Maps whose tiles are on somebody else's server, read off the Workspace's own files.
- *
- * **The one way to know, now that nothing stores it** (ADR-0023). An image directory with an `info.json`
- * of ours has its tiles here; one with only a `remote.json` has them on a Library's server. The warning
- * used to be read out of each Layer's `imageMode`, which was a claim in a document — and a claim that
- * survived an offline copy landing on disk, so publishing warned about a network dependency the
- * Workspace no longer had.
- *
- * One `list` of `images/` rather than one per Layer: a Workspace holds tens of thousands of tile files,
- * and this is the walk that must not happen once per Project. Sorted out by suffix rather than by
- * reading anything.
- */
-async function referencedImageIds(store: ProjectStore): Promise<ReadonlySet<string>> {
-	const prefix = `${IMAGE_DIRECTORY}/`;
-	const local = new Set<string>();
-	const remote = new Set<string>();
-	for (const path of await store.list(prefix)) {
-		const rest = path.slice(prefix.length);
-		const slash = rest.indexOf('/');
-		if (slash <= 0) continue;
-		const imageId = rest.slice(0, slash);
-		const within = rest.slice(slash + 1);
-		if (within === 'info.json') local.add(imageId);
-		else if (within === REFERENCED_IMAGE_FILE) remote.add(imageId);
-	}
-	// A mirrored map keeps its `remote.json` for the citation (ADR-0007), so being in both lists means
-	// the tiles are here and the site needs no network for them.
-	for (const imageId of local) remote.delete(imageId);
-	return remote;
-}
+// The private `referencedImageIds` that used to be here — one `list` of `images/`, sorted out by
+// suffix — is now `referencedHistoricalMaps` in `project/historical-maps.ts`, which is the same walk
+// through the one implementation of ADR-0023's rule. It was one of five readings of that rule; the
+// hub's reclaim list needed a sixth, and got that module instead.
 
 function referencedWarning(referenced: { project: PublishedProject; layers: string[] }[]): string {
 	const total = referenced.reduce((sum, entry) => sum + entry.layers.length, 0);
@@ -390,13 +379,29 @@ function referencedWarning(referenced: { project: PublishedProject; layers: stri
  * functions ticket 15 warns from, so the two moments cannot give a user two different answers about
  * one Workspace. Only the sentence differs, because ticket 15's is about a copy that is about to be
  * made and this one is about a site that is about to be pushed.
+ *
+ * **And it names what is reclaimable** (SPEC story 98). Publishing is additive: the Historical Maps no
+ * Project draws are already in the directory being published and cannot be left out, so a warning
+ * about a cliff that did not say how much of the drop is dead weight would be telling the user they
+ * are stuck when they are one deletion from not being. The clause is omitted rather than written with
+ * a zero, because "including 0 bytes of Historical Maps no Project uses" is noise in the one message
+ * that has to be read.
  */
-function hostingWarning(current: number, adding: number): string {
+function hostingWarning(
+	current: number,
+	adding: number,
+	unused: { bytes: number; maps: number }
+): string {
 	const limit = describeBytes(STATIC_HOSTING_LIMIT_BYTES);
 	const already = current > STATIC_HOSTING_LIMIT_BYTES;
 	return (
-		`This Workspace holds ${describeBytes(current)} and publishing adds about ` +
-		`${describeBytes(adding)}, ` +
+		`This Workspace holds ${describeBytes(current)}` +
+		(unused.maps > 0
+			? `, including ${describeBytes(unused.bytes)} of Historical Maps no Project uses — ` +
+				`${unused.maps === 1 ? 'one map' : `${unused.maps} maps`} you can delete from the hub to ` +
+				`reclaim that space — and`
+			: ' and') +
+		` publishing adds about ${describeBytes(adding)}, ` +
 		(already
 			? `so it is already past the ${limit} a free static host such as GitHub Pages will publish. `
 			: `which takes it past the ${limit} a free static host such as GitHub Pages will publish. `) +

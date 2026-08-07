@@ -3,6 +3,8 @@ import { SvelteSet } from 'svelte/reactivity';
 
 import {
 	Autosave,
+	HistoricalMapInUseError,
+	HistoricalMapPartlyDeletedError,
 	OpfsProjectStore,
 	PathNotFoundError,
 	ProjectDirectoryCollisionError,
@@ -16,6 +18,7 @@ import {
 	annotationStorePath,
 	assembleWithCanvas,
 	createStoreImageFetch,
+	deleteHistoricalMap,
 	emptyAnnotationCollection,
 	exportProjectZip,
 	imageManifestPath,
@@ -24,6 +27,7 @@ import {
 	installFlushOnHide,
 	listIngestedImages,
 	listReferencedImages,
+	listWorkspaceHistoricalMaps,
 	mirrorRemoteImage,
 	moveLayer,
 	isControlPointUndo,
@@ -84,6 +88,7 @@ import {
 	type UndoRecord,
 	type ViewerBundle,
 	type ViewerBundleFile,
+	type WorkspaceHistoricalMap,
 	type WorkspaceSize
 } from '@ballastella/core';
 
@@ -265,6 +270,29 @@ export class EditorSession {
 	 * user concludes the tool lost their work.
 	 */
 	referencedImageErrors = $state<{ imageId: string; reason: string }[]>([]);
+
+	/**
+	 * Every Historical Map in the Workspace, with its size, where its tiles are, and who draws it.
+	 *
+	 * The hub's reclaim list — the one place a scholar can answer "why is my Workspace two gigabytes?"
+	 * (SPEC stories 63–65). Loaded by {@link refreshHistoricalMaps} rather than on every render, because
+	 * it weighs every file under `images/` and that is a walk a keystroke must not trigger.
+	 *
+	 * A **separate** list from {@link images} and {@link referencedImages}, which are what an open
+	 * Project's panes read: those two are the raw halves of the observation, and this is the answer with
+	 * used-by and a size against it.
+	 */
+	historicalMaps = $state<WorkspaceHistoricalMap[]>([]);
+	/** Whether {@link historicalMaps} is still being walked, so the hub can say so rather than "none". */
+	historicalMapsLoading = $state(false);
+	/**
+	 * Why the last attempt to delete a Historical Map did not happen, or `''`.
+	 *
+	 * A refusal rather than an error boundary: a map two Projects draw cannot be deleted, and the
+	 * sentence naming them is the whole of the interaction (SPEC story 64).
+	 */
+	historicalMapError = $state('');
+
 	ingest = $state<IngestProgress | null>(null);
 	/** The name of the file being ingested, for the progress message (SPEC story 23). */
 	ingestLabel = $state('');
@@ -491,6 +519,16 @@ export class EditorSession {
 	 */
 	dismissProjectProblem(): void {
 		this.projectProblem = null;
+	}
+
+	/**
+	 * Clear the last Historical Map refusal.
+	 *
+	 * Called when a deletion is asked for again, so the sentence beside the list is always about the
+	 * click the user has just made rather than about a map they have since stopped thinking about.
+	 */
+	dismissHistoricalMapError(): void {
+		this.historicalMapError = '';
 	}
 
 	/** Abandon a prepared import. Nothing was written, so there is nothing to undo. */
@@ -936,6 +974,84 @@ export class EditorSession {
 	 */
 	get remoteOrigins(): { referenced: ReferencedImage[]; mirrored: ReferencedImage[] } {
 		return partitionByLocalCopy(this.referencedImages, this.images);
+	}
+
+	/**
+	 * The Workspace Historical Maps whose tiles are on somebody else's server, by image id.
+	 *
+	 * **Here rather than derived again in the Layers pane**, which is where it used to be: it is the
+	 * same question `partitionByLocalCopy` above has just answered, and a `$derived` set in a page is
+	 * how one rule acquires a second reading. Every pane that needs it takes this one.
+	 */
+	get referencedImageIds(): ReadonlySet<string> {
+		// A `SvelteSet` rather than a plain one because this file is reactive and the lint rule that says
+		// so is right in general: a plain `Set` held anywhere here would not notify. Rebuilt on every
+		// read from `$state` this getter depends on, so nothing is held.
+		return new SvelteSet(this.remoteOrigins.referenced.map((image) => image.imageId));
+	}
+
+	/**
+	 * Walk the Workspace's Historical Maps for the hub's reclaim list (SPEC story 63).
+	 *
+	 * Called by the hub when it appears, again whenever the **Project list** changes — a Project
+	 * deleted here can be the last one that drew a map, and a stale list would say "no Project uses
+	 * this map" about one still in use, or the reverse — and again after a deletion. Nothing else calls
+	 * it: it weighs every file under `images/`, so it is a walk tied to a change in what it reports and
+	 * never to a keystroke or a re-render.
+	 */
+	async refreshHistoricalMaps(): Promise<void> {
+		this.historicalMapsLoading = true;
+		try {
+			this.historicalMaps = await listWorkspaceHistoricalMaps(this.#store);
+		} catch (cause) {
+			// The same call `refresh` makes about the Project list: a Workspace that cannot be walked is
+			// the unreachable state, not an exception the hub has to survive.
+			this.historicalMaps = [];
+			this.status = 'unreachable';
+			this.unreachableDetail = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			this.historicalMapsLoading = false;
+		}
+	}
+
+	/**
+	 * Delete one Historical Map from the Workspace — its pyramid, its `remote.json`, and its Alignment
+	 * (SPEC story 65).
+	 *
+	 * **Refused, not cascaded, when a Project draws it** (SPEC story 64). The refusal names the Projects
+	 * and is rendered beside the list; core decides it, so the sentence a user reads is written once.
+	 *
+	 * The open Project's own two lists are refreshed as well, because a map can be deleted from the hub
+	 * while a Project is open in another route and a stale `images` there is a pane drawing from a
+	 * pyramid that is gone.
+	 *
+	 * @returns whether the map was deleted
+	 */
+	async deleteHistoricalMap(imageId: string): Promise<boolean> {
+		this.historicalMapError = '';
+		const label = this.historicalMaps.find((map) => map.imageId === imageId)?.label ?? '';
+		try {
+			await deleteHistoricalMap(this.#store, imageId, { label });
+		} catch (cause) {
+			// Two of these are sentences core has already written for the user, and they are used as
+			// written. "Could not be deleted" is the fallback and is only true when nothing was: a
+			// half-finished deletion says so itself, because telling a user nothing happened when the
+			// Alignment and half the tiles are gone is the one message here that could cost them work.
+			this.historicalMapError =
+				cause instanceof HistoricalMapInUseError || cause instanceof HistoricalMapPartlyDeletedError
+					? cause.message
+					: `“${label || imageId}” could not be deleted: ${
+							cause instanceof Error ? cause.message : String(cause)
+						}`;
+			// The listing is walked again either way: a partly deleted map is still listed, and what it
+			// now weighs is not what the row on screen says.
+			await this.refreshHistoricalMaps();
+			return false;
+		}
+		this.images = this.images.filter((image) => image.imageId !== imageId);
+		this.referencedImages = this.referencedImages.filter((image) => image.imageId !== imageId);
+		await this.refreshHistoricalMaps();
+		return true;
 	}
 
 	/**

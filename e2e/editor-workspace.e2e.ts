@@ -35,6 +35,46 @@ async function seedProject(page: Page, directory: string, json: string): Promise
 }
 
 /**
+ * Write one file at any depth straight into OPFS, bypassing the app entirely.
+ *
+ * The Workspace's shared pool — `images/<id>/…` and `alignments/<id>.json` (ADR-0023) — is written
+ * by an ingest that takes a real image and a real tiler, which is minutes of work and a different
+ * test's subject. What the hub's list is about is what the *folder* holds, so the folder is what is
+ * seeded.
+ */
+async function seedFile(page: Page, path: string, contents: string): Promise<void> {
+	await page.evaluate(
+		async ([path, contents]) => {
+			const segments = (path as string).split('/');
+			let directory = await navigator.storage.getDirectory();
+			for (const segment of segments.slice(0, -1)) {
+				directory = await directory.getDirectoryHandle(segment, { create: true });
+			}
+			const file = await directory.getFileHandle(segments[segments.length - 1]!, { create: true });
+			const writable = await file.createWritable();
+			await writable.write(contents as string);
+			await writable.close();
+		},
+		[path, contents]
+	);
+}
+
+/** Every path in OPFS, so "the pyramid is still there" is provable from outside the app. */
+async function everyPath(page: Page): Promise<string[]> {
+	return page.evaluate(async () => {
+		const paths: string[] = [];
+		const walk = async (handle: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
+			for await (const [name, entry] of handle.entries()) {
+				if (entry.kind === 'file') paths.push(`${prefix}${name}`);
+				else await walk(entry as FileSystemDirectoryHandle, `${prefix}${name}/`);
+			}
+		};
+		await walk(await navigator.storage.getDirectory(), '');
+		return paths.sort();
+	});
+}
+
+/**
  * SHA-256 of every file in a Project directory, **recursively**, so "nothing was written" is
  * provable.
  *
@@ -252,6 +292,325 @@ test.describe('the Project hub', () => {
 	});
 });
 
+/**
+ * The Workspace's Historical Maps, on the hub (SPEC stories 63, 64, 65, 98).
+ *
+ * Everything asserted here is a browser behaviour the core suite cannot see: the list reaching a
+ * screen, the refusal reaching a screen instead of a dialog, `<dialog>`'s Escape and focus
+ * restoration on the confirmation, and the whole of it working from the keyboard. What the *files*
+ * do — which are deleted, which survive a refusal, what the used-by walk reads — is
+ * `packages/core/src/project/historical-maps.test.ts`.
+ */
+test.describe('the Workspace’s Historical Maps', () => {
+	const manifest = (label: string) => JSON.stringify({ label: { none: [label] } });
+	const projectWith = (name: string, imageIds: readonly string[]) =>
+		JSON.stringify({
+			formatVersion: 1,
+			name,
+			updatedAt: '2026-01-02T03:04:05.000Z',
+			layers: imageIds.map((imageId, order) => ({
+				kind: 'map',
+				id: `layer-${order}`,
+				name: `${name} layer`,
+				visible: true,
+				order,
+				opacity: 1,
+				imageId
+			}))
+		});
+
+	/** Three maps: one two Projects share, one only Amsterdam draws, and one nothing draws. */
+	const seedWorkspace = async (page: Page) => {
+		for (const [imageId, label] of [
+			['shared', 'Blaeu’s plan of Amsterdam'],
+			['solo', 'Bonner’s Boston'],
+			['orphan', 'A map nobody kept']
+		] as const) {
+			await seedFile(
+				page,
+				`images/${imageId}/info.json`,
+				`{"id":"https://unset.invalid/${imageId}"}`
+			);
+			await seedFile(page, `images/${imageId}/manifest.json`, manifest(label));
+			await seedFile(
+				page,
+				`images/${imageId}/0,0,256,256/256,256/0/default.jpg`,
+				'x'.repeat(50_000)
+			);
+			await seedFile(page, `alignments/${imageId}.json`, '{}');
+		}
+		// A fourth whose tiles are on a Library's server: a `remote.json` and no `info.json`.
+		await seedFile(
+			page,
+			'images/remote-one/remote.json',
+			JSON.stringify({
+				service: 'https://iiif.bnf.example/iiif/3/btv1b',
+				label: 'Plan de Paris',
+				width: 4000,
+				height: 3000
+			})
+		);
+		await seedProject(page, 'amsterdam-1625', projectWith('Amsterdam 1625', ['shared', 'solo']));
+		await seedProject(page, 'boston-1775', projectWith('Boston 1775', ['shared']));
+	};
+
+	const entry = (page: Page, label: string) =>
+		page.getByTestId('historical-map').filter({ hasText: label });
+
+	test.beforeEach(async ({ page }) => {
+		await page.goto('./');
+		await emptyWorkspace(page);
+		await seedWorkspace(page);
+		await page.reload();
+		await expect(page.getByTestId('historical-map')).toHaveCount(4);
+	});
+
+	test('lists every Historical Map with its label, its size, and how many files that is', async ({
+		page
+	}) => {
+		// The file count beside the byte total, because "50 kB in 4 files" and "50 kB in 31 000 files"
+		// are different news for a scholar deciding what to publish.
+		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('50 kB in 4 files');
+		await expect(entry(page, 'Bonner’s Boston')).toContainText('50 kB in 4 files');
+		await expect(entry(page, 'A map nobody kept')).toContainText('50 kB in 4 files');
+		await expect(entry(page, 'Plan de Paris')).toContainText('1 file');
+	});
+
+	test('says whether the tiles are here or names the Library they are on', async ({ page }) => {
+		// Visible text, not a badge colour or a tooltip (SPEC story 111): this is the fact that decides
+		// whether a Layer draws anything on a train.
+		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('Tiles in this Workspace');
+		await expect(entry(page, 'Plan de Paris')).toContainText('Tiles on iiif.bnf.example');
+	});
+
+	test('names the Projects that use each map, and says plainly when none do', async ({ page }) => {
+		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText(
+			'Used by Amsterdam 1625, Boston 1775'
+		);
+		await expect(entry(page, 'Bonner’s Boston')).toContainText('Used by Amsterdam 1625');
+		await expect(entry(page, 'A map nobody kept')).toContainText('No Project uses this map.');
+	});
+
+	test('deleting a Project keeps the Workspace’s Historical Maps, and the dialog says so', async ({
+		page
+	}) => {
+		// The Delete Project dialog used to say "Its Historical Maps, Alignments, and Annotations go
+		// with it", a few sections above a list stating the opposite. ADR-0023 made it false — a pyramid
+		// and its Alignment belong to the **Workspace** and are shared — so this is the wording catching
+		// up with the behaviour, which is unchanged and asserted below rather than described.
+		await page.getByRole('button', { name: 'Delete Boston 1775' }).click();
+
+		const dialog = page.getByRole('dialog', { name: 'Delete Project' });
+		await expect(dialog).toContainText('The Historical Maps it drew stay in the Workspace');
+		await expect(dialog).not.toContainText('Its Historical Maps');
+		await page.getByRole('button', { name: 'Delete Project' }).click();
+
+		await expect(page.getByRole('link', { name: 'Boston 1775' })).toHaveCount(0);
+		// The shared map is still there, still listed, and now drawn by one Project instead of two.
+		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('Used by Amsterdam 1625.');
+		const remaining = await everyPath(page);
+		expect(remaining).toContain('images/shared/info.json');
+		expect(remaining).toContain('alignments/shared.json');
+	});
+
+	test('refuses to delete a map two Projects use, naming both, and keeps the pyramid', async ({
+		page
+	}) => {
+		const before = await everyPath(page);
+
+		await entry(page, 'Blaeu’s plan of Amsterdam')
+			.getByRole('button', { name: /^Delete/ })
+			.click();
+		// The confirmation says what the list believes, and then the Workspace decides. The dialog is
+		// not skipped for a map the list calls in-use: see the stale-list test below for why.
+		await expect(page.getByTestId('delete-map-consequence')).toContainText(
+			'deleting it will be refused'
+		);
+		await page.getByRole('button', { name: 'Delete Historical Map' }).click();
+
+		const refusal = page.getByTestId('historical-map-refused');
+		await expect(refusal).toContainText('Amsterdam 1625');
+		await expect(refusal).toContainText('Boston 1775');
+		// The claim that must not pass vacuously: the tiles are still on the disk, not merely that a
+		// sentence appeared. A refusal that had deleted first would satisfy every assertion above it.
+		expect(await everyPath(page)).toEqual(before);
+	});
+
+	test('confirms before deleting even when the list is a moment out of date', async ({ page }) => {
+		// The regression this covers: the hub used to send a map its list called in-use straight to core
+		// with no dialog, on the assumption core would refuse. When the list had gone stale — the last
+		// Project drawing that map deleted in another tab, or by a colleague's sync — core did not
+		// refuse, and one click destroyed a pyramid with no confirmation at all. The confirmation was
+		// skipped in exactly the case where it was the only thing standing there.
+		await expect(entry(page, 'Bonner’s Boston')).toContainText('Used by Amsterdam 1625');
+
+		// Behind the app's back, so what is on screen is genuinely stale rather than merely re-rendered.
+		await page.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			await root.removeEntry('amsterdam-1625', { recursive: true });
+		});
+		const before = await everyPath(page);
+
+		await entry(page, 'Bonner’s Boston')
+			.getByRole('button', { name: /^Delete/ })
+			.click();
+
+		// A dialog, not a deletion. The old code reached `deleteHistoricalMap` here and the pyramid was
+		// gone before this line ran.
+		const dialog = page.getByRole('dialog', { name: 'Delete Historical Map' });
+		await expect(dialog).toBeVisible();
+		expect(await everyPath(page)).toEqual(before);
+
+		// And confirming does delete it, because the decision is core's and taken from the Projects'
+		// documents now rather than from the list.
+		await page.getByRole('button', { name: 'Delete Historical Map' }).click();
+		await expect(entry(page, 'Bonner’s Boston')).toHaveCount(0);
+		expect((await everyPath(page)).filter((path) => path.startsWith('images/solo/'))).toEqual([]);
+	});
+
+	test('will not call a map unused, or delete it, because a Project is from a newer version', async ({
+		page
+	}) => {
+		// ADR-0010 refuses to open a `formatVersion: 2` Project *because it is intact* — its Layer stack
+		// is right there and certainly names Historical Maps. Reading that refusal as "this Project uses
+		// nothing" is how a scholar is offered a delete button for a map their next release still draws,
+		// on the same screen that has just told them the Project cannot be opened.
+		await emptyWorkspace(page);
+		await seedFile(page, 'images/orphan/info.json', '{"id":"https://unset.invalid/orphan"}');
+		await seedFile(page, 'images/orphan/manifest.json', manifest('A map nobody kept'));
+		await seedFile(page, 'images/orphan/0,0,256,256/256,256/0/default.jpg', 'x'.repeat(50_000));
+		await seedProject(
+			page,
+			'from-the-future',
+			'{"formatVersion":2,"name":"Tomorrow","layers":[{"kind":"something-new"}],"baseMap":null}'
+		);
+		await page.reload();
+
+		// Both facts on one screen, agreeing with each other.
+		await expect(
+			page.getByText('Made with a newer version of Ballastella.', { exact: true })
+		).toBeVisible();
+		await expect(entry(page, 'A map nobody kept')).not.toContainText('No Project uses this map.');
+		await expect(entry(page, 'A map nobody kept')).toContainText('from-the-future');
+
+		const before = await everyPath(page);
+		await entry(page, 'A map nobody kept')
+			.getByRole('button', { name: /^Delete/ })
+			.click();
+		await page.getByRole('button', { name: 'Delete Historical Map' }).click();
+
+		await expect(page.getByTestId('historical-map-refused')).toContainText('from-the-future');
+		// Not merely that a sentence appeared: the pyramid is untouched.
+		expect(await everyPath(page)).toEqual(before);
+	});
+
+	test('deletes a map no Project uses, with its remote.json and its Alignment, and the total drops', async ({
+		page
+	}) => {
+		const total = page.getByTestId('historical-maps-total');
+		// Three pyramids of 50 kB and one referenced map, whose `remote.json` is a few hundred bytes
+		// because its tiles are on somebody else's disk — which is the point of the figure.
+		await expect(total).toContainText('4 Historical Maps');
+		await expect(total).toContainText('150 kB in all');
+		await expect(total).toContainText('50 kB is used by no Project');
+
+		await entry(page, 'A map nobody kept')
+			.getByRole('button', { name: /^Delete/ })
+			.click();
+		await page.getByRole('button', { name: 'Delete Historical Map' }).click();
+
+		await expect(page.getByTestId('historical-map')).toHaveCount(3);
+		await expect(total).toContainText('3 Historical Maps');
+		await expect(total).toContainText('100 kB in all');
+		// Announced, not merely rendered (SPEC story 112) — so the region's own `aria-live` is asserted
+		// beside its text. Without that this claim sat on a `data-testid` and was vacuous: a `<p>` with
+		// the live attribute stripped would have passed it while announcing nothing. `aria-live` rather
+		// than `role="status"` because the transfer line above already owns that role on this page.
+		const announcement = page.getByTestId('historical-map-status');
+		await expect(announcement).toHaveAttribute('aria-live', 'polite');
+		await expect(announcement).toContainText('Deleted A map nobody kept, reclaiming 50 kB');
+
+		const remaining = await everyPath(page);
+		expect(remaining.filter((path) => path.startsWith('images/orphan/'))).toEqual([]);
+		expect(remaining).not.toContain('alignments/orphan.json');
+		// And nothing else went with it.
+		expect(remaining).toContain('alignments/shared.json');
+		expect(remaining).toContain('images/shared/info.json');
+		expect(remaining).toContain('amsterdam-1625/project.json');
+	});
+
+	test('confirms through a <dialog> opened with showModal(), closable by Escape', async ({
+		page
+	}) => {
+		const trigger = entry(page, 'A map nobody kept').getByRole('button', { name: /^Delete/ });
+		await trigger.click();
+
+		const dialog = page.getByRole('dialog', { name: 'Delete Historical Map' });
+		await expect(dialog).toBeVisible();
+		// It names the map and what deleting it reclaims, because it cannot be undone.
+		await expect(dialog).toContainText('A map nobody kept');
+		await expect(dialog).toContainText('50 kB');
+		// `:modal` matches only a dialog opened by `showModal()` (ADR-0016).
+		expect(
+			await page.evaluate(() => document.querySelector('dialog[open]')?.matches(':modal') ?? false)
+		).toBe(true);
+
+		await page.keyboard.press('Escape');
+
+		await expect(dialog).toBeHidden();
+		await expect(trigger).toBeFocused();
+		// Escape cancelled rather than confirmed.
+		await expect(page.getByTestId('historical-map')).toHaveCount(4);
+	});
+
+	test('is fully operable from the keyboard', async ({ page }) => {
+		// **Tabbed to rather than `focus()`ed.** Calling `focus()` reaches an element a keyboard user
+		// cannot: a control taken out of the tab order — `tabindex="-1"`, or a `<div>` with a click
+		// handler — passes a test written that way while being unreachable in the app.
+		const trigger = entry(page, 'A map nobody kept').getByRole('button', { name: /^Delete/ });
+		await page.getByRole('button', { name: 'Import Project…' }).focus();
+		for (
+			let tab = 0;
+			tab < 40 && !(await trigger.evaluate((node) => node === document.activeElement));
+			tab++
+		) {
+			await page.keyboard.press('Tab');
+		}
+		await expect(trigger).toBeFocused();
+		await page.keyboard.press('Enter');
+
+		const dialog = page.getByRole('dialog', { name: 'Delete Historical Map' });
+		await expect(dialog).toBeVisible();
+		// And on into the dialog's own actions, without ever touching a pointer. `showModal()` traps
+		// focus inside the dialog, so tabbing from here cannot leave it.
+		const confirm = page.getByRole('button', { name: 'Delete Historical Map' });
+		for (
+			let tab = 0;
+			tab < 10 && !(await confirm.evaluate((node) => node === document.activeElement));
+			tab++
+		) {
+			await page.keyboard.press('Tab');
+		}
+		await expect(confirm).toBeFocused();
+		await page.keyboard.press('Enter');
+
+		await expect(page.getByTestId('historical-map')).toHaveCount(3);
+		await expect(entry(page, 'A map nobody kept')).toHaveCount(0);
+	});
+
+	test('a Workspace with no Historical Maps says so, and names the next action', async ({
+		page
+	}) => {
+		await emptyWorkspace(page);
+		await page.reload();
+
+		await expect(page.getByTestId('no-historical-maps')).toContainText(
+			'Open a Project and add one'
+		);
+		await expect(page.getByTestId('historical-map')).toHaveCount(0);
+	});
+});
+
 test.describe('dialogs (ADR-0016)', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('./');
@@ -337,6 +696,10 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 
+		// By role, because being announced is the claim (SPEC story 112, ADR-0017 rule 5): a
+		// `[data-save-state]` locator goes on passing with the live region deleted. One `role="status"`
+		// per page is the convention this repo keeps for exactly that reason — every other announcement
+		// on a page that has a save indicator is an `aria-live="polite"` region.
 		const indicator = page.getByRole('status');
 		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
 
