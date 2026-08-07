@@ -145,8 +145,14 @@ is kept and unlinked.
   'never'` emits `base-map.html`, so `./base-map/index.html` proves nothing. `./base-map` — the
   canonical path, what `prerendered` carries and what a bookmark holds — is now tested too.
 - **Escape closing the Project menu abandoned a part-drawn shape.** A popover light-dismisses *and*
-  keeps the keypress propagating, exactly the case `settingsOpen` already guarded. `MenuPopover`
-  reports its open state off the platform's own `toggle` event and the window handler declines.
+  keeps the keypress propagating, exactly the case `settingsOpen` already guarded. The window
+  handler now asks `MenuPopover.isOpen()`, which reads `:popover-open` off the element.
+  **Deliberately not a reactive flag**, and the first attempt was one: `toggle` lands and Svelte
+  flushes on their own schedule, so the *next* Escape found a mirror that still said "open" and was
+  declined too — swallowing the cancel the user actually meant. Caught by a full-suite run rather
+  than in isolation, and the test now presses Escape twice for that reason. Both directions are
+  mutation-covered: drop the guard (the shape dies with the menu) and widen it to always decline
+  (the cancel never lands).
 - **The menu became `lib/components/MenuPopover.svelte`**, beside `ModalDialog` and for its stated
   reason: ADR-0016 mandates a method per surface so the decision is made once, and ticket 12 and the
   transfer tickets are already scheduled to add items here. It carries a `$props.id()` id — the
