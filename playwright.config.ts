@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig, devices } from '@playwright/test';
 import process from 'node:process';
 
@@ -9,8 +13,31 @@ import process from 'node:process';
 // Both apps are built and served as static output, because that is what a Published Site is
 // (ADR-0006) and because `paths.relative` only means anything against real served files.
 
-const editorPort = 4173;
-const viewerPort = 4174;
+// Ports are derived from *this checkout's own path*, not fixed.
+//
+// They used to be 4173/4174 for everyone, with `reuseExistingServer` on. Run two checkouts of this
+// repo at once — parallel git worktrees, or a second terminal — and the second run finds the first
+// one's `vite preview` already listening, reuses it, and **tests the other checkout's build**. It
+// does not error. It reports passes and failures for code that is not the code under test; one run
+// rendered a UI string that existed nowhere in its own tree. When the first run finishes and its
+// server exits, the second turns into `ERR_CONNECTION_REFUSED` halfway through.
+//
+// Hashing the repo root gives every checkout its own stable pair, so `reuseExistingServer` goes back
+// to being what it is for — a fast second run in the same tree — instead of a trap. Override with
+// `BALLASTELLA_E2E_PORT` when you need a known port (a debugger, a proxy, CI logs).
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
+
+/** A stable port pair in the IANA ephemeral-safe range 20000–39998, unique per checkout path. */
+const basePort = (() => {
+	const override = Number(process.env.BALLASTELLA_E2E_PORT);
+	if (Number.isInteger(override) && override > 1023 && override < 65535) return override;
+	const digest = createHash('sha256').update(repoRoot).digest();
+	// Even, so `basePort + 1` cannot collide with a neighbouring checkout's `basePort`.
+	return 20000 + (digest.readUInt32BE(0) % 10000) * 2;
+})();
+
+const editorPort = basePort;
+const viewerPort = basePort + 1;
 
 /** @param app the workspace package name suffix, e.g. `editor` */
 const serveStatic = (app: string, port: number) => ({
