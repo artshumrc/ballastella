@@ -149,6 +149,10 @@ export async function start(page: Page): Promise<string> {
 	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
 	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
 
+	// **The workspace is a route of its own since ticket 03**, so getting to it is a navigation and no
+	// longer a scroll. The id is read above, before the click: the Historical Maps list is on the
+	// Project page and this leaves it.
+	await openAlignment(page);
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
 	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and
@@ -166,9 +170,22 @@ export async function start(page: Page): Promise<string> {
 	return imageId;
 }
 
+/**
+ * Press Align on the Project page and land on the alignment route (ticket 03).
+ *
+ * The URL is asserted rather than only the heading, because "the route is
+ * `/align/?p=<project>&layer=<layer-id>`" is the ticket's contract and a helper that waited on a
+ * heading alone would keep passing if the button started rendering the panes in place again.
+ */
+export async function openAlignment(page: Page): Promise<void> {
+	await page.getByTestId('align-historical-map').click();
+	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
+	await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
+}
+
 /** After a reload, the same wait `start` ends on. */
 export async function waitForSurface(page: Page): Promise<void> {
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
 	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and

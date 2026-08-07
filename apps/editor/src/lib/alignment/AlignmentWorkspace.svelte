@@ -100,6 +100,41 @@
 	let distortion = $state<DistortionView>(DEFAULT_DISTORTION_VIEW);
 
 	/**
+	 * Whether "Check this alignment" is open (ticket 03).
+	 *
+	 * **Closed by default, and not persisted anywhere** — not in `project.json`, not in `localStorage`,
+	 * and not in the URL. Everything behind it is a working view rather than a property of the work
+	 * (ADR-0002, ADR-0013), so a reload of this route comes back closed by construction: there is no
+	 * store to read it from, which is why the criterion "reloading does not reopen the disclosure"
+	 * cannot be satisfied by remembering to clear something.
+	 *
+	 * The contents are **conditionally rendered rather than hidden**. A `hidden` subtree is out of the
+	 * accessibility tree too, but a CSS-collapsed one is not, and the criterion is that the overlay, the
+	 * measure choice, and the grid are *absent* from it until the disclosure is opened — so the markup is
+	 * absent as well, and there is nothing for a screen reader to reach past.
+	 *
+	 * A `<button aria-expanded>` and not `<details>`: ADR-0016 bans the `<details>` dropdown, and
+	 * `TransformationPicker` already sets this precedent for the Advanced tier on the same screen.
+	 */
+	let checking = $state(false);
+
+	/**
+	 * Open or close the disclosure, and **put the drawing back as it was when it closes**.
+	 *
+	 * Without the second half, switching the overlay on and then closing the disclosure leaves the
+	 * Historical Map colourised with the only control that turns it off no longer on the page — which is
+	 * a map a user cannot get back, and reads as the colours being what the Alignment now *is*. Closing
+	 * "Check this alignment" means the checking is over, so the check's drawing goes with it.
+	 *
+	 * The consequence is that reopening starts from the default rather than from the last measure. That
+	 * is the honest trade: the alternative remembers a working view across the act of dismissing it.
+	 */
+	const closeOrOpenChecking = (open: boolean): void => {
+		checking = open;
+		if (!open) distortion = DEFAULT_DISTORTION_VIEW;
+	};
+
+	/**
 	 * Whether the Resource Mask's handles are on the pane.
 	 *
 	 * The outline itself is always drawn — a user needs to see what the Alignment leaves out whether
@@ -205,6 +240,10 @@
 				live = { imageId: wanted, pairing };
 				// The Alignment **as it was read**, before the user has touched it. Framing on the pairing
 				// instead would be framing on a value that changes with every placed pair.
+				//
+				// This supersedes ticket 03's `fitTo`, which framed on the Control Points alone. ADR-0026's
+				// rule is the Resource Mask, it caps the zoom, and it announces where the map went — none of
+				// which a bare list of pair positions can do.
 				frameOn(wanted, stored, mine);
 			} catch (cause) {
 				if (mine !== generation) return;
@@ -549,8 +588,11 @@
 		const completing = current.pending?.half === 'geo';
 		current.clickHistoricalMap(point);
 		// Written only when a pair actually came into existence. Placing the *first* half writes
-		// nothing at all, which is what makes Escape leave no trace on disk: there is no file to
-		// clean up, and no Alignment with an empty list of pairs left behind by a mis-started pair.
+		// nothing at all, which is what makes Escape leave no trace on disk. **Not "no file"** — since
+		// ADR-0023 there has been an `alignments/<id>.json` from the moment the Historical Map was
+		// added, so what a mis-started pair must not do is *touch* it: no write, not even one whose
+		// bytes would come out the same. In a Workspace kept in git or Dropbox a rewrite is a change to
+		// sync whatever it says, which is why the test beside this counts writes and not only bytes.
 		if (completing) save(current);
 	};
 
@@ -679,12 +721,41 @@
 				/>
 			</div>
 
+			<!--
+				"Check this alignment" (ticket 03): the distortion overlay, which measure it shows, and the
+				bent grid, behind one disclosure.
+
+				**Labelled for what it is for and not for what it is.** "Distortion" names a quantity a
+				cartographer knows and a historian does not; "check this alignment" names the question a
+				scholar actually has, which is the same principle ADR-0013 applies to the transformation
+				types — guidance first, label second.
+
+				**The fold warning is deliberately not in here.** It is above the panes, it runs whether or
+				not this is open, and it is a correctness warning about a contradictory Control Point rather
+				than a way of drawing one. Folding it in would hide the one piece of feedback ADR-0013 calls
+				the most useful a student can receive behind a control they have no reason to open.
+			-->
 			<div class="min-w-0 flex-1">
-				<DistortionControls
-					view={distortion}
-					enabled={warped?.status === 'drawn'}
-					onchange={(next) => (distortion = next)}
-				/>
+				<button
+					type="button"
+					class="btn btn-sm"
+					aria-expanded={checking}
+					aria-controls={checking ? 'check-alignment' : undefined}
+					data-testid="check-alignment-toggle"
+					onclick={() => closeOrOpenChecking(!checking)}
+				>
+					Check this alignment
+				</button>
+
+				{#if checking}
+					<div id="check-alignment" class="mt-3">
+						<DistortionControls
+							view={distortion}
+							enabled={warped?.status === 'drawn'}
+							onchange={(next) => (distortion = next)}
+						/>
+					</div>
+				{/if}
 			</div>
 		</div>
 	{/if}

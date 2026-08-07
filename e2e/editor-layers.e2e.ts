@@ -364,20 +364,33 @@ async function addHistoricalMap(page: Page): Promise<void> {
 
 /**
  * A Project with one ingested Historical Map and not one Control Point yet — the state a scholar is in
- * when they make their first pair.
+ * when they make their first pair, **and still on the Project page**.
  *
  * **There is a map Layer in the stack already** (ADR-0023): adding the Historical Map is what put it
- * there, and it says it is not aligned yet until the pairs exist.
+ * there, and it says it is not aligned yet until the pairs exist. So the barrier is the save
+ * indicator rather than a pane: since ticket 03 there is no alignment pane on this page to wait for,
+ * and the whole of the add — pyramid, Alignment, `project.json` — is what "Saved" means here.
  *
  * @returns the Project directory
  */
 async function projectWithImage(page: Page): Promise<string> {
 	const directory = await emptyProject(page);
 	await addHistoricalMap(page);
-	await expect(page.getByTestId('image-pane')).toBeVisible();
-	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 	await expect(page.getByRole('status')).toHaveText('Saved');
 	return directory;
+}
+
+/**
+ * On to the alignment route for the Project's one Historical Map (ticket 03).
+ *
+ * Separate from {@link projectWithImage} because most of this file never needs the panes — it is
+ * about the Layer stack — and because the two tests that are about what *adding* the map does have to
+ * stay on the Project page to see it.
+ */
+async function openAlignment(page: Page): Promise<void> {
+	await page.getByTestId('align-historical-map').click();
+	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
+	await expect(page.getByTestId('image-pane')).toBeVisible();
 }
 
 /** One Control Point pair, at the same fraction across both panes. */
@@ -400,6 +413,8 @@ async function pairAt(page: Page, fx: number, fy: number): Promise<void> {
  */
 async function alignedProject(page: Page): Promise<string> {
 	const directory = await projectWithImage(page);
+	await openAlignment(page);
+	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 
 	// Three pairs, which is the minimum a first-order polynomial can be solved from (ADR-0013), so
 	// the Layer this makes has something to draw.
@@ -708,6 +723,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	test('stops saying it once there are enough Control Points, and not before', async ({ page }) => {
 		test.setTimeout(90_000);
 		const directory = await projectWithImage(page);
+		await openAlignment(page);
 
 		await pairAt(page, 0.3, 0.3);
 		await pairAt(page, 0.7, 0.35);
@@ -718,8 +734,11 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		await page.waitForTimeout(2000);
 		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
 
-		// The third pair clears it, and the Layer is on the map.
+		// The third pair clears it, and the Layer is on the map. Back through the Project page, because
+		// the alignment view is a route of its own since ticket 03 and its `?layer=` is not a URL this
+		// test knows how to write.
 		await page.goto(`/?p=${directory}`);
+		await openAlignment(page);
 		await expect(page.getByTestId('control-point-row')).toHaveCount(2);
 		await pairAt(page, 0.5, 0.7);
 		// The barrier, and the honest one: the alignment workspace's own warped preview is drawn, so the
@@ -770,10 +789,14 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	 * exotic about the interruption: OPFS has a quota, and a folder Workspace can have its permission
 	 * revoked mid-session.
 	 *
-	 * **The failure is arranged before the file is picked**, because the write that can fail is now
-	 * part of adding the map rather than part of the first pair. The pyramid's own files are left
-	 * writable — only `alignments/*.json` is refused — so this is the Alignment failing and not the
-	 * ingest.
+	 * **The failure is arranged before the file is picked**, because the write that can fail is part of
+	 * adding the map — ticket 02 — rather than part of the first pair or, as ticket 03 briefly had it,
+	 * part of pressing Align. The pyramid's own files are left writable — only `alignments/*.json` is
+	 * refused — so this is the Alignment failing and not the ingest.
+	 *
+	 * **The ordering this protects is not tied to any one gesture.** Alignment before Layer is what
+	 * `assertReferencesPresent` requires whichever act makes the Layer, which is why this test is
+	 * re-pointed at each new one rather than retired with it.
 	 */
 	test('does not create the Layer when the starter Alignment could not be written', async ({
 		page
@@ -799,6 +822,12 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		).rejects.toThrow();
 		// And the user is told, rather than being left with a Historical Map that quietly did not arrive.
 		await expect(page.getByText('Quota exceeded')).toBeVisible();
+
+		// **And there is no way to align it into existence either**, which is ticket 03's half of the
+		// same rule: with no Layer in the stack there is no `?layer=` to address, so the Project page
+		// offers no Align link for this map at all rather than a control that would make one.
+		await expect(page.getByTestId('align-historical-map')).toHaveCount(0);
+		await expect(page.getByTestId('align-unavailable')).toBeVisible();
 	});
 
 	/**
@@ -824,6 +853,10 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	 * `images/<id>/info.json` is the signal that still means what the list used to mean: the tiler
 	 * writes it last, so it lands when the ingest ends and the Layer is on its way — with the
 	 * `manifest.json` read below still to come. See {@link completedPyramid}.
+	 *
+	 * **Ticket 03 leaves this exactly where it is.** The window belongs to the add, and the add is on
+	 * this page; the alignment route is not involved in it at all. That is the whole difference between
+	 * this test and the ones above that had to be re-pointed.
 	 */
 	test('making the Layer does not discard a Project rename made while it was being made', async ({
 		page
@@ -853,9 +886,11 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		// The Layer was made, and the rename survived it — on screen and in the file.
+		const file = await projectJson(page, directory);
+		expect(file.layers).toHaveLength(1);
+		expect(file.name).toBe('Amsterdam, 1625');
 		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
 		await expect(name).toHaveValue('Amsterdam, 1625');
-		expect((await projectJson(page, directory)).name).toBe('Amsterdam, 1625');
 	});
 
 	test('shows the Layer as a local copy, which is what decides whether a reader needs the network', async ({
@@ -885,6 +920,11 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	 * asserting only the outcome would leave the next version of this failure free to arrive silently.
 	 * And the stack is asked of MapLibre rather than of the app, for the reason the whole file does:
 	 * MapLibre's layer order *is* the drawing.
+	 *
+	 * **The teardown moved one hop since ticket 03** and is still exactly what this walks. The panes
+	 * that have to come down are on `/align/`, so the trip is align → Project → Layers rather than
+	 * Project → Layers, and it is the *first* hop that now destroys a Base Map carrying a warped layer.
+	 * `pageerror` is watched across both.
 	 */
 	test('draws the stack when the pane is reached by the link from the Project page', async ({
 		page
@@ -893,6 +933,9 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		const crashes: string[] = [];
 		page.on('pageerror', (error) => crashes.push(error.message));
 
+		// Out of the alignment route, which is where the warped pane being torn down now lives.
+		await page.getByTestId('back-to-project').click();
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 		await openLayers(page, directory, { via: 'link' });
 
 		const layerId = (await rowIds(page))[0] as string;

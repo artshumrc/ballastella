@@ -374,6 +374,11 @@
 		overlayLayer?.update(overlayPoints);
 	});
 
+	// Ticket 03's `fitTo` stood here — a list of Control Points fitted on array identity. Ticket 09
+	// replaced it with `openingFit` below, which frames on the Resource Mask rather than the pairs,
+	// caps the zoom by ADR-0026's rule rather than this pane's own, and announces where the map went.
+	// The identity-guarded "once, and never under the user's drag" contract survives in `applyOpeningFit`.
+
 	/**
 	 * The drawn warped Historical Map, for the in-place updates below.
 	 *

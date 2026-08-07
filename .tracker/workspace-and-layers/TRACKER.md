@@ -8,7 +8,7 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Current ticket: **03**, being reconciled with ticket 02 and remediated. 01, 02, 08 and 09 are merged to `main`. 04, 10 and 12 unblock when 03 lands; 05 needs 04 as well.
+Current ticket: **10**, in progress. 01, 02, 03, 08 and 09 are merged to `main`. 04 and 12 are now unblocked; 05 needs 04 as well.
 
 This epic follows [`ballastella-v1`](../ballastella-v1/TRACKER.md), whose implementation is complete and merged. Two things carry across and should be read before any ticket is written:
 
@@ -30,7 +30,7 @@ Last updated: 2026-08-06
 | --- | --- | --- | --- | --- |
 | 01 | [01-historical-maps-move-to-the-workspace.md](./tickets/01-historical-maps-move-to-the-workspace.md) | Completed | — | 61, 62, 66, 67 |
 | 02 | [02-a-layer-is-created-when-a-map-is-added.md](./tickets/02-a-layer-is-created-when-a-map-is-added.md) | Completed | 01 | 18, 34, 35, 68 |
-| 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | In Progress | 01 | 37, 38, 41–55, 57–60 |
+| 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | Completed | 01 | 37, 38, 41–55, 57–60 |
 | 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Not Started | 03 | 1, 2, 3, 10–13, 109, 110 |
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Not Started | 02, 04 | 14–17, 20 |
 | 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Not Started | 02, 05 | 21–30, 33, 36, 106 |

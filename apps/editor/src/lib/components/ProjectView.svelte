@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { resolveBaseMap } from '@ballastella/core';
 
-	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
 	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
 	import MirrorMap from '$lib/remote-iiif/MirrorMap.svelte';
 	import { MirrorMap as MirrorMapJob } from '$lib/remote-iiif/mirror-map.svelte.js';
@@ -22,8 +20,11 @@
 	 * autosave rules it will follow — the name field below is the app's first editable value, so it
 	 * is where "typing coalesces into one write" and "the edit is committed when it ends" are
 	 * established rather than improvised per slice (ADR-0017) — the user's own Historical Maps
-	 * rendered from their own Project since ticket 06, and since ticket 07 the Control Point pairing
-	 * that is the reason the tool exists.
+	 * rendered from their own Project since ticket 06, and the way in to aligning them.
+	 *
+	 * **The two alignment panes are no longer here.** Aligning is `/align/?p=…&layer=…` since ticket
+	 * 03, and this page's Align link is the temporary entry point to it: ticket 04 replaces this
+	 * whole screen and ticket 05 moves the link onto a Layer card.
 	 *
 	 * `storage` is here for the two states in which there is no Project to show because there is no
 	 * Workspace to show it from — see {@link WorkspaceRecovery}. Both were reachable and neither was
@@ -34,7 +35,7 @@
 	/** Nothing to show, and a reason worth naming, rather than a page that says "Opening…" for ever. */
 	const recovering = $derived(session.status === 'unreachable' || storage.awaitingFolder);
 
-	/** Which Historical Map is on screen. The first one, until the user picks another. */
+	/** Which Historical Map Align acts on. The first one, until the user picks another. */
 	let selectedImageId = $state('');
 
 	const images = $derived(session.images);
@@ -43,11 +44,20 @@
 	);
 
 	/**
-	 * The ADR-0011 shim for this Project. Recomputed when the open Project changes, because it is
-	 * bound to that Project's directory — a stale one would resolve the right image id against the
-	 * wrong folder, which is a pane of somebody else's map rather than an error.
+	 * The Layer of this Project that draws the selected Historical Map, or `undefined`.
+	 *
+	 * **The whole of what the Align link needs**, and it is a lookup rather than a job. Since ADR-0023
+	 * a Historical Map that is in a Project already has its Layer, made when the map was added, so the
+	 * `?layer=` the route is keyed by exists before the user reaches for it — which is why this is an
+	 * `<a href>` below and not a button that resolves an id and then navigates. That earlier shape had
+	 * to disable itself across a store read, and a disabled control with nothing announcing why is
+	 * exactly the unannounced busy state CONTRIBUTING rules out.
+	 *
+	 * `undefined` is reachable and is not a failure: `images` is the **Workspace's** list of Historical
+	 * Maps, not this Project's (ADR-0023), so a Project can be shown a map it does not draw — and a
+	 * Project whose starter Alignment could not be written has the pyramid without the Layer.
 	 */
-	const imageServiceFetch = $derived(session.imageServiceFetch());
+	const layerForShown = $derived(shown ? session.mapLayerFor(shown) : undefined);
 
 	/**
 	 * Which referenced Historical Map is being read unwarped, by image id. `''` for none.
@@ -256,7 +266,7 @@
 			<!--
 				One button per Historical Map, so a Project with several of them can be moved between
 				(SPEC story 31 is about zooming into *my* map, and a scholar comparing two sheets has
-				two). `aria-current` rather than a visual cue alone: which map is on screen is
+				two). `aria-current` rather than a visual cue alone: which map Align will open is
 				information, and a border is not announced.
 			-->
 			<ul class="mt-4 flex flex-wrap gap-2" aria-label="Historical Maps in this Project">
@@ -275,28 +285,58 @@
 			</ul>
 
 			<!--
-				The Historical Map beside the Base Map, and the pairing between them — the core act of
-				the application (SPEC stories 30 and 32–37).
+				The way to the alignment screen (ticket 03). The two panes used to be mounted here, below
+				this list; aligning is now a route, entered deliberately and left deliberately.
 
-				Every byte the left pane draws comes out of the ProjectStore through the ADR-0011 shim —
-				no static-asset fallback, no URL anywhere — which is what makes deep zoom into the user's
-				own map work with no network at all (stories 31 and 8).
+				**A plain link, because the Layer id already exists.** The route is addressed by Layer id
+				(ticket 03's contract) and a Historical Map in a Project has had its Layer since it was
+				added (ADR-0023), so there is nothing to resolve on the way — the `href` is knowable at
+				render time. An earlier draft pressed a button that created the Layer and then navigated;
+				besides disabling itself across a store read with nothing announcing why, it wrote a
+				Workspace-shared `alignments/<id>.json` to do it. A link cannot.
+
+				Spelled out here rather than held in a `$derived` string: `svelte/no-navigation-without-
+				resolve` reads the first part of an `href`, so a resolved path followed by a query string
+				is the shape it recognises — the same shape `/layers/` and the align route's own way back
+				use, and the reason neither needs a suppression.
+
+				**Deliberately temporary, and deliberately outside the `<ul>` above.** Ticket 05 moves this
+				onto a Layer card, and there are no Layer cards on this screen yet. Outside the list because
+				several browser suites count `getByRole('listitem')` on this page and read the image id out
+				of the first one's text — a per-row link would put its own label into that text.
 			-->
-			{#if imageServiceFetch && shown}
-				<div class="mt-6">
-					<AlignmentWorkspace
-						{session}
-						imageId={shown}
-						fetchTile={imageServiceFetch}
-						baseMapId={resolveBaseMap(session.openProject.baseMap).entry.id}
-					/>
+			{#if layerForShown}
+				<p class="mt-4">
+					<a
+						class="btn btn-primary btn-sm"
+						data-testid="align-historical-map"
+						href="{resolve('/align')}?p={encodeURIComponent(
+							session.openDirectory ?? ''
+						)}&layer={encodeURIComponent(layerForShown.id)}"
+					>
+						Align this Historical Map
+					</a>
+				</p>
+			{:else if shown}
+				<!--
+					A Historical Map this Project does not draw. Reachable two ways, and neither is an error:
+					the list above is the **Workspace's** maps (ADR-0023), so another Project's map appears
+					here; and a map whose starter Alignment could not be written arrived without its Layer.
+					Said rather than shown as a dead or missing control, because "there is no Align button"
+					is indistinguishable from a page that has not finished loading.
+				-->
+				<div class="mt-4 alert max-w-prose alert-info" data-testid="align-unavailable">
+					<p>
+						This Historical Map is in the Workspace but not in this Project, so there is no Layer to
+						align. Adding it to this Project is what makes one.
+					</p>
 				</div>
 			{/if}
 		{:else if !session.ingest}
 			<p class="mt-4 max-w-prose">
 				This Project has no Historical Maps yet. What works now is bringing one in — the image is
-				converted to a IIIF pyramid, written into the Project as you watch, and shown here beside a
-				Base Map to align onto the world.
+				converted to a IIIF pyramid, written into the Workspace as you watch, and then Align opens
+				it beside a Base Map to place onto the world.
 			</p>
 		{/if}
 	</section>

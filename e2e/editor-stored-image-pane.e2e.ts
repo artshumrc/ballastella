@@ -165,6 +165,24 @@ async function ingest(page: Page, width: number, height: number, name: string): 
 }
 
 /**
+ * Press Align and land on the pane, which is `/align/?p=…&layer=…` since ticket 03.
+ *
+ * The Historical Maps list and the per-map selector buttons stay on the Project page; the pane this
+ * file is about moved. Every test below therefore ingests on the Project page, reads its ids there,
+ * and then comes here.
+ */
+async function openPane(page: Page): Promise<void> {
+	await page.getByTestId('align-historical-map').click();
+	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
+}
+
+/** Back to the Project page, where the Historical Maps are chosen between. */
+async function backToProject(page: Page): Promise<void> {
+	await page.getByTestId('back-to-project').click();
+	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+}
+
+/**
  * Wait for the pane to have settled.
  *
  * `timeout` is overridable because every tile here is an OPFS read and the suite runs ten workers
@@ -210,6 +228,7 @@ test.describe('a Historical Map read from the Project', () => {
 		await openProject(page, 'Amsterdam 1625');
 
 		const imageId = await ingest(page, 700, 500, 'la-floride.png');
+		await openPane(page);
 		await waitForTiles(page);
 
 		// The pyramid on screen is the one that was just written, stated as text so a pane showing
@@ -326,6 +345,7 @@ test.describe('a Historical Map read from the Project', () => {
 		// One of them is on screen without being asked for, and it is one of these two. *Which* one
 		// is not asserted on purpose: the list is ordered by image id, so the default is whichever
 		// sorts first, and pinning it here would be pinning `generateRandomId`.
+		await openPane(page);
 		await waitForTiles(page);
 		await expect(pyramidReadout(page)).toHaveAttribute(
 			'data-image-id',
@@ -348,7 +368,13 @@ test.describe('a Historical Map read from the Project', () => {
 			levels: number
 		) => {
 			await clearServedTiles(page);
+			// Choosing between this Project's Historical Maps is on the Project page and aligning one is
+			// a route (ticket 03), so the switch is now a round trip rather than a click. What is being
+			// defended is unchanged and is if anything harder to fake: the pane is *rebuilt* on the way
+			// back, so a source that had been repointed rather than replaced has nowhere to hide.
+			await backToProject(page);
 			await page.getByRole('button', { name: imageId }).click();
+			await openPane(page);
 			await waitForTiles(page);
 			await expect(pyramidReadout(page)).toHaveAttribute('data-image-id', imageId);
 			// On the attributes, which are exact: "scale factors 1, 2, 4" is a substring of
@@ -404,6 +430,7 @@ test.describe('a Historical Map read from the Project', () => {
 		await openProject(page, 'Amsterdam 1625');
 
 		await ingest(page, 300, 1300, 'tall.png');
+		await openPane(page);
 		// Four levels rather than the usual fixture's three, so the opening view settles more slowly:
 		// the default 5 s timed out about one run in ten under the suite's own contention.
 		await waitForTiles(page, 30_000);
@@ -440,6 +467,7 @@ test.describe('a Historical Map read from the Project', () => {
 		await createProject(page, 'Amsterdam 1625');
 		await openProject(page, 'Amsterdam 1625');
 		await ingest(page, 700, 500, 'la-floride.png');
+		await openPane(page);
 		await waitForTiles(page);
 
 		// Every control is a real button and reachable by tabbing (ADR-0016, stories 95 and 96).
@@ -493,6 +521,7 @@ test.describe('a Historical Map read from the Project', () => {
 		await createProject(page, 'Amsterdam 1625');
 		await openProject(page, 'Amsterdam 1625');
 		const imageId = await ingest(page, 700, 500, 'la-floride.png');
+		await openPane(page);
 		await waitForTiles(page);
 
 		// Overwrite the pyramid's `info.json` with one whose finest level is scale factor 2. It is
