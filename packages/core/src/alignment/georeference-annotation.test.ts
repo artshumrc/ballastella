@@ -39,6 +39,7 @@ import {
 } from './alignment.js';
 import {
 	AlignmentUnreadableError,
+	AlignmentUnpreservableError,
 	AlignmentUnwritableError,
 	parseAlignment,
 	serialiseAlignment
@@ -95,11 +96,10 @@ const FIXTURES = [
 		byteIdentical: false
 	},
 	{
-		// Ticket 18's fixture: `floride-1657` with three top-level members this build does not model —
-		// a timestamp, a `creator` object, and a term from somebody else's vocabulary. It is registered
-		// here so it has to pass every guarantee above as well as the preservation tests below.
-		// a timestamp, a `creator` object, and a term from somebody else's vocabulary. It is registered
-		// here so it has to pass every guarantee above as well as the preservation tests below.
+		// Ticket 18's fixture: `floride-1657` with five members this build does not model — a
+		// timestamp, a `creator` object and a term from somebody else's vocabulary at the top level,
+		// and `target.source.partOf` and `body._allmaps` nested inside. It is registered here so it
+		// has to pass every guarantee above as well as the preservation tests below.
 		//
 		// Not `byteIdentical`, for the same reason `allmaps-shaped` is not: the members come back, but
 		// `created` comes back in the slot `generateAnnotation` reserves for it rather than at the end
@@ -146,10 +146,13 @@ describe('the committed fixture Alignments round-trip', () => {
 			// upstream bump changes how the document is written, the committed bytes stop matching and
 			// this fails — which is precisely the alarm ADR-0010 asks for on an Allmaps upgrade.
 			//
-			// Not asked of a document another producer wrote, and only there: our writer deliberately
-			// emits no `id`, no timestamps and no `_allmaps`, so byte-identity against a foreign
-			// document would be asserting that we echo fields we have decided not to keep. Not
-			// registered at all rather than skipped, so the suite carries no permanently pending test.
+			// Not asked of a document another producer wrote, and only there. Since ticket 18 those
+			// members do come back — what does not come back is their *position*: `created` returns to
+			// the slot `generateAnnotation` reserves for it rather than wherever its author put it. So
+			// byte-identity against a foreign document would be asserting key order, which is not a
+			// property of the format and not what story 60 asks for. The members and their values are
+			// asserted exactly at the bottom of this file instead. Not registered at all rather than
+			// skipped, so the suite carries no permanently pending test.
 			if (byteIdentical) {
 				it('re-serialises to the committed bytes exactly', () => {
 					const alignment = parseAlignment(fixture(name), { imageId });
@@ -880,10 +883,38 @@ describe('the members of a third party’s document that this build does not mod
 		const alignment = parseAlignment(fixture(NAME), { imageId });
 
 		expect(Object.keys(alignment.unmodelled ?? {}).sort()).toEqual([
+			'body',
 			'created',
 			'creator',
-			'http://example.org/vocab#sheetNumber'
+			'http://example.org/vocab#sheetNumber',
+			'target'
 		]);
+	});
+
+	// The first cut diffed only the top level, and this is what that missed. Every one of these is
+	// nested, and `_allmaps` is what Allmaps itself writes — so a top-level-only diff did not hold
+	// for the documents story 60 exists for. `allmaps-shaped.json`, already in this repository
+	// before ticket 18, carries all three shapes and was silently losing them.
+	it('come back from inside target and body, not only from the top level', () => {
+		const out = written();
+
+		expect(out['target']['source']['partOf']).toEqual([
+			{ id: 'https://iiif.library.example/iiif/3/manifest/plan-1657', type: 'Manifest' }
+		]);
+		expect(out['body']['_allmaps']).toEqual({
+			note: 'A private extension key, nested inside body.'
+		});
+	});
+
+	it('do not displace the members beside them that this build recomputes', () => {
+		// `target.source` carries a carried `partOf` and an authored `id`, `width` and `height`. A
+		// restore that put the whole source object back would pin the image dimensions to whatever the
+		// file said, which is the stale-value defect pointing at a nested member.
+		const out = written();
+
+		expect(out['target']['source']['id']).toBe('https://unset.invalid/floride-1657');
+		expect(out['target']['source']['width']).toBe(1200);
+		expect(out['target']['source']['height']).toBe(851);
 	});
 
 	it('come back out with their exact values after a read-and-write cycle', () => {
@@ -933,6 +964,39 @@ describe('the members of a third party’s document that this build does not mod
 
 		expect(out['type']).toBe('Annotation');
 		expect(out['target']).toMatchObject({ type: 'SpecificResource' });
+	});
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE OTHER BRANCH OF STORY 60'S CRITERION: REFUSE, WITH A MESSAGE SAYING WHY
+	//
+	// One shape cannot be carried — an unknown member inside an element of an array both documents
+	// have, in practice a per-Control-Point note in `body.features[].properties`. The features are
+	// regenerated one per Control Point, so no element reliably corresponds to the source's.
+	// Silently dropping it is the option the criterion does not offer.
+	describe('a member that cannot be carried at all', () => {
+		const UNWRITABLE = 'third-party-with-unwritable-field';
+
+		it('still reads, so the user can open and export the Alignment', () => {
+			const alignment = parseAlignment(fixture(UNWRITABLE), { imageId });
+
+			expect(alignment.controlPoints).toHaveLength(6);
+			expect(alignment.unpreservable).toContain('body.features[0]');
+			expect(alignment.unpreservable).toContain('confidence');
+		});
+
+		it('refuses the write, naming the member and saying the file is untouched', () => {
+			const alignment = parseAlignment(fixture(UNWRITABLE), { imageId });
+
+			expect(() => serialiseAlignment(alignment)).toThrow(AlignmentUnpreservableError);
+			expect(() => serialiseAlignment(alignment)).toThrow(/confidence/);
+			expect(() => serialiseAlignment(alignment)).toThrow(/left exactly as it is/);
+		});
+
+		it('does not refuse the sibling fixture, whose unknowns are all carryable', () => {
+			// Or the refusal is just a broken writer wearing a message.
+			expect(parseAlignment(fixture(NAME), { imageId }).unpreservable).toBeUndefined();
+			expect(() => serialiseAlignment(parseAlignment(fixture(NAME), { imageId }))).not.toThrow();
+		});
 	});
 
 	it('are absent from an Alignment this build made itself', () => {

@@ -1,9 +1,16 @@
 // The one writer of `alignments/<image-id>.json` (ticket 18).
 //
 // **This module is the only place in the codebase where an `AlignmentPath` becomes a
-// `WritablePath`**, and therefore the only place an Alignment can be written at all. Everything
-// else in the application — every pane, every route, every importer — comes through
-// {@link writeAlignmentFile} and has to say which of three things it means.
+// `WritablePath`.** Everything in the application that writes one — every pane, every route, the
+// Project-zip importer — comes through {@link writeAlignmentFile} or {@link writeAlignmentBytes}
+// and has to say which of three things it means.
+//
+// That is a claim about this codebase as it stands, kept true by a type and a fence, and **not** a
+// claim that the language makes a blind write impossible. It does not: `WritablePath` accepts any
+// plain `string`, so a path the compiler cannot see as an Alignment's is accepted, and the fence
+// covers the spellings that produces rather than the whole space of them. The honest summary is
+// that the cheap ways in are closed and the remaining ones are conspicuous. See the two layers
+// below for exactly where the line is.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THERE IS A MODULE FOR ONE FILE
@@ -13,20 +20,33 @@
 // work in front of you. Afterwards it can cost somebody else's afternoon, in a Project you are not
 // looking at and have possibly never opened.
 //
-// Nothing in the code was changed to reflect what that means for a write, and **three separate
-// tickets in this epic then independently wrote a blind overwrite of the file**, none of them
-// noticing, each caught only by review — in one case two lines from a correct guard doing exactly
-// the right thing. Two authors reaching for the same mistake is a missing invariant, not two
-// lapses, and the third instance is a matter of time.
+// Nothing in the code was changed to reflect what that means for a write, and **two blind
+// overwrites of the file were then written independently** — ticket 02's community-Alignment import
+// and ticket 03's Align route — neither author noticing, each caught only by review. Ticket 02's
+// starter path guards correctly two lines from its own unguarded write, so the same author wrote
+// the check and missed the hole beside it. That is a missing invariant, not two lapses.
+//
+// A **third** existence check, spelled differently again, was found in the Project-zip importer
+// during this ticket's own review. It was not a live overwrite — see `project/workspace.ts` for
+// exactly why — but it was a third answer to one question, in a place nobody had thought to look.
+// Three independent spellings is the argument for this module existing, more than any one of them.
 //
 // So the invariant is made structural in two layers that fail at different moments:
 //
 //   1. **The type**, which fails the build. `alignmentPath` returns an `AlignmentPath`;
-//      `ProjectStore.write` and `Autosave.commit` take a `WritablePath`, which an `AlignmentPath`
-//      is not. A blind write through a path helper does not compile.
-//   2. **The fence**, `scripts/check-alignment-writers.mjs`, which catches what a type cannot: the
-//      literal `'alignments/x.json'` spelled out by hand, which is how a *test fixture* writes one
-//      and how the assertions above it go quietly vacuous.
+//      `ProjectStore.write`, `Autosave.commit` and `Autosave.queue` take a `WritablePath`, which an
+//      `AlignmentPath` is not. A blind write through the path helper does not compile.
+//
+//      **It refuses that and nothing more, which is worth being exact about.** `WritablePath`
+//      brands with an optional property so that every ordinary `string` path stays assignable
+//      without a cast; the price is that an Alignment path the compiler sees as a plain `string`
+//      is accepted. A `const` holding a template literal is enough to launder one past.
+//   2. **The fence**, `scripts/check-alignment-writers.mjs`, which covers the spellings the type
+//      cannot see — the literal written out by hand, the path laundered through a local, a detached
+//      write method, and a second cast — and lists every opted-out fixture write on success.
+//
+// Neither can see a path computed at runtime from data. The one place that happens is the
+// Project-zip importer, and it is routed through {@link writeAlignmentBytes} rather than fenced.
 //
 // The failure mode is why neither is a review comment. An overwrite does not throw, does not log,
 // and does not 404; it shows up as a colleague's Control Points quietly gone. This is the same
@@ -78,10 +98,21 @@ export type AlignmentWrite =
 	 * this Alignment open and this is their edit of it, so there is no existence question to ask:
 	 * whatever is on disk is what they are editing.
 	 *
-	 * It is still narrower than a blind write in the one way that matters. An `update` is *this*
-	 * Alignment written back, which means it started as a read — so a member of the document this
-	 * build does not model comes back out again (see `Alignment.unmodelled`), where a rewrite
-	 * generated from scratch would drop it.
+	 * **What an `update` does and does not protect.** It started as a read, so the members of the
+	 * document this build does not model come back out again — see `Alignment.unmodelled`. It does
+	 * **not** carry the `address`: `target.source.id` is modelled but not stored on `Alignment`, so
+	 * an `update` that omits `address` rewrites it to the ADR-0004 placeholder. That is right for a
+	 * map whose pyramid is here and wrong for one referenced from a Library, and it is the caller's
+	 * to say. Both callers in the editor now do, explicitly.
+	 *
+	 * **And it does not detect a concurrent edit.** `update` writes what the user has, over whatever
+	 * is there — so if a colleague changed the same Alignment through a synced Workspace since this
+	 * one was read, their change is lost. That is a real gap and it is knowingly out of scope: the
+	 * ticket rules out conflict resolution between Projects, and the vector that would reach it is a
+	 * file synced under the application rather than anything in this process, which no check here can
+	 * see. ADR-0023 already accepts it in the same words — the mitigation is visibility, not
+	 * prevention. What this module prevents is the *unasked-for* overwrite, which is a different and
+	 * much more common thing.
 	 */
 	| { readonly intent: 'update' }
 	/**
@@ -150,9 +181,20 @@ export async function writeAlignmentFile(
 	const path = alignmentPath(alignment.imageId);
 	const wanted = serialiseAlignment(alignment, address);
 
+	// `discarding` is deliberately not logged, stored, or returned, and this is where that is said
+	// rather than left to be noticed. **The compiler is the whole point of the field.** Its job is to
+	// make a caller stop and put into words what the user is losing, at the moment they choose
+	// `replace` over `create`; once they have, the words belong in the dialog the user actually read,
+	// which is the caller's to write and not this module's to second-guess. A required field nobody
+	// reads is a strange thing to leave unexplained, so: it is read by the person writing the call.
+	void (write.intent === 'replace' ? write.discarding : '');
+
 	if (write.intent !== 'create') {
 		// `update` and `replace` both assert that the caller knows what is there — the user has it
-		// open, or has been told in words what they are discarding. There is nothing to check.
+		// open, or has been told in words what they are discarding. There is nothing to check *that
+		// this process can see*: a colleague's edit arriving through a synced Workspace between the
+		// read and here would be overwritten, and nothing below would notice. See {@link
+		// AlignmentWrite} on why that is out of scope rather than covered.
 		await port.commit(writable(path), wanted);
 		return 'written';
 	}
@@ -175,6 +217,48 @@ export async function writeAlignmentFile(
 			// is not worth a word to anybody; a refused offer is, because the user asked for it.
 			return offering ? 'kept over the offer' : 'left alone';
 	}
+}
+
+/**
+ * The same three intents, for a caller holding **bytes it must not re-serialise**.
+ *
+ * This is the Project-zip importer, and it is the one caller that cannot go through
+ * {@link writeAlignmentFile}. What it is copying is a document somebody else's build wrote, and
+ * routing it through `Alignment` and back would regenerate it from this build's model — which is
+ * exactly the loss SPEC story 60 forbids and `Alignment.unmodelled` exists to prevent. So the bytes
+ * travel verbatim, and only the *decision* is shared.
+ *
+ * **`create` here is narrower than `create` above, and it has to be.** Deciding that a stored
+ * Alignment is an untouched starter means comparing it against the starter this build would write
+ * for that map, and that needs the image's pixel dimensions, which an archive entry does not carry.
+ * So there is no `'untouched'` case: anything already on disk is kept. That is the safe direction —
+ * the cost is an imported Alignment declined in favour of a starter, which re-importing after
+ * deleting the map repairs, against Control Points that cannot be got back.
+ *
+ * @returns `'written'`, or `'kept over the offer'` when the destination already had one. Never
+ *   `'left alone'`: an archive always carries a document somebody meant, so a decline is always
+ *   worth reporting.
+ */
+export async function writeAlignmentBytes(
+	port: AlignmentFilePort,
+	request: {
+		readonly imageId: string;
+		readonly bytes: Bytes;
+		readonly write: AlignmentWrite;
+	}
+): Promise<AlignmentWriteOutcome> {
+	const { imageId, bytes, write } = request;
+	const path = alignmentPath(imageId);
+
+	if (write.intent !== 'create') return commitAs(port, path, bytes, 'written');
+
+	try {
+		await port.read(path);
+	} catch (cause) {
+		if (cause instanceof PathNotFoundError) return commitAs(port, path, bytes, 'written');
+		// Unreadable is not absent. See {@link existing} for why that direction is the safe one.
+	}
+	return 'kept over the offer';
 }
 
 async function commitAs(

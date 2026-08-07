@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { seedAlignmentFixture } from '../alignment/alignment-fixture.js';
 import { Autosave } from '../autosave/autosave.js';
 import {
 	emptyCollection,
@@ -18,6 +19,7 @@ import {
 	type Layer
 } from '../project/layer.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
+import type { Bytes, StorePath } from '../store/project-store.js';
 import {
 	UndoSlot,
 	describeUndo,
@@ -378,7 +380,13 @@ describe('a deleted Layer', () => {
 describe('a deletion reversed through the slot, after it reached storage (ADR-0017)', () => {
 	// At the Workspace root: an Alignment is shared by every Project (ADR-0023), so undoing its
 	// deletion puts the bytes back where every Project reads them from.
-	const path = 'alignments/floride-1657.json';
+	const IMAGE_ID = 'floride-1657';
+	// A plain `StorePath`, matching `LayerDeletedUndo.path`, which is what the record really carries.
+	// Not `alignmentPath(IMAGE_ID)`: that is an `AlignmentPath`, and the undo closure below commits it
+	// through `Autosave` exactly as `deleteLayer` does — which ticket 18's brand refuses, correctly.
+	// Production never records an Alignment delete for precisely the reason `undo.ts` gives: one
+	// Project's delete button must not destroy a Historical Map every Project shares.
+	const path: StorePath = `alignments/${IMAGE_ID}.json`;
 	// Deliberately *not* what `serialiseAlignment` would produce: a colleague's file, with fields this
 	// build carries rather than understands. A record that held a parsed Alignment would restore
 	// something merely equivalent, and the byte-identity criterion would fail on exactly this file.
@@ -391,7 +399,7 @@ describe('a deletion reversed through the slot, after it reached storage (ADR-00
 		const store = new MemoryProjectStore();
 		const autosave = new Autosave(store);
 		const slot = new UndoSlot();
-		await store.write(path, original);
+		await seedAlignmentFixture(store, IMAGE_ID, original);
 		let stack: readonly Layer[] = [notes, mapLayer];
 
 		// The destructive action, all the way to storage: the bytes are read into the record first, and
@@ -409,6 +417,7 @@ describe('a deletion reversed through the slot, after it reached storage (ADR-00
 		// Offered exactly as `deleteLayer` offers it: the record, and a closure that puts the file back
 		// through the same Autosave as every other edit — there is no bespoke save path here.
 		slot.offer(record, async () => {
+			// alignment-write-is-the-fixture: the undo closure exactly as deleteLayer offers it, restoring the bytes it captured before the delete
 			await autosave.commit(path, record.bytes as Uint8Array<ArrayBuffer>);
 			stack = insertLayerAt(stack, record.layer, record.at);
 		});
@@ -430,10 +439,14 @@ describe('a deletion reversed through the slot, after it reached storage (ADR-00
 	// deletion, so nothing that happens to the store afterwards can change what undo restores.
 	it('is not a view of the store, so a later write cannot change what it holds', async () => {
 		const store = new MemoryProjectStore();
-		await store.write(path, original);
+		await seedAlignmentFixture(store, IMAGE_ID, original);
 		const held = await store.read(path);
 
-		await store.write(path, new TextEncoder().encode('{"type":"Annotation","overwritten":true}\n'));
+		await seedAlignmentFixture(
+			store,
+			IMAGE_ID,
+			new TextEncoder().encode('{"type":"Annotation","overwritten":true}\n') as Bytes
+		);
 
 		expect(held).toEqual(original);
 	});

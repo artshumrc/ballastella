@@ -16,7 +16,7 @@ import {
 	referencedRendererDocument,
 	referencedImage,
 	referencedImagePath,
-	serialiseReferencedAlignment,
+	referencedAlignmentAddress,
 	serialiseReferencedImage,
 	sourceOf,
 	tileBaseFor
@@ -276,7 +276,7 @@ describe('an Alignment of a referenced image', () => {
 		// — the one case where the resource has a real public URI — the file is directly consumable by
 		// Allmaps and by anything else implementing the extension (SPEC stories 91, 92). The
 		// placeholder would produce a standard-shaped document nothing in the world can resolve.
-		const bytes = serialiseReferencedAlignment(alignment(), SERVICE);
+		const bytes = serialiseAlignment(alignment(), referencedAlignmentAddress(SERVICE));
 		const document = JSON.parse(new TextDecoder().decode(bytes)) as {
 			target: { source: { id: string } };
 		};
@@ -296,7 +296,7 @@ describe('an Alignment of a referenced image', () => {
 			unknown
 		>;
 		const remote = JSON.parse(
-			new TextDecoder().decode(serialiseReferencedAlignment(alignment(), SERVICE))
+			new TextDecoder().decode(serialiseAlignment(alignment(), referencedAlignmentAddress(SERVICE)))
 		) as Record<string, unknown>;
 
 		expect((local['target'] as { source: { id: string } }).source.id).toBe(
@@ -309,8 +309,8 @@ describe('an Alignment of a referenced image', () => {
 
 	it('is byte-identical when serialised twice, so a reopened Project rewrites nothing', () => {
 		// ADR-0010, via the same property `serialiseAlignment` has: no clock in the output.
-		const first = serialiseReferencedAlignment(alignment(), SERVICE);
-		const second = serialiseReferencedAlignment(alignment(), SERVICE);
+		const first = serialiseAlignment(alignment(), referencedAlignmentAddress(SERVICE));
+		const second = serialiseAlignment(alignment(), referencedAlignmentAddress(SERVICE));
 		expect(new TextDecoder().decode(first)).toBe(new TextDecoder().decode(second));
 	});
 

@@ -5,17 +5,31 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THERE IS A FENCE HERE WHEN THERE IS ALREADY A TYPE
 //
-// `alignmentPath` returns an `AlignmentPath`; `ProjectStore.write`, `TempFileWriteStore.write` and
-// `Autosave.commit` take a `WritablePath`, which an `AlignmentPath` is not. So the *helper* route
-// into a blind Alignment write does not compile, and that is the primary guard — this check exists
-// for the two things a type cannot see:
+// `alignmentPath` returns an `AlignmentPath`; `ProjectStore.write`, `TempFileWriteStore.write`,
+// `Autosave.commit` and `Autosave.queue` take a `WritablePath`, which an `AlignmentPath` is not.
 //
-//   1. **The path spelled out by hand.** `store.write('alignments/aaa1.json', bytes)` is a plain
-//      string literal, assignable to `WritablePath`, and compiles perfectly. It is also exactly how
-//      a *test fixture* writes one, which is where this would come back: not in a pane, but in the
-//      arrange step of the test that was supposed to prove the guard works.
-//   2. **A second crossing.** `as unknown as WritablePath` written anywhere outside the one owning
+// **That refuses exactly one thing: a value that came out of `alignmentPath()`.** It cannot refuse
+// more, and the reason is not an oversight. `WritablePath` brands with an *optional* property
+// precisely so that every ordinary `string` in the codebase — ten thousand paths that have nothing
+// to do with Alignments — stays assignable without a cast. The cost of that is exact and worth
+// stating plainly: any Alignment path the compiler sees as a plain `string` sails through. One
+// `const p = ` + "`alignments/${id}.json`" + ` launders it.
+//
+// So the type is a guard against the obvious spelling, not a proof. This check covers what it
+// cannot see:
+//
+//   1. **The path spelled out by hand.** `store.write('alignments/aaa1.json', bytes)` compiles
+//      perfectly. It is also exactly how a *test fixture* writes one, which is where this would come
+//      back: not in a pane, but in the arrange step of the test meant to prove the guard works.
+//   2. **The path laundered through a local**, in any of the spellings above — followed here by a
+//      small positional taint pass. See {@link taintedNames}.
+//   3. **A detached write method**, `store.write.bind(store)`, called with an Alignment path.
+//   4. **A second crossing.** `as unknown as WritablePath` written anywhere outside the one owning
 //      module reopens the hole completely, and reads as a cast rather than as the decision it is.
+//
+// What neither layer can see is a path computed at *runtime* from data — an archive entry's own
+// path, say. There is exactly one of those, the Project-zip importer, and it is not fenced but
+// routed: it calls `writeAlignmentBytes` like everybody else.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY EITHER GUARD EXISTS AT ALL
@@ -24,10 +38,13 @@
 // map. Before, an Alignment belonged to one Project and clobbering it could only cost you the work
 // in front of you; now it can cost somebody else's afternoon in a Project you are not looking at.
 //
-// Nothing in the code was changed to reflect what that means for a write, and **three separate
-// tickets in this epic then independently wrote a blind overwrite of that file** — in one case two
-// lines from a correct guard doing exactly the right thing. Two authors reaching for the same
-// mistake is a missing invariant, not two lapses.
+// Nothing in the code was changed to reflect what that means for a write, and **two blind
+// overwrites of that file were then written independently**: ticket 02's community-Alignment import
+// and ticket 03's Align route. Ticket 02's starter path, two lines from its own unguarded write,
+// guards correctly — so the same author wrote the check and missed the hole beside it. A third
+// existence check, spelled differently again, was found in the Project-zip importer during this
+// ticket's review; it was not a live overwrite, but it was a third answer to one question. Two
+// authors reaching for the same mistake is a missing invariant, not two lapses.
 //
 // The failure mode is why this is mechanical rather than reviewed, and it is the same argument
 // `check-workspace-rooted-paths.mjs` makes about a Project-rooted image path: an overwrite does not
@@ -82,6 +99,16 @@ const exemptFiles = new Set([
 const ALIGNMENT_PATH = `(?:alignmentPath\\s*\\(|ALIGNMENT_DIRECTORY|['"\`]alignments/)`;
 
 /**
+ * Every verb that puts bytes at a path.
+ *
+ * **`queue` is in this list because leaving it out was the largest hole in the first cut.**
+ * `Autosave.queue` reaches `store.write` on a debounce exactly as `commit` does, so a fence — and a
+ * type — that covered only `commit` covered nothing: the pending bytes land anyway, and nobody is
+ * even awaiting them. The proof was inside the branch that shipped, in `autosave.test.ts`.
+ */
+const WRITE_VERBS = 'write|commit|queue';
+
+/**
  * The ways an Alignment's path reaches a write, as patterns.
  *
  * Matched against a *logical* line — a line joined with those below it until its brackets balance —
@@ -91,8 +118,8 @@ const ALIGNMENT_PATH = `(?:alignmentPath\\s*\\(|ALIGNMENT_DIRECTORY|['"\`]alignm
 const patterns = [
 	{
 		// `store.write('alignments/…', …)`, `autosave.commit(alignmentPath(id), …)`, and the `#store` /
-		// `this.store` spellings of both.
-		pattern: new RegExp(`\\.(?:write|commit)\\s*\\(\\s*${ALIGNMENT_PATH}`, 'g'),
+		// `this.store` spellings of all three verbs.
+		pattern: new RegExp(`\\.(?:${WRITE_VERBS})\\s*\\(\\s*${ALIGNMENT_PATH}`, 'g'),
 		why: 'writes an Alignment path straight to the store or to Autosave'
 	},
 	{
@@ -192,10 +219,15 @@ function joinedFrom(lines, index) {
  * line is a join start in its turn, so nothing is missed by ignoring a match that began later: it
  * is found again, and attributed correctly, when the scan reaches the line it is actually on.
  */
-function violationStartingOn(lines, index, ownLength) {
+function violationStartingOn(lines, index, ownLength, tainted = new Set(), aliases = new Set()) {
 	if (/^\s*(?:\/\/|\*|\/\*)/.test(lines[index])) return null;
 	const text = joinedFrom(lines, index);
-	for (const { pattern, why } of patterns) {
+	const all = [
+		...patterns,
+		...(tainted.size === 0 ? [] : [viaLocal(tainted)]),
+		...(aliases.size === 0 ? [] : [viaAlias(aliases)])
+	];
+	for (const { pattern, why } of all) {
 		pattern.lastIndex = 0;
 		let match;
 		while ((match = pattern.exec(text)) !== null) {
@@ -203,6 +235,131 @@ function violationStartingOn(lines, index, ownLength) {
 		}
 	}
 	return null;
+}
+
+/**
+ * The names in this file that hold an Alignment path, so a write through one is caught.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY A TAINT PASS AND NOT ANOTHER REGEX
+ *
+ * The first cut of this fence was defeated by one local variable, and a review proved it against
+ * this very repository:
+ *
+ *     const p = `alignments/${id}.json`;   await store.write(p, bytes);   // passed
+ *     const p = ALIGNMENT_DIRECTORY + '/' + id + '.json';                 // passed
+ *
+ * The type does not stop either — a template literal is a plain `string`, and `WritablePath` is a
+ * `string` with an *optional* phantom property, so every ordinary string is assignable to it by
+ * design. That is what lets the other ten thousand paths in this codebase keep working, and it is
+ * also the precise limit of what the brand can refuse: values that came out of `alignmentPath()`.
+ * One `const` launders the path past it.
+ *
+ * So the path is followed through the name it is bound to. This is deliberately shallow — one file,
+ * one hop, no control flow — because it is a fence and not a type checker. What it buys is that the
+ * cheapest way around the guard is no longer cheap.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * IT IS POSITIONAL, BECAUSE A NAME IS NOT TAINTED FOREVER
+ *
+ * `path` is the most reused identifier in this codebase. A file-wide set of names produced three
+ * false positives immediately — `editor-session.svelte.ts` binds `path` to an Alignment path in one
+ * method and to an *Annotation* path in another, and takes it as a parameter in a third. Refusing
+ * those would train everybody to reach for the opt-out, which is how a fence stops meaning
+ * anything.
+ *
+ * So taint is tracked as it changes down the file: a binding to an Alignment path taints the name,
+ * and any *other* binding of the same name — including its appearance in a parameter list — clears
+ * it. Still one file and no control flow. It is a fence, not a type checker; what it has to be is
+ * right about the code that is actually here, and honest about the rest.
+ *
+ * @returns for each line, the set of names holding an Alignment path at that point.
+ */
+function taintedNames(lines) {
+	const NAME = '[A-Za-z_$][\\w$]*';
+	// `const p: StorePath = <alignment path>` and the bare `p = <alignment path>`.
+	//
+	// **The type annotation may not contain a bracket**, and that is load-bearing rather than
+	// tidiness. An earlier version allowed `[^=;]+` there, which on a single line containing both a
+	// parameter list and a declaration let the engine bind NAME to a *parameter* and swallow
+	// everything up to the declaration's `=` as its "annotation" — so `p` was never tainted and
+	// `const p = ` + "`alignments/${id}.json`" + `; await s.write(p, b);` on one line went straight
+	// through. It was found by writing the escape out and watching it pass.
+	//
+	// Global, and every match on the line is taken: one line can declare more than one name.
+	const taints = new RegExp(
+		`(?:(?:const|let|var)\\s+(${NAME})\\s*(?::\\s*[^=;(){}]+)?|(${NAME})\\s*)=\\s*[^=][^;]*?${ALIGNMENT_PATH}`,
+		'g'
+	);
+	// Any other binding of a name: a declaration, an assignment, or a parameter.
+	const rebinds = new RegExp(`\\b(?:const|let|var)\\s+(${NAME})\\s*[=:]|\\b(${NAME})\\s*=[^=]`);
+	// `(path, bytes) =>` and `(path: StorePath)` — the name is a parameter here, not the outer local.
+	const parameters = new RegExp(`[(,]\\s*(${NAME})\\s*[,:)]`, 'g');
+
+	const live = new Set();
+	const perLine = [];
+	for (const line of lines) {
+		if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) {
+			perLine.push(new Set(live));
+			continue;
+		}
+		if (/=>|\bfunction\b/.test(line)) {
+			let parameter;
+			parameters.lastIndex = 0;
+			while ((parameter = parameters.exec(line)) !== null) live.delete(parameter[1]);
+		}
+		const rebound = rebinds.exec(line);
+		if (rebound) live.delete(rebound[1] ?? rebound[2]);
+		taints.lastIndex = 0;
+		let tainted;
+		while ((tainted = taints.exec(line)) !== null) live.add(tainted[1] ?? tainted[2]);
+		// After this line's own bindings, so `const p = alignmentPath(id)` taints from its own line and
+		// a write on that same line is caught.
+		perLine.push(new Set(live));
+	}
+	return perLine;
+}
+
+/** A write whose first argument is one of `tainted`. Built per line, so the names are live ones. */
+function viaLocal(tainted) {
+	const names = [...tainted].map(escapeName).join('|');
+	return {
+		pattern: new RegExp(`\\.(?:${WRITE_VERBS})\\s*\\(\\s*(?:${names})\\s*[,)]`, 'g'),
+		why: 'writes a local that holds an Alignment path, which the type cannot see'
+	};
+}
+
+const escapeName = (name) => name.replace(/[$]/g, '\\$');
+
+/**
+ * Names bound to a store write method taken off its object — `const w = store.write.bind(store)`.
+ *
+ * A *source* rather than a violation, which is the difference between a fence and a nuisance:
+ * `.bind` on a write is ordinary and appears twice in this repository, both times to spy on writes
+ * in a test. What is not ordinary is calling the result with an Alignment path, and that is what
+ * {@link viaAlias} refuses. Detaching the method is only a way around this check if it is then used
+ * as one.
+ */
+function writerAliases(lines) {
+	const aliases = new Set();
+	const bound = new RegExp(
+		`\\b([A-Za-z_$][\\w$]*)\\s*=\\s*[^=;]*\\.(?:${WRITE_VERBS})\\s*\\.\\s*bind\\b`
+	);
+	for (const line of lines) {
+		if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) continue;
+		const match = bound.exec(line);
+		if (match) aliases.add(match[1]);
+	}
+	return aliases;
+}
+
+/** A call to a detached write method with an Alignment path. */
+function viaAlias(aliases) {
+	const names = [...aliases].map(escapeName).join('|');
+	return {
+		pattern: new RegExp(`\\b(?:${names})\\s*\\(\\s*${ALIGNMENT_PATH}`, 'g'),
+		why: 'calls a detached store write method with an Alignment path'
+	};
 }
 
 const bracketDepth = (line) => {
@@ -232,6 +389,7 @@ const KNOWN_BAD = [
 	{ line: "files['alignments/floride-1657.json'] = alignmentJson();", expect: 'file map' },
 	{ line: '\t\'alignments/amsterdam-1625.json\': \'{"type":"Annotation"}\',', expect: 'file map' },
 	{ line: 'await store.write(path as unknown as WritablePath, bytes);', expect: 'cast' },
+	{ line: 'await this.#autosave.queue(alignmentPath(imageId), bytes);', expect: 'queue' },
 	// The multi-line spelling Prettier produces, as one logical line — the form the real defect took.
 	{
 		line: 'await this.#autosave.commit( alignmentPath(alignment.imageId), serialiseAlignment(alignment) );',
@@ -302,6 +460,69 @@ for (const { pattern, why } of patterns) {
 		controlFailures.push('a write inside a block is no longer caught on its own line');
 	}
 }
+// ── The escapes a review proved against the first cut ─────────────────────────────────────────
+//
+// Each is a *sequence*: a name bound to an Alignment path, and then a write through that name. All
+// three passed the fence as originally written, which is why they are specimens now rather than
+// prose. If `taintedNames` or `viaLocal` stops working, these stop being caught and this fails.
+for (const { lines, at, expect } of [
+	{
+		lines: ['const p = `alignments/${id}.json`;', 'await store.write(p, bytes);'],
+		at: 1,
+		expect: 'a template literal laundered through a local'
+	},
+	{
+		lines: ["const p = ALIGNMENT_DIRECTORY + '/' + id + '.json';", 'await store.write(p, bytes);'],
+		at: 1,
+		expect: 'a concatenation laundered through a local'
+	},
+	{
+		lines: ['const p = alignmentPath(id);', 'await autosave.queue(p, bytes);'],
+		at: 1,
+		expect: 'the helper laundered through a local and queued'
+	},
+	{
+		lines: ['const w = store.write.bind(store);', "await w('alignments/aaa1.json', bytes);"],
+		at: 1,
+		expect: 'a write method detached with bind and called with an Alignment path'
+	},
+	{
+		// **All on one line, beside a parameter list**, which is the form that slipped through the
+		// remediation's own first attempt: the binding regex bound to a parameter and swallowed the
+		// declaration whole. Found by writing the escape out and watching it pass, so it is a specimen
+		// now rather than a paragraph.
+		lines: [
+			'export async function f(s: ProjectStore, id: string, b: Bytes) { ' +
+				'const p = `alignments/${id}.json`; await s.write(p, b); }'
+		],
+		at: 0,
+		expect: 'a declaration and a write on one line, after a parameter list'
+	}
+]) {
+	const tainted = taintedNames(lines)[at];
+	const aliases = writerAliases(lines);
+	if (violationStartingOn(lines, at, lines[at].length, tainted, aliases) === null) {
+		controlFailures.push(`${expect} is no longer caught: ${lines.join(' ⏎ ')}`);
+	}
+}
+// And a local that holds something else must not be caught, or every `write` in the repo is one.
+{
+	const innocent = ['const p = `${directory}/project.json`;', 'await store.write(p, bytes);'];
+	const tainted = taintedNames(innocent)[1];
+	if (violationStartingOn(innocent, 1, innocent[1].length, tainted) !== null) {
+		controlFailures.push('an ordinary path held in a local is being refused as an Alignment');
+	}
+	// Detaching a write to spy on it is ordinary and happens twice in this repository. Only calling
+	// the detached method with an Alignment path is the escape.
+	const spying = [
+		'const write = store.write.bind(store);',
+		'await write(imageInfoPath(id), bytes);'
+	];
+	if (violationStartingOn(spying, 1, spying[1].length, new Set(), writerAliases(spying)) !== null) {
+		controlFailures.push('detaching a write method to spy on it is being refused');
+	}
+}
+
 // And the opt-out has to be an opt-out for exactly one line, with a reason on it.
 {
 	const reason = 'the arrange step this deletion test is about';
@@ -379,8 +600,10 @@ for (const absolute of files) {
 	if (exemptFiles.has(relative)) continue;
 
 	const lines = readFileSync(absolute, 'utf8').split('\n');
+	const tainted = taintedNames(lines);
+	const aliases = writerAliases(lines);
 	lines.forEach((line, at) => {
-		const why = violationStartingOn(lines, at, line.length);
+		const why = violationStartingOn(lines, at, line.length, tainted[at], aliases);
 		if (why === null) return;
 		const excused = pragmaFor(lines, at);
 		if (excused !== null) {
@@ -415,9 +638,10 @@ if (violations.length > 0) {
 
 const modules = new Set(optedOut.map(({ file }) => file));
 console.log(
-	`Exactly one module writes an Alignment — ${OWNER} — across ${files.length} files (ticket 18; ` +
-		`${patterns.length} spellings checked against their specimens, ${optedOut.length} fixture ` +
-		`write${optedOut.length === 1 ? '' : 's'} opted out in ${modules.size} file${modules.size === 1 ? '' : 's'}).`
+	`One module writes an Alignment in the application — ${OWNER} — across ${files.length} files ` +
+		`scanned (ticket 18; ${patterns.length} spellings checked against their specimens). ` +
+		`${optedOut.length} fixture write${optedOut.length === 1 ? '' : 's'} in ` +
+		`${modules.size} file${modules.size === 1 ? '' : 's'} are opted out with a reason, listed below.`
 );
 for (const { file, line, reason } of optedOut) {
 	console.log(`  opted out: ${file}:${line} — ${reason}`);

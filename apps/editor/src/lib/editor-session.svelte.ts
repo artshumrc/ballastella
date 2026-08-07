@@ -66,6 +66,7 @@ import {
 	type Alignment,
 	type AlignmentAddress,
 	type AlignmentFilePort,
+	type AlignmentWriteOutcome,
 	type AnnotationCollection,
 	type AnnotationLayer,
 	type Bytes,
@@ -163,14 +164,12 @@ export type ProjectProblem =
  * it, which must be said out loud — a Historical Map has **one** Alignment, shared by every Project
  * that draws it (ADR-0023), so importing over it would have discarded work that may belong to a
  * Project the user is not even looking at.
+ *
+ * **The union itself is `AlignmentWriteOutcome`, imported rather than restated** (ticket 18). It was
+ * spelled out here as well, which is two spellings of one vocabulary in the ticket that exists
+ * because two spellings of one rule drifted apart.
  */
-type InitialAlignment =
-	/** Written: the starter every Historical Map gets, or the Alignment the user chose to import. */
-	| 'written'
-	/** There was already one and nothing was offered, so it stands. Ordinary; say nothing. */
-	| 'left alone'
-	/** An Alignment somebody has worked on was kept **instead of** the one the user chose. */
-	| 'kept over the offer';
+type InitialAlignment = AlignmentWriteOutcome;
 
 /** A Historical Map put in the stack, and what became of its Alignment. */
 type MapLayerAdded = {
@@ -825,7 +824,18 @@ export class EditorSession {
 		if (!this.openDirectory) return;
 		const path = alignmentPath(alignment.imageId);
 		try {
-			await writeAlignmentFile(this.#alignmentFile, { alignment, write: { intent: 'update' } });
+			await writeAlignmentFile(this.#alignmentFile, {
+				alignment,
+				write: { intent: 'update' },
+				// **The address has to be supplied on every write, including this one** (ADR-0007). It is
+				// not carried on `Alignment` and does not survive a read, so omitting it here does not
+				// leave the document's `target.source.id` alone — it rewrites it to the ADR-0004
+				// placeholder. For a map whose tiles are on a Library's server that is a file Allmaps
+				// cannot resolve and a Layer that renders nothing, produced by placing a Control Point.
+				// `#recordLocalCopy` omits it deliberately, which is now a difference the two say out loud
+				// rather than one that happens to be spelled the same.
+				...this.#alignmentAddressFor(alignment.imageId)
+			});
 			this.saveError = '';
 			// After the write resolved, so an attempt the store refused is not counted as one that
 			// happened. This is what lets the drag test assert the *number* of writes.
@@ -906,6 +916,22 @@ export class EditorSession {
 	 * 2's per-file debounce and rule 5's save state, so the Saved indicator would stop describing the
 	 * file the user is actually editing.
 	 */
+	/**
+	 * Where this Historical Map's Alignment should say its image is served from, as an argument
+	 * spread onto a `writeAlignmentFile` call — `{ address }` for a referenced map, `{}` for one
+	 * whose pyramid is in the Workspace.
+	 *
+	 * **`{}` and not `{ address: undefined }`**, so a caller that spreads this cannot accidentally
+	 * override an address it passed itself.
+	 *
+	 * Derived from whether a `remote.json` is on disk (ADR-0023: `imageMode` is observable, never
+	 * stored), so it is the same answer `remoteOrigins` gives and cannot drift from it.
+	 */
+	#alignmentAddressFor(imageId: string): { address?: AlignmentAddress } {
+		const referenced = this.remoteOrigins.referenced.find((image) => image.imageId === imageId);
+		return referenced ? { address: referencedAlignmentAddress(referenced.service) } : {};
+	}
+
 	get #alignmentFile(): AlignmentFilePort {
 		return {
 			read: (path) => this.#store.read(path),
@@ -1066,11 +1092,11 @@ export class EditorSession {
 	 *
 	 * **And step 2 is not this method's to do**, which is the other half of the same lesson. The
 	 * community Alignment used to be committed here, unconditionally, before `#addMapLayer` ran — one
-	 * `serialiseReferencedAlignment` call here and a second inside, two writers of one file that could
-	 * disagree, and the one here with no idea whether it was writing over somebody's work. Both are now
-	 * {@link #writeInitialAlignment}, which is the only thing that decides what
-	 * `alignments/<id>.json` ends up holding and the only place the offer-versus-existing question is
-	 * answered. See its comment for why the offer does not simply win.
+	 * serialisation here and a second inside, two writers of one file that could disagree, and the one
+	 * here with no idea whether it was writing over somebody's work. Both are now
+	 * {@link #writeInitialAlignment}, which reaches `writeAlignmentFile` — the only thing that decides
+	 * what `alignments/<id>.json` ends up holding and the only place the offer-versus-existing
+	 * question is answered. See its comment for why the offer does not simply win.
 	 *
 	 * **Nothing records that the map is referenced, because nothing has to** (ADR-0023). `remote.json`
 	 * without an `info.json` beside it *is* the record, so there is no claim in `project.json` that could

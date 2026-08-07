@@ -330,6 +330,7 @@ export {
 // an `AlignmentPath` into a path the store will write, so every Alignment write in the application
 // arrives here and has to name which of create / update / replace it is.
 export {
+	writeAlignmentBytes,
 	writeAlignmentFile,
 	type AlignmentFilePort,
 	type AlignmentWrite,
@@ -351,6 +352,7 @@ export {
 	type FoldWarning
 } from './alignment/distortion.js';
 export {
+	AlignmentUnpreservableError,
 	AlignmentUnreadableError,
 	AlignmentUnwritableError,
 	parseAlignment,
@@ -458,7 +460,6 @@ export {
 	referencedImage,
 	referencedImagePath,
 	referencedAlignmentAddress,
-	serialiseReferencedAlignment,
 	serialiseReferencedImage,
 	sourceOf,
 	tileBaseFor,

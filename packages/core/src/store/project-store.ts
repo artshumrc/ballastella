@@ -36,20 +36,35 @@ export type AlignmentPath = StorePath & {
  * WHY THE ONE WRITER OF AN ALIGNMENT IS A TYPE AND NOT A CONVENTION
  *
  * ADR-0023 made `alignments/<image-id>.json` belong to the **Workspace**, shared by every Project
- * that draws the map. Nothing in the code changed to reflect what that means for a write, and three
- * separate tickets in this epic then independently wrote a blind overwrite of it — in one case two
- * lines from a correct guard. Two authors reaching for the same mistake is a missing invariant, not
- * two lapses.
+ * that draws the map. Nothing in the code changed to reflect what that means for a write, and two
+ * blind overwrites of it were then written independently — one of them two lines from a correct
+ * guard by the same author. That is a missing invariant, not two lapses.
  *
  * The failure mode is why this is structural rather than reviewed: an overwrite does not throw, does
  * not log, and does not 404. It shows up as a colleague's Control Points quietly gone, in a Project
- * nobody had open. So the blind write is made **inexpressible**: the only way to turn an
- * `AlignmentPath` into a `WritablePath` is `alignment/alignment-file.ts`, which will not let the
- * caller past without saying which of create / update / replace they mean.
+ * nobody had open. The only way to turn an `AlignmentPath` into a `WritablePath` is
+ * `alignment/alignment-file.ts`, which will not let the caller past without saying which of create /
+ * update / replace they mean.
  *
  * The optional-and-`undefined` phantom property is what does it. A plain `string` — every other
  * store path in the codebase, literal or computed — has no such property and is assignable; an
  * `AlignmentPath` carries it as a string literal, which is not assignable to `undefined`.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHAT THIS DOES NOT REFUSE, WHICH IS NOT AN OVERSIGHT
+ *
+ * **It refuses values that came out of `alignmentPath()`, and nothing else.** The property has to be
+ * optional or every one of the thousands of ordinary `string` paths in this codebase would need a
+ * cast to be written, which would be a worse invariant than the one being protected. The exact price
+ * is that an Alignment path the compiler sees as a plain `string` is accepted:
+ *
+ *     const p = `alignments/${id}.json`;
+ *     await store.write(p, bytes);        // compiles
+ *
+ * That spelling is caught by `scripts/check-alignment-writers.mjs` instead, which follows the path
+ * through the local it is bound to. Neither layer can see a path computed at runtime from data; the
+ * one place that happens is the Project-zip importer, which is routed through the owning module
+ * rather than fenced. Read the two together — this type is the cheap half, not the whole guard.
  */
 export type WritablePath = StorePath & { readonly [alignmentPathBrand]?: undefined };
 

@@ -66,8 +66,14 @@ export class Autosave {
 	 * Rule 2. Queue `bytes` for `path`, resetting only that path's timer. Two calls for the
 	 * same path inside the window produce one write; calls for different paths keep their own
 	 * deadlines.
+	 *
+	 * **A `WritablePath`, for the same reason {@link commit} takes one** (ticket 18). This was missed
+	 * in the first cut and it was the largest hole in the guard: the pending bytes reach
+	 * `store.write` in {@link #drainLoop} exactly as a committed one does, so narrowing `commit`
+	 * alone left `autosave.queue(alignmentPath(id), bytes)` compiling and blind-writing a Workspace
+	 * Alignment on the debounce — a write nobody is even awaiting.
 	 */
-	queue(path: StorePath, bytes: Bytes): void {
+	queue(path: WritablePath, bytes: Bytes): void {
 		const file = this.#file(path);
 		file.pending = bytes;
 		if (file.timer !== undefined) clearTimeout(file.timer);

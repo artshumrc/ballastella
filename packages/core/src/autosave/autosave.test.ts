@@ -66,6 +66,7 @@ describe('Autosave', () => {
 
 	describe('committing on gesture end (rule 1)', () => {
 		it('writes immediately and cancels the pending debounce', async () => {
+			// alignment-write-is-the-fixture: the specimen this rule-1 test queues; Autosave neither knows nor cares that the path is an Alignment's
 			autosave.queue('alignments/one.json', utf8.encode('mid-drag'));
 			// alignment-write-is-the-fixture: the specimen this rule-1 test commits; Autosave neither knows nor cares that the path is an Alignment's
 			await autosave.commit('alignments/one.json', utf8.encode('pointer-up'));

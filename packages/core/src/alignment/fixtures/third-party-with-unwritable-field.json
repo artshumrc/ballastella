@@ -39,7 +39,8 @@
 					"resourceCoords": [
 						263,
 						200
-					]
+					],
+					"http://example.org/vocab#confidence": "low"
 				},
 				"geometry": {
 					"type": "Point",

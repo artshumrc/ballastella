@@ -56,7 +56,6 @@ import { imageServiceId } from '../tiler/pyramid.js';
 import {
 	DEFAULT_TRANSFORMATION_TYPE,
 	fullImageResourceMask,
-	newAlignment,
 	type Alignment,
 	type ControlPoint,
 	type GeoPoint,
@@ -97,6 +96,31 @@ export class AlignmentUnwritableError extends Error {
 				`again: ${reason}`
 		);
 		this.name = 'AlignmentUnwritableError';
+	}
+}
+
+/**
+ * The document holds something this build can neither model nor carry, so it will not be rewritten.
+ *
+ * **A different failure from {@link AlignmentUnwritableError}, and it must say so.** That one means
+ * "the bytes we were about to write would not be readable again". This one means the opposite: the
+ * file is perfectly good, and it is *ours* that would be worse — a rewrite would drop something the
+ * author put there. SPEC story 60 allows exactly two answers for an unmodelled field, preserve or
+ * refuse-with-a-reason, and this is the refusal.
+ *
+ * The user can still open, view and export the Alignment. Only writing over it is refused.
+ */
+export class AlignmentUnpreservableError extends Error {
+	constructor(
+		readonly imageId: string,
+		readonly member: string
+	) {
+		super(
+			`The Alignment for “${imageId}” was not saved, because it carries “${member}” — something ` +
+				`this version does not understand and cannot write back without discarding. The file ` +
+				`has been left exactly as it is.`
+		);
+		this.name = 'AlignmentUnpreservableError';
 	}
 }
 
@@ -234,6 +258,12 @@ export function toRendererResourceMask(alignment: Alignment): [number, number][]
  * Mask's plain-decimal fix, the absent timestamps and the validation below all apply to it.
  */
 export function serialiseAlignment(alignment: Alignment, address: AlignmentAddress = {}): Bytes {
+	// SPEC story 60's other branch. See {@link Alignment.unpreservable}: this document holds
+	// something this build can neither model nor carry, so it is refused by name rather than
+	// rewritten without it. Checked before anything is generated, so the reason is the real one.
+	if (alignment.unpreservable !== undefined) {
+		throw new AlignmentUnpreservableError(alignment.imageId, alignment.unpreservable);
+	}
 	const annotation = generateAnnotation(toRendererDocument(alignment, address));
 	rewriteResourceMaskInPlainDecimal(annotation, alignment.resourceMask);
 	restoreUnmodelledMembers(annotation, alignment.unmodelled);
@@ -255,39 +285,30 @@ export function serialiseAlignment(alignment: Alignment, address: AlignmentAddre
 }
 
 /**
- * The top-level members `generateAnnotation` writes, computed from a specimen rather than listed.
+ * The members of the document `raw` that this build does not model, **at every depth**, or
+ * `undefined` when there are none.
  *
- * Listing them by hand is how the list drifts: upstream adds a member, this module keeps calling it
- * unmodelled, and a round trip then writes the *stale* value from the document alongside the fresh
- * one this build just generated. Asking `generateAnnotation` what it produces cannot drift, because
- * it is the same function whose output is being classified.
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THIS RECURSES, WHICH THE FIRST CUT DID NOT
  *
- * Memoised: it is the same set every time, and `parseAlignment` runs once per map Layer in the
- * sidebar (ADR-0023's accepted cost).
- */
-let authoredMemberNames: ReadonlySet<string> | null = null;
-function authoredMembers(): ReadonlySet<string> {
-	if (authoredMemberNames === null) {
-		const specimen = generateAnnotation(
-			toRendererDocument(newAlignment('specimen', { width: 1, height: 1 }))
-		) as Record<string, unknown>;
-		// **A member whose value is `undefined` is not authored, whatever `Object.keys` says.**
-		// `generateAnnotation` puts `created` and `modified` on the object and leaves them undefined —
-		// `JSON.stringify` then drops them, which is the determinism this module depends on (no clock
-		// in the output). Counting them as authored would classify a *colleague's* `created` as ours
-		// and drop it, which is precisely the loss this preservation exists to stop.
-		authoredMemberNames = new Set(
-			Object.entries(specimen)
-				.filter(([, value]) => value !== undefined)
-				.map(([member]) => member)
-		);
-	}
-	return authoredMemberNames;
-}
-
-/**
- * The members of the document `raw` that this build does not model, or `undefined` when there are
- * none.
+ * Diffing only the top level looks sufficient and is not, and the fixture already in this
+ * repository proves it: `allmaps-shaped.json` carries `target.source.partOf`,
+ * `target.source.provider` and `body._allmaps` — three members, none of them at depth 1, all of
+ * them silently dropped by a top-level diff. `_allmaps` is what Allmaps itself writes. So the
+ * "preserve" half of SPEC story 60 has to reach into the objects or it does not hold for the
+ * documents it exists for.
+ *
+ * The rule is the same at every depth: a member the generated document does not have is carried
+ * whole; a member both have, where both are plain objects, is recursed into. **Arrays are not
+ * descended into** — `body.features` is regenerated one feature per Control Point, so there is no
+ * stable correspondence between a source element and a generated one, and carrying members across
+ * that would attach a colleague's annotation of point 3 to whatever ends up third. An array the
+ * generated document lacks entirely is a different thing and is carried whole, which is what
+ * `partOf` and `provider` are.
+ *
+ * That leaves exactly one shape this cannot preserve — an unknown member *inside* an element of an
+ * array both documents have — and story 60's criterion allows preserving **or** refusing, not
+ * silently dropping. So {@link unpreservableArrayMember} finds it and the write is refused by name.
  *
  * **Only for a single `Annotation`.** An `AnnotationPage`'s own members describe the *page* — its
  * `items` above all — and copying them onto the single Annotation this module writes would produce
@@ -296,17 +317,93 @@ function authoredMembers(): ReadonlySet<string> {
  * `community-alignments.ts` splits an API page into individual annotations before any of them
  * reaches {@link parseAlignment}.
  */
-function unmodelledMembers(raw: unknown): Readonly<Record<string, unknown>> | undefined {
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
-	const document = raw as Record<string, unknown>;
-	if (document['type'] !== 'Annotation') return undefined;
+function unmodelledMembers(
+	raw: unknown,
+	generated: unknown
+): Readonly<Record<string, unknown>> | undefined {
+	if (!isPlainObject(raw)) return undefined;
+	if (raw['type'] !== 'Annotation') return undefined;
+	return residue(raw, isPlainObject(generated) ? generated : {});
+}
 
-	const authored = authoredMembers();
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The members of `source` that `generated` does not have, recursively. See above for the rule. */
+function residue(
+	source: Record<string, unknown>,
+	generated: Record<string, unknown>
+): Record<string, unknown> | undefined {
 	const carried: Record<string, unknown> = {};
-	for (const [member, value] of Object.entries(document)) {
-		if (!authored.has(member)) carried[member] = value;
+	for (const [member, value] of Object.entries(source)) {
+		const mine = generated[member];
+		// `undefined` rather than `in`: `generateAnnotation` puts `created` and `modified` on the
+		// object and leaves them undefined, and `JSON.stringify` then drops them — so the generated
+		// document does not carry them however the key behaves.
+		if (mine === undefined) {
+			carried[member] = value;
+			continue;
+		}
+		if (!isPlainObject(value) || !isPlainObject(mine)) continue;
+		const deeper = residue(value, mine);
+		if (deeper) carried[member] = deeper;
 	}
 	return Object.keys(carried).length > 0 ? carried : undefined;
+}
+
+/**
+ * The path of an unknown member inside an element of an array both documents carry, or `''`.
+ *
+ * The one shape {@link residue} cannot preserve, found so that the write can be refused rather than
+ * quietly losing it (SPEC story 60 offers preserve or refuse, and nothing else). In practice this is
+ * a per-Control-Point annotation somebody's tool wrote into `body.features[].properties`.
+ */
+function unpreservableArrayMember(
+	source: Record<string, unknown>,
+	generated: Record<string, unknown>,
+	at = ''
+): string {
+	for (const [member, value] of Object.entries(source)) {
+		const mine = generated[member];
+		if (mine === undefined) continue;
+		const here = at === '' ? member : `${at}.${member}`;
+		if (Array.isArray(value) && Array.isArray(mine)) {
+			for (const [index, element] of value.entries()) {
+				if (!isPlainObject(element)) continue;
+				// Against *every* generated element, not the one at the same index: the orders need not
+				// agree, and the question is whether this member is one this build ever writes at all.
+				const known = mine.filter(isPlainObject);
+				const extra = residue(element, mergedShape(known));
+				if (extra) return `${here}[${index}].${deepestPath(extra)}`;
+			}
+			continue;
+		}
+		if (!isPlainObject(value) || !isPlainObject(mine)) continue;
+		const deeper = unpreservableArrayMember(value, mine, here);
+		if (deeper !== '') return deeper;
+	}
+	return '';
+}
+
+/**
+ * The dotted path down to the first leaf of a residue, so the refusal names the member the user's
+ * tool actually wrote rather than the `properties` object it happens to sit in.
+ */
+function deepestPath(carried: Record<string, unknown>): string {
+	const member = Object.keys(carried)[0] as string;
+	const value = carried[member];
+	return isPlainObject(value) ? `${member}.${deepestPath(value)}` : member;
+}
+
+/** Every member any of `objects` has, so "does this build ever write this member?" has one answer. */
+function mergedShape(objects: readonly Record<string, unknown>[]): Record<string, unknown> {
+	const shape: Record<string, unknown> = {};
+	for (const one of objects) {
+		for (const [member, value] of Object.entries(one)) {
+			if (shape[member] === undefined) shape[member] = value;
+		}
+	}
+	return shape;
 }
 
 /**
@@ -326,14 +423,20 @@ function restoreUnmodelledMembers(
 	annotation: unknown,
 	unmodelled: Readonly<Record<string, unknown>> | undefined
 ): void {
-	if (!unmodelled || typeof annotation !== 'object' || annotation === null) return;
-	const document = annotation as Record<string, unknown>;
+	if (!unmodelled || !isPlainObject(annotation)) return;
 	for (const [member, value] of Object.entries(unmodelled)) {
-		// `!== undefined` rather than `in`, for the same reason {@link authoredMembers} filters on it:
-		// `created` and `modified` are present on the generated object and undefined, so `in` would
-		// refuse to restore a colleague's timestamp in favour of a member that is about to disappear.
-		if (document[member] !== undefined) continue;
-		document[member] = value;
+		const mine = annotation[member];
+		// `!== undefined` rather than `in`, for the same reason {@link residue} tests on it: `created`
+		// and `modified` are present on the generated object and undefined, so `in` would refuse to
+		// restore a colleague's timestamp in favour of a member that is about to disappear.
+		if (mine === undefined) {
+			annotation[member] = value;
+			continue;
+		}
+		// Both are objects and the carried one holds only what the generated one lacks, so this puts
+		// `target.source.provider` back without touching the `id`, `width` and `height` beside it that
+		// this build has just recomputed.
+		if (isPlainObject(mine) && isPlainObject(value)) restoreUnmodelledMembers(mine, value);
 	}
 }
 
@@ -469,9 +572,8 @@ export function parseAlignment(bytes: Uint8Array, options: { imageId: string }):
 	// moves, and the only things derived from these numbers are the *fallback* Resource Mask and the
 	// renderer's full-image extent. The map itself is placed by the Control Points.
 	const image = { width: Math.round(width), height: Math.round(height) };
-	const unmodelled = unmodelledMembers(raw);
 
-	return {
+	const modelled: Alignment = {
 		imageId,
 		image,
 		controlPoints: map.gcps.map((gcp, index) => toControlPoint(gcp, index)),
@@ -481,11 +583,32 @@ export function parseAlignment(bytes: Uint8Array, options: { imageId: string }):
 			map.resourceMask.length >= 3
 				? map.resourceMask.map(([x, y]) => ({ x, y }) as ResourcePoint)
 				: fullImageResourceMask(image),
-		transformationType: readTransformationType(map.transformation),
-		// Whatever else was in the file. Carried rather than understood, and written straight back by
-		// `serialiseAlignment` — see {@link Alignment.unmodelled} for why an Alignment shared by every
-		// Project cannot afford to regenerate a third party's document from this build's own model.
-		...(unmodelled ? { unmodelled } : {})
+		transformationType: readTransformationType(map.transformation)
+	};
+
+	// ─────────────────────────────────────────────────────────────────────────────────────
+	// WHATEVER ELSE WAS IN THE FILE
+	//
+	// Diffed against what this build *would* write for the very Alignment just read, rather than
+	// against a hand-kept list of member names. A list drifts the first time upstream adds a member:
+	// this module would go on calling it unmodelled and a round trip would then write the document's
+	// stale value beside the fresh one it had just generated. Asking `generateAnnotation` cannot
+	// drift, because it is the same function whose output is being classified.
+	//
+	// The cost is one extra `generateAnnotation` per parse, and `parseAlignment` runs once per map
+	// Layer when the sidebar opens (ADR-0023's accepted cost). Measured against the alternative —
+	// silently discarding a colleague's `_allmaps` block — it is not close.
+	const generated = generateAnnotation(toRendererDocument(modelled)) as Record<string, unknown>;
+	const unmodelled = unmodelledMembers(raw, generated);
+	const unpreservable = isPlainObject(raw) ? unpreservableArrayMember(raw, generated) : '';
+
+	return {
+		...modelled,
+		// Carried rather than understood, and written straight back by `serialiseAlignment` — see
+		// {@link Alignment.unmodelled} for why an Alignment shared by every Project cannot afford to
+		// regenerate a third party's document from this build's own model.
+		...(unmodelled ? { unmodelled } : {}),
+		...(unpreservable === '' ? {} : { unpreservable })
 	};
 }
 

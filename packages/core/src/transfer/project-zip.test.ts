@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { ProjectFormatTooNewError, ProjectFileUnreadableError } from '../project/project-file.js';
 import { ProjectDirectoryCollisionError, Workspace, hoistedImageId } from '../project/workspace.js';
+import { seedAlignmentFixture } from '../alignment/alignment-fixture.js';
+import { PathNotFoundError } from '../store/project-store.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { InvalidPathError, type Bytes, type StorePath } from '../store/project-store.js';
 import { MAX_ZIP_ENTRIES, exportProjectZip } from './export-project-zip.js';
@@ -407,6 +409,47 @@ describe('a round trip through export and import', () => {
 		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
 
 		expect([...zip.paths].filter((path) => path.includes('boston-1775'))).toEqual([]);
+	});
+
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE GAP THE TEST BELOW DOES NOT COVER, AND THE FOURTH BLIND WRITE (ticket 18)
+	 *
+	 * The test below seeds the *pyramid* as well, so the import skips the whole map on
+	 * `present.has(shared)` — which asks whether the **image** is in the Workspace. That is not the
+	 * same question as whether the **Alignment** is, and the difference is a live overwrite: a
+	 * Workspace holding an Alignment for a map whose tiles it does not have had that Alignment
+	 * replaced by any archive carrying the same image id. The Alignment is the shared thing
+	 * (ADR-0023); the pyramid is not.
+	 *
+	 * That state is ordinary rather than contrived. It is every Historical Map that was referenced
+	 * from a Library and aligned in place — `remote.json` and no `info.json` — which is SPEC story 31
+	 * and the whole of ticket 07.
+	 */
+	it('keeps its own Alignment for a map whose tiles it does not have', async () => {
+		await seedAlignmentFixture(
+			destination,
+			'amsterdam-1625',
+			encode('{"type":"Annotation","id":"mine"}')
+		);
+		const myAlignment = decode(await destination.read('alignments/amsterdam-1625.json'));
+
+		const zip = await readProjectZip(await exportArchive(source, 'amsterdam-1625'));
+		await target.importProject('amsterdam-1625', zip);
+
+		// The archive's Alignment did not win.
+		expect(decode(await destination.read('alignments/amsterdam-1625.json'))).toBe(myAlignment);
+		// And the Project still arrived, naming that image.
+		expect(await destination.read('amsterdam-1625/project.json')).toBeDefined();
+		// **The pyramid is still skipped, and that is pre-existing and out of ticket 18's scope.**
+		// `#historicalMapIds` treats an id as present when *either* `images/<id>/` or
+		// `alignments/<id>.json` is there, so an Alignment on its own suppresses the whole map. For a
+		// referenced map aligned in place (SPEC story 31, ticket 07) that means an archive carrying the
+		// tiles cannot deliver them. Asserted rather than left implied, so the day it is fixed this
+		// says so instead of passing quietly.
+		await expect(destination.read('images/amsterdam-1625/info.json')).rejects.toThrow(
+			PathNotFoundError
+		);
 	});
 
 	// The import half of the same criterion. The Workspace's own copy of a map is what every existing

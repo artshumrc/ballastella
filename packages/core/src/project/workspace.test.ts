@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Autosave } from '../autosave/autosave.js';
+import { seedAlignmentFixture } from '../alignment/alignment-fixture.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { TEMP_PATH_SUFFIX } from '../store/project-store.js';
 import { newMapLayer } from './layer.js';
@@ -362,11 +363,7 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 	const addHistoricalMap = async (imageId: string, tile = 'tile bytes') => {
 		await store.write(imageInfoPath(imageId), encode(`{"id":"https://unset.invalid/${imageId}"}`));
 		await store.write(`images/${imageId}/0,0,256,256/256,256/0/default.jpg`, encode(tile));
-		// alignment-write-is-the-fixture: the arrange step for the hoisting tests, which need a file at the Alignment's path and never read it back as one
-		await store.write(
-			`alignments/${imageId}.json`,
-			encode(`{"type":"Annotation","id":"${imageId}"}`)
-		);
+		await seedAlignmentFixture(store, imageId, encode(`{"type":"Annotation","id":"${imageId}"}`));
 	};
 
 	beforeEach(() => {

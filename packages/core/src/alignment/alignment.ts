@@ -267,6 +267,23 @@ export interface Alignment {
 	 * unchanged.
 	 */
 	readonly unmodelled?: Readonly<Record<string, unknown>>;
+	/**
+	 * The path of a member of the source document that **cannot** be carried, or absent.
+	 *
+	 * SPEC story 60's criterion is that an unmodelled field survives a read-and-write cycle **or**
+	 * that the write is refused with a message saying why. {@link unmodelled} is the first half.
+	 * This is the second, and it exists because there is exactly one shape the first half cannot
+	 * cover: a member inside an element of an array both documents have — in practice something a
+	 * colleague's tool wrote into `body.features[].properties`. The features are regenerated one per
+	 * Control Point, so there is no element that reliably corresponds to the source's, and carrying
+	 * the member anyway would attach their note about point 3 to whatever ends up third.
+	 *
+	 * So the Alignment still **reads** — the user can open it, see it, and export it — and
+	 * `serialiseAlignment` refuses to write it, naming the member. Refusing to save is a bad day;
+	 * silently rewriting somebody's file with their annotations missing is a worse one, and is the
+	 * failure this whole ticket is about.
+	 */
+	readonly unpreservable?: string;
 }
 
 /**
