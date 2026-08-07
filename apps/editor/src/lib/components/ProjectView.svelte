@@ -125,6 +125,21 @@
 		<a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a>
 	</div>
 {:else if session.openProject}
+	{#if !installedApp.online}
+		<div
+			role="status"
+			class="mt-6 alert flex-col items-start alert-info"
+			data-testid="base-map-offline"
+		>
+			<h2 class="font-semibold">The Base Map needs a connection</h2>
+			<p>
+				There is no network connection, so the Base Map cannot load yet. Everything in your
+				Workspace still works: you can add a Historical Map now and place it when the connection is
+				back.
+			</p>
+		</div>
+	{/if}
+
 	<div class="mt-8 flex flex-wrap items-center justify-between gap-4">
 		<h2 class="text-2xl font-semibold">{session.openProject.name}</h2>
 		<!--

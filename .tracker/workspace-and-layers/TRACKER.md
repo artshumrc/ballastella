@@ -8,7 +8,7 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Current ticket: **10**, in progress. 01, 02, 03, 08 and 09 are merged to `main`. 04 and 12 are now unblocked; 05 needs 04 as well.
+Current ticket: none. 10 is completed on the current branch. 01, 02, 03, 08 and 09 are merged to `main`. 04 and 12 are unblocked; 05 needs 04 as well.
 
 This epic follows [`ballastella-v1`](../ballastella-v1/TRACKER.md), whose implementation is complete and merged. Two things carry across and should be read before any ticket is written:
 
@@ -20,7 +20,7 @@ Two sequencing notes for whoever breaks this into tickets:
 - **The rooting of `createStoreImageFetch` is the riskiest change in the epic** and should land early, alone, and behind the new lint fence. It is the ADR-0011 injection shim resolving the ADR-0004 placeholder, which v1's SPEC calls the most fragile invariant in the project, and its failure mode is a plausible pane of the wrong map rather than an error.
 - **Two claims in the spec rest on documentation, not measurement**, and no ticket may commit to them unverified: `modern-tar`'s streaming and PAX behaviour, and the tile counts and byte totals for a realistic Project extent. The tar claim carries more weight — ADR-0024 justifies the entire format change on it.
 
-Last updated: 2026-08-06
+Last updated: 2026-08-07
 
 ## Ledger
 
@@ -37,7 +37,7 @@ Last updated: 2026-08-06
 | 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Not Started | 06 | 31, 32, 39, 40, 56, 80, 81 |
 | 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
-| 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | In Progress | 09 | 74, 102, 103 |
+| 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
 | 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Not Started | 08, 10 | 6, 69–73, 75–79, 97, 99 |
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Not Started | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Not Started | 01, 12 | 82–87 |

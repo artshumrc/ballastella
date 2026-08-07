@@ -1,5 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { routeBaseMapArchive } from './support/editor-deployment.js';
+
+test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
+
 import {
 	clickAt,
 	historicalMap,

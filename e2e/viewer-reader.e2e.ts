@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { baseMapArchiveFixture, byteRange, routeBaseMapArchive } from './support/editor-deployment';
+
 import {
 	servePublishedSite,
 	siteRecord,
@@ -20,6 +22,13 @@ import {
 	type ProjectFixture
 } from './support/reader-project.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
+
+// Every catalog entry reads a remote archive since ticket 10, so a Reader test that wants a map to
+// actually draw has to serve real pmtiles bytes from somewhere. The fixture, not the real host: an
+// internet dependency in this suite would be a flake with a good excuse.
+test.beforeEach(async ({ page }) => {
+	await routeBaseMapArchive(page);
+});
 
 /**
  * SPEC's Seam 2 for ticket 17: the read-only experience a Reader gets from a Published Site, driven in a
@@ -980,6 +989,7 @@ test.describe('the Base Map a Reader sees', () => {
 		await expect
 			.poll(() => page.evaluate(() => document.documentElement.dataset.theme))
 			.not.toBe(themeBefore);
+		await mapReady(page);
 		await expect.poll(() => paint(page)).not.toBe(before);
 		expect(seen.failures).toEqual([]);
 	});
@@ -1206,20 +1216,59 @@ test.describe('a Published Site that is not entirely well', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('draws the work and says so when the site carries no copy of the Base Map', async ({
+	test('draws the work over a network Base Map without shipping a tile archive', async ({
 		page
 	}) => {
-		// ADR-0020's opt-in, from the Reader's side (SPEC stories 88 and 89): including the Base Map's own
-		// 4.9 MB is a choice a scholar makes at publish time, and a great many sites will not have it.
+		const archive = await baseMapArchiveFixture();
+		let networkArchiveRequests = 0;
+		await page.route(/\.pmtiles$/, async (route) => {
+			networkArchiveRequests += 1;
+			const served = byteRange(
+				archive,
+				route.request().headers()['range'],
+				'application/octet-stream'
+			);
+			await route.fulfill({
+				status: served.status,
+				headers: { ...served.headers, 'access-control-allow-origin': '*' },
+				body: served.body
+			});
+		});
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapBundled: true }));
+		const served = site.sites[0]!;
+		const seen = watch(page);
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await mapReady(page);
+
+		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
+		const options = page.getByTestId('base-map-switcher').locator('option');
+		await expect(options).toHaveCount(4);
+		for (const option of await options.allTextContents()) expect(option).toContain('needs network');
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		expect(networkArchiveRequests).toBeGreaterThan(0);
+		expect(
+			seen.requests.filter(
+				(request) => request.url.startsWith(served.url) && request.url.endsWith('.pmtiles')
+			)
+		).toEqual([]);
+		expect(served.failures).toEqual([]);
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('says so when the site carries no copy of the Base Map’s labels and symbols', async ({
+		page
+	}) => {
+		// ADR-0020's opt-in, from the Reader's side (SPEC stories 88 and 89): including the Base Map's
+		// own glyphs and sprites is a choice a scholar makes at publish time, and a great many sites
+		// will not have it.
 		//
-		// **The assertion that matters is that nothing was requested.** A bundled entry's archive, glyphs,
-		// and sprites are site-relative paths, so a viewer that built the ordinary style anyway would fire a
-		// pmtiles range request and two sprite requests at files that are not there — three 404s, a blank
-		// rectangle, and no account of either. This test exists because the *published* site's own e2e
-		// caught exactly that the first time the viewer drew a map at all.
-		// The record says so as well as the files being absent, which is what publishing writes: `publishSite`
-		// records `baseMapBundled` from the same answer that decided whether to write them, so the two cannot
-		// disagree on a real site.
+		// Since ticket 10 this state looks different from the way it used to. Every catalog entry now
+		// reads a remote archive, so the geography still draws — and what a site without those files
+		// loses is **every place name on the map**. `ReaderMapPane` drops `glyphs`, `sprite`, and the
+		// symbol layers rather than 404ing at files that are not there, and the question this test
+		// exists to answer is whether the Reader is told. A geography-only map with no account of
+		// itself is precisely the silent failure this ticket forbids.
 		site = await published(oneProject({ baseMap: 'physical' }, { baseMapBundled: false }), {
 			withoutBaseMap: true
 		});
@@ -1229,12 +1278,14 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.goto(`${served.url}?p=amsterdam-1625`);
 		await mapReady(page);
 
-		await expect(page.getByTestId('base-map-unavailable')).toContainText('without its own copy');
-		// It names the way out, and the entries that would work are marked in the switcher.
-		await expect(page.getByTestId('base-map-unavailable')).toContainText('needs network');
-		// The scholar's own work is still drawn: this is a missing *reference* map, not a missing Project.
+		const notice = page.getByTestId('base-map-unavailable');
+		await expect(notice).toContainText('labels and symbols');
+		await expect(notice).toContainText('without any place names');
+		// The scholar's own work is still drawn, and so is the geography: this is a reference map
+		// missing its lettering, not a missing Project.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
-		// And not one request for a file the site does not hold.
+		// And not one request for a file the site does not hold — the 404s the old empty-rectangle
+		// path existed to prevent are still prevented, glyph ranges and sprites included.
 		expect(seen.requests.filter((request) => request.url.includes('/base-map/'))).toEqual([]);
 		expect(served.failures).toEqual([]);
 		expect(seen.failures).toEqual([]);

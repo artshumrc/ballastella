@@ -38,6 +38,7 @@ const isExempt = (relative) =>
 	relative.endsWith('fixture-catalogs.ts');
 
 const catalogSource = readFileSync(path.join(repoRoot, catalogModule), 'utf8');
+const deploymentCheck = process.argv.includes('--deployment');
 
 /** Entry ids, as written in the catalog. */
 const entryIds = [...catalogSource.matchAll(/^\s*id: '([^']+)'/gm)].map((match) => match[1]);
@@ -48,6 +49,58 @@ const archives = [...catalogSource.matchAll(/'([^']*\.pmtiles)'/g)].map((match) 
 if (entryIds.length === 0) {
 	console.error(`\nNo entry ids found in ${catalogModule}. This check cannot do its job.\n`);
 	process.exit(1);
+}
+
+/**
+ * The archive each entry actually reads, with `const NAME = '…'` bindings resolved.
+ *
+ * **Values, not raw file text.** An earlier version of the deployment fence asked whether
+ * `catalogSource.includes('demo-bucket.protomaps.com')`, which matches the domain anywhere in the
+ * file — including the comment on `REMOTE_ARCHIVE` that explains why the URL is unsuitable. A
+ * deployment that correctly repointed the constant but kept the explanation was wrongly blocked,
+ * and the remedy on offer was "delete the paragraph saying why".
+ */
+const archiveBindings = new Map(
+	[...catalogSource.matchAll(/^const\s+(\w+)\s*=\s*'([^']+)';/gm)].map((match) => [
+		match[1],
+		match[2]
+	])
+);
+const entryArchives = [...catalogSource.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\w+))\s*,/gm)].map(
+	(match) => match[1] ?? archiveBindings.get(match[2]) ?? match[2]
+);
+
+/**
+ * Archives no deployment may ship: someone else's, published for trying the format out.
+ *
+ * Compared by host, so a path change on the same bucket does not slip past.
+ */
+const UNCONTROLLED_HOSTS = new Set(['demo-bucket.protomaps.com']);
+const hostOf = (archive) => {
+	try {
+		return new URL(archive).host;
+	} catch {
+		return '';
+	}
+};
+
+/**
+ * Failures are collected rather than exited on, because `--deployment` is a *mode* of this check
+ * and not a different check. Exiting here is how `pnpm check:deployment` — the one gating
+ * production — came to skip the ADR-0020 containment scan below entirely.
+ */
+let failed = false;
+
+if (deploymentCheck) {
+	const uncontrolled = entryArchives.filter((archive) => UNCONTROLLED_HOSTS.has(hostOf(archive)));
+	if (uncontrolled.length > 0) {
+		console.error(
+			`\n${catalogModule}: ${entryIds.join(', ')} still read ${[...new Set(uncontrolled)].join(', ')}.\n\n` +
+				'This URL is accepted only for educational development and evaluation. Before a production\n' +
+				'deployment, point REMOTE_ARCHIVE at a PMTiles archive that deployment controls (ADR-0025).\n'
+		);
+		failed = true;
+	}
 }
 
 const files = scannedRoots.flatMap((root) => walk(path.join(repoRoot, root)));
@@ -79,8 +132,10 @@ if (violations.length > 0) {
 			'nothing else. Derive the behaviour from the catalog — `resolveBaseMap`, `baseMapOptions`,\n' +
 			'and `baseMapStyle` all take one — rather than keying on an id.\n'
 	);
-	process.exit(1);
+	failed = true;
 }
+
+if (failed) process.exit(1);
 
 console.log(
 	`${catalogModule}: ${entryIds.length} entries named nowhere else (ADR-0020, SPEC story 100).`

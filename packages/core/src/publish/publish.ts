@@ -273,10 +273,10 @@ export async function planPublish(
 		warnings.push({
 			kind: 'base-map-size',
 			message:
-				`Including the Base Map writes ${baseMap.length} more files, about ` +
-				`${describeBytes(bundleBytes(baseMap))}, into this Workspace. That is what makes the ` +
-				`Published Site work with no network at all, and it counts against the same hosting ` +
-				`budget as your Historical Maps.`
+				`Including Base Map labels and symbols writes ${baseMap.length} more files, about ` +
+				`${describeBytes(bundleBytes(baseMap))}, into this Workspace. The Base Map tiles still ` +
+				`need a network connection, and these files count against the same hosting budget as ` +
+				`your Historical Maps.`
 		});
 	}
 

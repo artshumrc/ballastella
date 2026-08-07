@@ -59,11 +59,14 @@ but no `build`.
 | `pnpm test:e2e`                      | browser tests (Playwright, headless Chromium)  |
 | `pnpm lint`                          | lint, format check, and the source fences      |
 | `pnpm check:bundles`                 | ADR-0019 against built output (needs a build)  |
+| `pnpm check:deployment`              | refuse development-only deployment settings   |
 | `pnpm check:dev`                     | both apps answer their root route under `vite dev` |
 | `pnpm check`                         | Svelte and TypeScript checks                   |
 | `pnpm format`                        | rewrite formatting in place                    |
 
-CI runs all of them on every push.
+CI runs the ordinary development verification commands on every push. Run
+`pnpm check:deployment` before a production deployment; it intentionally fails while the Base Map
+catalog uses Protomaps' demo bucket for educational development and evaluation.
 
 ## Three rules the toolchain enforces for you
 
@@ -96,6 +99,10 @@ archive appears anywhere else, because a special case keyed on one id still work
 this deployment and fails only on the fork, where nobody is looking. Tests are exempt: the
 browser suite asserts that the switcher offers exactly this deployment's catalog, which it can
 only do by naming it.
+
+The same script's `--deployment` mode, exposed as `pnpm check:deployment`, refuses
+`demo-bucket.protomaps.com` and names the catalog entries and remedy. The demo URL is an explicit
+temporary development exception under ADR-0025, never production configuration.
 
 ## Dependency versions
 

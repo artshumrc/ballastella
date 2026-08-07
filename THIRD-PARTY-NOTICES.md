@@ -155,28 +155,29 @@ requirements of their own — OpenStreetMap data is ODbL, and the rendered base 
 carry their attribution in the UI and in every published site. That is a product
 requirement, tracked with the base map work, not a notice satisfied by this file.
 
-## Bundled base map content
+## Bundled Base Map display assets
 
-The base map ships as bytes in this repository rather than as a dependency, so its licences are
-not recorded in any `node_modules` manifest. Provenance and per-file detail are in
+Base Map glyphs and sprites ship as bytes in this repository rather than as dependencies, so their
+licences are not recorded in any `node_modules` manifest. Provenance and per-file detail are in
 [`apps/editor/static/base-map/PROVENANCE.md`](apps/editor/static/base-map/PROVENANCE.md), beside
 the files themselves.
 
-| Content                                    | Licence         | What it is                            |
-| ------------------------------------------ | --------------- | ------------------------------------- |
-| `base-map/amsterdam-centre.pmtiles`        | ODbL 1.0        | OpenStreetMap data, extracted from the Protomaps v4 basemap |
-| — the same archive's Natural Earth layers  | public domain   | coastlines and landcover at low zoom  |
-| `base-map/fonts/Noto Sans *`               | OFL 1.1         | SDF glyph ranges derived from Noto Sans |
-| `base-map/sprites/*`                       | BSD-3-Clause    | Protomaps basemap icon sheets          |
+| Content                      | Licence      | What it is                              |
+| ---------------------------- | ------------ | --------------------------------------- |
+| `base-map/fonts/Noto Sans *` | OFL 1.1      | SDF glyph ranges derived from Noto Sans |
+| `base-map/sprites/*`         | BSD-3-Clause | Protomaps Base Map icon sheets          |
 
 The ODbL attribution obligation is met by the `attribution` on the base map source, which
 MapLibre's attribution control renders uncompacted. It is a licence condition, so it is not
 behind an "i" and must not become one.
 
-`base-map/streets-worldwide` in the catalog reads a **remote** archive from Protomaps' public demo
-bucket rather than shipping it. Its data carries the same ODbL obligation, met the same way; its
-hosting carries no published terms. See
+Every catalog entry currently reads a remote archive from Protomaps' public demo bucket rather
+than shipping tile data. Its data carries the same ODbL obligation, met the same way; its hosting
+carries no published terms and is accepted only for educational development and evaluation. See
 [`apps/editor/static/base-map/PROVENANCE.md`](apps/editor/static/base-map/PROVENANCE.md).
+
+The central-Amsterdam ODbL/public-domain/BSD-3-Clause extract is retained only as the browser-test
+fixture `e2e/fixtures/base-map/amsterdam-centre.pmtiles`; it is not application output.
 
 ## Bundled test fixtures
 

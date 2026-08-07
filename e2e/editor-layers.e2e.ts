@@ -2,6 +2,10 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
 
+import { routeBaseMapArchive } from './support/editor-deployment.js';
+
+test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
+
 /**
  * SPEC's Seam 2 for the Layer stack: showing, hiding, reordering, renaming, and setting the opacity
  * of Layers in the running app (stories 49–54).
@@ -982,7 +986,7 @@ test.describe('a Base Map that never finishes loading', () => {
 		const directory = await alignedProject(page);
 
 		// Neither fulfilled nor aborted: the request stays open for the life of the page.
-		await page.route('**/base-map/*.pmtiles', () => undefined);
+		await page.route(/\.pmtiles$/, () => undefined);
 		await page.goto(`/layers?p=${directory}`);
 		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
 		await expect(rows(page)).toHaveCount(1);

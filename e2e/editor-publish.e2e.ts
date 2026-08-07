@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { gradientPng } from './support/alignment-workspace.js';
+import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
+
+test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
 /**
  * The app's own log of tiles it drew. See `apps/editor/src/lib/image-pane/browser-test-handle.ts`.
@@ -312,7 +315,7 @@ test.describe('publishing a Workspace', () => {
 			await expect(page.getByTestId('base-map-switcher')).toHaveValue('physical');
 			await expect(
 				page.getByTestId('base-map-switcher').locator('option[value="physical"]')
-			).toHaveText('Physical geography');
+			).toHaveText('Physical geography — needs network');
 
 			// Nothing 404'd. This is the assertion that fails when an asset is referenced as `/_app/…`:
 			// it is answered at a domain root and is outside the published folder in a subdirectory,
@@ -392,9 +395,8 @@ test.describe('publishing a Workspace', () => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
 		const dialog = await openPublishDialog(page);
-		// SPEC story 89: the figure is on screen *before* the button is pressed, and it is real megabytes
-		// rather than a placeholder.
-		await expect(dialog.locator('[data-warning="base-map-size"]')).toContainText(/[0-9.]+ MB/);
+		// The display assets' size is on screen before publishing spends it.
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toContainText(/[0-9.]+ (kB|MB)/);
 		await dialog.getByRole('checkbox').uncheck();
 		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
 		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
@@ -415,7 +417,7 @@ test.describe('publishing a Workspace', () => {
 			path.startsWith('base-map/')
 		);
 		expect(withBaseMap.length).toBeGreaterThan(1);
-		expect(withBaseMap.some((path) => path.endsWith('.pmtiles'))).toBe(true);
+		expect(withBaseMap.some((path) => path.endsWith('.pmtiles'))).toBe(false);
 	});
 
 	test('removes a Base Map it published before, when the next publish leaves it out', async ({

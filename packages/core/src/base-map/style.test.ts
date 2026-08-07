@@ -86,16 +86,16 @@ describe('baseMapStyle', () => {
 	});
 
 	it('resolves relative asset paths through the caller, leaving placeholders intact', () => {
-		const style = baseMapStyle(entry('streets'), {
+		const style = baseMapStyle(entry('harbour-charts', FORKED_CATALOG), {
 			theme: 'light',
 			resolveAsset: (path) => `https://example.test/site/${path}`
 		});
 		const source = style.sources[BASE_MAP_SOURCE_ID];
 
 		expect(style.glyphs).toBe('https://example.test/site/base-map/fonts/{fontstack}/{range}.pbf');
-		expect(style.sprite).toBe('https://example.test/site/base-map/sprites/light');
+		expect(style.sprite).toBe('https://example.test/site/base-map/sprites/white');
 		expect(source && 'url' in source ? source.url : '').toBe(
-			'pmtiles://https://example.test/site/base-map/amsterdam-centre.pmtiles'
+			'pmtiles://https://example.test/site/tiles/harbours.pmtiles'
 		);
 	});
 

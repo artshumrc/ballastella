@@ -16,16 +16,6 @@ import type { BaseMapCatalog } from './entry';
 // └───────────────────────────────────────────────────────────────────────────────────────┘
 
 /**
- * The bundled extract, served as a static file from `apps/editor/static/`. One archive, read
- * over HTTP Range requests by the `pmtiles://` protocol — no tile server, no API key, and no
- * per-fork registration (ADR-0005, SPEC story 101).
- *
- * Three of the four entries below name this one archive. They differ only in the style
- * document built over it, which is the whole zero-extra-data claim.
- */
-const BUNDLED_ARCHIVE = 'base-map/amsterdam-centre.pmtiles';
-
-/**
  * Protomaps' public **demo** planet. Keyless, so it costs no secret and breaks no fork — but it
  * is a network dependency, which is what `needsNetwork` exists to say out loud.
  *
@@ -35,9 +25,11 @@ const BUNDLED_ARCHIVE = 'base-map/amsterdam-centre.pmtiles';
  * fork's users reach it by default because it is in this deployment's catalog. Nothing about it is
  * suitable to rely on. A deployment that wants worldwide coverage should point this entry at its
  * own archive — a Protomaps API key, a bucket of its own, or a self-hosted extract — which is a
- * change to this line and nothing else (ADR-0020). It is here because a `needsNetwork: true` entry
- * has to exist for the switcher's marking to mean anything and for ticket 17 to have something to
- * assert, and a keyless one is the only kind a fork inherits without setup.
+ * change to this line and nothing else (ADR-0020).
+ *
+ * This educational development deployment has no hosting budget, so the maintainer explicitly
+ * accepted this URL for evaluation only. `pnpm check:deployment` refuses it: production must point
+ * this constant at an archive that deployment controls (ADR-0025, ticket 10).
  */
 const REMOTE_ARCHIVE = 'https://demo-bucket.protomaps.com/v4.pmtiles';
 
@@ -46,16 +38,16 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 		{
 			id: 'streets',
 			label: 'Streets',
-			needsNetwork: false,
-			archive: BUNDLED_ARCHIVE,
+			needsNetwork: true,
+			archive: REMOTE_ARCHIVE,
 			emphasis: 'streets-and-labels',
 			flavor: { light: 'light', dark: 'dark' }
 		},
 		{
 			id: 'physical',
 			label: 'Physical geography',
-			needsNetwork: false,
-			archive: BUNDLED_ARCHIVE,
+			needsNetwork: true,
+			archive: REMOTE_ARCHIVE,
 			emphasis: 'water-and-terrain',
 			flavor: { light: 'light', dark: 'dark' }
 		},
@@ -66,8 +58,8 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 			// one more style document over the same archive and costs nothing.
 			id: 'muted',
 			label: 'Muted, high contrast',
-			needsNetwork: false,
-			archive: BUNDLED_ARCHIVE,
+			needsNetwork: true,
+			archive: REMOTE_ARCHIVE,
 			emphasis: 'streets-and-labels',
 			flavor: { light: 'grayscale', dark: 'black' }
 		},
@@ -81,8 +73,7 @@ export const BASE_MAP_CATALOG: BaseMapCatalog = {
 		}
 	],
 	defaultId: 'streets',
-	// Central Amsterdam, inside the bundled extract's bounds. A deployment whose default view
-	// falls outside its bundled archive renders a plausible-looking empty map.
+	// The deliberate fallback for a Project with nothing placed on the earth (ADR-0026).
 	initialView: { center: [4.9041, 52.3676], zoom: 13 },
 	glyphs: 'base-map/fonts/{fontstack}/{range}.pbf',
 	sprite: 'base-map/sprites/{flavor}',

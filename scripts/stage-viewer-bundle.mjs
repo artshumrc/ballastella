@@ -25,8 +25,8 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // THE BASE MAP FILES ARE LISTED, NOT COPIED
 //
-// A self-contained Published Site needs the pmtiles extract, its glyphs, and its sprites
-// (ADR-0020, SPEC story 88) — 4.9 MB of them. The editor already serves those for its own panes, so
+// A Published Site may carry the glyphs and sprites used by its Base Map styles (ADR-0020). The
+// editor already serves those for its own panes, so
 // they are listed with their byte lengths and left where they are: copying them would double them in
 // every deployment of the editor to no purpose. Their `source` and their published `path` are the
 // same, which is why the mapping above matters only for the viewer's own files.

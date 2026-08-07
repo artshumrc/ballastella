@@ -1,8 +1,9 @@
 import { createServer, type Server } from 'node:http';
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
+import type { Page } from '@playwright/test';
 
 // A static web server for the **editor's own build**, so that the PWA slice can be driven at a
 // domain root and in a project subdirectory, and so that a second version of the app can be
@@ -34,6 +35,7 @@ import type { AddressInfo } from 'node:net';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const editorBuild = path.join(repoRoot, 'apps/editor/build');
+const baseMapFixture = path.join(repoRoot, 'e2e/fixtures/base-map/amsterdam-centre.pmtiles');
 
 /** Media types by extension. A `.js` served as `text/plain` is a module the browser will not run. */
 const MEDIA_TYPES: Record<string, string> = {
@@ -130,20 +132,36 @@ export function byteRange(body: Buffer, range: string | undefined, type: string)
 }
 
 /**
- * This deployment's own bundled Base Map archive, read off disk.
+ * The real PMTiles archive retained only for browser tests, read off disk.
  *
- * Found by extension rather than by name, because ADR-0020 says a fork swapping its extract changes
- * the catalog and nothing else — and a test that spelled the archive's file name would be one more
- * thing it had to change. Used to stand in for *somebody else's* archive: a test that needs a
- * `needsNetwork: true` Base Map to genuinely answer has to serve real pmtiles bytes from somewhere,
- * and reaching the real host it names would put an internet dependency in this suite.
+ * Used to stand in for the catalog's network archive: tests need genuine byte-range PMTiles
+ * responses without either shipping this regional extract or depending on somebody else's host.
  */
-export async function bundledBaseMapArchive(): Promise<Buffer> {
-	const directory = path.join(editorBuild, 'base-map');
-	const names = await readdir(directory);
-	const archive = names.find((name) => name.endsWith('.pmtiles'));
-	if (archive === undefined) throw new Error(`no pmtiles archive in ${directory}`);
-	return readFile(path.join(directory, archive));
+export async function baseMapArchiveFixture(): Promise<Buffer> {
+	return readFile(baseMapFixture);
+}
+
+/**
+ * Route this deployment's network Base Map to the repository's real-byte fixture.
+ *
+ * Takes a `Page` **or** a `BrowserContext`, because both carry `route` with the same contract and
+ * the choice between them is per-suite: a `beforeEach` that runs before the page exists routes the
+ * context. Written once, so that "serve real pmtiles bytes" cannot drift between suites.
+ */
+export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<void> {
+	const archive = await baseMapArchiveFixture();
+	await target.route(/\.pmtiles$/, async (route) => {
+		const served = byteRange(
+			archive,
+			route.request().headers()['range'],
+			'application/octet-stream'
+		);
+		await route.fulfill({
+			status: served.status,
+			headers: { ...served.headers, 'access-control-allow-origin': '*' },
+			body: served.body
+		});
+	});
 }
 
 export type EditorDeployment = {

@@ -4,10 +4,8 @@
 // ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 // │ THE APP SHELL, AND NOTHING ELSE (ADR-0012).                                               │
 // │                                                                                           │
-// │ This worker exists so that a scholar in a reading room with hostile wifi can keep          │
-// │ aligning maps (SPEC story 8), and so that installing the app is a real offer rather than   │
-// │ a bookmark (SPEC story 6). Both of those need exactly one thing: the app's own code,       │
-// │ available with the network off. Everything past that is a correctness bug, not waste.      │
+// │ This worker exists so a scholar can keep working with their own files when the network is   │
+// │ absent, and so that installing the app is a real offer rather than a bookmark (ADR-0012).   │
 // └───────────────────────────────────────────────────────────────────────────────────────────┘
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -17,7 +15,7 @@
 // reviewable rather than emergent:
 //
 //   `ballastella-shell-<version>@<base>/`     the hashed build's code and styles, and the entry HTML
-//   `ballastella-base-map-<version>@<base>/`  this deployment's own bundled Base Map files
+//   `ballastella-base-map-<version>@<base>/`  this deployment's glyphs and sprites
 //
 // The `@<base>/` is the deployment, and it is load-bearing rather than tidy — see `HERE` below.
 //
@@ -41,38 +39,33 @@
 //      against its rule.
 //   5. **`wasm-vips` is not cached**, which is the same argument one layer up. ADR-0019 keeps the
 //      5 MB module behind a dynamic import so it does not land "in the initial bundle of every
-//      page load"; precaching it on install would reimpose that cost — twice, since the worker
-//      copy is a second 5 MB — on every user who installs the app, most of whom will never ingest
-//      an image in this session. So the shell takes only code and styles from `build`. The cost is
-//      honest and narrow: preparing a *new* image needs the network on first use.
+//      page load"; precaching it on install would reimpose that cost on every user who installs
+//      the app, most of whom will never ingest an image in this session. So the shell takes only
+//      code and styles from `build`. The cost is honest and narrow: preparing a *new* image needs
+//      the network on first use.
 //
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// THE BUNDLED BASE MAP IS CACHED, AND THAT IS A DELIBERATE READING OF THIS TICKET
+//      **Ticket 10 re-examined this and measured it, because criterion 7 asks that an installed
+//      app with no connection accept a Historical Map file on first run.** Precaching the built
+//      `.wasm` was tried and reverted. Two facts decided it:
 //
-// ⚠ **This is the one place where two halves of ticket 18 disagree, and the disagreement is worth a
-// second opinion.** Its Out of scope says "Precaching a pmtiles Base Map on the fly. A bundled
-// extract is a workspace file (ticket 16), not a service-worker cache entry", and its first scope
-// fence says "precache only hashed build assets and the entry HTML". Its Offline verification
-// paragraph says the editor must, with the network disabled, "open a Project, **view the aligned
-// map**, place Control Points, **draw Annotations**, and save", with "a bundled pmtiles Base Map".
-// ADR-0012 gives the same reason for believing offline is achievable at all: "a bundled pmtiles
-// extract provides a base map (ADR-0005)".
+//        - **The cost.** `vite build` emits the module twice, byte-identical at 5,084,535 bytes
+//          each: `_app/immutable/assets/vips._dmTUXFO.wasm` for the main-thread `vips-es6` chunk,
+//          and `_app/immutable/workers/assets/vips-_dmTUXFO.wasm` for the pthread worker. Only the
+//          first is in `$service-worker`'s `build` manifest, so a `.wasm` filter precaches
+//          **5,084,535 bytes** on install — 23% more than the 4,137,622-byte pmtiles archive this
+//          ticket removed, in exchange for removing it. (The second copy still ships as a file;
+//          this worker could not have cached it either way.)
+//        - It buys criterion 7 **nothing**. `libvipsUnavailableReason()` refuses libvips outright
+//          unless the document is cross-origin isolated, and this deployment sends no COOP/COEP
+//          (out of scope for this ticket, by name). Even if it did, `ingestImageFile` only opens
+//          the streaming tiler above `STREAMING_TILER_THRESHOLD_PIXELS` (268,435,456 px); every
+//          smaller image goes through the decode-and-crop tiler, which is browser-native and
+//          reaches nothing. So an offline first-run ingest already worked without these bytes,
+//          and the offline suite asserts exactly that with the network off.
 //
-// Both cannot hold, and it was measured rather than reasoned about. With the archive absent, the
-// MapLibre style never finishes loading — a vector source whose metadata never arrives is never
-// `loaded()`, so `Map#isStyleLoaded()` stays false and `load` never fires. Every part of the app
-// gated on that is then gone offline: the warped Historical Map (`BaseMapPane` attaches the layer on
-// `once('load')`) and the whole Layer stack, which is where Annotations are drawn. Control Point
-// pairing survives, because a click on a canvas is a coordinate whether or not a tile arrived. So
-// leaving the archive out costs two of the four things the Offline verification names.
-//
-// The reading taken is that "on the fly" is doing the work in that sentence: what is out of scope is
-// *fetching and caching base map data at runtime* — a whole planet lazily accumulated, which is
-// fence 3 — and "a bundled extract is a workspace file (ticket 16)" is about the Published Site,
-// where the extract really is a file in the user's Workspace. The editor's own bundled extract is
-// none of those things: it is same-origin, it is a fixed 4.9 MB, it is immutable per build, and it is
-// this deployment's own configuration (ADR-0020). It is in a cache of its own, named for what it is,
-// so that reversing this judgement is deleting one list and one branch.
+//      Criterion 7 is therefore met by the decode-and-crop path, and the shell stays code and
+//      styles. The narrow cost stands and is now narrower than it reads: an image *above* the
+//      decode ceiling cannot be prepared at all in this deployment, offline or on.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // IT DOES NOT SERVE THE STORE
@@ -166,7 +159,7 @@ const ours = (name: string) => /^ballastella-(shell|base-map)-/.test(name) && na
  *
  * `build` filtered to `.js` and `.css` — see the header on `wasm-vips`. The filter is by extension
  * and not by name so that it states a rule ("code and styles") rather than a list of things to
- * dodge; the two 5 MB `vips*.wasm` files are what it currently excludes.
+ * dodge; the 5,084,535-byte `vips._dmTUXFO.wasm` is what it currently excludes.
  */
 const SHELL: readonly string[] = [
 	...prerendered,
@@ -187,14 +180,13 @@ const SHELL: readonly string[] = [
 const asRequested = (path: string) => new URL(path, location.href).pathname;
 
 /**
- * The one directory of `static/` this worker takes: the Base Map files this deployment serves for
- * its own panes — the pmtiles archive, its glyphs, and its sprites (ADR-0005, ADR-0020).
+ * The one directory of `static/` this worker takes: glyphs and sprites used by Base Map styles.
  *
  * A **directory**, deliberately, and no archive name and no catalog entry id. ADR-0020 requires that
  * a fork repointing its catalog change the catalog and nothing else, and
  * `scripts/check-base-map-catalog.mjs` enforces it; `scripts/stage-viewer-bundle.mjs` names the same
  * directory for the same reason. So a fork that swaps its extract keeps this working, and a fork that
- * points every entry at a remote archive simply finds this list empty.
+ * points every entry at a remote archive still keeps labels and symbols available once tiles exist.
  */
 const BASE_MAP_DIRECTORY = 'base-map/';
 

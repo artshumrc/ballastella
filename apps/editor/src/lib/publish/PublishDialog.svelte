@@ -29,12 +29,7 @@
 	/** Why there is nothing to publish, or why publishing stopped. */
 	let failure = $state('');
 	/**
-	 * A self-contained site: the Base Map's own files go into the Workspace too (SPEC story 88).
-	 *
-	 * On by default, because the Base Map a Project records is normally one this deployment serves
-	 * from its own bundled extract — so a site published without it has no Base Map under its
-	 * Historical Maps at all, which is not a state to arrive at by not reading a checkbox. Its size
-	 * is stated either way (SPEC story 89).
+	 * Whether the deployment's Base Map display assets (glyphs and sprites) travel with the site.
 	 */
 	let includeBaseMap = $state(true);
 	/** The address the user wants their Historical Maps to answer at, or `''` (SPEC story 92). */
@@ -234,9 +229,10 @@
 				onchange={(event) => chooseBaseMap(event.currentTarget.checked)}
 			/>
 			<span>
-				Include the Base Map, so the site works with no network connection
+				Include Base Map labels and symbols
 				<span class="block text-sm opacity-70">
-					Without it, a Reader needs a network for the modern map underneath your work.
+					The Base Map tiles still need a network connection; no tile archive ships with
+					Ballastella.
 				</span>
 			</span>
 		</label>

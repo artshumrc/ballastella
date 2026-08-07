@@ -195,7 +195,27 @@
 				]
 			};
 		}
-		return baseMapStyle(entry, { theme: theme.current, catalog, resolveAsset: resolveSiteAsset });
+		const style = baseMapStyle(entry, {
+			theme: theme.current,
+			catalog,
+			resolveAsset: resolveSiteAsset
+		});
+		if (bundledBaseMapAvailable) return style;
+		// This site omitted its local glyphs and sprites, and this entry's archive is somebody else's,
+		// so the geography can still be drawn. Keep it, and drop the symbol layers rather than firing
+		// 404s at files the site does not carry — or worse, letting MapLibre silently substitute a
+		// system font, which is invisible to every assertion about the map (ADR-0025).
+		//
+		// **A map with no place names on it is not a map that needs no explanation.** The page says so:
+		// `baseMapUnavailable` in `+page.svelte` has a branch for exactly this state, and dropping it
+		// would leave a Reader holding an unlabelled world with no account of why.
+		const withoutDisplayAssets = { ...style };
+		delete withoutDisplayAssets.glyphs;
+		delete withoutDisplayAssets.sprite;
+		return {
+			...withoutDisplayAssets,
+			layers: style.layers.filter((layer) => layer.type !== 'symbol')
+		};
 	};
 
 	/**

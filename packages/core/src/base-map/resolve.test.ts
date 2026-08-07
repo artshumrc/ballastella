@@ -81,12 +81,19 @@ describe('baseMapOptions', () => {
 });
 
 describe('the deployment catalog', () => {
-	it('offers more than one Base Map over a single bundled archive', () => {
-		const bundled = BASE_MAP_CATALOG.entries.filter((entry) => !entry.needsNetwork);
-		const archives = new Set(bundled.map((entry) => entry.archive));
+	it('marks every Base Map as needing the network while no tile cache exists', () => {
+		const archives = new Set(BASE_MAP_CATALOG.entries.map((entry) => entry.archive));
 
-		expect(bundled.length).toBeGreaterThan(1);
-		// The zero-extra-data claim (ADR-0005): several looks, one archive.
+		expect(BASE_MAP_CATALOG.entries.every((entry) => entry.needsNetwork)).toBe(true);
+		// Several looks still use one dataset, without shipping that dataset. **The count is half the
+		// assertion**: `every()` and `archives.size === 1` are both true of a one-entry catalog, so
+		// dropping this line would let criterion 10 — "three looks over one dataset" — pass vacuously.
+		const looks = new Set(
+			BASE_MAP_CATALOG.entries.map(
+				(entry) => `${entry.emphasis}/${entry.flavor.light}/${entry.flavor.dark}`
+			)
+		);
+		expect(looks.size).toBeGreaterThanOrEqual(3);
 		expect(archives.size).toBe(1);
 	});
 

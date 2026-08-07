@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { routeBaseMapArchive } from './support/editor-deployment';
+
 // SPEC Seam 2: the running app in a real browser, with real MapLibre and real OPFS. There is
 // deliberately no map-abstraction layer to test against — inventing one purely to enable testing
 // is the premature boundary ADR-0019 argues against, and it would test a fake instead of the
@@ -42,9 +44,9 @@ const projectJson = (fields: Record<string, unknown> = {}) =>
 
 /** The deployment catalog, as an author reads it in the switcher. */
 const CATALOG_OPTIONS = [
-	{ value: 'streets', text: 'Streets' },
-	{ value: 'physical', text: 'Physical geography' },
-	{ value: 'muted', text: 'Muted, high contrast' },
+	{ value: 'streets', text: 'Streets — needs network' },
+	{ value: 'physical', text: 'Physical geography — needs network' },
+	{ value: 'muted', text: 'Muted, high contrast — needs network' },
 	{ value: 'streets-worldwide', text: 'Streets, worldwide — needs network' }
 ];
 
@@ -146,6 +148,10 @@ const backgroundColour = (page: Page) =>
 	);
 
 test.describe('the Base Map pane', () => {
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
+	});
+
 	test('renders, and pans and zooms from the keyboard', async ({ page }) => {
 		await openPane(page);
 
@@ -312,6 +318,10 @@ test.describe('the Base Map pane', () => {
 });
 
 test.describe('the author’s default', () => {
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
+	});
+
 	test('is written to project.json as an id, with no URL anywhere in the file', async ({
 		page
 	}) => {
@@ -498,6 +508,10 @@ test.describe('the Project the pane opens', () => {
 });
 
 test.describe('the theme', () => {
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
+	});
+
 	test('changes the Base Map flavor in the same action as the interface', async ({ page }) => {
 		await openPane(page);
 

@@ -239,7 +239,7 @@ The sidebar uses **progressive disclosure**: one Layer open at a time, opening i
 
 No pmtiles archive ships. **Glyphs and sprites still do** (636 KB, 184 KB): every label layer is gated behind glyphs, and without them the map draws while MapLibre silently falls back to system fonts.
 
-The catalog lint fence **fails the build while the catalog points at `demo-bucket.protomaps.com`** — the bucket this repo already documents as unsuitable to rely on. Every deployment names its own archive, which ADR-0020 makes a one-line change. The Amsterdam extract stays as an **e2e fixture**, not as shipped output.
+The catalog deployment fence **fails `pnpm check:deployment` while the catalog points at `demo-bucket.protomaps.com`** — the bucket this repo already documents as unsuitable to rely on. By explicit human decision on 2026-08-07, ordinary development and educational evaluation temporarily retain that URL because there is no hosting budget; it remains blocked for production. Every production deployment names its own archive, which ADR-0020 makes a one-line change. The Amsterdam extract stays as an **e2e fixture**, not as shipped output.
 
 The offline cache is individual vector tiles at `base-map/tiles/{z}/{x}/{y}.mvt` behind a MapLibre `addProtocol` handler — ADR-0011's pattern, as already implemented for Historical Map tiles. Writing a PMTiles v3 archive was rejected: `pmtiles@4.4.1` has no writer, and hand-rolling one is archive-format code whose failure mode is silent. Caching byte ranges was rejected: the cached unit would depend on access pattern, and a near-miss range renders holes, which reads as corruption.
 

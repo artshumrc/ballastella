@@ -4,7 +4,7 @@
 
 The 4.0 MB `amsterdam-centre.pmtiles` archive stops shipping. The deployment must name its own Base Map archive, and the build fails while it still points at Protomaps' public demo bucket. Glyphs and sprites keep shipping, because without them the map draws with the wrong fonts and says nothing about it.
 
-Demonstrable end to end: the built editor contains no `.pmtiles` file; `pnpm lint` fails while the catalog names the demo bucket and passes once it names something else; and an installed app opened with no connection and a new Project shows a named explanation rather than a blank grey rectangle.
+Demonstrable end to end: the built editor contains no `.pmtiles` file; `pnpm check:deployment` fails while the catalog names the demo bucket and passes once it names something else; and an installed app opened with no connection and a new Project shows a named explanation rather than a blank grey rectangle.
 
 Read [ADR-0025](../../../docs/adr/0025-no-base-map-ships-offline-is-per-project-and-opt-in.md) first.
 
@@ -25,7 +25,7 @@ Read [ADR-0025](../../../docs/adr/0025-no-base-map-ships-offline-is-per-project-
 
 **Glyphs and sprites keep shipping.** `@protomaps/basemaps` gates every label layer behind its `lang` option, and the service worker's own comment records the resulting bug: the archive was served, the style loaded, the map drew, and MapLibre silently fell back to system fonts because it could not fetch one glyph range — "loud enough to find only because it warns; silent in every assertion about the map." Those 820 KB are not optional.
 
-**`scripts/check-base-map-catalog.mjs` fails while the catalog names `demo-bucket.protomaps.com`.** The message must say what to do: point the entry at an archive this deployment controls, which ADR-0020 makes a change to one line of one file. **This will fail on the tree as it stands, which is intended** — part of this ticket is choosing what this deployment points at and recording that choice. If no archive is available, the honest outcome is a catalog with no `needsNetwork: false` entry and a failing fence, escalated rather than worked around.
+**`scripts/check-base-map-catalog.mjs --deployment` fails while the catalog names `demo-bucket.protomaps.com`.** The message must say what to do: point the entry at an archive this deployment controls, which ADR-0020 makes a change to one line of one file. Ordinary development lint accepts the explicit temporary educational-development exception recorded below; production remains blocked.
 
 **The Amsterdam extract moves to the e2e fixtures and stays there.** Several suites need real pmtiles bytes to assert anything, and `editor-deployment.ts` already serves them byte-range. It stops being shipped output; it is not deleted.
 
@@ -48,16 +48,16 @@ Read [ADR-0025](../../../docs/adr/0025-no-base-map-ships-offline-is-per-project-
 
 ## Acceptance criteria
 
-- [ ] `apps/editor/build/` and the viewer bundle contain no `.pmtiles` file.
-- [ ] `apps/editor/build/base-map/fonts/` and `sprites/` are present.
-- [ ] `pnpm lint` fails, naming the entry and the remedy, while the catalog points at `demo-bucket.protomaps.com`; it passes once the entry names another archive.
-- [ ] The e2e suite still serves real pmtiles bytes from a fixture and every Base Map spec passes.
-- [ ] `PROVENANCE.md` describes only what ships, plus the fixture, and carries every licence obligation.
-- [ ] With the service worker in control, no connection, and a new Project, the Project screen shows a named explanation naming the absence of a connection — asserted on its text, not on the absence of a canvas.
-- [ ] In that state, adding a Historical Map from a file still works and the Layer appears.
-- [ ] The Base Map switcher marks every entry that needs the network as needing it.
-- [ ] No user-facing copy claims the Base Map works offline without the Project having been made available offline.
-- [ ] The three Base Map looks still resolve over one dataset with no extra archive.
+- [x] `apps/editor/build/` and the viewer bundle contain no `.pmtiles` file.
+- [x] `apps/editor/build/base-map/fonts/` and `sprites/` are present.
+- [x] `pnpm check:deployment` fails, naming the entries and remedy, while the catalog points at `demo-bucket.protomaps.com`; ordinary development verification passes under the recorded temporary exception.
+- [x] The e2e suite still serves real pmtiles bytes from a fixture and every Base Map spec passes.
+- [x] `PROVENANCE.md` describes only what ships, plus the fixture, and carries every licence obligation.
+- [x] With the service worker in control, no connection, and a new Project, the Project screen shows a named explanation naming the absence of a connection — asserted on its text, not on the absence of a canvas.
+- [x] In that state, adding a Historical Map from a file still works and the Layer appears.
+- [x] The Base Map switcher marks every entry that needs the network as needing it.
+- [x] No user-facing copy claims the Base Map works offline without the Project having been made available offline.
+- [x] The three Base Map looks still resolve over one dataset with no extra archive.
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check
@@ -72,3 +72,12 @@ To prove the fence is not vacuous, point `REMOTE_ARCHIVE` back at `https://demo-
 ## Blocked by
 
 - Ticket 09
+
+## Implementation notes
+
+- Human decision, 2026-08-07: there is no Base Map hosting budget during educational development
+  and evaluation. Retain `https://demo-bucket.protomaps.com/v4.pmtiles` temporarily; do not invent a
+  replacement URL.
+- The safeguard is a deployment fence: ordinary development verification remains green, while
+  `pnpm check:deployment` refuses the demo bucket and names the remedy. Production deployment
+  remains blocked until `REMOTE_ARCHIVE` points at an archive that deployment controls.

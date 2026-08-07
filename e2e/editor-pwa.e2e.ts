@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
-	bundledBaseMapArchive,
+	baseMapArchiveFixture,
 	byteRange,
 	deployEditor,
 	deployEditors,
@@ -21,9 +21,9 @@ import {
 	PROJECT_NAME,
 	rows,
 	storedAlignment,
-	waitForStored,
 	warpedStatus,
-	warpedTiles
+	warpedTiles,
+	waitForStored
 } from './support/alignment-workspace';
 import {
 	annotationLayerId,
@@ -309,19 +309,22 @@ test.describe('the web app manifest and the service worker scope', () => {
 					expect(shell, `${route} is an entry route and must work offline`).toContain(route);
 				}
 
-				// The second cache is this deployment's own Base Map directory, and only that. See the
-				// service worker's header for why it is here at all and why it is a cache of its own.
+				// The second cache is this deployment's glyphs and sprites. No Base Map archive ships.
 				const bundled = pathsOf(names[0] as string);
-				expect(bundled.length, 'the bundled Base Map was not precached').toBeGreaterThan(3);
+				expect(bundled.length, 'Base Map display assets were not precached').toBeGreaterThan(3);
 				for (const path of bundled) {
 					expect(path.startsWith('/base-map/'), `${path} is not a Base Map file`).toBe(true);
+					expect(path, 'a PMTiles archive shipped in the installed app').not.toMatch(/\.pmtiles$/);
 				}
 
 				// ADR-0019, the half the dependency and bundle fences cannot see. The editor's `static/`
 				// holds the staged read-only viewer that Publish writes into a Workspace, and `build` holds
-				// two 5 MB copies of `vips.wasm`. A worker that swept either directory whole would put
-				// megabytes a Reader never asked for, and a tiler nobody in this session will use, into a
-				// cache — which no `package.json` check and no bundle check can observe.
+				// two byte-identical 5,084,535-byte copies of `vips.wasm`. A worker that swept either
+				// directory whole would put megabytes a Reader never asked for, and a tiler nobody in this
+				// session will use, into a cache — which no `package.json` check and no bundle check can
+				// observe. Ticket 10 measured taking the `.wasm` in `build`: 5,084,535 bytes on install,
+				// 23% more than the archive it removed, for a module this deployment cannot even run
+				// (`libvipsUnavailableReason` refuses it without COOP/COEP).
 				for (const path of [...shell, ...bundled]) {
 					expect(path, 'the staged viewer bundle must never be cached').not.toContain(
 						'/viewer-bundle/'
@@ -433,7 +436,7 @@ test.describe('two deployments of this app on one origin', () => {
 	});
 });
 
-test.describe('an offline working session', () => {
+test.describe('the app with the network off', () => {
 	let site: EditorDeployment;
 
 	test.beforeEach(async () => {
@@ -443,6 +446,52 @@ test.describe('an offline working session', () => {
 		await site.close();
 	});
 
+	test('a new Project explains the absent Base Map and still accepts a Historical Map file', async ({
+		page,
+		context
+	}) => {
+		const errors: string[] = [];
+		page.on('pageerror', (error) => errors.push(`${error.name}: ${error.message}`));
+
+		await installAndControl(page, site.url);
+		await emptyWorkspace(page);
+		await context.setOffline(true);
+		const asked = site.requests.length;
+		await page.getByRole('button', { name: 'New Project' }).click();
+		const dialog = page.getByRole('dialog', { name: 'New Project' });
+		await dialog.getByLabel('Project name').fill(PROJECT_NAME);
+		await dialog.getByRole('button', { name: 'Create' }).click();
+		await page.getByRole('link', { name: PROJECT_NAME }).click();
+
+		const notice = page.getByTestId('base-map-offline');
+		await expect(notice).toBeVisible();
+		await expect(notice).toContainText('no network connection');
+		await expect(notice).toContainText('Base Map');
+		await expect(notice).toContainText('Historical Map');
+
+		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+			name: 'la-floride.png',
+			mimeType: 'image/png',
+			buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
+		});
+		await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+
+		// Nothing was asked of the server across the whole session.
+		expect(
+			requestsExceptUpdateChecks(site.requests.slice(asked)),
+			'the browser reached the server during the offline session'
+		).toEqual([]);
+		expect(errors, 'the app threw during the offline session').toEqual([]);
+	});
+
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+	// THE CONTRACT CLAUSE: "a user's Historical Maps, Alignments, and Annotations always work with
+	// no network."
+	//
+	// The Base Map does not, and after ticket 10 it *cannot* — no archive ships and the tile cache is
+	// ticket 11 — so this is the clause that has to be proved separately, and separately is where a
+	// removal slice is most likely to quietly break it. Everything below runs with the network cut.
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	test('a Project with a local Historical Map is fully usable with the network off', async ({
 		page,
 		context
@@ -453,23 +502,21 @@ test.describe('an offline working session', () => {
 		// cannot fetch is to carry on: a missing glyph range is a `console.warn` and labels drawn with
 		// whatever local font is to hand, and a missing sprite is a warning and no icons. So a map that
 		// looks fine in a screenshot can be one that reached the network for half of itself. Anything
-		// naming a Base Map file after the switch below is a cache miss.
+		// naming a Base Map file after the switch below is a cache miss — and this listener is the only
+		// behavioural proof that the 820 KB of glyphs and sprites this ticket kept are actually served
+		// from the cache, rather than merely being present in it.
 		const complaints: string[] = [];
 		page.on('console', (message) => {
 			if (message.text().includes('base-map/')) complaints.push(message.text());
 		});
 
 		await installAndControl(page, site.url);
-		// What `install` put there, kept so that the end of this session can be compared against it.
-		// See the assertion at the foot of the test.
 		const precached = await cachedUrls(page);
 		await emptyWorkspace(page);
 		await page.reload();
 
 		// The Project and its pyramid are made while there is still a network, because that is the
-		// scholar's situation: they prepared in the office and are now in the reading room. Ingest is
-		// entirely local — every byte goes through the tiler into OPFS — but `wasm-vips` is deliberately
-		// not precached, so preparing a *new* image offline is out of scope here and in the ticket.
+		// scholar's situation: they prepared in the office and are now in the reading room.
 		const imageId = await startProjectWithMap(page);
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -519,20 +566,21 @@ test.describe('an offline working session', () => {
 		await clickAt(baseMap(page), 0.8, 0.2);
 		await waitForStored(page, imageId, 4);
 
-		// **The Historical Map is drawn warped over the earth, offline.** This is what the bundled Base
-		// Map buys and the reason it is cached at all: `BaseMapPane` attaches the warped layer on the
-		// map's `load`, and a MapLibre style whose one vector source can never be reached never loads,
-		// so without the archive this reads `''` for ever. Tiles that arrived *and decoded* are counted,
-		// because an error `@allmaps/render` logs and swallows renders a blank map.
+		// **The Historical Map is drawn warped over the earth, offline, with no Base Map under it.**
+		// This is the assertion ticket 10 was most likely to lose: `BaseMapPane` attaches the warped
+		// layer on the map's `load`, and the reason the bundled archive used to be precached was the
+		// measurement that a MapLibre style whose one vector source can never be reached never loads.
+		// No archive ships now and the tile cache is ticket 11, so the Base Map really is unreachable
+		// here — and the scholar's own work still draws over it. Tiles that arrived *and decoded* are
+		// counted, because an error `@allmaps/render` logs and swallows renders a blank map.
 		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
 		expect(
 			await warpedTiles(page),
 			'the aligned Historical Map did not render over the Base Map offline'
 		).toBeGreaterThan(0);
 
-		// And an Annotation drawn on the Layers pane, which is the other half of the ticket's offline
-		// verification — and the other thing gated on the Base Map's style having loaded. Back out of
-		// the alignment route first: the Layers button is on the Project page (ticket 03).
+		// An Annotation drawn on the Layers pane, and written to disk. Back out of the alignment route
+		// first: the Layers button is on the Project page (ticket 03).
 		await page.getByTestId('back-to-project').click();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 		await page.getByTestId('open-layers').click();
@@ -555,26 +603,52 @@ test.describe('an offline working session', () => {
 			requestsExceptUpdateChecks(site.requests.slice(asked)),
 			'the browser reached the server during the offline session'
 		).toEqual([]);
-		// Every Base Map file came out of the cache. Without this, a glyph directory named
-		// `Noto Sans Regular` was a cache miss on every request — the list holds a file path and the
-		// request carries `%20` — and the only sign of it was this warning.
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **THE 820 KB THIS TICKET KEPT ARE ACTUALLY SERVED, OFFLINE, AT THE URL MAPLIBRE ASKS FOR.**
+		//
+		// ADR-0025's reason for keeping glyphs and sprites is that without them MapLibre draws the map
+		// and *silently* falls back to system fonts — invisible to every assertion about the map. So
+		// the listener above watches for the warning that is the only sign of it, and the fetches below
+		// ask for the files directly.
+		//
+		// The direct fetch is here because the listener alone is no longer enough, and measuring that
+		// is what earned this paragraph: with no archive shipped and the network off, the Base Map's
+		// one vector source never loads, so MapLibre never reaches the point of requesting a glyph
+		// range at all. Breaking the glyph precache produces no warning, because nothing asks. A
+		// listener that cannot fire is not evidence. These two fetches ask on MapLibre's behalf, at
+		// the URLs its style templates expand to — and a space in `Noto Sans Regular` is the whole
+		// point of spelling one out: the precache list holds a decoded path, the request carries
+		// `%20`, and every glyph range was a cache miss until the worker normalised the two.
+		// A rejected fetch is reported as 0 rather than thrown, so that a missing file fails on the
+		// named assertion below instead of as an unexplained `TypeError` from `page.evaluate`.
+		const fromCacheOffline = (path: string) =>
+			page.evaluate(
+				(url) =>
+					fetch(url).then(
+						(response) => response.status,
+						() => 0
+					),
+				new URL(path, site.url).href
+			);
+		expect(
+			await fromCacheOffline('base-map/fonts/Noto Sans Regular/0-255.pbf'),
+			'a glyph range was not served from the cache offline'
+		).toBe(200);
+		expect(
+			await fromCacheOffline('base-map/sprites/light.json'),
+			'a sprite sheet was not served from the cache offline'
+		).toBe(200);
 		expect(complaints, 'a Base Map file was not served from the cache').toEqual([]);
 		expect(errors, 'the app threw during the offline session').toEqual([]);
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────
 		// **AND THE CACHES ARE STILL EXACTLY WHAT `install` MADE THEM.**
 		//
-		// The ticket's cache-contents criterion is worded "after a full working session", and this is
-		// where that session ends: a pyramid ingested, a Historical Map drawn warped over the Base Map,
-		// Control Points paired and repaired, an Annotation drawn, and every one of those written to
-		// OPFS. Inspecting the caches immediately after install — which is the only other place this
-		// suite looks inside them — asserts what `install` put there and says nothing at all about what
-		// a session adds, which is the half the four fences are actually about.
-		//
 		// Compared whole rather than filtered, because the interesting failure is an *addition*: one
-		// runtime `cache.put` on a path that passes every rule above would be invisible to a per-URL
-		// check written in terms of those rules, and is precisely what a later "just cache this too"
-		// looks like in a diff.
+		// runtime `cache.put` on a path that passes every per-URL rule in the cache-contents test
+		// would be invisible to a check written in terms of those rules, and is precisely what a later
+		// "just cache this too" looks like in a diff. It is also what stops the shell's `.wasm`
+		// exclusion — 5,084,535 bytes, measured — from being undone without anybody noticing.
 		expect(await cachedUrls(page), 'the working session added something to a cache').toEqual(
 			precached
 		);
@@ -617,7 +691,7 @@ test.describe('a working session that reaches other people’s servers', () => {
 		page.on('pageerror', (error) => errors.push(`${error.name}: ${error.message}`));
 
 		const here = new URL(site.url).origin;
-		const archive = await bundledBaseMapArchive();
+		const archive = await baseMapArchiveFixture();
 		let libraryRequests = 0;
 		let remoteArchiveRequests = 0;
 
@@ -739,8 +813,10 @@ test.describe('a working session that reaches other people’s servers', () => {
 		// claiming the catalog offers no such entry. On a slower machine it would have failed; on a
 		// faster one it would have passed. A locator retries until the catalog is on the page.
 		const remote = switcher.locator('option', { hasText: /needs network/i });
-		await expect(remote, 'this catalog offers no Base Map that needs the network').toHaveCount(1);
-		await switcher.selectOption(await remote.getAttribute('value'));
+		await expect(remote, 'this catalog offers no Base Map that needs the network').not.toHaveCount(
+			0
+		);
+		await switcher.selectOption(await remote.first().getAttribute('value'));
 		await expect.poll(() => remoteArchiveRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(0);
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────

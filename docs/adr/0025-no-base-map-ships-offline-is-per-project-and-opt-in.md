@@ -14,7 +14,15 @@ No pmtiles archive is shipped. The deployment names its own, and a user makes a 
 
 Dropping the extract would otherwise promote `https://demo-bucket.protomaps.com/v4.pmtiles` into being the only Base Map anyone gets — and this repository already records why that is unacceptable: it is the bucket Protomaps publishes for trying the format out, with no published rate limit, no uptime promise, and no terms of use, reached by every fork's users because it is in the catalog. "Nothing about it is suitable to rely on."
 
-So `scripts/check-base-map-catalog.mjs` — which already enforces that no module outside the catalog names an archive — **fails the build while the catalog still points at the demo bucket**. Every deployment, including this one, must state where its tiles come from. Per ADR-0020 that is a change to one line of one file.
+So `scripts/check-base-map-catalog.mjs` — which already enforces that no module outside the catalog names an archive — **fails the deployment check while the catalog still points at the demo bucket**. Every production deployment must state where its tiles come from. Per ADR-0020 that is a change to one line of one file.
+
+**Temporary educational-development exception (2026-08-07).** This repository has no Base Map
+hosting budget while it is being developed and evaluated, so its ordinary development catalog
+temporarily retains `https://demo-bucket.protomaps.com/v4.pmtiles` by explicit human decision. This
+does not make the URL production-suitable. Ordinary `pnpm lint` remains green for contributors,
+while `pnpm check:deployment` fails, names the affected entries, and requires `REMOTE_ARCHIVE` to
+point at an archive controlled by the deployment. A production deployment is blocked until that
+check passes; the safeguard is narrowed to deployment rather than removed or bypassed.
 
 The Amsterdam extract stays in the repository as an **e2e fixture**: `e2e/support/editor-deployment.ts` finds "the `.pmtiles` archive in the directory" and serves it byte-range, and several suites need real pmtiles bytes to assert anything at all. It stops being shipped; it is not deleted.
 

@@ -547,17 +547,31 @@
 	const siteRecordKnown = $derived(site !== null || siteError !== '');
 
 	/**
-	 * Why the modern reference map is missing, or `''`.
+	 * What the Reader is missing from the modern reference map, or `''`.
 	 *
-	 * Said rather than left as an empty rectangle. This is the ADR-0020 case a Reader actually meets, and
-	 * the entries that *would* work are already marked in the switcher — so the sentence points at them
-	 * rather than merely apologising.
+	 * Said rather than left unexplained, and there are **two** ways a site can be short of the Base Map's
+	 * files — they differ in what the Reader sees, so they cannot share one sentence:
+	 *
+	 *   - **No files and a site-relative archive**: nothing draws. An empty rectangle under the work.
+	 *   - **No files and a `needsNetwork` archive**: since ticket 10 every catalog entry reads a remote
+	 *     archive, so the geography draws over the network — and `ReaderMapPane` drops `glyphs`, `sprite`,
+	 *     and every `symbol` layer rather than firing 404s at files the site does not carry. The result is
+	 *     a map with roads, coastlines, and **no place names at all**. That is a startling thing to be
+	 *     handed with no account of itself, and it is the case a Reader now actually meets: silently
+	 *     losing every label is exactly the failure ADR-0025 says those 820 KB exist to prevent.
+	 *
+	 * The entries that *would* be complete are already marked in the switcher, so each sentence points at
+	 * the way out rather than merely apologising.
 	 */
 	const baseMapUnavailable = $derived(
-		!bundledBaseMapAvailable && !isAbsoluteUrl(baseMap.entry.archive)
-			? 'This site was published without its own copy of the modern reference map, so only the ' +
+		bundledBaseMapAvailable
+			? ''
+			: !isAbsoluteUrl(baseMap.entry.archive)
+				? 'This site was published without its own copy of the modern reference map, so only the ' +
 					'Historical Maps and Annotations are drawn. The Base Maps marked “needs network” still work.'
-			: ''
+				: 'This site was published without the Base Map’s labels and symbols, so the modern reference ' +
+					'map is drawn from the network without any place names on it. The geography, the ' +
+					'Historical Maps, and the Annotations are all here.'
 	);
 
 	/** Remember the Reader's choice for this site, and for no other (ADR-0020). Never Project data. */

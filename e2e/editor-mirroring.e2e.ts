@@ -2,6 +2,10 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
 
+import { routeBaseMapArchive } from './support/editor-deployment.js';
+
+test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
+
 /**
  * SPEC's Seam 2 for mirroring: "make an offline copy" driven in a real browser, against real OPFS,
  * with real fixture hosts (SPEC stories 27 and 28, ADR-0007).
