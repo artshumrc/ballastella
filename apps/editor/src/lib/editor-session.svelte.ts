@@ -1317,8 +1317,20 @@ export class EditorSession {
 	 * The Base Map's counterpart to {@link imageServiceFetch}: the store is reached from the page
 	 * through a function, never by a service worker holding a directory handle. Bound rather than
 	 * returned as a method reference so a protocol registration keeps working across a re-render.
+	 *
+	 * ⚠ **The same function every time**, which the doc above used to claim and the code did not do.
+	 * A fresh closure per call makes `{ maxZoom, readTile }` a new value on every recompute, and the
+	 * `$effect` that registers it tears the protocol down and puts it back on every document change —
+	 * MapLibre keeps a `maxzoom`-bearing source pointed at a handler that is briefly `null`. The store
+	 * is fixed for the life of a session, so there is nothing for a second closure to capture.
 	 */
 	readCachedBaseMapTile(): (tile: TileCoordinate) => Promise<Uint8Array | null> {
+		return (this.#readCachedBaseMapTile ??= this.#makeCachedBaseMapTileReader());
+	}
+
+	#readCachedBaseMapTile: ((tile: TileCoordinate) => Promise<Uint8Array | null>) | null = null;
+
+	#makeCachedBaseMapTileReader(): (tile: TileCoordinate) => Promise<Uint8Array | null> {
 		const store = this.#store;
 		return async (tile) => {
 			try {

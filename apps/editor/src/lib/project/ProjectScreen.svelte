@@ -54,7 +54,7 @@
 		type OpeningViewFit,
 		type OpeningViewOutcome
 	} from '@ballastella/core';
-	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
+	import type { DrawnLayer, DrawnOutcome, ReadCachedTile } from '@ballastella/core/render';
 	import { untrack } from 'svelte';
 
 	import AnnotationPanel from '$lib/annotations/AnnotationPanel.svelte';
@@ -847,12 +847,29 @@
 	 * would draw holes in a map that could have drawn properly. The line beside the map says which of
 	 * the three it is, so none of it is silent.
 	 */
+	/**
+	 * The last value {@link cachedBaseMap} produced, so an unchanged answer stays the same object.
+	 *
+	 * ⚠ Not `$state`: it is written from inside the derived, and reading it there is deliberate. The
+	 * consumer is a `$effect` that registers a MapLibre protocol handler, and Svelte propagates a
+	 * derived by *identity* — a fresh `{ maxZoom, readTile }` on every recompute made every Layer
+	 * rename and every dragged opacity slider tear the protocol down and register it again, with the
+	 * map's source pointing at a handler that is briefly `null` in between. Nothing about which tiles
+	 * are served has changed unless `maxZoom` has.
+	 */
+	let servedCache: { maxZoom: number; readTile: ReadCachedTile } | null = null;
+
 	const cachedBaseMap = $derived.by(() => {
 		const held = cache;
 		const readTile = session?.readCachedBaseMapTile();
-		if (!held || held.maxZoom === null || !readTile) return null;
-		if (offlineReady === false) return null;
-		return { maxZoom: held.maxZoom, readTile };
+		if (!held || held.maxZoom === null || !readTile || offlineReady === false) {
+			servedCache = null;
+			return null;
+		}
+		if (servedCache?.maxZoom !== held.maxZoom || servedCache.readTile !== readTile) {
+			servedCache = { maxZoom: held.maxZoom, readTile };
+		}
+		return servedCache;
 	});
 
 	/**
