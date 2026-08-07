@@ -545,7 +545,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(error).toContainText('completely blank');
 		// Nothing was added, and nothing was written.
 		await expect(page.getByTestId('remote-add')).toHaveCount(0);
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toHaveCount(0);
+		await expect(page.getByTestId('referenced-image-host')).toHaveCount(0);
 
 		// **The mutation guard.** The refusal has to have come from a *tile* request, not from the
 		// description: the description succeeded, so a probe that stopped there would have accepted the
@@ -566,7 +566,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('remote-add')).toBeVisible();
 		await page.getByTestId('remote-add').click();
 
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByTestId('referenced-image-host')).toHaveText('images.test');
 
 		// `generateId(uri)` — computed here with `node:crypto`, independently of the app.
@@ -603,7 +603,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// Library's server, so nothing in `project.json` claims it and nothing could disagree.
 		await expect(readJson(page, '', `images/${imageId}/info.json`)).rejects.toThrow();
 		// And the badge on the Layer says so, read off those files rather than off the document.
-		await page.getByTestId('open-layers').click();
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
 			'data-image-mode',
 			'referenced'
@@ -635,7 +635,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// this is the unaligned case rather than one that happens to have three Control Points.
 		await expect(page.getByTestId('community-offer')).toHaveCount(0);
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const imageId = generateId(service('images.test', 'florida'));
@@ -711,14 +711,14 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const before = await readText(page, 'amsterdam-1625', 'project.json');
 		expect(JSON.parse(before).layers).toHaveLength(1);
 		// The user renames it, so a Layer that came back rebuilt rather than untouched is visible.
-		await page.getByTestId('open-layers').click();
-		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await page.getByTestId('layer-name').fill('The Florida coast, as drawn in 1657');
 		await page.getByTestId('layer-name').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -730,10 +730,10 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await expect(page.getByTestId('remote-add')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		// One Layer, the same one, with the name the user gave it — and not one byte written.
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 		// A fixed wait, because what is being asserted is a write that must **not** happen: reading the
 		// file the moment the add returns would go green against an implementation whose write was still
 		// in flight. Long enough for ADR-0017's sub-second debounce and the write behind it.
@@ -760,12 +760,12 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		const imageId = generateId(service('images.test', 'florida'));
 
-		await page.goto('/layers?p=amsterdam-1625');
-		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await page.goto('/?p=amsterdam-1625');
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await page.getByTestId('layer-delete').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -779,7 +779,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await expect(page.getByTestId('remote-add')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const back = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
@@ -824,15 +824,15 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		// Three Control Points, on disk, in the Workspace — the afternoon the guard exists to protect.
 		const aligned = await readText(page, '', `alignments/${imageId}.json`);
 		expect(JSON.parse(aligned).body.features).toHaveLength(3);
 
-		await page.goto('/layers?p=amsterdam-1625');
-		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await page.goto('/?p=amsterdam-1625');
+		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await page.getByTestId('layer-delete').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -851,7 +851,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('remote-add')).toBeVisible();
 		await expect(page.getByTestId('community-offer')).toHaveCount(0);
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		// A fixed wait, because the claim is about a write that must **not** happen: reading the moment
@@ -893,7 +893,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const alignedInAmsterdam = await readText(page, '', `alignments/${imageId}.json`);
@@ -909,11 +909,11 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		// The Layer was added — the map is in this Project's stack, drawing the Alignment that exists.
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 		expect(
 			((await readJson(page, 'boston-1775', 'project.json')) as { layers: { imageId: string }[] })
 				.layers
@@ -954,7 +954,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await expect(page.getByTestId('community-offer')).toHaveCount(0);
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		expect(
 			((await readJson(page, '', `alignments/${imageId}.json`)) as { body: { features: [] } }).body
@@ -969,7 +969,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		// Imported, and nothing said: there was nothing to keep and nothing to explain.
@@ -1012,7 +1012,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		// The state an earlier build left behind: a map Layer whose Alignment is not there.
@@ -1025,7 +1025,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await expect(page.getByTestId('remote-add')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		// The starter is back, and the stack is exactly as it was: one Layer, not two.
 		await expect
@@ -1036,7 +1036,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 				)
 			)
 			.toBe(0);
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 
 		// And the Project exports again, which is the thing the user could not do.
 		await page.goto('/');
@@ -1072,7 +1072,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		);
 
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		const imageId = generateId(service('images.test', 'florida'));
 		const alignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
@@ -1171,7 +1171,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		const add = page.getByTestId('remote-add');
 		await add.focus();
 		await page.keyboard.press('Enter');
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 	});
 });
 
@@ -1253,7 +1253,7 @@ test.describe('reading a referenced Historical Map as a document', () => {
 			await page.getByTestId('remote-canvas').nth(1).click();
 			await expect(page.getByTestId('community-offer')).toBeVisible();
 			await page.getByTestId('remote-add').click();
-			await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+			await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 			// The record of where the tiles are has reached the Workspace before the pane is opened, so the
 			// `'load'` half is about the pane's own ordering rather than about a write that had not happened.
 			await expect(page.getByRole('status')).toHaveText('Saved');
@@ -1270,8 +1270,11 @@ test.describe('reading a referenced Historical Map as a document', () => {
 				if (request.url().includes('unset.invalid')) placeholderRequests.push(request.url());
 			});
 
-			if (via === 'link') await page.getByTestId('open-layers').click();
-			else await page.goto('/layers?p=amsterdam-1625');
+			// `via: 'link'` used to mean "follow the Project page's Layers link". Ticket 04 deleted
+			// that page: the Layer stack is the Project, so arriving is already being there and the two
+			// paths differ only in whether the screen was loaded fresh.
+			if (via === 'link') await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+			else await page.goto('/?p=amsterdam-1625');
 			await expect(page.getByRole('heading', { name: 'Layers in this Project' })).toBeVisible();
 
 			// The Layer is on the map, not refused.
@@ -1319,9 +1322,10 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		// that draws nothing and no sentence anywhere. Opening the Project must not fail either — the
 		// other Historical Maps are fine — so the readable ones are listed and the broken one is named.
 		//
-		// Two maps, because one is not the same test: the reason is shown inside the referenced-maps
-		// section, so a Project whose *only* referenced record is unreadable currently says nothing at
-		// all. That gap is recorded against `ProjectView.svelte` rather than asserted here.
+		// Two maps, because one is not the same test: the reason is shown beside the Layer stack, so a
+		// Project whose *only* referenced record is unreadable currently says nothing at all. That gap
+		// is recorded against `apps/editor/src/lib/project/ProjectScreen.svelte` rather than asserted
+		// here — ticket 04 moved the markup, not the gap.
 		await installFixtureHosts(page);
 		await openNewProject(page);
 
@@ -1329,7 +1333,7 @@ test.describe('reading a referenced Historical Map as a document', () => {
 			await lookUp(page, `${service('images.test', name)}/info.json`);
 			await expect(page.getByTestId('remote-add')).toBeVisible();
 			await page.getByTestId('remote-add').click();
-			await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+			await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 		}
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
@@ -1337,7 +1341,7 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		await writeFile(page, '', `images/${broken}/remote.json`, '{"label":"corrupt"}');
 
 		await page.goto('/?p=amsterdam-1625');
-		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		// The readable one is still listed, so one broken record has not taken the Project down with it.
 		await expect(page.getByTestId('referenced-image-label')).toHaveCount(1);

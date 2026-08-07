@@ -615,8 +615,9 @@ test.describe('exploring a Project', () => {
 	}) => {
 		// The `data-drawn` count is a fact about the map rather than a high-water mark. The editor's
 		// equivalent merges over a record it never prunes, so a hidden Layer went on being counted as drawn
-		// — a defect recorded against `apps/editor/src/routes/layers/+page.svelte`, and the reason this
-		// count is built from the Layers that are currently shown and nothing else.
+		// — a defect recorded against the editor's Layer stack, which ticket 04 moved into
+		// `apps/editor/src/lib/project/ProjectScreen.svelte`, and the reason this count is built from the
+		// Layers that are currently shown and nothing else.
 		site = await published(oneProject());
 		const seen = watch(page);
 

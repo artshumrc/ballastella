@@ -1,20 +1,31 @@
 <script lang="ts">
-	// The Project composed: its Layer stack over its Base Map (SPEC stories 49–54).
+	// The Project (ticket 04, SPEC stories 1, 2, 3, 10–13).
 	//
-	// A pane of its own rather than a panel beside the alignment workspace, because the two are about
-	// different things. Aligning is one Historical Map being placed on the earth; the stack is the
-	// whole Project, every Layer of it drawn together in the order the author chose — which is the
-	// thing tickets 16 and 17 publish, and the thing a reader eventually sees. It also keeps one
-	// WebGL context and one warped renderer on the page rather than two.
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// ONE SCREEN, AND WHY THIS ONE
 	//
-	// The Project is addressed by query parameter and is **opened, never created** (ADR-0008), and
-	// every write goes through the app's one `EditorSession`: there is no second in-memory copy of
-	// `project.json` and no second writer of it, which matters more here than anywhere else in the app
-	// because the Layer list is the field whose loss is "not one annotation but the map of everything"
-	// (ADR-0017 rule 4).
+	// Entering a Project used to land on a page of fields with a link to a *different* page holding
+	// the map. Noticing that a Historical Map sat crooked meant seeing it on the stack page and
+	// navigating to the Project page to do anything about it. So `/layers/` and `ProjectView` are one
+	// screen now, and this is it: a Base Map with the Layer stack beside it.
+	//
+	// **This file is `/layers/`'s script, moved, not rewritten.** The document-loading chain — the
+	// `documentKey` guard, `drawn`, `outcomes`, `annotationPoints` and the annotation editing
+	// functions — is the state layer for the whole screen and it is load-bearing in ways no test
+	// names: `documentKey` exists because a rename once re-read every Alignment and one drag of an
+	// opacity slider cost twenty reads per Layer. What `ProjectView` contributed is added around it:
+	// the Project name (now in a dialog), the way a Historical Map gets in, and the remote-origin
+	// affordances.
+	//
+	// **A component rather than a route.** A Project is `/?p=<dir>` (ADR-0008) — the same prerendered
+	// page as the hub, choosing its subject client-side — so the thing that renders it has to be
+	// mountable from `routes/+page.svelte`, which is where the `?p=` branch already is.
+	//
+	// **The navigation bar is not here.** The theme toggle, the save indicator, the undo control and
+	// the Workspace's name are true on every screen and live in the root layout. What is here is what
+	// is true of *this Project*: its name, its Base Map, and its settings.
 
 	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
 	import {
 		addAnnotation,
 		baseMapFallbackNotice,
@@ -23,7 +34,6 @@
 		insertAnnotationAt,
 		newAnnotation,
 		openingViewSentence,
-		otherTheme,
 		removeAnnotation,
 		resolveBaseMap,
 		setGeometry,
@@ -50,33 +60,39 @@
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import { fitToProjectContent } from '$lib/base-map/opening-view';
-	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
+	import MenuPopover from '$lib/components/MenuPopover.svelte';
+	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import LayerList from '$lib/layers/LayerList.svelte';
-	import UndoControl from '$lib/undo/UndoControl.svelte';
-	import { startTheme, theme } from '$lib/theme.svelte';
-	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
+	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
+	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
+	import MirrorMap from '$lib/remote-iiif/MirrorMap.svelte';
+	import { MirrorMap as MirrorMapJob } from '$lib/remote-iiif/mirror-map.svelte.js';
+	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
 
-	const openDirectory = $derived(page.url.searchParams.get('p'));
+	import type { EditorSession } from '../editor-session.svelte.js';
+	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
 
-	const host = useWorkspaceHost();
-	const storage = $derived(host.storage);
-	const session = $derived(storage?.session ?? null);
+	let {
+		session,
+		storage,
+		openDirectory
+	}: {
+		session: EditorSession;
+		storage: WorkspaceStorage;
+		/** The Project's folder, from `?p=` (ADR-0008). Never `null` where this is mounted. */
+		openDirectory: string;
+	} = $props();
 
-	$effect(() => {
-		startTheme();
-	});
-
-	$effect(() => {
-		void session?.open(openDirectory);
-	});
+	/** Nothing to show, and a reason worth naming, rather than a screen that says "Opening…" for ever. */
+	const recovering = $derived(session.status === 'unreachable' || storage.awaitingFolder);
 
 	const resolution = $derived(
-		session?.openProject ? resolveBaseMap(session.openProject.baseMap) : null
+		session.openProject ? resolveBaseMap(session.openProject.baseMap) : null
 	);
 	const notice = $derived(resolution === null ? null : baseMapFallbackNotice(resolution));
 
-	const layers = $derived<readonly Layer[]>(session?.openProject?.layers ?? []);
+	const layers = $derived<readonly Layer[]>(session.openProject?.layers ?? []);
 
 	/**
 	 * The Layers that could be on the map: visible, and of a kind this build can draw.
@@ -92,7 +108,7 @@
 	);
 
 	/**
-	 * The Layers whose own document this page opens: **every** map Layer, and the Annotation Layers
+	 * The Layers whose own document this screen opens: **every** map Layer, and the Annotation Layers
 	 * being drawn. A superset of {@link shown} — `shown ⊆ withDocuments` — and the name says which
 	 * files get read rather than which files *could* be read, because every Layer in the stack has a
 	 * document and only these are opened.
@@ -128,7 +144,7 @@
 	 *
 	 * **A map Layer's visibility is deliberately not in the key.** Its Alignment is read whether it is
 	 * shown or not, so showing and hiding one changes nothing about which files to open; putting it in
-	 * would make the visibility checkbox cost a re-read of every document on the page.
+	 * would make the visibility checkbox cost a re-read of every document on the screen.
 	 */
 	const documentKey = $derived(
 		JSON.stringify(
@@ -220,15 +236,15 @@
 	 * **An observation of the folder, which is the only place the answer lives** (ADR-0023): an image
 	 * directory with an `info.json` of ours has its tiles here, one with only a `remote.json` does not.
 	 * `MapLayer` used to carry an `imageMode` saying it, and a claim in `project.json` outlived the
-	 * offline copy that made it false — so this pane kept handing the renderer a library's address for
-	 * tiles already in the folder.
+	 * offline copy that made it false — so this screen kept handing the renderer a library's address
+	 * for tiles already in the folder.
 	 *
 	 * **Taken from the session rather than derived here**, which is where this used to be built by hand.
 	 * It is the same question core's `tileLocation` answers for publishing, for the hub's reclaim list,
 	 * and for the viewer's 404 probe; a set assembled in a page is how one rule ends up with five
 	 * readings that can disagree.
 	 */
-	const referencedImageIds = $derived(session?.referencedImageIds ?? new Set<string>());
+	const referencedImageIds = $derived(session.referencedImageIds);
 
 	/**
 	 * Where a referenced Layer's tiles are served from, or `''` for a local copy.
@@ -245,10 +261,7 @@
 	 */
 	const remoteServiceFor = (layer: MapLayer): string => {
 		if (!referencedImageIds.has(layer.imageId)) return '';
-		return (
-			(session?.referencedImages ?? []).find((image) => image.imageId === layer.imageId)?.service ??
-			''
-		);
+		return session.referencedImages.find((image) => image.imageId === layer.imageId)?.service ?? '';
 	};
 
 	/** What the map made of each Layer it was given. */
@@ -322,7 +335,7 @@
 		return merged;
 	});
 
-	const fetchTile = $derived(session?.imageServiceFetch() ?? undefined);
+	const fetchTile = $derived(session.imageServiceFetch());
 
 	/** How many Layers are actually on the map. Said, because "nothing is drawn" has many reasons. */
 	const drawnCount = $derived(
@@ -357,20 +370,20 @@
 	$effect(() => {
 		const directory = openDirectory;
 		const current = session;
-		const file = current?.openProject ?? null;
+		const file = current.openProject ?? null;
 		// `session.openDirectory` as well as the URL's: `open()` clears `openProject` and sets its own
 		// directory, so between a navigation and that call the URL names the new Project while the
 		// document in hand is still the old one. Framing the new Project on the old one's Layers is a
 		// plausible wrong answer that only appears when moving between Projects.
-		if (!current || directory === null || file === null) return;
+		if (file === null) return;
 		if (current.openDirectory !== directory || framedProject === directory) return;
 		framedProject = directory;
 		openingOutcome = 'pending';
 		openingFit = null;
 		refitted = false;
-		const layers = file.layers;
+		const projectLayers = file.layers;
 		void (async () => {
-			const fit = await fitToProjectContent(current, layers);
+			const fit = await fitToProjectContent(current, projectLayers);
 			// A read that resolved after the user moved on must not move their map.
 			if (framedProject !== directory) return;
 			openingFit = fit;
@@ -391,17 +404,16 @@
 	 * user pressing this twice has panned away in between and means it twice.
 	 */
 	async function fitToProject(): Promise<void> {
-		const current = session;
-		const file = current?.openProject ?? null;
-		if (!current || file === null) return;
-		const fit = await fitToProjectContent(current, file.layers);
+		const file = session.openProject ?? null;
+		if (file === null) return;
+		const fit = await fitToProjectContent(session, file.layers);
 		openingFit = fit;
 		openingOutcome = fit === null ? 'default' : 'content';
 		refitted = true;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// Annotations (ticket 10)
+	// Annotations
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	const annotationLayers = $derived(
@@ -429,8 +441,7 @@
 	 *
 	 * Read out of `documents`, which is the **one** in-memory copy: an edit replaces the entry there and
 	 * the map re-renders from it, so there is no second copy of a Layer's contents that could disagree
-	 * with what was written. That is the same rule `EditorSession` follows for `project.json`, and the
-	 * reason ticket 04's second writer destroyed a document.
+	 * with what was written. That is the same rule `EditorSession` follows for `project.json`.
 	 */
 	const activeCollection = $derived<AnnotationCollection | null>(
 		activeLayer === null
@@ -447,7 +458,7 @@
 	 * The affordance disappears when it is pressed, so an undo that quietly declined to do anything
 	 * would look exactly like an undo that worked — and the one thing this feature has to convey is
 	 * whether the user's work is back. `UndoControl` announces the success; a refusal has to be said
-	 * from here, because it is this page that knows which Layer the record named.
+	 * from here, because it is this screen that knows which Layer the record named.
 	 */
 	let undoRefusal = $state('');
 
@@ -455,7 +466,7 @@
 	 * Where the open popup is anchored, or `null` for none.
 	 *
 	 * The *place* rather than the popup, because MapLibre's `Popup` belongs inside the pane that owns
-	 * the map — the page says which Annotation is open and where, and the pane puts it on the map. A
+	 * the map — the screen says which Annotation is open and where, and the pane puts it on the map. A
 	 * page holding a `Popup` would be a second thing reaching into MapLibre from outside it.
 	 */
 	let popupAt = $state.raw<GeoPoint | null>(null);
@@ -483,11 +494,9 @@
 		next: AnnotationCollection,
 		options: { debounce?: boolean } = {}
 	): Promise<void> {
-		const current = session;
-		if (!current) return;
 		if (next === documents[layer.id]) return;
 		documents = { ...documents, [layer.id]: next };
-		await current.writeAnnotations(layer, next, options);
+		await session.writeAnnotations(layer, next, options);
 	}
 
 	/**
@@ -522,10 +531,10 @@
 	/**
 	 * Select an Annotation, and where asked, show what it says.
 	 *
-	 * The popup is the reader-facing surface (SPEC story 67) and is shown to the author too, because an
-	 * author needs to see what a reader will — it is the only place the rendered Markdown appears over
-	 * the map rather than beside it. Selecting from the list opens no popup: there is no place on the
-	 * map the user pointed at, and one appearing at an arbitrary coordinate would be worse than none.
+	 * The popup is the reader-facing surface and is shown to the author too, because an author needs to
+	 * see what a reader will — it is the only place the rendered Markdown appears over the map rather
+	 * than beside it. Selecting from the list opens no popup: there is no place on the map the user
+	 * pointed at, and one appearing at an arbitrary coordinate would be worse than none.
 	 */
 	function selectAnnotation(id: string | null, at: GeoPoint | null = null): void {
 		selectedAnnotationId = id;
@@ -627,7 +636,7 @@
 	}
 
 	/**
-	 * Delete the selected Annotation (SPEC story 66), recording what it takes away (SPEC story 38).
+	 * Delete the selected Annotation, recording what it takes away.
 	 *
 	 * The record holds the Annotation itself, so every one of its `properties` comes back — including
 	 * `stroke-dasharray`, where "solid" is the property being *absent* (ADR-0009): an undo that rebuilt
@@ -646,7 +655,7 @@
 		selectedAnnotationId = null;
 		popupAt = null;
 		await commitAnnotations(removeAnnotation(collection, id));
-		if (!annotation || !session) return;
+		if (!annotation) return;
 		const record: AnnotationDeletedUndo = {
 			kind: 'annotation-deleted',
 			layerId: layer.id,
@@ -659,7 +668,7 @@
 	}
 
 	/**
-	 * Put a deleted Annotation back **into the Layer it was deleted from** (SPEC story 38).
+	 * Put a deleted Annotation back **into the Layer it was deleted from**.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHY THE RECORD NAMES THE LAYER AND THIS READS IT
@@ -680,8 +689,6 @@
 	 */
 	async function restoreDeleted(record: AnnotationDeletedUndo): Promise<void> {
 		undoRefusal = '';
-		const current = session;
-		if (!current) return;
 		const layer = annotationLayers.find((one) => one.id === record.layerId);
 		if (!layer) {
 			// Not reachable through the interface — deleting a Layer is itself one of the four recorded
@@ -699,7 +706,7 @@
 			// given, and a hidden one is absent from it. Read rather than assumed empty — assuming would
 			// write a file holding one Annotation over a file holding twenty.
 			try {
-				collection = await current.readAnnotations(layer);
+				collection = await session.readAnnotations(layer);
 			} catch (cause) {
 				undoRefusal =
 					`The Annotation could not be put back: ${layer.name || 'its Annotation Layer'} could ` +
@@ -726,15 +733,13 @@
 	 *
 	 * A no-op unless something is waiting to be written, which is the same guard `commitLayerEdit` and
 	 * `commitProjectName` both carry: tabbing through a title field is *looking*, and ADR-0010 is
-	 * explicit that merely looking at an old Project must not modify a single byte of it. Writing the
-	 * in-memory collection here regardless would reintroduce ticket 02's `onblur`-rewrites-on-focus-and-
-	 * leave shape, which had to be removed.
+	 * explicit that merely looking at an old Project must not modify a single byte of it.
 	 */
 	async function commitAnnotationEdit(): Promise<void> {
 		const layer = activeLayer;
 		const collection = activeCollection;
 		if (!layer || !collection) return;
-		if (!session?.hasPendingAnnotationWrite(layer)) return;
+		if (!session.hasPendingAnnotationWrite(layer)) return;
 		await session.writeAnnotations(layer, collection);
 	}
 
@@ -764,111 +769,213 @@
 		popupAt = null;
 		drawing.cancel();
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// Project settings, and the menu it opens from (SPEC stories 10, 11)
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * The Project's own settings, in a `<dialog>`.
+	 *
+	 * ADR-0016 mandates `<dialog>` + `showModal()` — Escape, the focus trap and focus restoration come
+	 * with it — and {@link ModalDialog} is where that decision was made once. A whole page for one
+	 * editable field and two read-only ones was the thing this ticket removes.
+	 */
+	let settingsOpen = $state(false);
+
+	/** The Project menu the dialog opens from, and the thing that knows whether it is showing. */
+	let menu = $state<MenuPopover | undefined>();
+
+	/**
+	 * Open Project settings from the menu.
+	 *
+	 * The popover is dismissed and focus is put **back on the menu button** before the dialog opens,
+	 * rather than left on the menu item — which is what `MenuPopover.dismiss()` does. `ModalDialog`
+	 * records `document.activeElement` at the moment it calls `showModal()` and restores it on close,
+	 * so whatever has focus then is where the user lands afterwards, and the menu item is inside a
+	 * popover that no longer exists by then. The menu button is the control the user reached for, it
+	 * is still on screen, and it is where they can open the menu again.
+	 */
+	function openSettings(): void {
+		menu?.dismiss();
+		settingsOpen = true;
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// Bringing a Historical Map in, and the ones that live on somebody else's server
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * One mirroring job for the whole screen, not one per Layer.
+	 *
+	 * Mirroring is deliberately one image at a time, so a second job would be a second way to start a
+	 * copy that the first one's `busy` guard cannot see.
+	 */
+	const mirror = new MirrorMapJob(() => session);
+
+	/**
+	 * The app's one online signal, so a referenced Historical Map can say why it is not there.
+	 *
+	 * ADR-0012's offline claim has one honest exception: a referenced Historical Map's tiles are on
+	 * somebody else's server, so with no connection there is nothing to draw and no amount of caching
+	 * would change that — a partially cached remote pyramid renders *with holes*, which reads as
+	 * corruption. Say so, name the host, and leave the rest of the Project working.
+	 */
+	const installedApp = useInstalledApp();
+
+	/**
+	 * The remote-origin record for a map Layer's Historical Map, or `undefined`.
+	 *
+	 * **Keyed by Layer, which is what replaced the two sections `ProjectView` had.** "Referenced
+	 * Historical Maps" and "Offline copies" were two lists of image ids sitting under a Project that
+	 * had no way to say which of its Layers each one belonged to; the same two facts — the tiles are on
+	 * a library's server, and this copy came from one — are properties of a Layer and belong on it
+	 * (ADR-0023). Tickets 05 and 07 give them their final form on an opened Layer card.
+	 */
+	const originFor = (layer: MapLayer) =>
+		session.referencedImages.find((image) => image.imageId === layer.imageId);
+
+	/** The Historical Maps this Project draws, which is one Layer each (ADR-0023). */
+	const mapLayers = $derived(layers.filter((layer): layer is MapLayer => layer.kind === 'map'));
+
+	/** The map Layers of this Project whose tiles are fetched from a library. */
+	const referencedLayers = $derived(
+		layers.filter(
+			(layer): layer is MapLayer => layer.kind === 'map' && referencedImageIds.has(layer.imageId)
+		)
+	);
+
+	/** The hosts a Reader — or the author, right now — cannot reach. Named, never counted. */
+	const unreachableHosts = $derived([
+		...new Set(
+			referencedLayers
+				.map((layer) => originFor(layer)?.service)
+				.filter((service): service is string => Boolean(service))
+				.map((service) => new URL(service).hostname)
+		)
+	]);
+
+	/**
+	 * Which referenced Historical Map is being read unwarped, by image id. `''` for none.
+	 *
+	 * Only one at a time: each `TriiiceratopsViewer` is an OpenSeadragon instance with its own WebGL
+	 * or canvas drawer, and this screen already carries a MapLibre context.
+	 */
+	let unwarpedImageId = $state('');
+	const unwarped = $derived(
+		session.referencedImages.find((image) => image.imageId === unwarpedImageId) ?? null
+	);
 </script>
 
-<svelte:head><title>Layers — Ballastella Editor</title></svelte:head>
-
 <!--
-	Escape abandons a part-drawn shape from anywhere on the page, and closes an open popup.
+	Escape abandons a part-drawn shape from anywhere on the screen, and closes an open popup.
 
 	On the window rather than on the pane, for the reason ADR-0022 gives for the pending Control Point
 	half: the user may have tabbed away to the toolbar or the Annotation list, and "Escape only works if
 	you have not moved the focus" is not a cancel affordance. It abandons rather than commits, because a
 	half-drawn shape somebody walked away from is not something they asked to keep.
+
+	**Not while the settings dialog or the Project menu is open.** Both of them consume Escape
+	themselves — `<dialog>` closes, and a popover light-dismisses — and both keep the keypress
+	propagating afterwards, so acting on it here as well would abandon a drawing gesture the user
+	cannot even see behind whichever one they were closing.
 -->
 <svelte:window
 	onkeydown={(event) => {
-		if (event.key !== 'Escape') return;
+		if (event.key !== 'Escape' || settingsOpen) return;
+		// **Asked of the element, not of a flag.** `MenuPopover.isOpen()` reads `:popover-open`, which
+		// is true throughout the keypress that dismisses it and false on the very next one — a reactive
+		// mirror of the same fact lags one flush behind, and that lag swallowed the Escape a user
+		// pressed *after* closing the menu, which is the cancel they actually meant.
+		if (menu?.isOpen()) return;
 		if (drawing.cancel()) return;
 		if (popupAt !== null) popupAt = null;
 	}}
 />
 
-<div class="flex min-h-screen flex-col">
-	<header class="flex flex-wrap items-end gap-4 border-b border-base-300 bg-base-200 p-4">
-		<h1 class="text-xl font-bold">Layers</h1>
+{#if recovering}
+	<div class="m-4">
+		<WorkspaceRecovery {storage} />
+		<p class="mt-6"><a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a></p>
+	</div>
+{:else if session.projectProblem}
+	<div role="alert" class="m-4 alert flex-col items-start alert-warning">
+		<h2 class="font-semibold">
+			{session.projectProblem.kind === 'missing'
+				? 'Project not found'
+				: 'This Project cannot be opened'}
+		</h2>
+		<p>{session.projectProblem.message}</p>
+		<a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a>
+	</div>
+{:else if session.openProject && resolution}
+	<!--
+		`h-full`, and the root layout is what gives it a full screen to be `h-full` of. The map is the
+		thing the scholar is studying, so it gets the height the bar and this header do not take —
+		computed by the layout rather than by arithmetic on a `calc()` that goes wrong the moment the
+		bar wraps to two lines.
+	-->
+	<div class="flex h-full min-h-0 flex-col" data-testid="project-screen">
+		<div class="flex flex-wrap items-center gap-3 border-b border-base-300 px-4 py-2">
+			<!-- The Project's name, read-only here: renaming it is what the settings dialog is for.
+			     `<h1>` because on this screen the Project is the page. -->
+			<h1 class="text-lg font-semibold" data-testid="project-name">{session.openProject.name}</h1>
 
-		{#if resolution !== null}
-			<BaseMapSwitcher
-				entryId={resolution.entry.id}
-				onSelect={(id) => session?.chooseBaseMap(id)}
-			/>
-		{/if}
+			<!-- The one Base Map switcher in the app that writes this Project's author default
+			     (ADR-0020). On the Project screen, because that is whose choice it is. -->
+			<BaseMapSwitcher entryId={resolution.entry.id} onSelect={(id) => session.chooseBaseMap(id)} />
 
-		<button type="button" class="btn btn-sm" onclick={() => theme.toggle()}>
-			Switch to {otherTheme(theme.current)} theme
-		</button>
-
-		<p class="grow text-sm text-base-content/70" aria-live="polite">{notice ?? ''}</p>
-
-		{#if session !== null}
 			<!--
-				What the last destructive action was, and the way back from it (SPEC story 38). Beside the
-				save indicator because the two answer the same worry from opposite directions: one says the
-				tool has the change, and this one says the change can be taken back — including after the
-				other has said "Saved", which is the whole point of ADR-0014's undo.
+				The Project menu (ADR-0016: the Popover API, never `<details>` and never a CSS-focus
+				dropdown). One item today; ticket 12 and the transfer tickets add theirs beside it, which
+				is the reason it is a menu rather than a button that goes straight to the dialog.
 			-->
-			<UndoControl {session} />
+			<MenuPopover bind:this={menu} label="Project…" testid="project-menu-button">
+				<li>
+					<button type="button" data-testid="open-project-settings" onclick={openSettings}>
+						Project settings…
+					</button>
+				</li>
+			</MenuPopover>
 
 			<!--
-				Why an undo did not happen. `aria-live="polite"` is ADR-0016's mandated method for a status,
-				and this is a second region rather than a line inside `UndoControl` because the refusal is
-				this page's knowledge: the record names an Annotation Layer, and only the page holding the
-				stack can say that Layer is not there any more.
+				ADR-0026's explicit control, and it is a button with words on it rather than an icon with a
+				tooltip (SPEC story 111). It exists because the automatic fit deliberately happens once:
+				everything the once-only rule gives up — coming back after panning away, reframing after
+				drawing somewhere new — is this.
 			-->
-			<p
-				class="max-w-prose text-sm text-warning"
-				aria-live="polite"
-				aria-atomic="true"
-				data-testid="undo-refused"
+			<button
+				type="button"
+				class="btn btn-sm"
+				data-testid="fit-to-project"
+				onclick={() => void fitToProject()}
 			>
-				{undoRefusal}
+				Fit to this Project
+			</button>
+
+			<!--
+				Why the Base Map on screen is not the one the Project asked for (ADR-0020). An
+				`aria-live="polite"` region and not a second `role="status"`: the save indicator owns that
+				role for the whole app, and a second one makes `getByRole('status')` ambiguous — which is a
+				hint that a screen-reader user would have to disambiguate too.
+			-->
+			<p class="grow text-sm text-base-content/70" aria-live="polite" data-testid="base-map-notice">
+				{notice ?? ''}
 			</p>
 
-			<!-- ADR-0017 rule 5: there is no Save button, so this is the only signal that a reorder,
-			     a rename, or a visibility toggle reached storage. -->
-			<div class="flex flex-col items-end">
-				<SaveIndicator saveState={session.saveState} />
-				{#if session.saveError}
-					<p class="text-sm text-warning">{session.saveError}</p>
-				{/if}
-			</div>
-		{/if}
-	</header>
+			<a class="link text-sm" href={resolve('/')}>Back to all Projects</a>
+		</div>
 
-	{#if host.unsupported}
-		<div role="alert" class="m-4 alert flex-col items-start alert-warning">
-			<h2 class="font-semibold">No storage for a Workspace</h2>
-			<p>{host.unsupported}</p>
-		</div>
-	{:else if storage === null || session === null}
-		<p class="p-4">Starting…</p>
-	{:else if openDirectory === null}
-		<div role="alert" class="m-4 alert flex-col items-start alert-info">
-			<h2 class="font-semibold">No Project chosen</h2>
-			<p>A Layer stack belongs to one Project, so this pane needs a Project to open.</p>
-			<a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a>
-		</div>
-	{:else if session.status === 'unreachable' || storage.awaitingFolder}
-		<div class="m-4">
-			<WorkspaceRecovery {storage} />
-			<p class="mt-6"><a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a></p>
-		</div>
-	{:else if session.projectProblem}
-		<div role="alert" class="m-4 alert flex-col items-start alert-warning">
-			<h2 class="font-semibold">
-				{session.projectProblem.kind === 'missing'
-					? 'Project not found'
-					: 'This Project cannot be opened'}
-			</h2>
-			<p>{session.projectProblem.message}</p>
-			<a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a>
-		</div>
-	{:else if resolution === null}
-		<p class="p-4">Opening Project “{openDirectory}”…</p>
-	{:else}
-		<div class="grid grow items-start gap-4 p-4 lg:grid-cols-[24rem_1fr]">
-			<div>
+		<div class="flex min-h-0 grow">
+			<!--
+				The sidebar is a **fixed column** and the map takes what is left, which is the whole of
+				"the map gets the larger share of the screen": a proportional sidebar grows with the
+				display, and on a large one that is a wall of controls beside a map that gained nothing.
+			-->
+			<div
+				class="w-96 shrink-0 overflow-y-auto border-r border-base-300 p-4"
+				data-testid="layer-sidebar"
+			>
 				<LayerList
 					{layers}
 					{outcomes}
@@ -879,6 +986,7 @@
 					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
 					ondelete={(id) => void session.deleteLayer(id)}
+					{mapActions}
 				/>
 
 				<button
@@ -888,6 +996,21 @@
 				>
 					Add an Annotation Layer
 				</button>
+
+				<!--
+					Why an undo did not happen. `aria-live="polite"` is ADR-0016's mandated method for a
+					status, and it is here rather than inside `UndoControl` — which is on the navigation bar —
+					because the refusal is this screen's knowledge: the record names an Annotation Layer, and
+					only the thing holding the stack can say that Layer is not there any more.
+				-->
+				<p
+					class="mt-2 max-w-prose text-sm text-warning"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="undo-refused"
+				>
+					{undoRefusal}
+				</p>
 
 				<hr class="my-6 border-base-300" />
 
@@ -915,39 +1038,195 @@
 						void (activeLayer && session.setLayerDefaultStyle(activeLayer.id, style, options))}
 				/>
 
+				<hr class="my-6 border-base-300" />
+
 				<!--
-					Back to the Project first, and to the hub second. The stack is where a user notices that
-					a Control Point needs fixing — the Historical Map is visibly in the wrong place — and
-					without this the only way back to the alignment workspace was out to the hub and in
-					again. The Project is addressed by query parameter (ADR-0008), so this is the same link
-					`ProjectView` uses to get here, in reverse.
+					Adding a Historical Map from a file on this computer (SPEC stories 21, 22, 25, 26).
+
+					Every image becomes a IIIF pyramid, including a small one, because an untiled level-0
+					image cannot be parsed at all (ADR-0003). So this is a job with progress rather than a
+					file input that finishes instantly, and the progress region below is what a scholar
+					watching a large scan has to go on.
+
+					In the sidebar because that is where Layers come from. Ticket 06 makes it one "Add a
+					Layer" flow offering all three sources; what is here is the two that already work, kept
+					working.
 				-->
-				<p class="mt-6 flex flex-wrap gap-4">
-					<a class="link" data-testid="back-to-project" href="{resolve('/')}?p={openDirectory}">
-						Back to this Project
-					</a>
-					<a class="link" href={resolve('/')}>Back to all Projects</a>
+				<section aria-labelledby="historical-maps-heading">
+					<h2 id="historical-maps-heading" class="text-sm font-semibold">Historical Maps</h2>
+
+					<label class="mt-3 block">
+						<span class="mb-1 block text-sm">Add a Historical Map from a file</span>
+						<input
+							class="file-input w-full"
+							type="file"
+							accept="image/*"
+							disabled={session.ingest !== null}
+							onchange={(event) => {
+								const input = event.currentTarget;
+								const file = input.files?.[0];
+								// Cleared straight away, so picking the same file twice runs twice: `change` does
+								// not fire for an unchanged value, and "nothing happened" is indistinguishable
+								// from a silent failure.
+								input.value = '';
+								if (file) session.ingestImage(file);
+							}}
+						/>
+					</label>
+
+					<!--
+						`aria-live="polite"` rather than `role="status"`, which would be the idiomatic choice
+						but for the save indicator already being the app's one `status` role — two of them make
+						`getByRole('status')` ambiguous, and a test that has to disambiguate is a hint that a
+						screen-reader user would have to as well. `aria-atomic` so each update is read as a
+						whole sentence rather than as the digits that changed.
+					-->
+					<div aria-live="polite" aria-atomic="true" class="mt-4 min-h-6">
+						{#if session.ingest}
+							{@const ingest = session.ingest}
+							<p class="text-sm">
+								{#if ingest.phase === 'inspecting'}
+									Reading {session.ingestLabel}…
+								{:else if ingest.phase === 'opening'}
+									Opening {session.ingestLabel}…
+								{:else if ingest.phase === 'tiling'}
+									Preparing {session.ingestLabel}: tile {ingest.tilesWritten} of {ingest.tileCount}
+								{:else if ingest.phase === 'finishing'}
+									Finishing {session.ingestLabel}…
+								{:else}
+									Added {session.ingestLabel}
+								{/if}
+							</p>
+							<progress
+								class="progress mt-1 w-full"
+								value={ingest.fraction}
+								max="1"
+								aria-label="Preparing {session.ingestLabel}"
+							></progress>
+							<!--
+								A real button, beside the bar and reachable by tab. A gigapixel scan is thousands
+								of tiles and several minutes; picking the wrong file and having no way out of it
+								is the thing `ingest.ts` claimed to support and the app never wired up. The job
+								cleans up after itself, so cancelling leaves the Project as it was.
+							-->
+							<button
+								type="button"
+								class="btn mt-2 btn-sm"
+								aria-label="Cancel preparing {session.ingestLabel}"
+								onclick={() => session.cancelIngest()}
+								disabled={ingest.phase === 'done'}>Cancel</button
+							>
+						{/if}
+					</div>
+
+					{#if session.ingestError}
+						<div role="alert" class="mt-4 alert max-w-prose alert-warning">
+							<p>{session.ingestError}</p>
+						</div>
+					{/if}
+
+					{#if mapLayers.length === 0 && session.ingest === null}
+						<!--
+							The empty state, and it names the one useful next action (SPEC story 106). Derived from
+							the Layers rather than from the Workspace's pyramids, which is the change ADR-0023
+							makes to what this sentence *means*: the Workspace may hold a dozen Historical Maps
+							and this Project draw none of them, and "you have no maps" would be false while "this
+							Project has none" stays true. It is also what says a cancelled or refused ingest left
+							the Project exactly as it was.
+						-->
+						<p class="mt-4 max-w-prose text-sm">
+							This Project has no Historical Maps yet. What works now is bringing one in — the image
+							is converted to a IIIF pyramid, written into the Workspace as you watch, and then
+							Align opens it beside the Base Map to place onto the world.
+						</p>
+					{/if}
+
+					<!--
+						Adding a Historical Map from a library's IIIF endpoint. Beside the file input, because
+						the two are the same act — bringing a map in — reached from two different kinds of
+						source, and what differs afterwards is only whether the tiles are ours.
+					-->
+					<AddRemoteMap {session} />
+				</section>
+
+				<!--
+					The outcome of a copy, announced from out here rather than from inside the dialog: the
+					dialog closes on success, and an announcement added to a subtree that is removed in the
+					same frame is indistinguishable from one that never happened.
+				-->
+				<p
+					class="mt-4 min-h-6 text-sm"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="mirror-done"
+				>
+					{mirror.completed}
 				</p>
+
+				{#if session.referencedImageErrors.length > 0}
+					<div role="alert" class="mt-4 alert max-w-prose flex-col items-start alert-warning">
+						{#each session.referencedImageErrors as failure (failure.imageId)}
+							<p>{failure.reason}</p>
+						{/each}
+					</div>
+				{/if}
 			</div>
 
-			<div>
-				<!--
-					ADR-0026's explicit control, and it is a button with words on it rather than an icon with
-					a tooltip (SPEC story 111). It exists because the automatic fit deliberately happens once:
-					everything the once-only rule gives up — coming back after panning away, reframing after
-					drawing somewhere new — is this.
-				-->
-				<div class="mb-2 flex flex-wrap items-center justify-end gap-2">
-					<button
-						type="button"
-						class="btn btn-sm"
-						data-testid="fit-to-project"
-						onclick={() => void fitToProject()}
+			<div class="relative flex min-h-0 grow flex-col">
+				{#if !installedApp.online}
+					<!--
+						**`role="alert"`, and specifically not `role="status"`.** Two reasons, and the second is
+						the one that decides it.
+
+						The save indicator owns `status` for the whole app, and since ticket 04 it is on the
+						navigation bar and therefore on screen here — so a second one makes
+						`getByRole('status')` ambiguous, which is a hint that a screen-reader user would have to
+						disambiguate too. That rules `status` out; it does not by itself choose the replacement.
+
+						`aria-live="polite"` is the app's usual replacement, but it is the wrong one *here*: a
+						live region is announced only when its text changes, and this whole element is inserted
+						at the moment its text first exists — which is not reliably announced at all. That is
+						why every conditionally-inserted explanation in this block, `referenced-offline` beside
+						it included, is an `alert`. The persistent live regions in this file are the ones that
+						are always rendered and merely change their text.
+					-->
+					<div
+						role="alert"
+						class="m-2 alert flex-col items-start alert-info"
+						data-testid="base-map-offline"
 					>
-						Fit to this Project
-					</button>
-				</div>
-				<div class="h-[36rem] overflow-hidden rounded border border-base-300">
+						<h2 class="font-semibold">The Base Map needs a connection</h2>
+						<p>
+							There is no network connection, so the Base Map cannot load yet. Everything in your
+							Workspace still works: you can add a Historical Map now and place it when the
+							connection is back.
+						</p>
+					</div>
+
+					{#if referencedLayers.length > 0}
+						<!--
+							The one honest exception to the offline claim, said rather than left as a blank pane.
+							Naming the host is the whole point: "this Historical Map is not here" is unactionable,
+							and "nothing can be fetched from gallica.bnf.fr while you are offline" tells an author
+							both why and what to do about it before their next trip to the archive.
+						-->
+						<div
+							role="alert"
+							class="m-2 alert flex-col items-start alert-warning"
+							data-testid="referenced-offline"
+						>
+							<p>
+								There is no connection, so nothing can be fetched from {unreachableHosts.join(
+									', '
+								)}. These Historical Maps stay blank until there is one. Everything else in this
+								Project — its own Historical Maps, its Alignments, and its Annotations — is
+								unaffected and still saves.
+							</p>
+						</div>
+					{/if}
+				{/if}
+
+				<div class="min-h-0 grow overflow-hidden" data-testid="project-map">
 					<BaseMapPane
 						entryId={resolution.entry.id}
 						layers={drawn}
@@ -958,8 +1237,8 @@
 						{fetchTile}
 						onclickpoint={(point) => void placePoint(point)}
 						onclickannotation={(hit) => {
-							// Only when nothing is being drawn: with a tool in hand the click places a vertex, and
-							// the Annotation underneath is not what the user is pointing at.
+							// Only when nothing is being drawn: with a tool in hand the click places a vertex,
+							// and the Annotation underneath is not what the user is pointing at.
 							if (drawing.tool !== 'select') return;
 							chosenLayerId = hit.layerId;
 							selectAnnotation(hit.annotationId, hit.at);
@@ -969,41 +1248,169 @@
 						onstack={(reported) => (rendered = reported)}
 					/>
 				</div>
+
+				<div class="shrink-0 px-4 py-1">
+					<!--
+						What is on the map, in words. `aria-live` rather than `role="status"`, because the save
+						indicator already owns that role in the app.
+					-->
+					<p
+						class="min-h-6 text-sm"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="stack-status"
+						data-drawn={drawnCount}
+					>
+						{#if layers.length === 0}
+							Nothing is on the map yet.
+						{:else}
+							{drawnCount} of {layers.length}
+							{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
+						{/if}
+					</p>
+					<!--
+						Where the map is looking and why (SPEC story 112). A WebGL canvas announces nothing
+						about what it is showing, so "the map has jumped to Boston" is otherwise available only
+						to someone who can see it — and "it did not jump, because this Project has nothing on
+						the earth yet" is the more useful of the two sentences and the one nobody would guess.
+					-->
+					<p
+						class="min-h-6 text-sm text-base-content/70"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="opening-view"
+						data-opening-view={openingOutcome}
+					>
+						{openingViewSentence(openingOutcome, refitted)}
+					</p>
+				</div>
+
 				<!--
-					What is on the map, in words. `aria-live` rather than `role="status"`, because the save
-					indicator already owns that role on this page — the same reason the ingest progress region
-					and the pairing prompt are `aria-live` too.
+					Reading a referenced Historical Map as a document. Over the map rather than beside it,
+					because it is a whole viewer and the sidebar is a column: it covers the map while it is
+					open and gives it back when it is closed. Ticket 15 removes this from the editor
+					altogether; until then it stays reachable from the Layer it belongs to.
 				-->
-				<p
-					class="mt-2 min-h-6 text-sm"
-					aria-live="polite"
-					aria-atomic="true"
-					data-testid="stack-status"
-					data-drawn={drawnCount}
-				>
-					{#if layers.length === 0}
-						Nothing is on the map yet.
-					{:else}
-						{drawnCount} of {layers.length}
-						{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
-					{/if}
-				</p>
-				<!--
-					Where the map is looking and why (SPEC story 112). A WebGL canvas announces nothing about
-					what it is showing, so "the map has jumped to Boston" is otherwise available only to
-					someone who can see it — and "it did not jump, because this Project has nothing on the
-					earth yet" is the more useful of the two sentences and the one nobody would guess.
-				-->
-				<p
-					class="min-h-6 text-sm text-base-content/70"
-					aria-live="polite"
-					aria-atomic="true"
-					data-testid="opening-view"
-					data-opening-view={openingOutcome}
-				>
-					{openingViewSentence(openingOutcome, refitted)}
-				</p>
+				{#if unwarped}
+					<div class="absolute inset-0 z-10 overflow-y-auto bg-base-100 p-4">
+						<UnwarpedView image={unwarped} onclose={() => (unwarpedImageId = '')} />
+					</div>
+				{/if}
 			</div>
 		</div>
-	{/if}
-</div>
+	</div>
+
+	<!--
+		Project settings (SPEC stories 10, 11): the one editable field and the two facts a scholar needs
+		to find their files and trust that they are current. A dialog rather than a page, because a page
+		for three values is the navigation this ticket exists to remove.
+	-->
+	<ModalDialog bind:open={settingsOpen} title="Project settings">
+		<!--
+			`onchange` and `onblur` both mean "the edit is over" (ADR-0017 rule 1). Neither writes on its
+			own: `commitProjectName` is a no-op unless there is a pending write, because tabbing into and
+			out of this field must not rewrite `project.json` — the write stamps a fresh `updatedAt`, and
+			ADR-0010 is explicit that merely looking at an old Project must not modify files.
+		-->
+		<label class="floating-label block">
+			<span>Project name</span>
+			<input
+				class="input w-full"
+				data-testid="project-name-input"
+				value={session.openProject?.name ?? ''}
+				oninput={(event) => session.typeProjectName(event.currentTarget.value)}
+				onchange={() => session.commitProjectName()}
+				onblur={() => session.commitProjectName()}
+			/>
+		</label>
+
+		<dl class="mt-6 text-sm">
+			<dt class="font-medium">Folder</dt>
+			<dd><code data-testid="project-folder">{session.openDirectory}</code></dd>
+			<dt class="mt-2 font-medium">Last saved</dt>
+			<dd>
+				<time data-testid="project-updated-at" datetime={session.openProject.updatedAt}
+					>{session.openProject.updatedAt}</time
+				>
+			</dd>
+		</dl>
+
+		{#snippet actions()}
+			<button type="button" class="btn btn-sm" onclick={() => (settingsOpen = false)}>Close</button>
+		{/snippet}
+	</ModalDialog>
+{:else}
+	<p class="p-4">Opening Project “{openDirectory}”…</p>
+{/if}
+
+<!--
+	The per-Layer actions on a Historical Map Layer, rendered by `LayerList` inside the Layer's own row.
+
+	**A snippet passed down rather than markup inside `LayerList`**, for one concrete reason: the Align
+	link has to be spelled `{resolve('/align')}?p=…&layer=…` at the point it is written, because
+	`svelte/no-navigation-without-resolve` reads the first part of an `href` literally and a string
+	computed elsewhere and passed in is not the shape it recognises. Keeping it here also keeps
+	`LayerList` about the stack rather than about routes and about somebody else's IIIF server.
+
+	**A link, not a button.** The route is keyed by Layer id and a Historical Map in a Project has had
+	its Layer since it was added (ADR-0023), so there is nothing to resolve on the way — an earlier
+	shape pressed a button that created the Layer and then navigated, which meant a disabled control
+	across a store read and a Workspace-shared `alignments/<id>.json` written to do it.
+-->
+{#snippet mapActions(layer: MapLayer)}
+	{@const origin = originFor(layer)}
+	{@const referenced = referencedImageIds.has(layer.imageId)}
+	<div class="mt-2 flex flex-wrap items-center gap-2">
+		<!--
+			**`session.openDirectory`, not the `?p=` prop**, and the difference is a real window rather
+			than a style preference. `open()` clears `openProject` and sets its own directory, so between
+			a navigation to another Project and that call the URL names the new folder while the Layers
+			on screen are still the old Project's — which is exactly why the opening-fit effect above
+			compares the two. Built from the prop, this link would spend that window naming the *new*
+			directory with the *old* Project's Layer id: a pair that has never been true together. The
+			align route refuses an unknown `?layer=` and says so, so the cost is a wrong explanation
+			rather than a wrong map, but the pair the link carries has to come from one source.
+		-->
+		<a
+			class="btn btn-primary btn-xs"
+			data-testid="align-historical-map"
+			href="{resolve('/align')}?p={encodeURIComponent(
+				session.openDirectory ?? ''
+			)}&layer={encodeURIComponent(layer.id)}"
+		>
+			Align
+		</a>
+
+		{#if referenced && origin}
+			<!-- Where the tiles come from, on the Layer that fetches them (SPEC story 80). -->
+			<span class="text-xs" data-testid="referenced-image-label"
+				>{origin.label || origin.imageId}</span
+			>
+			<code class="text-xs opacity-70" data-testid="referenced-image-host"
+				>{new URL(origin.service).hostname}</code
+			>
+			<button
+				class="btn btn-xs"
+				type="button"
+				data-testid="view-unwarped"
+				aria-pressed={unwarpedImageId === layer.imageId}
+				onclick={() => (unwarpedImageId = unwarpedImageId === layer.imageId ? '' : layer.imageId)}
+			>
+				View unwarped
+			</button>
+			<MirrorMap image={origin} job={mirror} />
+		{:else if origin}
+			<!--
+				An offline copy, and the address it came from (SPEC story 76). Kept visible because
+				mirroring keeps `remote.json` precisely so a copy can still be cited and traced back to the
+				library it came from (ADR-0007), and a copy nobody can cite is a copy that has been orphaned.
+			-->
+			<span class="text-xs" data-testid="mirrored-image-label"
+				>{origin.label || origin.imageId}</span
+			>
+			<code class="text-xs break-all opacity-70" data-testid="mirrored-image-source"
+				>{origin.service}</code
+			>
+		{/if}
+	</div>
+{/snippet}

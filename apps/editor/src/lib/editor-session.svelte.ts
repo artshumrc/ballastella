@@ -957,8 +957,8 @@ export class EditorSession {
 	 * Project is adding it, a different gesture with its own affordance, rather than something a link
 	 * should do on the way past.
 	 *
-	 * The one implementation of this question, so `#addMapLayer` and `ProjectView` cannot drift into two
-	 * answers about what counts as "this Project already draws that map".
+	 * The one implementation of this question, so `#addMapLayer` and every screen that asks it cannot
+	 * drift into two answers about what counts as "this Project already draws that map".
 	 */
 	mapLayerFor(imageId: string): MapLayer | undefined {
 		return this.openProject?.layers.find(

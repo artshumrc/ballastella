@@ -274,9 +274,22 @@
 
 	<PublishDialog {session} bind:open={publishing} />
 
-	<!-- Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its
-	     first text is not reliably announced. -->
-	<p role="status" class="mt-2 text-sm opacity-80" data-transfer={session.transfer?.kind ?? ''}>
+	<!--
+		Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its
+		first text is not reliably announced.
+
+		`aria-live="polite"` and **not** `role="status"`, which is this app's settled convention
+		wherever the save indicator is also on screen — and since ticket 04 the save indicator is on
+		the navigation bar, so it is on screen *here too*. Two `status` roles make `getByRole('status')`
+		a strict-mode violation, which is a hint that a screen-reader user would have to disambiguate
+		as well.
+	-->
+	<p
+		aria-live="polite"
+		aria-atomic="true"
+		class="mt-2 text-sm opacity-80"
+		data-transfer={session.transfer?.kind ?? ''}
+	>
 		{transferMessage}
 	</p>
 

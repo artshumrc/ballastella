@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { openProjectSettings, projectNameField } from './support/project-screen';
+
 /**
  * SPEC's Seam 2: the running app in a real browser against real OPFS.
  *
@@ -194,7 +196,9 @@ test.describe('the Project hub', () => {
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 
 		await expect(page).toHaveURL(/\?p=amsterdam-1625$/);
-		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();
+		// The Project's own name is the Project screen's heading (ticket 04); the app's `<h1>` was on
+		// the page that screen replaced.
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 	});
 
 	test('renaming to a name another Project already has succeeds', async ({ page }) => {
@@ -700,11 +704,16 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		// By role, because being announced is the claim (SPEC story 112, ADR-0017 rule 5): a
 		// `[data-save-state]` locator goes on passing with the live region deleted. One `role="status"`
 		// per page is the convention this repo keeps for exactly that reason — every other announcement
-		// on a page that has a save indicator is an `aria-live="polite"` region.
+		// on a page that has a save indicator is an `aria-live="polite"` region, and since ticket 04
+		// the indicator is on the navigation bar and therefore on every page.
 		const indicator = page.getByRole('status');
 		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
 
-		await page.getByLabel('Project name').fill('Amsterdam 1626');
+		// Renaming is behind the Project settings dialog since ticket 04 — one editable field did not
+		// need a page of its own. The autosave rules it follows are unchanged, which is what this
+		// asserts.
+		const field = await projectNameField(page);
+		await field.fill('Amsterdam 1626');
 
 		await expect(indicator).toHaveAttribute('data-save-state', 'saving');
 		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
@@ -712,7 +721,7 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 
 		// And the store really has it: reloading shows the new name.
 		await page.reload();
-		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1626' })).toBeVisible();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1626');
 	});
 });
 
@@ -753,14 +762,15 @@ test.describe('flushing on hide (ADR-0017 rule 3)', () => {
 	test('pagehide flushes a write that is still inside its debounce window', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByLabel('Project name')).toBeVisible();
-		// Wait for the view to settle before typing. The field appears as soon as the Project has been
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		// Wait for the view to settle before typing. The screen appears as soon as the Project has been
 		// read, but opening is driven by an effect over the URL that can run again, and a keystroke
 		// landing while it is re-reading is dropped — see the note on `EditorSession.open`. An idle
 		// indicator means nothing is in flight, so this test is about rule 3 and not about that race.
 		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
 
-		await page.getByLabel('Project name').fill('Half a keystroke ago');
+		const field = await projectNameField(page);
+		await field.fill('Half a keystroke ago');
 		// Still only in memory: the debounce window cannot close, so nothing has been written yet.
 		expect(await readProjectName(page)).toBe('Amsterdam 1625');
 
@@ -855,18 +865,21 @@ test.describe('opening a Project and closing it (ADR-0010)', () => {
 		// one in a Dropbox folder syncs a rewrite to every other machine.
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		const field = page.getByLabel('Project name');
-		await expect(field).toBeVisible();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		const before = await hashProject(page, 'amsterdam-1625');
+		const dialog = await openProjectSettings(page);
+		const field = dialog.getByLabel('Project name');
+		await expect(field).toBeVisible();
 
 		await field.focus();
 		await expect(field).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(field).not.toBeFocused();
 
-		// And with the pointer, which is the same gesture through a different event order.
+		// And with the pointer, which is the same gesture through a different event order. Inside the
+		// dialog, because `showModal()` makes everything outside it inert.
 		await field.click();
-		await page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' }).click();
+		await dialog.getByRole('heading', { name: 'Project settings' }).click();
 		await expect(field).not.toBeFocused();
 
 		// An absence, so it needs a settle: longer than the 400 ms debounce, plus the flush that
@@ -899,7 +912,7 @@ test.describe('opening a Project and closing it (ADR-0010)', () => {
 		expect(Object.keys(before).sort()).toEqual(['annotations/l-notes.geojson', 'project.json']);
 
 		await page.goto('./?p=amsterdam-1625');
-		await expect(page.getByRole('heading', { level: 2, name: 'Amsterdam 1625' })).toBeVisible();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
 		await page.goto('./');
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
 

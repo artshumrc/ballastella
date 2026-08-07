@@ -27,9 +27,16 @@ declare global {
 const PROJECT_DIRECTORY = 'amsterdam-1625';
 const PROJECT_FILE = 'project.json';
 
-const BASE_MAP_PAGE = './base-map/';
+/**
+ * **`/base-map/` is gone** (ticket 04). The Base Map pane a scholar meets is the Project screen, so
+ * every test here now drives `/?p=<dir>` — the route a Base Map is actually chosen from. Rewired
+ * rather than deleted: a route that no longer exists is not a licence to drop the behaviour it
+ * covered, and everything below (Range requests, the catalog, the author's default, the refusals)
+ * is behaviour of the pane and not of the page it used to sit on.
+ */
+const HUB = './';
 /** A Project is addressed by query parameter, never by a per-Project path (ADR-0008). */
-const paneUrl = (directory: string = PROJECT_DIRECTORY) => `${BASE_MAP_PAGE}?p=${directory}`;
+const paneUrl = (directory: string = PROJECT_DIRECTORY) => `${HUB}?p=${directory}`;
 
 /** A Project's manifest as ticket 02 writes it, with anything the test needs overridden. */
 const projectJson = (fields: Record<string, unknown> = {}) =>
@@ -90,12 +97,12 @@ async function seedProject(page: Page, contents: string): Promise<void> {
  * A Project on disk, and the pane opened onto it.
  *
  * The Project is seeded rather than created through the pane on purpose: opening a pane must
- * never create a Project. `/base-map/` with no `?p=` used to call
+ * never create a Project. The deleted `/base-map/` with no `?p=` used to call
  * `getDirectoryHandle(…, { create: true })` and manufacture a phantom Project in the real
  * Workspace, which the hub then listed.
  */
 async function openPane(page: Page, contents: string = projectJson()): Promise<void> {
-	await page.goto(BASE_MAP_PAGE);
+	await page.goto(HUB);
 	await emptyWorkspace(page);
 	await seedProject(page, contents);
 	await page.goto(paneUrl());
@@ -300,15 +307,16 @@ test.describe('the Base Map pane', () => {
 	}) => {
 		await openPane(page);
 
-		// Every control is reachable: the switcher is the first tab stop, then the theme toggle, then
-		// the map canvas and its zoom controls. Choosing *within* a focused `<select>` is the
-		// browser's own arrow-key handling — which is exactly why ADR-0016 mandates a native
+		// Every control is reachable. The **theme toggle is the first tab stop now** and the switcher
+		// the second, because ticket 04 moved the theme onto the app's navigation bar, which is above
+		// the Project and therefore before it in the document. Choosing *within* a focused `<select>`
+		// is the browser's own arrow-key handling — which is exactly why ADR-0016 mandates a native
 		// `<select>` here — and headless Chromium does not run its native popup, so this asserts the
 		// reach and the element, and leaves the popup to the platform.
 		await page.keyboard.press('Tab');
-		await expect(switcher(page)).toBeFocused();
-		await page.keyboard.press('Tab');
 		await expect(themeToggle(page)).toBeFocused();
+		await page.keyboard.press('Tab');
+		await expect(switcher(page)).toBeFocused();
 
 		// SPEC story 98: the muted entry has to be genuinely selectable, not merely listed.
 		await switcher(page).selectOption('muted');
@@ -364,8 +372,10 @@ test.describe('the author’s default', () => {
 		await expect(switcher(page)).toHaveValue('streets');
 		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
 
-		// Quiet, and in an announced live region rather than a tooltip (ADR-0016).
-		const notice = page.getByRole('status').filter({ hasText: 'ordnance-survey-1888' });
+		// Quiet, and in an announced live region rather than a tooltip (ADR-0016). Addressed by test id
+		// rather than by `role="status"`: the save indicator is the app's one `status` role since
+		// ticket 04 put it on the navigation bar, so this region is `aria-live="polite"`.
+		const notice = page.getByTestId('base-map-notice');
 		await expect(notice).toContainText('ordnance-survey-1888');
 		await expect(notice).toContainText('Streets');
 
@@ -439,19 +449,18 @@ test.describe('the author’s default', () => {
 
 test.describe('the Project the pane opens', () => {
 	test('creates nothing when no Project is named', async ({ page }) => {
-		// Opening a pane must never create a Project. `/base-map/` with no `?p=` used to call
-		// `getDirectoryHandle('demo-project', { create: true })` and manufacture a phantom Project
-		// in the real Workspace, which the hub then listed as the user's own work.
-		await page.goto(BASE_MAP_PAGE);
+		// Opening a pane must never create a Project. The deleted `/base-map/` with no `?p=` used to
+		// call `getDirectoryHandle('demo-project', { create: true })` and manufacture a phantom
+		// Project in the real Workspace, which the hub then listed as the user's own work. With one
+		// route for both screens the unnamed case *is* the hub, and the claim is unchanged: arriving
+		// with no `?p=` writes nothing.
+		await page.goto(HUB);
 		await emptyWorkspace(page);
-		await page.goto(BASE_MAP_PAGE);
+		await page.goto(HUB);
 
-		await expect(page.getByRole('link', { name: 'Back to all Projects' })).toBeVisible();
-		expect(await workspaceEntries(page)).toEqual([]);
-
-		// And the hub agrees: there is nothing to list.
-		await page.goto('./');
 		await expect(page.getByRole('heading', { level: 2, name: 'Projects' })).toBeVisible();
+		// No pane, because no Project was named — and therefore no Base Map to choose.
+		await expect(switcher(page)).toHaveCount(0);
 		await expect(page.getByRole('listitem')).toHaveCount(0);
 		expect(await workspaceEntries(page)).toEqual([]);
 	});
@@ -462,7 +471,7 @@ test.describe('the Project the pane opens', () => {
 		// document over it: `name`, `updatedAt`, and `layers` gone, in the one action that was
 		// supposed to record a single field.
 		const damaged = '{"formatVersion":1,"name":"Amsterdam 1625","layers":[],"baseMap":null,}';
-		await page.goto(BASE_MAP_PAGE);
+		await page.goto(HUB);
 		await emptyWorkspace(page);
 		await seedProject(page, damaged);
 
@@ -481,7 +490,7 @@ test.describe('the Project the pane opens', () => {
 		// message promises "It has been left untouched."
 		const fromTheFuture =
 			'{"formatVersion":2,"name":"Tomorrow","layers":[{"kind":"something-new"}],"baseMap":"physical"}';
-		await page.goto(BASE_MAP_PAGE);
+		await page.goto(HUB);
 		await emptyWorkspace(page);
 		await seedProject(page, fromTheFuture);
 
@@ -497,7 +506,7 @@ test.describe('the Project the pane opens', () => {
 	test('says so when the Project named does not exist, rather than creating it', async ({
 		page
 	}) => {
-		await page.goto(BASE_MAP_PAGE);
+		await page.goto(HUB);
 		await emptyWorkspace(page);
 
 		await page.goto(paneUrl('never-existed'));

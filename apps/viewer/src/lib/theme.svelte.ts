@@ -9,13 +9,22 @@ import { otherTheme, type Theme } from '@ballastella/core';
  * appearance without the map hearing about it in the same action — which is what stops a dark interface
  * framing a white map. The Base Map side reads `theme.current` inside an effect.
  *
- * The editor has a module of the same shape, and they are deliberately not shared. There is nothing in
- * either that the other could reuse: it is four lines of state over a `data-theme` attribute, and the
- * *rule* that matters — that one signal drives both — is a rule about there being exactly one of these
- * per app, which a shared module would not make any truer. What is shared is the thing worth sharing:
- * `otherTheme` and the flavor-per-theme mapping inside each catalog entry, both in `core`.
+ * The editor has a module of the same name, and they are deliberately not shared — but they are no
+ * longer the same shape, and the difference is the point. What is shared is the thing worth sharing:
+ * `otherTheme` and the flavor-per-theme mapping inside each catalog entry, both in `core`. The *rule*
+ * that matters — that one signal drives both surfaces — is a rule about there being exactly one of
+ * these per app, which a shared module would not make any truer.
  *
- * A Reader's theme is **not** persisted. Ticket 17 scopes persistence to the Base Map choice and
+ * **This one is four lines of state over a `data-theme` attribute; the editor's is not.** Since the
+ * workspace-and-layers epic the editor's carries three states, a `localStorage` preference and a live
+ * `prefers-color-scheme` listener, because an author works in that window for hours and a desktop
+ * that switches to dark at sunset has to move it. This module reads the media query **once, at
+ * construction**, and that is a deliberate difference rather than the bug the editor fixed: a Reader
+ * has no stored preference to respect and no long session to be interrupted in, so the only state is
+ * "what the machine asked for when the page loaded" plus whatever they toggle while reading. If a
+ * Reader is ever given a remembered theme, this is where the live listener has to arrive with it.
+ *
+ * A Reader's theme is **not** persisted. Ticket 17 scoped persistence to the Base Map choice and
  * nothing else, and the starting point below costs nothing and is already the reader's own: the
  * operating system's setting.
  */

@@ -35,6 +35,8 @@ Demonstrable end to end: add a map from a file and watch tile progress on the ne
 
 **Empty states name the next action.** A Project with no Layers says what to do, in one sentence, and the thing it names is the button that is there.
 
+**And one of them has to say more than that — a state ticket 04 left without a persistent explanation.** A Historical Map whose starter Alignment could not be written arrives with its pyramid and *without* its Layer (ADR-0023 writes the Alignment first on purpose). While the failure is on screen `session.ingestError` says so; `EditorSession.open()` clears it (`editor-session.svelte.ts`), so after a reload the sidebar says "This Project has no Historical Maps yet" while a pyramid the scholar watched land sits in the Workspace, with nothing connecting the two. `ProjectView`'s `align-unavailable` alert used to cover this because it derived from `session.images` and therefore survived a reload; ticket 04 deleted it with the section it lived in, which is licensed — a Workspace map this Project does not draw is not a fact about this Project — but this half of it was real and is now unsaid. The Workspace-side answer is ticket 08's hub list; what belongs here is that the "already in the Workspace" source offers that orphaned pyramid, so the one useful next action is available rather than merely described.
+
 ## Out of scope
 
 - **Do not change how a remote address is resolved, how canvases are listed, or how the community Alignment lookup works.** Reuse `AddRemoteMap`'s machinery. It handles Manifests, Collections, and bare image services, and its canvas picker is already keyboard-operable.

@@ -146,12 +146,17 @@ export async function start(page: Page): Promise<string> {
 		mimeType: 'image/png',
 		buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
 	});
-	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
-	const imageId = (await page.getByRole('listitem').first().innerText()).trim();
+	// **Read off the Layer, which is where a Historical Map now appears** (ticket 04). It used to be
+	// read out of a list of image ids on the Project page; that list is gone, because the Layer the map
+	// arrives with (ADR-0023) already says which image it draws and one of the two had to be a
+	// duplicate of the other.
+	const row = page.getByTestId('layer-row').first();
+	await expect(row).toBeVisible({ timeout: 30_000 });
+	const imageId = (await row.getAttribute('data-image-id')) ?? '';
+	expect(imageId).not.toBe('');
 
 	// **The workspace is a route of its own since ticket 03**, so getting to it is a navigation and no
-	// longer a scroll. The id is read above, before the click: the Historical Maps list is on the
-	// Project page and this leaves it.
+	// longer a scroll.
 	await openAlignment(page);
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —

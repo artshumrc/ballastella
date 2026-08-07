@@ -53,7 +53,7 @@ async function projectWithMap(page: Page): Promise<void> {
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
-	await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+	await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
 }
 
 /** The `?layer=` of the alignment route the page is currently on. */

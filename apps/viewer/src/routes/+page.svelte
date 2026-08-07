@@ -382,7 +382,8 @@
 	 * **Keyed off the Layers that are currently shown, and nothing else.** That is not incidental
 	 * tidiness: the editor's equivalent merges over `{ ...rendered }`, which is never pruned, so a Layer
 	 * the Reader has just hidden goes on being counted as drawn — the `data-drawn` defect recorded
-	 * against `apps/editor/src/routes/layers/+page.svelte`. Building the record from `shown` means a
+	 * against the editor's Layer stack, which ticket 04 moved into
+	 * `apps/editor/src/lib/project/ProjectScreen.svelte`. Building the record from `shown` means a
 	 * Layer that has left the stack cannot survive in it, so the count below is a fact about the map
 	 * rather than a high-water mark.
 	 */

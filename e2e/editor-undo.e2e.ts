@@ -126,8 +126,8 @@ const STACK_READY_MS = 20_000;
 
 /** Open the Layers pane and wait until `drawn` Layers have been put on the map. */
 async function openLayers(page: Page, drawn: number): Promise<void> {
-	await page.goto('/layers?p=amsterdam-1625');
-	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+	await page.goto('/?p=amsterdam-1625');
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', String(drawn), {
 		timeout: STACK_READY_MS
 	});
@@ -183,19 +183,17 @@ async function openWorkspace(page: Page): Promise<void> {
  * @param resuming how many Control Points the rebuilt pairing must show before it is safe to click
  */
 async function throughLayersAndBack(page: Page, resuming: number): Promise<void> {
-	// Out of the alignment route, through the Project page, to the Layers pane and back again. Three
-	// in-app links rather than two since ticket 03, and still not one reload — which is the whole of
-	// the helper: the undo record has to survive the workspace being destroyed and rebuilt.
+	// Out of the alignment route onto the Project — which *is* the Layer stack since ticket 04 — and
+	// back into aligning. Two in-app links rather than three, and still not one reload, which is the
+	// whole of the helper: the undo record has to survive the workspace being destroyed and rebuilt,
+	// and the stack being drawn on the way is what destroys it.
 	await page.getByTestId('back-to-project').click();
 	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-	await page.getByTestId('open-layers').click();
-	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
 		timeout: STACK_READY_MS
 	});
 
-	await page.getByTestId('back-to-project').click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 	await page.getByTestId('align-historical-map').click();
 	await waitForSurface(page);
 	// **The rows are the barrier, not the pane.** `pairing` is `undefined` until the pyramid has been
@@ -723,7 +721,7 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		// runs on `/align/`, which has no Layer count on it, so the trip back is what puts the assertion
 		// in front of the number a user would actually read.
 		await page.getByTestId('back-to-project').click();
-		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 	});
 });
 
