@@ -89,6 +89,21 @@ was applied alone, the editor rebuilt, and the named test run; all were reverted
 | 10 | `tabindex="-1"` on the way back | `these controls cannot be reached by Tab: A[back-to-project]` |
 | contract: fit | `fitTo` left empty in `loadAlignment` | the Base Map does not move when the route is reopened |
 
+**Re-run after the reconciliation onto ticket 02**, for the review's findings and for the tests the
+review required to survive rather than be deleted as tombstone fallout:
+
+| What it protects | Mutation | What went red |
+| --- | --- | --- |
+| opening the view is not a write | `loadAlignment` calls `writeAlignment` after reading | `opening the alignment view wrote an Alignment`, 1 write recorded |
+| story 36 against this route | the route adds one Layer on mount | `storedProjectFile` no longer byte-identical |
+| a mis-started pair costs nothing | `clickHistoricalMap` saves for a pending half | 1 write recorded — **and byte-identity stayed green**, which is exactly why the count is there |
+| an Alignment write never touches the stack | `writeAlignment` rewrites `project.json` after committing | `updatedAt` moved, in undo's byte-identity test |
+| Align is a link, not a busy button | `<a>` changed back to `<button>` | `toHaveRole('link')` received `"button"` |
+| no Layer means no Align control | the link rendered whatever `mapLayerFor` returned | `align-historical-map` count 1, expected 0 |
+| `host.unsupported` | the branch deleted | `No storage for a Workspace` not found |
+| `WorkspaceRecovery` | the branch made unreachable | `Workspace not reachable` not found |
+| "Starting…" | the text emptied | the prerendered `align.html` no longer contains it |
+
 Two notes on what the mutations revealed rather than confirmed.
 
 **Criterion 6's first mutation was not a violation.** Replacing the conditional render with
@@ -101,33 +116,55 @@ hiding at all, and that is the one recorded above.
 `build/align.html` throws when the file is absent, so it cannot pass vacuously; only the fallback half
 needed a mutation.
 
+**Both new write-counting assertions were vacuous on their first run, and the mutation is what said
+so.** `writeAlignment` records a write *after* its commit resolves, so reading the counter the moment
+the gesture's visible effect lands reads it ahead of a write that is on its way; both now settle
+first. The route test was worse: `recordAlignmentWrite` pushes only when
+`window.ballastellaAlignmentWrites` exists and a reload throws the array away, so a counter armed once
+before a reload counted nothing after it — every assertion downstream passing by construction. It is
+armed twice now. This is the same class of defect as the un-failable fence this ticket's review found,
+arrived at independently within an hour of writing the replacement, and it is the argument for the
+mutation step rather than an anecdote about it.
+
 ## Implementation notes
 
-**Pressing Align writes the Alignment, and that is what creates the Layer.** The route is keyed by
-Layer id, and a Historical Map nobody has aligned has no Layer in this Project — so something had to
-turn "this map" into "the Layer that draws it". `EditorSession.ensureMapLayerFor` does it by routing
-`newAlignment` through the existing `writeAlignment`, which writes `alignments/<id>.json` and *then*
-calls `#ensureMapLayer`. Writing the Alignment first is not incidental: `assertReferencesPresent`
-requires it for every map Layer, `editor-layers.e2e.ts` has a test named for that invariant, and a
-Layer created beside no Alignment is a Project this build exports and then refuses to import — the gap
-ticket 01's review deferred to ticket 02. The visible consequence is that
-`alignments/<id>.json` now appears when Align is pressed rather than at the first Control Point;
-`editor-alignment.e2e.ts`'s "Escape … writes no Alignment at all" was rewritten to assert the criterion
-it was actually about (a mis-started pair writes nothing) as byte-identity rather than as absence.
+**Align is a plain link, and opening the alignment view writes nothing.** The route is keyed by Layer
+id, and since ticket 02 a Historical Map that is in a Project already has its Layer — adding the map
+made it, along with its starter Alignment — so the `?layer=` the route needs exists before the user
+reaches for it. `EditorSession.mapLayerFor` is the lookup that finds it: synchronous, read-only, and
+the same one `#addMapLayer` consults to decide whether this Project already draws a map, so there is
+one answer to that question rather than two that can drift.
 
-**The `removedMapLayers` tombstone is honoured by Align, not lifted.** A map whose Layer was deleted
-gets a named refusal on the Project page rather than a silently recreated Layer. Re-adding a Workspace
-map to a Project is SPEC story 23 and ticket 06's affordance, and making Align an exception would put
-the resurrection this tombstone exists to prevent behind a button instead of behind a write.
+**What this replaced, and why it had to go.** This ticket was first written against ticket 01's world,
+where a map could be in a Project with no Layer, and it made the Layer on the way in:
+`ensureMapLayerFor` routed `readAlignment` into `writeAlignment`. Under ADR-0023 that is a defect
+rather than a convenience. `alignments/<id>.json` belongs to the **Workspace** and is shared by every
+Project that draws the map, so for a map already aligned in another Project, pressing Align rewrote
+somebody else's work — through `serialiseAlignment`, which regenerates the document from the model and
+therefore silently drops any field a third-party Georeference Annotation carries that `Alignment` does
+not model (SPEC story 60). In a Workspace kept in git or Dropbox, merely opening a view became a sync
+event. It also forced the control to be a button that disabled itself across a store read with nothing
+announcing why, and a `goto` needing a `svelte/no-navigation-without-resolve` suppression. All three
+went with the write: a link needs no busy state, and a resolved path followed by a query string is the
+shape the lint rule already recognises. **Ticket 18 still owns the general seam** — one writer for a
+shared Alignment, and a fence — because nothing here stops the *next* caller inventing the same
+overwrite; what is done here is the removal of this ticket's instance.
 
-**`#ensureMapLayer`'s creation path is now unreachable from the interface**, and two tests changed
-shape because of it. Every Alignment write is preceded by an Align click that already made the Layer,
-so the method's early return is what runs. `editor-undo.e2e.ts`'s resurrection-trap test now asserts
-that Align refuses (in this session and in a later one, so the *file* is what carries the tombstone),
-and its "two Alignment writes in flight" test is now a regression guard rather than a reproduction —
-the delayed `manifest.json` read widens the window inside `ensureMapLayerFor` instead. **Ticket 02
-should decide whether `#ensureMapLayer` survives at all**: once a Layer is created when a map is added,
-nothing is left for it to do.
+**A Historical Map with no Layer in this Project is a named state, not a missing control.**
+`session.images` is the Workspace's list (ADR-0023), so a Project can be shown a map it does not draw;
+and a Project whose starter Alignment failed to write has the pyramid without the Layer. Both render a
+sentence where the Align link would be, because "there is no button" is indistinguishable from a page
+that has not finished loading. The `layer === null` state on the route stays for the same reason it
+always existed — a stale bookmark can name a Layer that is no longer there.
+
+**The resurrection trap is now closed twice, and one test went with it.**
+`editor-undo.e2e.ts`'s "survives an Alignment write, and survives one in a later session" drove a
+gesture the interface no longer offers: with the alignment view keyed by Layer id, there is no way to
+write an Alignment for a map this Project does not draw. Ticket 02 closed it in the model, ticket 03
+closed it in the routing. What it asserted is still asserted by the two tests beside it. **The
+cross-Project form is a named gap**, recorded in that file: two Projects drawing one Workspace map,
+the Layer deleted in A, B goes on aligning it. That is reachable and untested, and it belongs beside
+the other Workspace-sharing specs rather than in the undo file.
 
 **`BaseMapPane` gained a `fitTo` prop, fitted on array identity rather than on contents.** The page
 hands over a new array exactly when it wants a fit — once, in `AlignmentWorkspace.loadAlignment` — so a
@@ -143,12 +180,10 @@ cost is that reopening starts from the default rather than the last measure.
 reading `?p=` there killed the build. `session` is `null` in exactly the same condition, and every
 named state below the header carries its own way back.
 
-**Every e2e number here was measured on isolated ports, and that is not a formality.**
-`playwright.config.ts` pins 4173/4174 with `reuseExistingServer: !CI`, so a run in one worktree
-silently serves — or is served by — a sibling worktree's `apps/*/build`. The runs behind this ticket
-used a throwaway copy of that config on 4213/4214, deleted afterwards; the shared config is untouched,
-because three sibling tickets are in flight and it would conflict on merge. Whoever consolidates this
-epic should decide whether the ports become configurable.
+**Every e2e number here was measured on ports derived from this checkout's path.**
+`playwright.config.ts` now hashes the repo root into a port pair, so a worktree can no longer be
+served by — or serve — a sibling's `apps/*/build`. The throwaway config an earlier run of this ticket
+used is gone, and nothing here edits ports.
 
 **Two e2e helpers needed a `scrollIntoViewIfNeeded`-shaped fix.** The route's header and its
 screen-reader explainer make the page ~120px taller than `ProjectView` was, which pushed a Resource
