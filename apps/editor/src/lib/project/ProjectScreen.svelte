@@ -1125,8 +1125,6 @@
 			<a class="link text-sm" href={resolve('/')}>Back to all Projects</a>
 		</div>
 
-		<MakeOfflineDialog job={offline} entry={resolution.entry} {layers} />
-
 		<div class="flex min-h-0 grow">
 			<!--
 				The sidebar is a **fixed column** and the map takes what is left, which is the whole of
@@ -1492,6 +1490,16 @@
 			</div>
 		</div>
 	</div>
+
+	<!--
+		ADR-0025's dialog, **outside `project-screen` on purpose**, beside the settings dialog and for
+		the same reason. daisyUI's `.modal` keeps a closed `<dialog>` laid out — it has a box, it is
+		merely transparent — so its buttons answer a `querySelectorAll` of visible controls while being
+		unreachable by keyboard. Inside the subtree it made `editor-project-screen.e2e.ts`'s tab walk
+		fail on "Not now" and "Count again"; a modal's whole point is that one tab order cannot cover
+		both it and the page behind it.
+	-->
+	<MakeOfflineDialog job={offline} entry={resolution.entry} {layers} />
 
 	<!--
 		Project settings (SPEC stories 10, 11): the one editable field and the two facts a scholar needs
