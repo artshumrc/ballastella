@@ -30,6 +30,8 @@
 // instead of many.
 
 import { BASE_MAP_CATALOG, type BaseMapCatalog } from '../base-map/index.js';
+import { baseMapCacheSize, type BaseMapCacheSize } from '../base-map/offline-cache.js';
+import { BASE_MAP_TILE_DIRECTORY } from '../base-map/tile-cache.js';
 import { referencedHistoricalMaps, unusedHistoricalMapBytes } from '../project/historical-maps.js';
 import { imageDirectory, imageInfoPath } from '../project/image-files.js';
 import { parseProjectFile, projectFilePath, type ProjectFile } from '../project/project-file.js';
@@ -73,8 +75,36 @@ export type PublishedSite = {
 	readonly projects: readonly PublishedProject[];
 	/** This deployment's catalog, travelling with the site (ADR-0020). */
 	readonly baseMap: BaseMapCatalog;
-	/** Whether the Base Map's own files were written too, so the site needs no network for them. */
+	/**
+	 * Whether this Workspace carries cached Base Map **tiles** (ADR-0025).
+	 *
+	 * **This field changed meaning in ticket 11**, from "the deployment's extract was copied" to what
+	 * ADR-0025 says: the site draws its geography from `base-map/tiles/…` and needs no network for it.
+	 * Publishing copies nothing extra to make it true — the tiles are already in the Workspace, which
+	 * *is* the published root — so this is an observation of the folder at publish time and never a
+	 * choice on the dialog.
+	 */
 	readonly baseMapBundled: boolean;
+	/**
+	 * Whether the Base Map's glyphs and sprites were written too.
+	 *
+	 * Separated from {@link baseMapBundled} rather than folded into it, because the two are
+	 * independently true and the Reader meets different failures: without *tiles* the geography is
+	 * absent, and without *glyphs* the geography draws with no place names at all (ADR-0025's 820 KB).
+	 * `ReaderMapPane` drops `glyphs`, `sprite`, and every symbol layer when this is false, and the two
+	 * sentences beside the map say which of the two happened.
+	 */
+	readonly baseMapAssetsBundled: boolean;
+	/**
+	 * The deepest zoom the cached tiles reach, or `null` when there are none.
+	 *
+	 * Carried on the record because a Reader's store is HTTP and **cannot list a directory** (ADR-0006):
+	 * the editor reads this depth back off the files, and a static host gives the viewer no way to. It
+	 * is load-bearing rather than informational — a vector source with no `maxzoom` makes MapLibre ask
+	 * for tiles past the pyramid, every one of which 404s, and the map goes blank at exactly the zoom
+	 * the site was published to work at.
+	 */
+	readonly baseMapMaxZoom: number | null;
 };
 
 /** The site record is there and will not parse. */
@@ -121,7 +151,9 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 			return [{ directory, name: typeof project?.name === 'string' ? project.name : directory }];
 		}),
 		baseMap: isCatalog(record.baseMap) ? record.baseMap : BASE_MAP_CATALOG,
-		baseMapBundled: record.baseMapBundled === true
+		baseMapBundled: record.baseMapBundled === true,
+		baseMapAssetsBundled: record.baseMapAssetsBundled === true,
+		baseMapMaxZoom: typeof record.baseMapMaxZoom === 'number' ? record.baseMapMaxZoom : null
 	};
 }
 
@@ -168,7 +200,18 @@ export type PublishPlan = {
 	 * map is in use is the answer rather than the absence of one.
 	 */
 	readonly unusedHistoricalMaps: { readonly bytes: number; readonly maps: number };
+	/**
+	 * Whether the Workspace already carries cached Base Map tiles (ADR-0025).
+	 *
+	 * Observed rather than chosen: publishing copies nothing to make it true, because the tiles are
+	 * already in the directory being published. It is on the plan so the dialog can say whether the
+	 * site will need a network connection (SPEC story 99) before the user pushes it.
+	 */
 	readonly baseMapBundled: boolean;
+	/** Whether glyphs and sprites are being written. The dialog's checkbox decides this one. */
+	readonly baseMapAssetsBundled: boolean;
+	/** How many tiles the cache holds and what they weigh, for the sentence about the site. */
+	readonly baseMapTiles: BaseMapCacheSize;
 	readonly baseMap: BaseMapCatalog;
 	/**
 	 * The address this Workspace's Projects are already stamped for, or `null` (ADR-0004).
@@ -232,6 +275,9 @@ export async function planPublish(
 	// Cheap even beside that walk: the classification and the used-by are one `list` of `images/` and
 	// one read per Project, and the `size` calls happen only for the maps nothing draws — usually none.
 	const unusedHistoricalMaps = await unusedHistoricalMapBytes(store);
+	// ADR-0025: an observation of the folder, not a choice. One `list` of `base-map/tiles/` and a
+	// `size` per tile — the same `list` + `size` discipline as `workspaceSize`, never a `read`.
+	const baseMapTiles = await baseMapCacheSize(store);
 
 	const baseMap = includeBaseMap ? bundle.baseMap : [];
 	// The record is weighed with a plausible length rather than skipped: it is a file publishing
@@ -247,7 +293,9 @@ export async function planPublish(
 				publishedAt: '',
 				projects: listed,
 				catalog,
-				baseMapBundled: includeBaseMap
+				baseMapBundled: baseMapTiles.tiles > 0,
+				baseMapAssetsBundled: includeBaseMap,
+				baseMapMaxZoom: baseMapTiles.maxZoom
 			})
 		).byteLength
 	};
@@ -274,9 +322,14 @@ export async function planPublish(
 			kind: 'base-map-size',
 			message:
 				`Including Base Map labels and symbols writes ${baseMap.length} more files, about ` +
-				`${describeBytes(bundleBytes(baseMap))}, into this Workspace. The Base Map tiles still ` +
-				`need a network connection, and these files count against the same hosting budget as ` +
-				`your Historical Maps.`
+				`${describeBytes(bundleBytes(baseMap))}, into this Workspace. ` +
+				(baseMapTiles.tiles > 0
+					? `The Base Map tiles are already here — ${baseMapTiles.tiles} of them, ` +
+						`${describeBytes(baseMapTiles.bytes)} — so this site will draw its geography with no ` +
+						`network connection. `
+					: `The Base Map tiles still need a network connection: make a Project available offline ` +
+						`if the site has to draw its geography on a train. `) +
+				`These files count against the same hosting budget as your Historical Maps.`
 		});
 	}
 
@@ -294,7 +347,9 @@ export async function planPublish(
 		bytes,
 		workspace,
 		unusedHistoricalMaps,
-		baseMapBundled: includeBaseMap && baseMap.length > 0,
+		baseMapBundled: baseMapTiles.tiles > 0,
+		baseMapAssetsBundled: includeBaseMap && baseMap.length > 0,
+		baseMapTiles,
 		baseMap: catalog,
 		canonicalUrl,
 		collisions,
@@ -495,7 +550,9 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 		publishedAt: now().toISOString(),
 		projects: plan.projects,
 		catalog: plan.baseMap,
-		baseMapBundled: plan.baseMapBundled
+		baseMapBundled: plan.baseMapBundled,
+		baseMapAssetsBundled: plan.baseMapAssetsBundled,
+		baseMapMaxZoom: plan.baseMapTiles.maxZoom
 	});
 	await store.write(PUBLISHED_SITE_RECORD_NAME, serialisePublishedSite(site));
 	written += 1;
@@ -525,6 +582,15 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
  * ones beside the old, and ADR-0006 records that accumulation as an accepted cost of publishing into
  * the working folder. Sweeping it would be a change to that decision rather than a repair of this
  * one.
+ *
+ * ⚠ **`base-map/tiles/` is left alone too, and that one is not a preference.** `base-map/` is a
+ * recorded viewer directory because of its glyphs and sprites, and since ADR-0025 the opt-in offline
+ * tile cache lives inside it — bytes a user deliberately asked for, fetched from somebody else's
+ * server, and never written by publishing. Without this guard, publishing once with the Base Map
+ * checkbox off would delete every one of them: no dialog, no message, and the Project silently stops
+ * being available offline. It is the same shape as the loss this function was written to *avoid*, in
+ * the opposite direction. `publish.test.ts` asserts the cache survives a publish that omits the Base
+ * Map, because nothing else in the codebase would notice.
  */
 async function removeSupersededFiles(
 	store: ProjectStore,
@@ -534,6 +600,7 @@ async function removeSupersededFiles(
 		if (recorded === PUBLISHED_APP_DIRECTORY) continue;
 		if (recorded.endsWith('/')) {
 			for (const path of await store.list(recorded)) {
+				if (path.startsWith(BASE_MAP_TILE_DIRECTORY)) continue;
 				if (!planned.has(path)) await store.delete(path);
 			}
 		} else if (!planned.has(recorded)) {
@@ -550,13 +617,17 @@ const siteRecord = (fields: {
 	projects: readonly PublishedProject[];
 	catalog: BaseMapCatalog;
 	baseMapBundled: boolean;
+	baseMapAssetsBundled: boolean;
+	baseMapMaxZoom: number | null;
 }): PublishedSite => ({
 	formatVersion: PUBLISHED_SITE_FORMAT_VERSION,
 	viewerVersion: fields.viewerVersion,
 	publishedAt: fields.publishedAt,
 	projects: fields.projects,
 	baseMap: fields.catalog,
-	baseMapBundled: fields.baseMapBundled
+	baseMapBundled: fields.baseMapBundled,
+	baseMapAssetsBundled: fields.baseMapAssetsBundled,
+	baseMapMaxZoom: fields.baseMapMaxZoom
 });
 
 /**

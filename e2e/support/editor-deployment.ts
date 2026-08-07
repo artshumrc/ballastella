@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import type { Page } from '@playwright/test';
+import { PMTiles } from 'pmtiles';
 
 // A static web server for the **editor's own build**, so that the PWA slice can be driven at a
 // domain root and in a project subdirectory, and so that a second version of the app can be
@@ -162,6 +163,87 @@ export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<
 			body: served.body
 		});
 	});
+}
+
+/**
+ * `base-map/tiles/{z}/{x}/{y}.mvt`, and the tiles a box needs from zoom 0 up.
+ *
+ * Duplicated from `@ballastella/core`'s `base-map/tile-cache.ts` rather than imported, because the
+ * workspace-level tsconfig deliberately covers only `e2e/` and `playwright.config.ts` — the same
+ * reason `viewer-reader.e2e.ts` re-declares the Reader's map handle structurally. The duplication is
+ * safe in the direction that matters: this harness *produces* the layout the app *reads*, so a drift
+ * between the two makes the offline assertion fail rather than pass quietly.
+ */
+const cachedTilePath = (tile: { z: number; x: number; y: number }): string =>
+	`base-map/tiles/${tile.z}/${tile.x}/${tile.y}.mvt`;
+
+function tilesForBounds(
+	bounds: { west: number; south: number; east: number; north: number },
+	maxZoom: number
+): { z: number; x: number; y: number }[] {
+	const limit = 85.0511287798066;
+	const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
+	const tileX = (lng: number, z: number) => Math.floor(((lng + 180) / 360) * 2 ** z);
+	const tileY = (lat: number, z: number) => {
+		const radians = (clamp(lat, -limit, limit) * Math.PI) / 180;
+		const fraction = (1 - Math.log(Math.tan(radians) + 1 / Math.cos(radians)) / Math.PI) / 2;
+		return clamp(Math.floor(fraction * 2 ** z), 0, 2 ** z - 1);
+	};
+	const tiles: { z: number; x: number; y: number }[] = [];
+	for (let z = 0; z <= maxZoom; z += 1) {
+		const width = 2 ** z;
+		const first = tileX(bounds.west, z);
+		const columns = Math.min(tileX(bounds.east, z) - first + 1, width);
+		for (let step = 0; step < columns; step += 1) {
+			const x = (((first + step) % width) + width) % width;
+			for (let y = tileY(bounds.north, z); y <= tileY(bounds.south, z); y += 1)
+				tiles.push({ z, x, y });
+		}
+	}
+	return tiles;
+}
+
+/**
+ * The fixture archive's tiles as the Workspace cache holds them: `base-map/tiles/{z}/{x}/{y}.mvt`.
+ *
+ * **Real bytes out of the real archive, decompressed exactly as the app decompresses them.**
+ * `PMTiles#getZxy` applies `decompress(data, header.tileCompression)` before returning, which is why
+ * the cache stores decompressed MVT and why the protocol handler serves it unconverted (ADR-0025).
+ * Producing these any other way — a zero-filled placeholder, or the archive's gzipped bytes — would
+ * make the Published Site's offline assertion vacuous in the exact direction the ADR warns about: the
+ * tiles would arrive, MapLibre would parse nothing, and no error would be raised anywhere.
+ *
+ * @param bounds the extent to cache, defaulting to the whole fixture archive's own extent
+ * @param maxZoom the deepest zoom to include, defaulting to the archive's own maximum
+ */
+export async function cachedBaseMapTiles(
+	bounds?: { west: number; south: number; east: number; north: number },
+	maxZoom?: number
+): Promise<{ files: Record<string, Uint8Array>; maxZoom: number }> {
+	const bytes = await baseMapArchiveFixture();
+	const archive = new PMTiles({
+		getKey: () => 'fixture',
+		async getBytes(offset: number, length: number) {
+			const end = Math.min(offset + length, bytes.length);
+			return {
+				data: bytes.buffer.slice(bytes.byteOffset + offset, bytes.byteOffset + end) as ArrayBuffer
+			};
+		}
+	});
+	const header = await archive.getHeader();
+	const extent = bounds ?? {
+		west: header.minLon,
+		south: header.minLat,
+		east: header.maxLon,
+		north: header.maxLat
+	};
+	const top = maxZoom ?? header.maxZoom;
+	const files: Record<string, Uint8Array> = {};
+	for (const tile of tilesForBounds(extent, top)) {
+		const found = await archive.getZxy(tile.z, tile.x, tile.y);
+		if (found) files[cachedTilePath(tile)] = new Uint8Array(found.data);
+	}
+	return { files, maxZoom: top };
 }
 
 export type EditorDeployment = {

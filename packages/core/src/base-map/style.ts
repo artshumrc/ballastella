@@ -33,6 +33,21 @@ export type BaseMapStyleOptions = {
 	 * `{flavor}` placeholders intact, so an implementation must not percent-encode them.
 	 */
 	readonly resolveAsset?: (path: string) => string;
+	/**
+	 * Read the Base Map from the Workspace's own tile cache instead of from the entry's archive
+	 * (ADR-0025).
+	 *
+	 * `maxZoom` is the highest zoom the cache was filled to, which is the source archive's own
+	 * maximum. It is not decoration: without it MapLibre asks for tiles above the pyramid and every
+	 * one of them is an empty tile, so the map goes blank at exactly the zoom a user was told works
+	 * offline. With it, MapLibre overzooms the deepest cached tile, which is what a scholar sees as
+	 * "the map keeps working when I zoom in".
+	 *
+	 * `tileTemplate` is passed in rather than imported, because this module is evaluated in Node
+	 * during both apps' prerender and the protocol module imports `maplibre-gl` — see the note at the
+	 * bottom of `src/index.ts`. The caller hands over `cachedBaseMapTileTemplate()`.
+	 */
+	readonly cachedTiles?: { readonly maxZoom: number; readonly tileTemplate: string };
 };
 
 const identity = (path: string): string => path;
@@ -62,13 +77,27 @@ export function baseMapStyle(
 		glyphs: resolveAsset(catalog.glyphs),
 		sprite: resolveAsset(catalog.sprite).replace('{flavor}', flavorName),
 		sources: {
-			[BASE_MAP_SOURCE_ID]: {
-				type: 'vector',
-				// The pmtiles protocol reads a single archive over HTTP Range requests, so this URL
-				// is a static file and there is no tile server anywhere in the picture (ADR-0005).
-				url: `pmtiles://${archiveUrl(entry, resolveAsset)}`,
-				attribution: catalog.attribution
-			}
+			[BASE_MAP_SOURCE_ID]: options.cachedTiles
+				? {
+						type: 'vector',
+						// One tile file per request through the `addProtocol` handler, out of the Workspace.
+						// No archive and no range requests — see ADR-0025 for why the cache is files.
+						tiles: [options.cachedTiles.tileTemplate],
+						minzoom: 0,
+						maxzoom: options.cachedTiles.maxZoom,
+						// ODbL does not lapse because no request left the machine. The obligation is the
+						// data's, not the transport's, so the cached source carries the same string the
+						// networked one does — and it is the *same* string, from the same catalog, rather
+						// than a second copy that could be edited on one path only.
+						attribution: catalog.attribution
+					}
+				: {
+						type: 'vector',
+						// The pmtiles protocol reads a single archive over HTTP Range requests, so this URL
+						// is a static file and there is no tile server anywhere in the picture (ADR-0005).
+						url: `pmtiles://${archiveUrl(entry, resolveAsset)}`,
+						attribution: catalog.attribution
+					}
 		},
 		layers: emphasisedLayers(
 			layers(BASE_MAP_SOURCE_ID, flavor, { lang: LABEL_LANGUAGE }),

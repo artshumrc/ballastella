@@ -32,15 +32,18 @@
 	// and this is not — see the note at the bottom of `packages/core/src/index.ts`.
 	import {
 		annotationLayerIds,
+		cachedBaseMapTileTemplate,
 		createWarpedMapLayer,
 		drawLayerStack,
 		isDrawnMap,
+		registerCachedBaseMapTiles,
 		registerPmtilesProtocol,
 		showAlignment,
 		showAnnotationPopup,
 		updateAlignment,
 		type DrawnLayer,
 		type DrawnOutcome,
+		type ReadCachedTile,
 		type StackRender,
 		type WarpedRender
 	} from '@ballastella/core/render';
@@ -58,6 +61,7 @@
 
 	let {
 		entryId,
+		cachedBaseMap = null,
 		overlayPoints = [],
 		alignment = null,
 		layers = [],
@@ -75,6 +79,19 @@
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
+		/**
+		 * Draw the Base Map from the Workspace's own tile cache instead of from the entry's archive
+		 * (ADR-0025), or `null` to read the archive as usual.
+		 *
+		 * `maxZoom` is the depth the cache was filled to — the source archive's own maximum — and it is
+		 * load-bearing: without it MapLibre asks for tiles past the pyramid, every one comes back empty,
+		 * and the map goes blank at exactly the zoom the user was told works offline.
+		 *
+		 * The pane decides nothing about *whether* the cache is complete. That is the page's question and
+		 * `offlineCoverage`'s answer, because a partial cache draws holes and reports no error — which is
+		 * precisely why the Project-level claim is computed from the files rather than from the renderer.
+		 */
+		cachedBaseMap?: { maxZoom: number; readTile: ReadCachedTile } | null;
 		overlayPoints?: BaseMapOverlayPoint[];
 		/**
 		 * The Alignment to draw warped over the geography, or `null` for none.
@@ -193,12 +210,20 @@
 	 */
 	let painted = '';
 
-	const paintKey = (id: string, currentTheme: string): string => `${id}@${currentTheme}`;
+	/**
+	 * What the map is painted from, as one string. The cache is in it because switching between the
+	 * archive and the Workspace's tiles is a different *source*, which only `setStyle` can change.
+	 */
+	const paintKey = (id: string, currentTheme: string, cachedTo: number | null): string =>
+		`${id}@${currentTheme}@${cachedTo ?? 'network'}`;
 
 	const styleFor = (id: string): StyleSpecification =>
 		baseMapStyle(resolveBaseMap(id).entry, {
 			theme: theme.current,
-			resolveAsset: resolveDeploymentAsset
+			resolveAsset: resolveDeploymentAsset,
+			cachedTiles: cachedBaseMap
+				? { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() }
+				: undefined
 		});
 
 	/**
@@ -311,7 +336,7 @@
 			onclickpoint?.({ lng: centre.lng, lat: centre.lat });
 		});
 
-		painted = paintKey(entryId, theme.current);
+		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
 		map = created;
 		const unexpose = exposeBaseMapToBrowserTests(created);
 
@@ -319,8 +344,21 @@
 		return unexpose;
 	});
 
+	/**
+	 * Serve the Workspace's cached tiles, for as long as this pane is asking for them (ADR-0011).
+	 *
+	 * Registered *before* the style that reads them is applied — MapLibre requests a source's tiles as
+	 * soon as it is given one, and a template under an unregistered protocol throws per tile. Its own
+	 * effect rather than a line inside the repaint below, so the registration outlives a theme change.
+	 */
 	$effect(() => {
-		const wanted = paintKey(entryId, theme.current);
+		const cache = cachedBaseMap;
+		if (!cache) return;
+		return registerCachedBaseMapTiles(cache.readTile);
+	});
+
+	$effect(() => {
+		const wanted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;

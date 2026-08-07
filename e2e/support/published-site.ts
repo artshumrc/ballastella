@@ -92,7 +92,14 @@ export function siteRecord(
 			viewerVersion: 'test-viewer',
 			publishedAt: '2026-08-06T00:00:00.000Z',
 			projects: [...projects],
-			baseMapBundled: true,
+			// **Two independent facts since ticket 11** (ADR-0025). `baseMapBundled` now means the site
+			// carries cached *tiles* under `base-map/tiles/`, which `writePublishedSite` does not write
+			// unless a test asks for them; `baseMapAssetsBundled` is the glyphs and sprites, which it
+			// copies by default. Conflating them is what the field used to do, and the two failures read
+			// completely differently to a Reader: no tiles is no geography, no glyphs is no place names.
+			baseMapBundled: false,
+			baseMapAssetsBundled: true,
+			baseMapMaxZoom: null,
 			...overrides
 		},
 		null,

@@ -241,6 +241,41 @@
 			: '';
 	};
 
+	// ── The offline Base Map cache (ADR-0025) ───────────────────────────────────────────────────
+	//
+	// Beside the Historical Maps and for the same reason: it is Workspace-level, it is the other thing
+	// in here that can be several hundred megabytes, and "what does this Workspace hold, and what can
+	// I reclaim" is a question about the Workspace. Clearing it makes every Project report itself not
+	// available offline — which needs no code here, because that claim is computed from these files.
+
+	let baseMapCache = $state<{ tiles: number; bytes: number } | null>(null);
+	/** What just happened to the cache, for the live region. `''` when nothing has. */
+	let baseMapCacheMessage = $state('');
+	let clearingCache = $state(false);
+
+	// Re-read whenever the Project list changes, alongside the Historical Maps walk: this is one
+	// `list` of `base-map/tiles/` and a `size` per tile, never a `read`.
+	$effect(() => {
+		void session.projects;
+		void cacheGeneration;
+		void (async () => {
+			baseMapCache = await session.baseMapCacheSize();
+		})();
+	});
+
+	/** Bumped after a clear, so the line follows the disk rather than a tally kept here. */
+	let cacheGeneration = $state(0);
+
+	const clearCache = async () => {
+		clearingCache = false;
+		const cleared = await session.clearBaseMapCache();
+		cacheGeneration += 1;
+		baseMapCacheMessage =
+			cleared === 0
+				? 'There were no cached Base Map tiles to remove.'
+				: `Removed ${cleared} cached Base Map ${cleared === 1 ? 'tile' : 'tiles'}. Every Project now needs a network connection for its Base Map until you make it available offline again.`;
+	};
+
 	/** A transfer in flight, which the Export buttons must not lose focus to (SPEC story 95). */
 	const transferring = $derived(session.transfer !== null && !session.transfer.finished);
 
@@ -469,8 +504,61 @@
 					: ''}.
 			</p>
 		{/if}
+
+		<!--
+			The offline Base Map, listed beside the Historical Maps and reclaimable from here (ADR-0025).
+			Visible text and a real button, never a badge or an icon (SPEC story 111).
+		-->
+		<h3 class="mt-8 text-xl font-semibold">Offline Base Map</h3>
+		<p class="mt-1 text-sm opacity-70" data-testid="base-map-cache">
+			{#if baseMapCache === null}
+				Looking at what this Workspace holds…
+			{:else if baseMapCache.tiles === 0}
+				No Base Map tiles are kept in this Workspace, so every Project needs a network connection to
+				draw its Base Map. Open a Project and choose “Make this Project available offline” to keep
+				the tiles its own work covers.
+			{:else}
+				{describeBytes(baseMapCache.bytes)} in
+				{baseMapCache.tiles}
+				{baseMapCache.tiles === 1 ? 'tile' : 'tiles'}, shared by every Project in this Workspace. A
+				Project draws its Base Map with no network connection when the tiles its work covers are all
+				here.
+			{/if}
+		</p>
+		<p aria-live="polite" class="mt-2 text-sm opacity-80" data-testid="base-map-cache-status">
+			{baseMapCacheMessage}
+		</p>
+		{#if baseMapCache !== null && baseMapCache.tiles > 0}
+			<button
+				class="btn mt-2 btn-outline btn-error btn-sm"
+				data-testid="clear-base-map-cache"
+				onclick={() => (clearingCache = true)}
+			>
+				Remove the offline Base Map
+			</button>
+		{/if}
 	</section>
 {/if}
+
+<ModalDialog
+	bind:open={() => clearingCache, (open) => (clearingCache = open)}
+	title="Remove the offline Base Map"
+>
+	<p>
+		Remove all {baseMapCache?.tiles ?? 0} cached Base Map
+		{(baseMapCache?.tiles ?? 0) === 1 ? 'tile' : 'tiles'} and reclaim
+		{describeBytes(baseMapCache?.bytes ?? 0)}?
+	</p>
+	<p class="mt-3 text-sm opacity-70" data-testid="clear-cache-consequence">
+		Every Project in this Workspace will stop being available offline and will need a network
+		connection to draw its Base Map. Nothing else is touched: your Historical Maps, Alignments, and
+		Annotations are not part of this, and any Project can be made available offline again.
+	</p>
+	{#snippet actions()}
+		<button class="btn" onclick={() => (clearingCache = false)}>Cancel</button>
+		<button class="btn btn-error" onclick={clearCache}>Remove the offline Base Map</button>
+	{/snippet}
+</ModalDialog>
 
 <ModalDialog
 	bind:open={() => deletingMap !== null, (open) => !open && (deletingMap = null)}

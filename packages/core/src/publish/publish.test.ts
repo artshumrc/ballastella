@@ -527,6 +527,43 @@ describe('publishing', () => {
 		expect(decode(await store.read('index.html'))).toBe('bytes of viewer-bundle/index.html');
 	});
 
+	it('leaves the offline tile cache alone when this publish omits the Base Map', async () => {
+		// ⚠ The one thing the sweep above must not reach. `base-map/` is a recorded viewer directory,
+		// and since ADR-0025 the opt-in tile cache lives inside it — bytes a user asked for and fetched
+		// from somebody else's server. Publishing once with the checkbox off used to delete every one of
+		// them silently, and the Project would simply stop being available offline with nothing said.
+		await store.write('base-map/tiles/0/0/0.mvt', new Uint8Array([1, 2, 3]));
+		await store.write('base-map/tiles/14/8414/5383.mvt', new Uint8Array([4, 5]));
+
+		await publish({ includeBaseMap: true });
+		await publish({ includeBaseMap: false });
+
+		expect(await store.list('base-map/')).toEqual([
+			'base-map/tiles/0/0/0.mvt',
+			'base-map/tiles/14/8414/5383.mvt'
+		]);
+		expect([...(await store.read('base-map/tiles/0/0/0.mvt'))]).toEqual([1, 2, 3]);
+	});
+
+	it('records a Workspace carrying cached tiles as having its Base Map, whatever the checkbox said', async () => {
+		// ADR-0025's change of meaning: `baseMapBundled` is now an observation of the folder, and
+		// publishing copies nothing to make it true — the tiles are already in the published root. The
+		// glyphs and sprites are the separate, chosen half.
+		await store.write('base-map/tiles/0/0/0.mvt', new Uint8Array([1]));
+		await publish({ includeBaseMap: false });
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+		expect(record.baseMapBundled).toBe(true);
+		expect(record.baseMapAssetsBundled).toBe(false);
+	});
+
+	it('records the glyphs and sprites separately from the tiles', async () => {
+		await publish({ includeBaseMap: true });
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+		// No tiles cached, so the geography still needs the network; the labels do not.
+		expect(record.baseMapBundled).toBe(false);
+		expect(record.baseMapAssetsBundled).toBe(true);
+	});
+
 	it('keeps the hashed chunks an earlier viewer left, which ADR-0006 accepts', async () => {
 		// The counterpart to the sweep above, and the reason it is not simply "delete what is not in
 		// the plan": `_app/` holds content-hashed names, so an edited viewer writes new ones beside the
@@ -626,7 +663,9 @@ describe('telling the author a Published Site is behind', () => {
 		publishedAt: '2026-01-01T00:00:00.000Z',
 		projects: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }],
 		baseMap: FORKED_CATALOG,
-		baseMapBundled: false
+		baseMapBundled: false,
+		baseMapAssetsBundled: false,
+		baseMapMaxZoom: null
 	};
 	const summary = (directory: string, name: string) => ({
 		directory,

@@ -47,12 +47,15 @@
 	} from '@ballastella/core';
 	import {
 		annotationLayerIds,
+		cachedBaseMapTileTemplate,
 		drawLayerStack,
 		isDrawnMap,
+		registerCachedBaseMapTiles,
 		registerPmtilesProtocol,
 		showAnnotationPopup,
 		type DrawnLayer,
 		type DrawnOutcome,
+		type ReadCachedTile,
 		type StackRender
 	} from '@ballastella/core/render';
 	import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
@@ -67,6 +70,7 @@
 		entryId,
 		catalog,
 		bundledBaseMapAvailable,
+		cachedBaseMap = null,
 		layers = [],
 		openingFit = null,
 		fetchTile,
@@ -98,6 +102,16 @@
 		 * blank map with nothing to explain it. See {@link styleFor}.
 		 */
 		bundledBaseMapAvailable: boolean;
+		/**
+		 * Draw the geography from the site's own `base-map/tiles/…` rather than from the entry's archive
+		 * (ADR-0025), or `null` to read the archive as usual.
+		 *
+		 * Independent of {@link bundledBaseMapAvailable}, which is about glyphs and sprites: a site can
+		 * carry tiles and no labels, or labels and no tiles, and the two failures read differently to a
+		 * Reader. `maxZoom` comes off the site record because a static host cannot be asked to list a
+		 * directory — see `PublishedSite.baseMapMaxZoom`.
+		 */
+		cachedBaseMap?: { maxZoom: number; readTile: ReadCachedTile } | null;
 		/**
 		 * The Layers to draw, top of the stack first, with each Layer's documents already read.
 		 *
@@ -153,7 +167,8 @@
 	/** What the map is currently painted with. A plain `let`: nothing may re-run when it changes. */
 	let painted = '';
 
-	const paintKey = (id: string, currentTheme: string): string => `${id}@${currentTheme}`;
+	const paintKey = (id: string, currentTheme: string, cachedTo: number | null): string =>
+		`${id}@${currentTheme}@${cachedTo ?? 'network'}`;
 
 	/**
 	 * The style for one catalog entry at the current theme.
@@ -172,6 +187,22 @@
 	 */
 	const styleFor = (id: string): StyleSpecification => {
 		const entry = catalog.entries.find((candidate) => candidate.id === id) ?? defaultEntry(catalog);
+		// The site's own tiles answer first, whatever the entry's archive says: they are here, they need
+		// no network, and they are the whole of ADR-0025's promise for a Published Site. The glyph and
+		// sprite handling below is unchanged and independent — a site can carry tiles and no labels.
+		if (cachedBaseMap) {
+			const cached = baseMapStyle(entry, {
+				theme: theme.current,
+				catalog,
+				resolveAsset: resolveSiteAsset,
+				cachedTiles: { maxZoom: cachedBaseMap.maxZoom, tileTemplate: cachedBaseMapTileTemplate() }
+			});
+			if (bundledBaseMapAvailable) return cached;
+			const withoutAssets = { ...cached };
+			delete withoutAssets.glyphs;
+			delete withoutAssets.sprite;
+			return { ...withoutAssets, layers: cached.layers.filter((layer) => layer.type !== 'symbol') };
+		}
 		if (!bundledBaseMapAvailable && !isAbsoluteUrl(entry.archive)) {
 			return {
 				version: 8,
@@ -289,7 +320,7 @@
 			if (hit) onclickannotation?.({ ...hit, at });
 		});
 
-		painted = paintKey(entryId, theme.current);
+		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
 		map = created;
 
 		return () => {
@@ -300,8 +331,21 @@
 		};
 	});
 
+	/**
+	 * Serve the site's own Base Map tiles, for as long as this pane is asking for them (ADR-0011).
+	 *
+	 * Registered in its own effect rather than inside `onMount`, so it survives a theme change's
+	 * `setStyle` — and so it is in place before the style that reads the template is applied, since
+	 * MapLibre requests a source's tiles the moment it is given one.
+	 */
 	$effect(() => {
-		const wanted = paintKey(entryId, theme.current);
+		const cache = cachedBaseMap;
+		if (!cache) return;
+		return registerCachedBaseMapTiles(cache.readTile);
+	});
+
+	$effect(() => {
+		const wanted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
 		const current = map;
 		if (current === undefined || painted === wanted) return;
 		painted = wanted;

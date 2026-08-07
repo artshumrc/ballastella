@@ -18,6 +18,13 @@
 export { showAnnotationPopup, type AnnotationPopup } from './annotation-popup.js';
 export { distortionRamp } from './distortion-ramp.js';
 export { registerPmtilesProtocol } from './pmtiles-protocol.js';
+// The Workspace's own Base Map tiles, behind ADR-0011's third `addProtocol` handler (ADR-0025).
+export {
+	BASE_MAP_TILE_PROTOCOL,
+	cachedBaseMapTileTemplate,
+	registerCachedBaseMapTiles,
+	type ReadCachedTile
+} from './base-map-tile-protocol.js';
 export {
 	annotationLayerIds,
 	drawLayerStack,

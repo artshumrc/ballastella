@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { baseMapArchiveFixture, byteRange, routeBaseMapArchive } from './support/editor-deployment';
+import {
+	baseMapArchiveFixture,
+	byteRange,
+	cachedBaseMapTiles,
+	routeBaseMapArchive
+} from './support/editor-deployment';
 
 import {
 	servePublishedSite,
@@ -54,6 +59,7 @@ type ReaderMapHandle = {
 	map: {
 		getLayersOrder(): string[];
 		getStyle(): { layers: Record<string, unknown>[] };
+		queryRenderedFeatures(): { layer: { id: string } }[];
 		project(lngLat: [number, number]): { x: number; y: number };
 		jumpTo(options: { center: [number, number]; zoom?: number }): void;
 		fitBounds(bounds: unknown, options?: Record<string, unknown>): void;
@@ -77,6 +83,8 @@ declare global {
 		/** Set by an XSS payload that ran. Nothing in the app touches it. */
 		__xss?: unknown;
 		ballastellaReaderMap?: ReaderMapHandle;
+		/** Cached Base Map tiles the protocol handler answered **with bytes** (ticket 11). */
+		ballastellaServedBaseMapTiles?: { z: number; x: number; y: number; bytes: number }[];
 	}
 }
 
@@ -1235,7 +1243,7 @@ test.describe('a Published Site that is not entirely well', () => {
 				body: served.body
 			});
 		});
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapBundled: true }));
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
 		const served = site.sites[0]!;
 		const seen = watch(page);
 
@@ -1257,6 +1265,64 @@ test.describe('a Published Site that is not entirely well', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
+	test('draws its Base Map from its own cached tiles with the archive unreachable', async ({
+		page
+	}) => {
+		// ADR-0025 from the Reader's side. A scholar made a Project available offline before publishing,
+		// so `base-map/tiles/…` is part of the site — publishing copied nothing extra, because the tiles
+		// were already in the Workspace that *is* the published root.
+		//
+		// **The archive is aborted, not merely unused.** Every catalog entry points at somebody else's
+		// bucket, so leaving it reachable would let this pass with the cache doing nothing at all. With
+		// it refused, anything drawn came out of the site's own files.
+		//
+		// And the claim rests on served bytes *and* drawn geometry together, never on the absence of an
+		// error: the compression mistake ADR-0025 names serves bytes, parses nothing, and throws nothing.
+		const cached = await cachedBaseMapTiles();
+		site = await published({
+			...oneProject(
+				{ baseMap: 'physical' },
+				{ baseMapBundled: true, baseMapMaxZoom: cached.maxZoom }
+			),
+			...cached.files
+		});
+		const served = site.sites[0]!;
+		const seen = watch(page);
+
+		await page.route(/\.pmtiles$/, (route) => route.abort());
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await mapReady(page);
+
+		await expect
+			.poll(
+				async () => (await page.evaluate(() => window.ballastellaServedBaseMapTiles ?? [])).length,
+				{ timeout: 60_000 }
+			)
+			.toBeGreaterThan(0);
+		await expect
+			.poll(
+				() =>
+					page.evaluate(
+						() =>
+							new Set(
+								(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).map(
+									(feature) => feature.layer.id
+								)
+							).size
+					),
+				{ timeout: 60_000 }
+			)
+			.toBeGreaterThan(0);
+
+		// The Reader's own work still draws over it, and the licence still says whose data this is.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		await expect(page.locator('.maplibregl-ctrl-attrib')).toContainText('OpenStreetMap');
+		// Nothing was missing from the site, and the page threw nothing.
+		expect(served.failures).toEqual([]);
+		expect(seen.failures).toEqual([]);
+	});
+
 	test('says so when the site carries no copy of the Base Map’s labels and symbols', async ({
 		page
 	}) => {
@@ -1270,7 +1336,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		// symbol layers rather than 404ing at files that are not there, and the question this test
 		// exists to answer is whether the Reader is told. A geography-only map with no account of
 		// itself is precisely the silent failure this ticket forbids.
-		site = await published(oneProject({ baseMap: 'physical' }, { baseMapBundled: false }), {
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: false }), {
 			withoutBaseMap: true
 		});
 		const served = site.sites[0]!;

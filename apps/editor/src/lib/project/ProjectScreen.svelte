@@ -49,6 +49,7 @@
 		type Layer,
 		type LineStyle,
 		type MapLayer,
+		type BaseMapCacheSize,
 		type OpeningViewFit,
 		type OpeningViewOutcome
 	} from '@ballastella/core';
@@ -59,6 +60,8 @@
 	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
+	import MakeOfflineDialog from '$lib/base-map/MakeOfflineDialog.svelte';
+	import { MakeProjectOffline, readOfflineCoverage } from '$lib/base-map/make-offline.svelte.js';
 	import { fitToProjectContent } from '$lib/base-map/opening-view';
 	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
@@ -762,6 +765,101 @@
 		await commitAnnotations(setLineStyle(collection, id, line));
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// Making this Project available offline (ADR-0025, SPEC stories 6, 70–73)
+	//
+	// **Nothing here is stored and nothing is a flag.** Whether this Project is available offline is
+	// `offlineCoverage`'s answer to "are the tiles this extent needs on disk?", re-asked whenever the
+	// Project's content changes and after every fetch. That is what makes a second Project in the same
+	// city offline for free, a Project whose work has spread not offline any more, and the hub's clear
+	// action able to unmake every claim at once — none of which is code here.
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	const offline = new MakeProjectOffline(() => session!);
+
+	/** What the Workspace's cache holds. `null` until it has been looked at. */
+	let cache = $state.raw<BaseMapCacheSize | null>(null);
+	/**
+	 * Whether this Project is available offline, or `null` when it could not be decided.
+	 *
+	 * Three states rather than two, and the third is the one that matters: deciding needs the source
+	 * archive's maximum zoom, which needs the network. With no connection the honest answer is "not
+	 * known", and the map is drawn from whatever the cache holds regardless — see {@link cachedBaseMap}.
+	 */
+	let offlineReady = $state<boolean | null>(null);
+	/** What to say about it, beside the map. */
+	let offlineSummary = $state('');
+	/** Bumped to re-ask after a fetch, so the sentence and the source both follow the disk. */
+	let offlineGeneration = $state(0);
+
+	/**
+	 * Re-read the cache and the coverage.
+	 *
+	 * Cheap and store-only in its first half — one `list` of `base-map/tiles/` — so the map can be
+	 * drawn from the cache before anything has been asked of the network. The coverage half opens the
+	 * archive and is allowed to fail: with no connection there is no way to know how deep the source
+	 * goes, and claiming completeness against a number read off our own cache is exactly the vacuous
+	 * claim ADR-0025 refuses.
+	 */
+	async function readOfflineState(): Promise<void> {
+		const current = session;
+		const entry = resolution?.entry;
+		if (!current || !entry) return;
+		cache = await current.baseMapCacheSize();
+		try {
+			const read = await readOfflineCoverage(current, entry, layers);
+			offlineReady = read.coverage?.complete ?? false;
+			offlineSummary =
+				read.bounds === null
+					? 'This Project has nothing placed on the earth yet, so there is no area to make available offline.'
+					: read.coverage?.complete
+						? `Available offline: all ${read.coverage.budget.count} Base Map tiles this Project’s work covers are in this Workspace.`
+						: `Not available offline: ${read.coverage?.present ?? 0} of ${read.coverage?.budget.count ?? 0} Base Map tiles this Project’s work covers are in this Workspace.`;
+		} catch {
+			offlineReady = null;
+			offlineSummary =
+				(cache?.tiles ?? 0) > 0
+					? `The Base Map is being drawn from the ${cache?.tiles} tiles in this Workspace. Whether that covers everything this Project needs cannot be checked without a connection.`
+					: 'The Base Map needs a network connection, and there is none. Your Historical Maps, Alignments, and Annotations are all still here.';
+		}
+	}
+
+	/**
+	 * Which Base Map the pane draws: the Workspace's tiles, or the deployment's archive.
+	 *
+	 * The cache wins when it is **known to be complete for this Project**, and also when the archive
+	 * could not be reached at all. It deliberately loses to the network when the cache is known to be
+	 * partial: one MapLibre source cannot mix the two, and a half-filled cache preferred while online
+	 * would draw holes in a map that could have drawn properly. The line beside the map says which of
+	 * the three it is, so none of it is silent.
+	 */
+	const cachedBaseMap = $derived.by(() => {
+		const held = cache;
+		const readTile = session?.readCachedBaseMapTile();
+		if (!held || held.maxZoom === null || !readTile) return null;
+		if (offlineReady === false) return null;
+		return { maxZoom: held.maxZoom, readTile };
+	});
+
+	// Re-read when the Project opens, when its Layers' documents change, and when the Base Map does —
+	// each of those changes the extent or the pyramid the question is about. Not on every render: the
+	// first half is a `list` and the second opens the archive's header.
+	$effect(() => {
+		void openDirectory;
+		void documentKey;
+		void resolution?.entry.id;
+		void offlineGeneration;
+		void readOfflineState();
+	});
+
+	// A finished run changes the files, so the sentence and the source both have to be re-read from
+	// them. Keyed off the job's completion message rather than off a callback, because the job also
+	// finishes by being cancelled and by finding nothing to do, and all three change the disk.
+	$effect(() => {
+		if (offline.completed === '') return;
+		untrack(() => (offlineGeneration += 1));
+	});
+
 	/** Choosing another Layer abandons a part-drawn shape and clears the selection with it. */
 	function chooseLayer(id: string): void {
 		chosenLayerId = id;
@@ -965,6 +1063,8 @@
 
 			<a class="link text-sm" href={resolve('/')}>Back to all Projects</a>
 		</div>
+
+		<MakeOfflineDialog job={offline} entry={resolution.entry} {layers} />
 
 		<div class="flex min-h-0 grow">
 			<!--
@@ -1229,6 +1329,7 @@
 				<div class="min-h-0 grow overflow-hidden" data-testid="project-map">
 					<BaseMapPane
 						entryId={resolution.entry.id}
+						{cachedBaseMap}
 						layers={drawn}
 						{openingFit}
 						overlayPoints={annotationPoints}

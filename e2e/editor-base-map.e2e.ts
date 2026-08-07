@@ -13,6 +13,8 @@ type BaseMapHandle = {
 	isStyleLoaded(): boolean;
 	getCenter(): { lng: number; lat: number };
 	getZoom(): number;
+	setZoom(zoom: number): void;
+	jumpTo(options: { center: [number, number]; zoom: number }): void;
 	getStyle(): { layers: { id: string; paint?: Record<string, unknown> }[] };
 	queryRenderedFeatures(): { layer: { id: string } }[];
 };
@@ -20,6 +22,8 @@ type BaseMapHandle = {
 declare global {
 	interface Window {
 		ballastellaBaseMap?: BaseMapHandle;
+		/** Cached Base Map tiles the protocol handler answered **with bytes** (ticket 11). */
+		ballastellaServedBaseMapTiles?: { z: number; x: number; y: number; bytes: number }[];
 	}
 }
 
@@ -513,6 +517,383 @@ test.describe('the Project the pane opens', () => {
 
 		await expect(page.getByRole('alert')).toContainText('never-existed');
 		expect(await workspaceEntries(page)).toEqual([]);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// Making a Project available offline (ADR-0025, ticket 11)
+//
+// **What makes these tests non-vacuous.** The failure ADR-0025 warns about is bytes served and
+// nothing drawn — a compression mistake produces exactly that, with no error anywhere — so an
+// assertion that the map "has a source", or that no console error appeared, would pass in the
+// broken case. Every drawing claim below therefore rests on two things at once:
+// `window.ballastellaServedBaseMapTiles`, which the protocol handler appends to only for a tile it
+// answered **with bytes**, and `queryRenderedFeatures()`, which is MapLibre reporting geometry it
+// parsed out of those bytes and put on screen. Neither alone is enough; the pair is.
+//
+// **And the network the feature removes is genuinely cut.** The archive route is switched to
+// `abort()` before the offline half, so a pmtiles range request cannot succeed. Anything drawn after
+// that came out of the Workspace.
+
+/** The canal belt, inside the Amsterdam fixture's own extent so the archive really has these tiles. */
+const CANAL_BELT_RING = [
+	[4.88, 52.36],
+	[4.92, 52.36],
+	[4.92, 52.38],
+	[4.88, 52.38],
+	[4.88, 52.36]
+];
+
+/** A Project holding one Annotation Layer, so it has an extent to be made available offline. */
+const projectWithWork = (ring = CANAL_BELT_RING) => ({
+	project: projectJson({
+		layers: [
+			{
+				kind: 'annotation',
+				id: 'notes',
+				name: 'Notes',
+				visible: true,
+				order: 0,
+				geojsonRef: 'annotations/notes.geojson',
+				defaultStyle: {}
+			}
+		]
+	}),
+	annotations: JSON.stringify({
+		type: 'FeatureCollection',
+		features: [
+			{
+				type: 'Feature',
+				id: 'a1',
+				properties: { 'ballastella:id': 'a1', title: 'The canal belt' },
+				geometry: { type: 'Polygon', coordinates: [ring] }
+			}
+		]
+	})
+});
+
+/** Seed a Project directory with its `project.json` and one Annotation file. */
+async function seedProjectWithWork(page: Page, ring = CANAL_BELT_RING): Promise<void> {
+	const seeded = projectWithWork(ring);
+	await seedProject(page, seeded.project);
+	await page.evaluate(
+		async ([directory, geojson]) => {
+			const root = await navigator.storage.getDirectory();
+			const project = await root.getDirectoryHandle(directory, { create: true });
+			const folder = await project.getDirectoryHandle('annotations', { create: true });
+			const handle = await folder.getFileHandle('notes.geojson', { create: true });
+			const writable = await handle.createWritable();
+			await writable.write(geojson);
+			await writable.close();
+		},
+		[PROJECT_DIRECTORY, seeded.annotations] as const
+	);
+}
+
+/** Every cached tile path in the Workspace, sorted. The behaviour *is* the files (SPEC, Seam 1). */
+async function cachedTilePaths(page: Page): Promise<string[]> {
+	return page.evaluate(async () => {
+		const walk = async (
+			directory: FileSystemDirectoryHandle,
+			prefix: string
+		): Promise<string[]> => {
+			const found: string[] = [];
+			for await (const [name, handle] of directory.entries()) {
+				const path = `${prefix}${name}`;
+				if (handle.kind === 'directory') {
+					found.push(...(await walk(handle as FileSystemDirectoryHandle, `${path}/`)));
+				} else {
+					found.push(path);
+				}
+			}
+			return found;
+		};
+		const root = await navigator.storage.getDirectory();
+		try {
+			const baseMap = await root.getDirectoryHandle('base-map');
+			const tiles = await baseMap.getDirectoryHandle('tiles');
+			return (await walk(tiles, 'base-map/tiles/')).sort();
+		} catch {
+			return [];
+		}
+	});
+}
+
+/** Tiles the protocol handler answered **with bytes**, in order. Not a count of requests. */
+const servedTiles = (page: Page) => page.evaluate(() => window.ballastellaServedBaseMapTiles ?? []);
+
+const layersUrl = (directory: string = PROJECT_DIRECTORY) => `./layers?p=${directory}`;
+
+/** Open the Project screen and wait for its map. */
+async function openProjectScreen(page: Page): Promise<void> {
+	await page.goto(layersUrl());
+	await waitForLoadedMap(page);
+}
+
+/** Fetch the tiles this Project's extent needs, through the dialog, exactly as a user would. */
+async function makeAvailableOffline(page: Page): Promise<void> {
+	await page.getByTestId('make-offline').click();
+	await expect(page.getByTestId('offline-status')).toHaveAttribute('data-step', 'deciding');
+	await page.getByTestId('offline-start').click();
+	await expect(page.getByTestId('offline-done')).toContainText('Fetched', { timeout: 120_000 });
+}
+
+test.describe('making a Project available offline', () => {
+	test.beforeEach(async ({ context, page }) => {
+		await routeBaseMapArchive(context);
+		await page.goto(BASE_MAP_PAGE);
+		await emptyWorkspace(page);
+		await seedProjectWithWork(page);
+	});
+
+	test('shows a tile count and a byte estimate before fetching anything', async ({ page }) => {
+		await openProjectScreen(page);
+
+		const archiveTiles: string[] = [];
+		page.on('request', (request) => {
+			if (request.url().includes('.pmtiles')) archiveTiles.push(request.url());
+		});
+
+		await page.getByTestId('make-offline').click();
+		await expect(page.getByTestId('offline-status')).toHaveAttribute('data-step', 'deciding');
+
+		// The numbers, in visible text, before the button that spends them exists in an enabled state.
+		const size = page.getByTestId('offline-budget-size');
+		await expect(size).toContainText(/^\d+ tiles, about [0-9.]+ MB, /);
+		await expect(size).toContainText('every zoom level from 0 to 14');
+		await expect(page.getByTestId('offline-budget-present')).toContainText('Not available offline');
+
+		// And nothing has been written. The plan is a plan.
+		expect(await cachedTilePaths(page)).toEqual([]);
+	});
+
+	test('writes a tile file for every zoom from 0 to the source maximum', async ({ page }) => {
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+
+		const paths = await cachedTilePaths(page);
+		expect(paths.length).toBe(23);
+		// **Every** zoom, because omitting the low ones makes zooming out go blank (SPEC story 6).
+		const zooms = [...new Set(paths.map((path) => Number(path.split('/')[2])))].sort(
+			(a, b) => a - b
+		);
+		expect(zooms).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+		expect(paths).toContain('base-map/tiles/0/0/0.mvt');
+		expect(paths).toContain('base-map/tiles/14/8414/5383.mvt');
+
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
+	});
+
+	test('draws the Base Map across the extent with the archive unreachable, at the lowest zoom and the highest', async ({
+		page,
+		context
+	}) => {
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+
+		// The network this feature exists to remove, removed. Any pmtiles range request from here on
+		// fails, so anything drawn below came out of `base-map/tiles/`.
+		await context.route(/\.pmtiles$/, (route) => route.abort());
+		const refused: string[] = [];
+		page.on('requestfailed', (request) => {
+			if (request.url().includes('.pmtiles')) refused.push(request.url());
+		});
+
+		await page.reload();
+		await waitForLoadedMap(page);
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute(
+			'data-cache-serving',
+			'yes'
+		);
+
+		// Bytes served *and* geometry drawn. Either one alone is the vacuous assertion: the compression
+		// mistake ADR-0025 names serves bytes and draws nothing, and a source can exist with no tiles.
+		await expect
+			.poll(async () => (await servedTiles(page)).length, { timeout: 60_000 })
+			.toBeGreaterThan(0);
+		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
+
+		const drawnAtOpening = await renderedLayerIds(page);
+		expect(drawnAtOpening.length).toBeGreaterThan(0);
+
+		// Zoomed all the way out — the case that goes blank if zoom 0 is skipped.
+		await page.evaluate(() => window.ballastellaBaseMap?.setZoom(0));
+		await expect
+			.poll(async () => (await servedTiles(page)).some((tile) => tile.z === 0), { timeout: 60_000 })
+			.toBe(true);
+		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
+
+		// And at the source's deepest zoom, which is where the cache's `maxzoom` has to be right: set
+		// too low, MapLibre overzooms and never asks for these at all; set too high, every request past
+		// the pyramid comes back empty and the map goes blank exactly where the user zoomed in.
+		await page.evaluate(() => {
+			window.ballastellaBaseMap?.jumpTo({ center: [4.9, 52.37], zoom: 14 });
+		});
+		await expect
+			.poll(async () => (await servedTiles(page)).some((tile) => tile.z === 14), {
+				timeout: 60_000
+			})
+			.toBe(true);
+		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
+
+		// The archive really was unreachable throughout, so nothing above was drawn over the network.
+		expect(await servedTiles(page)).not.toEqual([]);
+		void refused;
+	});
+
+	test('keeps the OpenStreetMap attribution with the cache serving and the archive unreachable', async ({
+		page,
+		context
+	}) => {
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+		await context.route(/\.pmtiles$/, (route) => route.abort());
+		await page.reload();
+		await waitForLoadedMap(page);
+
+		// ODbL does not lapse because no request left the machine.
+		await expect(page.locator('.maplibregl-ctrl-attrib')).toContainText('OpenStreetMap');
+	});
+
+	test('refuses an extent past the threshold with the numbers, and writes nothing', async ({
+		page
+	}) => {
+		// A Project whose Annotations span most of a continent. The count is thousands, which is what
+		// ADR-0007's courtesy is about: this fetches from somebody else's server.
+		await seedProjectWithWork(page, [
+			[-18, -35],
+			[52, -35],
+			[52, 38],
+			[-18, 38],
+			[-18, -35]
+		]);
+		await openProjectScreen(page);
+
+		await page.getByTestId('make-offline').click();
+		await expect(page.getByTestId('offline-status')).toHaveAttribute('data-step', 'deciding');
+
+		const refusal = page.getByTestId('offline-refusal');
+		await expect(refusal).toContainText('500 tiles');
+		await expect(refusal).toContainText('Nothing has been fetched');
+		await expect(page.getByTestId('offline-start')).toBeDisabled();
+
+		expect(await cachedTilePaths(page)).toEqual([]);
+	});
+
+	test('reports a second Project in the same area as available offline without fetching', async ({
+		page
+	}) => {
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+		const after = await cachedTilePaths(page);
+
+		// A second Project, a few streets inside the first one's extent.
+		await page.evaluate(
+			async ([json, geojson]) => {
+				const root = await navigator.storage.getDirectory();
+				const project = await root.getDirectoryHandle('boston-1775', { create: true });
+				const handle = await project.getFileHandle('project.json', { create: true });
+				let writable = await handle.createWritable();
+				await writable.write(json);
+				await writable.close();
+				const folder = await project.getDirectoryHandle('annotations', { create: true });
+				const notes = await folder.getFileHandle('notes.geojson', { create: true });
+				writable = await notes.createWritable();
+				await writable.write(geojson);
+				await writable.close();
+			},
+			[
+				projectWithWork().project,
+				JSON.stringify({
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							id: 'b1',
+							properties: { 'ballastella:id': 'b1' },
+							geometry: {
+								type: 'Polygon',
+								coordinates: [
+									[
+										[4.885, 52.365],
+										[4.9, 52.365],
+										[4.9, 52.375],
+										[4.885, 52.375],
+										[4.885, 52.365]
+									]
+								]
+							}
+						}
+					]
+				})
+			] as const
+		);
+
+		await page.goto(layersUrl('boston-1775'));
+		await waitForLoadedMap(page);
+
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
+		// The cache is Workspace-level, so the second Project cost nothing at all (ADR-0023).
+		expect(await cachedTilePaths(page)).toEqual(after);
+	});
+
+	test('reports a Project whose extent has grown beyond the cache as not available offline', async ({
+		page
+	}) => {
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
+
+		// The scholar's work spreads east, past what was cached.
+		await seedProjectWithWork(page, [
+			[4.88, 52.36],
+			[5.05, 52.36],
+			[5.05, 52.38],
+			[4.88, 52.38],
+			[4.88, 52.36]
+		]);
+		await page.reload();
+		await waitForLoadedMap(page);
+
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'no');
+		await expect(page.getByTestId('offline-availability')).toContainText('Not available offline');
+	});
+
+	test('fetches only the tiles not already present when it is run again', async ({ page }) => {
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+		const first = await cachedTilePaths(page);
+		expect(first.length).toBe(23);
+
+		await page.getByTestId('make-offline').click();
+		await expect(page.getByTestId('offline-status')).toHaveAttribute('data-step', 'deciding');
+		// Nothing left to fetch, said in the button and in the sentence beside it.
+		await expect(page.getByTestId('offline-start')).toContainText('Fetch 0 tiles');
+		await expect(page.getByTestId('offline-start')).toBeDisabled();
+		await expect(page.getByTestId('offline-budget-present')).toContainText('Available offline');
+
+		expect(await cachedTilePaths(page)).toEqual(first);
+	});
+
+	test('is cleared from the hub, and the Projects then report themselves not available offline', async ({
+		page
+	}) => {
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+
+		await page.goto('./');
+		const summary = page.getByTestId('base-map-cache');
+		await expect(summary).toContainText('23 tiles');
+		await expect(summary).toContainText(/[0-9.]+ MB/);
+
+		await page.getByTestId('clear-base-map-cache').click();
+		await page.getByRole('button', { name: 'Remove the offline Base Map' }).last().click();
+		await expect(page.getByTestId('base-map-cache-status')).toContainText('Removed 23');
+
+		expect(await cachedTilePaths(page)).toEqual([]);
+
+		await openProjectScreen(page);
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'no');
 	});
 });
 
