@@ -8,7 +8,7 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Current ticket: **02, 03, 08, and 09 are in progress in parallel.** 01 is merged to `main`.
+Current ticket: **03**, being reconciled with ticket 02 and remediated. 01, 02, 08 and 09 are merged to `main`. 04, 10 and 12 unblock when 03 lands; 05 needs 04 as well.
 
 This epic follows [`ballastella-v1`](../ballastella-v1/TRACKER.md), whose implementation is complete and merged. Two things carry across and should be read before any ticket is written:
 
