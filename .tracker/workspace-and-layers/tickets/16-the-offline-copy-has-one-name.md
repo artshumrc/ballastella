@@ -40,6 +40,24 @@ Known sites at the time of writing:
 
 **`cache` survives only where it names something that really is an HTTP cache** — the Cache API, a service-worker cache, a `Cache-Control` header. Those are not Offline Copies and must not be renamed into one. This is the distinction that makes the grep above need judgement rather than `sed`.
 
+**`cache` also survives for the Base Map tile cache, and that is not a loophole (ADR-0025, ticket 11).** These are Base Map tiles pulled out of a Protomaps archive so a Project's reference map draws with the network off. They are **not** an Offline Copy: an Offline Copy is of a *Historical Map* — the scholar's own source, fetched from a IIIF host, listed per Layer, and owned by the Project. Renaming the tile cache into that vocabulary would collide two different things in one word, which is the failure this ticket exists to undo rather than repeat. ADR-0025 says "cache" throughout and ticket 11 built to it.
+
+The sites, all added after this ticket was written:
+
+- `packages/core/src/base-map/tile-cache.ts` and `offline-cache.ts`, their tests, and the
+  `base-map/index.ts` barrel that re-exports them.
+- `packages/core/src/render/base-map-tile-protocol.ts`.
+- `packages/core/src/publish/publish.ts` (the cached-tile half of the published record) and its test.
+- `apps/editor/src/lib/editor-session.svelte.ts`, the cached-tile reader and coverage.
+- `apps/editor/src/lib/base-map/` — `archive-tiles.ts`, `make-offline.svelte.ts`,
+  `BaseMapPane.svelte`, `browser-test-handle.ts`.
+- `apps/editor/src/lib/components/ProjectHub.svelte` and
+  `apps/editor/src/lib/project/ProjectScreen.svelte`.
+- `apps/viewer/src/lib/ReaderMapPane.svelte`, `apps/viewer/src/lib/browser-test-handle.ts`, and
+  `apps/viewer/src/routes/+page.svelte`.
+
+⚠ **AC2 as written is unsatisfiable against this branch** and must be read with this exemption, or the ticket will be closed by renaming something that should not be renamed.
+
 **`new URL(...).host` and other Web API members are not the domain word** and stay. The same applies to any `mirror` that belongs to a third-party API.
 
 **No behaviour changes.** If a test needs editing beyond its name and its locators, something has gone wrong — stop and say so.
@@ -52,7 +70,7 @@ Known sites at the time of writing:
 ## Acceptance criteria
 
 1. `grep -rn "\bmirror" packages/*/src apps/*/src e2e` returns only third-party API members, each with a comment saying so.
-2. `grep -rn "\bcache" packages/*/src apps/*/src` returns only genuine HTTP/service-worker caches.
+2. `grep -rn "\bcache" packages/*/src apps/*/src` returns only genuine HTTP/service-worker caches and the Base Map tile cache listed under Contract.
 3. Every renamed symbol is renamed at its definition, its exports, its call sites, and in test names — no aliasing shim left behind.
 4. `pnpm -r build && pnpm -r test && pnpm lint && pnpm check` passes, and `pnpm test:e2e` passes.
 5. The diff contains no change to a `.svelte` file's rendered text other than where that text used a banned word.
