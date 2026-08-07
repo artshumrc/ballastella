@@ -34,13 +34,18 @@ export {
 	type TileCoordinate
 } from './tile-cache';
 export {
+	BASE_MAP_TILE_SOURCE_PATH,
 	baseMapCacheSize,
+	cachedTilesMatchArchive,
 	clearBaseMapCache,
 	describeTileBudget,
 	fetchTilesIntoCache,
 	offlineCoverage,
+	readCachedTileSource,
 	tileBudgetRefusal,
+	writeCachedTileSource,
 	type BaseMapCacheSize,
+	type CachedTileSource,
 	type FetchTilesOptions,
 	type OfflineCoverage,
 	type ReadSourceTile,

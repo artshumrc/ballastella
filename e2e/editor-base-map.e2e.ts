@@ -624,6 +624,21 @@ async function cachedTilePaths(page: Page): Promise<string[]> {
 	});
 }
 
+/** One file's text out of the Workspace, or `''` when it is not there. */
+async function workspaceFile(page: Page, path: string): Promise<string> {
+	return page.evaluate(async (wanted) => {
+		const parts = wanted.split('/');
+		const name = parts.pop()!;
+		let directory = await navigator.storage.getDirectory();
+		try {
+			for (const part of parts) directory = await directory.getDirectoryHandle(part);
+			return await (await (await directory.getFileHandle(name)).getFile()).text();
+		} catch {
+			return '';
+		}
+	}, path);
+}
+
 /** Tiles the protocol handler answered **with bytes**, in order. Not a count of requests. */
 const servedTiles = (page: Page) => page.evaluate(() => window.ballastellaServedBaseMapTiles ?? []);
 
@@ -763,6 +778,61 @@ test.describe('making a Project available offline', () => {
 		expect(paths).toContain('base-map/tiles/14/8414/5383.mvt');
 
 		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
+	});
+
+	test('still answers “is this Project available offline?” with the archive unreachable', async ({
+		page,
+		context
+	}) => {
+		// ⚠ The question needs the *source's* deepest zoom — "every zoom from 0 to the source's maximum"
+		// — and reading that off the archive is a live PMTiles header fetch. So with no connection the
+		// screen said the answer could not be checked, which is the one state the feature exists to
+		// remove. The depth is now recorded beside the tiles when they are fetched, from the header the
+		// archive itself gave, so the answer survives the network going away.
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
+		expect(await workspaceFile(page, 'base-map/tile-source.json')).toContain('"maxZoom":14');
+
+		await context.route(/\.pmtiles$/, (route) => route.abort());
+		await page.reload();
+		await waitForLoadedMap(page);
+
+		// Still `yes`, not `unknown`. And it says which, because the recorded depth is a snapshot.
+		const availability = page.getByTestId('offline-availability');
+		await expect(availability).toHaveAttribute('data-offline', 'yes', { timeout: 30_000 });
+		await expect(availability).toContainText('Available offline: all 23 Base Map tiles');
+		await expect(availability).toContainText('because there is no connection');
+	});
+
+	test('does not answer from a record left by a different archive', async ({ page, context }) => {
+		// ADR-0020 lets a catalog entry be repointed with no change anywhere else, and `base-map/tiles/`
+		// carries no archive in its path — so one directory can end up serving two pyramids. A record
+		// naming an archive that is not the one now shown is not used, and the screen goes back to
+		// saying it cannot check rather than claiming a depth it has no warrant for.
+		await openProjectScreen(page);
+		await makeAvailableOffline(page);
+
+		await page.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			const folder = await root.getDirectoryHandle('base-map', { create: true });
+			const handle = await folder.getFileHandle('tile-source.json', { create: true });
+			const writable = await handle.createWritable();
+			await writable.write(
+				JSON.stringify({ archive: 'https://elsewhere.test/other.pmtiles', maxZoom: 14 })
+			);
+			await writable.close();
+		});
+
+		await context.route(/\.pmtiles$/, (route) => route.abort());
+		await page.reload();
+		await waitForLoadedMap(page);
+
+		await expect(page.getByTestId('offline-availability')).toHaveAttribute(
+			'data-offline',
+			'unknown',
+			{ timeout: 30_000 }
+		);
 	});
 
 	test('draws the Base Map across the extent with the archive unreachable, at the lowest zoom and the highest', async ({

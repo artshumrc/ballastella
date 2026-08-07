@@ -7,12 +7,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+	BASE_MAP_TILE_SOURCE_PATH,
 	baseMapCacheSize,
+	cachedTilesMatchArchive,
 	clearBaseMapCache,
 	describeTileBudget,
 	fetchTilesIntoCache,
 	offlineCoverage,
-	tileBudgetRefusal
+	readCachedTileSource,
+	tileBudgetRefusal,
+	writeCachedTileSource
 } from './offline-cache';
 import { cachedTilePath, tileBudget, type TileCoordinate } from './tile-cache';
 import type { GeoBounds } from '../project/opening-view';
@@ -225,7 +229,62 @@ describe('baseMapCacheSize', () => {
 	});
 });
 
+describe('what the cache records about where it came from', () => {
+	const ARCHIVE = 'https://example.test/basemaps.pmtiles';
+
+	it('answers the source’s depth with no network, which is the whole point of the feature', async () => {
+		// ⚠ Before this, "is this Project available offline?" opened the archive to learn the source's
+		// maximum zoom — a live fetch on every Project open, every Base Map change, and every document
+		// change. So offline, the one state the feature exists to remove, the UI could not say whether
+		// the feature had worked. The depth recorded here came from the archive's own header, so it is
+		// not `baseMapCacheSize().maxZoom` read back off our own files.
+		const store = new MemoryProjectStore();
+		await writeCachedTileSource(store, { archive: ARCHIVE, maxZoom: 14 });
+
+		expect(await readCachedTileSource(store)).toEqual({ archive: ARCHIVE, maxZoom: 14 });
+	});
+
+	it('records nothing when nothing was recorded, rather than guessing', async () => {
+		expect(await readCachedTileSource(new MemoryProjectStore())).toBeNull();
+	});
+
+	it('refuses a record it cannot believe rather than half-reading it', async () => {
+		const store = new MemoryProjectStore();
+		for (const body of ['not json', '{}', '{"archive":"","maxZoom":14}', `{"archive":"a"}`]) {
+			await store.write(BASE_MAP_TILE_SOURCE_PATH, new TextEncoder().encode(body));
+			expect(await readCachedTileSource(store), body).toBeNull();
+		}
+	});
+
+	it('says when the tiles on disk came out of a different archive', async () => {
+		// ADR-0020 promises that repointing a catalog entry needs no change anywhere else, and
+		// `check-base-map-catalog.mjs` enforces it — so two entries on two archives is a supported
+		// deployment, and `base-map/tiles/` carries no archive in its path. One directory would then
+		// serve both: a plausible pane of the wrong map, with no error anywhere.
+		const source = { archive: ARCHIVE, maxZoom: 14 };
+
+		expect(cachedTilesMatchArchive(source, ARCHIVE)).toBe(true);
+		expect(cachedTilesMatchArchive(source, 'https://example.test/other.pmtiles')).toBe(false);
+		// Unknown provenance is not known-wrong: a cache filled before this record existed still draws.
+		expect(cachedTilesMatchArchive(null, ARCHIVE)).toBe(true);
+	});
+});
+
 describe('clearBaseMapCache', () => {
+	it('takes the provenance record with it, so a cleared cache claims no archive', async () => {
+		const store = new MemoryProjectStore();
+		await fetchTilesIntoCache({
+			store,
+			tiles: tileBudget(CANAL_BELT, 14).tiles,
+			readTile: source().readTile
+		});
+		await writeCachedTileSource(store, { archive: 'https://example.test/a.pmtiles', maxZoom: 14 });
+
+		await clearBaseMapCache(store);
+
+		expect(await readCachedTileSource(store)).toBeNull();
+	});
+
 	it('reclaims the cache and makes every Project report itself not available offline', async () => {
 		const store = new MemoryProjectStore();
 		await fetchTilesIntoCache({

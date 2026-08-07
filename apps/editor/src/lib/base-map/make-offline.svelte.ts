@@ -23,6 +23,8 @@
 
 import {
 	OFFLINE_TILE_LIMIT,
+	archiveUrl,
+	cachedTilesMatchArchive,
 	describeBytes,
 	describeTileBudget,
 	projectOpeningBounds,
@@ -34,6 +36,7 @@ import {
 } from '@ballastella/core';
 
 import { openArchiveTiles } from './archive-tiles';
+import { resolveDeploymentAsset } from './deployment-assets';
 import { readProjectContent } from './opening-view';
 import type { EditorSession } from '../editor-session.svelte.js';
 
@@ -220,6 +223,15 @@ export class MakeProjectOffline {
 				signal: abort.signal,
 				onProgress: (progress) => (this.progress = progress)
 			});
+			// Which archive filled the cache, and how deep *it* said it went — written from the header
+			// that was just read, while the network is still here. This is what lets the screen answer
+			// "is this Project available offline?" with no connection at all; see {@link sourceMaxZoom}.
+			// Written even for a cancelled run: the tiles a cancelled run wrote are kept, so their
+			// provenance is as true as a finished run's.
+			await session.recordBaseMapTileSource({
+				archive: archiveUrl(entry, resolveDeploymentAsset),
+				maxZoom: archive.maxZoom
+			});
 			this.progress = null;
 			this.step = 'idle';
 			// Re-read rather than reasoned about: whether the Project is now available offline is a
@@ -259,9 +271,55 @@ export async function readOfflineCoverage(
 	session: EditorSession,
 	entry: BaseMapEntry,
 	layers: readonly Layer[]
-): Promise<{ bounds: GeoBounds | null; coverage: OfflineCoverage | null }> {
+): Promise<{ bounds: GeoBounds | null; coverage: OfflineCoverage | null; fromRecord: boolean }> {
 	const bounds = projectOpeningBounds(await readProjectContent(session, layers));
-	if (bounds === null) return { bounds: null, coverage: null };
-	const archive = await openArchiveTiles(entry);
-	return { bounds, coverage: await session.offlineBaseMapCoverage(bounds, archive.maxZoom) };
+	if (bounds === null) return { bounds: null, coverage: null, fromRecord: false };
+	const depth = await sourceMaxZoom(session, entry);
+	return {
+		bounds,
+		coverage: await session.offlineBaseMapCoverage(bounds, depth.maxZoom),
+		fromRecord: depth.fromRecord
+	};
+}
+
+/**
+ * How deep the source pyramid goes — **without the network when the cache already knows** (ADR-0025).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS NOT JUST `openArchiveTiles(entry).maxZoom`
+ *
+ * It was, and that made "is this Project available offline?" a question needing a live PMTiles header
+ * fetch — on every Project open, every Base Map change, and every document change. So with no
+ * connection the screen said the answer could not be checked, which is the exact state the feature
+ * exists to remove. It is also what forced `editor-remote-iiif.e2e.ts` to start routing the archive.
+ *
+ * The record beside the tiles carries the number the archive's own header gave at fetch time, so
+ * using it offline is not a claim computed from our own files — that would be
+ * `baseMapCacheSize().maxZoom`, which can only under-report a half-filled cache and is right for
+ * *drawing* and wrong for *claiming*.
+ *
+ * **The archive is still asked first when it can be reached.** The record is a snapshot: a repointed
+ * catalog entry, or an archive rebuilt a zoom deeper, makes it stale, and preferring it would mean a
+ * Project reporting itself complete against a pyramid that has moved. Online, the source answers;
+ * offline, the last thing the source said answers; and the caller is told which, so the sentence
+ * beside the map can be honest about it.
+ *
+ * ⚠ A record naming a **different archive** is not used at all. `base-map/tiles/` carries no archive
+ * in its path, so a deployment giving two catalog entries two archives has one directory serving
+ * both — see the note in `offline-cache.ts` for why detection rather than keying, and why ticket 12
+ * is where keying belongs.
+ */
+async function sourceMaxZoom(
+	session: EditorSession,
+	entry: BaseMapEntry
+): Promise<{ maxZoom: number; fromRecord: boolean }> {
+	try {
+		return { maxZoom: (await openArchiveTiles(entry)).maxZoom, fromRecord: false };
+	} catch (cause) {
+		const recorded = await session.cachedBaseMapTileSource();
+		if (recorded && cachedTilesMatchArchive(recorded, archiveUrl(entry, resolveDeploymentAsset))) {
+			return { maxZoom: recorded.maxZoom, fromRecord: true };
+		}
+		throw cause;
+	}
 }

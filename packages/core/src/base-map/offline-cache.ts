@@ -121,7 +121,95 @@ export async function baseMapCacheSize(store: ProjectStore): Promise<BaseMapCach
 export async function clearBaseMapCache(store: ProjectStore): Promise<number> {
 	const paths = [...(await cachedPaths(store))];
 	for (const path of paths) await store.delete(path);
+	// The provenance record goes with them. Leaving it would have a cleared cache still claiming an
+	// archive and a depth, which is the one way {@link readCachedTileSource} could lie.
+	await store.delete(BASE_MAP_TILE_SOURCE_PATH).catch(() => undefined);
 	return paths.length;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// WHICH ARCHIVE FILLED THE CACHE, AND HOW DEEP IT GOES
+//
+// One small file beside the tiles, written when a run finishes. It exists for two questions the
+// tiles themselves cannot answer.
+//
+// **"Is this Project available offline?" must be answerable offline.** Coverage needs the *source's*
+// maximum zoom — ADR-0025 says "every zoom from 0 to the source's maximum" — and reading that off the
+// archive is a network fetch on every Project open. So the state the feature exists to remove was
+// the one state in which the feature could not say whether it had worked. The number recorded here
+// came from the archive's own header at fetch time, so using it offline is not the vacuous claim
+// {@link BaseMapCacheSize.maxZoom} warns about: that one is read back off our own files and can only
+// under-report a half-filled cache, which is why it is right for *drawing* and wrong for *claiming*.
+//
+// **And the cache is one directory, shared by every catalog entry.** `BASE_MAP_TILE_DIRECTORY` and
+// `cachedBaseMapTileTemplate()` carry no archive identity, which is latent only because all four
+// entries in `BASE_MAP_CATALOG` presently share one archive — and ADR-0020 promises that repointing
+// an entry requires no change anywhere else, with `scripts/check-base-map-catalog.mjs` enforcing it.
+// Two entries on two archives would give one directory serving both: a plausible pane of the wrong
+// map, with no error anywhere.
+//
+// ⚠ **Keying the directory itself is deliberately not done here**, because the path is not ours
+// alone: `base-map/tiles/…` is copied verbatim into a Published Site, read by the viewer's HTTP
+// store, and named in the service worker, so changing its shape is a change to the published format
+// and to two apps. What is done instead is *detection* — {@link cachedTilesMatchArchive} — so a cache
+// filled from another archive is reported as not this Project's rather than drawn as if it were.
+// **Ticket 12 makes this live**: several named Workspaces, each with its own cache, is exactly the
+// arrangement in which two archives meet. Keying the directory belongs with that ticket, which is
+// already changing where a Workspace's files sit.
+
+/** Which archive filled the cache, and how deep that archive said it went. */
+export interface CachedTileSource {
+	/** The archive's URL, as `archiveUrl` resolved it at fetch time. Identity, not a fetch target. */
+	readonly archive: string;
+	/** The source's own maximum zoom, read from its header — not read back off the cached files. */
+	readonly maxZoom: number;
+}
+
+/** Where {@link CachedTileSource} lives. Beside `base-map/tiles/`, never inside it. */
+export const BASE_MAP_TILE_SOURCE_PATH = 'base-map/tile-source.json';
+
+/** What the cache records about where it came from, or `null` when it records nothing. */
+export async function readCachedTileSource(store: ProjectStore): Promise<CachedTileSource | null> {
+	let bytes: Bytes;
+	try {
+		bytes = await store.read(BASE_MAP_TILE_SOURCE_PATH);
+	} catch {
+		// No record. A cache filled before this file existed, or none at all — in both cases the answer
+		// is "unknown", which the callers treat as needing the network rather than as a mismatch.
+		return null;
+	}
+	try {
+		const record: unknown = JSON.parse(new TextDecoder().decode(bytes));
+		if (typeof record !== 'object' || record === null) return null;
+		const { archive, maxZoom } = record as { archive?: unknown; maxZoom?: unknown };
+		if (typeof archive !== 'string' || archive === '') return null;
+		if (typeof maxZoom !== 'number' || !Number.isInteger(maxZoom) || maxZoom < 0) return null;
+		return { archive, maxZoom };
+	} catch {
+		return null;
+	}
+}
+
+/** Record where the cache came from. Written after a run, never before one. */
+export async function writeCachedTileSource(
+	store: ProjectStore,
+	source: CachedTileSource
+): Promise<void> {
+	await store.write(
+		BASE_MAP_TILE_SOURCE_PATH,
+		new TextEncoder().encode(JSON.stringify(source)) as Bytes
+	);
+}
+
+/**
+ * Whether the cached tiles belong to the archive now being shown.
+ *
+ * `true` when nothing is recorded, which is the pre-existing cache: unknown provenance is not the
+ * same as known-wrong, and refusing to draw a cache filled by an earlier version of this app would
+ * take the feature away from the people who already used it.
+ */
+export function cachedTilesMatchArchive(source: CachedTileSource | null, archive: string): boolean {
+	return source === null || source.archive === archive;
 }
 
 /** Where one tile's bytes come from: `null` when the source has no tile there. */

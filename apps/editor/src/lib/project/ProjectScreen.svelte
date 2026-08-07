@@ -823,12 +823,18 @@
 		try {
 			const read = await readOfflineCoverage(current, entry, forLayers);
 			offlineReady = read.coverage?.complete ?? false;
+			// Answered from the record the last fetch left rather than from the archive, because the
+			// archive could not be reached. Said aloud rather than passed off as a live answer: the depth
+			// is a snapshot, and an archive rebuilt a zoom deeper would make it quietly wrong.
+			const asOf = read.fromRecord
+				? ' Checked against what this Workspace recorded when the tiles were fetched, because there is no connection.'
+				: '';
 			offlineSummary =
 				read.bounds === null
 					? 'This Project has nothing placed on the earth yet, so there is no area to make available offline.'
 					: read.coverage?.complete
-						? `Available offline: all ${read.coverage.budget.count} Base Map tiles this Project’s work covers are in this Workspace.`
-						: `Not available offline: ${read.coverage?.present ?? 0} of ${read.coverage?.budget.count ?? 0} Base Map tiles this Project’s work covers are in this Workspace.`;
+						? `Available offline: all ${read.coverage.budget.count} Base Map tiles this Project’s work covers are in this Workspace.${asOf}`
+						: `Not available offline: ${read.coverage?.present ?? 0} of ${read.coverage?.budget.count ?? 0} Base Map tiles this Project’s work covers are in this Workspace.${asOf}`;
 		} catch {
 			offlineReady = null;
 			offlineSummary =

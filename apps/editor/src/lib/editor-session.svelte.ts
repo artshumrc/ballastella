@@ -23,6 +23,8 @@ import {
 	cachedTilePath,
 	clearBaseMapCache as emptyBaseMapCache,
 	createStoreImageFetch,
+	readCachedTileSource,
+	writeCachedTileSource,
 	deleteHistoricalMap,
 	emptyAnnotationCollection,
 	exportProjectZip,
@@ -78,6 +80,7 @@ import {
 	type AnnotationLayer,
 	type BaseMapCacheSize,
 	type Bytes,
+	type CachedTileSource,
 	type FetchFn,
 	type FetchTilesOptions,
 	type GeoBounds,
@@ -1304,6 +1307,16 @@ export class EditorSession {
 	/** What the cache is taking up, for the hub's reclaim list. `list` + `size`, never `read`. */
 	async baseMapCacheSize(): Promise<BaseMapCacheSize> {
 		return readBaseMapCacheSize(this.#store);
+	}
+
+	/** Which archive filled the cache and how deep it said it went, or `null` if unrecorded. */
+	async cachedBaseMapTileSource(): Promise<CachedTileSource | null> {
+		return readCachedTileSource(this.#store);
+	}
+
+	/** Record where the cache came from. Called after a run, never before one. */
+	async recordBaseMapTileSource(source: CachedTileSource): Promise<void> {
+		await writeCachedTileSource(this.#store, source);
 	}
 
 	/** Delete every cached tile, and report how many went. */
