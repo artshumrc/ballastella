@@ -51,6 +51,8 @@
 		projectFilePath,
 		readBaseMapPreference,
 		resolveBaseMap,
+		openingViewSentence,
+		projectOpeningFit,
 		setLayerVisible,
 		setMapLayerOpacity,
 		writeBaseMapPreference,
@@ -60,6 +62,8 @@
 		type GeoPoint,
 		type Layer,
 		type MapLayer,
+		type OpeningViewFit,
+		type OpeningViewOutcome,
 		type ProjectFile,
 		type PublishedSite
 	} from '@ballastella/core';
@@ -67,7 +71,7 @@
 	import { onMount, untrack } from 'svelte';
 
 	import BaseMapSwitcher from '$lib/BaseMapSwitcher.svelte';
-	import { readLayerDocuments, type ReadDocuments } from '$lib/project-documents';
+	import { readLayerDocuments, toContentLayers, type ReadDocuments } from '$lib/project-documents';
 	import ReaderLayerControls from '$lib/ReaderLayerControls.svelte';
 	import ReaderMapPane from '$lib/ReaderMapPane.svelte';
 	import { readSiteFile, siteStore, sitePrefix } from '$lib/site-files';
@@ -254,6 +258,7 @@
 		const wanted = untrack(() => layers);
 		if (!open || wanted.length === 0) {
 			documents = {};
+			settleOpeningView(open, []);
 			return;
 		}
 		const mine = ++generation;
@@ -261,8 +266,74 @@
 			const read = await readLayerDocuments(siteStore(), open.directory, wanted);
 			if (mine !== generation) return;
 			documents = read;
+			settleOpeningView(open, toContentLayers(wanted, read));
 		})();
 	});
+
+	// ──────────────────────────────────────────────────────────────────────────────────────
+	// The opening view (ADR-0026)
+	//
+	// **The same core function, cap and padding the editor uses.** ADR-0026 names this as the half
+	// most likely to be forgotten: a Published Site that opened on the deployment's default while the
+	// editor opened on the author's work would be two answers to one question, and the Reader is the
+	// one person who cannot tell which is right.
+	//
+	// Settled off the back of the read the page was doing anyway, rather than by a read of its own — a
+	// Reader on a phone should not fetch every Alignment twice — and settled **once per Project**.
+	// Bounds in a `$derived` would refit whenever the Reader hid a Layer or dragged an opacity slider,
+	// which is the map moving under someone who was reading it.
+	// ──────────────────────────────────────────────────────────────────────────────────────
+
+	let openingFit = $state.raw<OpeningViewFit | null>(null);
+	/** `content` when the map was framed on the Project, `default` when there was nothing to frame on. */
+	let openingOutcome = $state<OpeningViewOutcome>('pending');
+	/** Whether the last framing was the Reader asking, so the sentence can say which. */
+	let refitted = $state(false);
+
+	/**
+	 * The Project the opening view has already been settled for.
+	 *
+	 * A plain `let`: it is written by the code that reads it, and a reactive one would make the
+	 * settling its own dependency.
+	 */
+	let framedProject = '';
+
+	function settleOpeningView(
+		open: { directory: string } | null,
+		content: ReturnType<typeof toContentLayers>
+	): void {
+		// Back at the hub. Cleared rather than left standing, so that opening the same Project again is
+		// a fresh open and frames again — which is what a Reader who has navigated away and back means.
+		if (open === null) {
+			framedProject = '';
+			openingFit = null;
+			openingOutcome = 'pending';
+			return;
+		}
+		if (framedProject === open.directory) return;
+		framedProject = open.directory;
+		const fit = projectOpeningFit(content);
+		openingFit = fit;
+		openingOutcome = fit === null ? 'default' : 'content';
+		refitted = false;
+	}
+
+	/**
+	 * "Fit to this Project", on demand (ADR-0026).
+	 *
+	 * From the documents already in hand and from the stack **as the Reader currently has it**, so a
+	 * Reader who has hidden two of five Layers gets framed on the three they are looking at. No fetch:
+	 * everything this needs was read when the Project opened.
+	 *
+	 * A fresh fit object each press, even for the same box — identity is what the pane applies on, and
+	 * a Reader pressing this twice has panned away in between.
+	 */
+	function fitToProject(): void {
+		const fit = projectOpeningFit(toContentLayers(layers, documents));
+		openingFit = fit;
+		openingOutcome = fit === null ? 'default' : 'content';
+		refitted = true;
+	}
 
 	/**
 	 * Where an aligned Historical Map's tiles are read from (ADR-0011).
@@ -822,6 +893,21 @@
 
 					<div>
 						<!--
+							ADR-0026's explicit control, with words on it rather than an icon and a tooltip (SPEC
+							story 111). It is what the once-only automatic fit gives up: a Reader who has panned
+							away, or hidden half the stack, comes back with this.
+						-->
+						<div class="mb-2 flex flex-wrap items-center justify-end gap-2">
+							<button
+								type="button"
+								class="btn btn-sm"
+								data-testid="fit-to-project"
+								onclick={() => fitToProject()}
+							>
+								Fit to this Project
+							</button>
+						</div>
+						<!--
 							A viewport-relative height on a phone and a fixed one from `sm` up. `36rem` of map on
 							a 667 px-tall phone leaves the controls below the fold and nothing above it.
 						-->
@@ -834,6 +920,7 @@
 									{catalog}
 									{bundledBaseMapAvailable}
 									layers={drawn}
+									{openingFit}
 									{fetchTile}
 									popupAnnotation={selectedAnnotation}
 									popupAt={selected?.at ?? null}
@@ -861,6 +948,20 @@
 								{drawnCount} of {layers.length}
 								{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
 							{/if}
+						</p>
+						<!--
+							Where the map is looking and why (SPEC story 112). A WebGL canvas announces nothing
+							about what it is showing, so a Reader who cannot see it is otherwise never told that
+							the map opened on the author's own work rather than on a default somewhere else.
+						-->
+						<p
+							class="min-h-6 text-sm text-base-content/70"
+							aria-live="polite"
+							aria-atomic="true"
+							data-testid="opening-view"
+							data-opening-view={openingOutcome}
+						>
+							{openingViewSentence(openingOutcome, refitted)}
 						</p>
 					</div>
 				</div>

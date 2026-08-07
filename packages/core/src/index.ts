@@ -63,6 +63,25 @@ export {
 	type TileLocation,
 	type WorkspaceHistoricalMap
 } from './project/historical-maps.js';
+// The opening view (ADR-0026). Both apps, and that is the whole point of it being here: a Published
+// Site that opened on the deployment's default while the editor opened on the work would be two
+// answers to one question, and ticket 17 is already merged and would not remind anyone.
+export {
+	OPENING_VIEW_MAX_ZOOM,
+	OPENING_VIEW_PADDING,
+	alignmentOpeningBounds,
+	alignmentOpeningFit,
+	applyOpeningFit,
+	openingViewFit,
+	openingViewSentence,
+	projectOpeningBounds,
+	projectOpeningFit,
+	type ContentLayer,
+	type FittableMap,
+	type GeoBounds,
+	type OpeningViewFit,
+	type OpeningViewOutcome
+} from './project/opening-view.js';
 export {
 	BALLASTELLA_CANONICAL_URL,
 	CURRENT_FORMAT_VERSION,

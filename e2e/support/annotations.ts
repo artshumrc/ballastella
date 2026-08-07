@@ -279,6 +279,23 @@ export async function openLayers(page: Page, directory = PROJECT_DIRECTORY): Pro
 	await page.goto(`/layers?p=${directory}`);
 	await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toBeVisible();
+	await waitForOpeningView(page);
+}
+
+/**
+ * Wait until the opening view has been settled (ADR-0026).
+ *
+ * The pane frames itself on the Project's content after an asynchronous read of every Layer's
+ * documents, so anything that positions the map before that read lands — {@link centreOnAmsterdam},
+ * above all — would have its viewport moved out from under it a moment later. Not a workaround for a
+ * race: the fit happens exactly once, on open, and this is how a test waits for the one time it does.
+ */
+export async function waitForOpeningView(page: Page): Promise<void> {
+	await expect(page.getByTestId('opening-view')).toHaveAttribute(
+		'data-opening-view',
+		/^(content|default)$/,
+		{ timeout: 30_000 }
+	);
 }
 
 /**
