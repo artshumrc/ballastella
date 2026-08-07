@@ -785,15 +785,6 @@
 
 	/** The Project menu the dialog opens from, and the thing that knows whether it is showing. */
 	let menu = $state<MenuPopover | undefined>();
-	/**
-	 * Whether the Project menu is open.
-	 *
-	 * Read by the window's Escape handler, and that is the whole reason it exists: Escape dismisses a
-	 * popover natively **and keeps propagating**, so without this, closing the menu would also abandon
-	 * a half-drawn Annotation the user cannot even see behind it. Exactly the problem
-	 * {@link settingsOpen} already solves for the dialog, and the menu is new in this ticket.
-	 */
-	let menuOpen = $state(false);
 
 	/**
 	 * Open Project settings from the menu.
@@ -891,7 +882,12 @@
 -->
 <svelte:window
 	onkeydown={(event) => {
-		if (event.key !== 'Escape' || settingsOpen || menuOpen) return;
+		if (event.key !== 'Escape' || settingsOpen) return;
+		// **Asked of the element, not of a flag.** `MenuPopover.isOpen()` reads `:popover-open`, which
+		// is true throughout the keypress that dismisses it and false on the very next one — a reactive
+		// mirror of the same fact lags one flush behind, and that lag swallowed the Escape a user
+		// pressed *after* closing the menu, which is the cancel they actually meant.
+		if (menu?.isOpen()) return;
 		if (drawing.cancel()) return;
 		if (popupAt !== null) popupAt = null;
 	}}
@@ -934,12 +930,7 @@
 				dropdown). One item today; ticket 12 and the transfer tickets add theirs beside it, which
 				is the reason it is a menu rather than a button that goes straight to the dialog.
 			-->
-			<MenuPopover
-				bind:this={menu}
-				bind:open={menuOpen}
-				label="Project…"
-				testid="project-menu-button"
-			>
+			<MenuPopover bind:this={menu} label="Project…" testid="project-menu-button">
 				<li>
 					<button type="button" data-testid="open-project-settings" onclick={openSettings}>
 						Project settings…

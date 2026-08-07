@@ -29,11 +29,14 @@
 	 *   the middle of the screen.
 	 * - **Saying whether it is open, to the page and to a screen reader.** `aria-expanded` on the
 	 *   button comes off the same signal the page reads, so the two cannot disagree.
-	 * - **Telling the page whether it is open.** Escape dismisses a popover natively *and* keeps
-	 *   propagating, so a page with its own Escape handling — the Project screen abandons a
-	 *   part-drawn shape on Escape — will act on the keypress that only closed this menu. {@link open}
-	 *   is bindable so the page can decline, and it is driven off the platform's own `toggle` event
-	 *   rather than off our clicks, which is the only source that cannot disagree with the top layer.
+	 * - **Telling the page whether it is open, at the instant it asks.** Escape dismisses a popover
+	 *   natively *and* keeps propagating, so a page with its own Escape handling — the Project screen
+	 *   abandons a part-drawn shape on Escape — will act on the keypress that only closed this menu.
+	 *   {@link isOpen} answers that question, and it reads `:popover-open` off the element rather than
+	 *   reporting reactive state: the `toggle` event lands and Svelte flushes on its own schedule, so a
+	 *   second Escape arriving in that window would find a flag that still said "open" and be declined
+	 *   as well — measured, and it cost the *cancel* the user actually asked for. The DOM cannot lag
+	 *   behind itself.
 	 */
 	let {
 		label,
@@ -69,6 +72,19 @@
 	export function dismiss(): void {
 		popover?.hidePopover();
 		button?.focus();
+	}
+
+	/**
+	 * Whether the menu is showing **right now**, asked of the element.
+	 *
+	 * For a handler that has to decide inside one keypress. `:popover-open` is the top layer's own
+	 * answer and is true for exactly as long as the popover is up — including during the `keydown`
+	 * that is about to dismiss it, because light-dismiss is the event's default action and runs after
+	 * dispatch. That is what makes "decline this Escape, it was for the menu" correct on the first
+	 * press and, crucially, *incorrect* on the next one.
+	 */
+	export function isOpen(): boolean {
+		return popover?.matches(':popover-open') ?? false;
 	}
 </script>
 
