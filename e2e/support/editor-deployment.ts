@@ -213,15 +213,21 @@ function tilesForBounds(
  * make the Published Site's offline assertion vacuous in the exact direction the ADR warns about: the
  * tiles would arrive, MapLibre would parse nothing, and no error would be raised anywhere.
  *
+ * **It also weighs them, and that is not a by-product.** ADR-0025's per-tile byte estimate and the
+ * refusal threshold both rest on a measurement of this archive, and the epic's tracker forbids a
+ * ticket committing to that measurement unverified. A table in a comment is prose; this returns the
+ * totals so a test can assert them, and `editor-base-map.e2e.ts` does — the same arrangement
+ * `editor-pwa.e2e.ts` uses for the `wasm-vips` byte count, so the figure cannot rot unnoticed.
+ *
  * @param bounds the extent to cache, defaulting to the whole fixture archive's own extent
  * @param maxZoom the deepest zoom to include, defaulting to the archive's own maximum
  */
 export async function cachedBaseMapTiles(
 	bounds?: { west: number; south: number; east: number; north: number },
 	maxZoom?: number
-): Promise<{ files: Record<string, Uint8Array>; maxZoom: number }> {
+): Promise<CachedBaseMapTiles> {
 	const bytes = await baseMapArchiveFixture();
-	const archive = new PMTiles({
+	const source = {
 		getKey: () => 'fixture',
 		async getBytes(offset: number, length: number) {
 			const end = Math.min(offset + length, bytes.length);
@@ -229,7 +235,12 @@ export async function cachedBaseMapTiles(
 				data: bytes.buffer.slice(bytes.byteOffset + offset, bytes.byteOffset + end) as ArrayBuffer
 			};
 		}
-	});
+	};
+	const archive = new PMTiles(source);
+	// The same archive read with decompression switched off, so the gzipped size of each tile can be
+	// weighed beside the decompressed one. That difference is the measured cost of ADR-0025's
+	// compression decision, and it is quoted in `tile-cache.ts`.
+	const compressed = new PMTiles(source, undefined, async (data: ArrayBuffer) => data);
 	const header = await archive.getHeader();
 	const extent = bounds ?? {
 		west: header.minLon,
@@ -239,12 +250,43 @@ export async function cachedBaseMapTiles(
 	};
 	const top = maxZoom ?? header.maxZoom;
 	const files: Record<string, Uint8Array> = {};
+	let decompressedBytes = 0;
+	let gzippedBytes = 0;
+	let asked = 0;
 	for (const tile of tilesForBounds(extent, top)) {
+		asked += 1;
 		const found = await archive.getZxy(tile.z, tile.x, tile.y);
-		if (found) files[cachedTilePath(tile)] = new Uint8Array(found.data);
+		if (!found) continue;
+		files[cachedTilePath(tile)] = new Uint8Array(found.data);
+		decompressedBytes += found.data.byteLength;
+		gzippedBytes += (await compressed.getZxy(tile.z, tile.x, tile.y))?.data.byteLength ?? 0;
 	}
-	return { files, maxZoom: top };
+	return {
+		files,
+		maxZoom: top,
+		archiveBytes: bytes.length,
+		tilesInExtent: asked,
+		tilesPresent: Object.keys(files).length,
+		decompressedBytes,
+		gzippedBytes
+	};
 }
+
+/** What {@link cachedBaseMapTiles} produced, and what it weighed on the way. */
+export type CachedBaseMapTiles = {
+	readonly files: Record<string, Uint8Array>;
+	readonly maxZoom: number;
+	/** The archive's own size on disk, for the row of the table that names it. */
+	readonly archiveBytes: number;
+	/** How many tiles the extent needs, from `tilesForBounds`. */
+	readonly tilesInExtent: number;
+	/** How many of those the archive actually carries. */
+	readonly tilesPresent: number;
+	/** What the cache holds, in bytes: decompressed MVT, as ADR-0025 decided. */
+	readonly decompressedBytes: number;
+	/** What those same tiles weigh inside the archive, for the cost of that decision. */
+	readonly gzippedBytes: number;
+};
 
 export type EditorDeployment = {
 	/** The deployment's address, with a trailing slash. This is what `start_url` must resolve to. */

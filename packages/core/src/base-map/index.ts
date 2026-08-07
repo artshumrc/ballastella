@@ -23,6 +23,7 @@ export {
 export {
 	BASE_MAP_TILE_DIRECTORY,
 	ESTIMATED_BYTES_PER_TILE,
+	MEASURED_CANAL_BELT,
 	OFFLINE_TILE_LIMIT,
 	cachedTilePath,
 	countTilesForBounds,

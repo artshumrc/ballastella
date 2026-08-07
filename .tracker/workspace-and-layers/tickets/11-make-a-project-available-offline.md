@@ -92,12 +92,21 @@ z0–14, `tileCompression: 2` (gzip), `tileType: 1` (MVT):
 Per zoom, over the whole extent: z0 93,228 · z4 182,620 · z8 216,089 · z11 201,271 avg · z13 125,417
 avg · z14 86,769 avg over 16 tiles. Smallest tile 36,308 bytes; largest 260,455.
 
+**None of it is prose.** `cachedBaseMapTiles` in `e2e/support/editor-deployment.ts` re-derives the
+table from the archive on every run and `editor-base-map.e2e.ts` asserts each row; `tile-cache.test.ts`
+asserts the two constants against `MEASURED_CANAL_BELT`. The first version of this ticket wrote the
+numbers into three comments and nothing reproduced any of them, which is the failure the tracker's
+"no ticket may commit to them unverified" was about.
+
 Three things this settled rather than confirmed:
 
 - **ADR-0025's "a city centre is tens of tiles" holds.** 23 tiles for a neighbourhood at every zoom
-  from 0 to 14. The refusal threshold is set at 500 on that evidence, which is about 70 MB.
-- **`ESTIMATED_BYTES_PER_TILE` is 140,000**, the measured mean. A per-zoom table was considered and
-  rejected: the spread *within* z14 (36 kB to 260 kB) is as wide as the spread between zooms.
+  from 0 to 14. The refusal threshold is set at 500 on that evidence, which is about 76 MB.
+- **`ESTIMATED_BYTES_PER_TILE` is 152,000** — the *canal-belt* mean rounded up, not the whole-archive
+  one. The lower figure under-quoted a realistic Project's own extent by 8%, and this number is what a
+  user agrees to before somebody else's server is asked for hundreds of tiles (ADR-0007), so the error
+  has a right direction. A per-zoom table was considered and rejected: the spread *within* z14 (36 kB
+  to 260 kB) is as wide as the spread between zooms.
 - **The cache holds decompressed MVT**, at a measured 41% more disk than the gzipped form.
   `PMTiles#getZxyAttempt` ends with `this.decompress(data, header.tileCompression)` and `Protocol`
   hands that straight to MapLibre, so decompressed is what the renderer has always taken.

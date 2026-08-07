@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	BASE_MAP_TILE_DIRECTORY,
 	ESTIMATED_BYTES_PER_TILE,
+	MEASURED_CANAL_BELT,
 	OFFLINE_TILE_LIMIT,
 	cachedTilePath,
 	countTilesForBounds,
@@ -87,6 +88,25 @@ describe('tilesForBounds', () => {
 	it('is empty for a negative maximum zoom and one tile for zoom 0', () => {
 		expect(tilesForBounds(CANAL_BELT, -1)).toEqual([]);
 		expect(tilesForBounds(CANAL_BELT, 0)).toEqual([{ z: 0, x: 0, y: 0 }]);
+	});
+});
+
+describe('the measured numbers ADR-0025 quotes', () => {
+	it('counts the canal belt at exactly what the archive was measured to hold', () => {
+		// The other end of `editor-base-map.e2e.ts`'s re-measurement of the fixture. That test proves the
+		// archive really holds 23 tiles and 3,485,916 bytes over this box; this one proves the code's own
+		// enumeration agrees about the count, so the two halves of the claim cannot drift apart.
+		expect(tilesForBounds(CANAL_BELT, 14).length).toBe(MEASURED_CANAL_BELT.tiles);
+	});
+
+	it('never under-quotes a realistic extent, because the error has a right direction', () => {
+		// ADR-0007: this number is what a user agrees to before somebody else's server is asked for
+		// hundreds of tiles. A quote that comes in under what is actually fetched is the one form of
+		// inaccuracy a courtesy figure must not have — and the first version of this constant did, by 8%.
+		const quoted = tileBudget(CANAL_BELT, 14).estimatedBytes;
+		expect(quoted).toBeGreaterThanOrEqual(MEASURED_CANAL_BELT.decompressedBytes);
+		// And not so far over that it frightens a user off a 3.5 MB fetch: within a quarter.
+		expect(quoted).toBeLessThan(MEASURED_CANAL_BELT.decompressedBytes * 1.25);
 	});
 });
 

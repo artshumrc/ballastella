@@ -33,9 +33,13 @@
 // to 14. The low zooms are not free in bytes — a planet-derived extract's z0 tile carries the whole
 // world — but there are only nine of them, and omitting them is what makes zooming out go blank.
 //
-// **{@link ESTIMATED_BYTES_PER_TILE} is 140,000**, which is the measured mean rounded to two
-// significant figures. It is an estimate and is presented as one; the fetch loop reports what was
-// actually written. A single constant rather than a per-zoom table because the spread within a zoom
+// **{@link ESTIMATED_BYTES_PER_TILE} is 152,000**, the canal-belt mean rounded up rather than the
+// whole-archive one — see that constant for why the error has a right direction. It is an estimate
+// and is presented as one; the fetch loop reports what was actually written. And neither this table
+// nor that constant is prose: `cachedBaseMapTiles` in `e2e/support/editor-deployment.ts` re-derives
+// every row of it from the archive, `editor-base-map.e2e.ts` asserts them, and `tile-cache.test.ts`
+// asserts the constant against {@link MEASURED_CANAL_BELT}.
+// A single constant rather than a per-zoom table because the spread within a zoom
 // (36 kB to 260 kB at z14) is as wide as the spread between zooms, so a table would be more precise
 // about the wrong thing.
 //
@@ -92,16 +96,40 @@ export function parseCachedTilePath(path: string): TileCoordinate | null {
 /**
  * Bytes one cached tile is expected to weigh. **Measured** — see the table at the top of this file.
  *
- * The mean of 43 real Protomaps basemaps v4 tiles across z0–14, rounded. Used only for the estimate
- * shown before anything is fetched; what was actually written is reported afterwards from the bytes.
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * IT IS THE HIGHER OF THE TWO MEASURED MEANS, DELIBERATELY
+ *
+ * 152,000 is the canal-belt mean (151,562) rounded up, not the whole-extent mean (135,312). Choosing
+ * the lower one under-quoted a realistic Project's own extent by 8% — 23 × 140 kB is 3.22 MB against
+ * 3.49 MB actually fetched — and **the error has a right direction here.** This number is what a user
+ * agrees to before Ballastella asks somebody else's server for hundreds of tiles (ADR-0007), and a
+ * quote that comes in under is the one form of inaccuracy a courtesy figure must not have.
+ *
+ * The realistic extent is also the right one to take the mean over: a Project-sized box is weighted
+ * towards the deep zooms it actually needs, while the whole-archive figure is diluted by a longer run
+ * of single low-zoom tiles. `tile-cache.test.ts` asserts that the estimate does not fall below the
+ * measured canal-belt total, and `editor-base-map.e2e.ts` re-measures that total from the archive.
+ *
+ * Used only for the estimate shown before anything is fetched; what was actually written is reported
+ * afterwards from the bytes themselves.
  */
-export const ESTIMATED_BYTES_PER_TILE = 140_000;
+export const ESTIMATED_BYTES_PER_TILE = 152_000;
+
+/**
+ * What the canal-belt extent actually weighed, in bytes, at every zoom from 0 to 14.
+ *
+ * Exported so {@link ESTIMATED_BYTES_PER_TILE} can be asserted against it rather than beside it —
+ * the tracker forbade committing to this measurement unverified, and a table in a comment is not a
+ * verification. `e2e/support/editor-deployment.ts` re-derives the same figure from the archive and
+ * `editor-base-map.e2e.ts` asserts it, so the two ends cannot drift apart in silence.
+ */
+export const MEASURED_CANAL_BELT = { tiles: 23, decompressedBytes: 3_485_916 } as const;
 
 /**
  * The most tiles one Project may ask for, above which the request is refused (ADR-0007, ADR-0025).
  *
- * 500, which at the measured average is about 70 MB — already a seventh of ADR-0008's ~1 GB hosting
- * budget, and far past the "tens of tiles" a city centre measures at. A country at z14 is thousands
+ * 500, which at the measured average is about 76 MB — already a thirteenth of ADR-0008's ~1 GB
+ * hosting budget, and far past the "tens of tiles" a city centre measures at. A country at z14 is thousands
  * and a continent hundreds of thousands, so this refuses both without refusing any plausible Project:
  * the whole Amsterdam fixture extent, at every zoom, is 43.
  */

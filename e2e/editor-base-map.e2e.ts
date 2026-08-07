@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { routeBaseMapArchive } from './support/editor-deployment';
+import { cachedBaseMapTiles, routeBaseMapArchive } from './support/editor-deployment';
 
 // SPEC Seam 2: the running app in a real browser, with real MapLibre and real OPFS. There is
 // deliberately no map-abstraction layer to test against — inventing one purely to enable testing
@@ -538,6 +538,9 @@ test.describe('the Project the pane opens', () => {
 // that came out of the Workspace.
 
 /** The canal belt, inside the Amsterdam fixture's own extent so the archive really has these tiles. */
+const CANAL_BELT_BOX = { west: 4.88, south: 52.36, east: 4.92, north: 52.38 };
+
+/** The same box as a closed ring, for the Annotation that gives a seeded Project its extent. */
 const CANAL_BELT_RING = [
 	[4.88, 52.36],
 	[4.92, 52.36],
@@ -627,6 +630,26 @@ const servedTiles = (page: Page) => page.evaluate(() => window.ballastellaServed
 /** Tiles MapLibre asked the cache for and did not get. The only trace an empty tile leaves. */
 const missedTiles = (page: Page) => page.evaluate(() => window.ballastellaMissedBaseMapTiles ?? []);
 
+/**
+ * Whether the **Base Map's own geography** is on screen — not merely "something is".
+ *
+ * ⚠ `renderedLayerIds` queries the whole map, and the Project seeded below has an Annotation Layer
+ * drawing a polygon over the same MapLibre instance — so `renderedLayerIds(page) !== []` is a claim
+ * about *anything at all* being on screen, which is not the claim ADR-0025 needs. The failure it
+ * names is bytes served and the reference map blank, with no error anywhere.
+ *
+ * **Measured, not assumed.** The mutation is `openArchiveTiles` filling the cache with the archive's
+ * *gzipped* bytes — the compression mistake itself. Under it the whole-map form went red here too
+ * (the annotation stack does not rebuild when the Base Map source parses nothing), so these four
+ * assertions were weak rather than vacuous. Its twin in `viewer-reader.e2e.ts` was genuinely vacuous:
+ * with the site's tiles gzipped, the Reader's two Layers kept `queryRenderedFeatures()` non-empty and
+ * that test passed with a blank map. Both now name a Base Map layer. `roads_` and `water` are
+ * Protomaps prefixes and belong to no Layer this app produces (`ballastella-layer-…`), so neither can
+ * be satisfied by the user's own work.
+ */
+const baseMapIsDrawn = async (page: Page): Promise<boolean> =>
+	(await renderedLayerIds(page)).some((id) => id.startsWith('roads_') || id.startsWith('water'));
+
 /** Open the Project screen and wait for its map. Ticket 04 made `?p=` the screen itself. */
 async function openProjectScreen(page: Page, directory: string = PROJECT_DIRECTORY): Promise<void> {
 	await page.goto(paneUrl(directory));
@@ -640,6 +663,61 @@ async function makeAvailableOffline(page: Page): Promise<void> {
 	await page.getByTestId('offline-start').click();
 	await expect(page.getByTestId('offline-done')).toContainText('Fetched', { timeout: 120_000 });
 }
+
+/**
+ * The measurement ADR-0025's numbers rest on, re-taken from the archive every run.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS A TEST AND NOT A COMMENT
+ *
+ * The epic's tracker names the tile counts and byte totals for a realistic Project extent as one of
+ * two claims resting on documentation rather than measurement, and forbids a ticket committing to
+ * them unverified. Ticket 11 measured them — and then wrote them into a comment, a ticket, and the
+ * tracker, where nothing could tell if they went stale. `grep` for the figures found only prose.
+ *
+ * So they are asserted here instead, against the real fixture, exactly as `editor-pwa.e2e.ts` asserts
+ * the `wasm-vips` byte count it excludes: the point is not that the number is interesting, it is that
+ * the decision resting on it cannot be quietly undone. Three decisions rest on this table — the
+ * 500-tile refusal threshold, the per-tile estimate, and the choice to store decompressed MVT — and
+ * each is asserted against the measurement rather than beside it.
+ *
+ * No browser is involved: the body is Node, and it reads the same fixture the suite serves.
+ */
+test.describe('what ADR-0025’s numbers were measured against', () => {
+	test('a city-centre Project at every zoom is tens of tiles and a few megabytes', async () => {
+		const measured = await cachedBaseMapTiles(CANAL_BELT_BOX, 14);
+
+		// The row ADR-0025's "a city centre is tens of tiles" is asserted from. Exact, because an extent
+		// this size has an exact answer and a range would hide a change in the enumeration.
+		expect(measured.tilesInExtent).toBe(23);
+		expect(measured.tilesPresent).toBe(23);
+		expect(measured.decompressedBytes).toBe(3_485_916);
+		expect(measured.gzippedBytes).toBe(2_478_805);
+
+		// **Tens of tiles, not thousands** — the claim the whole opt-in rests on being reasonable, and
+		// the reason a 500-tile refusal threshold refuses a country without refusing a Project.
+		expect(measured.tilesInExtent).toBeLessThan(100);
+
+		// The constants that quote these figures are asserted against them in
+		// `packages/core/src/base-map/tile-cache.test.ts`, which is where they live. The two halves are
+		// tied by the literals: change the fixture and this goes red; change a constant and that does.
+	});
+
+	test('the whole fixture extent weighs what the compression decision says it does', async () => {
+		const measured = await cachedBaseMapTiles();
+
+		expect(measured.archiveBytes).toBe(4_137_622);
+		expect(measured.tilesInExtent).toBe(43);
+		expect(measured.decompressedBytes).toBe(5_818_431);
+		expect(measured.gzippedBytes).toBe(4_136_082);
+
+		// **The measured cost of storing decompressed MVT**, which is what `tile-cache.ts` quotes as the
+		// price of making the silent-blank-map failure impossible rather than merely avoided.
+		const overhead = measured.decompressedBytes / measured.gzippedBytes - 1;
+		expect(overhead).toBeGreaterThan(0.4);
+		expect(overhead).toBeLessThan(0.42);
+	});
+});
 
 test.describe('making a Project available offline', () => {
 	test.beforeEach(async ({ context, page }) => {
@@ -709,22 +787,22 @@ test.describe('making a Project available offline', () => {
 			'yes'
 		);
 
-		// Bytes served *and* geometry drawn. Either one alone is the vacuous assertion: the compression
-		// mistake ADR-0025 names serves bytes and draws nothing, and a source can exist with no tiles.
+		// **Bytes served *and* the Base Map's own geography drawn**, and the second half is
+		// {@link baseMapIsDrawn} rather than "something rendered". The compression mistake ADR-0025 names
+		// serves bytes and draws nothing, and this Project has an Annotation on the same map, so
+		// "something rendered" is a claim about the wrong thing. Fill the cache with gzipped bytes and
+		// this goes red — see {@link baseMapIsDrawn} for the mutation and what it showed.
 		await expect
 			.poll(async () => (await servedTiles(page)).length, { timeout: 60_000 })
 			.toBeGreaterThan(0);
-		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
-
-		const drawnAtOpening = await renderedLayerIds(page);
-		expect(drawnAtOpening.length).toBeGreaterThan(0);
+		await expect.poll(() => baseMapIsDrawn(page), { timeout: 60_000 }).toBe(true);
 
 		// Zoomed all the way out — the case that goes blank if zoom 0 is skipped.
 		await page.evaluate(() => window.ballastellaBaseMap?.setZoom(0));
 		await expect
 			.poll(async () => (await servedTiles(page)).some((tile) => tile.z === 0), { timeout: 60_000 })
 			.toBe(true);
-		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
+		await expect.poll(() => baseMapIsDrawn(page), { timeout: 60_000 }).toBe(true);
 
 		// And at the source's deepest zoom.
 		await page.evaluate(() => {
@@ -735,7 +813,7 @@ test.describe('making a Project available offline', () => {
 				timeout: 60_000
 			})
 			.toBe(true);
-		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
+		await expect.poll(() => baseMapIsDrawn(page), { timeout: 60_000 }).toBe(true);
 
 		// ── Past the source's deepest zoom, which is what the cached source's `maxzoom` is for ──
 		//
@@ -752,7 +830,7 @@ test.describe('making a Project available offline', () => {
 		await page.evaluate(() => {
 			window.ballastellaBaseMap?.jumpTo({ center: [4.9, 52.37], zoom: 16 });
 		});
-		await expect.poll(() => renderedLayerIds(page), { timeout: 60_000 }).not.toEqual([]);
+		await expect.poll(() => baseMapIsDrawn(page), { timeout: 60_000 }).toBe(true);
 		expect(
 			(await missedTiles(page)).map((tile) => tile.z).filter((z) => z > 14),
 			'MapLibre asked the cache for tiles deeper than the source has'

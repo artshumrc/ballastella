@@ -1276,8 +1276,12 @@ test.describe('a Published Site that is not entirely well', () => {
 		// bucket, so leaving it reachable would let this pass with the cache doing nothing at all. With
 		// it refused, anything drawn came out of the site's own files.
 		//
-		// And the claim rests on served bytes *and* drawn geometry together, never on the absence of an
-		// error: the compression mistake ADR-0025 names serves bytes, parses nothing, and throws nothing.
+		// And the claim rests on served bytes *and* the **Base Map's own geography** being on screen,
+		// never on the absence of an error and never on "some feature rendered": the compression mistake
+		// ADR-0025 names serves bytes, parses nothing, and throws nothing — and this Project draws two
+		// Layers of the Reader's own over the same map, so a bare feature count is satisfied by those
+		// while the reference map is blank. `roads_` and `water` are Protomaps layer prefixes and belong
+		// to no Layer this app produces (`ballastella-layer-…`).
 		const cached = await cachedBaseMapTiles();
 		site = await published({
 			...oneProject(
@@ -1303,17 +1307,15 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect
 			.poll(
 				() =>
-					page.evaluate(
-						() =>
-							new Set(
-								(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).map(
-									(feature) => feature.layer.id
-								)
-							).size
+					page.evaluate(() =>
+						(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).some(
+							(feature) =>
+								feature.layer.id.startsWith('roads_') || feature.layer.id.startsWith('water')
+						)
 					),
 				{ timeout: 60_000 }
 			)
-			.toBeGreaterThan(0);
+			.toBe(true);
 
 		// The Reader's own work still draws over it, and the licence still says whose data this is.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
