@@ -88,7 +88,10 @@
 	);
 
 	/**
-	 * The Layers whose own file is read: **every** map Layer, and the Annotation Layers being drawn.
+	 * The Layers whose own document this page opens: **every** map Layer, and the Annotation Layers
+	 * being drawn. A superset of {@link shown} — `shown ⊆ withDocuments` — and the name says which
+	 * files get read rather than which files *could* be read, because every Layer in the stack has a
+	 * document and only these are opened.
 	 *
 	 * Wider than {@link shown} on purpose, and the difference is one word of ADR-0023: "not aligned
 	 * yet" is derived from the Alignment's Control Points rather than stored, so a map Layer that is
@@ -99,7 +102,7 @@
 	 * that the stack does not: its row says "no Annotations in this Layer yet" from the document the
 	 * map needed anyway, and reading a hidden one would be a store read with nothing behind it.
 	 */
-	const readable = $derived(
+	const withDocuments = $derived(
 		layers.filter(
 			(layer): layer is MapLayer | AnnotationLayer =>
 				layer.kind === 'map' || (layer.visible && layer.kind === 'annotation')
@@ -113,8 +116,8 @@
 	 * one of the most expensive.
 	 *
 	 * **A string, and the effect below reads nothing else that is tracked.** Deriveds compare by
-	 * reference and `readable` is a fresh array from `.filter()` on every change to `layers`, so an
-	 * effect that reads `readable` has `layers` as its real dependency however carefully it computes a
+	 * reference and `withDocuments` is a fresh array from `.filter()` on every change to `layers`, so an
+	 * effect that reads `withDocuments` has `layers` as its real dependency however carefully it computes a
 	 * key first. That is what this guard used to be: the key was computed, discarded with `void`, and
 	 * the list read on the next line — so a rename cost a re-read of every Alignment, and one drag of
 	 * the opacity slider at `step="0.05"` cost twenty of them per Layer.
@@ -125,7 +128,10 @@
 	 */
 	const documentKey = $derived(
 		JSON.stringify(
-			readable.map((layer) => [layer.id, layer.kind === 'map' ? layer.imageId : layer.geojsonRef])
+			withDocuments.map((layer) => [
+				layer.id,
+				layer.kind === 'map' ? layer.imageId : layer.geojsonRef
+			])
 		)
 	);
 
@@ -144,7 +150,7 @@
 
 	$effect(() => {
 		// The two tracked dependencies: which files to read, and the session to read them from.
-		// `readable` is read *untracked*, so a rename or a dragged slider — neither of which changes
+		// `withDocuments` is read *untracked*, so a rename or a dragged slider — neither of which changes
 		// which Layers are read or out of which files — cannot reach the store at all. See
 		// {@link documentKey}.
 		void documentKey;
@@ -153,7 +159,7 @@
 		// the bytes on disk. `reloadAt` is bumped only where a fresh read is genuinely wanted.
 		void reloadAt;
 		const current = session;
-		const wanted = untrack(() => readable);
+		const wanted = untrack(() => withDocuments);
 		if (!current) return;
 		const mine = ++generation;
 		void (async () => {
@@ -263,7 +269,7 @@
 	 * one or two points, below the solvable minimum — which is exactly the state a scholar interrupted
 	 * half way leaves behind.
 	 *
-	 * Computed over {@link readable} rather than {@link shown}, so a hidden Layer's answer is the same
+	 * Computed over {@link withDocuments} rather than {@link shown}, so a hidden Layer's answer is the same
 	 * answer. It has to be: the sentence is about the Historical Map's placement, and a Layer does not
 	 * become aligned by being ticked.
 	 *
@@ -273,7 +279,7 @@
 	 */
 	const notAligned = $derived(
 		new Set(
-			readable
+			withDocuments
 				.filter((layer) => layer.kind === 'map')
 				.filter((layer) => {
 					const document = documents[layer.id];
@@ -296,7 +302,7 @@
 	 */
 	const outcomes = $derived.by((): Readonly<Record<string, DrawnOutcome>> => {
 		const merged: Record<string, DrawnOutcome> = { ...rendered };
-		for (const layer of readable) {
+		for (const layer of withDocuments) {
 			if (notAligned.has(layer.id)) {
 				merged[layer.id] = { status: 'refused', reason: NOT_ALIGNED };
 				continue;

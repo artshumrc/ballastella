@@ -122,6 +122,18 @@
 		{#if status}<p class="text-sm" data-testid="remote-status">{status}</p>{/if}
 	</div>
 
+	{#if job.notice}
+		<!--
+			The add succeeded and something the user asked for did not happen, so this is `alert-info` and
+			not `alert-warning`: nothing is broken and nothing needs fixing. `role="status"` is wrong here
+			— this page's one `status` role is the save indicator — so it is announced the same way the
+			step region above is, politely, and is not a live region of its own competing with it.
+		-->
+		<div class="mt-4 alert max-w-prose flex-col items-start alert-info">
+			<p data-testid="remote-notice">{job.notice}</p>
+		</div>
+	{/if}
+
 	{#if job.error}
 		<!--
 			The refusal, in the words the core modules chose — they name the host, say what would have

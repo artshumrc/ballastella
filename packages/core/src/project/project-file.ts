@@ -21,6 +21,24 @@ export const PROJECT_FILE_NAME = 'project.json';
 export const projectFilePath = (directory: string): string => `${directory}/${PROJECT_FILE_NAME}`;
 
 /**
+ * The one field this build reads in order to **throw it away** (ADR-0023).
+ *
+ * It was a list of the image ids whose map Layer the user had deleted, and it existed only because
+ * an Alignment write created map Layers lazily: without a tombstone, deleting a Layer and then
+ * nudging a Control Point silently brought it back. A map Layer is now created by exactly one thing
+ * — the user adding a Historical Map to a Project — so nothing can resurrect one and the field is
+ * dead.
+ *
+ * Named here rather than left as an unknown field because "unknown" means *preserved*: `ProjectFile`
+ * exists partly to keep a field a build one commit ahead added (ADR-0010), and that tolerance would
+ * carry this tombstone in every existing `project.json` for the life of the Workspace — and rewrite
+ * it in a new position the first time the user changed anything, giving them a diff that says
+ * nothing. This is the opposite case: a field *this* build removed, whose meaning is known to be
+ * nothing.
+ */
+const REMOVED_MAP_LAYERS_KEY = 'removedMapLayers';
+
+/**
  * A parsed `project.json`.
  *
  * Everything here is display state, never portability data: an Alignment is a Georeference
@@ -150,6 +168,15 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 	// Removed by the same key `readBaseMapId` reads it under, so the field cannot be recognised in
 	// one place and treated as unknown in the other.
 	delete unknownFields[PROJECT_BASE_MAP_KEY];
+	// **Dropped, not carried** (ADR-0023). `removedMapLayers` was a tombstone list that existed only
+	// because an Alignment write created map Layers lazily; a Layer is now created by exactly one
+	// thing — the user adding a Historical Map to a Project — so the field means nothing to any build
+	// that can read this one. Left in `unknownFields` it would be *preserved* by
+	// `serialiseProjectFile` for the life of the Workspace, and preserved in a new position, so every
+	// Project written by the previous build would gain a spurious diff on its first edit and keep a
+	// dead field for ever. Reading a file that has it must still work, which is why this is a delete
+	// here rather than a refusal: the value is ignored, the Project opens.
+	delete unknownFields[REMOVED_MAP_LAYERS_KEY];
 
 	if (typeof formatVersion !== 'number' || !Number.isInteger(formatVersion)) {
 		throw new ProjectFileUnreadableError('formatVersion is missing or is not an integer');

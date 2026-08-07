@@ -66,6 +66,15 @@ export class AddRemoteMap {
 	step = $state<AddRemoteStep>('idle');
 	/** The refusal to show, in the words the core modules chose. `''` when there is nothing wrong. */
 	error = $state('');
+	/**
+	 * Something that happened which the user did not ask for and would otherwise not find out about.
+	 * `''` when there is nothing to say.
+	 *
+	 * Not an error — the Layer was added — and deliberately **not cleared by {@link reset}**, which
+	 * runs the moment the add succeeds and takes the whole panel back to its empty state. A message
+	 * about what just happened that vanishes with the thing that caused it is not a message.
+	 */
+	notice = $state('');
 
 	/** The resource that was read, or `null`. Held so choosing costs no further request. */
 	resource = $state<RemoteIiifResource | null>(null);
@@ -152,6 +161,9 @@ export class AddRemoteMap {
 	 */
 	async read(url = this.url): Promise<void> {
 		this.error = '';
+		// Cleared here rather than in `reset`: the next lookup is the point at which what happened to
+		// the *last* add stops being the news on this page.
+		this.notice = '';
 		this.service = null;
 		this.community = null;
 		this.importIndex = -1;
@@ -244,6 +256,14 @@ export class AddRemoteMap {
 	 * epic has broken more often than any other, and the one whose breach destroyed `name`,
 	 * `updatedAt`, and `layers` while the indicator said "Saved".
 	 *
+	 * **A chosen community Alignment is a request, not a guarantee.** ADR-0023 gives a Historical Map
+	 * one Alignment, held in the Workspace and shared by every Project that draws it, so importing
+	 * over one somebody has worked on would discard Control Points that may belong to a Project the
+	 * user is not looking at. The session refuses that and says which way it went; the refusal is a
+	 * {@link notice} rather than an {@link error} because the map *was* added and the Layer *is*
+	 * there — but it is said, because staying quiet about a thing the user explicitly asked for and
+	 * did not get is how they discover it in the wrong place a month later.
+	 *
 	 * @returns the Layer, or `null` when nothing was written
 	 */
 	async addSelected(): Promise<MapLayer | null> {
@@ -252,12 +272,13 @@ export class AddRemoteMap {
 		if (!service || this.step === 'adding') return null;
 
 		this.error = '';
+		this.notice = '';
 		this.step = 'adding';
 		try {
 			const canvasLabel = this.canvases.find(
 				(canvas) => canvas.imageService === service.uri
 			)?.label;
-			const layer = await this.#session().addReferencedMap({
+			const added = await this.#session().addReferencedMap({
 				service,
 				label: canvasLabel || described?.label || '',
 				partOf: described?.kind === 'image' ? '' : (described?.uri ?? ''),
@@ -266,13 +287,14 @@ export class AddRemoteMap {
 				attribution: described?.attribution?.value ?? '',
 				alignment: this.chosenAlignment
 			});
-			if (layer === null) {
+			if (added === null) {
 				this.error = this.#session().saveError || 'The Layer could not be written.';
 				this.step = 'choosing';
 				return null;
 			}
 			this.reset();
-			return layer;
+			if (added.keptExistingAlignment) this.notice = KEPT_EXISTING_ALIGNMENT;
+			return added.layer;
 		} catch (cause) {
 			this.error = message(cause);
 			this.step = 'choosing';
@@ -280,6 +302,20 @@ export class AddRemoteMap {
 		}
 	}
 }
+
+/**
+ * What the user is told when the community Alignment they chose was not written.
+ *
+ * Three things, in the order they need them: the Layer is there (so they do not add it again), the
+ * import did not happen (so they do not assume it did), and *why* — which is the part that is not
+ * guessable, because "one Alignment per Historical Map, shared by every Project" is a property of
+ * this application's storage rather than of anything on the screen (ADR-0023).
+ */
+const KEPT_EXISTING_ALIGNMENT =
+	'The Layer was added, but the alignment you chose to import was not written. ' +
+	'This Workspace already holds an Alignment for that Historical Map, and a Historical Map has ' +
+	'one Alignment shared by every Project that draws it — importing over it would have discarded ' +
+	'the Control Points already in it. The Layer draws the Alignment that was already there.';
 
 const message = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);

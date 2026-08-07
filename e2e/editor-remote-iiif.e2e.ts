@@ -192,7 +192,21 @@ const hostileManifest = {
  * Three Control Points, which is what `polynomial1` needs to solve — so importing this produces an
  * Alignment that can actually be rendered rather than one that merely parses.
  */
-const communityAnnotation = (host: string, name: string) => ({
+/**
+ * A Georeference Annotation of the shape `annotations.allmaps.org` answers with: three Control
+ * Points, which is what a first-order polynomial needs (ADR-0013), and a Resource Mask inside the
+ * sheet.
+ *
+ * @param reading which of two *different* readings of the same sheet. Two tests below turn on which
+ *   Alignment ended up on disk, and identical documents are indistinguishable there — so
+ *   `'refined'` is a second colleague's placement of the same map, differing in every Control Point
+ *   and in the Mask.
+ */
+const communityAnnotation = (
+	host: string,
+	name: string,
+	reading: 'first' | 'refined' = 'first'
+) => ({
 	type: 'Annotation',
 	'@context': [
 		'http://iiif.io/api/extension/georef/1/context.json',
@@ -209,29 +223,51 @@ const communityAnnotation = (host: string, name: string) => ({
 		},
 		selector: {
 			type: 'SvgSelector',
-			value: `<svg width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}"><polygon points="10,10 690,10 690,490 10,490" /></svg>`
+			value:
+				reading === 'first'
+					? `<svg width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}"><polygon points="10,10 690,10 690,490 10,490" /></svg>`
+					: `<svg width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}"><polygon points="20,20 680,20 680,480 20,480" /></svg>`
 		}
 	},
 	body: {
 		type: 'FeatureCollection',
 		transformation: { type: 'polynomial', options: { order: 1 } },
-		features: [
-			{
-				type: 'Feature',
-				properties: { resourceCoords: [60, 80] },
-				geometry: { type: 'Point', coordinates: [-82.5, 27.9] }
-			},
-			{
-				type: 'Feature',
-				properties: { resourceCoords: [640, 90] },
-				geometry: { type: 'Point', coordinates: [-80.1, 28.1] }
-			},
-			{
-				type: 'Feature',
-				properties: { resourceCoords: [340, 430] },
-				geometry: { type: 'Point', coordinates: [-81.2, 25.7] }
-			}
-		]
+		features:
+			reading === 'first'
+				? [
+						{
+							type: 'Feature',
+							properties: { resourceCoords: [60, 80] },
+							geometry: { type: 'Point', coordinates: [-82.5, 27.9] }
+						},
+						{
+							type: 'Feature',
+							properties: { resourceCoords: [640, 90] },
+							geometry: { type: 'Point', coordinates: [-80.1, 28.1] }
+						},
+						{
+							type: 'Feature',
+							properties: { resourceCoords: [340, 430] },
+							geometry: { type: 'Point', coordinates: [-81.2, 25.7] }
+						}
+					]
+				: [
+						{
+							type: 'Feature',
+							properties: { resourceCoords: [70, 90] },
+							geometry: { type: 'Point', coordinates: [-82.4, 27.8] }
+						},
+						{
+							type: 'Feature',
+							properties: { resourceCoords: [630, 100] },
+							geometry: { type: 'Point', coordinates: [-80.2, 28.2] }
+						},
+						{
+							type: 'Feature',
+							properties: { resourceCoords: [350, 420] },
+							geometry: { type: 'Point', coordinates: [-81.3, 25.6] }
+						}
+					]
 	}
 });
 
@@ -353,6 +389,27 @@ const writeFile = (page: Page, directory: string, path: string, body: string): P
 	);
 
 /**
+ * Delete one file from OPFS. `''` as the directory deletes from the Workspace root (ADR-0023).
+ *
+ * For arranging the state a *previous* build left behind, which is the only way to test a repair:
+ * this build cannot produce a map Layer without an Alignment any more, and the Projects that need
+ * repairing were written before it could not.
+ */
+const removeFile = (page: Page, directory: string, path: string): Promise<void> =>
+	page.evaluate(
+		async ([directory, path]) => {
+			const root = await navigator.storage.getDirectory();
+			let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
+			const segments = (path as string).split('/');
+			for (const segment of segments.slice(0, -1)) {
+				handle = await handle.getDirectoryHandle(segment);
+			}
+			await handle.removeEntry(segments[segments.length - 1] as string);
+		},
+		[directory, path]
+	);
+
+/**
  * One file out of OPFS, as text. `''` as the directory reads from the Workspace root (ADR-0023).
  *
  * The bytes rather than the parse, for the assertions whose claim is that *nothing was written*: a
@@ -377,6 +434,27 @@ const readText = (page: Page, directory: string, path: string): Promise<string> 
 /** One JSON file out of OPFS. `''` as the directory reads from the Workspace root (ADR-0023). */
 const readJson = async (page: Page, directory: string, path: string): Promise<unknown> =>
 	JSON.parse(await readText(page, directory, path));
+
+/**
+ * Change what `annotations.allmaps.org` answers with, after {@link installFixtureHosts} has run.
+ *
+ * Playwright matches the most recently registered route first, so this shadows the one the fixture
+ * hosts installed. It is how a second add of the same map meets a *different* offer, or none at all
+ * — which is the only way to tell "the Alignment on disk was kept" apart from "the same Alignment
+ * was written over itself".
+ */
+async function nowOffering(page: Page, annotations: unknown[] | null): Promise<void> {
+	await page.route('https://annotations.allmaps.org/**', (route) =>
+		annotations === null
+			? route.fulfill({
+					status: 404,
+					contentType: 'application/json',
+					headers: { 'access-control-allow-origin': '*' },
+					body: JSON.stringify({ status: 404, error: 'Not Found' })
+				})
+			: json(route, { '@context': 'x', type: 'AnnotationPage', items: annotations })
+	);
+}
 
 async function createProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('button', { name: 'New Project' }).click();
@@ -710,6 +788,262 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		expect(back.layers).toEqual([
 			expect.objectContaining({ kind: 'map', imageId, name: 'Chart of the Florida coast' })
 		]);
+	});
+
+	/**
+	 * The other half of "it comes back", and the one that has teeth: it comes back **over the
+	 * Alignment that is already there**.
+	 *
+	 * The test above re-adds over a starter Alignment with no Control Points in it, so an
+	 * implementation that blew the file away and wrote a fresh starter would be byte-invisible — that
+	 * test cannot fail on this. And the byte-identity test before it never reaches the write at all:
+	 * the Layer is still in the stack, so the add is a no-op on `project.json` and the question of
+	 * what happens to `alignments/<id>.json` is not asked.
+	 *
+	 * This is the scenario the ticket names. A Library map is aligned; its Layer is deleted; the same
+	 * map is added again — which, because `generateId(uri)` is deterministic, lands on the same image
+	 * id and therefore on the same Alignment. Without the guard in `#writeInitialAlignment`, the add
+	 * writes a starter over three Control Points and the deletion of a *Layer* silently destroys an
+	 * *Alignment* the Workspace shares with every other Project.
+	 *
+	 * The Control Points come from a community import rather than from clicks on the panes, because
+	 * what has to be on disk is a real Alignment file with real Control Points in it, and the import
+	 * is a real user gesture that writes exactly that. The offer is then withdrawn before the re-add,
+	 * so the only thing that could rewrite the file is the starter — which is the write under test.
+	 */
+	test('re-adding a map after deleting its Layer keeps the Alignment already on it', async ({
+		page
+	}) => {
+		await installFixtureHosts(page, {
+			communityAnnotations: [communityAnnotation('images.test', 'florida')]
+		});
+		await openNewProject(page);
+		const imageId = generateId(service('images.test', 'florida'));
+
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// Three Control Points, on disk, in the Workspace — the afternoon the guard exists to protect.
+		const aligned = await readText(page, '', `alignments/${imageId}.json`);
+		expect(JSON.parse(aligned).body.features).toHaveLength(3);
+
+		await page.goto('/layers?p=amsterdam-1625');
+		await expect(page.getByRole('heading', { level: 1, name: 'Layers' })).toBeVisible();
+		await page.getByTestId('layer-delete').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(0);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		// Deleting a Layer never deletes a Historical Map or its Alignment (ADR-0023). Stated here
+		// because everything below is about what the *re-add* does to a file that is still there.
+		expect(await readText(page, '', `alignments/${imageId}.json`)).toBe(aligned);
+
+		// The offer is withdrawn, so the re-add is the plain one and the starter is the only thing that
+		// could write this file. Left in place, a second import of the same annotation would rewrite it
+		// to the same bytes and this test could not tell the two implementations apart.
+		await nowOffering(page, null);
+
+		await page.goto('/?p=amsterdam-1625');
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('remote-add')).toBeVisible();
+		await expect(page.getByTestId('community-offer')).toHaveCount(0);
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// A fixed wait, because the claim is about a write that must **not** happen: reading the moment
+		// the add returns would go green against an implementation whose starter was still in flight.
+		// Long enough for ADR-0017's sub-second debounce and the write behind it.
+		await page.waitForTimeout(2000);
+		expect(await readText(page, '', `alignments/${imageId}.json`)).toBe(aligned);
+	});
+
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE ALIGNMENT IS THE WORKSPACE'S, SO OVERWRITING IT IS NEVER A LOCAL DECISION
+	 *
+	 * ADR-0023 moved `alignments/<image-id>.json` out of the Project and into the Workspace: one
+	 * Alignment per Historical Map, shared by every Project that draws it. That turns a write here
+	 * into an edit of Projects the user is not looking at, and it turns the community-import path into
+	 * a way to destroy an afternoon's work from a screen that never mentions the Project losing it —
+	 * align a Library map in one Project, add the same map to another months later, accept whatever
+	 * Allmaps happens to offer, and the first Project's Control Points are gone with no message.
+	 *
+	 * So the offer wins only when there is nothing to lose. Here there is: the Alignment on disk has
+	 * three Control Points somebody placed, so it is kept, and the user is told — because they did ask
+	 * for the import, and a silent no-op is its own way of being wrong.
+	 *
+	 * The two readings differ in every Control Point and in the Resource Mask, so which one is on disk
+	 * at the end is a visible fact rather than an inference.
+	 */
+	test('adding a map another Project has aligned keeps that Alignment, and says so', async ({
+		page
+	}) => {
+		await installFixtureHosts(page, {
+			communityAnnotations: [communityAnnotation('images.test', 'florida')]
+		});
+		const imageId = generateId(service('images.test', 'florida'));
+
+		// The first Project takes the community Alignment. Three Control Points, in the Workspace.
+		await openNewProject(page, 'Amsterdam 1625');
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const alignedInAmsterdam = await readText(page, '', `alignments/${imageId}.json`);
+		expect(JSON.parse(alignedInAmsterdam).target.selector.value).toContain('10,10 690,10');
+
+		// A colleague's different reading of the same sheet is what Allmaps offers from now on.
+		await nowOffering(page, [communityAnnotation('images.test', 'florida', 'refined')]);
+
+		// A second Project, and the same Historical Map added to it.
+		await page.goto('/');
+		await openNewProject(page, 'Boston 1775');
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// The Layer was added — the map is in this Project's stack, drawing the Alignment that exists.
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+		expect(
+			((await readJson(page, 'boston-1775', 'project.json')) as { layers: { imageId: string }[] })
+				.layers
+		).toEqual([expect.objectContaining({ kind: 'map', imageId })]);
+
+		// **And the user is told**, in terms that name the reason rather than only the outcome: a
+		// Historical Map has one Alignment, shared, so importing over it would have discarded work.
+		const notice = page.getByTestId('remote-notice');
+		await expect(notice).toContainText('was not written');
+		await expect(notice).toContainText('one Alignment shared by every Project');
+
+		// A fixed wait, because the claim is about a write that must **not** happen.
+		await page.waitForTimeout(2000);
+		// Amsterdam's Control Points, byte for byte. Not the refined reading, and not a starter.
+		expect(await readText(page, '', `alignments/${imageId}.json`)).toBe(alignedInAmsterdam);
+	});
+
+	/**
+	 * The same rule from the other side: an Alignment nobody has touched holds no work, so the import
+	 * the user asked for happens rather than being refused over a file with nothing in it.
+	 *
+	 * Without this the protection above becomes its own bug — a colleague who added the map to their
+	 * Project and never placed a point would make every later community import in the Workspace a
+	 * no-op with an explanation, and the whole "import existing alignment" affordance would quietly
+	 * stop working the moment two Projects touched one map.
+	 *
+	 * The test is byte-identity with the starter this build writes, not `controlPoints.length === 0`:
+	 * the Resource Mask is editable without placing a single Control Point, and a count would read a
+	 * cropped sheet as untouched and throw the crop away.
+	 */
+	test('imports the community Alignment over a starter nobody has touched', async ({ page }) => {
+		await installFixtureHosts(page);
+		const imageId = generateId(service('images.test', 'florida'));
+
+		// The first Project adds the map with no offer at all, so all that lands is the starter.
+		await openNewProject(page, 'Amsterdam 1625');
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('community-offer')).toHaveCount(0);
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		expect(
+			((await readJson(page, '', `alignments/${imageId}.json`)) as { body: { features: [] } }).body
+				.features
+		).toEqual([]);
+
+		await nowOffering(page, [communityAnnotation('images.test', 'florida')]);
+
+		await page.goto('/');
+		await openNewProject(page, 'Boston 1775');
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// Imported, and nothing said: there was nothing to keep and nothing to explain.
+		await expect
+			.poll(
+				async () =>
+					(
+						(await readJson(page, '', `alignments/${imageId}.json`)) as {
+							body: { features: unknown[] };
+						}
+					).body.features.length
+			)
+			.toBe(3);
+		await expect(page.getByTestId('remote-notice')).toHaveCount(0);
+	});
+
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE PROJECTS THE PREVIOUS BUILD BROKE, AND THE GESTURE THAT MENDS THEM
+	 *
+	 * Before ADR-0023's starter Alignment, adding a referenced Historical Map without a community
+	 * offer wrote no `alignments/<id>.json` at all. The Layer referenced a file that did not exist,
+	 * `assertReferencesPresent` refused the Project by name, and it could be neither exported nor
+	 * published — permanently, because nothing later wrote the missing file either.
+	 *
+	 * Nothing repairs such a Project when it is *opened*: ADR-0010 forbids writing when merely opening
+	 * one, and the ADR says so again about migrations. What repairs it is the obvious gesture — adding
+	 * the map again — and that only works because the Alignment is settled **before** `#addMapLayer`
+	 * returns early on "this Project already draws that map". Move it after and this goes red while
+	 * every other test in the file stays green, which is exactly how it shipped covering new adds only.
+	 *
+	 * The assertion is the export, not the file, because being un-exportable is the whole of the
+	 * symptom: a download that arrives is `assertReferencesPresent` no longer refusing.
+	 */
+	test('re-adding a map repairs a Project whose Alignment went missing', async ({ page }) => {
+		await installFixtureHosts(page);
+		await openNewProject(page);
+		const imageId = generateId(service('images.test', 'florida'));
+
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// The state an earlier build left behind: a map Layer whose Alignment is not there.
+		await removeFile(page, '', `alignments/${imageId}.json`);
+		await expect(readText(page, '', `alignments/${imageId}.json`)).rejects.toThrow();
+
+		// The user does the obvious thing and adds the map again.
+		await page.goto('/?p=amsterdam-1625');
+		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
+		await page.getByTestId('remote-canvas').nth(1).click();
+		await expect(page.getByTestId('remote-add')).toBeVisible();
+		await page.getByTestId('remote-add').click();
+		await expect(page.getByRole('heading', { name: 'Referenced Historical Maps' })).toBeVisible();
+
+		// The starter is back, and the stack is exactly as it was: one Layer, not two.
+		await expect
+			.poll(async () =>
+				readText(page, '', `alignments/${imageId}.json`).then(
+					(text) => JSON.parse(text).body.features.length,
+					() => -1
+				)
+			)
+			.toBe(0);
+		await expect(page.getByTestId('open-layers')).toHaveText('Layers (1)');
+
+		// And the Project exports again, which is the thing the user could not do.
+		await page.goto('/');
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		const download = page.waitForEvent('download');
+		await page.getByRole('button', { name: /^Export/ }).click();
+		expect((await download).suggestedFilename()).toBe('amsterdam-1625.zip');
 	});
 
 	test('offers the community alignments it found, and importing one produces a working Alignment', async ({

@@ -75,7 +75,8 @@ For each criterion above, break the behaviour and confirm the test goes red befo
 
 ## Implementation notes
 
-Five things worth knowing, none of them a deviation from the contract.
+Eight things worth knowing. One is a deviation from an acceptance criterion as literally written —
+the `removedMapLayers` grep, second from last.
 
 **The list of the Workspace's Historical Maps is now refreshed *after* the Layer is written, not
 before.** `ingestImage` used to set `images` the moment the pyramid was complete; the add now has a
@@ -84,11 +85,33 @@ it look added while the file input beside it was still disabled. Picking a secon
 window did nothing at all, silently, which is what `editor-stored-image-pane.e2e.ts`'s two-image test
 caught.
 
-**`#writeStarterAlignment` never writes over an Alignment that already exists**, and on the referenced
-path that is load-bearing rather than tidy. A remote resource's image id is `generateId(uri)`, so the
-same map re-added — or added by a second Project — lands on the same id, and an unconditional write
-would blank an afternoon of Control Points. `#hasAlignment` answers **true** for any failure that is
-not `PathNotFoundError`, which is the safe direction of that trade.
+**`#writeInitialAlignment` is the only thing that writes `alignments/<image-id>.json` on the add
+path**, and it never writes over an Alignment somebody has worked on. A remote resource's image id is
+`generateId(uri)`, so the same map re-added — or added by a *second Project* — lands on the same id,
+and ADR-0023 made that file the Workspace's rather than the Project's; an unconditional write is
+therefore not "overwrite the file I just made" but "silently delete a Project I am not looking at".
+`#existingAlignment` answers `'worked on'` for any read failure that is not `PathNotFoundError`,
+which is the safe direction of that trade.
+
+**The offer wins only when there is nothing to lose.** A community Alignment the user chose is
+written when there is no file at all, or when the file is still byte-identical to the starter this
+build writes — nothing has happened to it, so replacing it discards nothing. Otherwise the existing
+Alignment is kept and `AddRemoteMap` says so, in terms that name the reason: the Layer was added, the
+import did not happen, and a Historical Map has one Alignment shared by every Project that draws it.
+Byte-identity rather than `controlPoints.length === 0`, because the Resource Mask is editable without
+placing a Control Point and a count would read a cropped sheet as untouched.
+
+**Pre-existing broken Projects are repaired by re-adding the map, and deliberately not on open.** A
+Project written before the starter Alignment existed can hold a map Layer with no
+`alignments/<id>.json`, which `assertReferencesPresent` refuses by name — un-exportable and
+un-publishable. Repairing it when the Project is *opened* was considered and rejected: ADR-0010
+forbids writing when merely opening a Project, and ADR-0023 says the same thing again about
+migrations, so a repair-on-open would be this epic breaking one of its own ADRs to fix a state that
+exists only in development checkouts (nothing is deployed and no Workspace exists outside them).
+Instead the Alignment is settled **before** `#addMapLayer` returns early on "this Project already
+draws that map", so the obvious gesture — add the map again — writes the missing file. Covered by
+`re-adding a map repairs a Project whose Alignment went missing`, which goes red on its own when that
+early return is moved back above the Alignment write.
 
 **"Not aligned" overrides what the warped renderer reports, rather than being merged with it.** A map
 Layer with one Control Point of three now *has* an Alignment, so it is a Layer the renderer could be
@@ -99,14 +122,24 @@ and does not hand an unaligned one to the map at all. The renderer's shortfall m
 the *alignment workspace* shows, where it is about the map in front of you.
 
 **The Layers route reads every map Layer's Alignment, including hidden ones — but still not on a
-rename or an opacity drag.** `documentKey` is computed from a new `readable` list (every map Layer,
+rename or an opacity drag.** `documentKey` is computed from a new `withDocuments` list (every map Layer,
 plus the visible Annotation Layers) instead of from `shown`. A map Layer's visibility is deliberately
 *not* in the key: its Alignment is read either way, so ticking one costs no read. A hidden Annotation
 Layer is still not read, because nothing asks a question of its file that the stack does not.
 
-**The dedicated-ports problem, for whoever verifies this.** `playwright.config.ts` hardcodes 4173/4174
-with `reuseExistingServer`, and several worktrees of this repository were being built on one machine at
-once — so a run here silently drove *another branch's* build, and produced failures that made no sense
-against this diff. Everything below was verified against a throwaway config on ports 4573/4574 with
-`reuseExistingServer: false`. If a full-suite run reports failures that reproduce nowhere in isolation,
-check `ss -ltnp | grep 417` before believing them.
+**`removedMapLayers` is dropped on parse, not merely absent from the model, and that costs the
+acceptance grep its literal reading.** Removing the field from `ProjectFile` leaves the key in
+`unknownFields`, which `serialiseProjectFile` spreads — so every existing `project.json` would carry
+the dead tombstone for the life of the Workspace and gain a spurious diff, moving it after
+`canonicalUrl`, on the first edit. `parseProjectFile` therefore deletes it by name, the way it already
+deletes the Base Map key, and the name survives in exactly two places: the
+`REMOVED_MAP_LAYERS_KEY` constant that does the deleting, and the tests that prove both halves (a file
+containing it opens; a file containing it does not re-serialise it). The criterion's grep over
+`packages/*/src` and `apps/*/src` therefore reports those two matches rather than none. Read as
+written it is unsatisfiable together with "the parser must not carry the field forward"; read as
+intended — no `removedMapLayers` **field**, no `#ensureMapLayer`, no `#placingMapLayers` — it holds,
+and `ensureMapLayer` and `placingMapLayers` have no matches at all.
+
+**Ports are no longer a hazard.** `playwright.config.ts` now derives its pair from the checkout path,
+so each worktree gets its own and a run cannot drive a sibling branch's build. The full suite below
+was run with it unmodified.

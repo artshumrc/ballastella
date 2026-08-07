@@ -133,6 +133,67 @@ describe('the Base Map field', () => {
 	});
 });
 
+/**
+ * The tombstone ADR-0023 deleted, and the two halves of "deleted" that are not the same claim.
+ *
+ * `removedMapLayers` was a list of the image ids whose map Layer the user had deleted, consulted on
+ * every Alignment write because an Alignment write is what created map Layers. A Layer is now
+ * created by exactly one thing — the user adding a Historical Map to a Project — so the field means
+ * nothing.
+ *
+ * Removing it from `ProjectFile` is not enough on its own, and that is what these cover: an
+ * unrecognised key falls into `unknownFields`, which this parser keeps and this serialiser writes
+ * back, deliberately, so that a field a build one commit ahead added is not destroyed (ADR-0010).
+ * Applied to a field *this* build removed, that tolerance is a bug in the other direction — every
+ * `project.json` the previous build wrote would carry a dead tombstone for the life of the
+ * Workspace, and would gain a diff moving it after `canonicalUrl` the first time anything was
+ * edited.
+ */
+describe('the deleted tombstone (ADR-0023)', () => {
+	const withTombstone = encode({
+		formatVersion: 1,
+		name: 'Amsterdam 1625',
+		updatedAt: '2026-01-01T00:00:00.000Z',
+		layers: [{ id: 'l1', kind: 'map', name: 'La Floride', imageId: 'floride-1657' }],
+		baseMap: null,
+		removedMapLayers: ['floride-1657']
+	});
+
+	// Half one: **tolerated on input.** Every `project.json` in every existing Workspace has been
+	// written by a build that could produce this field, and refusing one — or letting the key throw
+	// anywhere — would turn a dead field into a Project that cannot be opened at all.
+	it('opens a Project that still carries it, with everything else intact', () => {
+		const opened = parseProjectFile(withTombstone);
+
+		expect(opened.name).toBe('Amsterdam 1625');
+		expect(opened.layers).toHaveLength(1);
+		expect(opened.updatedAt).toBe('2026-01-01T00:00:00.000Z');
+	});
+
+	// Half two: **not carried forward.** Asserted on the re-serialised *bytes*, because the field
+	// surviving as an unknown one is exactly the failure — it is invisible on `ProjectFile`, which has
+	// no such property either way, and visible only in what gets written back.
+	it('does not write it back, so the dead field leaves on the first edit', () => {
+		const opened = parseProjectFile(withTombstone);
+
+		expect(opened.unknownFields).toEqual({});
+		expect(decode(serialiseProjectFile(opened))).not.toContain('removedMapLayers');
+	});
+
+	// A tombstone of the wrong shape is dropped just the same: the value is never read, so there is
+	// nothing for a bad one to break.
+	it.each([
+		['the wrong type', 'floride-1657'],
+		['a list of the wrong things', [7, null, '']],
+		['null', null]
+	])('drops it when it holds %s', (_description, value) => {
+		const bytes = encode({ formatVersion: 1, name: 'x', removedMapLayers: value });
+
+		expect(parseProjectFile(bytes).unknownFields).toEqual({});
+		expect(decode(serialiseProjectFile(parseProjectFile(bytes)))).not.toContain('removedMapLayers');
+	});
+});
+
 describe('fields this build does not know about', () => {
 	it('keeps them, so writing the file back cannot drop somebody else’s work', () => {
 		const original = encode({

@@ -199,6 +199,38 @@ const storedImageIds = (page: Page): Promise<string[]> =>
 		return names;
 	});
 
+/**
+ * The id of the first Historical Map whose pyramid is **complete**, or `null`.
+ *
+ * `info.json` is written last by the tiler and is therefore the completion marker for the whole
+ * directory, so its arrival is the moment the ingest is over and the rest of the add — the
+ * Alignment, the Layer, `project.json` — has begun. That is a signal nothing later in the add
+ * produces, which is what makes it usable as a barrier *inside* the add rather than after it.
+ *
+ * Through `getFileHandle` rather than `getFile`, so a test that has slowed reads down to widen a
+ * window does not slow its own barrier down with them.
+ */
+const completedPyramid = (page: Page): Promise<string | null> =>
+	page.evaluate(async () => {
+		const root = await navigator.storage.getDirectory();
+		let images: FileSystemDirectoryHandle;
+		try {
+			images = await root.getDirectoryHandle('images');
+		} catch {
+			return null;
+		}
+		for await (const name of images.keys()) {
+			try {
+				const image = await images.getDirectoryHandle(name);
+				await image.getFileHandle('info.json');
+				return name;
+			} catch {
+				// Not a finished pyramid: either not a directory, or still being written into.
+			}
+		}
+		return null;
+	});
+
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
@@ -355,11 +387,12 @@ async function pairAt(page: Page, fx: number, fy: number): Promise<void> {
 }
 
 /**
- * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack.
+ * A Project with one aligned Historical Map, which is the smallest thing that has a Layer stack with
+ * something in it that draws.
  *
- * Made through the interface rather than seeded into OPFS, because the first criterion is that
- * *aligning* is what produces the Layer — so the Layer has to come from the alignment workspace and
- * not from a fixture that already contains one.
+ * Made through the interface rather than seeded into OPFS: the Layer comes from the add (ADR-0023)
+ * and the Control Points come from the alignment workspace, so what the rest of this file measures
+ * is a stack the application built rather than a fixture that already agreed with it.
  *
  * @returns the Project directory
  */
@@ -744,6 +777,19 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	 * while their Historical Map is being added, sees the field revert to the old name, and the file on
 	 * disk carries the old name too. `project.json` is the document whose loss is "not one annotation
 	 * but the map of everything" (ADR-0017 rule 4).
+	 *
+	 * ──────────────────────────────────────────────────────────────────────────────────
+	 * THE BARRIER IS THE PYRAMID, AND IT USED TO BE THE HISTORICAL MAPS LIST
+	 *
+	 * The rename has to happen **inside** the window, or this test asserts nothing while claiming to
+	 * assert something. Waiting for the Historical Maps list to show one item no longer puts it inside
+	 * anything: `ingestImage` sets `this.images` *last*, deliberately, so that a map appears in the
+	 * list only once the whole add is done. By the time that row rendered the Layer was written, the
+	 * window was shut, and reverting the fix under test left this green.
+	 *
+	 * `images/<id>/info.json` is the signal that still means what the list used to mean: the tiler
+	 * writes it last, so it lands when the ingest ends and the Layer is on its way — with the
+	 * `manifest.json` read below still to come. See {@link completedPyramid}.
 	 */
 	test('making the Layer does not discard a Project rename made while it was being made', async ({
 		page
@@ -751,22 +797,25 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		const directory = await emptyProject(page);
 		// Widens the window between the snapshot and the write. The window is real at any speed; this
 		// only makes it wide enough to drive on purpose.
-		await delayReadsOf(page, 'manifest.json', 1500);
+		await delayReadsOf(page, 'manifest.json', 3000);
 
 		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(700, 500)
 		});
-		// Inside the window: the pyramid has landed, and the Layer is on its way.
-		await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+		// Inside the window: the pyramid has landed, and the Layer is on its way. Polled tightly,
+		// because everything after this has to happen before the delayed read resolves.
+		await expect
+			.poll(() => completedPyramid(page), { timeout: 30_000, intervals: [50] })
+			.not.toBeNull();
 		const name = page.getByLabel('Project name');
 		await name.fill('Amsterdam, 1625');
 		await name.blur();
 
 		// Long enough for the delayed read and the write it leads to. A fixed wait rather than a signal,
 		// because the claim is about a write that must *not* undo an earlier one.
-		await page.waitForTimeout(3000);
+		await page.waitForTimeout(5000);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		// The Layer was made, and the rename survived it — on screen and in the file.

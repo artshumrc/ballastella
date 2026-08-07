@@ -1,4 +1,5 @@
 import { fetchAnnotationsFromApi } from '@allmaps/stdlib';
+import { SvelteSet } from 'svelte/reactivity';
 
 import {
 	Autosave,
@@ -150,6 +151,52 @@ export type ProjectProblem =
 	| { readonly kind: 'format-too-new' | 'unreadable'; readonly message: string }
 	| { readonly kind: 'missing'; readonly message: string }
 	| { readonly kind: 'reserved-name'; readonly message: string };
+
+/**
+ * What adding a Historical Map did to `alignments/<image-id>.json`.
+ *
+ * Three outcomes rather than a boolean because only one of them is worth telling the user about,
+ * and it is not the one a boolean would name. `'left alone'` is the ordinary re-add, silent by
+ * design; `'kept over the offer'` is the user having asked for a community Alignment and not got
+ * it, which must be said out loud — a Historical Map has **one** Alignment, shared by every Project
+ * that draws it (ADR-0023), so importing over it would have discarded work that may belong to a
+ * Project the user is not even looking at.
+ */
+type InitialAlignment =
+	/** Written: the starter every Historical Map gets, or the Alignment the user chose to import. */
+	| 'written'
+	/** There was already one and nothing was offered, so it stands. Ordinary; say nothing. */
+	| 'left alone'
+	/** An Alignment somebody has worked on was kept **instead of** the one the user chose. */
+	| 'kept over the offer';
+
+/** A Historical Map put in the stack, and what became of its Alignment. */
+type MapLayerAdded = {
+	/** The new Layer, or the one this Project already had for this Historical Map. */
+	readonly layer: MapLayer;
+	readonly alignment: InitialAlignment;
+};
+
+/** The outcome of {@link EditorSession.addReferencedMap}. */
+export type ReferencedMapAdded = {
+	/** The new Layer, or the one this Project already had for this Historical Map. */
+	readonly layer: MapLayer;
+	/**
+	 * The user chose a community Alignment and it was **not** written, because this Workspace already
+	 * holds an Alignment for that Historical Map that somebody has worked on. The Layer was still
+	 * added, and it draws the Alignment that was already there. The surface that asked must say so.
+	 */
+	readonly keptExistingAlignment: boolean;
+};
+
+/** Byte-for-byte equality, for deciding whether a stored document has ever been touched. */
+function sameBytes(left: Bytes, right: Bytes): boolean {
+	if (left.length !== right.length) return false;
+	for (let index = 0; index < left.length; index += 1) {
+		if (left[index] !== right[index]) return false;
+	}
+	return true;
+}
 
 /**
  * Everything the editor knows about the user's workspace, and the only place the app talks to
@@ -783,53 +830,102 @@ export class EditorSession {
 	}
 
 	/**
-	 * Does the Workspace already hold an Alignment for this Historical Map?
+	 * What this Workspace already holds for a Historical Map, as far as writing over it goes.
 	 *
-	 * Through `size` rather than `read`, because the answer wanted is "is the file there", and reading
-	 * it to find out would parse an Alignment nobody is going to look at. Anything that is not "no such
-	 * path" — a folder whose permission was revoked, a backend that is down — answers **true**, which
-	 * is the safe direction: the cost of a false yes is a Historical Map added without a starter
-	 * Alignment, and the cost of a false no is {@link #writeStarterAlignment} overwriting Control
-	 * Points somebody spent an afternoon placing.
+	 * Three answers rather than the two `#hasAlignment` used to give, because "there is a file there"
+	 * is not the question. An Alignment nobody has touched — the starter this build writes on the add
+	 * — holds no work at all, so replacing it destroys nothing; an Alignment with one Control Point in
+	 * it is somebody's afternoon, and since ADR-0023 made `alignments/<id>.json` **Workspace-scoped**
+	 * it may well be somebody in a different Project.
+	 *
+	 * The comparison is on the bytes rather than on `controlPoints.length`, and that is the point of
+	 * doing it this way: the Resource Mask is editable without placing a single Control Point, so a
+	 * count would read a cropped sheet as untouched and throw the crop away. Byte-identity with the
+	 * starter this build would write means *nothing has happened to this file since it was created*,
+	 * with nothing to reason about.
+	 *
+	 * @param starter the bytes this build would write for a brand-new Alignment of this map.
 	 */
-	async #hasAlignment(imageId: string): Promise<boolean> {
+	async #existingAlignment(
+		imageId: string,
+		starter: Bytes
+	): Promise<'none' | 'untouched' | 'worked on'> {
+		let stored: Bytes;
 		try {
-			await this.#store.size(alignmentPath(imageId));
-			return true;
+			stored = await this.#store.read(alignmentPath(imageId));
 		} catch (cause) {
-			return !(cause instanceof PathNotFoundError);
+			// Only "no such path" means there is nothing there. A folder whose permission was revoked or
+			// a backend that is down answers `'worked on'`, which is the safe direction: the cost of a
+			// false "there is one" is a Historical Map added without its starter Alignment — bytes
+			// missing, which the next add of the same map writes — and the cost of a false "there is
+			// none" is Control Points somebody spent an afternoon placing, gone with no message.
+			return cause instanceof PathNotFoundError ? 'none' : 'worked on';
 		}
+		return sameBytes(stored, starter) ? 'untouched' : 'worked on';
 	}
 
 	/**
-	 * Write the Alignment a Historical Map starts life with, unless it already has one (ADR-0023).
+	 * Give a Historical Map the Alignment it starts life with, or the one the user chose to import,
+	 * and **never at the cost of one somebody has worked on** (ADR-0023).
 	 *
-	 * Zero Control Points and a Resource Mask over the whole sheet, which is what `newAlignment`
-	 * yields — the same document {@link readAlignment} has always produced in memory for a map nobody
-	 * has placed yet. **The difference is that it is now on disk**, and that is the whole point: a map
-	 * Layer's references are derived from its `imageId`, so a Layer whose `alignments/<id>.json` does
-	 * not exist is a Project `assertReferencesPresent` refuses — this build would export a zip it then
-	 * would not import (ADR-0023's consequence on the starter Alignment).
+	 * The starter is `newAlignment`: zero Control Points and a Resource Mask over the whole sheet, the
+	 * same document {@link readAlignment} has always produced in memory for a map nobody has placed
+	 * yet. **The difference is that it is now on disk**, and that is the whole point — a map Layer's
+	 * references are derived from its `imageId`, so a Layer whose `alignments/<id>.json` does not exist
+	 * is a Project `assertReferencesPresent` refuses, and this build would export a zip it then would
+	 * not import (ADR-0023's consequence on the starter Alignment).
 	 *
 	 * This does not offend ADR-0010, which forbids writing when *merely opening* a Project. Adding a
 	 * Historical Map is an explicit act, and this happens only on that act.
 	 *
-	 * **Never over an Alignment that exists**, which is not a nicety on the referenced path: a remote
-	 * resource's image id is `generateId(uri)` and therefore the same every time it is added, so adding
-	 * a map a colleague already aligned — or re-adding one after deleting its Layer — would otherwise
-	 * blank the placement.
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHY AN OFFERED ALIGNMENT DOES NOT SIMPLY WIN
 	 *
-	 * @param serialise how to write it. A referenced image's Alignment names the Library's service as
-	 *   its `resource.id` rather than the ADR-0004 placeholder (ADR-0007, SPEC story 91), so the caller
-	 *   that knows the service supplies it.
+	 * A remote resource's image id is `generateId(uri)`, the same every time anybody adds it, and
+	 * ADR-0023 moved `alignments/<id>.json` out of the Project and into the Workspace — one Alignment
+	 * per Historical Map, shared by every Project that draws it. So an unconditional write here is not
+	 * "overwrite the file I just made". It is: align a Library map in Project A, place Control Points,
+	 * add the same map to Project B months later, accept the community offer Allmaps happens to have
+	 * — and Project A's placement is gone, silently, from a gesture that said nothing about Project A.
+	 *
+	 * The rule is therefore **the offer is written only when there is nothing to lose**: no file at
+	 * all, or a file still byte-identical to the starter. Anything else is kept, and the caller says
+	 * so — because the user did ask for something, and a silent no-op is its own kind of wrong.
+	 *
+	 * @param options.serialise how to write it. A referenced image's Alignment names the Library's
+	 *   service as its `resource.id` rather than the ADR-0004 placeholder (ADR-0007, SPEC story 91),
+	 *   so the caller that knows the service supplies it. **This is the one writer of a referenced
+	 *   Alignment on the add path**; a second `serialiseReferencedAlignment` call beside it is how the
+	 *   two spellings drift.
+	 * @param options.offered an Alignment the user chose to import, or `null` for the starter.
 	 */
-	async #writeStarterAlignment(
+	async #writeInitialAlignment(
 		imageId: string,
 		image: { width: number; height: number },
-		serialise: (alignment: Alignment) => Bytes = serialiseAlignment
-	): Promise<void> {
-		if (await this.#hasAlignment(imageId)) return;
-		await this.#autosave.commit(alignmentPath(imageId), serialise(newAlignment(imageId, image)));
+		options: {
+			serialise?: (alignment: Alignment) => Bytes;
+			offered?: Alignment | null;
+		} = {}
+	): Promise<InitialAlignment> {
+		const serialise = options.serialise ?? serialiseAlignment;
+		const starter = serialise(newAlignment(imageId, image));
+		// Re-keyed onto this Workspace's image id: a community Alignment arrives keyed on the Allmaps
+		// identifier of the resource, which is the same string here, but the record is the authority.
+		const offered = options.offered ? serialise({ ...options.offered, imageId }) : null;
+
+		const existing = await this.#existingAlignment(imageId, starter);
+		if (existing === 'none') {
+			await this.#autosave.commit(alignmentPath(imageId), offered ?? starter);
+			return 'written';
+		}
+		// There is one and the user asked for nothing: the ordinary re-add, and the repair of a Project
+		// whose Alignment went missing. Neither is worth a word to anybody.
+		if (!offered) return 'left alone';
+		if (existing === 'untouched') {
+			await this.#autosave.commit(alignmentPath(imageId), offered);
+			return 'written';
+		}
+		return 'kept over the offer';
 	}
 
 	/**
@@ -843,28 +939,48 @@ export class EditorSession {
 	 * user picked is the file's name — an image id is a random identifier (ADR-0015), so naming the
 	 * Layer from it would name it after a hash. SPEC story 54 is that they can then rename it.
 	 *
-	 * **Adding a map this Project already draws is a no-op, not an error and not a duplicate.** The
-	 * existing Layer keeps its id, its position in the stack, and the name the user gave it; nothing is
-	 * written, so `updatedAt` does not move either. The test is the `imageId`, which is a map Layer's
-	 * whole link to its Historical Map.
+	 * **Adding a map this Project already draws is a no-op on the stack**, not an error and not a
+	 * duplicate. The existing Layer keeps its id, its position, and the name the user gave it, and
+	 * `project.json` is not written, so `updatedAt` does not move either. The test is the `imageId`,
+	 * which is a map Layer's whole link to its Historical Map.
 	 *
-	 * **Nothing is read out of `openProject` before the `await` and used after it.** Reading the
+	 * **The Alignment is settled before that no-op, not after it**, which is the one thing the
+	 * re-add gesture can repair. A Project written by an earlier build can hold a map Layer whose
+	 * `alignments/<id>.json` was never written — that Project is un-exportable, because
+	 * `assertReferencesPresent` refuses it by name — and returning early on "the Layer is already
+	 * there" would leave the user's only obvious remedy, adding the map again, doing nothing at all.
+	 * It is also where an offered community Alignment lands when the map is already in the stack.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHAT MAY BE HELD ACROSS THE AWAITS, AND WHAT MAY NOT
+	 *
+	 * **Nothing is read out of `openProject` before an `await` and used after it.** Reading the
 	 * image's label is a store read, and a version that took its snapshot of the document first and
 	 * wrote that snapshot back discarded whatever else changed inside the window — the Project name
 	 * field is on the same page, so renaming a Project while a map was being added reverted the name,
 	 * on screen and on disk.
 	 *
-	 * @returns the Layer — the new one, or the one that was already there — or `null` when nothing
-	 *   could be written.
+	 * `directory` is the one value that *is* captured first, because the early bail needs it and
+	 * because it is not part of the document — it is which folder the document belongs to. Held
+	 * carelessly it would be worse than a stale snapshot rather than better: if the user opened
+	 * another Project inside the window, `#write(directory)` would put **that** Project's document
+	 * into **this** Project's folder. So it is compared against `openDirectory` again after the
+	 * awaits, and a mismatch abandons the write. The rule with the exception spelled out: nothing
+	 * captured before an await is written after one without first being confirmed still current.
+	 *
+	 * @returns the Layer — the new one, or the one that was already there — and what became of the
+	 *   Alignment; or `null` when nothing could be written.
 	 */
 	async #addMapLayer(fields: {
 		imageId: string;
 		image: { width: number; height: number };
 		/** What to call it, when the caller knows better than `manifest.json` does. */
 		name?: string;
-		/** How to serialise the starter Alignment. See {@link #writeStarterAlignment}. */
+		/** How to serialise the Alignment. See {@link #writeInitialAlignment}. */
 		serialiseAlignmentAs?: (alignment: Alignment) => Bytes;
-	}): Promise<MapLayer | null> {
+		/** A community Alignment the user chose to import. See {@link #writeInitialAlignment}. */
+		alignment?: Alignment | null;
+	}): Promise<MapLayerAdded | null> {
 		const { imageId } = fields;
 		const directory = this.openDirectory;
 		const drawnAlready = (project: ProjectFile): MapLayer | undefined =>
@@ -874,34 +990,44 @@ export class EditorSession {
 
 		const before = this.openProject;
 		if (!directory || !before) return null;
-		const already = drawnAlready(before);
-		if (already) return already;
 
+		let alignment: InitialAlignment;
 		try {
 			// **Before `project.json`**, and the same discipline `addAnnotationLayer` and ticket 13's
 			// importer keep: a Layer whose reference names a file that is not there is a Project this
 			// build's own import refuses. Written this way, the worst a failure leaves is an Alignment
 			// nothing draws — bytes, not breakage.
-			await this.#writeStarterAlignment(imageId, fields.image, fields.serialiseAlignmentAs);
+			alignment = await this.#writeInitialAlignment(imageId, fields.image, {
+				serialise: fields.serialiseAlignmentAs,
+				offered: fields.alignment
+			});
 			this.saveError = '';
 		} catch (cause) {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
 			return null;
 		}
 
+		// Asked again rather than from `before`: the Alignment write awaited, and the map may have been
+		// added by another gesture in that window.
+		const drawn = this.openProject;
+		if (!drawn) return null;
+		const already = drawnAlready(drawn);
+		if (already) return { layer: already, alignment };
+
 		const name = fields.name || (await this.#imageLabel(imageId)) || imageId;
-		// Taken again after those awaits, never from the snapshot above.
+		// Taken again after that await too, never from a snapshot above — and `directory` with it, so
+		// this Project's document cannot be written into a Project the user opened in the meantime.
 		const project = this.openProject;
-		if (!project) return null;
-		// Asked a second time as well: two adds of the same map in flight together must produce one
+		if (!project || this.openDirectory !== directory) return null;
+		// Asked a third time as well: two adds of the same map in flight together must produce one
 		// Layer, not two rows over one pyramid.
 		const raced = drawnAlready(project);
-		if (raced) return raced;
+		if (raced) return { layer: raced, alignment };
 
 		const layer = newMapLayer({ id: crypto.randomUUID(), name, imageId });
 		this.openProject = { ...project, layers: addLayer(project.layers, layer) };
 		await this.#write(directory);
-		return this.saveError === '' ? layer : null;
+		return this.saveError === '' ? { layer, alignment } : null;
 	}
 
 	/**
@@ -926,6 +1052,14 @@ export class EditorSession {
 	 * added without one produced a Layer whose `alignments/<id>.json` did not exist, so this build
 	 * exported a zip it then refused to import (ADR-0023's consequence on the starter Alignment).
 	 *
+	 * **And step 2 is not this method's to do**, which is the other half of the same lesson. The
+	 * community Alignment used to be committed here, unconditionally, before `#addMapLayer` ran — one
+	 * `serialiseReferencedAlignment` call here and a second inside, two writers of one file that could
+	 * disagree, and the one here with no idea whether it was writing over somebody's work. Both are now
+	 * {@link #writeInitialAlignment}, which is the only thing that decides what
+	 * `alignments/<id>.json` ends up holding and the only place the offer-versus-existing question is
+	 * answered. See its comment for why the offer does not simply win.
+	 *
 	 * **Nothing records that the map is referenced, because nothing has to** (ADR-0023). `remote.json`
 	 * without an `info.json` beside it *is* the record, so there is no claim in `project.json` that could
 	 * disagree with the folder — and the whole "finish the interrupted copy" repair path went with it.
@@ -935,8 +1069,8 @@ export class EditorSession {
 	 * Allmaps (ADR-0007, SPEC story 91) and what makes the warped Layer render at all —
 	 * `@allmaps/maplibre` fetches tiles from that `id`.
 	 *
-	 * @returns the Layer — the new one, or the one this Project already had for this map — or `null`
-	 *   when nothing could be written
+	 * @returns the Layer — the new one, or the one this Project already had for this map — with what
+	 *   became of the Alignment beside it; or `null` when nothing could be written
 	 */
 	async addReferencedMap(fields: {
 		service: RemoteImageService;
@@ -947,7 +1081,7 @@ export class EditorSession {
 		attribution: string;
 		/** A community Alignment to import, or `null` to start from scratch (ADR-0015). */
 		alignment: Alignment | null;
-	}): Promise<MapLayer | null> {
+	}): Promise<ReferencedMapAdded | null> {
 		if (!this.openDirectory || !this.openProject) return null;
 
 		const { service } = fields;
@@ -967,15 +1101,6 @@ export class EditorSession {
 				referencedImagePath(record.imageId),
 				serialiseReferencedImage(record)
 			);
-			if (fields.alignment) {
-				await this.#autosave.commit(
-					alignmentPath(record.imageId),
-					serialiseReferencedAlignment(
-						{ ...fields.alignment, imageId: record.imageId },
-						record.service
-					)
-				);
-			}
 		} catch (cause) {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
 			return null;
@@ -985,20 +1110,21 @@ export class EditorSession {
 		// is decided. `generateId(uri)` is deterministic, so the second add lands on the same image id —
 		// which is a feature (a whole class adding the same map produces one Layer each, and a
 		// colleague's Project agrees) and would otherwise be a duplicate Layer over the same tiles.
-		const layer = await this.#addMapLayer({
+		const added = await this.#addMapLayer({
 			imageId: record.imageId,
 			image: { width: service.width, height: service.height },
+			alignment: fields.alignment,
 			name: record.label || record.imageId,
 			serialiseAlignmentAs: (alignment) => serialiseReferencedAlignment(alignment, record.service)
 		});
-		if (!layer) return null;
+		if (!added) return null;
 		// The record is refreshed even when the Layer was already there: the add re-read the resource's
 		// description from the library, and the newer one is the one to keep.
 		this.referencedImages = [
 			...this.referencedImages.filter((image) => image.imageId !== record.imageId),
 			record
 		];
-		return layer;
+		return { layer: added.layer, keptExistingAlignment: added.alignment === 'kept over the offer' };
 	}
 
 	/**
@@ -1331,7 +1457,9 @@ export class EditorSession {
 			const bytes = await this.#store.read(imageManifestPath(imageId));
 			return readImageLabel(JSON.parse(new TextDecoder().decode(bytes)));
 		} catch {
-			// A Layer named after its image id is a poor name; a failed Alignment write is worse.
+			// Swallowed, because a name is not worth failing an add over. The caller falls back to the
+			// image id — a poor name the user can change (SPEC story 54) — where throwing would leave a
+			// Historical Map prepared, an Alignment written, and no Layer drawing either of them.
 			return '';
 		}
 	}
