@@ -156,7 +156,7 @@ export type MirrorPlan = {
 
 export type PlanMirrorOptions = {
 	/**
-	 * Largest source a copy can be made of, in pixels. See {@link maxIngestPixelsDefault}.
+	 * Largest source a copy can be made of, in pixels. Defaults to the tiler's own `MAX_INGEST_PIXELS`.
 	 *
 	 * Overridable so a test can drive the refusal without a 528-megapixel fixture.
 	 */
@@ -195,7 +195,16 @@ export function planMirror(
 ): MirrorPlan {
 	const { width, height, uri } = service;
 	const host = hostOf(uri);
-	const maxIngestPixels = options.maxIngestPixels ?? maxIngestPixelsDefault;
+	// The tiler's own cap, because a copy meets it twice: the `assembled` path has to hold the whole
+	// source at full resolution in one image in order to re-cut it, and the pyramid it then cuts is
+	// `ingestImageFile`'s work either way. Refused up front and named, rather than discovered as a
+	// dead tab after several thousand requests to somebody else's server.
+	//
+	// Note this is the *canvas* as well as the decode: ADR-0003 records that WebKit's canvas area
+	// limit can be as low as 5 242 880 pixels, which the decode-and-crop tiler avoids by never making
+	// a canvas larger than one tile. The `assembled` path cannot, so a large copy may fail on Safari
+	// well below this bound. That is recorded rather than guessed at, here and in ADR-0027.
+	const maxIngestPixels = options.maxIngestPixels ?? MAX_INGEST_PIXELS;
 
 	const cappedBy = declaredCap(service);
 	const wholeImageInOneRequest = service.pane.image.supportsAnyRegionAndSize && cappedBy === '';
@@ -231,17 +240,19 @@ export function planMirror(
 	// the streaming tiler", which is no longer true of any deployment and was never true of this
 	// one; it closes v1 ticket 15's `[~]` criterion by removing the route it was hedging about.
 	if (pixels > maxIngestPixels) {
+		// One word for the thing throughout (CONTEXT.md, *Historical Map*: avoid map, image, scan,
+		// source). This sentence used to say "this map … this Historical Map" in one breath.
 		refusal =
-			`At ${megapixels(pixels)} megapixels this map is past the ${megapixels(maxIngestPixels)} ` +
-			`megapixels a browser will decode in one image, and an offline copy has to be held whole ` +
-			`before it can be cut into tiles` +
+			`At ${megapixels(pixels)} megapixels this Historical Map is past the ` +
+			`${megapixels(maxIngestPixels)} megapixels a browser will decode in one piece, and an ` +
+			`offline copy has to be held whole before it can be cut into tiles` +
 			(path === 'assembled'
 				? ` — ${host} serves only pre-cut tiles${cappedBy === '' ? '' : ` and ${cappedBy}`}, so ` +
 					`the copy would have to be reassembled at full resolution first`
 				: '') +
 			`. Nothing has been copied and this Historical Map still works, read from ${host}. To hold ` +
-			`it offline, ask whoever runs ${host} for the image file and prepare a IIIF pyramid from it ` +
-			`outside the browser.`;
+			`it offline, ask whoever runs ${host} for the original file and prepare a IIIF pyramid from ` +
+			`it outside the browser.`;
 	}
 
 	return {
@@ -256,21 +267,6 @@ export function planMirror(
 		refusal
 	};
 }
-
-/**
- * Largest source an offline copy can be made of, in pixels.
- *
- * The tiler's own cap, because a copy meets it twice: the assembled path has to hold the whole
- * source at full resolution in one image in order to re-cut it, and the pyramid it then cuts is
- * `ingestImageFile`'s work either way. Refused up front and named, rather than discovered as a dead
- * tab after several thousand requests to somebody else's server.
- *
- * Note this is the *canvas* as well as the decode: ADR-0003 records that WebKit's canvas area limit
- * can be as low as 5 242 880 pixels, which the decode-and-crop tiler avoids by never making a canvas
- * larger than one tile. The `assembled` path cannot, so a large copy may fail on Safari well below
- * this bound. That is recorded rather than guessed at, here and in ADR-0027.
- */
-const maxIngestPixelsDefault = MAX_INGEST_PIXELS;
 
 /**
  * Which declared limit stops this service serving the whole image in one request, or `''`.

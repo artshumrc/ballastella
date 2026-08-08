@@ -178,6 +178,15 @@ Two patterns from real examples here, both of which passed review reading:
   requests a glyph range, so nothing complained and nothing was proved. The fix was to fetch the
   glyph and the sprite directly.
 
+**An assertion that a name is *absent* earns its place when a plausible one-line change would make
+it appear again — and not otherwise.** These read as decoration once whatever they named has been
+deleted, and the temptation is to remove them as vacuous. That is the wrong test. What makes a check
+vacuous is having no reachable path to red, not having a subject that has gone: `expect(cached).not
+.toMatch(/\.wasm$/)` still fails the day someone widens a precache filter, whether or not any `.wasm`
+exists today. Conversely, an assertion no edit could turn red should go, and go in the same commit
+that made it so. Apply one reading to every site of the shape at once; the worked example, with all
+five of this repo's, is in `e2e/editor-pwa.e2e.ts`.
+
 **Fences need a positive control.** This repo has shipped a fence that printed its success message
 unconditionally. `scripts/check-alignment-writers.mjs` and `scripts/check-workspace-rooted-paths.mjs`
 show the shape: a `KNOWN_BAD` specimen per pattern, asserted to be caught before the real scan runs,

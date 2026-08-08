@@ -64,13 +64,21 @@ it('exposes the tiler and its cap', () => {
 			'planPyramid'
 		])
 	);
-	// The cap is the measured ceiling exactly (ADR-0027), not the old 2^28 routing threshold. If
-	// these ever diverge it will be because a margin was added, which is a decision and not a tidy-up.
-	expect(core.MAX_INGEST_PIXELS).toBe(core.MEASURED_DECODE_CEILING_PIXELS);
+	// The cap is 528,006,700 (ADR-0027) and not the 268,435,456 routing threshold it replaced, which
+	// is the whole of the widening: a 300-megapixel scan both measured engines decode is admitted.
+	//
+	// **The two constants are equal today and that is deliberately not asserted.** `decode-ceiling.ts`
+	// keeps them apart precisely so a later margin, or a Safari measurement, can move the cap without
+	// moving the record of what was measured. Pinning them equal would make the reason for the design
+	// a build failure the first time somebody acted on it.
 	expect(core.MAX_INGEST_PIXELS).toBe(528_006_700);
 
-	// The name that is gone, asserted as gone. `apps/editor` imported it from here, and an export
+	// The names that are gone, asserted as gone. `apps/editor` imported both from here, and an export
 	// that lingers is how a deleted path gets quietly rewired.
+	//
+	// Kept under the rule in CONTRIBUTING, worked through in `e2e/editor-pwa.e2e.ts` beside the other
+	// three assertions of this same shape: an absence assertion earns its place when a plausible
+	// one-line change would make the name appear again, and re-exporting a name is one line.
 	expect(Object.keys(core)).not.toContain('streamingTiler');
 	expect(Object.keys(core)).not.toContain('STREAMING_TILER_THRESHOLD_PIXELS');
 });

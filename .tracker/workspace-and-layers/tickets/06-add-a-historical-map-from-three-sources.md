@@ -13,7 +13,7 @@ Demonstrable end to end: add a map from a file and watch tile progress on the ne
 - `apps/editor/src/lib/remote-iiif/AddRemoteMap.svelte` (299 lines) and `add-remote-map.svelte.ts` — the existing remote flow: paste a URL, resolve a Manifest, Collection, or bare image service, pick a canvas from a list of real `<button>`s, probe, and add. This is reused, not rewritten.
 - `apps/editor/src/lib/remote-iiif/lookup-setting.svelte.ts` and `packages/core/src/remote-iiif/community-alignments.ts` — the ADR-0015 community Alignment lookup. It stays.
 - `apps/editor/src/lib/editor-session.svelte.ts` — `ingestImage`, `addReferencedMap`, `cancelIngest`, `ingest`, `ingestLabel`, `ingestError`, and `images` (the Workspace's Historical Maps after ticket 01).
-- `packages/core/src/tiler/ingest.ts` — `ingestImageFile`, its `signal`, and `streamingTilerUnavailableReason`.
+- `packages/core/src/tiler/ingest.ts` — `ingestImageFile`, its `signal`, and `ImageTooLargeError`. **Ticket 19 changed this surface:** `openStreaming` and `streamingTilerUnavailableReason` are gone, there is one tiler, and `maxIngestPixels` (default `MAX_INGEST_PIXELS`, 528,006,700) is the cap.
 
 ## Contract
 
@@ -27,7 +27,7 @@ Demonstrable end to end: add a map from a file and watch tile progress on the ne
 
 **Cancelling leaves the Project and the Workspace exactly as they were.** `ingestImageFile` already takes an `AbortSignal` and cleans up after itself. Cancelling must also remove the Layer that was created for the cancelled map — a Layer pointing at a pyramid that was never written is the dangling-reference trap ticket 02 closed, arriving by another door.
 
-**An over-threshold image is refused with the reason it cannot be tiled**, asked *before* the tiler module is imported, as `ingestImage` already does via `streamingTilerUnavailableReason`. Do not change that message's substance; it is the honest account of a real limit.
+**An over-cap file is refused with the reason it cannot be tiled**, decided from the container's header *before* any decoder is opened, as `ingestImageFile` already does. **Rewritten by [ticket 19](./19-drop-libvips-for-v1.md), which landed after this ticket was written:** there is no `streamingTilerUnavailableReason` and no streaming tiler to be unavailable. `ImageTooLargeError` names the file's size in megapixels and the remedy — convert it to a IIIF pyramid outside the browser. Do not change that message's substance, and in particular do not reintroduce a sentence about COOP/COEP or cross-origin isolation: ADR-0027 records why that wording was wrong as well as unactionable, and `editor-image-ingest.e2e.ts` asserts against it.
 
 **The file input clears itself after a pick**, so choosing the same file twice runs twice. `change` does not fire for an unchanged value, and "nothing happened" is indistinguishable from a silent failure.
 

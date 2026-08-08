@@ -361,16 +361,42 @@ test.describe('the web app manifest and the service worker scope', () => {
 				// worker that swept that directory whole would put megabytes a Reader never asked for into
 				// a cache, which no `package.json` check can observe.
 				//
-				// **The `.wasm` assertion that stood here is deleted rather than kept green.** It said
-				// `wasm-vips` must never be cached, and ADR-0027 removed the package: `build` no longer
-				// contains a `.wasm` of any kind, so the assertion could not have failed whatever this
-				// worker did. This repository's own rule is that a check which cannot fail is worse than
-				// no check, because it is read as evidence — the ticket-10 measurement it stood on
-				// (5,084,535 bytes on install, 23% more than the archive that ticket removed, for a module
-				// this deployment could not run) is recorded in the service worker's own header instead.
+				// ─────────────────────────────────────────────────────────────────────────────────────
+				// THE RULE FOR ASSERTING THAT A NAME IS ABSENT
+				//
+				// These three, and the two in `packages/core/src/index.test.ts` that say the barrel no
+				// longer exports `streamingTiler`, are all the same shape: *X is not in this collection*.
+				// ADR-0027 deleted the thing two of them named, which raises the question of whether an
+				// assertion about a deleted name is still a check or has become decoration. The rule is
+				// in CONTRIBUTING, under "A green test is not evidence until you have watched it go red",
+				// and it is worked through here because this is the site where it was nearly got wrong:
+				//
+				//   **Keep it when a plausible one-line change to the code under test would make the name
+				//   appear again. Delete it when nothing could.**
+				//
+				// Not "keep it when the name currently exists somewhere" — that is the test for whether a
+				// *positive* control is possible, and it is a different question. The failure this repo
+				// keeps meeting is a check that reports success unconditionally, and what makes a check
+				// unconditional is having no reachable path to red, not having a subject that has gone.
+				//
+				// All five pass it, so all five stay:
+				//
+				//   - `.wasm` — `SHELL` is `build` filtered to `.js`/`.css`. Widen that filter, or let any
+				//     bundler emit a WebAssembly asset, and a multi-megabyte file joins the install. That
+				//     is exactly how the 5,084,535-byte `vips.wasm` would have arrived before ADR-0027,
+				//     and nothing about removing that package makes the filter harder to widen.
+				//   - `/viewer-bundle/` and `/fixtures/` — these fence `bundled`, which is drawn from
+				//     `files` (that is, `static/`), where both directories live *today*. Widen the
+				//     `/base-map/` filter by one character and they arrive.
+				//   - the two in `index.test.ts` — re-export the deleted name and they go red.
+				//
+				// The `.wasm` one was briefly deleted under the opposite reading and is restored here.
 				for (const path of [...shell, ...bundled]) {
 					expect(path, 'the staged viewer bundle must never be cached').not.toContain(
 						'/viewer-bundle/'
+					);
+					expect(path, 'no WebAssembly module may be precached (ADR-0019, ADR-0027)').not.toMatch(
+						/\.wasm$/
 					);
 					expect(path, 'test fixtures must never be cached').not.toContain('/fixtures/');
 				}

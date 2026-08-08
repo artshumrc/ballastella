@@ -96,18 +96,18 @@ COOP/COEP is unavailable on the deployment target, that without it `Vips()` hang
 
 ## Acceptance criteria
 
-- [ ] `find apps/editor/build apps/viewer/build -name '*.wasm'` returns nothing.
-- [ ] `wasm-vips` appears nowhere in any `package.json`, `pnpm-workspace.yaml`, or lockfile entry.
-- [ ] An image between 268 MP and 528 MP ingests successfully and produces a correct level-0 pyramid —
+- [x] `find apps/editor/build apps/viewer/build -name '*.wasm'` returns nothing.
+- [x] `wasm-vips` appears nowhere in any `package.json`, `pnpm-workspace.yaml`, or lockfile entry.
+- [x] An image between 268 MP and 528 MP ingests successfully and produces a correct level-0 pyramid —
       asserted on tile output, not on the absence of an error.
-- [ ] An image above 528 MP is refused with a message naming its size in megapixels and the IIIF remedy.
-- [ ] No user-facing string anywhere names COOP, COEP, cross-origin isolation, or `SharedArrayBuffer`.
-- [ ] A TIFF under the cap still fails as an unreadable format, not as too large.
-- [ ] `THIRD-PARTY-NOTICES.md` carries no LGPLv3 entry and no outstanding open item for one.
-- [ ] `scripts/check-tiler-lazy.mjs` is deleted and its two CI steps with it; `check-viewer-deps.mjs` still
+- [x] An image above 528 MP is refused with a message naming its size in megapixels and the IIIF remedy.
+- [x] No user-facing string anywhere names COOP, COEP, cross-origin isolation, or `SharedArrayBuffer`.
+- [x] A TIFF under the cap still fails as an unreadable format, not as too large.
+- [x] `THIRD-PARTY-NOTICES.md` carries no LGPLv3 entry and no outstanding open item for one.
+- [x] `scripts/check-tiler-lazy.mjs` is deleted and its two CI steps with it; `check-viewer-deps.mjs` still
       fails if `apps/viewer` gains `terra-draw`.
-- [ ] The new ADR supersedes ADR-0003's streaming clause and carries the measurement.
-- [ ] The editor build is materially smaller; record the measured before and after.
+- [x] The new ADR supersedes ADR-0003's streaming clause and carries the measurement.
+- [x] The editor build is materially smaller; record the measured before and after.
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check
@@ -138,3 +138,91 @@ requested. Assert the failing direction.
   05 is held open for".
 
 Update both when this lands. Do not leave them pointing at a decision that has been made.
+
+## Outcome
+
+Implemented 2026-08-07. `wasm-vips`, the streaming tiler, and `scripts/check-tiler-lazy.mjs` are gone;
+`MAX_INGEST_PIXELS` is 528,006,700; [ADR-0027](../../../docs/adr/0027-no-streaming-tiler-in-v1.md)
+supersedes ADR-0003's streaming clause.
+
+### Measured, before and after
+
+| | Before | After |
+| --- | --- | --- |
+| `apps/editor/build` | 17,581,608 bytes (18M) | 7,251,129 bytes (7.7M) |
+| `.wasm` files in either build | 2, byte-identical at 5,084,535 | 0 |
+| `wasm-vips` in manifests, workspace catalog, lockfile | present | absent |
+
+10,330,479 bytes, 59% of the editor's build. 936 lines deleted across four files: `libvips-loader.ts`
+(55), `streaming-tiler.ts` (242), `streaming-tiler.test.ts` (385), `check-tiler-lazy.mjs` (254).
+
+Full gate green: `pnpm -r build`, `pnpm test` (1372 unit + 26 script), `pnpm lint`, `pnpm check`, and
+`pnpm test:e2e` at 399 passed / 1 flaky / 1 skipped, a retry rate of 0.25% against the 0.50% budget.
+
+The one flake is `editor-stored-image-pane.e2e.ts:342`, which this ticket does not touch: it timed out
+waiting for the second of two `layer-row`s. A browser vitest suite was running on the same machine at
+that moment, which is this agent's doing rather than the suite's. Re-run alone, that spec is 6 of 6
+green with no retries. Recorded rather than waved away, because it exercises ingest and this ticket
+changed ingest.
+
+### Mutation checks
+
+**Run expecting to be wrong, and one of them was.** Each mutation was applied, the named suite run,
+and the tree restored and re-run green.
+
+| Mutation | Expected | Result |
+| --- | --- | --- |
+| Cap check removed from `ingest.ts` | refusals go red | 3 unit tests red; `editor-image-ingest.e2e.ts` red |
+| `MAX_INGEST_PIXELS` lowered to 2^28 | the *widening* goes red | 4 unit tests red; **both** ingest e2e tests red, including the one that says a 300 MP file is not refused for its size |
+| Plan refusal disabled in `mirror.ts` | the copy refusal goes red | `editor-mirroring.e2e.ts` red |
+| `terra-draw` added to `apps/viewer/package.json` | non-zero exit | exit 1, names `@ballastella/viewer → dependencies.terra-draw` |
+| `terra-draw` added to `packages/core/package.json` | non-zero exit via the transitive hop | exit 1, names `@ballastella/core → dependencies.terra-draw` |
+| `region.x + 256` in the **fallback** `createImageBitmap` branch of `decode-and-crop-tiler.ts` | tile-pixel test goes red | **stayed green** — see below |
+| `region.x + 256` in the **`resizeWidth`** branch | tile-pixel test goes red | red in Chromium and Firefox, reporting "read 13.0, expected 2" |
+
+**The green mutation is not a hole in the test, and is recorded because it looked like one.** Both
+measured engines support `createImageBitmap`'s `resizeWidth`, so the non-resizing branch beneath it is
+unreachable in Chromium 151 and Firefox 153 — no test in this repository can turn it red on this
+machine, and it exists for an engine that does not offer the option. The mutation on the branch that
+*does* run fails loudly, in both engines.
+
+### Criterion 3, and where it is actually asserted
+
+"Asserted on tile output, not on the absence of an error" is met in
+`packages/core/src/tiler/decode-and-crop-tiler.browser.test.ts`, in **real browsers on real pixels**: a
+20,000 × 15,000 (300 MP) PNG in flat 256×256 blocks whose value is a function of tile row and column,
+decoded for real, with five scale-factor-1 tiles — both ragged margins and the far corner — cut and
+their centre pixels checked against the block they must have come from. A tiler cropping the wrong
+rectangle produces a valid JPEG of the wrong value, which is the failure the assertion can see.
+
+The fixture is built rather than committed, and costs little: 300 MB of pixels never exist at once
+because there are only 59 distinct scanlines, written repeatedly into a `CompressionStream`. Measured
+2026-08-07 — build 6.2 s / decode 3.2 s in Chromium 151, build 3.4 s / decode 2.0 s in Firefox 153,
+about 25 ms per tile, PNG 2.3 MB.
+
+Two supporting assertions, neither of which is the criterion on its own: `ingest.test.ts` drives a
+500 MP image through the whole job against a stub tiler and checks **every** planned tile is written at
+the path and geometry the plan names, and `editor-image-ingest.e2e.ts` shows the shipped app not
+refusing a 300 MP file for its size. A real 300 MP ingest end to end is 6,270 tiles and minutes of
+work, which is why it is not in the e2e suite.
+
+### Decisions worth knowing
+
+- **`mirror.ts` was in scope beyond the ticket's "Where to start".** Its plan named `SharedArrayBuffer`
+  in a user-facing note — an acceptance criterion — and promised a copy "needs the streaming tiler",
+  which was never true on this deployment. It now **refuses** above the same cap, on both paths, before
+  a byte is fetched. Both of its effective caps rose from 268 MP to 528 MP, so no copy that previously
+  succeeded is now refused.
+- **The ADR-0008 ~1 GB hosting warning is no longer reachable from a single offline copy.** At
+  0.7 bytes per pixel the largest copy the cap admits is about 370 MB. The cliff is a Workspace total
+  and always was, so `editor-mirroring.e2e.ts` now seeds the Workspace to 700 MB with an OPFS
+  `truncate` — real bytes through `crossesHostingLimit`, no transfer — and uses a 520 MP fixture.
+- **`MEASURED_DECODE_CEILING_PIXELS` and `MAX_INGEST_PIXELS` are equal today and that is deliberately
+  not asserted**, because `decode-ceiling.ts` keeps them apart precisely so a margin or a Safari
+  measurement can move one without the other.
+- **One rule for absence assertions, written down in `e2e/editor-pwa.e2e.ts`** and applied to all five
+  sites of that shape: keep it when a plausible one-line change would make the name appear again,
+  delete it when nothing could. The `.wasm` precache assertion was briefly deleted under the opposite
+  reading and is restored.
+- **No remaining dependency is GPL or LGPL** — checked by reading the `license` field of all 291
+  installed manifests, not assumed.

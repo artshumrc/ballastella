@@ -152,8 +152,10 @@ export class ImageTooLargeError extends Error {
 	readonly maxPixels: number;
 
 	constructor(pixels: number, maxPixels: number) {
+		// **"This file", not "this image"** (CONTEXT.md, *Historical Map*: avoid map, image, scan,
+		// source). What the user picked is a file; it would have become a Historical Map, and did not.
 		super(
-			`This image is ${Math.round(pixels / 1e6)} megapixels, above the ` +
+			`This file is ${Math.round(pixels / 1e6)} megapixels, above the ` +
 				`${Math.round(maxPixels / 1e6)} megapixel limit of what a browser can decode. Convert it ` +
 				`to a IIIF pyramid outside the browser and add that instead. Nothing has been added to ` +
 				`the Workspace.`

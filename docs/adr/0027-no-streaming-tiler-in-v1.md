@@ -69,6 +69,7 @@ The same correction reaches the offline-copy plan for a remote IIIF source. That
 - **The editor's service worker no longer has a 5 MB module to decline.** Its shell filter stays written as a rule — "code and styles from `build`" — rather than as a list of things to dodge, so it needs no edit now that the thing it was dodging has left. v1 ticket 18's decision not to add a COOP/COEP service worker is untouched and is still a human's to make.
 - **`IngestProgress.tiler`, `IngestResult.tiler` and `TilerKind` are gone.** A discriminator with one possible value is not information.
 - **The `TileSource` seam stays.** It is what lets everything above the tiler be tested in Node with no canvas, and it is where a `sharp`-based or worker-based implementation would attach if one is ever brought in-process.
+- **The widening is asserted on real pixels, in real browsers.** `decode-and-crop-tiler.browser.test.ts` decodes a 300-megapixel image — above the old threshold, below the new cap — and checks that tiles cut from it carry the pixels of the region they name, at both ragged margins and the far corner. The fixture is built rather than committed: the image is flat in 256×256 blocks, so 300 MB of pixels never exist at once and the PNG is 2.3 MB. Without it, "an image between the two limits ingests successfully" would rest on a stub tiler that decodes nothing.
 
 ## What is deliberately not changed
 

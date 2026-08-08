@@ -354,17 +354,23 @@ test.describe('adding a Historical Map from a file', () => {
 		expect(requested.filter((url) => /\.wasm$/i.test(url))).toEqual([]);
 	});
 
-	test('lets a 300 megapixel scan past the cap, where it used to be refused', async ({ page }) => {
+	test('does not refuse a 300 megapixel scan for its size, as it used to', async ({ page }) => {
 		// **The other side of the boundary, and the point of ADR-0027 raising it.** 20000 × 15000 is
 		// 300 megapixels: above the old 268-megapixel routing threshold that refused it outright,
 		// below the 528 both measured engines decode. A cap that refused everything would satisfy the
 		// test above; this is what says it does not.
 		//
-		// The file is a PNG *header* and no pixel data, because 300 megapixels of real pixels is
-		// 900 MB in this process before it is even sent. So the ingest cannot finish — but where it
-		// fails is the whole assertion: at the decoder, saying the file could not be read, and not at
-		// the size check. The pyramid this size produces when the pixels are real is asserted in
-		// `ingest.test.ts` against the plan, tile by tile.
+		// **The assertion is a format error, and that is deliberate — read this before "fixing" it.**
+		// The file sent is a PNG *header* with no pixel data, because 300 megapixels of real pixels is
+		// 900 MB in this process before it is even sent. So the ingest cannot succeed here whatever the
+		// cap says. What this test pins is **which** failure arrives: the size check has to let the
+		// file through to the decoder, and the decoder then objects to a truncated PNG. Lower the cap
+		// back to 2^28 and the message becomes "300 megapixels …", which is what makes this red — the
+		// mutation was run.
+		//
+		// The success case at this size, on real pixels and asserted on tile output, is
+		// `decode-and-crop-tiler.browser.test.ts` — it cannot live here, because a real 300-megapixel
+		// ingest is 6,270 tiles and minutes of work.
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
@@ -377,10 +383,9 @@ test.describe('adding a Historical Map from a file', () => {
 
 		const alert = page.getByRole('alert');
 		await expect(alert).toContainText('could not be read as an image');
-		await expect(
-			alert,
-			'the size check refused an image the browser would decode'
-		).not.toContainText('megapixels');
+		await expect(alert, 'the size check refused a file the browser would decode').not.toContainText(
+			'megapixels'
+		);
 	});
 
 	test('shows an image that was already in the Project when it is opened', async ({ page }) => {
