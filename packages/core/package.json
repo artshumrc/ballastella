@@ -5,7 +5,8 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./render": "./src/render/index.ts"
+		"./render": "./src/render/index.ts",
+		"./test-fence": "./vitest-setup/refuse-network.ts"
 	},
 	"scripts": {
 		"check": "tsc --noEmit",

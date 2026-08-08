@@ -5,7 +5,11 @@ import { readFile } from 'node:fs/promises';
 import zlib from 'node:zlib';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
-import { ensureAddHistoricalMapOpen, openAddHistoricalMap } from './support/historical-maps.js';
+import {
+	addHistoricalMapButton,
+	addHistoricalMapIsOpen,
+	ensureAddHistoricalMapOpen
+} from './support/historical-maps.js';
 import { layerRows, openLayerRow } from './support/layers.js';
 
 // The catalog's archive is somebody else's bucket, and **no spec may reach the internet**. This suite
@@ -495,16 +499,19 @@ async function createProject(page: Page, name: string): Promise<void> {
 }
 
 /**
- * A new Project, open, with the three sources on screen (ticket 06).
+ * A new Project, open, on its own Project screen.
  *
- * The library flow is one of the three the "Add a Historical Map" button offers, so reaching it is
- * pressing that button — which `openAddHistoricalMap` does, and which also asserts that all three
- * sources are there rather than only the one this suite goes on to use.
+ * ⚠ **This deliberately does not open the "Add a Historical Map" dialog**, and it used to. The
+ * library flow is one of the three sources that dialog offers, so `lookUp` opens it — which is the
+ * one gesture that needs it. Opening it here instead left a **modal** dialog up for the rest of
+ * every test, inerting the Project screen behind it: every call site today happens to add a map
+ * (which closes it) before touching the screen, so nothing was broken, and the next test written
+ * after this helper that did not add one would have failed as an unexplained flake.
  */
 async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void> {
 	await createProject(page, name);
 	await page.getByRole('link', { name }).click();
-	await openAddHistoricalMap(page);
+	await expect(page.getByTestId('project-screen')).toBeVisible();
 }
 
 /**
@@ -1171,6 +1178,11 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 			if (request.url().includes('annotations.allmaps.org')) allmapsRequests.push(request.url());
 		});
 
+		// The setting is at the point of use, which since ticket 06 is inside the dialog the library
+		// source lives in — so reaching it is the same gesture as reaching the URL field, and this
+		// is the one test in this suite that asks about it before looking anything up.
+		await ensureAddHistoricalMapOpen(page);
+
 		// On by default, and it says so at the point of use.
 		const toggle = page.getByTestId('community-lookup-toggle');
 		await expect(toggle).toBeChecked();
@@ -1214,10 +1226,16 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	});
 
 	test('is reachable and operable by keyboard alone', async ({ page }) => {
-		// SPEC story 95. Driven entirely from the keyboard: focus the URL field by its accessible
-		// label, type, press Enter, then Tab to a canvas button and activate it with Enter.
+		// SPEC story 95. Driven entirely from the keyboard, **including the step that reaches it**:
+		// ticket 06 put the library source inside a dialog, so "reachable" now starts one gesture
+		// earlier. Reaching it with `click()` while the test's name claimed otherwise made the first
+		// half of this criterion untrue and unasserted at the same time.
 		await installFixtureHosts(page);
 		await openNewProject(page);
+
+		await addHistoricalMapButton(page).focus();
+		await page.keyboard.press('Enter');
+		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(true);
 
 		await page.getByLabel('IIIF Manifest, Collection, or image address').focus();
 		await page.keyboard.type('https://library.test/iiif/atlas/manifest.json');

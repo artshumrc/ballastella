@@ -58,10 +58,22 @@
 	 * gigapixel scan is tens of thousands of `size` calls — so it is tied to the gesture that needs
 	 * it rather than to a render. Re-walked on every open, because the answer changes: an ingest
 	 * that finished, a map deleted from the hub, a Layer added in another tab.
+	 *
+	 * **`refreshAddableHistoricalMaps` and not `refreshHistoricalMaps`**, which is the hub's. Two
+	 * differences, both of which were defects: it re-reads the `remote.json` records the add itself
+	 * needs, so this cannot list a map it will then refuse; and a walk that fails says so *here*
+	 * rather than putting the whole editor into the unreachable state, which would blank an open
+	 * Project because the user pressed a button.
+	 *
+	 * The last add's notice is cleared with the same gesture. It lives outside this dialog on
+	 * purpose (see {@link onnotice}), so without this a sentence about an add that happened minutes
+	 * ago sits in a live region beside a fresh one — and `aria-live` announces a *change*, so a
+	 * stale sentence that is still true of nothing is worse than none.
 	 */
 	$effect(() => {
 		if (!open) return;
-		void session.refreshHistoricalMaps();
+		onnotice?.('');
+		void session.refreshAddableHistoricalMaps();
 	});
 
 	/**
@@ -94,18 +106,53 @@
 	const weightOf = (map: WorkspaceHistoricalMap): string =>
 		`${describeBytes(map.bytes)} in ${map.files} ${map.files === 1 ? 'file' : 'files'}`;
 
-	/** Adding a Workspace map is one at a time, so a double click cannot make two Layers. */
+	/**
+	 * Adding a Workspace map is one at a time, so a double click cannot make two Layers.
+	 *
+	 * **Two guards for one rule, and they catch different clicks.** `disabled` catches the second
+	 * press once Svelte has flushed; the early return catches the one that arrives *before* it —
+	 * two clicks dispatched in one task, which is what a real double-click on a slow machine is.
+	 * `addWorkspaceMap` awaits a store read before it looks at the stack, so two calls in flight
+	 * together both find no Layer for the map.
+	 *
+	 * ⚠ **`#addMapLayer` holds the same invariant a second time**, with three `drawnAlready()`
+	 * checks across its awaits, and `editor-add-historical-map.e2e.ts`'s "two clicks in one task"
+	 * test goes red only when *both* are removed — measured. Neither is dead: this one keeps a
+	 * redundant Alignment `create` and a store read from happening at all. But neither is held in
+	 * place by a mutation of its own, so do not delete this one on the strength of a green suite.
+	 */
 	let adding = $state('');
 
 	async function addFromWorkspace(imageId: string): Promise<void> {
 		if (adding !== '') return;
 		adding = imageId;
+		// Read before the add, because the row this came from is gone by the time there is anything
+		// to say — the dialog closes on success.
+		const listed = session.historicalMaps.find((map) => map.imageId === imageId);
+		const name = listed ? nameOf(listed) : imageId;
 		onnotice?.('');
 		try {
 			const layer = await session.addWorkspaceMap(imageId);
 			// Closed only on success. A refusal has a sentence, and a dialog that vanished with it is a
 			// refusal nobody read.
-			if (layer) open = false;
+			if (!layer) return;
+			open = false;
+			// ─────────────────────────────────────────────────────────────────────────────────────
+			// SAID, BECAUSE THIS IS THE ONE SOURCE WITH NOTHING ELSE TO SAY IT (SPEC story 112)
+			//
+			// The file source answers with a preparing card and a running commentary; the library
+			// source answers with a card too, and with the community-Alignment notice. This one
+			// finishes in a few milliseconds and closes the dialog, so a screen-reader user was left
+			// with a dialog that vanished and no statement that anything had happened — which is
+			// indistinguishable from a dialog that closed for no reason.
+			//
+			// The Layer's own name rather than the row's label, because the row is gone by now, and
+			// the two facts a user cannot see are the two this says: it is a Layer here, and nothing
+			// was copied to make it one.
+			onnotice?.(
+				`“${layer.name || name}” is now a Layer in this Project. Nothing was copied: it is the ` +
+					`Historical Map this Workspace already holds, with the Alignment it already has.`
+			);
 		} finally {
 			adding = '';
 		}

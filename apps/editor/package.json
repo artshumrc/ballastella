@@ -9,7 +9,8 @@
 		"stage:viewer": "pnpm --filter @ballastella/viewer run build && node ../../scripts/stage-viewer-bundle.mjs",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"@allmaps/maplibre": "catalog:",
@@ -33,6 +34,7 @@
 		"svelte-check": "catalog:",
 		"tailwindcss": "catalog:",
 		"typescript": "catalog:",
-		"vite": "catalog:"
+		"vite": "catalog:",
+		"vitest": "catalog:"
 	}
 }

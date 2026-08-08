@@ -277,8 +277,21 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 		// completion marker for the whole directory, so nothing may be missing once it is there.
 		await store.write(manifestPath, serialiseJson(buildImageManifest({ imageId, label, info })));
 		written.push(manifestPath);
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// CANCEL MEANS CANCEL, ACROSS THE LAST TWO WRITES AS WELL
+		//
+		// There used to be one check at the top of `finishing` and nothing after it, while the Cancel
+		// affordance stays live until `done` — so a cancel landing anywhere in this window aborted
+		// nothing at all: the map the user cancelled was created, with no error and no way to tell.
+		// The two writes are short, but "short" is the same argument that would have removed the
+		// tiling loop's per-tile check, and it is wrong for the same reason on a loaded machine.
+		//
+		// Aborting *after* `info.json` still leaves nothing behind: the `catch` below deletes every
+		// path in `written`, and `info.json` is one of them.
+		signal?.throwIfAborted();
 		await store.write(infoPath, serialiseJson(info));
 		written.push(infoPath);
+		signal?.throwIfAborted();
 
 		report('done');
 

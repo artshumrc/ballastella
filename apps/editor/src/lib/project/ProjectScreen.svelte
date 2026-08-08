@@ -10,12 +10,19 @@
 	// screen now, and this is it: a Base Map with the Layer stack beside it.
 	//
 	// **This file is `/layers/`'s script, moved, not rewritten.** The document-loading chain — the
-	// `documentKey` guard, `drawn`, `outcomes`, `annotationPoints` and the annotation editing
-	// functions — is the state layer for the whole screen and it is load-bearing in ways no test
-	// names: `documentKey` exists because a rename once re-read every Alignment and one drag of an
-	// opacity slider cost twenty reads per Layer. What `ProjectView` contributed is added around it:
-	// the Project name (now in a dialog), the way a Historical Map gets in, and the remote-origin
-	// affordances.
+	// `documentKey` guard, `drawn` and `outcomes` — is the state layer for the whole screen and it is
+	// load-bearing in ways no test names: `documentKey` exists because a rename once re-read every
+	// Alignment and one drag of an opacity slider cost twenty reads per Layer. What `ProjectView`
+	// contributed is added around it: the Project name (now in a dialog), the way a Historical Map
+	// gets in, and the remote-origin affordances.
+	//
+	// **What is left here, after ticket 06's carve.** Four subjects shared this `<script>`, and the
+	// annotation editing layer — `openLayerId`, the selection, the drawing gesture, and every
+	// function that writes an Annotation — is now `annotations/annotation-editing.svelte.ts`, where
+	// it has a unit test rather than only the browser suite. What remains is the document-loading
+	// chain, the opening view (ADR-0026), offline availability (ADR-0025) and the way a Historical
+	// Map gets in. **1776 lines before ticket 06, 1879 after its first cut, and this is what the
+	// carve leaves.** If this file is growing again, the next thing to leave is one of those four.
 	//
 	// **A component rather than a route.** A Project is `/?p=<dir>` (ADR-0008) — the same prerendered
 	// page as the hub, choosing its subject client-side — so the thing that renders it has to be
@@ -27,29 +34,16 @@
 
 	import { resolve } from '$app/paths';
 	import {
-		addAnnotation,
 		baseMapArchiveHost,
 		baseMapFallbackNotice,
 		baseMapUnavailableNotice,
 		canSolve,
-		findAnnotation,
-		insertAnnotationAt,
-		newAnnotation,
 		openingViewSentence,
-		removeAnnotation,
 		resolveBaseMap,
-		setGeometry,
-		setLineStyle,
-		setStyle,
-		setText,
 		type Alignment,
 		type AnnotationCollection,
-		type AnnotationDeletedUndo,
-		type AnnotationGeometry,
 		type AnnotationLayer,
-		type GeoPoint,
 		type Layer,
-		type LineStyle,
 		type MapLayer,
 		type BaseMapCacheSize,
 		type BaseMapEntry,
@@ -60,8 +54,8 @@
 	import { untrack } from 'svelte';
 
 	import AnnotationLayerContents from '$lib/annotations/AnnotationLayerContents.svelte';
-	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
-	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
+	import { AnnotationEditing } from '$lib/annotations/annotation-editing.svelte.js';
+	import BaseMapPane from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import MakeOfflineDialog from '$lib/base-map/MakeOfflineDialog.svelte';
 	import { MakeProjectOffline, readOfflineCoverage } from '$lib/base-map/make-offline.svelte.js';
@@ -436,372 +430,26 @@
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Annotations
+	//
+	// **Carved out of this file** into `annotations/annotation-editing.svelte.ts` (ticket 06, on
+	// ticket 05's reading). It was 369 lines of one subject with exactly three edges to the rest of
+	// the screen — the session, the `documents` record, and `layers` — which is what those three
+	// arguments are. Everything about *why* each member is shaped as it is moved with it.
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
-	const annotationLayers = $derived(
-		layers.filter((layer): layer is AnnotationLayer => layer.kind === 'annotation')
-	);
-
-	const annotationLayerCount = $derived(annotationLayers.length);
-
-	/**
-	 * Which Layer is open in the sidebar — and, for an Annotation Layer, the one being drawn into.
-	 *
-	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * ONE VALUE, NOT TWO
-	 *
-	 * This used to be `chosenLayerId`, and beside it the sidebar had no notion of a Layer being open at
-	 * all: the drawing surface was a panel below the stack with a `<select>` of its own. So "which
-	 * Layer am I looking at" and "which Layer am I drawing into" were two facts that could disagree,
-	 * and nothing in the interface said which one a click on the map would write to. Ticket 05 makes
-	 * opening a Layer *be* choosing it, so there is one value and no way to make it disagree with
-	 * itself.
-	 *
-	 * A **working choice, not a property of the Project**, so it is component state and is not written
-	 * anywhere — not to `project.json` and not to `localStorage`. Which Layer somebody happened to have
-	 * open is not part of their work, and persisting it would mean a write on a click that changed
-	 * nothing (ADR-0010, ADR-0002).
-	 */
-	let openLayerId = $state<string | null>(null);
-
-	/**
-	 * The open Layer, when it is an Annotation Layer. `null` when nothing is open, when a map or a
-	 * `foreign` Layer is open, and when the open Layer has since been deleted.
-	 *
-	 * **No fallback to the topmost Annotation Layer**, which is what this had before and is exactly the
-	 * disagreement above: a Layer that is "chosen" while its row is closed is a Layer the user is not
-	 * looking at, and the drawing tools now live inside the row, so there is nothing to draw with until
-	 * one is open.
-	 */
-	const activeLayer = $derived<AnnotationLayer | null>(
-		annotationLayers.find((layer) => layer.id === openLayerId) ?? null
-	);
-
-	/**
-	 * The active Layer's Annotations.
-	 *
-	 * Read out of `documents`, which is the **one** in-memory copy: an edit replaces the entry there and
-	 * the map re-renders from it, so there is no second copy of a Layer's contents that could disagree
-	 * with what was written. That is the same rule `EditorSession` follows for `project.json`.
-	 */
-	const activeCollection = $derived<AnnotationCollection | null>(
-		activeLayer === null
-			? null
-			: ((documents[activeLayer.id] as AnnotationCollection | undefined) ?? null)
-	);
-
-	let selectedAnnotationId = $state<string | null>(null);
-	const drawing = new AnnotationDrawing();
-
-	/**
-	 * Why an undo did not happen, or `''`.
-	 *
-	 * The affordance disappears when it is pressed, so an undo that quietly declined to do anything
-	 * would look exactly like an undo that worked — and the one thing this feature has to convey is
-	 * whether the user's work is back. `UndoControl` announces the success; a refusal has to be said
-	 * from here, because it is this screen that knows which Layer the record named.
-	 */
-	let undoRefusal = $state('');
-
-	/**
-	 * Where the open popup is anchored, or `null` for none.
-	 *
-	 * The *place* rather than the popup, because MapLibre's `Popup` belongs inside the pane that owns
-	 * the map — the screen says which Annotation is open and where, and the pane puts it on the map. A
-	 * page holding a `Popup` would be a second thing reaching into MapLibre from outside it.
-	 */
-	let popupAt = $state.raw<GeoPoint | null>(null);
-
-	/** Replace the active Layer's collection in memory and write it. */
-	async function commitAnnotations(
-		next: AnnotationCollection,
-		options: { debounce?: boolean } = {}
-	): Promise<void> {
-		const layer = activeLayer;
-		if (!layer) return;
-		await commitAnnotationsIn(layer, next, options);
-	}
-
-	/**
-	 * The same, into a Layer named outright rather than whichever one is chosen.
-	 *
-	 * **Undo is why this exists**, and it is the only caller that needs it: an `AnnotationDeletedUndo`
-	 * carries the Layer the Annotation was in precisely so it cannot be restored into another one, and
-	 * the picker may well have moved between the deletion and the undo. Everything else edits what the
-	 * user is looking at, which is what {@link commitAnnotations} is for.
-	 */
-	async function commitAnnotationsIn(
-		layer: AnnotationLayer,
-		next: AnnotationCollection,
-		options: { debounce?: boolean } = {}
-	): Promise<void> {
-		if (next === documents[layer.id]) return;
-		documents = { ...documents, [layer.id]: next };
-		await session.writeAnnotations(layer, next, options);
-	}
-
-	/**
-	 * A place on the earth the user asked for — a click, or Enter over the pane.
-	 *
-	 * With a drawing tool active this places a vertex; with the select tool it does nothing, and the
-	 * Annotation hit (if any) is what {@link selectAnnotation} handles. One write happens here and only
-	 * for a pin, whose gesture is complete at one point; a line and a shape are written by
-	 * {@link finishShape}, which is ADR-0017 rule 1's "the gesture is over".
-	 */
-	async function placePoint(point: GeoPoint): Promise<void> {
-		if (drawing.tool === 'select') return;
-		const finished = drawing.place(point);
-		if (finished !== null) await addDrawn(finished);
-	}
-
-	/** End a line or a shape, and keep it. */
-	async function finishShape(): Promise<void> {
-		const finished = drawing.finish();
-		if (finished !== null) await addDrawn(finished);
-	}
-
-	/** Put a finished geometry in the Layer as a new Annotation, and select it so it can be titled. */
-	async function addDrawn(geometry: AnnotationGeometry): Promise<void> {
-		const collection = activeCollection ?? { annotations: [] };
-		const annotation = newAnnotation({ id: crypto.randomUUID(), geometry });
-		selectedAnnotationId = annotation.id;
-		popupAt = null;
-		await commitAnnotations(addAnnotation(collection, annotation));
-	}
-
-	/**
-	 * Select an Annotation, and where asked, show what it says.
-	 *
-	 * The popup is the reader-facing surface and is shown to the author too, because an author needs to
-	 * see what a reader will — it is the only place the rendered Markdown appears over the map rather
-	 * than beside it. Selecting from the list opens no popup: there is no place on the map the user
-	 * pointed at, and one appearing at an arbitrary coordinate would be worse than none.
-	 */
-	function selectAnnotation(id: string | null, at: GeoPoint | null = null): void {
-		selectedAnnotationId = id;
-		popupAt = id === null ? null : at;
-	}
-
-	const selectedAnnotation = $derived(
-		activeCollection && selectedAnnotationId
-			? (findAnnotation(activeCollection, selectedAnnotationId) ?? null)
-			: null
-	);
-
-	/**
-	 * The overlay points on the Base Map: the shape being drawn, and the selected Annotation's vertices.
-	 *
-	 * On the same seam as a Control Point and a Resource Mask corner, which is what gives every vertex a
-	 * named `<button>`, arrow-key movement, Delete, and one store write per gesture without any of it
-	 * being written here — see `drawing.svelte.ts` for why this rather than a WebGL drawing library.
-	 */
-	const annotationPoints = $derived.by((): BaseMapOverlayPoint[] => {
-		const points: BaseMapOverlayPoint[] = [];
-
-		// The vertices placed so far in the gesture in progress. Not operable: the next click on one of
-		// them is the click that places the next vertex.
-		drawing.vertices.forEach((vertex, index) => {
-			points.push({
-				key: `annotation-draft-${index}`,
-				point: vertex,
-				kind: 'annotation-draft',
-				ordinal: index + 1,
-				label: `Point ${index + 1} of the shape being drawn`
-			});
-		});
-
-		const annotation = selectedAnnotation;
-		const geometry = annotation?.geometry;
-		if (!annotation || !geometry || geometry.type === 'foreign') return points;
-		// A polygon's ring is closed (RFC 7946), so its last position repeats its first: it is drawn as
-		// one fewer handle than the ring has positions, and `reshape` closes it again. Two handles on the
-		// same spot, one of which silently had to follow the other, is the alternative.
-		const positions: readonly (readonly [number, number])[] =
-			geometry.type === 'Point'
-				? [geometry.coordinates]
-				: geometry.type === 'Polygon'
-					? (geometry.coordinates[0] ?? []).slice(0, -1)
-					: geometry.coordinates;
-
-		positions.forEach((position, index) => {
-			points.push({
-				key: `annotation-vertex-${annotation.id}-${index}`,
-				point: { lng: position[0] ?? 0, lat: position[1] ?? 0 },
-				kind: 'annotation-vertex',
-				ordinal: index + 1,
-				label:
-					`Point ${index + 1} of ${positions.length} of ${annotationName(annotation.id)}. ` +
-					'Arrow keys move it.',
-				// **Once, on gesture end.** Pointer-up, or the release of a held arrow key — never per
-				// pointer-move, which is what makes "one edit is one store write" a number the suite counts.
-				onmoveend: (to) => void reshape(index, to)
-			});
-		});
-
-		return points;
+	const annotations = new AnnotationEditing({
+		session: () => session,
+		layers: () => layers,
+		documents: () => documents,
+		// The one write back through the middle of the edge: `documents` holds the map Layers'
+		// Alignments too, so the screen keeps the record and this replaces one entry in it.
+		replaceDocument: (layerId, collection) => {
+			documents = { ...documents, [layerId]: collection };
+		}
 	});
 
-	/** What an Annotation is called, for a handle's accessible name. */
-	const annotationName = (id: string): string => {
-		const collection = activeCollection;
-		const annotation = collection ? findAnnotation(collection, id) : undefined;
-		return annotation?.properties.title || 'this Annotation';
-	};
-
-	/** Move one vertex of the selected Annotation, writing once. */
-	async function reshape(index: number, to: GeoPoint): Promise<void> {
-		const collection = activeCollection;
-		const annotation = selectedAnnotation;
-		const geometry = annotation?.geometry;
-		if (!collection || !annotation || !geometry || geometry.type === 'foreign') return;
-
-		const moved: [number, number] = [to.lng, to.lat];
-		let next: AnnotationGeometry;
-		if (geometry.type === 'Point') {
-			next = { type: 'Point', coordinates: moved };
-		} else if (geometry.type === 'LineString') {
-			const positions = geometry.coordinates.map((position, at) =>
-				at === index ? moved : position
-			);
-			next = { type: 'LineString', coordinates: positions };
-		} else {
-			const ring = (geometry.coordinates[0] ?? []).slice(0, -1);
-			const positions = ring.map((position, at) => (at === index ? moved : position));
-			// Closed again, because a LinearRing whose ends differ is what other tools reject.
-			next = {
-				type: 'Polygon',
-				coordinates: [[...positions, positions[0] ?? moved], ...geometry.coordinates.slice(1)]
-			};
-		}
-		await commitAnnotations(setGeometry(collection, annotation.id, next));
-	}
-
-	/**
-	 * Delete the selected Annotation, recording what it takes away.
-	 *
-	 * The record holds the Annotation itself, so every one of its `properties` comes back — including
-	 * `stroke-dasharray`, where "solid" is the property being *absent* (ADR-0009): an undo that rebuilt
-	 * the Annotation from the controls' current values would silently turn a dotted conjectural route
-	 * into a solid certain one.
-	 */
-	async function deleteSelected(): Promise<void> {
-		const collection = activeCollection;
-		const layer = activeLayer;
-		const id = selectedAnnotationId;
-		if (!collection || !layer || !id) return;
-		const at = collection.annotations.findIndex((one) => one.id === id);
-		const annotation = collection.annotations[at];
-		// A refusal is about the record that is being replaced, so it goes with it.
-		undoRefusal = '';
-		selectedAnnotationId = null;
-		popupAt = null;
-		await commitAnnotations(removeAnnotation(collection, id));
-		if (!annotation) return;
-		const record: AnnotationDeletedUndo = {
-			kind: 'annotation-deleted',
-			layerId: layer.id,
-			at,
-			annotation
-		};
-		// Recorded *after* the write, so a deletion the store refused is not offered as something to undo
-		// — the same discipline `writeAlignment` follows when it counts a write.
-		session.record(record, () => restoreDeleted(record));
-	}
-
-	/**
-	 * Put a deleted Annotation back **into the Layer it was deleted from**.
-	 *
-	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * WHY THE RECORD NAMES THE LAYER AND THIS READS IT
-	 *
-	 * {@link openLayerId} is a working choice the user is free to change, and nothing stops them
-	 * changing it between the deletion and the undo — another Layer's row is a few pixels from the
-	 * affordance. An undo that wrote into whichever Layer happened to be open would take an Annotation
-	 * out of one `.geojson` and put it into another, which is not an undo of anything: it is a move the
-	 * user did not ask for, into a file they were not looking at. `AnnotationDeletedUndo.layerId` exists
-	 * for exactly this, and this is where it is spent.
-	 *
-	 * The sidebar follows the record rather than the other way round — the Layer the Annotation came
-	 * from is *opened* — so the user watches the Annotation come back instead of being told it did, the
-	 * same reason `AlignmentPairing.restore` selects the pair it put back.
-	 *
-	 * Restored into that Layer's collection **as it is now** rather than into a snapshot: whatever else
-	 * has been drawn or edited in it since must survive an undo of one deletion.
-	 */
-	async function restoreDeleted(record: AnnotationDeletedUndo): Promise<void> {
-		undoRefusal = '';
-		const layer = annotationLayers.find((one) => one.id === record.layerId);
-		if (!layer) {
-			// Not reachable through the interface — deleting a Layer is itself one of the four recorded
-			// actions, so it replaces this record rather than orphaning it. Said rather than silently
-			// redirected all the same, because the alternative to saying so is writing the Annotation into
-			// a Layer the user never deleted it from.
-			undoRefusal =
-				`The Annotation could not be put back: the Annotation Layer it was in is no longer in ` +
-				'this Project.';
-			return;
-		}
-		let collection = documents[layer.id] as AnnotationCollection | undefined;
-		if (collection === undefined) {
-			// Only a Layer that has since been hidden gets here: `documents` holds the Layers the map is
-			// given, and a hidden one is absent from it. Read rather than assumed empty — assuming would
-			// write a file holding one Annotation over a file holding twenty.
-			try {
-				collection = await session.readAnnotations(layer);
-			} catch (cause) {
-				undoRefusal =
-					`The Annotation could not be put back: ${layer.name || 'its Annotation Layer'} could ` +
-					`not be read. ${cause instanceof Error ? cause.message : String(cause)}`;
-				return;
-			}
-		}
-		openLayerId = layer.id;
-		selectedAnnotationId = record.annotation.id;
-		popupAt = null;
-		await commitAnnotationsIn(layer, insertAnnotationAt(collection, record.annotation, record.at));
-	}
-
-	/** Type into the title or the description. Coalesced per file (ADR-0017 rule 2). */
-	async function typeText(text: { title?: string; description?: string }): Promise<void> {
-		const collection = activeCollection;
-		const id = selectedAnnotationId;
-		if (!collection || !id) return;
-		await commitAnnotations(setText(collection, id, text), { debounce: true });
-	}
-
-	/**
-	 * The edit is over — a field blurred, Enter was pressed, or a slider was released.
-	 *
-	 * A no-op unless something is waiting to be written, which is the same guard `commitLayerEdit` and
-	 * `commitProjectName` both carry: tabbing through a title field is *looking*, and ADR-0010 is
-	 * explicit that merely looking at an old Project must not modify a single byte of it.
-	 */
-	async function commitAnnotationEdit(): Promise<void> {
-		const layer = activeLayer;
-		const collection = activeCollection;
-		if (!layer || !collection) return;
-		if (!session.hasPendingAnnotationWrite(layer)) return;
-		await session.writeAnnotations(layer, collection);
-	}
-
-	/** Set style properties on the selected Annotation, by their exact simplestyle names. */
-	async function styleSelected(
-		style: Record<string, unknown>,
-		options: { debounce?: boolean } = {}
-	): Promise<void> {
-		const collection = activeCollection;
-		const id = selectedAnnotationId;
-		if (!collection || !id) return;
-		await commitAnnotations(setStyle(collection, id, style), options);
-	}
-
-	/** Set the selected Annotation's line style. Stores the tuple; solid is its absence (ADR-0009). */
-	async function lineStyleSelected(line: LineStyle): Promise<void> {
-		const collection = activeCollection;
-		const id = selectedAnnotationId;
-		if (!collection || !id) return;
-		await commitAnnotations(setLineStyle(collection, id, line));
-	}
+	/** The gesture in progress, read by the window's Escape handler and by the pane. */
+	const drawing = annotations.drawing;
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Making this Project available offline (ADR-0025, SPEC stories 6, 70–73)
@@ -948,21 +596,6 @@
 		if (offline.completed === '') return;
 		untrack(() => (offlineGeneration += 1));
 	});
-
-	/**
-	 * Open a Layer, or close whatever is open.
-	 *
-	 * Opening a different Layer abandons a part-drawn shape and clears the selection with it, which is
-	 * what choosing another Layer to draw into has always done — the gesture in progress belongs to the
-	 * Layer that is being left, and carrying it across would drop it into a file the user was not
-	 * drawing in. Closing does the same for the same reason: the tools go off the screen with the row.
-	 */
-	function openLayer(id: string | null): void {
-		openLayerId = id;
-		selectedAnnotationId = null;
-		popupAt = null;
-		drawing.cancel();
-	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Project settings, and the menu it opens from (SPEC stories 10, 11)
@@ -1141,7 +774,7 @@
 		// pressed *after* closing the menu, which is the cancel they actually meant.
 		if (menu?.isOpen()) return;
 		if (drawing.cancel()) return;
-		if (popupAt !== null) popupAt = null;
+		if (annotations.popupAt !== null) annotations.popupAt = null;
 	}}
 />
 
@@ -1245,8 +878,8 @@
 					{layers}
 					{outcomes}
 					{referencedImageIds}
-					{openLayerId}
-					onopen={openLayer}
+					openLayerId={annotations.openLayerId}
+					onopen={(id) => annotations.openLayer(id)}
 					ontypename={(id, name) => session.typeLayerName(id, name)}
 					oncommit={() => session.commitLayerEdit()}
 					onshow={(id, visible) => session.showLayer(id, visible)}
@@ -1276,12 +909,13 @@
 				<button
 					class="btn mt-4 ml-2 btn-sm"
 					data-testid="add-annotation-layer"
-					onclick={() => session.addAnnotationLayer(`Annotations ${annotationLayerCount + 1}`)}
+					onclick={() =>
+						session.addAnnotationLayer(`Annotations ${annotations.annotationLayerCount + 1}`)}
 				>
 					Add an Annotation Layer
 				</button>
 
-				{#if annotationLayerCount === 0}
+				{#if annotations.annotationLayerCount === 0}
 					<!--
 						What to do when there is nothing to draw into yet, beside the button that fixes it.
 
@@ -1311,7 +945,7 @@
 					aria-atomic="true"
 					data-testid="undo-refused"
 				>
-					{undoRefusal}
+					{annotations.undoRefusal}
 				</p>
 
 				<!--
@@ -1498,27 +1132,26 @@
 						{cachedBaseMap}
 						layers={drawn}
 						{openingFit}
-						overlayPoints={annotationPoints}
-						popupAnnotation={selectedAnnotation}
-						{popupAt}
+						overlayPoints={annotations.annotationPoints}
+						popupAnnotation={annotations.selectedAnnotation}
+						popupAt={annotations.popupAt}
 						{fetchTile}
 						onbasemapstatus={(status) => {
 							baseMapStatus = status;
 						}}
-						onclickpoint={(point) => void placePoint(point)}
+						onclickpoint={(point) => void annotations.placePoint(point)}
 						onclickannotation={(hit) => {
 							// Only when nothing is being drawn: with a tool in hand the click places a vertex,
 							// and the Annotation underneath is not what the user is pointing at.
 							if (drawing.tool !== 'select') return;
 							// **Opens that Layer's row**, so the user is shown where the thing they clicked
-							// lives rather than left to find it. Assigned rather than routed through
-							// `openLayer`, which clears the selection — and a selection is precisely what this
-							// is making. Nothing is part-drawn here: the guard above is that guarantee.
-							openLayerId = hit.layerId;
-							selectAnnotation(hit.annotationId, hit.at);
+							// lives rather than left to find it. `openFromMap` rather than `openLayer`, which
+							// clears the selection — and a selection is precisely what this is making. Nothing
+							// is part-drawn here: the guard above is that guarantee.
+							annotations.openFromMap(hit.layerId, hit.annotationId, hit.at);
 						}}
-						onfinishshape={() => void finishShape()}
-						onpopupclose={() => (popupAt = null)}
+						onfinishshape={() => void annotations.finishShape()}
+						onpopupclose={() => (annotations.popupAt = null)}
 						onstack={(reported) => (rendered = reported)}
 					/>
 				</div>
@@ -1852,28 +1485,29 @@
 	screen's: the collection in `documents`, the selection, the `AnnotationDrawing` instance, and every
 	function that writes. `LayerList` would otherwise take fourteen props it only forwards.
 
-	The Layer it is handed *is* {@link activeLayer}; both come from {@link openLayerId}, which is where
-	that identity is explained and is the whole of what ticket 05 changed.
+	The Layer it is handed *is* `annotations.activeLayer`; both come from `openLayerId`, which is where
+	that identity is explained — in `annotation-editing.svelte.ts`, which ticket 06 carved this state
+	layer out into — and is the whole of what ticket 05 changed.
 -->
 {#snippet annotationContents(layer: AnnotationLayer)}
 	<AnnotationLayerContents
 		{layer}
-		collection={activeCollection}
-		selectedId={selectedAnnotationId}
+		collection={annotations.activeCollection}
+		selectedId={annotations.selectedAnnotationId}
 		tool={drawing.tool}
 		status={drawing.status}
 		drawing={drawing.drawing}
 		canFinish={drawing.canFinish}
 		onchoosetool={(tool) => drawing.choose(tool)}
-		onfinish={() => void finishShape()}
+		onfinish={() => void annotations.finishShape()}
 		oncancel={() => drawing.cancel()}
 		onundovertex={() => drawing.undoVertex()}
-		onselect={(id) => selectAnnotation(id)}
-		ontext={(text) => void typeText(text)}
-		oncommit={() => void commitAnnotationEdit()}
-		onstyle={(style, options) => void styleSelected(style, options)}
-		onlinestyle={(line) => void lineStyleSelected(line)}
-		ondelete={() => void deleteSelected()}
+		onselect={(id) => annotations.selectAnnotation(id)}
+		ontext={(text) => void annotations.typeText(text)}
+		oncommit={() => void annotations.commitAnnotationEdit()}
+		onstyle={(style, options) => void annotations.styleSelected(style, options)}
+		onlinestyle={(line) => void annotations.lineStyleSelected(line)}
+		ondelete={() => void annotations.deleteSelected()}
 		onlayerstyle={(style, options) => void session.setLayerDefaultStyle(layer.id, style, options)}
 	/>
 {/snippet}

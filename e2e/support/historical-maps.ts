@@ -51,6 +51,15 @@ export async function openAddHistoricalMap(page: Page): Promise<Locator> {
 	await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(true);
 	await expect(dialog.getByLabel('Add a Historical Map from a file')).toBeVisible();
 	await expect(dialog.getByTestId('remote-url')).toBeVisible();
+	// **A heading each, as well as a control each.** "Three sources, equally visible" is partly
+	// about the headings that name them: `editor-remote-iiif.e2e.ts` used to pin "Add a Historical
+	// Map from a library" and stopped when the flow moved in here, so a source that quietly lost
+	// its own name — folded under another heading, or left with a control and no label — would
+	// have satisfied every remaining assertion.
+	await expect(dialog.getByRole('heading', { name: 'From a file on this computer' })).toBeVisible();
+	await expect(
+		dialog.getByRole('heading', { name: 'Add a Historical Map from a library' })
+	).toBeVisible();
 	await expect(dialog.getByRole('heading', { name: 'Already in this Workspace' })).toBeVisible();
 	return dialog;
 }

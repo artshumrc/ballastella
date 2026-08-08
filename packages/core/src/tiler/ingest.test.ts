@@ -370,6 +370,40 @@ describe('ingestImageFile', () => {
 		expect(await store.list('')).toEqual([]);
 	});
 
+	it('leaves nothing behind when it is cancelled during `finishing`', async () => {
+		// ┌───────────────────────────────────────────────────────────────────────────────────────┐
+		// │ THE WINDOW WHERE CANCEL USED TO DO NOTHING AT ALL.                                    │
+		// └───────────────────────────────────────────────────────────────────────────────────────┘
+		//
+		// The Cancel affordance stays live until the phase is `done`, and there used to be one abort
+		// check at the top of `finishing` and none across the two writes that follow it. A cancel
+		// landing there aborted nothing: the map the user cancelled was created — `info.json` and
+		// all, so it is offered by every list in the app — with no error and nothing to notice.
+		//
+		// Cancelled *at* the last write, which is the far end of the window and the case the single
+		// check at the top of the phase could never have caught.
+		const controller = new AbortController();
+		const store = new MemoryProjectStore();
+		const write = store.write.bind(store);
+		store.write = async (path, bytes) => {
+			if (path.endsWith('/info.json')) controller.abort();
+			return write(path, bytes);
+		};
+
+		await expect(
+			ingestImageFile({
+				store,
+				file: imageFile(600, 400),
+				openDecodeAndCrop: stubTiler({ width: 600, height: 400 }),
+				signal: controller.signal
+			})
+		).rejects.toThrow();
+
+		// Not "no `info.json`" but nothing at all: an abandoned pyramid is unreachable and still
+		// occupies the bytes ADR-0008's hosting warning counts.
+		expect(await store.list('')).toEqual([]);
+	});
+
 	it('leaves nothing behind when a tile fails halfway', async () => {
 		await expect(
 			ingestImageFile({

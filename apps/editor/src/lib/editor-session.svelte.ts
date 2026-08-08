@@ -1496,9 +1496,56 @@ export class EditorSession {
 		} catch (cause) {
 			// The same call `refresh` makes about the Project list: a Workspace that cannot be walked is
 			// the unreachable state, not an exception the hub has to survive.
+			//
+			// ⚠ **This verdict is the hub's to afford, and only the hub's.** It blanks the whole screen
+			// and offers the Workspace-recovery affordance, which is right when the Workspace *is* the
+			// screen. {@link refreshAddableHistoricalMaps} is the same walk asked for from a dialog on
+			// an open Project, and it deliberately does not come here: a transient failure reading
+			// `images/` must not take a scholar's Project off the screen because they pressed a button.
 			this.historicalMaps = [];
 			this.status = 'unreachable';
 			this.unreachableDetail = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			this.historicalMapsLoading = false;
+		}
+	}
+
+	/**
+	 * Re-read everything the "already in this Workspace" picker is built from (ticket 06).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * ONE WALK, THREE RECORDS, BECAUSE TWO OF THEM DECIDED DIFFERENT HALVES OF ONE ANSWER
+	 *
+	 * The picker lists {@link historicalMaps} and adds out of {@link referencedImages} and
+	 * {@link images}. Re-walking only the first is how a dialog comes to **offer a map it will then
+	 * refuse**: `listWorkspaceHistoricalMaps` lists an image directory holding a `remote.json`
+	 * whether or not this session has ever read that record, and `addWorkspaceMap` gets the map's
+	 * size out of the record. A referenced map that entered the Workspace after this Project was
+	 * opened — another tab, a synced folder, which is exactly what ADR-0023 invites — was listed by
+	 * the fresh walk and refused by the stale one.
+	 *
+	 * `images` is here for the other half of the same rule: whether a map is still *referenced* is
+	 * `partitionByOfflineCopy(referencedImages, images)`, so a map copied offline in another tab
+	 * would otherwise be added with a Library's address over a pyramid that is right here.
+	 *
+	 * **A walk failure is a sentence in the dialog, not the unreachable verdict.** See the warning
+	 * on {@link refreshHistoricalMaps}. `addMapError` is where it goes because that is the element
+	 * the picker already renders, beside the list the failure is about.
+	 */
+	async refreshAddableHistoricalMaps(): Promise<void> {
+		this.addMapError = '';
+		this.historicalMapsLoading = true;
+		try {
+			const referenced = await listReferencedImages(this.#store);
+			this.referencedImages = referenced.images;
+			this.referencedImageErrors = referenced.unreadable;
+			this.images = await listIngestedImages(this.#store);
+			this.historicalMaps = await listWorkspaceHistoricalMaps(this.#store);
+		} catch (cause) {
+			this.addMapError =
+				`The Historical Maps in this Workspace could not be looked through: ` +
+				`${cause instanceof Error ? cause.message : String(cause)} Everything already in this ` +
+				`Project is unaffected, and a file or a library address still works.`;
 		} finally {
 			this.historicalMapsLoading = false;
 		}
