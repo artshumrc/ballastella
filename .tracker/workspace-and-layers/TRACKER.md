@@ -8,15 +8,26 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 18. Nothing in flight.
+Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 17, 18. Nothing in flight.
 
-**Unblocked and ready:** 05, 12, 16, 17 and 19. 16 and 17 were held until 04 because 16 is a repo-wide rename and 17 rewrites the e2e suite; either would have collided with 04's restructuring of the Project screen across the same files.
+**Unblocked and ready:** 05, 12, 16 and 19. **19 is authorised** — the human decision recorded in the ticket was confirmed on 2026-08-07.
+
+**Two app bugs 17 surfaced that are not the suite's to fix**, both wanting tickets:
+
+- **The catalog points at an archive that 404s.** `demo-bucket.protomaps.com/v4.pmtiles` began refusing on 2026-08-07. Routing fixed the *suite*; the *product* still cannot draw a Base Map on this deployment. ADR-0025 predicted exactly this — "no published rate limit, no uptime promise, and no terms of use" — and `pnpm check:deployment` already refuses the URL, but nothing runs it in the ordinary loop.
+- **The `pagehide` flush is a race the user still depends on** even though the suite no longer does. An ADR-0017 question.
+
+Smaller, recorded in 17's follow-ups: `expectWarpedDrawn` passes with a Base Map that has no tiles at all — it proves the warped layer was *added*, not that anything drew beneath it. 16 and 17 were held until 04 because 16 is a repo-wide rename and 17 rewrites the e2e suite; either would have collided with 04's restructuring of the Project screen across the same files.
 
 **One deferral 11 left, for ticket 12.** The Base Map tile cache records which archive filled it and refuses a foreign one, but the directory itself is not keyed by archive. Keying it is a published-format change — the path is copied verbatim into a Published Site, read by the viewer's HTTP store, and named in the service worker — so it belongs with 12's several named Workspaces rather than in a Base Map ticket.
 
-**Pull 17 forward.** The e2e flake is no longer a background annoyance: it cost three separate implementers a clean full-suite run in a single session, and one of them saw a *different* failing pair on each of two consecutive runs. A suite that rotates its failures under parallel load cannot be trusted to catch the races this epic keeps finding, and every ticket after it pays the same tax.
+**17 is done, and it settled the flake's cause rather than its symptoms.** There were never any browser crashes — zero `Protocol error` or `Target closed` in 11,970 executions. The "crashes" earlier implementers reported predate the port derivation and were parallel checkouts testing each other's builds. Runs with at least one failure went from 6/10 to 1/10; the failure rate from 0.20% to 0.025%, measured before the archive routing landed, which can only have improved it.
 
-Last updated: 2026-08-07
+**What that ticket demonstrated twice over: the plausible cause is not the cause.** Its own first cut mis-diagnosed the archive failure as "no Base Map means no warped render" and wrote that into three files; the mandated mutation check disproved it — routed-but-404 is *green*, unrouted-and-404 is red, because an unrouted request is cross-origin and the bucket's preflight answers 403, so the page gets no response at all rather than an error it can handle. Four of the six defects review found in that ticket were in the parts of the work whose whole subject is results that mean nothing: an untested lock, a listing that reported success while short, an assertion that could observe nothing and pass.
+
+**`retries` no longer hides anything.** Every retry is printed with file and line, and the run fails above 0.5%. A `--reporter=` flag on the command line replaces Playwright's whole reporter list and silently disables that budget — stated in `playwright.config.ts` and `CONTRIBUTING.md`, since nothing can pin it.
+
+Last updated: 2026-08-07 (17 merged)
 
 ## Standing constraints
 
@@ -53,13 +64,13 @@ Every Alignment write now goes through `alignment/alignment-file.ts` and names w
 | 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
-| 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | In Review | 08, 10 | 6, 69–73, 75–79, 97, 99 |
+| 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Completed | 08, 10 | 6, 69–73, 75–79, 97, 99 |
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Not Started | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Not Started | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Not Started | 13 | 89–95 |
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Not Started | 02, 03, 09 | — |
-| 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Not Started | 02, 03, 09 | — |
+| 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Completed | 02, 03, 09 | — |
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
 | 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Not Started | 11 | — |
 
