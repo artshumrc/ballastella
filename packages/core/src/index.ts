@@ -28,11 +28,13 @@ export {
 	type JournalProblemReason,
 	type JournalStorage
 } from './autosave/journal.js';
+export { DeletedProjects } from './autosave/deleted-projects.js';
 export {
 	replayIsNoteworthy,
 	replayJournal,
 	type JournalReplayReport,
 	type ReplayFailure,
+	type ReplayOptions,
 	type ReplaySkipReason,
 	type ReplaySkipped
 } from './autosave/replay.js';
@@ -132,6 +134,7 @@ export {
 	hoistedImageId,
 	isReservedDirectoryName,
 	toDirectoryName,
+	type FinishedDeletions,
 	type ProjectSummary,
 	type WorkspaceOptions
 } from './project/workspace.js';

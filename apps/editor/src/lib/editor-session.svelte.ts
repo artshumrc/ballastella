@@ -3,6 +3,7 @@ import { SvelteSet } from 'svelte/reactivity';
 
 import {
 	Autosave,
+	DeletedProjects,
 	HistoricalMapInUseError,
 	HistoricalMapPartlyDeletedError,
 	OpfsProjectStore,
@@ -269,6 +270,15 @@ export class EditorSession {
 	/** The write-ahead journal for **this** Workspace, or `undefined` where there can be none. */
 	readonly #journal: WriteAheadJournal | undefined;
 	readonly #journalStorage: JournalStorage | undefined;
+	/**
+	 * Which Projects the user deleted from **this** Workspace (ticket 21).
+	 *
+	 * `undefined` on a browser that will not give the page `localStorage`, exactly as {@link #journal}
+	 * is, and for the same reason: the protection is genuinely unavailable there and a stand-in would
+	 * make the app claim it anyway. {@link protectionWarning}'s sibling in `WorkspaceStorage.start`
+	 * already says so in words.
+	 */
+	readonly #deleted: DeletedProjects | undefined;
 	/** Held for the tiler, which writes tens of thousands of files that are not `project.json`. */
 	readonly #store: ProjectStore;
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
@@ -434,7 +444,14 @@ export class EditorSession {
 					problem === null ? '' : problem instanceof Error ? problem.message : String(problem);
 			}
 		});
-		this.#workspace = new Workspace(store, { autosave: this.#autosave });
+		this.#deleted =
+			options.journalStorage && options.workspaceKey
+				? new DeletedProjects(options.journalStorage, options.workspaceKey)
+				: undefined;
+		this.#workspace = new Workspace(store, {
+			autosave: this.#autosave,
+			...(this.#deleted ? { deleted: this.#deleted } : {})
+		});
 		this.#autosave.subscribe((state) => {
 			this.saveState = state;
 		});
@@ -455,6 +472,29 @@ export class EditorSession {
 	}
 
 	/**
+	 * Carry out any deletion the user asked for that the page did not live long enough to finish
+	 * (ticket 21).
+	 *
+	 * **Before {@link replayJournalledEdits}, not after**, and the order is load-bearing in one
+	 * direction only: with the record still in place, a replay that ran first would refuse the
+	 * deleted Project's entries by name rather than by inference, which is what
+	 * `ReplaySkipReason: 'project-deleted'` is for — so either order is *safe*. This order is the one
+	 * that leaves nothing on disk for a listing to find, which is what the hub renders.
+	 *
+	 * Resolves rather than rejects, for the same reason the replay does: a Workspace too broken to
+	 * finish a deletion in is one the listing beside this is about to describe properly (ADR-0008).
+	 */
+	async finishInterruptedDeletions(): Promise<void> {
+		try {
+			await this.#workspace.finishInterruptedDeletions();
+		} catch {
+			// A store that cannot even be listed. Every record stays where it is and is tried again at
+			// the next startup; the listing beside this is what tells the user the Workspace is
+			// unreachable.
+		}
+	}
+
+	/**
 	 * Put back whatever the journal is still holding for this Workspace (ticket 20).
 	 *
 	 * Called once, as the Workspace is adopted, and never twice for the same session: replay drops
@@ -470,7 +510,9 @@ export class EditorSession {
 		const storage = this.#journalStorage;
 		if (!journal || !storage) return;
 		try {
-			const report = await replayJournal(storage, this.#store, journal.workspace);
+			const report = await replayJournal(storage, this.#store, journal.workspace, {
+				...(this.#deleted ? { deleted: this.#deleted } : {})
+			});
 			this.replayReport = replayIsNoteworthy(report) ? report : null;
 		} catch {
 			// A store that cannot even be listed. The entries stay where they are, and the listing

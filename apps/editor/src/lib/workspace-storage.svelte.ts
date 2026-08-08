@@ -998,6 +998,13 @@ export class WorkspaceStorage {
 	 */
 	async #replayAndReport(): Promise<void> {
 		const session = this.session;
+		// **Before the replay, and before anything reads the Workspace** (ticket 21). A deletion is as
+		// asynchronous as an edit and had none of ticket 20's protection, so a Project the user deleted
+		// on the way out of the page was still on disk — and back on the hub — at the next startup.
+		// Here rather than beside the replay because it is finishing something the user already asked
+		// for, which has to have happened before the listing that follows can be true. `Workspace`
+		// records the gesture synchronously; this is the half that could not run at the time.
+		await session.finishInterruptedDeletions();
 		await session.replayJournalledEdits();
 		// Guarded against a switch that happened while the replay was running: refreshing a session
 		// the user has already left would list a Workspace that is no longer on screen.

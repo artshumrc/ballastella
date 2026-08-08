@@ -1,5 +1,6 @@
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import type { Autosave } from '../autosave/autosave.js';
+import type { DeletedProjects } from '../autosave/deleted-projects.js';
 import { IMAGE_DIRECTORY } from './image-files.js';
 import {
 	ProjectFileUnreadableError,
@@ -98,6 +99,30 @@ export interface WorkspaceOptions {
 	readonly autosave?: Autosave;
 	/** The clock, injectable so `updatedAt` is assertable. */
 	readonly now?: () => Date;
+	/**
+	 * Where "the user deleted this Project" is written down synchronously (ticket 21).
+	 *
+	 * Optional, and its absence is a real state rather than a default — the same shape, and the same
+	 * reason, as {@link EditorSessionOptions.journalStorage}: a browser with no usable `localStorage`
+	 * cannot offer this, and a silent stand-in would make the application claim a guarantee it has
+	 * not got. Without one, a deletion is exactly as durable as the page it was asked for on, which
+	 * is what it was before ticket 21.
+	 */
+	readonly deleted?: DeletedProjects;
+}
+
+/** What a startup found still to do, and what it could not do. */
+export interface FinishedDeletions {
+	/** Deletions that had not finished and now have. */
+	readonly finished: readonly string[];
+	/**
+	 * Deletions that still have not finished, and whose record is **kept** for the next startup.
+	 *
+	 * Named rather than counted, and kept rather than dropped, for the reason `replayJournal`'s
+	 * `failed` list is: an unplugged drive or a lapsed permission must cost a delay, never the
+	 * gesture. Nothing here is reported as done.
+	 */
+	readonly unfinished: readonly string[];
 }
 
 /**
@@ -112,11 +137,13 @@ export class Workspace {
 	readonly #store: ProjectStore;
 	readonly #autosave: Autosave | undefined;
 	readonly #now: () => Date;
+	readonly #deleted: DeletedProjects | undefined;
 
 	constructor(store: ProjectStore, options: WorkspaceOptions = {}) {
 		this.#store = store;
 		this.#autosave = options.autosave;
 		this.#now = options.now ?? (() => new Date());
+		this.#deleted = options.deleted;
 	}
 
 	get store(): ProjectStore {
@@ -200,6 +227,7 @@ export class Workspace {
 			throw new ReservedDirectoryNameError(preferred, name);
 		}
 		const directory = await this.#unusedDirectory(name);
+		this.#claim(directory);
 		await this.writeProject(directory, newProjectFile(name, this.#now()));
 		return this.#summarise(directory);
 	}
@@ -226,6 +254,7 @@ export class Workspace {
 		const file = await this.readProject(directory);
 		const name = `${file.name} (copy)`;
 		const copy = await this.#unusedDirectory(name);
+		this.#claim(copy);
 
 		for (const path of await this.#store.list(`${directory}/`)) {
 			const destination = `${copy}/${path.slice(directory.length + 1)}`;
@@ -237,6 +266,54 @@ export class Workspace {
 
 	/** Remove a Project and everything in it. */
 	async deleteProject(directory: string): Promise<void> {
+		// ⚠ **Synchronously, and before the first `await` — which is what makes it survive** (ticket
+		// 21). Every line below is asynchronous, against OPFS, and a document that is being unloaded
+		// does not run the continuation (ADR-0017, "Rule 3, amended"). Measured at `--repeat-each=20`
+		// on the regression this closes: in 4 runs of 20 the very next line had not resolved before
+		// the next navigation tore the page down, nothing had been removed, and a Project the user
+		// had deleted was back on the hub at the next startup. See `deleted-projects.ts`.
+		//
+		// Here rather than in the caller so that no second route to deleting a Project can be added
+		// without it — `EditorSession.deleteProject` is one caller, and {@link
+		// finishInterruptedDeletions} below is another.
+		this.#deleted?.record(directory);
+		await this.#removeEverythingIn(directory);
+		// Only now, and only because the removal above actually resolved. Forgetting before it would
+		// be the same false claim `replayJournal` refuses to make: nothing is reported done that was
+		// not done.
+		this.#deleted?.forget(directory);
+	}
+
+	/**
+	 * Carry out the deletions the user asked for and the page did not live long enough to finish.
+	 *
+	 * **Run at startup, before anything reads the Workspace**, which is what makes the ordering below
+	 * safe: every {@link createProject} and {@link duplicateProject} in a session happens after this
+	 * has cleared the record for the directory it claims, so a Project made under a deleted one's
+	 * folder name can never be swept away by a gesture aimed at its predecessor.
+	 *
+	 * Idempotent, and deliberately so: a Project that is already gone deletes to nothing, which is
+	 * exactly the ordinary case here — the removal usually *had* finished and only the note saying so
+	 * was lost.
+	 */
+	async finishInterruptedDeletions(): Promise<FinishedDeletions> {
+		const finished: string[] = [];
+		const unfinished: string[] = [];
+		for (const directory of this.#deleted?.pending() ?? []) {
+			try {
+				await this.#removeEverythingIn(directory);
+				this.#deleted?.forget(directory);
+				finished.push(directory);
+			} catch {
+				// Kept, and the loop goes on. One unreachable Project must not leave the others
+				// half-deleted, and a Workspace that cannot answer today may answer tomorrow.
+				unfinished.push(directory);
+			}
+		}
+		return { finished, unfinished };
+	}
+
+	async #removeEverythingIn(directory: string): Promise<void> {
 		for (const path of await this.#store.list(`${directory}/`)) {
 			await this.#store.delete(path);
 		}
@@ -245,6 +322,24 @@ export class Workspace {
 		// permanently, holding bytes that are also missing from the totals tickets 15 and 16 warn
 		// from — and in ticket 12's real folder, a stray dotfile the user commits to git.
 		await this.#store.reclaimAbandonedWrites(`${directory}/`);
+	}
+
+	/**
+	 * A new Project is taking `directory`, so no unfinished deletion names it any more (ticket 21).
+	 *
+	 * ⚠ **Synchronously, and with no `await` between here and the write that creates the Project.**
+	 * That is the whole point of calling it *here* rather than after the creation resolves: an await
+	 * in between is a window in which the page can go away leaving a record that says "the user
+	 * deleted this folder" over a Project they have just made, and the next startup would delete it.
+	 * That is precisely the shape of fresh data-loss path ticket 20's first cut opened twice, and it
+	 * is not being reintroduced.
+	 *
+	 * Safe against the opposite mistake — forgetting a deletion that has not happened — because
+	 * `#unusedDirectory` has just answered that no Project occupies this name, and
+	 * {@link finishInterruptedDeletions} has already run at startup.
+	 */
+	#claim(directory: string): void {
+		this.#deleted?.forget(directory);
 	}
 
 	async #summarise(directory: string): Promise<ProjectSummary> {

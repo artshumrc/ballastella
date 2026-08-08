@@ -1012,9 +1012,21 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		await page.getByRole('button', { name: 'Delete Project' }).click();
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 
+		// **Immediately, with the deletion still in flight** — which is the whole of what this pins,
+		// and why nothing above waits for it to render. `Workspace.deleteProject` is several awaits
+		// deep against OPFS and a document being unloaded does not run the continuation (ADR-0017,
+		// "Rule 3, amended"), so before ticket 21 this reload caught the deletion before its *first*
+		// await had resolved, one run in five, and the Project came back.
 		await page.reload();
 
 		// The Project stays deleted, and nothing is quietly recreated under its directory name.
+		//
+		// ⚠ **The empty state first, and it is not decoration** (ticket 21). `toHaveCount(0)` passes
+		// against a page that has not rendered its list yet, so on a fresh reload both assertions
+		// below were satisfied by the hub simply not being there — and the run that found this defect
+		// passed both and then failed on the file list. Waiting for the sentence the hub shows when it
+		// has looked and found nothing is what makes them mean something.
+		await expect(page.getByText('No Projects yet')).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 		await expect(page.getByRole('link', { name: 'Gone before it was saved' })).toHaveCount(0);
 		expect(await everyPath(page)).toEqual([]);

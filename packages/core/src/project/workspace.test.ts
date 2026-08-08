@@ -7,6 +7,8 @@ import { TEMP_PATH_SUFFIX } from '../store/project-store.js';
 import { newMapLayer } from './layer.js';
 import { imageInfoPath } from './image-files.js';
 import { ProjectFormatTooNewError } from './project-file.js';
+import { DeletedProjects } from '../autosave/deleted-projects.js';
+import { FakeJournalStorage } from '../autosave/fake-journal-storage.js';
 import {
 	ReservedDirectoryNameError,
 	Workspace,
@@ -264,6 +266,120 @@ describe('Workspace', () => {
 
 			expect(await store.list('')).toEqual([`${kept.directory}/project.json`]);
 			expect((await workspace.listProjects()).map((p) => p.directory)).toEqual([kept.directory]);
+		});
+
+		/**
+		 * ⚠ **The whole of ticket 21, and why `--repeat-each=20` on the e2e was 4 flaky in 20.**
+		 *
+		 * A deletion is as asynchronous as an edit and had none of ticket 20's protection: it lists,
+		 * deletes each file, then reclaims — and a document being unloaded runs none of those
+		 * continuations. The store below stalls on the **first** of them, which is where the browser
+		 * measurement said the real failure stopped.
+		 *
+		 * What is asserted is not that the deletion finishes — it cannot, the page is gone — but that
+		 * the *gesture* was written down synchronously, so the next startup can carry it out. That is
+		 * the discrimination the application actually has: “the user deleted this Project”, not “this
+		 * Project's files are not there right now”, which is a guess and is the shape of the two fresh
+		 * data-loss paths ticket 20's first cut opened.
+		 */
+		it('writes the gesture down before its first await, so a lost page does not lose it', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const stalled = new MemoryProjectStore();
+			// A store that never answers, standing in for a page that stops running its continuations.
+			stalled.list = () => new Promise<never>(() => undefined);
+			const halted = new Workspace(stalled, { deleted });
+
+			void halted.deleteProject('amsterdam-1625');
+
+			// Synchronously, in the same turn as the call: there is no `await` between these two lines.
+			expect(deleted.pending()).toEqual(['amsterdam-1625']);
+		});
+
+		/**
+		 * The counterpart to the test above, and the reason the record is not a tombstone: it is
+		 * dropped the moment the removal it names has actually happened, so in ordinary use nothing
+		 * accumulates and no startup does work that has already been done. Dropped **after** the
+		 * removal resolved, never beside it — nothing is reported done that was not done.
+		 */
+		it('forgets the record once the removal has actually happened', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const recording = new Workspace(store, { deleted });
+			const doomed = await recording.createProject('Amsterdam 1625');
+
+			await recording.deleteProject(doomed.directory);
+
+			expect(deleted.pending()).toEqual([]);
+			expect(deleted.has(doomed.directory)).toBe(false);
+		});
+
+		it('finishes at the next startup a deletion the page did not live long enough to finish', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const doomed = await workspace.createProject('Amsterdam 1625');
+			await store.write(`${doomed.directory}/annotations/one.geojson`, new Uint8Array([1]));
+			const kept = await workspace.createProject('Boston 1775');
+			// Exactly what the interrupted page left behind: the record, and every file still there.
+			deleted.record(doomed.directory);
+
+			// A new session over the same Workspace and the same record — a reload.
+			const restarted = new Workspace(store, { deleted });
+			const outcome = await restarted.finishInterruptedDeletions();
+
+			expect(outcome).toEqual({ finished: [doomed.directory], unfinished: [] });
+			expect(await store.list('')).toEqual([`${kept.directory}/project.json`]);
+			// And the record goes with it, so the next startup does no work and — more to the point —
+			// cannot delete a Project that later takes the same folder name.
+			expect(deleted.pending()).toEqual([]);
+		});
+
+		it('keeps a deletion it could not finish, and names it rather than counting it', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			deleted.record('amsterdam-1625');
+
+			const unreachable = new Workspace(MemoryProjectStore.unreachable(), { deleted });
+			const outcome = await unreachable.finishInterruptedDeletions();
+
+			// Kept, for the same reason `replayJournal` keeps a failed write: an unplugged drive must
+			// cost a delay, never the gesture.
+			expect(outcome).toEqual({ finished: [], unfinished: ['amsterdam-1625'] });
+			expect(deleted.pending()).toEqual(['amsterdam-1625']);
+		});
+
+		/**
+		 * ⚠ **The fresh data-loss path this ticket could have opened, closed.**
+		 *
+		 * A record that outlived its Project would be a gesture aimed at a folder name, and folder
+		 * names are reusable. Without this, the next startup after making “Amsterdam 1625” again would
+		 * read the old record and delete the *new* Project. `Workspace.#claim` drops it synchronously,
+		 * with no `await` between there and the write that creates the Project — an await in between
+		 * is the same window in miniature.
+		 */
+		it('drops the record when a new Project claims the deleted one’s folder name', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const recording = new Workspace(store, { deleted });
+			const doomed = await recording.createProject('Amsterdam 1625');
+			await recording.deleteProject(doomed.directory);
+			// As if the deletion had finished on disk but the record had not been dropped.
+			deleted.record(doomed.directory);
+
+			const replacement = await recording.createProject('Amsterdam 1625');
+
+			expect(replacement.directory).toBe(doomed.directory);
+			expect(deleted.pending()).toEqual([]);
+			// And the startup that follows leaves it alone, which is the failure being prevented.
+			await recording.finishInterruptedDeletions();
+			expect(await store.list('')).toEqual([`${replacement.directory}/project.json`]);
+		});
+
+		it('drops the record when a duplicate claims the folder name', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const recording = new Workspace(store, { deleted });
+			const original = await recording.createProject('Amsterdam 1625');
+			deleted.record('amsterdam-1625-copy');
+
+			const copy = await recording.duplicateProject(original.directory);
+
+			expect(copy.directory).toBe('amsterdam-1625-copy');
+			expect(deleted.pending()).toEqual([]);
 		});
 
 		it('takes the half-finished writes with it, so nothing survives on disk', async () => {

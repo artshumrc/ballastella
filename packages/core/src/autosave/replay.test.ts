@@ -1,31 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MemoryProjectStore } from '../store/memory-project-store.js';
-import { WriteAheadJournal, readJournal, type JournalStorage } from './journal.js';
+import { DeletedProjects } from './deleted-projects.js';
+import { FakeJournalStorage } from './fake-journal-storage.js';
+import { WriteAheadJournal, readJournal } from './journal.js';
 import { alignmentImageId, replayIsNoteworthy, replayJournal } from './replay.js';
 
 const utf8 = new TextEncoder();
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
-
-/** A `localStorage` with nothing clever in it; the awkward cases live in `journal.test.ts`. */
-class FakeStorage implements JournalStorage {
-	readonly items = new Map<string, string>();
-	get length(): number {
-		return this.items.size;
-	}
-	key(index: number): string | null {
-		return [...this.items.keys()][index] ?? null;
-	}
-	getItem(key: string): string | null {
-		return this.items.get(key) ?? null;
-	}
-	setItem(key: string, value: string): void {
-		this.items.set(key, value);
-	}
-	removeItem(key: string): void {
-		this.items.delete(key);
-	}
-}
 
 /**
  * The positive control for the one function the Alignment routing **and** its refusal both consult.
@@ -58,12 +40,12 @@ describe('alignmentImageId — what counts as an Alignment path', () => {
 });
 
 describe('replayJournal', () => {
-	let storage: FakeStorage;
+	let storage: FakeJournalStorage;
 	let store: MemoryProjectStore;
 	let journal: WriteAheadJournal;
 
 	beforeEach(() => {
-		storage = new FakeStorage();
+		storage = new FakeJournalStorage();
 		store = new MemoryProjectStore();
 		journal = new WriteAheadJournal(storage, 'Marking 2026');
 	});
@@ -152,6 +134,73 @@ describe('replayJournal', () => {
 
 			expect(report.restored).toEqual(['amsterdam-1625/project.json']);
 			expect(text(await store.read('amsterdam-1625/project.json'))).toBe('brand new');
+		});
+
+		/**
+		 * ⚠ **The one case the exemption directly above opens, and the only evidence that can close
+		 * it** (ticket 21).
+		 *
+		 * `<project>/project.json` is exempt from every check here, and it has to be: writing it is
+		 * what makes the Project exist. So no question asked *of the store* can tell an interrupted
+		 * `createProject` apart from an edit to a Project the user has just deleted — the directory is
+		 * absent in both. What tells them apart is not a file at all: it is the gesture, recorded when
+		 * the user made it.
+		 *
+		 * The two tests are deliberately the same journal entry against the same empty store, with one
+		 * record set. Either one alone would pass with the branch deleted; together they cannot.
+		 */
+		it('does not put a manifest back into a Project the user deleted, and says why', async () => {
+			journal.record('amsterdam-1625/project.json', utf8.encode('the rename they typed'));
+			const deleted = new DeletedProjects(storage, 'Marking 2026');
+			deleted.record('amsterdam-1625');
+
+			const report = await replayJournal(storage, store, 'Marking 2026', { deleted });
+
+			expect(report.restored).toEqual([]);
+			expect(report.skipped).toEqual([
+				{
+					path: 'amsterdam-1625/project.json',
+					reason: 'project-deleted',
+					detail: expect.stringContaining('you deleted the Project')
+				}
+			]);
+			// Nothing was recreated under the deleted Project's name — the failure this ticket closes.
+			expect(await store.list('')).toEqual([]);
+			// Dropped, after being reported: a Project the user deleted is never coming back, so the
+			// entry can never be used and would otherwise be re-reported at every startup for ever.
+			expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+		});
+
+		it('refuses a deleted Project’s other files too, not only its manifest', async () => {
+			journal.record('amsterdam-1625/annotations/l.geojson', utf8.encode('{}'));
+			const deleted = new DeletedProjects(storage, 'Marking 2026');
+			deleted.record('amsterdam-1625');
+			// The Project is still on disk — the deletion had not got that far — so the *inference*
+			// branch would happily write this back. The gesture is what refuses it.
+			await seedProject('amsterdam-1625');
+
+			const report = await replayJournal(storage, store, 'Marking 2026', { deleted });
+
+			expect(report.restored).toEqual([]);
+			expect(report.skipped.map((entry) => entry.reason)).toEqual(['project-deleted']);
+			expect(await store.list('amsterdam-1625/annotations/')).toEqual([]);
+		});
+
+		it('leaves a Project deleted in another Workspace entirely alone', async () => {
+			await seedProject('amsterdam-1625');
+			journal.record('amsterdam-1625/project.json', utf8.encode('a rename in Marking 2026'));
+			// The same folder name, deleted in a different Workspace. Nothing about that gesture may
+			// reach this one — the same hazard `WriteAheadJournal`'s Workspace binding exists for.
+			new DeletedProjects(storage, 'Teaching').record('amsterdam-1625');
+
+			const report = await replayJournal(storage, store, 'Marking 2026', {
+				deleted: new DeletedProjects(storage, 'Marking 2026')
+			});
+
+			expect(report.restored).toEqual(['amsterdam-1625/project.json']);
+			expect(text(await store.read('amsterdam-1625/project.json'))).toBe(
+				'a rename in Marking 2026'
+			);
 		});
 
 		it('does not put an Alignment back for a Historical Map that has gone', async () => {

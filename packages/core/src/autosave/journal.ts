@@ -54,6 +54,11 @@
 // it is a real cost and this is where it is written down.
 
 import type { Bytes, StorePath } from '../store/project-store.js';
+import {
+	keysWithPrefix,
+	parseWorkspaceScopedKey,
+	workspaceScopedKey
+} from './workspace-scoped-key.js';
 
 /**
  * The shape of the journal's own records. Bumped when the *envelope* changes, never for a change
@@ -78,31 +83,17 @@ const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
  * the next startup — the same class of failure `WorkspaceStorage.#adopt` exists to prevent for
  * queued writes, arriving by a route that outlives the tab.
  *
- * `encodeURIComponent` on both halves, and it is what makes the key unambiguous rather than merely
- * tidy: a Workspace name is arbitrary user text in any script (`toWorkspaceName` keeps letters,
- * marks, numbers, spaces, `(`, `)`, `_` and `-`), a store path contains `/`, and concatenating the
- * two raw would let a Workspace called `a/b` and a Workspace called `a` holding `b/…` produce the
- * same key. Encoding escapes `/` in both, so the single unescaped `/` below is the only separator.
+ * The encoding itself is `workspace-scoped-key.ts`, shared with `deleted-projects.ts` (ticket 21):
+ * two hand-written copies of it are two things that can drift, and a key one module writes and the
+ * other cannot read fails silently.
  */
 const journalKey = (workspace: string, path: StorePath): string =>
-	`${JOURNAL_KEY_PREFIX}${encodeURIComponent(workspace)}/${encodeURIComponent(path)}`;
+	workspaceScopedKey(JOURNAL_KEY_PREFIX, workspace, path);
 
 /** The `{ workspace, path }` a key names, or `null` if it is not one this module wrote. */
 function parseJournalKey(key: string): { workspace: string; path: StorePath } | null {
-	if (!key.startsWith(JOURNAL_KEY_PREFIX)) return null;
-	const body = key.slice(JOURNAL_KEY_PREFIX.length);
-	const cut = body.indexOf('/');
-	if (cut === -1) return null;
-	try {
-		return {
-			workspace: decodeURIComponent(body.slice(0, cut)),
-			path: decodeURIComponent(body.slice(cut + 1))
-		};
-	} catch {
-		// A malformed `%` escape. Someone else's key under our prefix, or a truncated one; either
-		// way it names no Workspace and no file, so it is a problem to report rather than an entry.
-		return null;
-	}
+	const named = parseWorkspaceScopedKey(JOURNAL_KEY_PREFIX, key);
+	return named === null ? null : { workspace: named.workspace, path: named.subject };
 }
 
 /**
@@ -374,7 +365,7 @@ export class WriteAheadJournal {
 	 */
 	forgetUnder(prefix: string): number {
 		let dropped = 0;
-		for (const key of journalKeys(this.#storage)) {
+		for (const key of keysWithPrefix(this.#storage, JOURNAL_KEY_PREFIX)) {
 			const named = parseJournalKey(key);
 			if (!named || named.workspace !== this.#workspace) continue;
 			if (!named.path.startsWith(prefix)) continue;
@@ -415,7 +406,7 @@ export function readJournal(storage: JournalStorage, workspace: string): Journal
 	const entries: JournalEntry[] = [];
 	const problems: JournalProblem[] = [];
 
-	for (const key of journalKeys(storage)) {
+	for (const key of keysWithPrefix(storage, JOURNAL_KEY_PREFIX)) {
 		const named = parseJournalKey(key);
 		if (named === null) {
 			problems.push(discard(storage, key, 'unreadable', 'Its name could not be read.'));
@@ -528,7 +519,7 @@ export function readJournal(storage: JournalStorage, workspace: string): Journal
  */
 export function journalledWorkspaces(storage: JournalStorage): string[] {
 	const names = new Set<string>();
-	for (const key of journalKeys(storage)) {
+	for (const key of keysWithPrefix(storage, JOURNAL_KEY_PREFIX)) {
 		const named = parseJournalKey(key);
 		if (named) names.add(named.workspace);
 	}
@@ -545,7 +536,7 @@ export function journalledWorkspaces(storage: JournalStorage): string[] {
  */
 export function discardJournal(storage: JournalStorage, workspace: string): number {
 	let dropped = 0;
-	for (const key of journalKeys(storage)) {
+	for (const key of keysWithPrefix(storage, JOURNAL_KEY_PREFIX)) {
 		const named = parseJournalKey(key);
 		if (!named || named.workspace !== workspace) continue;
 		try {
@@ -584,16 +575,6 @@ export function browserJournalStorage(): JournalStorage | null {
 	} catch {
 		return null;
 	}
-}
-
-/** Every key currently in `storage`, snapshotted so removals during a walk cannot skip one. */
-function journalKeys(storage: JournalStorage): string[] {
-	const keys: string[] = [];
-	for (let index = 0; index < storage.length; index += 1) {
-		const key = storage.key(index);
-		if (key !== null && key.startsWith(JOURNAL_KEY_PREFIX)) keys.push(key);
-	}
-	return keys;
 }
 
 function discard(
