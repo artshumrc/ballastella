@@ -10,6 +10,8 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 
+import { readStoredFileOrNull } from './stored-file';
+
 const crcTable = (() => {
 	const table = new Int32Array(256);
 	for (let n = 0; n < 256; n++) {
@@ -209,6 +211,41 @@ export const baseMap = (page: Page) => page.getByTestId('base-map-pane');
 export const rows = (page: Page) => page.getByTestId('control-point-row');
 export const warpedStatus = (page: Page) => page.getByTestId('warped-status');
 
+/**
+ * The Historical Map is drawn warped over the Base Map.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ ONE PLACE, BECAUSE THIS ASSERTION IS MADE TWENTY TIMES AND ITS FAILURE NAMES NOTHING.      │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * `data-warped-status=""` is the shape every failure of this takes, and it means only "the render
+ * did not happen". It does not say whether the transformation was refused, the tiles never arrived,
+ * or the Base Map underneath was never there — so whatever is learned about it is learned once, here.
+ *
+ * **What it taught in ticket 17:** on 2026-08-07 `demo-bucket.protomaps.com` began answering 404 for
+ * `v4.pmtiles`, which every entry in `base-map/catalog.ts` points at. `editor-alignment`,
+ * `editor-alignment-refinement` and `editor-align-route` did not route that archive, so they fetched
+ * it for real — and the 404 carries no CORS headers, so the browser blocked the request rather than
+ * delivering an error the app could handle. MapLibre's source never initialised, the warped layer was
+ * never added, and three tests went red with `data-warped-status=""` while nothing in this repository
+ * had changed. All three now route it to the committed fixture; see {@link routeBaseMapArchive}.
+ *
+ * Three things worth keeping, because two of them were wrong turnings that cost time:
+ *
+ * - **A longer timeout was tried first and did not help.** At 30 s the same three failed the same
+ *   way, which is what ruled out contention. The wait is the configured default; raising it would
+ *   only have made a third party's outage take longer to report.
+ * - **"No Base Map means no warped render" was the obvious explanation and it is wrong.** These
+ *   specs pass with an archive of all zeros and with the route answering 404. This assertion does
+ *   **not** depend on the Base Map having any tiles — only on its source initialising. Do not read a
+ *   green `expectWarpedDrawn` as evidence that the Base Map drew.
+ * - **The symptom is indistinguishable from a broken feature**, which is why four implementers read
+ *   this family as flakiness. If this assertion fails, check whether the archive request was
+ *   *answered at all* before suspecting the warped path.
+ */
+export const expectWarpedDrawn = (page: Page) =>
+	expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+
 export const imagePoints = (page: Page) =>
 	historicalMap(page).locator('[data-testid="pane-overlay-point-control-point"]');
 
@@ -280,17 +317,6 @@ export const watchWrites = (page: Page) =>
 export const writes = (page: Page) => page.evaluate(() => window.ballastellaAlignmentWrites ?? []);
 
 /**
- * How long a read is retried before "not there" is believed. See {@link storedAlignment}.
- *
- * The same 20 × 25 ms as `editor-workspace.ts`'s `readProjectName`, which fixed this defect in the
- * other direction: a window that is a few milliseconds wide by construction, forgiven for half a
- * second, so a file that genuinely does not exist still reads as absent almost immediately in wall
- * clock terms.
- */
-const READ_ATTEMPTS = 20;
-const READ_RETRY_MS = 25;
-
-/**
  * The Alignment as it sits in OPFS, or `null` when there is no such file.
  *
  * **Retried, because the app writes atomically** — a temp file, then `move()` over the destination
@@ -304,47 +330,18 @@ const READ_RETRY_MS = 25;
  * This is a fix to the read and not to any assertion: the bytes on disk are still what is compared, so
  * a write that never happens still fails, and a file that is genuinely absent still reads as absent.
  * Only a read that collided with an atomic replace is forgiven, and only for as long as one can last.
+ *
+ * The loop itself is `support/stored-file.ts`, which is where it lives for every helper that needs
+ * it — this reasoning had been copied into three of them and omitted from a fourth (ticket 17).
  */
-export const storedAlignment = (page: Page, imageId: string) =>
-	page.evaluate(
-		async ([imageId, attempts, retryMs]) => {
-			for (let attempt = 0; attempt < (attempts as number); attempt += 1) {
-				try {
-					const root = await navigator.storage.getDirectory();
-					// **At the Workspace root, and it takes no Project directory** (ADR-0023). One Alignment per
-					// Historical Map, shared by every Project that draws it — so there is no per-Project copy
-					// this could be asked for, and a helper that still took one would be asserting about a file
-					// the application no longer writes.
-					const alignments = await root.getDirectoryHandle('alignments');
-					const handle = await alignments.getFileHandle(`${imageId}.json`);
-					return await (await handle.getFile()).text();
-				} catch {
-					await new Promise((resolve) => setTimeout(resolve, retryMs as number));
-				}
-			}
-			return null;
-		},
-		[imageId, READ_ATTEMPTS, READ_RETRY_MS] as const
-	);
+export const storedAlignment = (page: Page, imageId: string): Promise<string | null> =>
+	readStoredFileOrNull(page, `alignments/${imageId}.json`);
 
 /** `project.json` as it sits in OPFS, or `null`. Retried — see {@link storedAlignment}. */
-export const storedProjectFile = (page: Page, directory = PROJECT_DIRECTORY) =>
-	page.evaluate(
-		async ([directory, attempts, retryMs]) => {
-			for (let attempt = 0; attempt < (attempts as number); attempt += 1) {
-				try {
-					const root = await navigator.storage.getDirectory();
-					const project = await root.getDirectoryHandle(directory as string);
-					const handle = await project.getFileHandle('project.json');
-					return await (await handle.getFile()).text();
-				} catch {
-					await new Promise((resolve) => setTimeout(resolve, retryMs as number));
-				}
-			}
-			return null;
-		},
-		[directory, READ_ATTEMPTS, READ_RETRY_MS] as const
-	);
+export const storedProjectFile = (
+	page: Page,
+	directory = PROJECT_DIRECTORY
+): Promise<string | null> => readStoredFileOrNull(page, `${directory}/project.json`);
 
 /**
  * Wait until the Alignment on disk carries `count` pairs.

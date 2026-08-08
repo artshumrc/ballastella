@@ -148,6 +148,44 @@ export async function baseMapArchiveFixture(): Promise<Buffer> {
  * Takes a `Page` **or** a `BrowserContext`, because both carry `route` with the same contract and
  * the choice between them is per-suite: a `beforeEach` that runs before the page exists routes the
  * context. Written once, so that "serve real pmtiles bytes" cannot drift between suites.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHAT ROUTING STILL EXERCISES, AND WHAT IT GIVES UP
+ *
+ * Stated from measurement rather than from reasoning, because ticket 17 extended this to the last
+ * three specs that reached the network for real, and the reasoning turned out to be wrong.
+ *
+ * **Still exercised:** PMTiles is a byte-range format, and {@link byteRange} answers with genuine
+ * `206`, `content-range` and `accept-ranges` over the real bytes of a real Protomaps extract, not a
+ * stub. `editor-base-map.e2e.ts` is where that path is actually asserted, and it is unaffected.
+ *
+ * **Given up:** the live fetch — DNS, TLS, and that host's CORS — to a third party. Nothing asserted
+ * any of it. And worldwide coverage: the fixture is a city-centre extract of Amsterdam, which is
+ * where every spec routed here works and where the alignment fixtures place their Control Points.
+ *
+ * ⚠ **For the three specs ticket 17 added, the honest answer is that this gives up nothing at all,
+ * and the measurement is worth keeping because it is surprising.** They pass with this fixture, they
+ * pass with an archive of **all zeros**, and they pass with the route answering **404**. They never
+ * depended on the Base Map's content: what they need is for the archive request to be *answered* so
+ * MapLibre's source initialises and the warped layer gets added. Their warped-tile assertions read
+ * the Historical Map's own pyramid out of OPFS, which never involved this archive.
+ *
+ * So what broke them was not the 404. It was that an **unrouted** request is cross-origin, and the
+ * bucket's 404 carries no `access-control-allow-origin` while its preflight answers 403 — so the
+ * browser blocks the fetch outright and the page gets no response at all, which is a different and
+ * much worse state than an HTTP error it can handle. Verified by running the same specs unrouted
+ * (red) and routed-but-404 (green).
+ *
+ * **What is gained is ADR-0025's warning made operational.** That ADR already says this bucket has
+ * "no published rate limit, no uptime promise, and no terms of use" and that "nothing about it is
+ * suitable to rely on"; on 2026-08-07 it began answering 404 and turned three specs red for a reason
+ * that had nothing to do with this repository. A suite whose failures mean something cannot depend
+ * on a stranger's uptime.
+ *
+ * `editor-alignment.e2e.ts` had already reached for this and missed: it picks a "bundled" catalog
+ * entry over `streets-worldwide` and says doing otherwise "would buy nothing and cost a flake on
+ * every reading-room wifi this suite is ever run on". The intent was right; the lever was wrong,
+ * because **all four** catalog entries share one `REMOTE_ARCHIVE`.
  */
 export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<void> {
 	const archive = await baseMapArchiveFixture();

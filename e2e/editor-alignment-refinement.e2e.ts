@@ -19,11 +19,12 @@ import {
 	storedProjectFile,
 	waitForStored,
 	waitForSurface,
-	warpedStatus,
 	warpedTiles,
 	watchWrites,
-	writes
+	writes,
+	expectWarpedDrawn
 } from './support/alignment-workspace';
+import { routeBaseMapArchive } from './support/editor-deployment';
 
 /**
  * SPEC's Seam 2 for Alignment refinement: choosing how the Historical Map is stretched, seeing where
@@ -60,6 +61,24 @@ const checkToggle = (page: Page) => page.getByTestId('check-alignment-toggle');
  * *not rendered* while it is closed rather than merely hidden — so every test below that reaches for
  * one of them has to open it first, and the tests that assert one is absent must not open it.
  */
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET (ticket 17).
+//
+// Every entry in `base-map/catalog.ts` points at `demo-bucket.protomaps.com`, and on 2026-08-07 that
+// bucket began answering **404** for `v4.pmtiles` — with no CORS headers on the 404 and a 403 on the
+// preflight, so an unrouted request is blocked by the browser rather than answered. MapLibre's source
+// then never initialises and the warped layer is never added, so the symptom is
+// `data-warped-status=""` — which reads exactly like the feature being broken. It went red here, and
+// identically on `main`, with nothing in this repository having changed.
+//
+// ADR-0025 is explicit that this bucket has "no published rate limit, no uptime promise, and no
+// terms of use" and that "nothing about it is suitable to rely on". Fourteen other specs already
+// route it to `e2e/fixtures/base-map/amsterdam-centre.pmtiles`; these three were the outliers, and
+// not by design — see `routeBaseMapArchive` for what routing does and does not still exercise.
+test.beforeEach(async ({ page }) => {
+	await routeBaseMapArchive(page);
+});
+
 async function openCheck(page: Page): Promise<void> {
 	await checkToggle(page).click();
 	await expect(distortionControls(page)).toBeVisible();
@@ -317,7 +336,7 @@ test.describe('the transformation picker (ADR-0013)', () => {
 		// And the *renderer* was told third order, which the document alone cannot tell it: `WarpedMap`
 		// reads `transformation.type` and ignores the order beside it, so `polynomial` would reach the
 		// solver as first order.
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		await expect.poll(async () => (await drawnMap(page))?.transformationType).toBe('polynomial3');
 	});
 
@@ -372,7 +391,7 @@ test.describe('distortion (ADR-0013)', () => {
 
 		await start(page);
 		await makePairs(page, 4);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		expect(await warpedTiles(page)).toBeGreaterThan(0);
 
 		// **Off by default**: a colourised map is not what you want while placing Control Points — and
@@ -455,7 +474,7 @@ test.describe('distortion (ADR-0013)', () => {
 		const imageId = await start(page);
 		await makePairs(page, 6);
 		await waitForStored(page, imageId, 6);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		await openCheck(page);
 		await distortionToggle(page).check();
@@ -539,7 +558,7 @@ test.describe('distortion (ADR-0013)', () => {
 
 		await start(page);
 		await makePairs(page, 4);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		await openCheck(page);
 		await expect(gridToggle(page)).not.toBeChecked();
@@ -564,7 +583,7 @@ test.describe('distortion (ADR-0013)', () => {
 	test('is absent from project.json after being switched on and off', async ({ page }) => {
 		const imageId = await start(page);
 		await makePairs(page, 4);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		const before = await storedProjectFile(page);
 		expect(before).not.toBeNull();
@@ -656,7 +675,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		const imageId = await start(page);
 		await makePairs(page, 4);
 		await waitForStored(page, imageId, 4);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		// **Not empty** (ADR-0013): an empty mask renders nothing, which reads as a broken tool on a
 		// user's first Alignment.
@@ -689,7 +708,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		const imageId = await start(page);
 		await makePairs(page, 4);
 		await waitForStored(page, imageId, 4);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		const wholeSheet = await drawnMap(page);
 		expect(ringArea(wholeSheet?.convexHull)).toBeGreaterThan(0);
@@ -765,7 +784,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		expect(maskPointsAttribute((await storedAlignment(page, imageId)) as string)).toBe(
 			storedBefore
 		);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		await expect.poll(async () => (await drawnMap(page))?.resourceMask.length).toBe(5);
 	});
 

@@ -55,6 +55,7 @@ but no `build`.
 | `pnpm install`                       | install                                        |
 | `pnpm -r build`                      | build all packages and apps                    |
 | `pnpm -r test`                       | unit and integration tests (Vitest)            |
+| `pnpm test`                          | the above, plus `scripts/` (`node --test`)     |
 | `pnpm --filter @ballastella/core test` | core tests only                              |
 | `pnpm test:e2e`                      | browser tests (Playwright, headless Chromium)  |
 | `pnpm lint`                          | lint, format check, and the source fences      |
@@ -186,9 +187,28 @@ watch it pass, then close it.
 
 ### When the browser suite is red
 
-It flakes at roughly one run in three — a different test each time, green when its own file is
-re-run. The measured profile is in `playwright.config.ts`'s `workers` comment. Before reporting a
-failure as a known flake, prove it:
+**Read it as real.** For most of this epic it flaked at roughly one run in three and the settled
+advice was to re-run; ticket 17 measured ten consecutive runs, classified every failure, and found no
+contention at all. There were no browser crashes, and every remaining failure had a nameable cause —
+including one genuine application bug, a Workspace walk that raised when a directory was deleted
+underneath it. The measured rate and the method are in `playwright.config.ts`'s `workers` comment,
+with a date. A red run is now evidence about your change until you have shown otherwise.
+
+Two things the suite does for you that it did not before:
+
+- **A retried test is printed, and the rate is a budget.** `retries: 1` applies everywhere, and
+  `scripts/retry-budget.mjs` fails the run when more than 0.5% of tests passed only on a second
+  attempt — one test in 398. Green after a retry is data, not success. Its positive control is
+  `e2e/editor-retry-budget-control.e2e.ts`; the two commands are in that file's header.
+  ⚠ **`--reporter=…` replaces the reporter list and disables the budget.** `--reporter=line` is an
+  ordinary thing to type and it turns the fence off silently. Write
+  `--reporter=line,./scripts/retry-budget.mjs` if you want both. CI passes no `--reporter`.
+- **A retried test keeps a trace.** `trace: 'on-first-retry'`, so
+  `pnpm exec playwright show-trace test-results/…/trace.zip` shows the DOM at the moment it went
+  wrong. That is how the export-button failure above was identified, after four implementers had
+  filed it as contention.
+
+Before reporting a failure as a known flake, prove it:
 
 ```sh
 pnpm flake:check --against main e2e/editor-pwa.e2e.ts
@@ -198,6 +218,15 @@ That re-runs the spec alone and then against the merge-base in a throwaway workt
 `REAL` / `PRE-EXISTING` / `SUSPECT` / `CONSISTENT WITH FLAKE`. Doing this by hand is what people
 skip when they are tired, and the cost of skipping it is shipping a regression labelled "known
 flake". Someone who did it properly found a defect the suite had been red on for three commits.
+
+**Wait for what happened, not for what is on screen.** The largest single source of the historical
+flake was helpers returning as soon as a row was visible and then reloading the page, which takes the
+Workspace as it is *on disk* — and `project.json` is written on a 400 ms debounce (ADR-0017 rule 2).
+`e2e/support/saved.ts` holds the two honest waits. In particular, **do not wait for the save
+indicator to read "Saved"**: its sequence is `saved → unsaved → saving → saved`, so "Saved" is also
+what it says before the save begins, and `SaveIndicator.svelte` deliberately lags it by 400 ms so it
+does not strobe. A transient state cannot be caught by polling for it at all; record it with a
+`MutationObserver` and assert the sequence.
 
 **The browser suite runs against `apps/*/build`, so development mode is not covered by it.** That is
 the right default — the shipped Published Site is prerendered static files with no server (ADR-0006),

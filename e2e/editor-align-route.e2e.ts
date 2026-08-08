@@ -19,8 +19,10 @@ import {
 	storedProjectFile,
 	waitForStored,
 	watchWrites,
-	writes
+	writes,
+	expectWarpedDrawn
 } from './support/alignment-workspace';
+import { routeBaseMapArchive } from './support/editor-deployment';
 
 /**
  * Ticket 03: aligning is a route of its own.
@@ -31,6 +33,24 @@ import {
  * preserved behaviour. What is here is only what is *new*: the URL, the states it can be opened in,
  * the disclosure, the way back, and the keyboard.
  */
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET (ticket 17).
+//
+// Every entry in `base-map/catalog.ts` points at `demo-bucket.protomaps.com`, and on 2026-08-07 that
+// bucket began answering **404** for `v4.pmtiles` — with no CORS headers on the 404 and a 403 on the
+// preflight, so an unrouted request is blocked by the browser rather than answered. MapLibre's source
+// then never initialises and the warped layer is never added, so the symptom is
+// `data-warped-status=""` — which reads exactly like the feature being broken. It went red here, and
+// identically on `main`, with nothing in this repository having changed.
+//
+// ADR-0025 is explicit that this bucket has "no published rate limit, no uptime promise, and no
+// terms of use" and that "nothing about it is suitable to rely on". Fourteen other specs already
+// route it to `e2e/fixtures/base-map/amsterdam-centre.pmtiles`; these three were the outliers, and
+// not by design — see `routeBaseMapArchive` for what routing does and does not still exercise.
+test.beforeEach(async ({ page }) => {
+	await routeBaseMapArchive(page);
+});
 
 const backLink = (page: Page) => page.getByTestId('back-to-project');
 const checkToggle = (page: Page) => page.getByTestId('check-alignment-toggle');
@@ -477,7 +497,7 @@ test.describe('“Check this alignment”', () => {
 		test.setTimeout(120_000);
 		await start(page);
 		await makePairs(page, 4);
-		await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		// Closed by default, and everything behind it is *absent* rather than hidden. Asked of the
 		// accessibility tree by role and name, which is the criterion — a `getByTestId` count would go
@@ -518,7 +538,7 @@ test.describe('“Check this alignment”', () => {
 		test.setTimeout(120_000);
 		await start(page);
 		await makePairs(page, 4);
-		await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		await checkToggle(page).click();
 		await page.getByTestId('distortion-toggle').check();
@@ -574,7 +594,7 @@ test.describe('the route from the keyboard', () => {
 		test.setTimeout(120_000);
 		await start(page);
 		await makePairs(page, 3);
-		await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		// Opened, so the disclosure's own controls are in the walk too.
 		await checkToggle(page).click();
 		await expect(distortionControls(page)).toBeVisible();

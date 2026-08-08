@@ -9,6 +9,8 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 
+import { readStoredFile } from './stored-file';
+
 export const PROJECT_NAME = 'Amsterdam 1625';
 export const PROJECT_DIRECTORY = 'amsterdam-1625';
 
@@ -79,33 +81,10 @@ export async function emptyWorkspace(page: Page): Promise<void> {
  * read as a slow one.
  */
 export const readProjectFile = (page: Page, path: string, directory = PROJECT_DIRECTORY) =>
-	page.evaluate(
-		async ([directory, path]) => {
-			let lastFailure: unknown;
-			for (let attempt = 0; attempt < 20; attempt += 1) {
-				try {
-					const root = await navigator.storage.getDirectory();
-					// `''` reads from the Workspace root (ADR-0023): an Alignment and a pyramid belong there.
-					let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
-					const segments = (path as string).split('/');
-					for (const segment of segments.slice(0, -1)) {
-						handle = await handle.getDirectoryHandle(segment);
-					}
-					const file = await handle.getFileHandle(segments.at(-1) as string);
-					return await (await file.getFile()).text();
-				} catch (cause) {
-					lastFailure = cause;
-					await new Promise((resolve) => setTimeout(resolve, 25));
-				}
-			}
-			throw new Error(
-				`${directory}/${path} could not be read in 20 attempts — the last failure was ` +
-					`${lastFailure instanceof Error ? `${lastFailure.name}: ${lastFailure.message}` : String(lastFailure)}. ` +
-					'A transient failure here is the atomic-replace window; a persistent one is not.'
-			);
-		},
-		[directory, path]
-	);
+	// `''` reads from the Workspace root (ADR-0023): an Alignment and a pyramid belong there, not
+	// inside a Project. The retry itself is `support/stored-file.ts`, which is where this loop now
+	// lives for all four of the helpers that had grown their own copy of it.
+	readStoredFile(page, directory === '' ? path : `${directory}/${path}`);
 
 /** Write a file behind the app's back, for a fixture the UI has no way to produce yet. */
 export const writeProjectFile = (
@@ -172,10 +151,39 @@ export async function hashesUnder(
 export const projectJson = async (page: Page, directory = PROJECT_DIRECTORY) =>
 	JSON.parse(await readProjectFile(page, 'project.json', directory));
 
-/** The one Annotation Layer's id, taken from `project.json` rather than guessed. */
+/**
+ * The Annotation Layer's id, taken from `project.json` rather than guessed.
+ *
+ * **Waits for the Layer to have been written, rather than assuming it has been.** Adding a Layer
+ * changes `project.json`, which autosave writes on a 400 ms debounce (ADR-0017 rule 2), so the row
+ * is in the sidebar before the bytes are on disk. Reading once produced
+ * `TypeError: Cannot read properties of undefined (reading 'id')` — an absence, one line from where
+ * it was created — in 1 of the 10 baseline runs of 2026-08-07, and a 30 s timeout for the same
+ * absence in two more (ticket 17).
+ *
+ * A poll for existence rather than for a transient state: a Layer that has been added is there for
+ * good, so the only question is whether the write has landed yet.
+ */
 export async function annotationLayerId(page: Page, at = 0): Promise<string> {
-	const { layers } = await projectJson(page);
-	return layers.filter((layer: { kind: string }) => layer.kind === 'annotation')[at].id;
+	const annotationLayers = async () => {
+		try {
+			const { layers } = await projectJson(page);
+			return (layers as { kind: string; id: string }[]).filter(
+				(layer) => layer.kind === 'annotation'
+			);
+		} catch {
+			// `project.json` is written atomically — a temp file moved over the destination (rule 4) —
+			// so a read inside that window raises rather than returning stale bytes. A retry, not a
+			// failure.
+			return [];
+		}
+	};
+	await expect
+		.poll(async () => (await annotationLayers()).length, {
+			message: `project.json should hold at least ${at + 1} Annotation Layer(s)`
+		})
+		.toBeGreaterThan(at);
+	return (await annotationLayers())[at]!.id;
 }
 
 /** The Annotation Layer's `FeatureCollection`, parsed out of OPFS. */

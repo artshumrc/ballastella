@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { openProjectSettings, projectNameField } from './support/project-screen';
+import { recordSaveStates } from './support/saved';
+import { readStoredFile } from './support/stored-file';
 
 /**
  * SPEC's Seam 2: the running app in a real browser against real OPFS.
@@ -124,25 +126,10 @@ async function hashProject(page: Page, directory: string): Promise<Record<string
  * forgiven, and only for as long as one can plausibly last.
  */
 async function readProjectName(page: Page, directory = 'amsterdam-1625'): Promise<string> {
-	return page.evaluate(async (directory) => {
-		let lastFailure: unknown;
-		for (let attempt = 0; attempt < 20; attempt++) {
-			try {
-				const root = await navigator.storage.getDirectory();
-				const project = await root.getDirectoryHandle(directory);
-				const file = await project.getFileHandle('project.json');
-				return JSON.parse(await (await file.getFile()).text()).name as string;
-			} catch (cause) {
-				lastFailure = cause;
-				await new Promise((resolve) => setTimeout(resolve, 25));
-			}
-		}
-		throw new Error(
-			`project.json in ${directory} could not be read in 20 attempts — the last failure was ` +
-				`${lastFailure instanceof Error ? `${lastFailure.name}: ${lastFailure.message}` : String(lastFailure)}. ` +
-				'A transient failure here is the atomic-replace window; a persistent one is not.'
-		);
-	}, directory);
+	// The loop is `support/stored-file.ts`, which is where it lives for every helper that reads the
+	// Workspace — this was the last hand-rolled copy of it (ticket 17), and copies are how one of them
+	// came to be missing the retry altogether.
+	return JSON.parse(await readStoredFile(page, `${directory}/project.json`)).name as string;
 }
 
 const createProject = async (page: Page, name: string) => {
@@ -697,7 +684,14 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		await page.reload();
 	});
 
-	test('transitions saved → saving → saved as the Project name is typed', async ({ page }) => {
+	// Named for the sequence the indicator *actually* publishes, which has four steps and not three
+	// (ticket 17). `unsaved` is the debounce window — ADR-0017 rule 2's 400 ms, during which the
+	// edit is in memory and the tool is saying so — and it is one of rule 5's three states, not an
+	// implementation detail. The old title said `saved → saving → saved` while the old assertions
+	// never looked at the third state at all.
+	test('transitions saved → unsaved → saving → saved as the Project name is typed', async ({
+		page
+	}) => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 
@@ -709,14 +703,40 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 		const indicator = page.getByRole('status');
 		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
 
+		// **Recorded, not polled** (ticket 17). This used to assert the middle of the sequence by
+		// asking twice: `toHaveAttribute('saving')` and then `toHaveAttribute('saved')`. "Saving…" can
+		// be over in a few milliseconds — it is an OPFS write of a small document — and two protocol
+		// round trips can straddle it entirely, so the first assertion failed with
+		// `Expected "saving", Received "saved"` in 2 of the 10 baseline runs of 2026-08-07 and told
+		// nobody anything in the other 8. A poll cannot observe a transient state; a `MutationObserver`
+		// sees every change, so what is asserted below is a record of what the indicator actually did.
+		const saveStates = await recordSaveStates(page);
+
 		// Renaming is behind the Project settings dialog since ticket 04 — one editable field did not
 		// need a page of its own. The autosave rules it follows are unchanged, which is what this
 		// asserts.
 		const field = await projectNameField(page);
 		await field.fill('Amsterdam 1626');
 
-		await expect(indicator).toHaveAttribute('data-save-state', 'saving');
-		await expect(indicator).toHaveAttribute('data-save-state', 'saved');
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **THE WHOLE SEQUENCE, EXACTLY, AND POLLED FOR — NOT READ ONCE.**
+		//
+		// Every step is a claim: the edit was held unsaved for the debounce window and the user was
+		// told so, the write then happened and the user was told that too, and it finished. An
+		// indicator that jumped straight back to "Saved" — a broken 400 ms dwell, or a missing
+		// `unsaved` state — fails here.
+		//
+		// ⚠ `expect.poll`, because reading the record once is the *same* mistake this test was fixed
+		// for, one level up. The obvious guard — wait for `data-save-state` to be `saved`, then read —
+		// is satisfied by the `saved` the indicator is already showing *before* the edit lands, which
+		// is exactly the hazard `support/saved.ts` exists to describe. A first read winning that race
+		// returns `['saved']`, and `toEqual` on a single read would have gone green having observed
+		// nothing at all. Found by review; it is the vacuous-pass shape this epic keeps producing.
+		await expect
+			.poll(saveStates, { message: 'the save indicator should pass through unsaved and saving' })
+			.toEqual(['saved', 'unsaved', 'saving', 'saved']);
+
+		// And it is what a screen reader is given, not only what the attribute says.
 		await expect(indicator).toHaveText('Saved');
 
 		// And the store really has it: reloading shows the new name.

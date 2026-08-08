@@ -342,6 +342,13 @@ test.describe('a Historical Map read from the Project', () => {
 	test('renders the correct pyramid for each of two Historical Maps in one Project', async ({
 		page
 	}) => {
+		// **A budget, not a race** (ticket 17). This is the only test in the suite that ingests two
+		// whole pyramids, and each ingest is a real tiling of a real PNG; on the 10 baseline runs of
+		// 2026-08-07 it exhausted the then-default 30 s in 1 of 10 and reported it as
+		// `toHaveCount(2) … Received: 1`, which reads exactly like a Layer that never arrived. It is
+		// not — the second ingest was still running. Stated here rather than raised at the assertion
+		// so the number is attached to the reason.
+		test.setTimeout(120_000);
 		const requested = recordRequests(page);
 		await collectServedTiles(page);
 

@@ -91,7 +91,11 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium firefox
 
-      - run: pnpm -r test
+      # `pnpm test`, not `pnpm -r test`: `-r` visits workspace packages and the repository root is
+      # not one, so the `scripts/` tests would not run. They pin two hazards that fail silently —
+      # `free-e2e-port.mjs`'s pid-0 parse and `e2e-build.mjs`'s build lock — and a test CI does not
+      # run is not a test, which is exactly why one of them spent a while filed under `base-map`.
+      - run: pnpm test
 
       - run: pnpm exec playwright test
 

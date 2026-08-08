@@ -1,3 +1,4 @@
+import { expectWarpedDrawn } from './support/alignment-workspace';
 import { expect, test, type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 
@@ -202,7 +203,7 @@ test.describe('warped rendering reads through the ProjectStore', () => {
 		// The layer took the Alignment. That means `info.json` was fetched **through our shim** on the
 		// main thread — `WarpedMap` loads the image information there — so that half of ADR-0011 holds
 		// against a locally stored pyramid with no URL.
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		await expect(warpedStatus(page)).toContainText('from 3 Control Points');
 
 		// MapLibre gave the layer an id and the layer has bounds, which it only does once `onAdd` has
@@ -240,7 +241,7 @@ test.describe('warped rendering reads through the ProjectStore', () => {
 		await makePair(page, 0.3, 0.3);
 		await makePair(page, 0.6, 0.35);
 		await makePair(page, 0.45, 0.7);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		// Bring the warped map into view so tiles are actually asked for, then let the renderer work.
 		const cachedTiles = await page.evaluate(async () => {

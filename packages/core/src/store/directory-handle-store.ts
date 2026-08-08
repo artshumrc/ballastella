@@ -112,7 +112,23 @@ export class DirectoryHandleStore extends TempFileWriteStore {
 		if (!start) return [];
 		const base = segments.length === 0 ? '' : `${segments.join('/')}/`;
 		const found: StorePath[] = [];
-		await collectFiles(start, base, found);
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **THE ONE INTOLERANT DIRECTORY IS THE STORE'S ROOT, AND ONLY BECAUSE OF HOW IT IS REACHED.**
+		//
+		// ADR-0008 needs a folder Workspace that has been deleted or unplugged to *fail* rather than
+		// report an empty Workspace. For the root that has to be answered here, because
+		// `#rootDirectory()` hands back a cached handle without touching the filesystem — so "the
+		// folder is gone" surfaces at the root's own `entries()` and nowhere earlier.
+		//
+		// For **every other prefix it is already answered above**, and answered the other way:
+		// `#directory` calls `getDirectoryHandle`, which raises `NotFoundError` for a Project that is
+		// not there, and that is caught and returned as `undefined` — so `list('amsterdam-1625/')` on
+		// a missing Project has always been `[]` rather than a throw. Forgiving a vanished start below
+		// the root therefore *matches* that; refusing to would have made the answer depend on whether
+		// the Project was deleted a microsecond before `getDirectoryHandle` or a microsecond after.
+		// The first cut of this drew the line at "the directory the caller named", which left
+		// `workspace.ts`'s per-Project listings still throwing on the very race this exists to fix.
+		await collectFiles(start, base, found, { forgiveAVanishedDirectory: segments.length > 0 });
 		return found;
 	}
 
@@ -186,15 +202,107 @@ export class DirectoryHandleStore extends TempFileWriteStore {
 	}
 }
 
+/**
+ * Every file under `directory`, depth first.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * A SUBTREE THAT DISAPPEARS WHILE THIS IS WALKING IS SKIPPED, NOT FATAL
+ *
+ * A walk is not atomic and there is no way to make it one. Between `entries()` yielding a
+ * directory handle and the recursive call opening it, that directory can be gone: a second tab, a
+ * sync client writing into the same folder (ADR-0023's whole premise), or the user deleting a
+ * Project in another window. Chromium then raises `NotFoundError` from inside the `for await`, and
+ * it used to come all the way out of `list`.
+ *
+ * That is not a listing failure, it is a listing of a Workspace that changed underneath. Every
+ * caller here already treats an absent path as absent — `#file` and `deletePath` both swallow the
+ * same `NotFoundError` — and the only one that did not was the *walk*, which meant one vanished
+ * directory made `store.list('')` throw. `EditorSession.refreshHistoricalMaps` reads that as the
+ * Workspace being unreachable and replaces the hub with "your Workspace cannot be reached", so a
+ * colleague's sync deleting one file told a scholar their work was gone.
+ *
+ * **Measured, not theorised** (ticket 17): this is the cause of `editor-transfer.e2e.ts`'s "says so
+ * when an export fails", which deletes a Project behind the app's back and failed in 2 of 10 full
+ * suite runs on 2026-08-07 with `element was detached from the DOM` — the hub replacing itself
+ * mid-click. Pinned in `opfs-project-store.browser.test.ts`, which is where this class is exercised
+ * against a real `FileSystemDirectoryHandle`: it has no test file of its own, because a Node stub of
+ * the handle would only prove the stub agrees with itself.
+ *
+ * Skipping is the honest answer rather than the convenient one: the entry is genuinely not there by
+ * the time it would have been read, which is the same state a listing taken a moment later reports.
+ *
+ * ⚠ **The store's root is the exception, and getting that wrong broke a real claim.** ADR-0008 needs
+ * a folder Workspace that has been deleted or unplugged to *fail* rather than to report an empty
+ * Workspace, and the first cut of this swallowed exactly that.
+ * `file-system-access-project-store.browser.test.ts`'s "reports a folder Workspace as unreachable
+ * once the folder is gone" caught it. See {@link DirectoryHandleStore.listPaths} for why the root is
+ * the *only* directory that has to be intolerant.
+ */
 async function collectFiles(
 	directory: FileSystemDirectoryHandle,
 	prefix: string,
-	into: StorePath[]
+	into: StorePath[],
+	options: { readonly forgiveAVanishedDirectory: boolean }
 ): Promise<void> {
-	for await (const [name, handle] of directory.entries()) {
+	for (const [name, handle] of await collectEntries(directory, options)) {
 		if (handle.kind === 'file') into.push(`${prefix}${name}`);
-		else await collectFiles(handle as FileSystemDirectoryHandle, `${prefix}${name}/`, into);
+		else
+			await collectFiles(handle as FileSystemDirectoryHandle, `${prefix}${name}/`, into, {
+				forgiveAVanishedDirectory: true
+			});
 	}
+}
+
+/**
+ * How many times a directory whose contents changed mid-read is read again before giving up.
+ *
+ * Small, because each attempt converges: the entry that vanished is gone by the next pass, so a
+ * second read of a Workspace that lost one Project succeeds. Only something being deleted
+ * continuously would exhaust this, and that is a condition to report rather than to keep retrying.
+ */
+const DRAIN_ATTEMPTS = 5;
+
+/**
+ * The entries of one directory, complete — drained before any of them is descended into.
+ *
+ * Draining first matters twice over. It keeps reading this directory from interleaving with reading
+ * its children's, and it makes "was this listing complete?" a question with an answer.
+ *
+ * ⚠ **A partial drain is re-read, never returned.** The obvious handling of a mid-drain
+ * `NotFoundError` — keep what was collected and carry on — is a listing that is short by an unknown
+ * number of files and reports success. That is a worse bug than the throw it replaces and a much
+ * quieter one: `list('')` feeds the Project hub, publishing, and (ticket 13) backup, where a short
+ * listing is an archive that is silently missing somebody's work. So the whole directory is read
+ * again instead. The retry converges because the entry that went is gone by the next pass.
+ *
+ * Exhausting {@link DRAIN_ATTEMPTS} throws, deliberately: a directory that cannot be read completely
+ * is a fact about the Workspace, and the caller is entitled to hear it rather than to be handed a
+ * plausible-looking short list.
+ *
+ * The one case that is genuinely empty rather than partial is a directory that has gone entirely —
+ * its handle raises from the first `next()`, so nothing was collected — and that is what
+ * `forgiveAVanishedDirectory` answers with `[]`.
+ */
+async function collectEntries(
+	directory: FileSystemDirectoryHandle,
+	options: { readonly forgiveAVanishedDirectory: boolean }
+): Promise<[string, FileSystemHandle][]> {
+	let last: unknown;
+	for (let attempt = 0; attempt < DRAIN_ATTEMPTS; attempt += 1) {
+		const entries: [string, FileSystemHandle][] = [];
+		try {
+			for await (const entry of directory.entries()) entries.push(entry);
+			return entries;
+		} catch (cause) {
+			// Anything that is not "an entry is not there" is this backend failing, and belongs to the
+			// caller however many entries had been read.
+			if (!isNotFound(cause) || !options.forgiveAVanishedDirectory) throw cause;
+			// Nothing read at all: this directory is itself the thing that went.
+			if (entries.length === 0) return [];
+			last = cause;
+		}
+	}
+	throw last;
 }
 
 async function isEmpty(directory: FileSystemDirectoryHandle): Promise<boolean> {
