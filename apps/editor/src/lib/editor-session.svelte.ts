@@ -7,7 +7,6 @@ import {
 	HistoricalMapPartlyDeletedError,
 	OpfsProjectStore,
 	PathNotFoundError,
-	ProjectDirectoryCollisionError,
 	ProjectFileUnreadableError,
 	ProjectFormatTooNewError,
 	ReservedDirectoryNameError,
@@ -32,7 +31,7 @@ import {
 	writeCachedTileSource,
 	deleteHistoricalMap,
 	emptyAnnotationCollection,
-	exportProjectZip,
+	exportProjectBundle,
 	imageDirectory,
 	imageManifestPath,
 	ingestImageFile,
@@ -61,7 +60,6 @@ import {
 	publishSite,
 	readPublishedSite,
 	readImageLabel,
-	readProjectZip,
 	referencedAlignmentAddress,
 	referencedImage,
 	referencedImagePath,
@@ -74,7 +72,6 @@ import {
 	// Aliased: the session has a method of the same name, and the two doing different amounts of work
 	// under one word is how a later edit calls the wrong one.
 	stampCanonicalUrl as stampWorkspaceImages,
-	toDirectoryName,
 	workspaceSize,
 	writeAlignmentFile,
 	type Alignment,
@@ -101,7 +98,6 @@ import {
 	type ProjectFile,
 	type ProjectStore,
 	type ProjectSummary,
-	type ProjectZip,
 	type PublishPlan,
 	type PublishedSite,
 	type ReferencedImage,
@@ -162,34 +158,17 @@ export function workspaceKeyLabel(key: string): string {
 /**
  * A transfer in flight, for the status region that announces it.
  *
- * A zip of an offline copy's pyramid takes real seconds to tens of seconds, and it is announced rather
- * than merely drawn: SPEC story 96 asks for status to reach assistive technology, and this is one
- * of the two places in the app where the user is waiting on something they cannot see.
+ * A bundle of an offline copy's pyramid takes real seconds to tens of seconds, and it is announced
+ * rather than merely drawn: SPEC story 96 asks for status to reach assistive technology, and this is
+ * one of the two places in the app where the user is waiting on something they cannot see.
  */
 export interface TransferState {
-	readonly kind: 'export' | 'import';
+	readonly kind: 'export' | 'open';
 	/** The Project being moved, by display name where there is one. */
 	readonly subject: string;
 	readonly files: number;
 	readonly totalFiles: number;
 	readonly finished: boolean;
-}
-
-/**
- * A validated zip waiting to be written, and where it would go.
- *
- * Held between the two halves of an import so the collision question can be asked without
- * re-reading and re-validating the archive: the user answers it by choosing a name, and the answer
- * must not be able to change what is about to be written.
- */
-export interface PendingImport {
-	readonly zip: ProjectZip;
-	/** The display name inside the zip, for naming what is being imported. */
-	readonly name: string;
-	/** Where it will go. The Project's identity, so this is the thing that can collide (ADR-0008). */
-	readonly directory: string;
-	/** The message from a refused attempt, or `''` on the first pass. */
-	readonly collision: string;
 }
 
 /**
@@ -332,17 +311,12 @@ export class EditorSession {
 	 */
 	saveError = $state('');
 
-	/** The export or import in flight, or `null`. Rendered as announced status (ticket 13). */
+	/** The export or bundle-opening in flight, or `null`. Rendered as announced status. */
 	transfer = $state<TransferState | null>(null);
 	/**
-	 * A zip that has been read and validated but not yet written, because where to put it is still
-	 * an open question. `null` whenever there is nothing to answer.
-	 */
-	pendingImport = $state<PendingImport | null>(null);
-	/**
-	 * Why the last export or import did not happen. Shown in the import dialog, and it is the whole
-	 * point of the refusals: ADR-0010's "this Project is from a newer version" has to reach a
-	 * screen, or a user hands a colleague a zip that silently does nothing.
+	 * Why the last export did not happen. It is the whole point of the refusals: ADR-0010's "this
+	 * Project is from a newer version" has to reach a screen, or a user hands a colleague a file that
+	 * silently does nothing.
 	 */
 	transferError = $state('');
 
@@ -572,11 +546,15 @@ export class EditorSession {
 	}
 
 	/**
-	 * Hand one Project to the user as a zip (SPEC story 5).
+	 * Hand one Project to somebody else as a self-contained bundle (SPEC story 89, ADR-0024).
+	 *
+	 * The bundle carries `project.json`, the Project's `annotations/`, and the `images/<id>/` and
+	 * `alignments/<id>.json` its Layers reference — and **not** the Workspace's other maps, which is
+	 * what makes it a handoff rather than a backup.
 	 *
 	 * Everything pending is flushed first. Exporting a Project whose last edit is still inside the
 	 * autosave debounce would otherwise produce an archive missing the change the user just made —
-	 * the one failure that would make this whole path untrustworthy, since a zip is what they are
+	 * the one failure that would make this whole path untrustworthy, since the file is what they are
 	 * about to send somebody (ADR-0017 rule 1).
 	 */
 	async exportProject(project: ProjectSummary): Promise<void> {
@@ -592,7 +570,7 @@ export class EditorSession {
 			};
 		};
 		try {
-			const exported = await exportProjectZip(this.#workspace.store, project.directory, {
+			const exported = await exportProjectBundle(this.#workspace.store, project.directory, {
 				onProgress: (progress) => announce(progress, false)
 			});
 			await saveFile(exported.fileName, exported.body);
@@ -609,97 +587,6 @@ export class EditorSession {
 		} catch (cause) {
 			this.transfer = null;
 			this.transferError = cause instanceof Error ? cause.message : String(cause);
-		}
-	}
-
-	/**
-	 * Read a zip the user chose and work out where it would go. **Writes nothing.**
-	 *
-	 * The whole archive is validated here, before there is anything to write, so a zip that is
-	 * refused leaves the Workspace exactly as it was. On success this leaves a {@link pendingImport}
-	 * for {@link confirmImport}, which is what lets the collision be a question.
-	 *
-	 * The directory name is taken from the *file name*, because the Project's identity is its
-	 * directory and a zip rooted at that directory does not carry it. Falling back to the display
-	 * name inside would be wrong as a first choice: two Projects may share a display name, and
-	 * deriving identity from it would refuse a colleague's Project for having the same title.
-	 */
-	async prepareImport(file: File): Promise<void> {
-		this.transferError = '';
-		this.pendingImport = null;
-		try {
-			const zip = await readProjectZip(new Uint8Array(await file.arrayBuffer()));
-			const shortfall = await storageShortfall(zip.totalBytes);
-			if (shortfall) {
-				this.transferError = shortfall;
-				return;
-			}
-			const base = file.name.replace(/\.zip$/i, '');
-			// `toDirectoryName` always returns something usable, so ask separately whether the file name
-			// had anything in it to work from before trusting what it produced.
-			const fromFileName = /[a-z0-9]/i.test(base) ? toDirectoryName(base) : '';
-			this.pendingImport = {
-				zip,
-				name: zip.project.name || fromFileName,
-				directory: fromFileName || toDirectoryName(zip.project.name),
-				collision: ''
-			};
-		} catch (cause) {
-			this.transferError = cause instanceof Error ? cause.message : String(cause);
-		}
-	}
-
-	/**
-	 * Write a prepared import into `directory` (SPEC stories 13 and 14).
-	 *
-	 * A collision does not fail the import: it comes back as a question with the offending name and
-	 * a free one, and the pending zip stays in hand so answering it costs nothing. Nothing has been
-	 * written at the point the question is asked, which is the property that matters — the user may
-	 * be importing a colleague's version of work they also have.
-	 *
-	 * @returns the imported Project, or `null` when it was refused
-	 */
-	async confirmImport(directory: string): Promise<ProjectSummary | null> {
-		const pending = this.pendingImport;
-		if (!pending) return null;
-		this.transferError = '';
-		const name = pending.name || directory;
-		try {
-			const imported = await this.#workspace.importProject(directory, pending.zip, {
-				onProgress: (progress) => {
-					this.transfer = {
-						kind: 'import',
-						subject: name,
-						files: progress.files,
-						totalFiles: progress.totalFiles,
-						finished: false
-					};
-				}
-			});
-			this.transfer = {
-				kind: 'import',
-				subject: name,
-				files: pending.zip.paths.length,
-				totalFiles: pending.zip.paths.length,
-				finished: true
-			};
-			this.pendingImport = null;
-			await this.refresh();
-			return imported;
-		} catch (cause) {
-			this.transfer = null;
-			if (cause instanceof ProjectDirectoryCollisionError) {
-				// Kept, not discarded: the archive is already validated and in hand, so the user answers
-				// with a name rather than choosing the file again.
-				this.pendingImport = {
-					...pending,
-					directory: cause.suggestion,
-					collision: cause.message
-				};
-				return null;
-			}
-			this.transferError = cause instanceof Error ? cause.message : String(cause);
-			return null;
 		}
 	}
 
@@ -721,12 +608,6 @@ export class EditorSession {
 	 */
 	dismissHistoricalMapError(): void {
 		this.historicalMapError = '';
-	}
-
-	/** Abandon a prepared import. Nothing was written, so there is nothing to undo. */
-	cancelImport(): void {
-		this.pendingImport = null;
-		this.transferError = '';
 	}
 
 	/** Clear the announced transfer status, once the user has had a chance to read it. */
@@ -2347,39 +2228,6 @@ export class EditorSession {
 			return null;
 		}
 	}
-}
-
-/**
- * Why this Project will not fit, or `''` when it will or when nobody can say.
- *
- * Asked **before the import is offered**, not discovered part way through it. A zip declares how
- * much it unpacks to, and browser-managed storage will say how much room is left, so the one moment
- * this is worth asking is while nothing has been written and cancelling costs nothing — running out
- * of room mid-import is a rollback and a wasted wait even when it is handled cleanly.
- *
- * Only browser-managed storage answers: `navigator.storage.estimate()` describes the origin's quota,
- * which is the OPFS Workspace. A folder Workspace (ticket 12) is on the user's own disk with no
- * quota to ask about, so nothing is claimed — a silent pass rather than a guess against the wrong
- * number, since ticket 13's import bound is what stands between an untrusted archive and that disk.
- */
-async function storageShortfall(needed: number): Promise<string> {
-	if (typeof navigator === 'undefined' || !navigator.storage?.estimate) return '';
-	let free: number;
-	try {
-		const { quota, usage } = await navigator.storage.estimate();
-		if (typeof quota !== 'number' || typeof usage !== 'number') return '';
-		free = quota - usage;
-	} catch {
-		// A browser that will not answer is not a browser that has said no.
-		return '';
-	}
-	if (needed <= free) return '';
-	const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
-	return (
-		`This Project needs about ${mb(needed)}, and this browser has about ${mb(Math.max(free, 0))} ` +
-		`left for Ballastella. Free some space, or put your Workspace in a folder on your computer, ` +
-		`and try again. Nothing has been imported.`
-	);
 }
 
 /**

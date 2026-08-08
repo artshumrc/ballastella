@@ -8,7 +8,6 @@ import { newMapLayer } from './layer.js';
 import { imageInfoPath } from './image-files.js';
 import { ProjectFormatTooNewError } from './project-file.js';
 import {
-	RESERVED_DIRECTORY_NAMES,
 	ReservedDirectoryNameError,
 	Workspace,
 	hoistedImageId,
@@ -465,29 +464,6 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 			expect(await store.list('')).toEqual([]);
 		});
 
-		it('refuses an import that would land on one, before writing anything', async () => {
-			const failure = await workspace
-				.importProject('images', {
-					paths: ['project.json'],
-					totalBytes: 2,
-					files: async function* () {
-						yield { path: 'project.json', bytes: encode('{}') };
-					}
-				})
-				.catch((cause) => cause);
-
-			expect(failure).toBeInstanceOf(ReservedDirectoryNameError);
-			expect(await store.list('')).toEqual([]);
-		});
-
-		// The reserved names count as taken, so the *suggestion* offered past a collision can never be one
-		// either — which is what `suggestDirectory` returns to the rename field.
-		it('never offers a reserved name as a free one', async () => {
-			for (const reserved of RESERVED_DIRECTORY_NAMES) {
-				expect(await workspace.suggestDirectory(reserved)).not.toBe(reserved);
-			}
-		});
-
 		it('folds case and Unicode composition, like the collision check', () => {
 			expect(isReservedDirectoryName('images')).toBe(true);
 			expect(isReservedDirectoryName('IMAGES')).toBe(true);
@@ -498,75 +474,11 @@ describe('the Workspace’s shared Historical Maps (ADR-0023)', () => {
 		});
 	});
 
-	describe('importing hoists the shared material out of the Project directory', () => {
-		const archive = (files: Record<string, string>) => ({
-			paths: Object.keys(files),
-			totalBytes: Object.values(files).reduce((sum, text) => sum + encode(text).length, 0),
-			files: async function* () {
-				for (const [path, text] of Object.entries(files)) yield { path, bytes: encode(text) };
-			}
-		});
-
-		const bundle = () => ({
-			'project.json': '{"formatVersion":1,"name":"Amsterdam 1625"}',
-			'annotations/warehouses.geojson': '{"type":"FeatureCollection","features":[]}',
-			'images/floride-1657/info.json': '{"id":"https://unset.invalid/floride-1657"}',
-			'images/floride-1657/0,0,256,256/256,256/0/default.jpg': 'a tile',
-			// alignment-write-is-the-fixture: the bundle these hoisting tests import, seeded verbatim so the Alignment lands at the Workspace root
-			'alignments/floride-1657.json': '{"type":"Annotation","id":"floride-1657"}'
-		});
-
-		it('writes images/ and alignments/ at the Workspace root and the rest inside the Project', async () => {
-			await workspace.importProject('amsterdam-1625', archive(bundle()));
-
-			expect(await store.list('')).toEqual(
-				[
-					'alignments/floride-1657.json',
-					'amsterdam-1625/annotations/warehouses.geojson',
-					'amsterdam-1625/project.json',
-					'images/floride-1657/0,0,256,256/256,256/0/default.jpg',
-					'images/floride-1657/info.json'
-				].sort()
-			);
-		});
-
-		// The deduplication ADR-0023 asks for, and the direction that cannot lose work: the Alignment in
-		// the Workspace is the one every existing Project is already drawn by, so a colleague's archive of
-		// the same map must not silently move all of them.
-		it('leaves an image id the Workspace already has completely untouched', async () => {
-			await addHistoricalMap('floride-1657', 'my own tile');
-			const before = await hashTree(store, 'images/');
-			const alignments = await hashTree(store, 'alignments/');
-
-			const imported = await workspace.importProject('amsterdam-1625', archive(bundle()));
-
-			// The Project arrives and still references the image.
-			expect(imported.directory).toBe('amsterdam-1625');
-			expect(await store.list('amsterdam-1625/')).toEqual([
-				'amsterdam-1625/annotations/warehouses.geojson',
-				'amsterdam-1625/project.json'
-			]);
-			// And not one byte of the shared material changed.
-			expect(await hashTree(store, 'images/')).toEqual(before);
-			expect(await hashTree(store, 'alignments/')).toEqual(alignments);
-			expect(
-				decode(await store.read('images/floride-1657/0,0,256,256/256,256/0/default.jpg'))
-			).toBe('my own tile');
-		});
-
-		it('reports progress over every entry, skipped ones included', async () => {
-			await addHistoricalMap('floride-1657');
-			const seen: number[] = [];
-
-			await workspace.importProject('amsterdam-1625', archive(bundle()), {
-				onProgress: (progress) => seen.push(progress.files)
-			});
-
-			// A progress bar that stopped at two of five because three were deduplicated would read as an
-			// import that failed part way through.
-			expect(Math.max(...seen)).toBe(5);
-		});
-
+	// ADR-0023's split of an archive path, which since ticket 14 is the bundle reader's rather than
+	// `Workspace`'s: a bundle opens into a Review Workspace and there is no path that writes one into
+	// the user's own (ADR-0024). The function still lives here because it is a statement about what a
+	// *Workspace* keeps at its root, and `open-project-bundle.ts` is its one caller.
+	describe('hoisting an archive path', () => {
 		it('splits an archive path the same way the importer does', () => {
 			expect(hoistedImageId('images/floride-1657/info.json')).toBe('floride-1657');
 			expect(hoistedImageId('images/floride-1657/0,0,256,256/256,256/0/default.jpg')).toBe(

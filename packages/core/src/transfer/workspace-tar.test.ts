@@ -371,8 +371,8 @@ describe('restoring never overwrites and never merges', () => {
 
 describe('a backup past the zip’s ceiling', () => {
 	it('round-trips more than 65,535 files with the count intact', async () => {
-		// The reason this ticket exists. `exportProjectZip` refuses above `MAX_ZIP_ENTRIES` because
-		// fflate counts entries in sixteen bits — 70,000 produced an index claiming 4,464, and
+		// The reason this ticket exists. The zip exporter refused above 65,535 entries because
+		// the zip writer counted entries in sixteen bits — 70,000 produced an index claiming 4,464, and
 		// `unzipSync` read back 4,464 files with no error at all. The assertion is on the **restored
 		// file count**, which is exactly the assertion that caught it.
 		//
@@ -471,7 +471,7 @@ describe('an interrupted restore leaves no Project on the hub', () => {
 	});
 
 	it('lists nothing on the hub when the archive is truncated part way through', async () => {
-		// The failure the zip could not report at all: fflate read a short archive back as a short
+		// The failure the zip could not report at all: the zip reader read a short archive back as a short
 		// archive, silently. `tar-format.test.ts` measures that a truncated tar throws instead; this
 		// asserts what we then do about it.
 		const store = seed(twoProjectsOneMap());
@@ -999,7 +999,7 @@ describe('a restore never reports more than it wrote', () => {
 		// ⚠ **The defect this covers is the exact class this ticket exists to prevent.** `writeRestored`
 		// ignored `writeAlignmentBytes`' outcome and counted the file regardless, so a restore that
 		// dropped the archive's Alignment still reported it as delivered. A transfer that says it
-		// delivered more than it did is `fflate` claiming 4,464 of 70,000 with a different spelling.
+		// delivered more than it did is the zip writer claiming 4,464 of 70,000 with a different spelling.
 		//
 		// Unreachable while every destination is new — but `RestoreDestination` is an interface the
 		// caller implements, and ticket 14's Review Workspaces are the caller that will hand over a

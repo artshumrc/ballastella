@@ -58,7 +58,6 @@ export default defineConfig({
 						'@allmaps/annotation',
 						'@allmaps/transform',
 						'@protomaps/basemaps',
-						'fflate',
 						'modern-tar'
 					]
 				},

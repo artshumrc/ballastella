@@ -124,16 +124,26 @@ export {
 	type ProjectFile
 } from './project/project-file.js';
 export {
-	ProjectDirectoryCollisionError,
 	// Exported because the editor has to recognise it: `createProject` throws it at the one moment a
 	// user can be told, and a refusal the app cannot name is rendered as an unreachable Workspace.
 	RESERVED_DIRECTORY_NAMES,
 	ReservedDirectoryNameError,
 	Workspace,
+	hoistedImageId,
+	isReservedDirectoryName,
 	toDirectoryName,
 	type ProjectSummary,
 	type WorkspaceOptions
 } from './project/workspace.js';
+// What makes a Workspace a throwaway Review Workspace (ticket 14, ADR-0024).
+export {
+	REVIEW_MARK_FORMAT_VERSION,
+	REVIEW_MARK_PATH,
+	parseReviewMark,
+	readReviewMark,
+	serialiseReviewMark,
+	type ReviewMark
+} from './project/review-workspace.js';
 // ADR-0008's ~1 GB cliff, and the byte total it is judged against. Both apps: ticket 15 warns before a
 // Workspace grows and ticket 16 warns again at publish, from the same two functions rather than two
 // answers to one question.
@@ -193,22 +203,34 @@ export {
 	reopenWorkspaceFolder
 } from './store/workspace-folder.js';
 
+// Handing one Project to somebody else, and reviewing one you were handed (ticket 14, ADR-0024).
+// The zip flavour of both is gone: it counted entries in sixteen bits and read a 70,000-entry
+// archive back as 4,464 files with no error, and the refusal that kept that from shipping fired for
+// an ordinary Project with two large scans.
 export {
-	MAX_ZIP_ENTRIES,
-	ProjectTooLargeToZipError,
-	exportProjectZip,
-	type ExportProjectZipOptions,
-	type ProjectExport
-} from './transfer/export-project-zip.js';
+	exportProjectBundle,
+	type ExportProjectBundleOptions,
+	type ProjectBundle
+} from './transfer/export-project-bundle.js';
 export {
-	PROJECT_ZIP_LIMITS,
-	ProjectZipRejectedError,
-	readProjectZip,
-	type ProjectZip,
-	type ProjectZipLimits,
-	type ProjectZipRejection,
-	type ReadProjectZipOptions
-} from './transfer/import-project-zip.js';
+	BUNDLE_LIMITS,
+	assertReferencesPresent,
+	openProjectBundle,
+	type BundleLimits,
+	type OpenProjectBundleOptions,
+	type OpenReviewDestination,
+	type OpenedBundle,
+	type ReviewDestination
+} from './transfer/open-project-bundle.js';
+export {
+	BUNDLE_MEDIA_TYPE,
+	BundleRejectedError,
+	MAX_BUNDLE_PATH_BYTES,
+	assertSafeBundlePath,
+	bundleFileName,
+	bundleWorkspaceName,
+	type BundleRejection
+} from './transfer/project-bundle.js';
 // Whole-Workspace backup and restore, as a tar (ticket 13, ADR-0024). Editor-only — a Published
 // Site never backs anything up — but exported from the barrel rather than a subpath, because the
 // modules are plain Web Streams over `ProjectStore` and drag nothing browser-only in with them.

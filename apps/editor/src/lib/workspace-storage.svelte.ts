@@ -12,6 +12,8 @@ import {
 	isFolderWorkspaceSupported,
 	listOpfsWorkspaces,
 	openOpfsWorkspace,
+	openProjectBundle,
+	readReviewMark,
 	rememberedFolderName,
 	reopenWorkspaceFolder,
 	restoreWorkspaceTar,
@@ -21,8 +23,11 @@ import {
 	discardJournal,
 	journalledWorkspaces,
 	type JournalStorage,
+	type OpenedBundle,
 	type ProjectStore,
 	type RestoreDestination,
+	type ReviewDestination,
+	type ReviewMark,
 	type StoragePersistence,
 	type TransferProgressListener,
 	type WorkspaceBackup,
@@ -63,6 +68,17 @@ export type WorkspaceBacking = 'browser' | 'folder';
  */
 const OPEN_WORKSPACE_KEY = 'ballastella.workspace';
 
+/**
+ * Which Workspace was last open that was **the user's own** — never a Review Workspace.
+ *
+ * A second key rather than a filter over the first, because they answer different questions and the
+ * first one has to keep saying what it says. `OPEN_WORKSPACE_KEY` is "where was I", and a reload
+ * inside a review copy has to land back inside it or the banner is a thing a user can navigate away
+ * from by accident. This one is "where do I go back *to*", which is what the banner's first exit
+ * needs, and a Review Workspace must never be that answer — the exit would lead nowhere.
+ */
+const OWN_WORKSPACE_KEY = 'ballastella.own-workspace';
+
 /** The remembered Workspace name, or the default. Never throws: private mode has no storage. */
 function rememberedWorkspaceName(): string {
 	try {
@@ -72,9 +88,19 @@ function rememberedWorkspaceName(): string {
 	}
 }
 
-function rememberWorkspaceName(name: string): void {
+/** The last Workspace of the user's own, or the default. Never throws: private mode has no storage. */
+function rememberedOwnWorkspaceName(): string {
+	try {
+		return localStorage.getItem(OWN_WORKSPACE_KEY) || DEFAULT_WORKSPACE_NAME;
+	} catch {
+		return DEFAULT_WORKSPACE_NAME;
+	}
+}
+
+function rememberWorkspaceName(name: string, own: boolean): void {
 	try {
 		localStorage.setItem(OPEN_WORKSPACE_KEY, name);
+		if (own) localStorage.setItem(OWN_WORKSPACE_KEY, name);
 	} catch {
 		// A browser refusing storage still gets a working Workspace; it simply opens the default one
 		// next time. Failing the switch over it would be refusing the feature to keep a bookmark.
@@ -116,6 +142,31 @@ export class WorkspaceStorage {
 	workspaceName = $state(rememberedWorkspaceName());
 	/** Every named Workspace in browser storage, for the bar's switcher. */
 	workspaces = $state<string[]>([]);
+	/**
+	 * The mark on the Workspace that is open, or `null` when it is one of the user's own (ADR-0024).
+	 *
+	 * This is what the banner is drawn from, and what refuses to publish or back one up. It is read
+	 * off the Workspace itself rather than kept here across a switch: a mark that lived only in this
+	 * object would be lost on a reload, and a user would then be inside a throwaway Workspace with
+	 * nothing on screen saying so — which is the exact failure ADR-0024 rules out by making review an
+	 * action rather than a setting.
+	 */
+	review = $state<ReviewMark | null>(null);
+	/**
+	 * Which of {@link workspaces} are Review Workspaces, so the switcher can say which is which.
+	 *
+	 * They stay *in* the switcher rather than being filtered out of it: several may be open at once,
+	 * because a teacher marking thirty submissions moves between them, and two students' conflicting
+	 * Alignments of the same sheet never meet precisely because each is in its own Workspace.
+	 */
+	reviewWorkspaces = $state<string[]>([]);
+	/**
+	 * The Workspace of the user's own to go back to, which is the banner's first exit.
+	 *
+	 * Never a Review Workspace — see {@link OWN_WORKSPACE_KEY}. An exit that led into another review
+	 * copy would be a way out of a throwaway Workspace that arrives in a different throwaway one.
+	 */
+	ownWorkspaceName = $state(rememberedOwnWorkspaceName());
 	/**
 	 * What the browser said when asked to keep this origin's storage, or `null` before it answered.
 	 *
@@ -223,6 +274,19 @@ export class WorkspaceStorage {
 		// It also refreshes the Project list when it changed anything, so the hub shows the restored
 		// name rather than the one the interrupted write was replacing.
 		void ensureOpfsWorkspace(this.workspaceName)
+			// ⚠ **The first load never goes through `#adopt`** — the session is built in the field
+			// initialiser from the remembered name — so without this the one case the mark exists for is
+			// the one it misses: a user who closed the tab inside a review copy and opened it again. The
+			// banner would be absent on exactly the screen they most need it on.
+			.then(async () => {
+				this.review = await this.#markOf(this.session.store);
+				// And, when it turns out to be one of the user's own, it is the Workspace the banner's
+				// first exit goes back to. `#adopt` records that on every switch, but the Workspace a
+				// visit *starts* in never goes through it — so without this line a user who opened a
+				// bundle in their first session and then reloaded would be sent "back" to the default
+				// Workspace rather than to the one they were actually in.
+				if (this.review === null) this.ownWorkspaceName = this.workspaceName;
+			})
 			.then(() => this.#replayAndReport())
 			.catch(() => undefined)
 			// Before the Workspace listing, which is not something a Project read has to wait for.
@@ -304,9 +368,32 @@ export class WorkspaceStorage {
 		await this.openWorkspace(this.workspaceName);
 	}
 
+	/**
+	 * The mark on a store, with an unreadable answer kept rather than turned into "your own".
+	 *
+	 * `readReviewMark` already treats an unreadable *file* as a mark; this covers the store itself
+	 * being unreachable, where the honest answer is "unchanged" rather than "not a review copy". The
+	 * failure to avoid on both paths is the same one: a scholar doing an afternoon's real work inside
+	 * a Workspace built to be thrown away.
+	 */
+	async #markOf(store: ProjectStore): Promise<ReviewMark | null> {
+		return readReviewMark(store).catch(() => this.review);
+	}
+
 	/** Reload the switcher's list. Cheap: one `entries()` of the OPFS root, no descent. */
 	async refreshWorkspaces(): Promise<void> {
 		this.workspaces = await listOpfsWorkspaces().catch(() => this.workspaces);
+		// One small `read` per Workspace, never a walk: the mark is a single file at the root, and the
+		// switcher has to be able to say which of these a user is about to step into. A Workspace whose
+		// mark cannot be read is treated as a review copy — see `readReviewMark` for why that direction
+		// is the safe one.
+		this.reviewWorkspaces = (
+			await Promise.all(
+				this.workspaces.map(async (name) =>
+					(await readReviewMark(openOpfsWorkspace(name)).catch(() => null)) === null ? '' : name
+				)
+			)
+		).filter((name) => name !== '');
 		// Here rather than beside the replay, because "which Workspaces exist" is the answer the
 		// orphan check is *against* — computed before this listing it reported every Workspace but
 		// the open one as orphaned, which is a warning about nothing on every first load.
@@ -422,6 +509,12 @@ export class WorkspaceStorage {
 	 * happened to be at.
 	 */
 	async backUp(onProgress?: TransferProgressListener): Promise<WorkspaceBackup> {
+		// ADR-0024: a Review Workspace is never backed up. It is somebody else's work, held in a
+		// Workspace built to be thrown away, and an archive of it in the user's Downloads folder is
+		// indistinguishable from a backup of their own — which is how a review copy comes to be restored
+		// months later as though it were theirs. Refused here rather than only hidden in the markup: a
+		// guard that lives in a component is one route away from being absent.
+		this.assertNotReviewing('backed up');
 		await this.session.flush().catch(() => undefined);
 		const backup = await exportWorkspaceTar(this.session.store, this.name, { onProgress });
 		await saveFile(backup.fileName, backup.body);
@@ -457,6 +550,113 @@ export class WorkspaceStorage {
 		// half-written Workspace if it then failed, and `#adopt` tears down the session they are in.
 		await this.openWorkspace(restored.workspaceName);
 		return restored;
+	}
+
+	/**
+	 * Open a Project somebody sent, into a **new Review Workspace**, and switch to it (SPEC 90–92).
+	 *
+	 * ⚠ **There is no other destination, and that is the whole design rather than a limitation.**
+	 * Under ADR-0023 there is exactly one Alignment per Historical Map in a Workspace, so opening a
+	 * colleague's bundle into the user's own would either overwrite an Alignment two of their Projects
+	 * are drawn by, or be refused. ADR-0024's answer is that neither happens: a bundle lands in a
+	 * throwaway Workspace of its own, several of which may exist at once, and two students' conflicting
+	 * Alignments of the same sheet never meet. There is deliberately no promotion out of one — no "keep
+	 * this", no "copy to my Workspace" — because that is the collision arriving by another route.
+	 *
+	 * **Always a browser-storage Workspace, whatever the current backing is**, for the reason
+	 * {@link restoreFrom} gives: browser storage can make a new Workspace by itself and a folder
+	 * cannot, and a subdirectory of the current folder would be a Workspace inside a Workspace.
+	 *
+	 * The quota check happens inside `openProjectBundle`, before the Workspace is created, against the
+	 * file's own size — an honest number because nothing in a tar is compressed.
+	 */
+	async openBundle(file: File, onProgress?: TransferProgressListener): Promise<OpenedBundle> {
+		const opened = await openProjectBundle(
+			file.stream(),
+			(preferred) => this.#makeReviewDestination(preferred),
+			{
+				fileName: file.name,
+				archiveBytes: file.size,
+				estimateStorage: estimateStorage,
+				onProgress
+			}
+		);
+		// Only once the bundle has been read. Switching first would leave the user looking at a
+		// half-written Workspace if it then failed, and `#adopt` tears down the session they are in.
+		await this.openWorkspace(opened.workspaceName);
+		return opened;
+	}
+
+	/** A brand new browser-storage Review Workspace near `preferred`, and the way to throw it away. */
+	async #makeReviewDestination(preferred: string): Promise<ReviewDestination> {
+		// `createOpfsWorkspace` rather than `ensureOpfsWorkspace`, for the reason the restore
+		// destination gives and one more: a teacher opening thirty submissions named after the same
+		// assignment needs thirty Workspaces, not one opened thirty times.
+		const name = await createOpfsWorkspace(preferred);
+		return {
+			name,
+			store: openOpfsWorkspace(name),
+			discard: async () => {
+				await deleteOpfsWorkspace(name);
+				await this.refreshWorkspaces();
+			}
+		};
+	}
+
+	/**
+	 * Leave the review copy for the Workspace of the user's own they came from (SPEC story 93).
+	 *
+	 * The review copy is left exactly as it is: this is "put it down", not "finish with it". A teacher
+	 * moving between thirty submissions uses this one constantly and must not have to reopen a file
+	 * each time.
+	 *
+	 * The destination is {@link ownWorkspaceName}, which is never a Review Workspace. Where that
+	 * Workspace has since been deleted, `openWorkspace` recreates it — an empty Workspace under a name
+	 * the user recognises is a better landing than a second review copy or a refusal.
+	 */
+	async leaveReview(): Promise<void> {
+		await this.openWorkspace(this.ownWorkspaceName);
+	}
+
+	/**
+	 * Throw the open review copy away, and go back to the user's own Workspace (SPEC story 94).
+	 *
+	 * **Refuses anything that is not a Review Workspace**, here rather than only in the dialog that
+	 * asks. This deletes a Workspace and everything in it, and the only thing standing between that and
+	 * a user's own research is which Workspace is open — a check that lives in markup is one route away
+	 * from being absent, which is the argument {@link deleteWorkspace} already makes about itself.
+	 *
+	 * The order is leave, then delete: `deleteWorkspace` refuses the Workspace that is open, because
+	 * deleting it out from under a live `EditorSession` leaves an `Autosave` whose next flush recreates
+	 * the directory.
+	 */
+	async discardReview(): Promise<void> {
+		if (this.review === null) {
+			throw new Error(
+				`“${this.name}” is one of your own Workspaces rather than a review copy, so it is not ` +
+					`discarded from here. Workspace settings is where a Workspace of your own is deleted.`
+			);
+		}
+		const discarding = this.workspaceName;
+		await this.leaveReview();
+		await this.deleteWorkspace(discarding);
+	}
+
+	/**
+	 * Refuse an action a Review Workspace does not get, in the words the user should see.
+	 *
+	 * One sentence for every one of them rather than a phrase per call site: publishing and backing up
+	 * are refused for the same reason and the user is owed the same explanation, and two spellings is
+	 * how two screens come to say different things about one rule (SPEC story 111).
+	 */
+	assertNotReviewing(verb: string): void {
+		if (this.review === null) return;
+		throw new Error(
+			`“${this.name}” is a review copy of ${
+				this.review.project ? `“${this.review.project}”` : 'a Project somebody sent you'
+			}, so it cannot be ${verb}. It holds somebody else's work and is meant to be discarded. ` +
+				`Go back to your own Workspace first.`
+		);
 	}
 
 	/** A brand new browser-storage Workspace near `preferred`, and the way to throw it away. */
@@ -523,6 +723,16 @@ export class WorkspaceStorage {
 			workspaceKey:
 				backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName)
 		});
+		// ⚠ **The mark is read before `this.session` is published, and the order is the point.** The
+		// banner, the Publish refusal and the backup refusal are all drawn from it, so a frame in which
+		// the new session is on screen and the mark is still the *previous* Workspace's is a frame in
+		// which the Publish button is offered over somebody else's work — or, switching the other way,
+		// a review banner is drawn over the user's own research with a Discard button on it.
+		//
+		// A folder Workspace is never a review copy: a bundle only ever opens into browser storage, so
+		// there is no such file to ask a folder store for.
+		this.review = backing === 'folder' ? null : await this.#markOf(store);
+
 		// Before `this.session` is published, so the route effect that re-runs on the swap waits for
 		// the arriving Workspace's replay rather than reading a Project out from under it.
 		this.#beginRecovery();
@@ -530,7 +740,9 @@ export class WorkspaceStorage {
 		this.backing = backing;
 		this.folderName = folderName;
 		this.workspaceName = workspaceName;
-		rememberWorkspaceName(workspaceName);
+		const own = backing === 'browser' && this.review === null;
+		rememberWorkspaceName(workspaceName, own);
+		if (own) this.ownWorkspaceName = workspaceName;
 		this.reopenable = backing === 'folder' ? folderName : this.reopenable;
 		this.#teardownFlushOnHide = arriving.installFlushOnHide();
 		// Listing is left to the effect over the URL that opens the Workspace, so a swap and a

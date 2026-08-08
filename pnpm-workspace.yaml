@@ -154,20 +154,6 @@ catalog:
   dompurify: ^3.4.13
   marked: ^18.0.9
 
-  # Zip export and import (ticket 13, ADR-0001: the only way in and out for Firefox, Safari,
-  # and iPad).
-  #
-  # fflate rather than a browser-only library, because the round-trip tests are Seam 1 — an
-  # in-memory ProjectStore in Node — and rather than a write-only one such as `client-zip`,
-  # because import is half the slice. It gives an incremental `Zip` (one file in memory at a
-  # time, so a mirrored pyramid of hundreds of megabytes never lands in the heap whole) and an
-  # `unzip` whose `filter` reads the central directory without inflating anything, which is what
-  # lets import validate the whole archive *before* writing its first byte.
-  #
-  # Also a devDependency of the repository root: the Playwright suite builds the fixture zips it
-  # feeds to the file input, and reads back the ones the app downloads.
-  fflate: ^0.8.3
-
   # Workspace backup and restore as a tar (ticket 13, ADR-0024). Zero-dependency, Web Streams,
   # USTAR with PAX extensions — and every one of those claims is *measured* rather than quoted,
   # in `packages/core/src/transfer/tar-format.test.ts`, because ADR-0024 justifies the whole
@@ -191,10 +177,16 @@ catalog:
   #   emoji, which a Workspace name can be since ticket 12. Custom PAX records round-trip too,
   #   through both readers, which is what carries a folder Workspace's real name.
   # - A truncated archive **throws** rather than yielding a short one, which is the exact
-  #   failure fflate made silent and the reason this dependency exists.
+  #   failure the zip path made silent and the reason this dependency exists.
   #
-  # Also a devDependency of the repository root, as fflate is: the Playwright suite builds the
-  # fixture tars it feeds to the file input and reads back the ones the app downloads.
+  # **Both transfer artefacts are tars since ticket 14** — a whole-Workspace backup and a
+  # one-Project handoff bundle (ADR-0024) — so the zip library is gone from the tree entirely.
+  # The Project-level path had its own reason to leave: the entry ceiling was reachable by an
+  # ordinary Project with two large archival scans, and the refusal that kept a silently short
+  # archive from shipping therefore fired on the path a student hands their work in by.
+  #
+  # Also a devDependency of the repository root: the Playwright suite builds the fixture tars it
+  # feeds to the file input and reads back the ones the app downloads.
   modern-tar: ^0.8.2
 
 patchedDependencies:

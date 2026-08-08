@@ -16,7 +16,7 @@ export interface ExportWorkspaceTarOptions {
 	readonly onProgress?: TransferProgressListener;
 	/**
 	 * Which Workspace-relative paths to leave out. Defaults to {@link isViewerFile}, the recorded
-	 * viewer-file list ADR-0006 requires; injectable for the same reason `exportProjectZip`'s is —
+	 * viewer-file list ADR-0006 requires; injectable for the same reason the zip exporter's was —
 	 * so that what the exclusion *mechanism* does is assertable without depending on what happens to
 	 * be in the list this month.
 	 */
@@ -61,17 +61,17 @@ export interface WorkspaceBackup {
  * their work leaves the browser at all (ADR-0001, ADR-0024).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
- * **There is no entry ceiling, and that is the whole reason this is not a zip.** `exportProjectZip`
- * refuses above 65,535 files because `fflate` counts entries in sixteen bits: 70,000 entries produced
+ * **There is no entry ceiling, and that is the whole reason this is not a zip.** The zip exporter
+ * refused above 65,535 files because the zip writer counted entries in sixteen bits: 70,000 entries produced
  * an archive whose index claimed 4,464, and `unzipSync` read back 4,464 files **with no error at
  * all**. Over a *Workspace* — a shared pool of large maps, several Projects deep — exceeding that is
  * the ordinary case rather than the pathological one, so the primary backup path would have refused
  * for exactly the users who have no other one. Tar has no central directory and no entry count, so
  * the ceiling does not exist; `workspace-tar.test.ts` asserts a restore of more than 65,535 files by
- * counting what comes back, which is the assertion that caught fflate.
+ * counting what comes back, which is the assertion that caught the zip writer.
  *
  * **Nothing is compressed, and that is a feature rather than a concession.** Tiles are
- * already-compressed JPEG and an offline copy's pyramid is nearly all tiles — `exportProjectZip`'s
+ * already-compressed JPEG and an offline copy's pyramid is nearly all tiles — the zip exporter's
  * `ALREADY_COMPRESSED` already skipped deflating them, so compression was buying almost nothing on
  * the bulk of a real Workspace. What dropping it *buys* is that **the archive's own byte length is an
  * honest measure of what it unpacks to**, which is what lets restore check quota against a number it
@@ -92,7 +92,7 @@ export interface WorkspaceBackup {
  * Workspace exported twice — and a Workspace exported after a round trip through restore — produces
  * identical archives. That is what lets the round-trip test assert *lossless* rather than *plausible*.
  *
- * **It does not read `project.json`, or interpret anything.** Unlike `exportProjectZip`, which reads
+ * **It does not read `project.json`, or interpret anything.** Unlike the Project-level exporter, which reads
  * each Project's Layer stack to gather the shared Historical Maps that Project references, a
  * Workspace backup is the whole Workspace: every file, whatever references it. So there is nothing to
  * parse, nothing to be defeated by a `project.json` that will not parse, and no way for a Project from
@@ -209,7 +209,7 @@ function tarStream(
 			// One file in the heap at a time. `ProjectStore` has no streaming read, so a single very
 			// large file — ticket 15's copied `full/max` image is the only one in ADR-0006's layout
 			// that can be — is held whole for as long as it takes to write its entry. That is the same
-			// bound `exportProjectZip` has and it is a property of the store rather than of tar; the
+			// bound the Project bundle exporter has and it is a property of the store rather than of tar; the
 			// archive around it is still streamed, which is what the ADR's claim is about.
 			const content = await store.read(path);
 			const entry = controller.add({

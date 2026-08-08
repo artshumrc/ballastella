@@ -670,7 +670,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	 * exists, because the file existing is what the *previous* test in this file already asserts on the
 	 * community path. What was broken is the pair of them agreeing.
 	 */
-	test('a map added without an Alignment exports to a zip this build imports back', async ({
+	test('a map added without an Alignment exports to a bundle this build opens back', async ({
 		page
 	}) => {
 		await installFixtureHosts(page);
@@ -705,31 +705,34 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		const download = page.waitForEvent('download');
 		await page.getByRole('button', { name: /^Export/ }).click();
 		const saved = await download;
-		expect(saved.suggestedFilename()).toBe('amsterdam-1625.zip');
+		expect(saved.suggestedFilename()).toBe('amsterdam-1625.project.tar');
 		// Read back and handed to the input by name: `download.path()` is a temporary file with a random
-		// basename, and the importer derives the folder it offers from the name it is given.
-		const zip = await readFile(await saved.path());
+		// basename, and the reader names the review copy after the name it is given.
+		const bundle = await readFile(await saved.path());
 
-		// A Workspace with nothing in it, so the import cannot be satisfied by what is already there.
+		// A Workspace with nothing in it, so opening the bundle cannot be satisfied by what is already
+		// there — and since ticket 14 the bundle lands in a Review Workspace of its own regardless
+		// (ADR-0024), which is why nothing is asserted about this one afterwards.
 		await emptyWorkspace(page);
 		await page.reload();
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 
-		await page.getByRole('button', { name: 'Import Project…' }).click();
+		await page.getByTestId('open-bundle').click();
 		await page
-			.getByRole('dialog', { name: 'Import Project' })
-			.getByLabel('Project zip')
+			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByLabel('Project bundle')
 			.setInputFiles({
-				name: 'amsterdam-1625.zip',
-				mimeType: 'application/zip',
-				buffer: zip
+				name: 'amsterdam-1625.project.tar',
+				mimeType: 'application/x-tar',
+				buffer: bundle
 			});
-		await page.getByRole('button', { name: 'Import Project', exact: true }).click();
+		await page.getByTestId('confirm-open-bundle').click();
 
-		// **Accepted, not refused.** The refusal this closes says the zip "is missing
+		// **Accepted, not refused.** The refusal this closes says the bundle "is missing
 		// “alignments/<id>.json”, which the Layer … needs to be drawn", so its absence is the assertion.
+		await expect(page.getByTestId('review-banner')).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
-		await expect(page.getByText('is missing')).toHaveCount(0);
+		await expect(page.getByTestId('bundle-error')).toHaveCount(0);
 		const imported = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
 			layers: { kind: string; imageId: string }[];
 		};
@@ -1091,7 +1094,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		const download = page.waitForEvent('download');
 		await page.getByRole('button', { name: /^Export/ }).click();
-		expect((await download).suggestedFilename()).toBe('amsterdam-1625.zip');
+		expect((await download).suggestedFilename()).toBe('amsterdam-1625.project.tar');
 	});
 
 	test('offers the community alignments it found, and importing one produces a working Alignment', async ({

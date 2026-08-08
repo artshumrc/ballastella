@@ -32,7 +32,7 @@
 //
 // A third thing fell out of the measurement that ADR-0024 does not claim and that is worth having:
 // **a truncated tar throws.** Every cut this was tried at raised `Tar archive is truncated.` rather
-// than yielding a short archive. The whole reason the zip is going is that `fflate` read a
+// than yielding a short archive. The whole reason the zip is going is that the zip reader read a
 // 70,000-entry archive back as 4,464 files with no error at all, so a format that refuses to be
 // silently short is not a nice-to-have; it is the requirement, and it is now asserted.
 //
