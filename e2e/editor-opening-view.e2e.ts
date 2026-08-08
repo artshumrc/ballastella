@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
+import { type Locator, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 
 import {
@@ -9,6 +10,17 @@ import {
 	waitForStored,
 	waitForSurface
 } from './support/alignment-workspace.js';
+import { routeBaseMapArchive } from './support/editor-deployment.js';
+
+// Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
+// and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
+// So the archive is served from the committed fixture, in one place, for the whole file.
+//
+// **`context` rather than `page`**: a request that has passed through a service worker is not the
+// page's own as far as Playwright is concerned, and `page.route` never sees it (measured in
+// `editor-pwa.e2e.ts`, which says so at its own interception). Routing the context has no downside
+// for a spec with no worker, and is the spelling that keeps working when one appears.
+test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /**
  * SPEC's Seam 2 for ticket 09: a Project opens framed on what it has placed on the earth (ADR-0026).

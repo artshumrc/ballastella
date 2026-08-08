@@ -11,8 +11,10 @@ export {
 	type PreferenceStorage
 } from './reader-preference';
 export {
+	baseMapArchiveHost,
 	baseMapFallbackNotice,
 	baseMapOptions,
+	baseMapUnavailableNotice,
 	defaultEntry,
 	resolveBaseMap,
 	type BaseMapOption,

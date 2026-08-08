@@ -65,9 +65,13 @@ but no `build`.
 | `pnpm check`                         | Svelte and TypeScript checks                   |
 | `pnpm format`                        | rewrite formatting in place                    |
 
-CI runs the ordinary development verification commands on every push. Run
-`pnpm check:deployment` before a production deployment; it intentionally fails while the Base Map
-catalog uses Protomaps' demo bucket for educational development and evaluation.
+CI runs the ordinary development verification commands on every push. `pnpm check:deployment`
+intentionally **fails** while the Base Map catalog uses Protomaps' demo bucket for educational
+development and evaluation (ADR-0025, an explicit human decision of 2026-08-07), so it is not part of
+`pnpm lint`. It is not left to be remembered either: `scripts/check-deployment-runs.test.mjs` runs it
+against the shipped catalog inside `pnpm test` and asserts its verdict *matches* that catalog —
+production blocked while the demo bucket is named, clear once it is repointed — and prints which of
+the two is true. Run `pnpm check:deployment` itself before a production deployment.
 
 ## Three rules the toolchain enforces for you
 
@@ -91,6 +95,24 @@ apps' `svelte.config.js` and is mandatory
 ([ADR-0006](docs/adr/0006-the-project-directory-is-the-published-site.md)): the publish
 target — a domain root or a project subdirectory — is unknown at build time. CI greps the
 built output, because the config is not what ships.
+
+**No test may depend on the network.** A decision by the repository owner, enforced at both
+seams rather than left to discipline. `e2e/support/network-fence.ts` gives every browser test a
+`context` that refuses any request to an origin other than `localhost`, naming the URL and the
+remedy, and `scripts/check-e2e-network-fence.mjs` fails `pnpm lint` if a spec imports `test` from
+`@playwright/test` instead of from the fence — the spelling every Playwright example on the internet
+uses, and the one that would quietly leave a new spec outside it.
+`packages/core/vitest-setup/refuse-network.ts` is the same rule at the unit seam, for `fetch`,
+`XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon` and `node:http`/`node:https`, in the Node
+project and in the two browser engines.
+
+The remedy is never a stubbed global: everything that fetches takes a `FetchFn` and the test hands
+it a fake, or a browser test routes the URL to a fixture under `e2e/fixtures/`. There is exactly one
+opt-out, `BALLASTELLA_NETWORK_TESTS=1`, and exactly one thing behind it —
+`remote-iiif/live-services.test.ts`, which checks the captured IIIF corpus against the services
+themselves and is not part of `pnpm test`. Both fences carry positive controls that run every time
+(`e2e/editor-network-fence.e2e.ts`, `packages/core/vitest-setup/refuse-network*.test.ts`), because a
+suite that reaches nothing and a fence that has stopped blocking print the same output.
 
 **No module outside `packages/core/src/base-map/catalog.ts` may name a Base Map entry.** The
 catalog is deployment configuration, and replacing it is the whole of pointing a fork at its own

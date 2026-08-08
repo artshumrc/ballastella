@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
 
 // The positive control for the retry budget in `playwright.config.ts`.
 //

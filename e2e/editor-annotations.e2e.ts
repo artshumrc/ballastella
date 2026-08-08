@@ -18,7 +18,8 @@
 // `description` until now, and closing its `[~]` criterion is what the `untrusted` describe below is
 // for.
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
+import { type Page } from '@playwright/test';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));

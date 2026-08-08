@@ -19,5 +19,5 @@
 		"skipLibCheck": true,
 		"sourceMap": true
 	},
-	"include": ["src/**/*.ts", "vitest.config.ts"]
+	"include": ["src/**/*.ts", "vitest.config.ts", "vitest-setup/**/*.ts"]
 }
