@@ -8,15 +8,23 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 12, 16, 17, 18, 19. Nothing in flight.
+Merged to `main`: 01–05, 08–13, 16–19. Nothing in flight. **Four remain: 06, 07, 14, 15.**
 
-**Unblocked and ready: 05**, and it is the only one. Everything after it is the chain — 05 → 06 → 07 → 15 — plus the transfer pair 13 → 14, which needs 12 (now merged) and then 13 before 14.
+**Unblocked and ready: 06 and 14.** They do not collide — 06 carves `ProjectScreen.svelte` and 14 is transfer — so they can run together. 07 waits on 06; 15 waits on 07.
+
+**ADR-0024's premise was unverified and is now measured.** This was the last place the epic could have been building on sand. At `modern-tar` 0.8.2, PAX carries the real 121-character annotation paths and Devanagari, CJK, Arabic and astral emoji; 70,000 entries go in and 70,000 come back, which is the count where `fflate` produced an index claiming 4,464 and read it back **with no error at all**; and the decoder stalls its producer 9 MiB into a 64 MiB entry held unread. A property the ADR never claimed is asserted too, and it matters more than it looks: **a truncated tar throws**, cut mid-header or mid-body. The whole reason the zip is going is that a short archive came back silently short.
+
+**The first peak-heap figure that ticket reported measured nothing, and the record of the failure is worth more than the number.** `heapUsed` does not count a `Uint8Array`'s payload at all, so a consumer deliberately retaining all 512 MiB moved it +5.24 MiB against a streaming consumer's +3.17 MiB, while `arrayBuffers` told the truth at +512 MiB. The 64 MiB bound passed equally for both. Two further instruments were tried and rejected with their numbers — peak `arrayBuffers` is dominated by churn and once reported the *retaining* consumer as cheaper; `arrayBuffers` after a forced `gc()` is the right question and needs a runtime flag that would have to be set for all 1,100 tests. `tar-format.test.ts` records all three failures, and asserts **streamed consumption** instead, counted in bytes moved rather than bytes collected and mutation-checked against a fully buffered decoder. Reach for that comment before measuring memory anywhere in this repo.
+
+**`optimizeDeps.include` in `packages/core/vitest.config.ts` is not tuning — it is what stops the browser project hanging.** Vite re-optimizes when the lockfile changes, mid-run, then reloads. It cost forty minutes twice on the run that added `modern-tar`, and an earlier run exited 1 for the same reason. **The second run always passes, because the cache is warm** — so it presents as flake and invites the attribution this epic has already been wrong about twice. Adding a dependency to a browser test means adding it there.
 
 **16 was finished by the coordinator after its implementer hit a session usage limit mid-review, and the interruption left a real defect.** Four e2e assertions expected `data-image-mode="copied"` while the app emits `'offline-copy'`, and `e2e/support/reader-project.ts` carried both spellings — its *type* said one and its *default* said the other, so every fixture that did not name a mode laid down files for a mode the app would never report. `pnpm check` missed it because the default inferred as a plain string. **A rename is the change most likely to be 95% done and look finished**; budget the last 5% and re-run the whole suite, not the specs you touched.
 
 **The e2e fixture is now one composed root.** `e2e/support/test.ts` is the root and `network-fence.ts` is the layer beneath it; `check-e2e-network-fence.mjs` enforces both halves, because an import rule alone cannot see a composition quietly unpicked. It caught two real defects the day it landed — `expectWorkspaceNamed` was satisfied by the popover it was nested inside, so `switchToWorkspace` returned before switching, and `seedWorkspaceBytes` wrote 700 MB of ballast into the OPFS root so the hosting warning it seeds for never appeared. Both were green tests proving nothing.
 
 **No test may depend on the network — a human decision on 2026-08-07, now enforced rather than merely followed.** `demo-bucket.protomaps.com/v4.pmtiles` began answering 404 and turned three specs red on `main` with nothing in this repo having changed; ADR-0025 had already recorded that bucket as having no uptime promise. The e2e fence rides the `context` fixture every test gets, and `scripts/check-e2e-network-fence.mjs` fails any spec importing `test` from `@playwright/test` — the spelling every Playwright example uses, and the way a new spec would drift outside it. The vitest fence is `setupFiles` on both projects and covers `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon` and `node:http`/`https`. Two limits are stated rather than implied: a Node test can still open a raw `node:net` socket, and `BALLASTELLA_NETWORK_TESTS=1` disables the vitest fence for a whole run (one legitimate user, `live-services.test.ts`, excluded from `pnpm test`).
+
+**What 06 carves first, from 05's reading rather than 06's re-derivation.** `ProjectScreen.svelte` is 1776 lines; 05 was asked to leave it smaller and did not, and argued correctly that trimming good prose to hit a line count is the wrong trade here. Instead it named the extraction: the **369-line annotation state block**, from the `// Annotations` banner to `// Making this Project available offline`, with every member listed, its three edges to the rest of the screen (`session`, `documents`, `layers`), and the note that the Historical Maps section is 95 lines of 06's own subject. That is the same extraction that would make a unit seam worth having.
 
 **`apps/editor/` has no unit test seam at all** — no `*.test.ts` anywhere in it, no vitest project. `EditorSession` is ~1800 lines holding the app's central state, and its only test seam is the 7-minute browser suite. That is why a silent-return guard sat unexercised for the whole epic, and why the regression test for it had to be an e2e test. Every ticket that carves `ProjectScreen.svelte` — 05 and 06 next — pays this, and it is the most valuable structural work not currently on the ledger.
 
@@ -36,7 +44,7 @@ Smaller, recorded in 17's follow-ups: `expectWarpedDrawn` used to pass against a
 
 **`retries` no longer hides anything.** Every retry is printed with file and line, and the run fails above 0.5%. A `--reporter=` flag on the command line replaces Playwright's whole reporter list and silently disables that budget — stated in `playwright.config.ts` and `CONTRIBUTING.md`, since nothing can pin it.
 
-Last updated: 2026-08-08 (12, 16, 17 and 19 merged; the network fence landed)
+Last updated: 2026-08-08 (05, 12, 13, 16, 17 and 19 merged; the network fence landed)
 
 ## Standing constraints
 
@@ -67,7 +75,7 @@ Every Alignment write now goes through `alignment/alignment-file.ts` and names w
 | 02 | [02-a-layer-is-created-when-a-map-is-added.md](./tickets/02-a-layer-is-created-when-a-map-is-added.md) | Completed | 01 | 18, 34, 35, 68 |
 | 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | Completed | 01 | 37, 38, 41–55, 57–60 |
 | 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Completed | 03 | 1, 2, 3, 10–13, 109, 110 |
-| 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Not Started | 02, 04 | 14–17, 20 |
+| 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Completed | 02, 04 | 14–17, 20 |
 | 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Not Started | 02, 05 | 21–30, 33, 36, 106 |
 | 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Not Started | 06 | 31, 32, 39, 40, 56, 80, 81 |
 | 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
@@ -75,7 +83,7 @@ Every Alignment write now goes through `alignment/alignment-file.ts` and names w
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
 | 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Completed | 08, 10 | 6, 69–73, 75–79, 97, 99 |
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Completed | 04 | 88, 105, 107, 108 |
-| 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Not Started | 01, 12 | 82–87 |
+| 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Completed | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Not Started | 13 | 89–95 |
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Completed | 02, 03, 09 | — |
