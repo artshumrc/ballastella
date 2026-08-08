@@ -688,7 +688,33 @@ export class EditorSession {
 	 */
 	async ingestImage(file: File): Promise<void> {
 		const directory = this.openDirectory;
-		if (!directory || this.ingest) return;
+		if (!directory) return;
+
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **ONE INGEST AT A TIME, AND SAYING SO IS THE POINT** (ticket 17's rule, found again).
+		//
+		// This used to be `if (!directory || this.ingest) return;` — a second file discarded in
+		// silence, with no error, no announcement and nothing on screen that changed. The comment
+		// below on the `images` listing already recorded the symptom ("picking the next file inside
+		// that window did nothing at all") and answered it by moving the *listing* last; but the
+		// signal the Project screen actually shows for "it is here" is the **Layer row**, which
+		// {@link #addMapLayer} publishes several awaits before this method's `finally` clears
+		// {@link ingest}. So the window it was closing never closed, and the drop stayed silent.
+		//
+		// The file input beside it is `disabled` while an ingest runs, which is what keeps a person
+		// out of this window — a `change` event does not originate from a disabled input. It is not
+		// what keeps a *caller* out: `setInputFiles` in the browser suite performs no enabled check
+		// and dispatches `change` on a disabled input regardless (measured on @playwright/test
+		// 1.62.1), and this silent return is what
+		// `editor-stored-image-pane.e2e.ts`'s two-pyramid test spent 30 s waiting for in 6 runs of 30.
+		//
+		// So the guard stays — a second tiler running against the same Workspace is not wanted — and
+		// it now answers. A refusal a user can read is the difference between "the app is busy" and
+		// "the app is broken", and it costs one line.
+		if (this.ingest) {
+			this.ingestError = `“${file.name}” was not added: “${this.ingestLabel}” is still being prepared. Wait for it to finish, then pick the file again.`;
+			return;
+		}
 
 		this.ingestError = '';
 		this.ingestLabel = file.name;

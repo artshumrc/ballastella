@@ -174,15 +174,42 @@ const listedImageIds = async (page: Page): Promise<string[]> =>
  * `ProjectStore.list` returns them, which is sorted by path and therefore by id — an id minted by
  * `generateRandomId()`, so the map just added is in a random place in the list. Taking the last
  * entry passed roughly half the time, which is the worst possible kind of test.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * **THE LAYER ROW IS A TRANSIENT SIGNAL, NOT A SETTLED ONE** (ticket 17, and the fourth copy of
+ * the same defect).
+ *
+ * `EditorSession.ingestImage` publishes the Layer — and therefore this row — from `#addMapLayer`,
+ * and then keeps running: it lists the Workspace's pyramids and only then clears `ingest`, which
+ * is what re-enables the file input. Returning at the row left this helper's caller inside that
+ * window, and the *second* call then picked a file on a still-disabled input.
+ * `setInputFiles` performs no enabled check — it dispatches `change` on a disabled input
+ * regardless (measured on @playwright/test 1.62.1) — so the app saw the pick, and before this
+ * ticket dropped it in silence. `toHaveCount(2)` then waited its whole 30 s against a DOM that had
+ * settled at one row and was never going to move.
+ *
+ * **Measured, 2026-08-08: 6 of 30 first attempts, 20%, in isolation on a quiet machine** — every
+ * one of them on the *second* ingest, every one `Received: 1` after 30 s, while a healthy run of
+ * the whole test is ~6 s. That gap is what rules out load: this is not slow work, it is work that
+ * never started. A probe correlated it 8 times out of 8 — input disabled at the second pick ⇒ one
+ * row forever; input enabled ⇒ two rows.
+ *
+ * `editor-pwa.e2e.ts`'s `startProjectWithMap` was given exactly this fix by ticket 17 and says the
+ * same thing at its own wait. This is the copy that did not get it.
  */
 async function ingest(page: Page, width: number, height: number, name: string): Promise<string> {
 	const before = await listedImageIds(page);
-	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+	const input = page.getByLabel('Add a Historical Map from a file');
+	await input.setInputFiles({
 		name,
 		mimeType: 'image/png',
 		buffer: gradientPng(width, height)
 	});
 	await expect(page.getByTestId('layer-row')).toHaveCount(before.length + 1, { timeout: 30_000 });
+	// And then the settled state: the input is re-enabled when `session.ingest` is cleared, which is
+	// the last thing the ingest does. Until then this Historical Map is on screen but the gesture
+	// that adds the next one has nowhere to land.
+	await expect(input).toBeEnabled({ timeout: 30_000 });
 	const added = (await listedImageIds(page)).filter((id) => !before.includes(id));
 	expect(added, `expected exactly one new Historical Map after ingesting ${name}`).toHaveLength(1);
 	return added[0]!;

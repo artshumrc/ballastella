@@ -287,6 +287,55 @@ test.describe('adding a Historical Map from a file', () => {
 		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
 	});
 
+	test('says so when a second file is picked while one is still being prepared', async ({
+		page
+	}) => {
+		// **The silent no-op this replaced cost 20% of a test's first attempts and two implementers'
+		// attributions to "machine load".** `EditorSession.ingestImage` opened with
+		// `if (!directory || this.ingest) return;`, so a file picked while an ingest was running was
+		// discarded with nothing on screen changing at all — no error, no announcement, no row. The
+		// file input beside it is `disabled` for exactly that window, which is why no user has met
+		// this; a `change` event does not originate from a disabled input by any human gesture.
+		//
+		// A *caller* is not held out by an attribute. Playwright's `setInputFiles` performs no
+		// enabled actionability check and dispatches `change` on a disabled input regardless
+		// (measured on @playwright/test 1.62.1), which is how `editor-stored-image-pane.e2e.ts`'s
+		// two-pyramid test came to wait 30 s for a second Layer row that had already been thrown
+		// away. That test now waits for the input rather than for the row — but the app answering
+		// instead of shrugging is the half that stops the next caller learning this the same way.
+		//
+		// 2600 × 2600 is 171 tiles, the same fixture the cancel test uses and for the same reason:
+		// long enough that the second pick lands inside the window without a sleep.
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+
+		const input = page.getByLabel('Add a Historical Map from a file');
+		await input.setInputFiles({
+			name: 'la-floride.png',
+			mimeType: 'image/png',
+			buffer: gradientPng(2600, 2600)
+		});
+		// Inside the window by construction: the input is disabled precisely while an ingest runs.
+		await expect(input).toBeDisabled();
+
+		await input.setInputFiles({
+			name: 'second.png',
+			mimeType: 'image/png',
+			buffer: gradientPng(300, 200)
+		});
+
+		// It names both files, because "busy" without saying what is busy is the message that sends a
+		// scholar looking for a bug.
+		const refusal = page.getByRole('alert');
+		await expect(refusal).toContainText('“second.png” was not added');
+		await expect(refusal).toContainText('“la-floride.png” is still being prepared');
+
+		// And the first ingest is untouched by the refusal: it finishes and leaves exactly one Layer.
+		await expect(input).toBeEnabled({ timeout: 60_000 });
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
+	});
+
 	test('a user can stop an ingest, and nothing is left behind', async ({ page }) => {
 		// `ingestImageFile` has taken an `AbortSignal` and cleaned up after itself since it was
 		// written, and `ingest.ts` said the job "can be cancelled" — but nothing in the app supplied a
