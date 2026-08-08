@@ -1,3 +1,4 @@
+import { createTarDecoder } from 'modern-tar';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CATALOG_WITH_STALE_DEFAULT, FORKED_CATALOG } from '../base-map/fixture-catalogs.js';
@@ -11,8 +12,7 @@ import { STATIC_HOSTING_LIMIT_BYTES } from '../project/workspace-size.js';
 import { seedAlignmentFixture } from '../alignment/alignment-fixture.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
-import { exportProjectZip } from '../transfer/export-project-zip.js';
-import { readProjectZip } from '../transfer/import-project-zip.js';
+import { exportProjectBundle } from '../transfer/export-project-bundle.js';
 import { VIEWER_FILE_PATHS, isViewerFile } from '../transfer/viewer-files.js';
 import {
 	PublishRefusedError,
@@ -705,11 +705,11 @@ describe('publishing', () => {
 		await expect(readPublishedSite(store)).rejects.toThrow('could not be read');
 	});
 
-	it('leaves the published viewer out of a data-only Project zip', async () => {
+	it('leaves the published viewer out of a Project bundle', async () => {
 		// The end-to-end form of ADR-0006's requirement, across the two features: publish, then
-		// export. The bundle is at the Workspace and a Project zip is rooted at the Project, so this
-		// asserts the arrangement as much as the list.
-		// The Layer is what makes the export gather the shared material: an archive carries the
+		// export. The published files are at the Workspace and a bundle is rooted at the Project, so
+		// this asserts the arrangement as much as the list.
+		// The Layer is what makes the export gather the shared material: a bundle carries the
 		// `images/<id>/` and `alignments/<id>.json` its Layers reference, out of the Workspace and in at
 		// the paths the format has always used (ADR-0023).
 		const file = await workspace.readProject('amsterdam-1625');
@@ -719,11 +719,16 @@ describe('publishing', () => {
 		});
 		await publish({ includeBaseMap: true });
 
-		const zip = await readProjectZip(
-			await collect((await exportProjectZip(store, 'amsterdam-1625')).body)
+		const paths: string[] = [];
+		const entries = (await exportProjectBundle(store, 'amsterdam-1625')).body.pipeThrough(
+			createTarDecoder({ strict: true })
 		);
+		for await (const entry of entries) {
+			paths.push(entry.header.name);
+			await entry.body.cancel();
+		}
 
-		expect([...zip.paths].sort()).toEqual([
+		expect([...paths].sort()).toEqual([
 			'alignments/x.json',
 			'images/x/0,0,256,256/256,256/0/default.jpg',
 			'images/x/info.json',
@@ -1011,20 +1016,3 @@ describe('the site record a Reader’s page is drawn from', () => {
 		expect(record.projects).toEqual([{ directory: 'x', name: 'X' }]);
 	});
 });
-
-const collect = async (body: ReadableStream<Uint8Array>): Promise<Bytes> => {
-	const chunks: Uint8Array[] = [];
-	const reader = body.getReader();
-	for (;;) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		chunks.push(value);
-	}
-	const archive = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0));
-	let at = 0;
-	for (const chunk of chunks) {
-		archive.set(chunk, at);
-		at += chunk.length;
-	}
-	return archive;
-};

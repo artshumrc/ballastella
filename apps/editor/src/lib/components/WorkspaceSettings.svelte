@@ -332,15 +332,33 @@
 			again before it is one.
 		</p>
 
+		{#if storage.review !== null}
+			<!--
+				ADR-0024: a review copy is never backed up. Said in visible text rather than left as a
+				disabled button with no explanation (workspace-and-layers SPEC story 111) — an archive of somebody else's work
+				sitting in the user's Downloads folder is indistinguishable from a backup of their own,
+				which is how a review copy comes to be restored months later as though it were theirs.
+				`WorkspaceStorage.backUp` refuses it as well, because a guard that lives only in markup is
+				one route away from being absent.
+			-->
+			<p class="mt-3 max-w-prose text-sm text-warning" data-testid="no-backup-in-review">
+				This is a review copy of somebody else's Project, so it is not backed up. Go back to your
+				own Workspace to back that one up. Restoring a backup still works from here, and lands in a
+				new Workspace of your own.
+			</p>
+		{/if}
+
 		<div class="mt-3 flex flex-wrap gap-2">
-			<button
-				class="btn btn-primary btn-sm"
-				data-testid="back-up-workspace"
-				disabled={transfer !== null}
-				onclick={() => backUp()}
-			>
-				Back up “{storage.name}”
-			</button>
+			{#if storage.review === null}
+				<button
+					class="btn btn-primary btn-sm"
+					data-testid="back-up-workspace"
+					disabled={transfer !== null}
+					onclick={() => backUp()}
+				>
+					Back up “{storage.name}”
+				</button>
+			{/if}
 			<button
 				class="btn btn-sm"
 				data-testid="restore-workspace"

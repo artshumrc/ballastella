@@ -42,7 +42,7 @@ dependency at a time.
 | `@protomaps/basemaps`            | BSD-3-Clause  | Base map style documents                        |
 | `marked`                         | MIT           | Markdown → HTML, the first stage of the Annotation `description` pipeline (ADR-0009) |
 | `dompurify`                      | Apache-2.0 or MPL-2.0 | HTML → sanitised HTML, the second stage, and the security boundary |
-| `fflate`                         | MIT           | Zip export and import, ADR-0001's only way in and out |
+| `modern-tar`                     | MIT           | Backup, handoff and review archives, ADR-0001's only way in and out (ADR-0024) |
 | `daisyui`                        | MIT           | The only UI dependency (ADR-0016)               |
 | `tailwindcss`                    | MIT           | Styling                                         |
 | `svelte`, `@sveltejs/*`          | MIT           | Framework and static adapter                    |

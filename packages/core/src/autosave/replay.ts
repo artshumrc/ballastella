@@ -23,7 +23,8 @@
 // **data read at runtime**. `WritablePath`'s brand only refuses a value that came out of
 // `alignmentPath()`, and `scripts/check-alignment-writers.mjs` follows literals and one hop of
 // local binding. Neither can see a string decoded from storage. This module is therefore in exactly
-// the position `project/workspace.ts`'s Project-zip importer is in, and takes the same remedy:
+// the position the two tar readers are in (`transfer/restore-workspace-tar.ts`,
+// `transfer/open-project-bundle.ts`), and takes the same remedy:
 // **routed through the owning module rather than fenced**. {@link replayJournal} refuses to hand an
 // Alignment path to `store.write` at all — it is a branch, above, with a test on it.
 //

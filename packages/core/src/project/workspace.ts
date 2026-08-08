@@ -1,5 +1,4 @@
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
-import { writeAlignmentBytes, type AlignmentFilePort } from '../alignment/alignment-file.js';
 import type { Autosave } from '../autosave/autosave.js';
 import { IMAGE_DIRECTORY } from './image-files.js';
 import {
@@ -11,40 +10,7 @@ import {
 	serialiseProjectFile,
 	type ProjectFile
 } from './project-file.js';
-import {
-	InvalidPathError,
-	PathNotFoundError,
-	TEMP_PATH_SUFFIX,
-	isTempPath,
-	topLevelSegment,
-	type ProjectStore
-} from '../store/project-store.js';
-import type { ProjectFileSource, TransferProgressListener } from '../transfer/transfer.js';
-
-/**
- * An import would land on a directory name that is already taken (ADR-0008: the directory name
- * *is* the Project's identity).
- *
- * Thrown before anything is written, and carrying a free name, because the user must be offered a
- * choice rather than told what happened: they may be importing a colleague's version of work they
- * also have, and silently overwriting it is the one failure a zip-based workflow makes easy.
- */
-export class ProjectDirectoryCollisionError extends Error {
-	readonly directory: string;
-	/** A name that is free right now, for the rename affordance. */
-	readonly suggestion: string;
-
-	constructor(directory: string, suggestion: string) {
-		super(
-			`This Workspace already has a folder called “${directory}”. ` +
-				`Import under a different name — “${suggestion}” is free — or cancel. ` +
-				`Nothing has been changed.`
-		);
-		this.name = 'ProjectDirectoryCollisionError';
-		this.directory = directory;
-		this.suggestion = suggestion;
-	}
-}
+import { PathNotFoundError, topLevelSegment, type ProjectStore } from '../store/project-store.js';
 
 /**
  * The Workspace directories that are not Projects and never can be (ADR-0023).
@@ -151,21 +117,6 @@ export class Workspace {
 		this.#store = store;
 		this.#autosave = options.autosave;
 		this.#now = options.now ?? (() => new Date());
-	}
-
-	/**
-	 * Storage as `writeAlignmentBytes` needs it (ticket 18).
-	 *
-	 * Straight to the store rather than through {@link Autosave}, unlike the editor's port: an
-	 * import is a bulk copy of files the user is not editing, and routing thousands of archive
-	 * entries through a per-file debounce and a "Saved" indicator would be describing the wrong
-	 * thing. The rollback below is what makes an interrupted import safe here, not autosave.
-	 */
-	get #alignmentFile(): AlignmentFilePort {
-		return {
-			read: (path) => this.#store.read(path),
-			commit: (path, bytes) => this.#store.write(path, bytes)
-		};
 	}
 
 	get store(): ProjectStore {
@@ -284,206 +235,6 @@ export class Workspace {
 		return this.#summarise(copy);
 	}
 
-	/**
-	 * Write a Project that came from somewhere else into `directory`, which must be free.
-	 *
-	 * Zip-agnostic on purpose: `source` is any {@link ProjectFileSource}, so this is also the path
-	 * ticket 14's remote ingest and ticket 15's making an offline copy will take. What it knows about is the two
-	 * things only the Workspace can decide.
-	 *
-	 * **The collision.** `directory` is the Project's identity (ADR-0008), and if it is taken this
-	 * throws {@link ProjectDirectoryCollisionError} *before writing anything*. Display names are not
-	 * checked at all: two Projects may share one, so a colleague's "Amsterdam 1625" must import
-	 * alongside yours rather than be refused because of it. "Taken" is decided on the folded name
-	 * (see {@link foldName}) rather than by exact string, because on the two most common filesystems
-	 * `Amsterdam-1625` *is* `amsterdam-1625` and an exact comparison there overwrites the Project it
-	 * was asked to protect.
-	 *
-	 * **The bytes are written exactly as they arrive, `project.json` included.** Unlike every other
-	 * method here it does not stamp `updatedAt`, because importing is not editing: the Project was
-	 * last changed when its author last changed it, and that is the one record of it that survives a
-	 * zip round trip, which destroys filesystem modification times outright. Still the same single
-	 * writer — every byte goes through this Workspace and the store's atomic `write` (ADR-0017 rule
-	 * 4) — so an interrupted import cannot leave a torn file.
-	 *
-	 * **The shared material is hoisted out of the Project directory** (ADR-0023). An archive is rooted at
-	 * the Project and carries `images/<id>/` and `alignments/<id>.json` beside `project.json`, exactly as
-	 * it always did — the zip format did not change — but those two now belong to the Workspace, so they
-	 * are written at the Workspace root and everything else goes inside `directory`. See
-	 * {@link hoistedImageId}.
-	 *
-	 * **And an image id the Workspace already has is not overwritten.** That is the whole of the
-	 * deduplication ADR-0023 asks for, and the direction is the one that cannot lose work: the Alignment
-	 * in the Workspace is the one every existing Project is already drawn by, and a colleague's archive
-	 * of the same map would otherwise silently move every one of them. The Project still imports, still
-	 * references the image, and draws it where the user already had it.
-	 *
-	 * @throws ProjectDirectoryCollisionError when `directory` is already in use
-	 * @throws ReservedDirectoryNameError when `directory` is a name the Workspace itself needs
-	 */
-	async importProject(
-		directory: string,
-		source: ProjectFileSource,
-		options: { onProgress?: TransferProgressListener } = {}
-	): Promise<ProjectSummary> {
-		assertDirectoryName(directory);
-		// Before the collision check, so the message names the reservation rather than reporting a folder
-		// the user cannot see. Import is the sharper case than creation: it writes into the Workspace root
-		// itself, so a Project landing on `images/` would write `project.json` into the shared pool.
-		if (isReservedDirectoryName(directory)) {
-			throw new ReservedDirectoryNameError(directory, directory);
-		}
-		if (await this.#isTaken(directory)) {
-			throw new ProjectDirectoryCollisionError(directory, await this.#unusedDirectory(directory));
-		}
-
-		const present = await this.#historicalMapIds();
-
-		let files = 0;
-		let bytes = 0;
-		const report = (path: string | null) =>
-			options.onProgress?.({
-				files,
-				totalFiles: source.paths.length,
-				bytes,
-				totalBytes: source.totalBytes,
-				path
-			});
-
-		report(null);
-		const written: string[] = [];
-		/** The prefixes written into, for the abandoned-write sweep a rollback has to do. */
-		const touched = new Set<string>([`${directory}/`]);
-		try {
-			for await (const file of source.files()) {
-				const shared = hoistedImageId(file.path);
-				// Counted as seen even when skipped, so progress reaches its total rather than stopping
-				// short of it on an import that deduplicated half the archive.
-				files += 1;
-				// ─────────────────────────────────────────────────────────────────────────────
-				// AN ALIGNMENT IS NOT THIS LOOP'S TO DECIDE ABOUT (ticket 18)
-				//
-				// **Before the `present` check below, deliberately**, so that the one writer answers
-				// the existence question rather than this loop's own version of it. It was the loop's
-				// version, and that made this a fourth independent re-invention of "is there already
-				// an Alignment for this map?" — the epic's whole defect, in a place the ticket did not
-				// list.
-				//
-				// **It was not, in the end, a live overwrite**, and saying so precisely matters more
-				// than the finding sounding worse: `present` is `#historicalMapIds`, which lists
-				// `alignments/` as well as `images/`, so an Alignment already on disk did put its id in
-				// that set and did survive. What was wrong is that the guard was somewhere else,
-				// spelled differently, and coupled to the *pyramid's* presence — a reader had to know
-				// about a helper two hundred lines away to see that a shared file was protected at all.
-				//
-				// Routed here it also gains a case it did not have: an Alignment the destination lacks
-				// for a map it *does* have now arrives, instead of being skipped along with the
-				// pyramid. That is a `create` with nothing to lose, and it repairs a Project whose
-				// Alignment went missing.
-				//
-				// The bytes go through verbatim rather than through `Alignment`. What is being copied
-				// is a document another build wrote, and re-serialising it from this build's model is
-				// the loss SPEC story 60 forbids — which is why this is `writeAlignmentBytes` and not
-				// `writeAlignmentFile`. Only the decision is shared, and that is the point.
-				const isAlignment = shared !== null && file.path.startsWith(`${ALIGNMENT_DIRECTORY}/`);
-				if (shared !== null && !isAlignment && present.has(shared)) {
-					report(file.path);
-					continue;
-				}
-				const path = shared === null ? `${directory}/${file.path}` : file.path;
-				if (shared !== null) touched.add(`${file.path.split('/').slice(0, -1).join('/')}/`);
-
-				if (isAlignment) {
-					const outcome = await writeAlignmentBytes(this.#alignmentFile, {
-						imageId: shared,
-						bytes: file.bytes,
-						write: { intent: 'create' }
-					});
-					// Only a file this import actually wrote may be rolled back. Recording a declined
-					// write here would make a later failure delete the destination's *own* Alignment —
-					// the work this decline exists to protect.
-					if (outcome === 'written') written.push(path);
-				} else {
-					// Recorded before the write rather than after, so a write that fails part way through
-					// is still cleaned up: the destination may hold a partial file, and the temporary file
-					// the atomic write created may still be beside it.
-					written.push(path);
-					await this.#store.write(path, file.bytes);
-				}
-				bytes += file.bytes.length;
-				// A source that under-declares `totalBytes` would make the progress it reports a lie, and
-				// on an untrusted source — a zip somebody was handed — it is also the bound on how much
-				// of the user's disk this loop may fill. So the declared total is a contract, checked.
-				if (bytes > source.totalBytes) {
-					throw new Error(
-						`This Project holds more than the ${source.totalBytes} bytes it said it would, ` +
-							`so it has not been imported.`
-					);
-				}
-				report(file.path);
-			}
-		} catch (cause) {
-			await this.#rollBackImport(written, touched);
-			throw cause;
-		}
-		report(null);
-		return this.#summarise(directory);
-	}
-
-	/**
-	 * Every Historical Map the Workspace already has, by image id (ADR-0023).
-	 *
-	 * A map counts as present when *anything* is under `images/<id>/` or when its Alignment is there —
-	 * not only when the pyramid is complete. The question this answers is "would importing overwrite
-	 * something", and a half-written pyramid the user is still ingesting is something.
-	 */
-	async #historicalMapIds(): Promise<Set<string>> {
-		const ids = new Set<string>();
-		for (const path of await this.#store.list(`${IMAGE_DIRECTORY}/`)) {
-			const id = path.slice(IMAGE_DIRECTORY.length + 1).split('/')[0];
-			if (id !== undefined && id !== '') ids.add(id);
-		}
-		for (const path of await this.#store.list(`${ALIGNMENT_DIRECTORY}/`)) {
-			const name = path.slice(ALIGNMENT_DIRECTORY.length + 1);
-			if (name.endsWith('.json') && !name.includes('/')) ids.add(name.slice(0, -'.json'.length));
-		}
-		return ids;
-	}
-
-	/**
-	 * Undo a partly written import.
-	 *
-	 * Without it the leftovers are worse than useless. `project.json` is written last, so the hub
-	 * cannot list the directory and the user cannot see or delete what is there; and the name is
-	 * taken forever, because the collision check counts every top-level name — so retrying the same
-	 * file is told the folder already exists while the hub shows no such Project. A partially written
-	 * import is worse than a rejected one (ticket 13), and this is what makes the rejected one
-	 * reachable after the writing has begun — which CRC-32 verification makes necessary, since a
-	 * damaged entry cannot be found until it has been inflated.
-	 *
-	 * Best-effort, and it never throws: the failure the caller is about to see is the one that
-	 * matters, and a Workspace too broken to clean up is not one where a second error helps.
-	 */
-	async #rollBackImport(written: readonly string[], touched: ReadonlySet<string>): Promise<void> {
-		for (const path of written) {
-			await this.#store.delete(path).catch(() => undefined);
-		}
-		// The half-finished writes `list` cannot report and `delete` cannot be handed, which is
-		// exactly what a write interrupted between its two steps leaves behind.
-		//
-		// Every prefix this import wrote into rather than only the Project's, because ADR-0023's hoist
-		// puts some of them under `images/<id>/` and `alignments/`. Only prefixes it actually wrote to:
-		// sweeping `images/` wholesale would reclaim the temporary file of an ingest running beside this.
-		for (const prefix of touched) {
-			await this.#store.reclaimAbandonedWrites(prefix).catch(() => undefined);
-		}
-	}
-
-	/** A free directory name near `preferred`, for offering a way past a collision. */
-	async suggestDirectory(preferred: string): Promise<string> {
-		return this.#unusedDirectory(preferred);
-	}
-
 	/** Remove a Project and everything in it. */
 	async deleteProject(directory: string): Promise<void> {
 		for (const path of await this.#store.list(`${directory}/`)) {
@@ -526,16 +277,11 @@ export class Workspace {
 		const paths = await this.#store.list('');
 		return new Set([
 			// Seeded, so `#unusedDirectory` can never *offer* a reserved name either — which matters
-			// because it is what `suggestDirectory` returns to the rename field and what `duplicateProject`
-			// lands on. An empty Workspace holds none of these directories yet, so listing alone would say
-			// they were free.
+			// because it is what `createProject` and `duplicateProject` land on. An empty Workspace holds
+			// none of these directories yet, so listing alone would say they were free.
 			...RESERVED_DIRECTORY_NAMES.map(foldName),
 			...paths.map((path) => foldName(topLevelSegment(path)))
 		]);
-	}
-
-	async #isTaken(directory: string): Promise<boolean> {
-		return (await this.#takenNames()).has(foldName(directory));
 	}
 
 	async #unusedDirectory(displayName: string): Promise<string> {
@@ -598,29 +344,6 @@ export function hoistedImageId(archivePath: string): string | null {
  * way round is somebody's work.
  */
 const foldName = (name: string): string => name.normalize('NFC').toLowerCase();
-
-/**
- * Refuse a directory name that is not one plain folder name.
- *
- * Checked against the name itself rather than left to `assertStorePath`, which sees each path only as
- * it is written: `..` and `\` failed on the *first entry inside* the Project, so the complaint named
- * a file the user has never heard of and arrived after that file had landed.
- */
-function assertDirectoryName(directory: string): void {
-	const reason =
-		directory === ''
-			? 'must be a single directory name'
-			: directory.includes('/')
-				? 'must be a single directory name, with no "/"'
-				: directory.includes('\\')
-					? 'must be a single directory name, with no "\\"'
-					: directory === '.' || directory === '..'
-						? 'must be a directory name rather than "." or ".."'
-						: isTempPath(directory)
-							? `must not end with the reserved ${TEMP_PATH_SUFFIX}`
-							: '';
-	if (reason) throw new InvalidPathError(directory, reason);
-}
 
 /**
  * A display name to a directory name: `Amsterdam 1625` → `amsterdam-1625`.

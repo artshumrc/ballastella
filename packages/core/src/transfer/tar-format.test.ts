@@ -332,7 +332,7 @@ describe('unpacking streams rather than buffering the archive', () => {
 });
 
 describe('a damaged archive is refused rather than silently shortened', () => {
-	// This is the specific failure ADR-0024 escaped. `fflate` read a 70,000-entry zip back as 4,464
+	// This is the specific failure ADR-0024 escaped. The zip reader read a 70,000-entry archive back as 4,464
 	// files **with no error at all**, and the only reason anybody noticed was a test that counted.
 	// A backup format whose truncation is silent is not a backup format, so the contrast is
 	// asserted rather than assumed.
@@ -427,7 +427,7 @@ describe('there is no entry-count ceiling', () => {
 	it('writes and reads back more entries than a zip can index', async () => {
 		// 70,000 — the exact number that produced a zip claiming 4,464. A zip's 16-bit count wraps
 		// here; tar has no count to wrap, having no central directory at all. The assertion is on the
-		// **entry count read back**, which is the assertion that caught fflate.
+		// **entry count read back**, which is the assertion that caught the zip writer.
 		const count = 70_000;
 		const { readable, controller } = createTarPacker();
 

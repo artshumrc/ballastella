@@ -135,7 +135,7 @@ const MAX_PROJECT_FILE_BYTES = 4 * 1024 * 1024;
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * **THE ORDER OF OPERATIONS IS THE DESIGN, BECAUSE A TAR CANNOT BE VALIDATED FIRST**
  *
- * `readProjectZip` validates the entire archive before writing a byte, and it can, because a zip has
+ * The zip importer validated the entire archive before writing a byte, and it can, because a zip has
  * a central directory at its end listing everything in it. Reading that index is also exactly why a
  * zip cannot be streamed, and why a ~400 MB backup could not be restored on an iPad at all — half of
  * what tar was chosen for (ADR-0024).
@@ -306,11 +306,18 @@ interface RestoreOutcome {
  * whole point.** An Alignment goes through ticket 18's one writer, which may decline it — see
  * {@link writeRestored} — and the first cut of this function incremented the counters regardless.
  * That made a restore report more than it had delivered: the archive's Alignment was dropped and
- * still counted. Unreachable while the destination is always new, but ticket 14's Review Workspaces
- * reach it, and **a transfer that reports more than it wrote is `fflate` claiming 4,464 of 70,000
- * with a different spelling** — which is the failure this entire format change exists to escape. So
- * a declined file is counted nowhere and named in {@link RestoreOutcome.declined}, and the caller
- * says so.
+ * still counted. **A transfer that reports more than it wrote is the zip writer claiming 4,464 of
+ * 70,000 with a different spelling** — which is the failure this entire format change exists to
+ * escape. So a declined file is counted nowhere and named in {@link RestoreOutcome.declined}, and
+ * the caller says so.
+ *
+ * ⚠ **`writeRestored`'s own decline is still unreached, and that is stated rather than implied.**
+ * The claim here used to be that ticket 14's Review Workspaces reach it; they do not. A bundle goes
+ * through `open-project-bundle.ts`, which has its own writer with its own decline — the *equivalent*
+ * path in a different module. A restore destination is still always a brand-new Workspace, so
+ * nothing on this path has an Alignment to refuse: what makes the counting correct here is that it
+ * is written to be correct, not that a test has driven it. Duplicate entries in a *restore* archive
+ * are the case that would reach it, and no test lays one down.
  */
 async function drainInto(
 	store: ProjectStore,
@@ -459,7 +466,7 @@ function isProjectManifest(path: string): boolean {
  *
  * The same class and the same `formatVersion`, so everything catching it still does; only the closing
  * sentence changes, from a promise about a local Project — which does not exist here — to the one
- * every other refusal on this path makes. The same treatment `readProjectZip` gives it, and the same
+ * every other refusal on this path makes. The same treatment the zip importer gave it, and the same
  * reason: a restored backup is a likely way a Project from a newer version reaches an older build.
  */
 function readManifest(bytes: Bytes): void {
@@ -563,12 +570,12 @@ type TarEntry = {
  * truncated.` for an empty file, for a JPEG somebody picked by mistake, and for a backup whose
  * download stopped half way — three quite different situations, none of which the user can act on
  * from that sentence, and none of which ends with the promise every other refusal on this path makes.
- * The zip importer wraps fflate's errors for exactly this reason; so does this.
+ * The zip importer wrapped its parser's errors for exactly this reason; so does this.
  *
  * **The word "truncated" is deliberately kept** when the parser used it. Of the three situations it
  * covers, the one that matters most is the download that stopped, and that is the one where knowing
  * the file is *incomplete* rather than *wrong* tells the user what to do — ask for it again. It is
- * also the failure this whole format change is about: `fflate` read a 70,000-entry zip back as 4,464
+ * also the failure this whole format change is about: the zip reader read a 70,000-entry archive back as 4,464
  * files with no error at all, so a short archive announcing itself is the property being bought, and
  * burying the word would be throwing away what it bought.
  */
@@ -609,7 +616,7 @@ async function readEntry(
  * The declared size is not trusted as a buffer length. It is a number in a file somebody else made;
  * what is written is what actually arrived, and if the two disagree the archive was truncated, which
  * `modern-tar` raises rather than papering over — measured, in `tar-format.test.ts`, at every cut it
- * was tried at. That is the exact failure `fflate` made silent.
+ * was tried at. That is the exact failure the zip path made silent.
  */
 async function collect(body: ReadableStream<Uint8Array>): Promise<Bytes> {
 	const chunks: Uint8Array[] = [];

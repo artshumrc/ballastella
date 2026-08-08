@@ -4,6 +4,7 @@ import { type Page } from '@playwright/test';
 import { projectNameField } from './support/project-screen';
 import {
 	closeWorkspaceSettings,
+	createWorkspace,
 	expectWorkspaceNamed,
 	openWorkspaceSettings
 } from './support/workspace';
@@ -220,15 +221,22 @@ async function readInFolder(page: Page, path: string): Promise<string> {
 }
 
 /**
- * Every top-level name in the **named** Workspace browser storage opens on.
+ * Every top-level name in the **named** Workspace browser storage opens on, or `null` when there is
+ * no such Workspace.
  *
  * Since ticket 12 the OPFS root holds several named Workspaces, so "what is in browser storage" is a
  * question about one of them — and the picked folder, which this file's stubbed picker also creates
  * in the root, is deliberately not one of them.
+ *
+ * ⚠ **`workspaceRootIfAny`, never `workspaceRoot`.** The creating one made this helper answer `[]`
+ * for a Workspace that was not there by *making* it, which turns "browser storage holds nothing of
+ * yours" into an assertion that cannot fail and quietly leaves a directory behind for whatever the
+ * spec checks next.
  */
-async function browserStorageEntries(page: Page): Promise<string[]> {
+async function browserStorageEntries(page: Page): Promise<string[] | null> {
 	return page.evaluate(async () => {
-		const root = await workspaceRoot();
+		const root = await workspaceRootIfAny();
+		if (root === null) return null;
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
 		return names.sort();
@@ -786,5 +794,201 @@ test.describe('an interrupted write to a real folder (ADR-0017 rule 4)', () => {
 		const survivor = await readInFolder(page, 'amsterdam-1625/project.json');
 		expect(JSON.parse(survivor)).toMatchObject({ formatVersion: 1, name: 'Amsterdam 1625' });
 		expect(await everyPathInFolder(page)).toEqual(['amsterdam-1625/project.json']);
+	});
+});
+
+// ⚠ **A folder Workspace is one of the user's own, and the review copy's first exit has to lead back
+// to it** (ticket 14, ADR-0024, workspace-and-layers SPEC story 93).
+//
+// This is the case the first cut of ticket 14 got wrong, and it got it wrong in the most expensive
+// direction. "Which Workspace do I go back to" was recorded only for *browser-backed* Workspaces, so
+// a scholar whose Workspace is a folder on their own disk — ADR-0001's capability upgrade, and the
+// only backing where the files are theirs to see — was never recorded as being in one of their own at
+// all. Pressing "Back to my Workspace" then ran `openWorkspace('My Workspace')`, which **creates**,
+// and dropped them into an empty OPFS Workspace while the banner announced they were back in their
+// own. Their real work was in the folder, untouched, off screen, with nothing saying so. The hub's
+// open-bundle button is not gated on backing, so the whole path was reachable.
+//
+// It lives in this file rather than in `editor-transfer.e2e.ts` because a real
+// `FileSystemDirectoryHandle` is what makes it a test at all, and the picker that hands one back is
+// here.
+test.describe('a bundle opened from a folder Workspace (ticket 14)', () => {
+	test.beforeEach(async ({ page }) => {
+		await installDirectoryPicker(page);
+		await page.goto('./');
+		await emptyBrowserStorage(page);
+		await forgetRememberedFolder(page);
+		await page.evaluate(() => localStorage.clear());
+		await page.reload();
+	});
+
+	/** Every directory in the OPFS root, which is where Review Workspaces are made. */
+	const opfsWorkspaces = (page: Page): Promise<string[]> =>
+		page.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			const names: string[] = [];
+			for await (const [name, handle] of root.entries()) {
+				if (handle.kind === 'directory') names.push(name);
+			}
+			return names.sort();
+		});
+
+	/** A one-Project bundle, built in Node so the app is opening one it did not write. */
+	const bundle = async (): Promise<{ name: string; mimeType: string; buffer: Buffer }> => {
+		const { packTar } = await import('modern-tar');
+		const files: Record<string, string> = {
+			'project.json': JSON.stringify({
+				formatVersion: 1,
+				name: 'Somebody else’s Amsterdam',
+				updatedAt: '2026-03-04T11:22:33.000Z',
+				layers: [],
+				baseMap: null
+			}),
+			'annotations/notes.geojson': '{"type":"FeatureCollection","features":[]}'
+		};
+		const encode = (text: string) => new TextEncoder().encode(text);
+		return {
+			name: 'assignment 7.project.tar',
+			mimeType: 'application/x-tar',
+			buffer: Buffer.from(
+				await packTar(
+					Object.entries(files).map(([name, text]) => ({
+						header: { name, size: encode(text).length, type: 'file' as const },
+						body: encode(text)
+					}))
+				)
+			)
+		};
+	};
+
+	test('goes back to the folder, not to an OPFS Workspace invented for the purpose', async ({
+		page
+	}) => {
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'My own work');
+
+		await page.getByTestId('open-bundle').click();
+		await page
+			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByLabel('Project bundle')
+			.setInputFiles(await bundle());
+		await page.getByTestId('confirm-open-bundle').click();
+
+		// Into a review copy in browser storage, whatever the current backing is: a folder cannot make
+		// a second Workspace by itself, and a subdirectory of this one would be a Workspace inside a
+		// Workspace. The folder is untouched.
+		const banner = page.getByTestId('review-banner');
+		await expect(banner).toBeVisible();
+		await expect(banner).toContainText('Somebody else’s Amsterdam');
+		expect(await everyPathInFolder(page)).toEqual(['my-own-work/project.json']);
+
+		await page.getByTestId('leave-review').click();
+
+		// **Back in the folder**, and said so in the words the user reads. Not "My Workspace".
+		await expect(banner).toBeHidden();
+		await inFolder(page);
+		await expect(page.getByRole('link', { name: 'My own work' })).toBeVisible();
+		await expect(page.getByTestId('review-announcement')).toContainText(
+			`You are back in your own Workspace, “${PICKED_FOLDER}”.`
+		);
+		// The default OPFS Workspace holds no Project, because the user's own work was never in browser
+		// storage at all. It *exists* — the app makes it on load, before a folder is ever chosen — so
+		// this corroborates rather than carries: what fails when the exit invents a Workspace to land in
+		// is `inFolder` and the announcement above, and what this adds is that nothing of the user's
+		// went there. Read without creating, so the claim is about what the app did and not about what
+		// the assertion did on its way to being made.
+		expect(await browserStorageEntries(page)).toEqual([]);
+		expect(await opfsWorkspaces(page)).toContain('assignment 7');
+		expect(await everyPathInFolder(page)).toEqual(['my-own-work/project.json']);
+	});
+
+	test('discards the review copy and returns to the folder', async ({ page }) => {
+		await chooseFolder(page);
+		await createProject(page, 'My own work');
+
+		await page.getByTestId('open-bundle').click();
+		await page
+			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByLabel('Project bundle')
+			.setInputFiles(await bundle());
+		await page.getByTestId('confirm-open-bundle').click();
+		await expect(page.getByTestId('review-banner')).toBeVisible();
+
+		await page.getByTestId('discard-review').click();
+		await page.getByTestId('confirm-discard-review').click();
+
+		await expect(page.getByTestId('review-announcement')).toContainText('Discarded');
+		await inFolder(page);
+		await expect(page.getByRole('link', { name: 'My own work' })).toBeVisible();
+		await expect(page.getByTestId('review-banner')).toBeHidden();
+		// The review copy is gone, and the folder is exactly as it was.
+		expect(await opfsWorkspaces(page)).not.toContain('assignment 7');
+		expect(await everyPathInFolder(page)).toEqual(['my-own-work/project.json']);
+	});
+
+	// ⚠ **The arrangement in which "leave, then delete" leaves nothing, and deletes the Workspace the
+	// user is still inside.** Every step below is one the app offers and none of them is a mistake:
+	//
+	//   1. a browser Workspace called "assignment 7" — so that is where "back to my Workspace" points;
+	//   2. a switch to a folder, which carries that name across unchanged and is meant to;
+	//   3. deleting the OPFS "assignment 7" from settings, which is legal because it is not open;
+	//   4. opening `assignment 7.project.tar`, whose review copy takes the name that just came free;
+	//   5. Discard, with the folder grant refused.
+	//
+	// The exit reopens the folder, cannot, and falls back to the browser Workspace it remembers —
+	// which is now the review copy's own name, so the switch is a no-op, and the removal that follows
+	// deleted a Workspace with a live `EditorSession` on it. That is the failure the delete guard
+	// exists for, reached by the one caller that used to go round it: an `Autosave` whose next flush
+	// recreates the directory, and a user still inside a review copy the app has announced as gone.
+	test('leaves the review copy even when it holds the name the exit goes back to', async ({
+		page
+	}) => {
+		await createWorkspace(page, 'assignment 7');
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'My own work');
+
+		// Legal: it is not the Workspace being looked out of, so settings offers it.
+		await openWorkspaceSettings(page);
+		await page.getByTestId('delete-workspace').filter({ hasText: 'assignment 7' }).click();
+		await page.getByTestId('confirm-delete-workspace').click();
+		await expect(page.getByTestId('workspace-delete-outcome')).toContainText('assignment 7');
+		await closeWorkspaceSettings(page);
+
+		await page.getByTestId('open-bundle').click();
+		await page
+			.getByRole('dialog', { name: 'Open a Project someone sent me' })
+			.getByLabel('Project bundle')
+			.setInputFiles(await bundle());
+		await page.getByTestId('confirm-open-bundle').click();
+		await expect(page.getByTestId('review-banner')).toBeVisible();
+		// The name really did come free and the review copy really did take it, or the rest of this
+		// spec is about a case that cannot happen.
+		expect(await opfsWorkspaces(page)).toContain('assignment 7');
+
+		// The grant is withdrawn between opening and discarding — a browser restart, a revoked
+		// permission, or a user answering the prompt the other way.
+		await page.evaluate((key) => localStorage.setItem(key, 'denied'), PERMISSION_KEY);
+		await page.getByTestId('discard-review').click();
+		await page.getByTestId('confirm-discard-review').click();
+
+		await expect(page.getByTestId('review-announcement')).toContainText('Discarded');
+		// **Out of it.** A banner still on screen after this is a live session on a deleted directory.
+		await expect(page.getByTestId('review-banner')).toBeHidden();
+		// Somewhere real and of the user's own: a suffixed empty Workspace beside the doomed name, which
+		// is the only landing that is neither the review copy nor a refusal to leave it.
+		await expectWorkspaceNamed(page, 'assignment 7 (2)');
+		const after = await opfsWorkspaces(page);
+		expect(after).not.toContain('assignment 7');
+		expect(after).toContain('assignment 7 (2)');
+		// And the folder — the thing that actually holds their work — is untouched throughout.
+		expect(await everyPathInFolder(page)).toEqual(['my-own-work/project.json']);
+		// The folder that would not reopen is said where the user is, not only on the settings screen
+		// they are not looking at. `#switchTo` clears `problem`, so this used to be wiped by the very
+		// fallback that made it worth saying.
+		await expect(page.getByTestId('review-announcement')).toContainText(
+			'was not given permission to read and write the folder'
+		);
 	});
 });

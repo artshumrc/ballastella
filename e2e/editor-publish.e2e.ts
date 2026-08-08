@@ -810,7 +810,7 @@ test.describe('publishing a Workspace', () => {
 
 		// Reached by tabbing rather than by clicking (SPEC story 95).
 		const publishButton = page.getByRole('button', { name: 'Publish…' });
-		await page.getByRole('button', { name: 'Import Project…' }).focus();
+		await page.getByRole('button', { name: 'Open a Project someone sent me…' }).focus();
 		await page.keyboard.press('Tab');
 		await expect(publishButton).toBeFocused();
 		await page.keyboard.press('Enter');

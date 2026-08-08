@@ -28,8 +28,16 @@
 //      module reopens the hole completely, and reads as a cast rather than as the decision it is.
 //
 // What neither layer can see is a path computed at *runtime* from data — an archive entry's own
-// path, say. There is exactly one of those, the Project-zip importer, and it is not fenced but
-// routed: it calls `writeAlignmentBytes` like everybody else.
+// path, say. There are exactly **two** of those, both tar readers, and neither is fenced: they are
+// routed, calling `writeAlignmentBytes` like everybody else.
+//
+//   - `packages/core/src/transfer/restore-workspace-tar.ts` — a Workspace backup coming back in.
+//   - `packages/core/src/transfer/open-project-bundle.ts` — a handoff bundle being opened into a
+//     Review Workspace (ticket 14).
+//
+// This paragraph named one file, "the Project-zip importer", which ticket 14 deleted along with the
+// whole zip path. A fence whose honesty statement describes a file that is not there any more is a
+// fence nobody can check the honesty of, so the list is kept current here rather than in a ticket.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY EITHER GUARD EXISTS AT ALL
@@ -42,7 +50,7 @@
 // overwrites of that file were then written independently**: ticket 02's community-Alignment import
 // and ticket 03's Align route. Ticket 02's starter path, two lines from its own unguarded write,
 // guards correctly — so the same author wrote the check and missed the hole beside it. A third
-// existence check, spelled differently again, was found in the Project-zip importer during this
+// existence check, spelled differently again, was found in the since-deleted Project-zip importer during this
 // ticket's review; it was not a live overwrite, but it was a third answer to one question. Two
 // authors reaching for the same mistake is a missing invariant, not two lapses.
 //

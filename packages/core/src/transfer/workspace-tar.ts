@@ -32,7 +32,7 @@
 //
 // A third thing fell out of the measurement that ADR-0024 does not claim and that is worth having:
 // **a truncated tar throws.** Every cut this was tried at raised `Tar archive is truncated.` rather
-// than yielding a short archive. The whole reason the zip is going is that `fflate` read a
+// than yielding a short archive. The whole reason the zip is going is that the zip reader read a
 // 70,000-entry archive back as 4,464 files with no error at all, so a format that refuses to be
 // silently short is not a nice-to-have; it is the requirement, and it is now asserted.
 //
@@ -43,7 +43,7 @@
 // for `<workspace-name>/` itself. Three things follow, and each is a requirement rather than a
 // convenience:
 //
-//   - **The Workspace's name travels with its contents.** A Project zip deliberately does *not*
+//   - **The Workspace's name travels with its contents.** A Project bundle deliberately does *not*
 //     carry its own directory name — ADR-0024's Project-level archive is rooted at `project.json`
 //     so the importer chooses the name and a collision is a question for the user. A Workspace
 //     backup is the opposite case: restore creates a **new** Workspace, so there is nothing to
@@ -79,7 +79,7 @@ import { isTempPath } from '../store/project-store.js';
  *
  * ⚠ **Constructed from UTC, where the zip's constant is constructed from local fields, and the
  * difference is not cosmetic.** A zip stores a DOS timestamp with no zone, so building it from local
- * fields is what makes a Project zipped in Boston and one zipped in Amsterdam identical. Tar stores
+ * fields is what makes a Project archived in Boston and one archived in Amsterdam identical. Tar stores
  * **seconds since the Unix epoch**, which *is* absolute — so the local-field spelling that makes a
  * zip reproducible would make a tar differ by the exporter's UTC offset, and two scholars backing up
  * the same shared Workspace would get archives that are not the same bytes. `tar-format.test.ts`
@@ -200,7 +200,7 @@ export class BackupRejectedError extends Error {
  * writing — by which point earlier entries are already on disk.
  *
  * **The stakes are higher on this path than on the zip's**, which is why it is not merely copied but
- * stated. A Project zip is rooted inside one Project directory, so an escaping entry lands elsewhere
+ * stated. A Project bundle is rooted inside one Project directory, so an escaping entry lands elsewhere
  * in the Workspace. A Workspace backup is rooted at the Workspace, so an escaping entry lands
  * elsewhere in the **OPFS root** — which since ticket 12 holds *every other Workspace the user has*,
  * including the one they are restoring in order to recover from damage to. On a folder-backed

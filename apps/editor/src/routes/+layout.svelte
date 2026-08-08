@@ -5,6 +5,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import NavigationBar from '$lib/components/NavigationBar.svelte';
 	import RecoveredEdits from '$lib/components/RecoveredEdits.svelte';
+	import ReviewBanner from '$lib/components/ReviewBanner.svelte';
 	import UpdatePrompt from '$lib/pwa/UpdatePrompt.svelte';
 	import { provideInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import { startTheme } from '$lib/theme.svelte';
@@ -101,6 +102,12 @@
 		and first for a screen reader: a bar announced after the page it belongs to is a footer.
 	-->
 	<NavigationBar />
+	<!--
+		Directly under the bar and outside `children()`, so it is on **every** route — the Project screen
+		and the alignment route included, which are the two screens a user forgets where they are on
+		(ADR-0024). In the flow rather than fixed, because it must not cover the map it is warning about.
+	-->
+	<ReviewBanner />
 	<div class="min-h-0 grow overflow-y-auto">{@render children()}</div>
 </div>
 <!--

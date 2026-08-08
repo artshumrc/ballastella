@@ -2,7 +2,6 @@
 	import { resolve } from '$app/paths';
 	import {
 		describeBytes,
-		toDirectoryName,
 		unusedHistoricalMaps,
 		type ProjectSummary,
 		type WorkspaceHistoricalMap
@@ -10,6 +9,7 @@
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import PublishDialog from '../publish/PublishDialog.svelte';
+	import { useWorkspaceHost } from '../workspace-storage.svelte.js';
 	import ModalDialog from './ModalDialog.svelte';
 
 	/**
@@ -20,6 +20,17 @@
 	 * not scaffolding.
 	 */
 	let { session }: { session: EditorSession } = $props();
+
+	const host = useWorkspaceHost();
+	const storage = $derived(host.storage);
+	/**
+	 * The mark on the Workspace this hub is showing, or `null` for one of the user's own.
+	 *
+	 * The hub reads it for two things and neither is cosmetic: what a review copy may *not* do, and
+	 * where the button that opens one lives. Both belong here because the hub is where a Workspace's
+	 * Workspace-level actions are (Publish is here for the same reason ADR-0008 gives).
+	 */
+	const review = $derived(storage?.review ?? null);
 
 	let creating = $state(false);
 	let newName = $state('');
@@ -39,14 +50,38 @@
 	let publishing = $state(false);
 
 	/**
-	 * The import dialog is open. Tracked separately from `session.pendingImport`, which only exists
-	 * once a zip has been read: choosing the file, the refusal of a bad one, and the collision
-	 * question are three states of one dialog, because they are one task.
+	 * The "open a Project somebody sent you" dialog (workspace-and-layers SPEC story 90).
+	 *
+	 * ⚠ **This is not an import, and the difference is the whole of ticket 14.** A bundle opens into a
+	 * *new Review Workspace* and there is no path that merges it into the Workspace this hub is
+	 * showing: under ADR-0023 there is one Alignment per Historical Map in a Workspace, so merging
+	 * would either overwrite an Alignment several of the user's own Projects are drawn by, or be
+	 * refused (ADR-0024). So there is no collision to ask about and no folder name to choose —
+	 * the two questions the old import dialog existed to ask — and adding either back would be
+	 * building the merge this design exists to prevent.
 	 */
-	let importing = $state(false);
+	let openingBundle = $state(false);
 	let chosen = $state<FileList | null>(null);
-	/** The directory name the import will use, editable once a collision has been reported. */
-	let importDirectory = $state('');
+	/** Why the last bundle was not opened, or `''`. Every refusal has left nothing behind. */
+	let bundleError = $state('');
+	/** Whether a bundle is being read right now, so the dialog's button cannot be pressed twice. */
+	let bundleBusy = $state(false);
+	/**
+	 * What opening the last bundle did, in the reader's own words. `''` when nothing has been opened.
+	 *
+	 * Kept on the hub rather than in the dialog, because the dialog closes on success and the sentence
+	 * is about what the user is now looking at — the review copy's name, and anything the bundle
+	 * carried that was deliberately not written.
+	 */
+	let bundleNotice = $state('');
+	/**
+	 * The line that says what opening a bundle did, focused when the dialog closes on success.
+	 *
+	 * The button that opened the dialog has been unmounted by then — `{#if review === null}`, and the
+	 * user is now inside a review copy — so `ModalDialog`'s ordinary restore has nothing to put focus
+	 * back on. Same shape as {@link cacheStatusLine} below, for the same reason and the same rule.
+	 */
+	let bundleNoticeLine: HTMLElement | null = $state(null);
 
 	const dateFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: 'medium',
@@ -85,55 +120,44 @@
 		if (project) await session.deleteProject(project.directory);
 	};
 
-	const startImporting = () => {
+	const startOpeningBundle = () => {
 		chosen = null;
-		importDirectory = '';
-		session.cancelImport();
-		importing = true;
+		bundleError = '';
+		bundleNotice = '';
+		openingBundle = true;
 	};
 
-	const cancelImporting = () => {
-		importing = false;
-		session.cancelImport();
+	const cancelOpeningBundle = () => {
+		if (bundleBusy) return;
+		openingBundle = false;
+		bundleError = '';
 	};
 
 	/**
-	 * The folder the typed name would actually become.
+	 * Read the chosen bundle into a new Review Workspace and switch to it.
 	 *
-	 * Through `toDirectoryName` rather than straight off the input, because a folder name is the
-	 * Project's identity (ADR-0008) and the field must not be able to produce one the Workspace
-	 * cannot hold. Bound raw, it handed `Workspace.importProject` whatever was typed: `..`, a
-	 * backslash, or — the one that mattered — a different case of the name the collision had just
-	 * reported, which on macOS and Windows is the *same folder*, so the user's own Project was
-	 * overwritten by the affordance offered to protect it (SPEC story 14).
-	 *
-	 * `''` when there is nothing usable in the field, which is what disables the button rather than
-	 * letting it throw.
+	 * Nothing here decides where it goes: `openBundle` creates the Workspace, and a refusal at any
+	 * point discards it whole, so a bundle that is turned away leaves the user exactly where they were
+	 * with everything they had.
 	 */
-	const importAs = $derived(
-		/[a-z0-9]/i.test(importDirectory) ? toDirectoryName(importDirectory) : ''
-	);
-
-	/**
-	 * Read the chosen zip, then write it — unless reading refused it, or the directory name it wants
-	 * is taken, in which case the dialog stays open holding the answer it needs.
-	 */
-	const runImport = async () => {
-		let pending = session.pendingImport;
-		if (!pending) {
-			const file = chosen?.item(0);
-			if (!file) return;
-			// Reads and validates; still nothing written, so a refusal here costs the user nothing.
-			await session.prepareImport(file);
-			pending = session.pendingImport;
-			if (!pending) return;
-			importDirectory = pending.directory;
+	const runOpenBundle = async () => {
+		const file = chosen?.item(0);
+		if (!file || bundleBusy || !storage) return;
+		bundleError = '';
+		bundleBusy = true;
+		try {
+			// ⚠ **The reader's own sentence, shown rather than dropped.** It says how the review copy was
+			// named — which is not always the name on the file, because ticket 12 suffixes a taken one —
+			// and, when the bundle named the same Alignment twice, which entries were **not** written.
+			// The first cut of this handler threw the whole thing away, and a transfer that quietly
+			// delivers less than it was handed is the failure this format change exists to escape.
+			bundleNotice = (await storage.openBundle(file)).notice;
+			openingBundle = false;
+		} catch (cause) {
+			bundleError = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			bundleBusy = false;
 		}
-		if (!importAs) return;
-		const imported = await session.confirmImport(importAs);
-		if (imported) importing = false;
-		// A collision came back with a free name; offer it rather than making the user invent one.
-		else if (session.pendingImport) importDirectory = session.pendingImport.directory;
 	};
 
 	// ── The Workspace's Historical Maps (SPEC stories 63–65, 98) ────────────────────────────────
@@ -294,20 +318,46 @@
 		cacheStatusLine?.focus();
 	};
 
+	/**
+	 * The transfer this page is announcing: a bundle being read, or a Project being exported.
+	 *
+	 * ⚠ **The bundle's lives on the `WorkspaceStorage` and the export's on the `EditorSession`, and
+	 * that is not an inconsistency.** An export never leaves the Workspace it is reading, so the
+	 * session is the right owner; opening a bundle *replaces* the session, so a state kept there would
+	 * be discarded along with the session that was holding it — and the closing "Opened …" would be
+	 * announced onto a component that had already been handed a different one. The storage's takes
+	 * precedence because it is the one that can be in flight across a swap.
+	 */
+	const transfer = $derived(storage?.transfer ?? session.transfer);
+
 	/** A transfer in flight, which the Export buttons must not lose focus to (SPEC story 95). */
-	const transferring = $derived(session.transfer !== null && !session.transfer.finished);
+	const transferring = $derived(transfer !== null && !transfer.finished);
+
+	/**
+	 * Export a Project, having put down whatever the last bundle said.
+	 *
+	 * Without the first line the finished "Opened …" would shadow the export's own progress for as
+	 * long as the user stayed on this hub, because the storage's account outranks the session's.
+	 */
+	const exportProject = (project: ProjectSummary) => {
+		if (transferring) return;
+		if (storage) storage.transfer = null;
+		void session.exportProject(project);
+	};
 
 	/** The announced progress line. Empty when nothing is moving, so the region says nothing. */
 	const transferMessage = $derived.by(() => {
-		const transfer = session.transfer;
 		if (!transfer) return '';
-		const verb = transfer.kind === 'export' ? 'Exporting' : 'Importing';
-		if (transfer.finished) {
-			return transfer.kind === 'export'
-				? `Exported ${transfer.subject}: ${transfer.totalFiles} files.`
-				: `Imported ${transfer.subject}: ${transfer.totalFiles} files.`;
+		// A tar declares no totals — it has no index — so an open counts rather than inventing a
+		// denominator, which is why its two numbers are the same one until it has finished.
+		if (transfer.kind === 'open') {
+			return transfer.finished
+				? `Opened ${transfer.subject}: ${transfer.totalFiles} files.`
+				: `Opening ${transfer.subject}: ${transfer.files} files so far.`;
 		}
-		return `${verb} ${transfer.subject}: ${transfer.files} of ${transfer.totalFiles} files.`;
+		return transfer.finished
+			? `Exported ${transfer.subject}: ${transfer.totalFiles} files.`
+			: `Exporting ${transfer.subject}: ${transfer.files} of ${transfer.totalFiles} files.`;
 	});
 </script>
 
@@ -315,17 +365,42 @@
 	<div class="flex flex-wrap items-baseline justify-between gap-4">
 		<h2 class="text-2xl font-semibold">Projects</h2>
 		<div class="flex flex-wrap gap-2">
-			<!-- The only way in for a Firefox, Safari, or iPad user, whose Workspace lives in storage
-			     they cannot see (ADR-0001), so it sits beside New Project rather than in a menu. -->
-			<button class="btn" onclick={startImporting}>Import Project…</button>
-			<!-- The Workspace is the site (ADR-0008), so Publish belongs to the hub and not to a
-			     Project. -->
-			<button class="btn" onclick={() => (publishing = true)}>Publish…</button>
+			<!--
+				Opening a Project somebody sent you (workspace-and-layers SPEC story 90). Beside New Project rather than in a
+				menu, because for a Firefox, Safari, or iPad user whose Workspace lives in storage they
+				cannot see (ADR-0001), a file is the only way anything gets in or out at all.
+
+				**Absent inside a review copy**, rather than present and refused. A review copy is a
+				throwaway Workspace holding one Project, and opening a second bundle from inside it would
+				land in a *third* Workspace — which is not wrong, but it invites a user to treat the review
+				copy as a place things accumulate, which is the mental model ADR-0024 is built to prevent.
+				The button is on the hub of their own Workspace, which is one exit away.
+			-->
+			{#if review === null}
+				<button class="btn" data-testid="open-bundle" onclick={startOpeningBundle}>
+					Open a Project someone sent me…
+				</button>
+				<!-- The Workspace is the site (ADR-0008), so Publish belongs to the hub and not to a
+				     Project. -->
+				<button class="btn" data-testid="publish" onclick={() => (publishing = true)}>
+					Publish…
+				</button>
+			{/if}
 			<button class="btn btn-primary" onclick={startCreating}>New Project</button>
 		</div>
 	</div>
 
-	<PublishDialog {session} bind:open={publishing} />
+	<!-- ADR-0024: a Review Workspace is never published. Not mounted at all inside one, so there is no
+	     dialog to reach by any route — `WorkspaceStorage.assertNotReviewing` is the second layer, on
+	     the backup path where the button is in another component entirely. -->
+	{#if review === null}
+		<PublishDialog {session} bind:open={publishing} />
+	{:else}
+		<p class="mt-4 text-sm opacity-70" data-testid="review-workspace-note">
+			A review copy is not published and not backed up: it holds somebody else's work and is meant
+			to be discarded. Go back to your own Workspace to publish yours.
+		</p>
+	{/if}
 
 	<!--
 		Always rendered, empty when idle: an `aria-live` region inserted at the same moment as its
@@ -341,16 +416,38 @@
 		aria-live="polite"
 		aria-atomic="true"
 		class="mt-2 text-sm opacity-80"
-		data-transfer={session.transfer?.kind ?? ''}
+		data-transfer={transfer?.kind ?? ''}
 	>
 		{transferMessage}
 	</p>
 
-	{#if session.transferError && !importing}
-		<!-- An export that failed — another tab deleted the Project, a folder grant lapsed, a Project
-		     too large for one zip. This used to be rendered *only* inside the import dialog, so a
-		     failed export blanked the status line and said nothing at all: on the path ADR-0001 makes
-		     the only way out, indistinguishable from a click that did not register. -->
+	{#if bundleNotice}
+		<!--
+			What opening a bundle did, in the reader's own words: which review copy it made, and — when
+			the bundle named the same Alignment twice — what was deliberately not written. Beside the
+			list rather than over it, because nothing went wrong; the review copy is on screen and this
+			describes it.
+
+			`aria-live="polite"` and not `role="status"`, this page's settled convention: the transfer
+			line above and the save indicator on the bar already account for the status role here.
+		-->
+		<p
+			bind:this={bundleNoticeLine}
+			tabindex="-1"
+			aria-live="polite"
+			class="mt-4 text-sm opacity-80"
+			data-testid="bundle-notice"
+		>
+			{bundleNotice}
+		</p>
+	{/if}
+
+	{#if session.transferError}
+		<!-- An export that failed — another tab deleted the Project, a folder grant lapsed. This used to
+		     be rendered *only* inside the import dialog, so a failed export blanked the status line and
+		     said nothing at all: on the path ADR-0001 makes the only way out, indistinguishable from a
+		     click that did not register. Now that the dialog on this page is about a *different*
+		     Workspace, there is no branch left for it to hide behind. -->
 		<div role="alert" class="mt-4 alert flex-col items-start alert-error">
 			<p>{session.transferError}</p>
 		</div>
@@ -438,7 +535,7 @@
 								class="btn btn-sm"
 								class:btn-disabled={transferring}
 								aria-disabled={transferring}
-								onclick={() => !transferring && session.exportProject(project)}
+								onclick={() => exportProject(project)}
 							>
 								Export<span class="sr-only"> {project.name}</span>
 							</button>
@@ -655,69 +752,54 @@
 </ModalDialog>
 
 <ModalDialog
-	bind:open={() => importing, (open) => (open ? (importing = true) : cancelImporting())}
-	title="Import Project"
+	bind:open={() => openingBundle, (open) => (open ? (openingBundle = true) : cancelOpeningBundle())}
+	title="Open a Project someone sent me"
+	restoreFocusTo={() => bundleNoticeLine}
 >
-	{#if session.pendingImport?.collision}
-		<!-- SPEC story 14. The collision is reported and a choice required; nothing has been written,
-		     and the existing Project is untouched whichever way this goes (ADR-0008). -->
-		<div role="alert" class="alert flex-col items-start alert-warning">
-			<p>{session.pendingImport.collision}</p>
-		</div>
-		<label class="floating-label mt-4">
-			<span>Import as folder</span>
-			<input
-				class="input w-full"
-				bind:value={importDirectory}
-				onkeydown={(event) => event.key === 'Enter' && runImport()}
-			/>
-		</label>
-		<p class="mt-3 text-sm opacity-70">
-			“{session.pendingImport.name}” will be a separate Project
-			{#if importAs && importAs !== importDirectory.trim()}
-				in the folder <code>{importAs}</code>, which is what that name becomes
-			{:else}
-				in this folder
-			{/if}. Two Projects may share a name; the folder is what tells them apart.
-		</p>
-	{:else}
-		<label class="floating-label">
-			<span>Project zip</span>
-			<input
-				class="file-input w-full"
-				type="file"
-				accept=".zip,application/zip"
-				bind:files={chosen}
-			/>
-		</label>
-		<p class="mt-3 text-sm opacity-70">
-			A Project zip holds one Project. It is added to this Workspace; nothing already here is
-			replaced.
-		</p>
-	{/if}
-	{#if session.transferError}
-		<!-- The refusals: no project.json, a damaged archive, an entry whose bytes do not match its
-		     checksum, one that would be written outside the Project, an archive that declares more than
-		     will fit, a missing referenced file, or ADR-0010's Project from a newer version. Each one has
-		     already left the Workspace untouched.
-
-		     Outside the collision branch, not inside the non-collision one. Once a collision was
-		     reported this block was not rendered at all, so emptying the folder field and pressing
-		     "Import under this name" threw and the dialog showed nothing — a dead button. -->
+	<label class="floating-label">
+		<span>Project bundle</span>
+		<!-- `.project.tar` is what Export writes; `.tar` is accepted too, because a mail client or a
+		     file-sharing service that rewrote the name is not the user's fault and the reader tells them
+		     plainly if what they picked turns out to be a Workspace backup instead. -->
+		<input
+			class="file-input w-full"
+			type="file"
+			accept=".tar,application/x-tar"
+			data-testid="bundle-file"
+			bind:files={chosen}
+		/>
+	</label>
+	<p class="mt-3 text-sm opacity-70" data-testid="open-bundle-consequence">
+		This opens into a separate <strong>review copy</strong> — a throwaway Workspace holding only that
+		Project. Nothing in this Workspace is changed, and nothing from the review copy can be brought back
+		into it. You can look at it, pan the map, read the Annotations, and discard it when you are done.
+	</p>
+	{#if bundleError}
+		<!-- The refusals: not a tar, no project.json, an entry that would be written outside the
+		     Project, a missing referenced file, a bundle with no room to hold it, or ADR-0010's Project
+		     from a newer version. Each one has left no Review Workspace behind. -->
 		<div role="alert" class="mt-4 alert flex-col items-start alert-error">
-			<p>{session.transferError}</p>
+			<p data-testid="bundle-error">{bundleError}</p>
 		</div>
 	{/if}
 	{#snippet actions()}
-		<button class="btn" onclick={cancelImporting}>Cancel</button>
+		<button class="btn" onclick={cancelOpeningBundle}>Cancel</button>
+		<!-- `aria-disabled` for the *busy* half, never `disabled`. A `disabled` button leaves the tab
+		     order the moment it is pressed, so a keyboard user's focus fell to `<body>` for the length
+		     of the read — the identical defect the Export buttons above are shaped by, and the one
+		     `keeps the Export button focusable while an export runs` already guards
+		     (workspace-and-layers SPEC story 95, WCAG 2.4.3). `disabled` is still right for "no file
+		     chosen yet", because that button has never been pressed and cannot lose a focus it never
+		     had. -->
 		<button
 			class="btn btn-primary"
-			onclick={runImport}
-			disabled={session.pendingImport?.collision
-				? !importAs
-				: !session.pendingImport && !chosen?.length}
+			class:btn-disabled={bundleBusy}
+			aria-disabled={bundleBusy}
+			data-testid="confirm-open-bundle"
+			onclick={() => !bundleBusy && runOpenBundle()}
+			disabled={!chosen?.length}
 		>
-			{session.pendingImport?.collision ? 'Import under this name' : 'Import Project'}
+			{bundleBusy ? 'Opening…' : 'Open in a review copy'}
 		</button>
 	{/snippet}
 </ModalDialog>

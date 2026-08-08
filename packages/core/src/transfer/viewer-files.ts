@@ -4,9 +4,10 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THE LIST LIVES HERE RATHER THAN BESIDE THE REST OF PUBLISHING
 //
-// Two callers need it and they are at opposite ends of the codebase: `export-project-zip.ts`, to
-// hand a librarian clean data, and `publish/publish.ts`, which writes exactly these paths. Put in
-// the publish module it would be reached through the zip exporter, which the barrel exports and
+// Three callers need it and they are at opposite ends of the codebase: `export-project-bundle.ts`
+// and `export-workspace-tar.ts`, to hand a colleague or a librarian clean data, and
+// `publish/publish.ts`, which writes exactly these paths. Put in
+// the publish module it would be reached through the Project bundle exporter, which the barrel exports and
 // `apps/viewer` therefore imports wholesale — dragging the publish machinery into every Published
 // Site's bundle for the sake of one array of strings (ADR-0019). So the names live in this leaf
 // module, which imports nothing, and publishing imports them.

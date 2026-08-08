@@ -1,8 +1,8 @@
 // The one writer of `alignments/<image-id>.json` (ticket 18).
 //
 // **This module is the only place in the codebase where an `AlignmentPath` becomes a
-// `WritablePath`.** Everything in the application that writes one — every pane, every route, the
-// Project-zip importer — comes through {@link writeAlignmentFile} or {@link writeAlignmentBytes}
+// `WritablePath`.** Everything in the application that writes one — every pane, every route, both
+// tar readers — comes through {@link writeAlignmentFile} or {@link writeAlignmentBytes}
 // and has to say which of three things it means.
 //
 // That is a claim about this codebase as it stands, kept true by a type and a fence, and **not** a
@@ -27,7 +27,7 @@
 // the check and missed the hole beside it. That is a missing invariant, not two lapses.
 //
 // A **third** existence check, spelled differently again, was found in the Project-zip importer
-// during this ticket's own review. It was not a live overwrite — see `project/workspace.ts` for
+// during this ticket's own review — a module ticket 14 has since deleted with the whole zip path. It was not a live overwrite — see `project/workspace.ts` for
 // exactly why — but it was a third answer to one question, in a place nobody had thought to look.
 // Three independent spellings is the argument for this module existing, more than any one of them.
 //
@@ -45,8 +45,11 @@
 //      cannot see — the literal written out by hand, the path laundered through a local, a detached
 //      write method, and a second cast — and lists every opted-out fixture write on success.
 //
-// Neither can see a path computed at runtime from data. The one place that happens is the
-// Project-zip importer, and it is routed through {@link writeAlignmentBytes} rather than fenced.
+// Neither can see a path computed at runtime from data. The two places that happen are the tar
+// readers — `transfer/restore-workspace-tar.ts` and `transfer/open-project-bundle.ts` — and both are
+// routed through {@link writeAlignmentBytes} rather than fenced. `scripts/check-alignment-writers.mjs`
+// keeps that list current, because a fence whose honesty statement names a deleted file is one
+// nobody can check the honesty of.
 //
 // The failure mode is why neither is a review comment. An overwrite does not throw, does not log,
 // and does not 404; it shows up as a colleague's Control Points quietly gone. This is the same
@@ -105,14 +108,32 @@ export type AlignmentWrite =
 	 * map whose pyramid is here and wrong for one referenced from a Library, and it is the caller's
 	 * to say. Both callers in the editor now do, explicitly.
 	 *
-	 * **And it does not detect a concurrent edit.** `update` writes what the user has, over whatever
-	 * is there — so if a colleague changed the same Alignment through a synced Workspace since this
-	 * one was read, their change is lost. That is a real gap and it is knowingly out of scope: the
-	 * ticket rules out conflict resolution between Projects, and the vector that would reach it is a
-	 * file synced under the application rather than anything in this process, which no check here can
-	 * see. ADR-0023 already accepts it in the same words — the mitigation is visibility, not
-	 * prevention. What this module prevents is the *unasked-for* overwrite, which is a different and
-	 * much more common thing.
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * ⚠ **AND IT DOES NOT DETECT A CONCURRENT EDIT. THIS IS THE ONE OPEN GAP IN THIS MODULE.**
+	 *
+	 * `update` writes what the user has, over whatever is there — so if a colleague changed the same
+	 * Alignment through a synced Workspace since this one was read, their change is gone with no
+	 * error, no log, and nothing on screen. ADR-0023 accepts it, and is precise about the terms: the
+	 * mitigation is **visibility, not prevention**. Nothing yet delivers that visibility.
+	 *
+	 * **What the mitigation would be**, so that whoever builds it does not have to re-derive it: hold
+	 * the bytes the open Alignment was read as, re-read the file immediately before `commit`, and
+	 * when the two differ tell the user that this Alignment changed under them and let them choose.
+	 * The comparison is bytes, not a model — `Alignment.unmodelled` means two documents can be
+	 * semantically equal and byte-different, and the honest claim is "the file changed", which is
+	 * what a scholar can act on.
+	 *
+	 * **Why it is not in ticket 14, stated rather than left silent.** Ticket 14 is handoff and review:
+	 * a bundle opens into a throwaway Workspace of its own, and ADR-0024's whole design is that two
+	 * people's Alignments of the same sheet **never meet** — each is in its own Workspace, and there
+	 * is deliberately no promotion out of one. So nothing this ticket adds can reach this gap, and
+	 * the path that does reach it is the align route, which ticket 06 is carving right now. Building
+	 * a re-read-and-warn into `AlignmentWorkspace` from here would be editing the file another
+	 * in-flight ticket is restructuring, to fix a hazard this ticket does not create. It is recorded
+	 * here, in the module that would carry it, rather than claimed away.
+	 *
+	 * What this module *does* prevent is the **unasked-for** overwrite — a `create` landing on
+	 * somebody's work — which is a different and much more common thing.
 	 */
 	| { readonly intent: 'update' }
 	/**
@@ -222,8 +243,9 @@ export async function writeAlignmentFile(
 /**
  * The same three intents, for a caller holding **bytes it must not re-serialise**.
  *
- * This is the Project-zip importer, and it is the one caller that cannot go through
- * {@link writeAlignmentFile}. What it is copying is a document somebody else's build wrote, and
+ * This is the two tar readers — `restore-workspace-tar.ts` and `open-project-bundle.ts` — and they
+ * are the callers that cannot go through
+ * {@link writeAlignmentFile}. What they are copying is a document somebody else's build wrote, and
  * routing it through `Alignment` and back would regenerate it from this build's model — which is
  * exactly the loss SPEC story 60 forbids and `Alignment.unmodelled` exists to prevent. So the bytes
  * travel verbatim, and only the *decision* is shared.

@@ -34,7 +34,7 @@ class FakeStorage implements JournalStorage {
  * in `writePlain` together and in the same direction — the guard stops catching exactly the paths
  * the branch stopped routing, and nothing anywhere goes red. The specimens below are the spellings
  * on either side of the line, taken from `hoistedImageId`, which answers the same question for the
- * Project-zip importer.
+ * two tar readers.
  */
 describe('alignmentImageId — what counts as an Alignment path', () => {
 	it.each([

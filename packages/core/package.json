@@ -21,7 +21,6 @@
 		"@maplibre/maplibre-gl-style-spec": "catalog:",
 		"@protomaps/basemaps": "catalog:",
 		"dompurify": "catalog:",
-		"fflate": "catalog:",
 		"maplibre-gl": "catalog:",
 		"marked": "catalog:",
 		"modern-tar": "catalog:",

@@ -63,7 +63,8 @@ export type AlignmentPath = StorePath & {
  *
  * That spelling is caught by `scripts/check-alignment-writers.mjs` instead, which follows the path
  * through the local it is bound to. Neither layer can see a path computed at runtime from data; the
- * one place that happens is the Project-zip importer, which is routed through the owning module
+ * places that happen are the two tar readers — `restore-workspace-tar.ts` and
+ * `open-project-bundle.ts` — which are routed through the owning module
  * rather than fenced. Read the two together — this type is the cheap half, not the whole guard.
  */
 export type WritablePath = StorePath & { readonly [alignmentPathBrand]?: undefined };

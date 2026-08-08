@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import { imageInfoPath } from '../project/image-files.js';
 import { ProjectFormatTooNewError } from '../project/project-file.js';
+import {
+	REVIEW_MARK_FORMAT_VERSION,
+	REVIEW_MARK_PATH,
+	ReviewWorkspaceError,
+	serialiseReviewMark
+} from '../project/review-workspace.js';
 import { Workspace } from '../project/workspace.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { toWorkspaceName } from '../store/opfs-workspaces.js';
@@ -371,8 +377,8 @@ describe('restoring never overwrites and never merges', () => {
 
 describe('a backup past the zip’s ceiling', () => {
 	it('round-trips more than 65,535 files with the count intact', async () => {
-		// The reason this ticket exists. `exportProjectZip` refuses above `MAX_ZIP_ENTRIES` because
-		// fflate counts entries in sixteen bits — 70,000 produced an index claiming 4,464, and
+		// The reason this ticket exists. The zip exporter refused above 65,535 entries because
+		// the zip writer counted entries in sixteen bits — 70,000 produced an index claiming 4,464, and
 		// `unzipSync` read back 4,464 files with no error at all. The assertion is on the **restored
 		// file count**, which is exactly the assertion that caught it.
 		//
@@ -471,7 +477,7 @@ describe('an interrupted restore leaves no Project on the hub', () => {
 	});
 
 	it('lists nothing on the hub when the archive is truncated part way through', async () => {
-		// The failure the zip could not report at all: fflate read a short archive back as a short
+		// The failure the zip could not report at all: the zip reader read a short archive back as a short
 		// archive, silently. `tar-format.test.ts` measures that a truncated tar throws instead; this
 		// asserts what we then do about it.
 		const store = seed(twoProjectsOneMap());
@@ -999,7 +1005,7 @@ describe('a restore never reports more than it wrote', () => {
 		// ⚠ **The defect this covers is the exact class this ticket exists to prevent.** `writeRestored`
 		// ignored `writeAlignmentBytes`' outcome and counted the file regardless, so a restore that
 		// dropped the archive's Alignment still reported it as delivered. A transfer that says it
-		// delivered more than it did is `fflate` claiming 4,464 of 70,000 with a different spelling.
+		// delivered more than it did is the zip writer claiming 4,464 of 70,000 with a different spelling.
 		//
 		// Unreachable while every destination is new — but `RestoreDestination` is an interface the
 		// caller implements, and ticket 14's Review Workspaces are the caller that will hand over a
@@ -1148,5 +1154,72 @@ describe('WorkspaceRestore describes what happened', () => {
 		);
 		expect(restored.totalFiles).toBe(Object.keys(files).length);
 		expect(restored.totalBytes).toBe(expectedBytes);
+	});
+});
+
+// ⚠ **The refusal lives in the writer, not only in the button** (ADR-0024, ticket 14).
+//
+// An archive of somebody else's work sitting in the user's Downloads folder is indistinguishable
+// from a backup of their own, which is how a review copy comes to be restored months later as though
+// it were theirs. The editor hides the button *and* refuses before the walk starts — but the editor
+// has no test project at all, so a guard that lived only there was a guard whose call site could be
+// deleted with the whole suite staying green. This is the layer that can be asserted.
+describe('a Review Workspace is never backed up', () => {
+	const marked = (): MemoryProjectStore => {
+		const store = seed(twoProjectsOneMap());
+		store.plant(
+			REVIEW_MARK_PATH,
+			serialiseReviewMark({
+				formatVersion: REVIEW_MARK_FORMAT_VERSION,
+				project: 'Amsterdam 1625',
+				directory: 'amsterdam-1625',
+				openedAt: '2026-08-08T09:00:00.000Z'
+			})
+		);
+		return store;
+	};
+
+	it('refuses, naming what it holds and the way out', async () => {
+		const cause = await exportWorkspaceTar(marked(), 'amsterdam-1625').catch(
+			(thrown: unknown) => thrown
+		);
+
+		expect(cause).toBeInstanceOf(ReviewWorkspaceError);
+		expect((cause as Error).message).toContain('“Amsterdam 1625”');
+		expect((cause as Error).message).toContain('cannot be backed up');
+	});
+
+	// The Workspace is never walked, and nothing is produced. **One file is read, and it is the mark
+	// itself** — the refusal is a question about that file, so "nothing is read" would be an
+	// overstatement of a real property: what the refusal must not cost is the walk. A refusal taken
+	// after it would still be a refusal, but it would also be tens of thousands of `size` calls on a
+	// shared pool. Both halves are asserted, so a later cut that reads a manifest or a project.json
+	// "just to name the Workspace" has to come back through here.
+	it('reads the mark and nothing else, and produces no archive at all', async () => {
+		const store = marked();
+		let listed = 0;
+		const reads: string[] = [];
+		const list = store.list.bind(store);
+		const read = store.read.bind(store);
+		store.list = async (prefix: string) => {
+			listed += 1;
+			return list(prefix);
+		};
+		store.read = async (path: StorePath) => {
+			reads.push(path);
+			return read(path);
+		};
+
+		await expect(exportWorkspaceTar(store, 'amsterdam-1625')).rejects.toBeInstanceOf(
+			ReviewWorkspaceError
+		);
+		expect(listed).toBe(0);
+		expect(reads).toEqual([REVIEW_MARK_PATH]);
+	});
+
+	it('still backs up a Workspace of the user’s own', async () => {
+		const backup = await exportWorkspaceTar(seed(twoProjectsOneMap()), 'My Workspace');
+
+		expect(backup.totalFiles).toBe(Object.keys(twoProjectsOneMap()).length);
 	});
 });
