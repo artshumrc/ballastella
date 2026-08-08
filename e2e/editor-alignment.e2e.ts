@@ -1,5 +1,5 @@
 import { parseAnnotation, validateAnnotation } from '@allmaps/annotation';
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 
@@ -88,10 +88,27 @@ test.beforeEach(async ({ page }) => {
 
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
+		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
+		// one — so no test can see another's, whichever Workspace it was in.
+		//
+		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
+		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
+		// subdirectory* rather than the OPFS root, which cannot vanish. Deleting the directory out from
+		// under a running app therefore latches it "unreachable" until a reload — a state about the
+		// harness rather than about the product, and one that used to be unreachable because emptying
+		// the root left the root itself in place. Emptying it is exactly what this always meant.
 		const root = await navigator.storage.getDirectory();
+		const open = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
-		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
+		await Promise.all(
+			names
+				.filter((name) => name !== open.name)
+				.map((name) => root.removeEntry(name, { recursive: true }))
+		);
+		const inside: string[] = [];
+		for await (const name of open.keys()) inside.push(name);
+		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
 	});
 }
 
@@ -280,7 +297,7 @@ const waitForStored = async (page: Page, imageId: string, count: number): Promis
  */
 const storedAlignment = (page: Page, imageId: string) =>
 	page.evaluate(async (imageId) => {
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		try {
 			const alignments = await root.getDirectoryHandle('alignments');
 			const handle = await alignments.getFileHandle(`${imageId}.json`);
@@ -806,7 +823,7 @@ test.describe('the Alignment on disk', () => {
 
 		// Corrupt the file behind the app's back, the way a bad sync or a half-finished write would.
 		await page.evaluate(async (id) => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			// At the Workspace root (ADR-0023).
 			const alignments = await root.getDirectoryHandle('alignments');
 			const handle = await alignments.getFileHandle(`${id}.json`);

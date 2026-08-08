@@ -1,7 +1,12 @@
-import { expect, test } from './support/network-fence.js';
+import { DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { projectNameField } from './support/project-screen';
+import {
+	closeWorkspaceSettings,
+	expectWorkspaceNamed,
+	openWorkspaceSettings
+} from './support/workspace';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
@@ -137,10 +142,27 @@ async function hideDirectoryPicker(page: Page): Promise<void> {
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyBrowserStorage(page: Page): Promise<void> {
 	await page.evaluate(async () => {
+		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
+		// one — so no test can see another's, whichever Workspace it was in.
+		//
+		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
+		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
+		// subdirectory* rather than the OPFS root, which cannot vanish. Deleting the directory out from
+		// under a running app therefore latches it "unreachable" until a reload — a state about the
+		// harness rather than about the product, and one that used to be unreachable because emptying
+		// the root left the root itself in place. Emptying it is exactly what this always meant.
 		const root = await navigator.storage.getDirectory();
+		const open = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
-		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
+		await Promise.all(
+			names
+				.filter((name) => name !== open.name)
+				.map((name) => root.removeEntry(name, { recursive: true }))
+		);
+		const inside: string[] = [];
+		for await (const name of open.keys()) inside.push(name);
+		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
 	});
 }
 
@@ -197,10 +219,16 @@ async function readInFolder(page: Page, path: string): Promise<string> {
 	);
 }
 
-/** Every top-level name in browser storage — the OPFS Workspace's own root. */
+/**
+ * Every top-level name in the **named** Workspace browser storage opens on.
+ *
+ * Since ticket 12 the OPFS root holds several named Workspaces, so "what is in browser storage" is a
+ * question about one of them — and the picked folder, which this file's stubbed picker also creates
+ * in the root, is deliberately not one of them.
+ */
 async function browserStorageEntries(page: Page): Promise<string[]> {
 	return page.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
 		return names.sort();
@@ -216,14 +244,38 @@ const createProject = async (page: Page, name: string) => {
 	await expect(page.getByRole('link', { name })).toBeVisible();
 };
 
-const chooseFolder = (page: Page) =>
-	page.getByRole('button', { name: 'Choose Workspace folder…' }).click();
+/**
+ * Choose a folder, from where the choice now lives (ticket 12).
+ *
+ * The offer moved out of first contact and into Workspace settings — ADR-0001's own principle is
+ * that a folder Workspace is a capability upgrade and never a gate, and the hub asked the question
+ * anyway. Everything about the *grant* below is unchanged; only the two clicks in front of it are
+ * new, and they are written once here rather than at every call.
+ */
+const chooseFolder = async (page: Page) => {
+	await openWorkspaceSettings(page);
+	await page.getByTestId('settings-choose-folder').click();
+	await closeWorkspaceSettings(page);
+};
 
-const inFolder = (page: Page) =>
-	expect(page.getByText(`Your Workspace is the folder ${PICKED_FOLDER}`)).toBeVisible();
+/** Go back to browser storage, which is also in settings. */
+const useBrowserStorage = async (page: Page) => {
+	await openWorkspaceSettings(page);
+	await page.getByRole('button', { name: 'Use browser storage instead' }).click();
+	await closeWorkspaceSettings(page);
+};
 
-const inBrowserStorage = (page: Page) =>
-	expect(page.getByText("Your Workspace is in this browser's own private storage")).toBeVisible();
+/**
+ * Which Workspace is open, read off the **navigation bar**.
+ *
+ * The bar names it on every screen (SPEC story 88), which is a better place to ask than the settings
+ * dialog: it is what a scholar actually sees, and it does not need opening. In both backings the
+ * directory *is* the Workspace, so a folder Workspace is named by its folder and a browser-managed
+ * one by its own name.
+ */
+const inFolder = (page: Page) => expectWorkspaceNamed(page, PICKED_FOLDER);
+
+const inBrowserStorage = (page: Page) => expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
 
 test.describe('choosing a folder as the Workspace', () => {
 	test.beforeEach(async ({ page }) => {
@@ -258,8 +310,10 @@ test.describe('choosing a folder as the Workspace', () => {
 		// `requestPermission` needs transient user activation. A picker reached without a gesture
 		// fails, and the app then looks as though it has lost the folder — so the gesture is the
 		// assertion, not an implementation detail.
-		await page.getByRole('button', { name: 'Choose Workspace folder…' }).focus();
+		await openWorkspaceSettings(page);
+		await page.getByTestId('settings-choose-folder').focus();
 		await page.keyboard.press('Enter');
+		await closeWorkspaceSettings(page);
 
 		await inFolder(page);
 		expect(await grant(page)).toMatchObject({
@@ -307,7 +361,7 @@ test.describe('choosing a folder as the Workspace', () => {
 		await createProject(page, 'In Folder');
 		await expect(page.getByRole('link', { name: 'In Browser' })).toHaveCount(0);
 
-		await page.getByRole('button', { name: 'Use browser storage instead' }).click();
+		await useBrowserStorage(page);
 
 		await inBrowserStorage(page);
 		await expect(page.getByRole('link', { name: 'In Browser' })).toBeVisible();
@@ -377,7 +431,7 @@ test.describe('choosing a folder as the Workspace', () => {
 		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
 		await expect(page.getByRole('alert')).toContainText('Workspace not reachable');
 
-		await page.getByRole('button', { name: 'Use browser storage instead' }).click();
+		await useBrowserStorage(page);
 
 		await inBrowserStorage(page);
 		// Still offered, because the folder has not been given up — only stepped away from.
@@ -390,7 +444,7 @@ test.describe('choosing a folder as the Workspace', () => {
 		await inFolder(page);
 		await createProject(page, 'Amsterdam 1625');
 
-		await page.getByRole('button', { name: 'Use browser storage instead' }).click();
+		await useBrowserStorage(page);
 
 		await inBrowserStorage(page);
 		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
@@ -429,10 +483,13 @@ test.describe('choosing a folder as the Workspace', () => {
 			const source = await (
 				await root.getDirectoryHandle(folder)
 			).getDirectoryHandle('amsterdam-1625');
-			await copy(source, await root.getDirectoryHandle('amsterdam-1625', { create: true }));
+			// Into the **named** Workspace browser storage opens on, not into the OPFS root: since
+			// ticket 12 the root holds several Workspaces and is not one itself.
+			const workspace = await workspaceRoot();
+			await copy(source, await workspace.getDirectoryHandle('amsterdam-1625', { create: true }));
 		}, PICKED_FOLDER);
 
-		await page.getByRole('button', { name: 'Use browser storage instead' }).click();
+		await useBrowserStorage(page);
 
 		await inBrowserStorage(page);
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
@@ -561,7 +618,7 @@ test.describe('the Workspace is the same one on every route', () => {
 
 		// A namesake in browser storage, which is what makes the write assertable either way.
 		await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle('amsterdam-1625', { create: true });
 			const writable = await (
 				await project.getFileHandle('project.json', { create: true })
@@ -589,7 +646,7 @@ test.describe('the Workspace is the same one on every route', () => {
 		});
 		// And browser storage's namesake is untouched, `updatedAt` included.
 		const untouched = await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle('amsterdam-1625');
 			return (await (await project.getFileHandle('project.json')).getFile()).text();
 		});
@@ -666,7 +723,12 @@ test.describe('a browser with no File System Access API (SPEC story 4)', () => {
 	test('offers no folder at all, and browser storage keeps working with no error', async ({
 		page
 	}) => {
-		await expect(page.getByRole('button', { name: 'Choose Workspace folder…' })).toHaveCount(0);
+		// Absent from the bar's own screens *and* from the settings dialog the offer moved into — where
+		// the browser has no picker the option is simply not there (ADR-0001).
+		await expect(page.getByTestId('settings-choose-folder')).toHaveCount(0);
+		await openWorkspaceSettings(page);
+		await expect(page.getByTestId('settings-choose-folder')).toHaveCount(0);
+		await closeWorkspaceSettings(page);
 		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
 		await inBrowserStorage(page);
 

@@ -22,8 +22,6 @@
 // screen are always the last read rather than a running tally.
 
 import {
-	archiveUrl,
-	cachedTilesMatchArchive,
 	describeBytes,
 	describeTileBudget,
 	projectOpeningBounds,
@@ -35,7 +33,6 @@ import {
 } from '@ballastella/core';
 
 import { openArchiveTiles } from './archive-tiles';
-import { resolveDeploymentAsset } from './deployment-assets';
 import { readProjectContent } from './opening-view';
 import type { EditorSession } from '../editor-session.svelte.js';
 
@@ -163,7 +160,7 @@ export class MakeProjectOffline {
 				return;
 			}
 			const archive = await openArchiveTiles(entry);
-			this.coverage = await session.offlineBaseMapCoverage(bounds, archive.maxZoom);
+			this.coverage = await session.offlineBaseMapCoverage(entry.archive, bounds, archive.maxZoom);
 			this.step = 'deciding';
 		} catch (cause) {
 			this.coverage = null;
@@ -217,6 +214,7 @@ export class MakeProjectOffline {
 		try {
 			const archive = await openArchiveTiles(entry);
 			const result = await session.fetchBaseMapTiles({
+				archive: entry.archive,
 				tiles: coverage.missing,
 				readTile: (tile) => archive.readTile(tile),
 				signal: abort.signal,
@@ -228,7 +226,7 @@ export class MakeProjectOffline {
 			// Written even for a cancelled run: the tiles a cancelled run wrote are kept, so their
 			// provenance is as true as a finished run's.
 			await session.recordBaseMapTileSource({
-				archive: archiveUrl(entry, resolveDeploymentAsset),
+				archive: entry.archive,
 				maxZoom: archive.maxZoom
 			});
 			this.progress = null;
@@ -273,7 +271,7 @@ export async function readOfflineCoverage(
 	const depth = await sourceMaxZoom(session, entry);
 	return {
 		bounds,
-		coverage: await session.offlineBaseMapCoverage(bounds, depth.maxZoom),
+		coverage: await session.offlineBaseMapCoverage(entry.archive, bounds, depth.maxZoom),
 		fromRecord: depth.fromRecord
 	};
 }
@@ -300,10 +298,10 @@ export async function readOfflineCoverage(
  * offline, the last thing the source said answers; and the caller is told which, so the sentence
  * beside the map can be honest about it.
  *
- * ⚠ A record naming a **different archive** is not used at all. `base-map/tiles/` carries no archive
- * in its path, so a deployment giving two catalog entries two archives has one directory serving
- * both — see the note in `offline-cache.ts` for why detection rather than keying, and why ticket 12
- * is where keying belongs.
+ * ⚠ **The record is this archive's or it is nothing.** Since ticket 12 the cache directory is keyed
+ * by the entry's own `archive` string, so a deployment giving two catalog entries two archives has two
+ * caches and two records; `readCachedTileSource` additionally refuses a record inside one key naming a
+ * different archive. Either way, what comes back here can only be about the entry that was asked for.
  */
 async function sourceMaxZoom(
 	session: EditorSession,
@@ -312,10 +310,8 @@ async function sourceMaxZoom(
 	try {
 		return { maxZoom: (await openArchiveTiles(entry)).maxZoom, fromRecord: false };
 	} catch (cause) {
-		const recorded = await session.cachedBaseMapTileSource();
-		if (recorded && cachedTilesMatchArchive(recorded, archiveUrl(entry, resolveDeploymentAsset))) {
-			return { maxZoom: recorded.maxZoom, fromRecord: true };
-		}
+		const recorded = await session.cachedBaseMapTileSource(entry.archive);
+		if (recorded) return { maxZoom: recorded.maxZoom, fromRecord: true };
 		throw cause;
 	}
 }

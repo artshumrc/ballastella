@@ -30,8 +30,13 @@
 // instead of many.
 
 import { BASE_MAP_CATALOG, type BaseMapCatalog } from '../base-map/index.js';
-import { baseMapCacheSize, type BaseMapCacheSize } from '../base-map/offline-cache.js';
-import { BASE_MAP_TILE_DIRECTORY } from '../base-map/tile-cache.js';
+import {
+	baseMapCaches,
+	totalBaseMapCacheSize,
+	type BaseMapCache,
+	type BaseMapCacheSize
+} from '../base-map/offline-cache.js';
+import { BASE_MAP_TILE_ROOT } from '../base-map/tile-cache.js';
 import { referencedHistoricalMaps, unusedHistoricalMapBytes } from '../project/historical-maps.js';
 import { imageDirectory, imageInfoPath } from '../project/image-files.js';
 import { parseProjectFile, projectFilePath, type ProjectFile } from '../project/project-file.js';
@@ -54,8 +59,25 @@ import {
 } from '../transfer/viewer-files.js';
 import { bundleBytes, type ViewerBundle, type ViewerBundleFile } from './viewer-bundle.js';
 
-/** The record's format, versioned for the same reason `project.json` is (ADR-0010). */
-export const PUBLISHED_SITE_FORMAT_VERSION = 1;
+/**
+ * The site record's format, versioned for the same reason `project.json` is (ADR-0010). **2 since ticket 12 keyed the Base Map tile cache by archive.**
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * BUMPED *AND* GIVEN A FALLBACK, AND THE FALLBACK IS THE PART THAT MATTERS
+ *
+ * `baseMapMaxZoom` became {@link PublishedSite.baseMapCaches}, which is a change of shape and not
+ * only of name. The bump is the honest label on that; it is not what protects anybody, because
+ * nothing in this repository refuses a site record by version — only `project.json` does (ADR-0010).
+ * What protects a site published before this change is {@link parseBaseMapCaches}' reading of the
+ * old field, without which its cached geography would simply stop drawing and nothing would say why:
+ * `baseMapBundled: true`, no `baseMapCaches`, and a blank reference map under the Project's own
+ * Layers. That is the same silent-blank failure ADR-0025 exists to prevent, arriving through the
+ * record instead of through the tiles.
+ *
+ * Migration was rejected: a Published Site is somebody else's directory on somebody else's host, and
+ * this build has no occasion to rewrite it. Reading both shapes costs one `??`.
+ */
+export const PUBLISHED_SITE_FORMAT_VERSION = 2;
 
 /** One Project as the hub page lists it. */
 export type PublishedProject = {
@@ -96,15 +118,37 @@ export type PublishedSite = {
 	 */
 	readonly baseMapAssetsBundled: boolean;
 	/**
-	 * The deepest zoom the cached tiles reach, or `null` when there are none.
+	 * Which archives this site carries cached tiles for, and how deep each goes. Empty for none.
 	 *
-	 * Carried on the record because a Reader's store is HTTP and **cannot list a directory** (ADR-0006):
-	 * the editor reads this depth back off the files, and a static host gives the viewer no way to. It
-	 * is load-bearing rather than informational — a vector source with no `maxzoom` makes MapLibre ask
-	 * for tiles past the pyramid, every one of which 404s, and the map goes blank at exactly the zoom
-	 * the site was published to work at.
+	 * Carried on the record because a Reader's store is HTTP and **cannot list a directory**
+	 * (ADR-0006): the editor reads both facts off the folder, and a static host gives the viewer no
+	 * way to.
+	 *
+	 * **`archive` is what makes a keyed cache usable by a Reader** (ticket 12). The tiles are at
+	 * `base-map/tiles/<key>/…` where the key is a one-way function of the catalog entry's own
+	 * `archive` string, and ADR-0020 lets a Reader switch between entries — so the viewer has to be
+	 * able to ask "do I have tiles for *this* entry", and the only way to answer that from a static
+	 * host is to be told.
+	 *
+	 * **`maxZoom` is load-bearing rather than informational**: a vector source with no `maxzoom` makes
+	 * MapLibre ask for tiles past the pyramid, every one of which 404s, and the map goes blank at
+	 * exactly the zoom the site was published to work at.
 	 */
-	readonly baseMapMaxZoom: number | null;
+	readonly baseMapCaches: readonly PublishedBaseMapCache[];
+};
+
+/** One archive a Published Site carries cached Base Map tiles for (ADR-0025). */
+export type PublishedBaseMapCache = {
+	/**
+	 * The catalog entry's own `archive` string, unresolved — see `baseMapArchiveKey`.
+	 *
+	 * **`null` means the pre-ticket-12 unkeyed cache**, which belonged to no particular entry
+	 * because there was only one directory. A viewer matches it against whichever entry is showing
+	 * and reads `legacyCachedTilePath`; see {@link parseBaseMapCaches}.
+	 */
+	readonly archive: string | null;
+	/** The source archive's own maximum zoom, as its header reported it when the cache was filled. */
+	readonly maxZoom: number;
 };
 
 /** The site record is there and will not parse. */
@@ -167,8 +211,50 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 			typeof record.baseMapAssetsBundled === 'boolean'
 				? record.baseMapAssetsBundled
 				: record.baseMapBundled === true,
-		baseMapMaxZoom: typeof record.baseMapMaxZoom === 'number' ? record.baseMapMaxZoom : null
+		baseMapCaches: parseBaseMapCaches(record.baseMapCaches, record.baseMapMaxZoom)
 	};
+}
+
+/**
+ * The cached-archive list, read defensively — **and the pre-ticket-12 field it replaced**.
+ *
+ * An entry missing either half is dropped rather than defaulted: a cache whose archive is unknown
+ * cannot be matched to an entry, and one whose depth is unknown would make MapLibre ask past the
+ * pyramid — so "no cache for that entry" is the only honest reading of a half-written entry, and it
+ * costs a Reader the network rather than a blank map.
+ *
+ * ⚠ **A record written before ticket 12 has `baseMapMaxZoom` and no `baseMapCaches`, and its tiles
+ * are at the unkeyed `base-map/tiles/{z}/…`.** Reading the new field strictly would leave every
+ * already-published offline site drawing no geography at all, with `baseMapBundled: true` beside it
+ * — silent, and indistinguishable from the archive being down. So the old field is read as one
+ * cache with **no archive**, which is exactly what it meant: there was one directory and it served
+ * whichever catalog entry the Reader had selected. `ReaderMapPane` matches a `null` archive against
+ * any entry and reads `legacyCachedTilePath`.
+ *
+ * This is the same shape of fallback, for the same reason, as `baseMapAssetsBundled` above.
+ */
+function parseBaseMapCaches(
+	value: unknown,
+	legacyMaxZoom: unknown
+): readonly PublishedBaseMapCache[] {
+	if (!Array.isArray(value)) {
+		return typeof legacyMaxZoom === 'number' &&
+			Number.isInteger(legacyMaxZoom) &&
+			legacyMaxZoom >= 0
+			? [{ archive: null, maxZoom: legacyMaxZoom }]
+			: [];
+	}
+	return value.flatMap<PublishedBaseMapCache>((entry: unknown) => {
+		const { archive, maxZoom } = (entry ?? {}) as { archive?: unknown; maxZoom?: unknown };
+		// `null` is a value this build **writes**, for a legacy pile re-published — so refusing it here
+		// would make the record unreadable by the code that produced it, which is the one round trip a
+		// format has to survive. An absent or empty `archive` is still a half-written entry.
+		const named =
+			archive === null ? null : typeof archive === 'string' && archive !== '' ? archive : undefined;
+		if (named === undefined) return [];
+		if (typeof maxZoom !== 'number' || !Number.isInteger(maxZoom) || maxZoom < 0) return [];
+		return [{ archive: named, maxZoom }];
+	});
 }
 
 /**
@@ -224,8 +310,16 @@ export type PublishPlan = {
 	readonly baseMapBundled: boolean;
 	/** Whether glyphs and sprites are being written. The dialog's checkbox decides this one. */
 	readonly baseMapAssetsBundled: boolean;
-	/** How many tiles the cache holds and what they weigh, for the sentence about the site. */
+	/** How many tiles every cache holds and what they weigh, for the sentence about the site. */
 	readonly baseMapTiles: BaseMapCacheSize;
+	/**
+	 * One entry per archive the Workspace has cached tiles for, for the site record.
+	 *
+	 * A cache with no provenance record is left out: without the archive it names, a Reader cannot
+	 * tell which catalog entry the tiles belong to, and drawing them under whichever entry happens to
+	 * be selected is exactly the wrong-map failure keying the directory exists to end.
+	 */
+	readonly baseMapCaches: readonly PublishedBaseMapCache[];
 	readonly baseMap: BaseMapCatalog;
 	/**
 	 * The address this Workspace's Projects are already stamped for, or `null` (ADR-0004).
@@ -291,7 +385,9 @@ export async function planPublish(
 	const unusedHistoricalMaps = await unusedHistoricalMapBytes(store);
 	// ADR-0025: an observation of the folder, not a choice. One `list` of `base-map/tiles/` and a
 	// `size` per tile — the same `list` + `size` discipline as `workspaceSize`, never a `read`.
-	const baseMapTiles = await baseMapCacheSize(store);
+	const caches = await baseMapCaches(store);
+	const baseMapTiles = totalBaseMapCacheSize(caches);
+	const publishedCaches = publishableCaches(caches);
 
 	const baseMap = includeBaseMap ? bundle.baseMap : [];
 	// The record is weighed with a plausible length rather than skipped: it is a file publishing
@@ -309,7 +405,7 @@ export async function planPublish(
 				catalog,
 				baseMapBundled: baseMapTiles.tiles > 0,
 				baseMapAssetsBundled: includeBaseMap,
-				baseMapMaxZoom: baseMapTiles.maxZoom
+				baseMapCaches: publishedCaches
 			})
 		).byteLength
 	};
@@ -364,12 +460,35 @@ export async function planPublish(
 		baseMapBundled: baseMapTiles.tiles > 0,
 		baseMapAssetsBundled: includeBaseMap && baseMap.length > 0,
 		baseMapTiles,
+		baseMapCaches: publishedCaches,
 		baseMap: catalog,
 		canonicalUrl,
 		collisions,
 		warnings
 	};
 }
+
+/**
+ * The caches a site record can honestly name: the ones whose provenance record survived.
+ *
+ * A cache with no record is still *served* — its files are in the folder and publishing copies
+ * nothing — but a Reader cannot be told which catalog entry it belongs to, so it is not claimed.
+ * Silently attaching it to whichever entry is selected is the wrong-map failure the keyed directory
+ * exists to end, and it would arrive on somebody else's screen rather than on the author's.
+ */
+const publishableCaches = (caches: readonly BaseMapCache[]): readonly PublishedBaseMapCache[] =>
+	caches.flatMap<PublishedBaseMapCache>((cache) => {
+		if (cache.tiles === 0) return [];
+		// A pre-ticket-12 pile is published as what it is: no archive, and the depth read off its own
+		// files, which is exactly what the old `baseMapMaxZoom` was. Dropping it would take a working
+		// offline site away from a scholar the first time they re-published.
+		if (cache.legacy) {
+			return cache.maxZoom === null ? [] : [{ archive: null, maxZoom: cache.maxZoom }];
+		}
+		return cache.archive !== null && cache.sourceMaxZoom !== null
+			? [{ archive: cache.archive, maxZoom: cache.sourceMaxZoom }]
+			: [];
+	});
 
 const collisionMessage = (collisions: readonly string[]): string =>
 	`${collisions.map((directory) => `“${directory}”`).join(', ')} ` +
@@ -566,7 +685,7 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 		catalog: plan.baseMap,
 		baseMapBundled: plan.baseMapBundled,
 		baseMapAssetsBundled: plan.baseMapAssetsBundled,
-		baseMapMaxZoom: plan.baseMapTiles.maxZoom
+		baseMapCaches: plan.baseMapCaches
 	});
 	await store.write(PUBLISHED_SITE_RECORD_NAME, serialisePublishedSite(site));
 	written += 1;
@@ -614,7 +733,7 @@ async function removeSupersededFiles(
 		if (recorded === PUBLISHED_APP_DIRECTORY) continue;
 		if (recorded.endsWith('/')) {
 			for (const path of await store.list(recorded)) {
-				if (path.startsWith(BASE_MAP_TILE_DIRECTORY)) continue;
+				if (path.startsWith(BASE_MAP_TILE_ROOT)) continue;
 				if (!planned.has(path)) await store.delete(path);
 			}
 		} else if (!planned.has(recorded)) {
@@ -632,7 +751,7 @@ const siteRecord = (fields: {
 	catalog: BaseMapCatalog;
 	baseMapBundled: boolean;
 	baseMapAssetsBundled: boolean;
-	baseMapMaxZoom: number | null;
+	baseMapCaches: readonly PublishedBaseMapCache[];
 }): PublishedSite => ({
 	formatVersion: PUBLISHED_SITE_FORMAT_VERSION,
 	viewerVersion: fields.viewerVersion,
@@ -641,7 +760,7 @@ const siteRecord = (fields: {
 	baseMap: fields.catalog,
 	baseMapBundled: fields.baseMapBundled,
 	baseMapAssetsBundled: fields.baseMapAssetsBundled,
-	baseMapMaxZoom: fields.baseMapMaxZoom
+	baseMapCaches: fields.baseMapCaches
 });
 
 /**

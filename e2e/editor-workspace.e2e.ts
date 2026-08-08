@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { openProjectSettings, projectNameField } from './support/project-screen';
@@ -28,10 +28,27 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
+		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
+		// one — so no test can see another's, whichever Workspace it was in.
+		//
+		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
+		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
+		// subdirectory* rather than the OPFS root, which cannot vanish. Deleting the directory out from
+		// under a running app therefore latches it "unreachable" until a reload — a state about the
+		// harness rather than about the product, and one that used to be unreachable because emptying
+		// the root left the root itself in place. Emptying it is exactly what this always meant.
 		const root = await navigator.storage.getDirectory();
+		const open = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
-		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
+		await Promise.all(
+			names
+				.filter((name) => name !== open.name)
+				.map((name) => root.removeEntry(name, { recursive: true }))
+		);
+		const inside: string[] = [];
+		for await (const name of open.keys()) inside.push(name);
+		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
 	});
 }
 
@@ -39,7 +56,7 @@ async function emptyWorkspace(page: Page): Promise<void> {
 async function seedProject(page: Page, directory: string, json: string): Promise<void> {
 	await page.evaluate(
 		async ([directory, json]) => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle(directory as string, { create: true });
 			const file = await project.getFileHandle('project.json', { create: true });
 			const writable = await file.createWritable();
@@ -62,7 +79,7 @@ async function seedFile(page: Page, path: string, contents: string): Promise<voi
 	await page.evaluate(
 		async ([path, contents]) => {
 			const segments = (path as string).split('/');
-			let directory = await navigator.storage.getDirectory();
+			let directory = await workspaceRoot();
 			for (const segment of segments.slice(0, -1)) {
 				directory = await directory.getDirectoryHandle(segment, { create: true });
 			}
@@ -85,7 +102,7 @@ async function everyPath(page: Page): Promise<string[]> {
 				else await walk(entry as FileSystemDirectoryHandle, `${prefix}${name}/`);
 			}
 		};
-		await walk(await navigator.storage.getDirectory(), '');
+		await walk(await workspaceRoot(), '');
 		return paths.sort();
 	});
 }
@@ -115,7 +132,7 @@ async function hashProject(page: Page, directory: string): Promise<Record<string
 			}
 		};
 
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		await walk(await root.getDirectoryHandle(directory), '');
 		return hashes;
 	}, directory);
@@ -176,7 +193,7 @@ test.describe('the Project hub', () => {
 
 		expect(Object.keys(await hashProject(page, 'amsterdam-1625'))).toEqual(['project.json']);
 		const contents = await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle('amsterdam-1625');
 			const file = await project.getFileHandle('project.json');
 			return (await file.getFile()).text();
@@ -264,7 +281,7 @@ test.describe('the Project hub', () => {
 			// And nothing was written: no reserved folder, and no Project beside the one that existed.
 			expect(
 				await page.evaluate(async () => {
-					const root = await navigator.storage.getDirectory();
+					const root = await workspaceRoot();
 					const names: string[] = [];
 					for await (const name of root.keys()) names.push(name);
 					return names.sort();
@@ -286,7 +303,7 @@ test.describe('the Project hub', () => {
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 		const remaining = await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const names: string[] = [];
 			for await (const name of root.keys()) names.push(name);
 			return names;
@@ -450,7 +467,7 @@ test.describe('the Workspace’s Historical Maps', () => {
 
 		// Behind the app's back, so what is on screen is genuinely stale rather than merely re-rendered.
 		await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			await root.removeEntry('amsterdam-1625', { recursive: true });
 		});
 		const before = await everyPath(page);
@@ -859,7 +876,7 @@ test.describe('a Project from a newer version (ADR-0010)', () => {
 
 		expect(await hashProject(page, 'from-the-future')).toEqual(before);
 		const contents = await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle('from-the-future');
 			return (await (await project.getFileHandle('project.json')).getFile()).text();
 		});
@@ -948,7 +965,7 @@ test.describe('opening a Project and closing it (ADR-0010)', () => {
 	test('writes nothing: every file is byte-identical before and after', async ({ page }) => {
 		await createProject(page, 'Amsterdam 1625');
 		await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle('amsterdam-1625');
 			// `annotations/` rather than `images/`: since ADR-0023 a pyramid is the Workspace's and is not
 			// inside a Project at all, so a nested fixture under the Project has to be one of the Project's

@@ -1,6 +1,8 @@
 # No Base Map ships, and offline Base Map coverage is per-Project and opt-in
 
 > **Amends [ADR-0020](./0020-base-map-catalog-author-default-and-reader-switching.md) and narrows [ADR-0012](./0012-pwa-with-explicit-update-prompt.md).**
+>
+> **Amended by ticket 12: the cache directory is keyed by archive** — `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt`, where the key is derived from the catalog entry's own `archive` string. This ADR wrote the path with no archive in it, which is correct only while every entry shares one archive; ADR-0020 promises that repointing an entry needs no change anywhere else, so two entries on two archives is a supported deployment and one directory would serve both — well-formed tiles, no 404, no log, and a plausible pane of the wrong world. Because the path is copied verbatim into a Published Site and read back by the viewer over HTTP, which cannot list a directory, `PublishedSite` now carries `baseMapCaches`: which archives a site has tiles for, and how deep each goes.
 
 No pmtiles archive is shipped. The deployment names its own, and a user makes a **Project** work offline by caching the Base Map tiles that Project's own content needs — not the world, and not a city somebody else chose.
 

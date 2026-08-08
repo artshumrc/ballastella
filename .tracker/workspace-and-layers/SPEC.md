@@ -186,7 +186,7 @@ workspace/
 ├── index.html                     ← publish output (ADR-0008)
 ├── images/<image-id>/             ← shared: info.json, manifest.json, remote.json, tiles
 ├── alignments/<image-id>.json     ← shared: one per Historical Map
-├── base-map/tiles/{z}/{x}/{y}.mvt ← opt-in offline cache (ADR-0025)
+├── base-map/tiles/<archive>/{z}/{x}/{y}.mvt  ← opt-in offline cache, keyed by archive (ADR-0025)
 └── <project-directory>/
     ├── project.json
     └── annotations/<layer-id>.geojson
@@ -241,9 +241,9 @@ No pmtiles archive ships. **Glyphs and sprites still do** (636 KB, 184 KB): ever
 
 The catalog deployment fence **fails `pnpm check:deployment` while the catalog points at `demo-bucket.protomaps.com`** — the bucket this repo already documents as unsuitable to rely on. By explicit human decision on 2026-08-07, ordinary development and educational evaluation temporarily retain that URL because there is no hosting budget; it remains blocked for production. Every production deployment names its own archive, which ADR-0020 makes a one-line change. The Amsterdam extract stays as an **e2e fixture**, not as shipped output.
 
-The offline cache is individual vector tiles at `base-map/tiles/{z}/{x}/{y}.mvt` behind a MapLibre `addProtocol` handler — ADR-0011's pattern, as already implemented for Historical Map tiles. Writing a PMTiles v3 archive was rejected: `pmtiles@4.4.1` has no writer, and hand-rolling one is archive-format code whose failure mode is silent. Caching byte ranges was rejected: the cached unit would depend on access pattern, and a near-miss range renders holes, which reads as corruption.
+The offline cache is individual vector tiles at `base-map/tiles/<archive-key>/{z}/{x}/{y}.mvt` behind a MapLibre `addProtocol` handler — **keyed by archive since ticket 12**, because ADR-0020 makes two catalog entries on two archives a supported deployment and one shared directory would serve both, drawing a plausible pane of the wrong world with no error anywhere — ADR-0011's pattern, as already implemented for Historical Map tiles. Writing a PMTiles v3 archive was rejected: `pmtiles@4.4.1` has no writer, and hand-rolling one is archive-format code whose failure mode is silent. Caching byte ranges was rejected: the cached unit would depend on access pattern, and a near-miss range renders holes, which reads as corruption.
 
-Contracts: the tile count and byte estimate are shown before they are spent, with a refusal threshold; **every** zoom level from 0 to the source's maximum is cached over the extent, because omitting low zooms makes zooming out go blank; compression is explicit, since PMTiles stores tiles gzipped and serving them as though it did not is a silent blank map; attribution survives caching, because ODbL does not lapse when no request happens. The cache is Workspace-level and therefore deduplicates across Projects, so "is this Project offline?" is computed, not a flag that can lie. `PublishedSite.baseMapBundled` changes meaning to "this Workspace carries cached tiles".
+Contracts: the tile count and byte estimate are shown before they are spent, with a refusal threshold; **every** zoom level from 0 to the source's maximum is cached over the extent, because omitting low zooms makes zooming out go blank; compression is explicit, since PMTiles stores tiles gzipped and serving them as though it did not is a silent blank map; attribution survives caching, because ODbL does not lapse when no request happens. The cache is Workspace-level and therefore deduplicates across Projects, so "is this Project offline?" is computed, not a flag that can lie. `PublishedSite.baseMapBundled` changes meaning to "this Workspace carries cached tiles", and `PublishedSite.baseMapCaches` — which replaced `baseMapMaxZoom` in ticket 12, at `formatVersion` 2 — names **which archives** those tiles are for and how deep each goes, because a Reader's HTTP store cannot list a directory and a key cannot be read backwards. A record written before that is read as one cache belonging to no archive, so an already-published offline site keeps drawing.
 
 ### Opening view — ADR-0026
 

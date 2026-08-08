@@ -1,4 +1,6 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
+// The predicate and the message are the *fence layer's* own, asserted directly — a predicate only
+// ever exercised through a browser is one whose boundaries nobody has looked at.
 import { networkFenceMessage, reachesTheNetwork } from './support/network-fence.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 

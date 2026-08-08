@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
-import type { Page } from '@playwright/test';
+import type { Page } from './test.js';
 import { PMTiles } from 'pmtiles';
 
 // A static web server for the **editor's own build**, so that the PWA slice can be driven at a
@@ -237,9 +237,51 @@ export async function refuseBaseMapArchive(target: Pick<Page, 'route'>): Promise
  * reason `viewer-reader.e2e.ts` re-declares the Reader's map handle structurally. The duplication is
  * safe in the direction that matters: this harness *produces* the layout the app *reads*, so a drift
  * between the two makes the offline assertion fail rather than pass quietly.
+ *
+ * **The archive is a parameter and is never named here.** Since ticket 12 the directory is keyed by
+ * the catalog entry's own `archive` string, and `scripts/check-base-map-catalog.mjs` exempts
+ * `*.e2e.ts` but not this file — for the good reason that a fork repointing its catalog must not have
+ * to edit the harness. So the specs supply it and this computes the key.
+ *
+ * ⚠ **The two copies of this hash are held together by two tests, in opposite directions**, because
+ * a duplicated derivation with nothing comparing it drifts. `editor-base-map.e2e.ts`'s "writes a tile
+ * file for every zoom" looks *under this directory* for tiles the **app** wrote;
+ * `viewer-reader.e2e.ts`'s "draws its Base Map from its own cached tiles" writes files **here** and
+ * has the app read them. Either one goes red the moment the two spellings part company — which
+ * matters, because the failure otherwise reads like a product bug rather than a harness one.
  */
-const cachedTilePath = (tile: { z: number; x: number; y: number }): string =>
-	`base-map/tiles/${tile.z}/${tile.x}/${tile.y}.mvt`;
+export function baseMapArchiveKey(archive: string): string {
+	const slug = (archive.split(/[/\\]/).pop() ?? '')
+		.replace(/\.pmtiles$/i, '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 24)
+		.replace(/-+$/, '');
+	const bytes = new TextEncoder().encode(archive);
+	const round = (basis: number): string => {
+		let hash = basis;
+		for (const byte of bytes) {
+			hash ^= byte;
+			hash = Math.imul(hash, 0x01000193) >>> 0;
+		}
+		return hash.toString(16).padStart(8, '0');
+	};
+	return `${slug || 'archive'}-${round(0x811c9dc5)}${round(0x9dc5811c)}`;
+}
+
+/** Where one archive's cached tiles live in a Workspace, with its trailing `/`. */
+export const baseMapTileDirectory = (archive: string): string =>
+	`base-map/tiles/${baseMapArchiveKey(archive)}/`;
+
+/** Where one archive's record of its own depth lives, inside its keyed directory. */
+export const baseMapTileSourcePath = (archive: string): string =>
+	`${baseMapTileDirectory(archive)}tile-source.json`;
+
+export const cachedTilePath = (
+	archive: string,
+	tile: { z: number; x: number; y: number }
+): string => `${baseMapTileDirectory(archive)}${tile.z}/${tile.x}/${tile.y}.mvt`;
 
 function tilesForBounds(
 	bounds: { west: number; south: number; east: number; north: number },
@@ -268,7 +310,8 @@ function tilesForBounds(
 }
 
 /**
- * The fixture archive's tiles as the Workspace cache holds them: `base-map/tiles/{z}/{x}/{y}.mvt`.
+ * The fixture archive's tiles as the Workspace cache holds them:
+ * `base-map/tiles/<key>/{z}/{x}/{y}.mvt`.
  *
  * **Real bytes out of the real archive, decompressed exactly as the app decompresses them.**
  * `PMTiles#getZxy` applies `decompress(data, header.tileCompression)` before returning, which is why
@@ -283,10 +326,12 @@ function tilesForBounds(
  * totals so a test can assert them, and `editor-base-map.e2e.ts` does, so the figure cannot rot
  * unnoticed.
  *
+ * @param archive the catalog entry's own `archive` string, which the directory is keyed on
  * @param bounds the extent to cache, defaulting to the whole fixture archive's own extent
  * @param maxZoom the deepest zoom to include, defaulting to the archive's own maximum
  */
 export async function cachedBaseMapTiles(
+	archive: string,
 	bounds?: { west: number; south: number; east: number; north: number },
 	maxZoom?: number
 ): Promise<CachedBaseMapTiles> {
@@ -300,12 +345,12 @@ export async function cachedBaseMapTiles(
 			};
 		}
 	};
-	const archive = new PMTiles(source);
+	const opened = new PMTiles(source);
 	// The same archive read with decompression switched off, so the gzipped size of each tile can be
 	// weighed beside the decompressed one. That difference is the measured cost of ADR-0025's
 	// compression decision, and it is quoted in `tile-cache.ts`.
 	const compressed = new PMTiles(source, undefined, async (data: ArrayBuffer) => data);
-	const header = await archive.getHeader();
+	const header = await opened.getHeader();
 	const extent = bounds ?? {
 		west: header.minLon,
 		south: header.minLat,
@@ -319,9 +364,9 @@ export async function cachedBaseMapTiles(
 	let asked = 0;
 	for (const tile of tilesForBounds(extent, top)) {
 		asked += 1;
-		const found = await archive.getZxy(tile.z, tile.x, tile.y);
+		const found = await opened.getZxy(tile.z, tile.x, tile.y);
 		if (!found) continue;
-		files[cachedTilePath(tile)] = new Uint8Array(found.data);
+		files[cachedTilePath(archive, tile)] = new Uint8Array(found.data);
 		decompressedBytes += found.data.byteLength;
 		gzippedBytes += (await compressed.getZxy(tile.z, tile.x, tile.y))?.data.byteLength ?? 0;
 	}

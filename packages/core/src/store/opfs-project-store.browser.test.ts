@@ -15,8 +15,14 @@ import { describeProjectStore } from './project-store-suite.js';
  * matches the memory adapter, which is the thing this file exists to check.
  *
  * Each store gets its own directory rather than the OPFS root, so tests do not see each
- * other's files. The app uses `OpfsProjectStore.open()`, whose root *is* the OPFS root —
- * asserted below, because that is the layout ADR-0008 specifies.
+ * other's files. The app uses `OpfsProjectStore.open(name)`, whose root is a **named directory in**
+ * the OPFS root — asserted below, because that is the layout ADR-0024 amended ADR-0001 to.
+ *
+ * ⚠ **The shared suite below runs unmodified, and that is the load-bearing claim of ticket 12.**
+ * A named-subdirectory OPFS store is still one `DirectoryHandleStore` over one
+ * `FileSystemDirectoryHandle`, so nothing about the interface had to widen and no assertion had to
+ * relax. Had the suite needed an edit, the abstraction would have been broken rather than extended —
+ * which is exactly what the File System Access adapter's own suite says about itself.
  *
  * The fixture is shared with the File System Access adapter's suite, because both backends are
  * one `FileSystemDirectoryHandle` store; see `directory-handle-fixture.ts`.
@@ -31,17 +37,67 @@ describeProjectStore('OpfsProjectStore', async () => {
 	};
 });
 
-it('puts a Project directly in the OPFS root, so the workspace is the root (ADR-0008)', async () => {
-	const store = OpfsProjectStore.open();
-	const directory = `root-check-${crypto.randomUUID()}`;
+/**
+ * The same suite again, through the seam the **app** actually uses.
+ *
+ * The fixture above hands the store a directory handle directly, which exercises everything below
+ * the resolver and nothing of the resolver itself — and the resolver is the entire change ticket 12
+ * made to this class. So it runs a second time against `OpfsProjectStore.open(name)`, where the root
+ * is reached by descending into a named subdirectory of the OPFS root, the way every Workspace in the
+ * running app is.
+ */
+describeProjectStore('OpfsProjectStore.open (a named Workspace)', async () => {
+	const name = `Suite ${crypto.randomUUID()}`;
+	const root = await navigator.storage.getDirectory();
+	const directory = await root.getDirectoryHandle(name, { create: true });
+	return {
+		store: OpfsProjectStore.open(name),
+		everyStoredPath: () => everyPathIn(directory, ''),
+		failNextWrite: failNextDirectoryHandleWrite,
+		plantAbandonedWrite: (path) => plantAbandonedWriteIn(directory, path)
+	};
+});
+
+it('puts a Project inside its named Workspace, never in the OPFS root (ADR-0024)', async () => {
+	// The containment ADR-0024 needs. Without it a Review Workspace would be a subdirectory *of* the
+	// user's own Workspace: invisible in their Project list, because `listProjects` matches only
+	// top-level `<dir>/project.json`, but counted in its size and swept into its backup.
+	const workspace = `Root check ${crypto.randomUUID()}`;
+	const store = OpfsProjectStore.open(workspace);
+	const directory = 'amsterdam-1625';
 	await store.write(`${directory}/project.json`, new TextEncoder().encode('{}'));
 
 	const root = await navigator.storage.getDirectory();
-	const project = await root.getDirectoryHandle(directory);
+	const project = await (await root.getDirectoryHandle(workspace)).getDirectoryHandle(directory);
 	const file = await project.getFileHandle('project.json');
 	expect(new TextDecoder().decode(await (await file.getFile()).arrayBuffer())).toBe('{}');
 
-	await store.delete(`${directory}/project.json`);
+	// And nothing landed beside the Workspace rather than inside it.
+	await expect(root.getDirectoryHandle(directory)).rejects.toThrow();
+
+	await root.removeEntry(workspace, { recursive: true });
+});
+
+it('keeps two named Workspaces’ Projects apart, each invisible to the other', async () => {
+	// SPEC story 105 and the demonstration the ticket asks for: a second Workspace opens empty, and
+	// switching back finds the first one's Projects. Asserted on the stores rather than through the
+	// app, because "which files exist" is the behaviour and not a proxy for it.
+	const suffix = crypto.randomUUID();
+	const mine = OpfsProjectStore.open(`Mine ${suffix}`);
+	const theirs = OpfsProjectStore.open(`Theirs ${suffix}`);
+
+	await mine.write('amsterdam-1625/project.json', new TextEncoder().encode('{"n":1}'));
+
+	expect(await theirs.list('')).toEqual([]);
+	await theirs.write('boston-1775/project.json', new TextEncoder().encode('{"n":2}'));
+
+	expect(await mine.list('')).toEqual(['amsterdam-1625/project.json']);
+	expect(await theirs.list('')).toEqual(['boston-1775/project.json']);
+
+	const root = await navigator.storage.getDirectory();
+	for (const name of [`Mine ${suffix}`, `Theirs ${suffix}`]) {
+		await root.removeEntry(name, { recursive: true });
+	}
 });
 
 it('reports OPFS as supported in a browser', () => {

@@ -30,7 +30,7 @@
 //
 // So these wait on the file. It is slower to ask and it is the only question with an answer.
 
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page } from './test.js';
 
 import { PROJECT_DIRECTORY } from './annotations';
 import { readStoredJsonOrNull } from './stored-file';

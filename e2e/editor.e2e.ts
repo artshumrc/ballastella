@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 
 test('the editor loads and renders its placeholder', async ({ page }) => {
 	await page.goto('./');

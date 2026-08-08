@@ -367,18 +367,21 @@
 	{/if}
 
 	{#if session.status === 'unreachable'}
-		<!-- ADR-0008: a normal state with a recovery, never an error boundary. -->
-		<div role="alert" class="mt-6 alert flex-col items-start alert-warning">
-			<h3 class="font-semibold">Workspace not reachable</h3>
-			<p>
-				Your Workspace could not be opened, so the Projects in it cannot be listed. Nothing has been
-				lost — it is still wherever it was.
-			</p>
-			{#if session.unreachableDetail}
-				<p class="text-sm opacity-80">The browser reported: {session.unreachableDetail}</p>
-			{/if}
-			<button class="btn btn-sm" onclick={() => session.refresh()}>Locate Workspace again</button>
-		</div>
+		<!--
+			ADR-0008: a normal state with a recovery, never an error boundary — and **the alert and the
+			recovery are `WorkspaceRecovery`'s**, one level up, not this component's (ticket 12).
+
+			This used to be a second `role="alert"` saying the same thing, with a "Locate Workspace again"
+			button that is only the right recovery for browser storage: for a folder Workspace the way back
+			is the picker, and offering a refresh instead is the affordance that cannot work. Two alerts
+			with one meaning is also exactly what a screen reader reads out twice. So the recovery moved to
+			the one component that knows both backings, and what is left here is the consequence for the
+			*list*, which is this component's own subject.
+		-->
+		<p class="mt-6">
+			The Projects in this Workspace cannot be listed until it can be reached. Nothing has been lost
+			— they are still wherever they were.
+		</p>
 	{:else if session.status === 'loading'}
 		<p class="mt-6">Looking for your Projects…</p>
 	{:else if session.projects.length === 0}

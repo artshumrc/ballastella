@@ -5,13 +5,13 @@
 	 * The two ways a Workspace can be not-here, and the gesture out of each.
 	 *
 	 * Both are **normal states with recoveries**, not exceptions (ADR-0008), and both are reachable on
-	 * a page that is not the hub — which is where they were previously unhandled. `StorageChoice` is
-	 * hub-only by design, because *choosing* where a Workspace lives is a Workspace-level act; but
-	 * recovering a Workspace you are already using is not a choice, it is the way back to the Project
-	 * you asked for. So it belongs beside the Project.
+	 * every screen — the hub, the Project, and the align route. *Choosing* where a Workspace lives is
+	 * a setting now (ticket 12), reached from the bar; recovering a Workspace you are already using is
+	 * not a choice at all, it is the way back to the work you asked for, and burying it behind a
+	 * dialog would leave a scholar looking at an empty hub with nothing to explain it.
 	 *
-	 * - **Not reachable.** The folder was moved, renamed, or deleted. Ticket 12 is what made this
-	 *   possible for a Project page at all: in OPFS the root cannot vanish. The Project page rendered
+	 * - **Not reachable.** The folder was moved, renamed, or deleted. Only a folder Workspace can reach
+	 *   this state: an OPFS directory cannot vanish under the app. The Project page rendered
 	 *   "Opening…" for ever, because `status` went to `unreachable` while `openProject` and
 	 *   `projectProblem` both stayed null and nothing looked at `status`.
 	 * - **Remembered but not open.** Returning to a bookmarked `?p=` needs `requestPermission()`,
@@ -41,12 +41,23 @@
 				Locate Workspace folder again
 			</button>
 		{:else}
-			<button class="btn btn-sm" onclick={() => storage.session.refresh()}>
+			<!-- A **new store**, not a re-listing: a named OPFS Workspace can be deleted by a second
+			     tab, and `DirectoryHandleStore` caches its root handle, so re-listing goes through the
+			     dead one for ever. See `WorkspaceStorage.locateWorkspaceAgain`. -->
+			<button class="btn btn-sm" onclick={() => storage.locateWorkspaceAgain()}>
 				Locate Workspace again
 			</button>
 		{/if}
 	</div>
-{:else if storage.awaitingFolder}
+{:else if storage.awaitingFolder && !storage.problem}
+	<!--
+		⚠ **Not while there is a `problem`.** The two states overlap exactly once and it is the common
+		case: a reopen whose permission was declined leaves the folder remembered *and* leaves an
+		explanation of why it did not open. Both blocks then render, and a screen reader is handed two
+		alerts — "your folder is not open yet" and "your folder was not opened" — which say the same
+		thing twice and answer nothing between them. The explanation wins, because it is the one that
+		says what happened, and it carries its own way back.
+	-->
 	<div role="alert" class="mt-8 alert flex-col items-start alert-info">
 		<h2 class="font-semibold">Your Workspace folder is not open yet</h2>
 		<p>

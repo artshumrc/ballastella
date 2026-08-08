@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -266,6 +266,17 @@ async function mapReady(page: Page): Promise<void> {
  * empty geography — which would make every popup assertion below pass vacuously on an absent popup.
  */
 const ANNOTATION_AT: [number, number] = [4.9, 52.3676];
+
+/**
+ * The archive every entry in this deployment's catalog points at (ADR-0020).
+ *
+ * Named here because a site's cached tiles sit in a directory keyed on it (ticket 12), and because
+ * the site record has to say which archive its tiles are for — a Reader's HTTP store cannot list a
+ * directory to find out, and drawing one archive's tiles under another entry is the wrong-map
+ * failure the key exists to end. `scripts/check-base-map-catalog.mjs` exempts `*.e2e.ts`; this file
+ * already names entry ids for the same reason.
+ */
+const ARCHIVE = 'https://demo-bucket.protomaps.com/v4.pmtiles';
 
 /**
  * Open the fixture Annotation's popup, and hand back the popup.
@@ -1283,11 +1294,14 @@ test.describe('a Published Site that is not entirely well', () => {
 		// Layers of the Reader's own over the same map, so a bare feature count is satisfied by those
 		// while the reference map is blank. `roads_` and `water` are Protomaps layer prefixes and belong
 		// to no Layer this app produces (`ballastella-layer-…`).
-		const cached = await cachedBaseMapTiles();
+		const cached = await cachedBaseMapTiles(ARCHIVE);
 		site = await published({
 			...oneProject(
 				{ baseMap: 'physical' },
-				{ baseMapBundled: true, baseMapMaxZoom: cached.maxZoom }
+				{
+					baseMapBundled: true,
+					baseMapCaches: [{ archive: ARCHIVE, maxZoom: cached.maxZoom }]
+				}
 			),
 			...cached.files
 		});

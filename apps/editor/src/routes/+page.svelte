@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import ProjectHub from '$lib/components/ProjectHub.svelte';
-	import StorageChoice from '$lib/components/StorageChoice.svelte';
+	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import ProjectScreen from '$lib/project/ProjectScreen.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
@@ -73,7 +73,19 @@
 	<!-- The hub: a centred column that scrolls, which is what a list of Projects wants. -->
 	<main class="mx-auto max-w-4xl p-8">
 		<h1 class="text-3xl font-bold">Ballastella Editor</h1>
-		<StorageChoice {storage} />
+		<!--
+			**Where the work is stored is no longer asked here** (ticket 12). It is a setting, reached
+			from the Workspace button on the bar, and browser storage is the silent default — which is
+			what ADR-0001 always implied and what the hub asked anyway, of everyone, including the
+			majority of browsers where there is no picker to answer with.
+
+			**What stays on the hub is the recovery**, and it is not the same thing. A moved, renamed, or
+			unplugged folder is a normal state with a way back (ADR-0008), and it has to be *immediate*:
+			a hub that silently listed browser storage's Projects instead would be indistinguishable,
+			from the user's side, from the tool having lost everything they had. It renders nothing when
+			the Workspace is reachable, so it costs nothing on the ordinary path.
+		-->
+		<WorkspaceRecovery {storage} />
 		<ProjectHub {session} />
 	</main>
 {:else}

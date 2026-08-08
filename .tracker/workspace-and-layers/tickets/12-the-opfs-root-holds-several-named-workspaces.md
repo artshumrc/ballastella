@@ -50,17 +50,32 @@ Read [ADR-0024](../../../docs/adr/0024-backup-and-handoff-are-different-artefact
 
 ## Acceptance criteria
 
-- [ ] Opening the app for the first time shows no question about where work is stored.
-- [ ] The navigation bar names the current Workspace on every screen.
-- [ ] A second named Workspace can be created, switched to, and found empty; switching back finds the first one's Projects.
-- [ ] The two Workspaces' Projects are stored under distinct OPFS subdirectories, and neither appears in the other's Project list.
-- [ ] A named OPFS store passes `packages/core`'s shared adapter suite **with no modification to the suite**, in both Chromium and Firefox.
-- [ ] Switching Workspaces with a pending autosave flushes it to the Workspace being left, and nothing is written to the one being entered.
-- [ ] Workspace settings opens from the bar as a `<dialog>` via `showModal()`, closes on Escape, restores focus, and offers the folder choice, the reopen offer, and the install offer.
-- [ ] An unreachable folder Workspace still shows its recovery immediately on the hub, and never silently falls back to browser storage.
-- [ ] `navigator.storage.persist()` is requested, and a refusal is reported in settings rather than swallowed.
-- [ ] Deleting a Workspace confirms first; the open Workspace cannot be deleted.
-- [ ] Every control is keyboard-reachable.
+- [x] Opening the app for the first time shows no question about where work is stored.
+- [x] The navigation bar names the current Workspace on every screen.
+- [x] A second named Workspace can be created, switched to, and found empty; switching back finds the first one's Projects.
+- [x] The two Workspaces' Projects are stored under distinct OPFS subdirectories, and neither appears in the other's Project list.
+- [x] A named OPFS store passes `packages/core`'s shared adapter suite **with no modification to the suite**, in both Chromium and Firefox.
+- [x] Switching Workspaces with a pending autosave flushes it to the Workspace being left, and nothing is written to the one being entered.
+- [x] Workspace settings opens from the bar as a `<dialog>` via `showModal()`, closes on Escape, restores focus, and offers the folder choice, the reopen offer, and the install offer.
+- [x] An unreachable folder Workspace still shows its recovery immediately on the hub, and never silently falls back to browser storage.
+- [x] `navigator.storage.persist()` is requested, and a refusal is reported in settings rather than swallowed.
+- [x] Deleting a Workspace confirms first; the open Workspace cannot be deleted.
+- [x] Every control is keyboard-reachable.
+
+**Added in review.** The Base Map cache keying was ticket 11's deferral, handed to this ticket by the
+tracker rather than by the contract above — so it arrived as a published-format change under a list
+of criteria that said nothing about it, which is how the compatibility gap below escaped the first
+round. The criteria it needed:
+
+- [x] A Workspace holding tiles for two archives keeps them in two directories, and neither archive's
+      coverage is satisfied by the other's tiles.
+- [x] A Published Site names which archives it carries tiles for, and the viewer draws cached
+      geography only for the entry those tiles belong to.
+- [x] **A site published before the keying still draws its cached geography**, rather than going
+      blank with `baseMapBundled: true` beside it.
+- [x] **A Workspace filled before the keying still has its tiles counted and cleared by the hub**,
+      rather than becoming disk nothing in the application admits to.
+- [x] Switching Workspaces and creating one are announced, not left to a mutating button label.
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check
@@ -76,3 +91,194 @@ For the flush criterion, assert on bytes in each Workspace, not on the save indi
 ## Blocked by
 
 - Ticket 04
+
+## What was built
+
+Browser-managed storage is a place that holds several named Workspaces. `OpfsProjectStore.open(name)`
+descends one level, which is the whole of the store change — **the factory really was the seam**, and
+`opfs-project-store.browser.test.ts` runs the shared adapter suite a second time through it, in
+Chromium and Firefox, with `git diff` on the suite file empty.
+
+`packages/core/src/store/opfs-workspaces.ts` is the new module: list, ensure, create, delete, open,
+and `requestPersistentStorage()`. A Workspace's **name is its directory name**, in both backings —
+which is what a folder Workspace already did, and what keeps there from being a second record that
+can disagree with the disk. `toWorkspaceName` is deliberately gentle: `Marking 2026` stays
+`Marking 2026`, because a bar that says `marking-2026` after the user typed `Marking 2026` has
+renamed their work without asking. It is narrow only about characters a filesystem or a path would
+choke on, and it is **idempotent**, because `createOpfsWorkspace` suffixes a taken name with ` (2)`
+and then normalises again — a normaliser that rewrote its own output would answer "free" about one
+string and create another.
+
+On the bar, Workspace identity became a switcher through `MenuPopover` (ADR-0016's mandated Popover
+API): the Workspaces, "New Workspace…", and "Workspace settings…". `StorageChoice.svelte` is deleted
+and its contents are `WorkspaceSettings.svelte`, a `<dialog>` + `showModal()` carrying the backing,
+the folder's name, the folder choice, the reopen offer, the install offer, what the browser said
+about persistence, and Workspace deletion with a confirmation naming the Workspace and its size.
+
+## Decisions worth recording
+
+- **Where the recovery lives.** `WorkspaceRecovery` moved *onto* the hub rather than into settings,
+  and `ProjectHub`'s own "Workspace not reachable" alert was deleted rather than kept beside it. That
+  alert offered "Locate Workspace again", which is only the right recovery for browser storage — for
+  a folder Workspace the way back is the picker — and two `role="alert"`s with one meaning is what a
+  screen reader reads out twice.
+- **`awaitingFolder` no longer renders while there is a `problem`.** The two states overlap exactly
+  once and it is the common case: a declined reopen leaves the folder remembered *and* leaves an
+  explanation of why it did not open. Both blocks rendered, and the user was handed "your folder is
+  not open yet" and "your folder was not opened" together, which say the same thing twice and answer
+  nothing between them. Found by `editor-folder-workspace.e2e.ts` going red on a strict-mode
+  violation, which is a better reason than taste.
+- **"Locate Workspace again" now rebuilds the store rather than re-listing.** `DirectoryHandleStore`
+  caches its root handle once it resolves, and that handle is now a *named subdirectory* rather than
+  the OPFS root, which cannot vanish. A Workspace deleted by a second tab therefore left a
+  permanently dead handle, and the recovery button re-listed through it — a recovery that could not
+  recover. `WorkspaceStorage.locateWorkspaceAgain` replaces the session instead.
+- **The persistence answer is injectable.** A real browser cannot be made to produce all three
+  outcomes — Chromium decides on its own heuristics and Firefox's `persist()` blocks on a permission
+  prompt that never appears without a gesture — so a test against the real API can only assert that
+  *something* came back, which is the shape of assertion that passes when the function is deleted.
+  The three answers are asserted against an injected `StorageManager` in Node; the real call is made
+  by the running app, and the browser suite asserts that exactly one of the three sentences appears
+  in settings.
+- **`e2e/support/test.ts` installs one `workspaceRoot()` in the page.** Some seventy `page.evaluate`
+  bodies treated `navigator.storage.getDirectory()` as the Workspace; each would otherwise have grown
+  its own `getDirectoryHandle`, which is seventy copies of one fact. The root is still reachable and
+  still spelled `navigator.storage.getDirectory()`, which is what the "empty everything" helpers and
+  the tests *about* several Workspaces mean — the distinction is now real and the suite says which it
+  means.
+
+## The deferral ticket 11 left, discharged
+
+The Base Map tile cache is `base-map/tiles/<key>/{z}/{x}/{y}.mvt`, keyed by the catalog entry's own
+`archive` string.
+
+- **The key is derived from `BaseMapEntry.archive` as the catalog writes it, not from the URL a
+  deployment resolves it to.** A bundled archive is a deployment-relative path, so the resolved URL
+  carries whichever origin the editor happened to be running on — and the same Workspace, published
+  and served from somebody else's host, would compute a different key for its own files and find no
+  cache at all.
+- **The provenance record moved inside the keyed directory**, so deleting the directory deletes the
+  claim with it. `cachedTilesMatchArchive` is gone: keying removes the state it existed for, and what
+  is left is one function refusing a record that names an archive other than the one asked about,
+  rather than a comparison every call site had to remember.
+- **The published format changed.** `PublishedSite.baseMapMaxZoom` became `baseMapCaches`, one entry
+  per archive with its own depth. A Reader's HTTP store cannot list a directory (ADR-0006), and
+  ADR-0020 lets a Reader switch entries, so the viewer has to be *told* which archives the site
+  carries tiles for; drawing one archive's tiles under another entry is the wrong-map failure the key
+  exists to end. A cache whose provenance record is missing is still served but is not claimed.
+- The Project screen now caps its MapLibre source at **this entry's** cached depth
+  (`baseMapCacheSizeFor`) rather than the Workspace's deepest cache, since another archive's depth
+  there is a map that goes blank above the zoom this one actually covers.
+
+## The mutation checks, and the one that mattered
+
+Four were run. The third is the reason the ticket's own advice about the save indicator was not
+enough on its own.
+
+1. **`baseMapArchiveKey` returning a constant** — `tile-cache.test.ts`'s "gives two archives two
+   directories" and `publish.test.ts`'s "names which archives it carries tiles for" both go red.
+2. **`OpfsProjectStore.open(name)` ignoring `name`** — 32 browser tests go red, including the whole
+   second run of the shared adapter suite and both containment tests.
+3. **`leaving.flush()` deleted from `WorkspaceStorage.#adopt`** — **green, twice, before it was
+   red.** The first cut typed a Project name and switched Workspaces as fast as Playwright can, on
+   the theory that 400 ms is a long time; the debounce had already fired on its own, so the test
+   asserted that the bytes were in the right place — which they were — and nothing at all about the
+   flush that was supposed to put them there. Swallowing the 400 ms timer was still not enough: the
+   Project name field commits on `blur`, and closing the settings dialog blurs it. It is now a
+   dragged opacity slider, where `oninput` queues and only `onchange` commits, so an `input` event
+   alone leaves a write that nothing but the flush can land. With the flush deleted the test fails on
+   the byte assertion; with it restored it passes.
+4. **The delete guard removed from `WorkspaceSettings`** — all four deletion tests go red.
+
+**One guard is deliberately not covered end to end**, and saying so is better than implying it is:
+`WorkspaceStorage.deleteWorkspace` throws when asked for the Workspace that is open, and the settings
+list never offers it, so the throw is unreachable from the UI. It is defence in depth against a later
+caller, in the shape ticket 18 recommends, and it has no test of its own.
+
+## Two things found while building it
+
+- **The hub carried a second "Workspace not reachable" alert** with a recovery that only works for
+  browser storage. See above; `ProjectHub`'s branch is now a plain sentence about the *list*, which
+  is that component's own subject.
+- **A named OPFS Workspace can vanish under a running app, and the root could not.** That is a new
+  state rather than a regression, and it is the same state ADR-0008 already describes for a folder —
+  but the store caches its root handle, so the existing recovery was inert against it. Fixed above,
+  and the e2e "empty everything" helpers now *empty* the open Workspace rather than removing it, so
+  the harness stops creating a state the product cannot be in.
+
+## Review round 1: nine findings, and the composition the rebase forced
+
+**Two were serious, and both were in the same twenty lines of naming code.**
+
+- **`createOpfsWorkspace` spun for ever on a name already at the length cap.** `toWorkspaceName`
+  ended in a truncation, so `toWorkspaceName(`${preferred} (2)`)` cut the suffix straight back off
+  and handed back `preferred` unchanged: the candidate stayed taken for every value of the counter,
+  and the loop advanced by nothing — synchronously, on the main thread. A user reached it by typing
+  a long name twice, and it froze the tab. The suffix now reserves its own room and shortens the
+  stem, so every candidate differs; the search is additionally bounded, which is what stops a future
+  change to that function from hanging it again rather than what makes it terminate today. The
+  mutation check is the old spelling restored: with the bound in place it fails in 128 ms instead of
+  never returning, which is the two layers doing their separate jobs.
+- **`toWorkspaceName` was not idempotent, and its own comment said it was.** `slice(0, 64)` counts
+  UTF-16 code units, so a cap landing inside an astral character left a **lone surrogate** — half a
+  character, a name OPFS may refuse, and a string the next pass silently repaired into something
+  *different*. `createOpfsWorkspace`'s correctness rests on that idempotence, so this was the same
+  bug as the first one wearing different clothes. It slices code points now and the contract is
+  asserted over the specimens that broke it. Combining marks (`\p{M}`) also survive: dropping them
+  is not a filesystem safety property, it is mangling Devanagari, Thai and Arabic.
+
+**The compatibility gap, which the missing criteria are why nobody caught.**
+`PublishedSite.baseMapMaxZoom` became `baseMapCaches` with no fallback, so a site published before
+the keying read as "carries tiles, for no archive": no cached geography, `baseMapBundled: true`
+beside it, and nothing said why — the silent blank ADR-0025 exists to prevent, arriving through the
+record instead of through the tiles. Likewise the unkeyed `base-map/tiles/{z}/…` stopped parsing, so
+a pre-12 Workspace's tiles were invisible to the hub's size and to its clear button. Both are read
+again: the old field becomes one cache **belonging to no archive**, which is what it meant when there
+was one directory serving whichever entry was showing, and the viewer matches a `null` archive
+against any entry. The version is 2 — and the code says plainly that the bump protects nobody,
+because nothing refuses a site record by version, and that the fallback is the part that works.
+
+**Scope, honestly.** The keying was ticket 11's deferral, handed here by the tracker rather than by
+this ticket's contract, and it landed a published-format change under criteria that said nothing
+about it. That is exactly how the gap above escaped. The criteria it needed are now in the list.
+
+**The rebase forced a real design decision.** `main` landed a default-deny network fence that extends
+Playwright's `test` across the same 25 specs this ticket's `workspaceRoot()` fixture does. Two roots
+is a suite where a spec gets whichever its author imported — the fence without `workspaceRoot()`, or
+`workspaceRoot()` reaching the network — so `support/test.ts` composes them and `network-fence.ts`
+stays the layer, where its measurement and its own positive control live.
+`check-e2e-network-fence.mjs` enforces both halves: a spec may take `test` from neither
+`@playwright/test` nor the fence layer, **and the root itself is checked for still building on the
+fence**, because the import rule alone cannot see a composition that has been quietly unpicked.
+
+Two fixture faults the reviewer named went with it: `workspaceRoot()` claimed to be "the current
+Workspace" while hardcoding the default — false the moment `switchToWorkspace` existed, and wrong in
+the quiet direction, since the read succeeds against the wrong Workspace. It follows the editor's own
+`localStorage` now. And its `create: true` made it useless for "has this been deleted?", which it
+would answer with an empty directory; `workspaceRootIfAny()` is the helper for that question.
+
+**The composed fence immediately found a defect in this ticket's own helper.**
+`expectWorkspaceNamed` asserted on the `workspace-identity` block — which *contains* the popover, so
+it was satisfied by the menu's own list of Workspace names and passed the instant the menu opened,
+whichever Workspace was current. `switchToWorkspace` therefore returned before the switch had
+happened, and the next step read the wrong Workspace's files. It asks the switcher button now.
+
+**Accessibility.** Switching and creating announced nothing: the only signal was the switcher
+button's own label mutating, which no screen reader reports. Both are announced now, and the
+announcement carries the name a Workspace *really* got — the one case where saying the typed name
+back is wrong is exactly the case where it matters. The inline form also hands focus back to the
+switcher instead of dropping it to `<body>` on submit, on Cancel, and on Escape.
+
+**The delete guard is weaker than the first write-up claimed**, and now says so: it compares against
+*this tab's* Workspace, so tab A deleting the Workspace tab B has open walks straight through. There
+is no lock and no cross-tab channel in this application, and inventing one for a confirmation dialog
+would be a coordination protocol with a single caller. What covers the two-tab case is the
+consequence rather than the prevention — tab B reports the Workspace unreachable rather than
+silently empty, and `locateWorkspaceAgain` makes that recovery real.
+
+**Smaller.** The harness's copy of the archive-key hash is held to the application's by two existing
+tests pulling in opposite directions, and both now say so rather than a third test re-deriving it;
+`isOpen` replaces four copies of one predicate; the inline field's `id` is `$props.id()` rather than a
+literal, for the reason `MenuPopover` documents about its own; the switcher truncates a 64-character
+name instead of pushing the bar off screen; and `requestPersistentStorage` moved to
+`store/persistent-storage.ts`, since it names no Workspace and covers the whole origin.

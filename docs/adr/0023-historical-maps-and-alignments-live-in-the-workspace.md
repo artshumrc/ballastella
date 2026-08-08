@@ -13,7 +13,7 @@ workspace/
 │   ├── remote.json                # present when the map is referenced from a Library (ADR-0007)
 │   └── <region>/<size>/0/default.jpg
 ├── alignments/<image-id>.json     # IIIF Georeference Annotation — one per Historical Map
-├── base-map/tiles/{z}/{x}/{y}.mvt # opt-in offline Base Map cache (ADR-0025)
+├── base-map/tiles/<archive>/{z}/{x}/{y}.mvt  # opt-in offline Base Map cache (ADR-0025)
 ├── amsterdam-1625/
 │   ├── project.json
 │   └── annotations/<layer-id>.geojson
