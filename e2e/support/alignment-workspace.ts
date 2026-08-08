@@ -10,6 +10,7 @@
 import { expect, type Locator, type Page } from './test.js';
 import zlib from 'node:zlib';
 
+import { addHistoricalMapButton, pickHistoricalMapFile } from './historical-maps.js';
 import { openLayerRow } from './layers';
 import { readStoredFileOrNull } from './stored-file';
 
@@ -159,9 +160,9 @@ export async function start(page: Page): Promise<string> {
 	// The wait is load-bearing: a Project is selected client-side from `?p=` (ADR-0008), so for a
 	// moment after the click the hub is still rendered — and the hub lists Projects as list items.
 	await page.getByRole('link', { name: PROJECT_NAME }).click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(addHistoricalMapButton(page)).toBeVisible();
 
-	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+	await pickHistoricalMapFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)

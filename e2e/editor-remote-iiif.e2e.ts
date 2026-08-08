@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import zlib from 'node:zlib';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { ensureAddHistoricalMapOpen, openAddHistoricalMap } from './support/historical-maps.js';
 import { layerRows, openLayerRow } from './support/layers.js';
 
 // The catalog's archive is somebody else's bucket, and **no spec may reach the internet**. This suite
@@ -493,12 +494,17 @@ async function createProject(page: Page, name: string): Promise<void> {
 		.click();
 }
 
+/**
+ * A new Project, open, with the three sources on screen (ticket 06).
+ *
+ * The library flow is one of the three the "Add a Historical Map" button offers, so reaching it is
+ * pressing that button — which `openAddHistoricalMap` does, and which also asserts that all three
+ * sources are there rather than only the one this suite goes on to use.
+ */
 async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void> {
 	await createProject(page, name);
 	await page.getByRole('link', { name }).click();
-	await expect(
-		page.getByRole('heading', { name: 'Add a Historical Map from a library' })
-	).toBeVisible();
+	await openAddHistoricalMap(page);
 }
 
 /**
@@ -517,8 +523,14 @@ async function expectReferencedMap(page: Page, at: number | Locator = 0): Promis
 	return row;
 }
 
-/** Paste a URL and look it up. */
+/**
+ * Paste a URL and look it up, from the dialog that offers the library as one of three sources.
+ *
+ * The dialog is opened first if a successful add has closed it: adding a map takes the panel off the
+ * screen, so a spec that adds one and then looks up another address has to come back in.
+ */
 async function lookUp(page: Page, url: string): Promise<void> {
+	await ensureAddHistoricalMapOpen(page);
 	await page.getByTestId('remote-url').fill(url);
 	await page.getByTestId('remote-read').click();
 }
@@ -1031,7 +1043,10 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 					).body.features.length
 			)
 			.toBe(3);
-		await expect(page.getByTestId('remote-notice')).toHaveCount(0);
+		// The screen's notice region is always there and says nothing, which is the honest shape of
+		// "nothing was kept over": an element that is *absent* would also be satisfied by a region that
+		// had stopped rendering at all.
+		await expect(page.getByTestId('remote-notice')).toHaveText('');
 	});
 
 	/**
@@ -1382,7 +1397,20 @@ test.describe('reading a referenced Historical Map as a document', () => {
 			await lookUp(page, `${service('images.test', name)}/info.json`);
 			await expect(page.getByTestId('remote-add')).toBeVisible();
 			await page.getByTestId('remote-add').click();
-			await expectReferencedMap(page);
+			// ⚠ **By image id, never by position, once this Project has more than one Layer.** A new
+			// map Layer goes to the *top* of the stack, so between the add and the re-render index 0
+			// names the row that was already there — and `openLayerRow` is idempotent, so it reads
+			// `aria-expanded="true"` off the *old* row, clicks nothing, and hands back a locator that
+			// then resolves to the new, still-closed one. Measured on the second pass of this loop: 2
+			// failures in 11 runs, always "referenced-image-host … element(s) not found", with the page
+			// snapshot showing row 2 open and row 1 closed. An index is not a subject when the list can
+			// grow at the front.
+			await expectReferencedMap(
+				page,
+				page.locator(
+					`[data-testid="layer-row"][data-image-id="${generateId(service('images.test', name))}"]`
+				)
+			);
 		}
 		await expect(page.getByRole('status')).toHaveText('Saved');
 

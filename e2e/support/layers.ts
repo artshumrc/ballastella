@@ -24,6 +24,13 @@ export const layerRows = (page: Page) => page.getByTestId('layer-row');
  * not close it again. `aria-expanded` is asked rather than a class, because that attribute is what
  * the app promises a screen reader and is therefore the thing worth depending on.
  *
+ * ⚠ **Pass the row, not an index, whenever a Layer has just been added.** A new map Layer goes to
+ * the *top* of the stack, so index 0 names one row before the re-render and another after it — and
+ * because this is idempotent, it reads `aria-expanded="true"` off the row that was already open,
+ * clicks nothing, and hands back a locator that then resolves to the new, still-closed row. Measured
+ * in `editor-remote-iiif.e2e.ts`: 2 failures in 11 runs, as a child of the returned row never
+ * appearing. An index is not a subject when the list can grow at the front.
+ *
  * @param at the row's index in the stack, or the row itself
  * @returns the row, so the caller can scope its own queries to it
  */

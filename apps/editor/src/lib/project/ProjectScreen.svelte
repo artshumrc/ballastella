@@ -69,9 +69,9 @@
 	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
+	import AddHistoricalMap from '$lib/historical-maps/AddHistoricalMap.svelte';
 	import LayerList from '$lib/layers/LayerList.svelte';
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
-	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
 	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
@@ -1063,6 +1063,47 @@
 		)
 	]);
 
+	/** Whether the "Add a Historical Map" dialog is up (ticket 06). A working choice, stored nowhere. */
+	let addingMap = $state(false);
+
+	/**
+	 * What the last add had to say beyond having happened, or `''`.
+	 *
+	 * **Held here rather than in the dialog because the dialog closes on success.** The one thing that
+	 * says this today is the community Alignment a user asked to import and did not get: the Layer is
+	 * there, the import did not happen, and *why* is not guessable from anything on screen — one
+	 * Alignment per Historical Map, shared by every Project that draws it, is a property of this
+	 * application's storage (ADR-0023). A message rendered inside the dialog would be inserted and
+	 * removed in the same frame, which announces nothing at all.
+	 */
+	let addNotice = $state('');
+
+	/**
+	 * What the preparation of a Historical Map is doing, in one sentence (SPEC story 23).
+	 *
+	 * **One string, rendered twice**: visibly on the Layer's card, and in the always-present live
+	 * region below the stack. The ticket asks for the announcement to carry the same numbers as the
+	 * bar, and the only way to be sure of that is for there to be one sentence rather than two that
+	 * have to be kept agreeing.
+	 */
+	const ingestSentence = $derived.by((): string => {
+		const ingest = session.ingest;
+		if (!ingest) return '';
+		const label = session.ingestLabel;
+		switch (ingest.phase) {
+			case 'inspecting':
+				return `Reading ${label}…`;
+			case 'opening':
+				return `Opening ${label}…`;
+			case 'tiling':
+				return `Preparing ${label}: tile ${ingest.tilesWritten} of ${ingest.tileCount}`;
+			case 'finishing':
+				return `Finishing ${label}…`;
+			case 'done':
+				return `Added ${label}`;
+		}
+	});
+
 	/**
 	 * Which referenced Historical Map is being read unwarped, by image id. `''` for none.
 	 *
@@ -1083,14 +1124,17 @@
 	you have not moved the focus" is not a cancel affordance. It abandons rather than commits, because a
 	half-drawn shape somebody walked away from is not something they asked to keep.
 
-	**Not while the settings dialog or the Project menu is open.** Both of them consume Escape
-	themselves — `<dialog>` closes, and a popover light-dismisses — and both keep the keypress
-	propagating afterwards, so acting on it here as well would abandon a drawing gesture the user
-	cannot even see behind whichever one they were closing.
+	**Not while a dialog or the Project menu is open.** All three consume Escape themselves — a
+	`<dialog>` closes, and a popover light-dismisses — and all three keep the keypress propagating
+	afterwards, so acting on it here as well would abandon a drawing gesture the user cannot even see
+	behind whichever one they were closing. `addingMap` is in that list for the same reason
+	`settingsOpen` is, and it is the reason this is a list rather than one flag: every dialog added to
+	this screen has to join it, and the next one will be `MakeOfflineDialog`'s if it ever gains a
+	drawing gesture behind it.
 -->
 <svelte:window
 	onkeydown={(event) => {
-		if (event.key !== 'Escape' || settingsOpen) return;
+		if (event.key !== 'Escape' || settingsOpen || addingMap) return;
 		// **Asked of the element, not of a flag.** `MenuPopover.isOpen()` reads `:popover-open`, which
 		// is true throughout the keypress that dismisses it and false on the very next one — a reactive
 		// copy of the same fact lags one flush behind, and that lag swallowed the Escape a user
@@ -1209,12 +1253,28 @@
 					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
 					ondelete={(id) => void session.deleteLayer(id)}
+					preparing={session.ingest ? preparingLayer : undefined}
 					{mapContents}
 					{annotationContents}
 				/>
 
+				<!--
+					The one way a Historical Map gets into this Project (ticket 06), and it is a button with
+					words on it rather than an icon (SPEC story 111). What it opens offers all three sources
+					at once — a file, a library, and a map this Workspace already holds — which is why this is
+					one affordance rather than three sections competing for a 24rem column.
+				-->
 				<button
-					class="btn mt-4 btn-sm"
+					class="btn mt-4 btn-primary btn-sm"
+					type="button"
+					data-testid="add-historical-map"
+					onclick={() => (addingMap = true)}
+				>
+					Add a Historical Map
+				</button>
+
+				<button
+					class="btn mt-4 ml-2 btn-sm"
 					data-testid="add-annotation-layer"
 					onclick={() => session.addAnnotationLayer(`Annotations ${annotationLayerCount + 1}`)}
 				>
@@ -1254,116 +1314,69 @@
 					{undoRefusal}
 				</p>
 
-				<hr class="my-6 border-base-300" />
+				<!--
+					What the preparation in the stack is doing, announced (SPEC stories 23, 112).
+
+					─────────────────────────────────────────────────────────────────────────────────────────
+					WHY THE ANNOUNCEMENT IS HERE AND THE PROGRESS IS ON THE CARD
+
+					`aria-live="polite"` with `aria-atomic="true"` rather than `role="status"`, and the reason
+					is unchanged from where this used to live: the save indicator already owns `status` for the
+					whole app, so a second one makes `getByRole('status')` ambiguous — which is a hint that a
+					screen-reader user would have to disambiguate too. `aria-atomic` so each update is read as
+					a whole sentence rather than as the digits that changed.
+
+					**Always rendered, which is what makes it work.** A live region is announced when its text
+					*changes*, not when the element carrying it is inserted — the same rule this file states at
+					length for `base-map-offline`, which is an `alert` for exactly that reason. The Layer's
+					card is inserted with its text already in it, so a live region inside the card would be an
+					announcement a screen-reader user never hears. So the card carries the visible sentence and
+					this carries the announced one, they are the same string ({@link ingestSentence}), and this
+					one is `sr-only` because the card is already showing it.
+				-->
+				<p class="sr-only" aria-live="polite" aria-atomic="true" data-testid="ingest-announcement">
+					{ingestSentence}
+				</p>
 
 				<!--
-					Adding a Historical Map from a file on this computer (SPEC stories 21, 22, 25, 26).
+					Why an add did not happen, from either of the two sources that fail in the sidebar rather
+					than in the dialog: a file that could not be tiled, and a second file picked while one was
+					still running. `role="alert"` because this element is *inserted* when its text first exists,
+					and an `aria-live` region is announced on a text change rather than on insertion.
 
-					Every image becomes a IIIF pyramid, including a small one, because an untiled level-0
-					image cannot be parsed at all (ADR-0003). So this is a job with progress rather than a
-					file input that finishes instantly, and the progress region below is what a scholar
-					watching a large scan has to go on.
-
-					In the sidebar because that is where Layers come from. Ticket 06 makes it one "Add a
-					Layer" flow offering all three sources; what is here is the two that already work, kept
-					working.
+					Here and not in the dialog because the dialog is closed by then: picking a file closes it, so
+					the refusal has to land where the user is left. The "already in this Workspace" source fails
+					with the dialog still open and says so there, beside the list that was clicked.
 				-->
-				<section aria-labelledby="historical-maps-heading">
-					<h2 id="historical-maps-heading" class="text-sm font-semibold">Historical Maps</h2>
-
-					<label class="mt-3 block">
-						<span class="mb-1 block text-sm">Add a Historical Map from a file</span>
-						<input
-							class="file-input w-full"
-							type="file"
-							accept="image/*"
-							disabled={session.ingest !== null}
-							onchange={(event) => {
-								const input = event.currentTarget;
-								const file = input.files?.[0];
-								// Cleared straight away, so picking the same file twice runs twice: `change` does
-								// not fire for an unchanged value, and "nothing happened" is indistinguishable
-								// from a silent failure.
-								input.value = '';
-								if (file) session.ingestImage(file);
-							}}
-						/>
-					</label>
-
-					<!--
-						`aria-live="polite"` rather than `role="status"`, which would be the idiomatic choice
-						but for the save indicator already being the app's one `status` role — two of them make
-						`getByRole('status')` ambiguous, and a test that has to disambiguate is a hint that a
-						screen-reader user would have to as well. `aria-atomic` so each update is read as a
-						whole sentence rather than as the digits that changed.
-					-->
-					<div aria-live="polite" aria-atomic="true" class="mt-4 min-h-6">
-						{#if session.ingest}
-							{@const ingest = session.ingest}
-							<p class="text-sm">
-								{#if ingest.phase === 'inspecting'}
-									Reading {session.ingestLabel}…
-								{:else if ingest.phase === 'opening'}
-									Opening {session.ingestLabel}…
-								{:else if ingest.phase === 'tiling'}
-									Preparing {session.ingestLabel}: tile {ingest.tilesWritten} of {ingest.tileCount}
-								{:else if ingest.phase === 'finishing'}
-									Finishing {session.ingestLabel}…
-								{:else}
-									Added {session.ingestLabel}
-								{/if}
-							</p>
-							<progress
-								class="progress mt-1 w-full"
-								value={ingest.fraction}
-								max="1"
-								aria-label="Preparing {session.ingestLabel}"
-							></progress>
-							<!--
-								A real button, beside the bar and reachable by tab. A gigapixel scan is thousands
-								of tiles and several minutes; picking the wrong file and having no way out of it
-								is the thing `ingest.ts` claimed to support and the app never wired up. The job
-								cleans up after itself, so cancelling leaves the Project as it was.
-							-->
-							<button
-								type="button"
-								class="btn mt-2 btn-sm"
-								aria-label="Cancel preparing {session.ingestLabel}"
-								onclick={() => session.cancelIngest()}
-								disabled={ingest.phase === 'done'}>Cancel</button
-							>
-						{/if}
+				{#if session.ingestError}
+					<div role="alert" class="mt-4 alert max-w-prose alert-warning">
+						<p>{session.ingestError}</p>
 					</div>
+				{/if}
 
-					{#if session.ingestError}
-						<div role="alert" class="mt-4 alert max-w-prose alert-warning">
-							<p>{session.ingestError}</p>
-						</div>
-					{/if}
-
-					{#if mapLayers.length === 0 && session.ingest === null}
-						<!--
-							The empty state, and it names the one useful next action (SPEC story 106). Derived from
-							the Layers rather than from the Workspace's pyramids, which is the change ADR-0023
-							makes to what this sentence *means*: the Workspace may hold a dozen Historical Maps
-							and this Project draw none of them, and "you have no maps" would be false while "this
-							Project has none" stays true. It is also what says a cancelled or refused ingest left
-							the Project exactly as it was.
-						-->
-						<p class="mt-4 max-w-prose text-sm">
-							This Project has no Historical Maps yet. What works now is bringing one in — the image
-							is converted to a IIIF pyramid, written into the Workspace as you watch, and then
-							Align opens it beside the Base Map to place onto the world.
-						</p>
-					{/if}
-
+				{#if mapLayers.length === 0 && session.ingest === null}
 					<!--
-						Adding a Historical Map from a library's IIIF endpoint. Beside the file input, because
-						the two are the same act — bringing a map in — reached from two different kinds of
-						source, and what differs afterwards is only whether the tiles are ours.
+						The Historical Map empty state, beside the button that answers it (SPEC story 106). Derived
+						from the Layers rather than from the Workspace's pyramids, which is the change ADR-0023 makes
+						to what this sentence *means*: the Workspace may hold a dozen Historical Maps and this Project
+						draw none of them, and "you have no maps" would be false while "this Project has none" stays
+						true. It is also what says a cancelled or refused preparation left the Project exactly as it
+						was.
+
+						**And it now names the third source, which is the state ticket 04 left unsaid.** A Historical
+						Map whose starter Alignment could not be written arrives with its pyramid and without its
+						Layer (ADR-0023 writes the Alignment first on purpose); `session.ingestError` says so while
+						it is on screen and `open()` clears it, so after a reload this sentence was the only thing
+						left and it described a Workspace that was not empty as if it were. The pyramid is offered by
+						the "already in this Workspace" source, and adding it from there is what writes the Alignment
+						that failed — so the useful next action is available rather than merely described.
 					-->
-					<AddRemoteMap {session} />
-				</section>
+					<p class="mt-4 max-w-prose text-sm" data-testid="no-historical-maps">
+						This Project has no Historical Maps yet. Press Add a Historical Map to bring one in —
+						from a file on this computer, from a library’s IIIF address, or from one this Workspace
+						already holds, which copies nothing and keeps the alignment it already has.
+					</p>
+				{/if}
 
 				<!--
 					The outcome of a copy, announced from out here rather than from inside the dialog: the
@@ -1377,6 +1390,22 @@
 					data-testid="offline-copy-done"
 				>
 					{offlineCopy.completed}
+				</p>
+
+				<!--
+					What an add had to say for itself after its dialog closed (ticket 06), out here for exactly
+					the reason stated above it. Always rendered so that its text *changing* is what a screen
+					reader hears; `alert-info` when there is something, because the add succeeded and nothing
+					is broken — what did not happen is one thing the user asked for, and it is said in the
+					words `add-remote-map.svelte.ts` chose for it.
+				-->
+				<p
+					class="mt-2 min-h-6 max-w-prose text-sm"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="remote-notice"
+				>
+					{addNotice}
 				</p>
 
 				{#if session.referencedImageErrors.length > 0}
@@ -1587,6 +1616,13 @@
 	<MakeOfflineDialog job={offline} entry={resolution.entry} {layers} />
 
 	<!--
+		The three sources a Historical Map comes from (ticket 06). **Outside `project-screen` for the
+		reason stated above** — a closed daisyUI modal is laid out, so every control in it would answer
+		the tab walk's `querySelectorAll` while being unreachable by keyboard.
+	-->
+	<AddHistoricalMap {session} bind:open={addingMap} onnotice={(notice) => (addNotice = notice)} />
+
+	<!--
 		Project settings (SPEC stories 10, 11): the one editable field and the two facts a scholar needs
 		to find their files and trust that they are current. A dialog rather than a page, because a page
 		for three values is the navigation this ticket exists to remove.
@@ -1651,6 +1687,73 @@
 	Nothing here says the opposite when a map *is* aligned — the Align button is that affordance either
 	way, and an unrequested "Aligned" line was the first cut's other mistake.
 -->
+{#snippet preparingLayer()}
+	<!--
+		The Historical Map being prepared, as its own card at the top of the stack (ticket 06).
+
+		─────────────────────────────────────────────────────────────────────────────────────────
+		WHY THIS LAYER IS NOT IN `project.json` YET, AND WHY THAT IS THE POINT
+
+		The ticket asks for a Layer to appear first and report its own preparation, and for cancelling
+		to remove it. The obvious way to build that is to write the Layer into `project.json` at the
+		start and delete it at the end if the user cancels — and that reintroduces the dangling
+		reference ticket 02 closed, by another door: for the minutes a gigapixel scan takes, the Project
+		on disk holds a map Layer whose pyramid and whose `alignments/<id>.json` do not exist, which is
+		a Project `assertReferencesPresent` refuses and this build would export and then decline to
+		import. Close the tab in that window and the Layer is permanent, because the code that would
+		have removed it is gone with the page. ADR-0023's write order — Alignment first, `project.json`
+		last — exists precisely to keep that state off the disk.
+
+		So the card is the Layer *before it is a Layer*: it is in the stack, at the position the row
+		will take, carrying the name of the file and the way to stop it. Cancelling removes it because
+		nothing was written; the criterion is met by construction rather than by a cleanup path that has
+		to run. What is given up is a rename or a reorder during the preparation, which are edits to a
+		document the map is not in yet.
+	-->
+	{#if session.ingest}
+		{@const ingest = session.ingest}
+		<div class="flex flex-col gap-2">
+			<div class="flex flex-wrap items-baseline gap-2">
+				<span class="font-medium" data-testid="preparing-layer-name">{session.ingestLabel}</span>
+				<span class="text-sm opacity-70">Historical Map</span>
+			</div>
+
+			<!--
+				The same sentence the live region announces, drawn where the eye is (SPEC story 111: visible
+				text, never a tooltip). `ingestSentence` is the one source of it — see the region below the
+				stack for why the announcement cannot live inside this card.
+			-->
+			<p class="text-sm" data-testid="preparing-layer-status">{ingestSentence}</p>
+
+			<progress
+				class="progress w-full"
+				value={ingest.fraction}
+				max="1"
+				aria-label="Preparing {session.ingestLabel}"
+			></progress>
+
+			<!--
+				A real button, beside the bar and reachable by tab. A gigapixel scan is thousands of tiles
+				and several minutes; picking the wrong file and having no way out of it is the thing
+				`ingest.ts` claimed to support and the app did not wire up until ticket 04. Named for what
+				it cancels rather than "Cancel", which tells a screen-reader user nothing when it is one of
+				several buttons on the page (ADR-0016).
+			-->
+			<div>
+				<button
+					type="button"
+					class="btn btn-sm"
+					aria-label="Cancel preparing {session.ingestLabel}"
+					onclick={() => session.cancelIngest()}
+					disabled={ingest.phase === 'done'}
+				>
+					Cancel
+				</button>
+			</div>
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet mapContents(layer: MapLayer)}
 	{@const origin = originFor(layer)}
 	{@const referenced = referencedImageIds.has(layer.imageId)}

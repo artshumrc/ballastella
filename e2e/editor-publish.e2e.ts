@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
 import { alignFromLayer } from './support/layers.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
 
@@ -732,8 +733,8 @@ test.describe('publishing a Workspace', () => {
 		await created.getByLabel('Project name').fill('Amsterdam 1625');
 		await created.getByRole('button', { name: 'Create' }).click();
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+		await expect(addHistoricalMapButton(page)).toBeVisible();
+		await pickHistoricalMapFile(page, {
 			name: 'amsterdam.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(600, 400)
@@ -788,7 +789,7 @@ test.describe('publishing a Workspace', () => {
 		page.on('request', (request) => requested.push(request.url()));
 		await page.reload();
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		await alignFromLayer(page);
 		await expect
 			.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {

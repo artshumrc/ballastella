@@ -40,6 +40,7 @@
 		ondragopacity,
 		onmove,
 		ondelete,
+		preparing,
 		mapContents,
 		annotationContents
 	}: {
@@ -84,6 +85,18 @@
 		 * delete confirms without reading and one who does not needs the way back either way.
 		 */
 		ondelete: (id: string) => void;
+		/**
+		 * The card of a Historical Map being prepared right now, or `undefined` when none is (ticket 06).
+		 *
+		 * Rendered as the **top row of the stack**, which is where the Layer it is becoming will be, so
+		 * that "a Layer appears and reports its own preparation" is one row moving through two states
+		 * rather than a progress bar somewhere else on the screen that a user has to connect to a Layer
+		 * themselves.
+		 *
+		 * A snippet, like {@link mapContents}: what it draws is the session's ingest — the phase, the
+		 * tile numbers and the cancel — and this component is about the stack.
+		 */
+		preparing?: Snippet;
 		/**
 		 * What is inside a Historical Map Layer, revealed when its row is open: whether it is aligned,
 		 * the button that aligns it, and where its tiles come from.
@@ -225,10 +238,18 @@
 		{moved}
 	</div>
 
-	{#if layers.length === 0}
-		<p class="max-w-prose">
-			No Layers yet. Adding a Historical Map to this Project puts it here straight away, aligned or
-			not, and an Annotation Layer can be added whenever you have something to say over it.
+	{#if layers.length === 0 && !preparing}
+		<!--
+			The empty state, and **it names the two buttons that are actually there** (SPEC story 106).
+			"Add a Historical Map" and "Add an Annotation Layer" are the words on the controls below this
+			sentence, not a description of them: guidance that names something the user then has to
+			translate into what is on screen is guidance they have to solve first.
+		-->
+		<p class="max-w-prose" data-testid="no-layers">
+			No Layers yet. Press <strong>Add a Historical Map</strong> to bring one in — from a file, from
+			a library, or from one this Workspace already holds — and it appears here straight away,
+			aligned or not. <strong>Add an Annotation Layer</strong> is for whenever you have something to say
+			over it.
 		</p>
 	{:else}
 		<!--
@@ -238,6 +259,22 @@
 			too — as text, not as a list marker, since a marker does not render on a flex item.
 		-->
 		<ol class="mt-2 flex flex-col gap-2" aria-label="Layers, top first">
+			{#if preparing}
+				<!--
+					The Historical Map being prepared, in the stack, above the Layers that are already in it
+					(ticket 06). A new map Layer is added at the top, so this is where the row it becomes will
+					be, and the card does not move when the preparation finishes.
+
+					**It has no name field, no visibility toggle and no position controls**, because none of
+					them would have anything to act on: this Layer is not in `project.json` yet — see the
+					`preparing` snippet in `ProjectScreen.svelte` for why it deliberately is not — so a rename
+					would have nowhere to go and a reorder nothing to reorder. What it carries is the two
+					things that are true of it: what is happening, and the way to stop it.
+				-->
+				<li class="rounded border border-dashed border-base-300 p-3" data-testid="preparing-layer">
+					{@render preparing()}
+				</li>
+			{/if}
 			{#each layers as layer, index (layer.id)}
 				{@const outcome = outcomes[layer.id]}
 				<!--

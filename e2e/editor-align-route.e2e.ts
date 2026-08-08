@@ -24,6 +24,7 @@ import {
 	expectWarpedDrawn
 } from './support/alignment-workspace';
 import { routeBaseMapArchive } from './support/editor-deployment';
+import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
 import { alignFromLayer, openLayerRow } from './support/layers';
 
 /**
@@ -69,8 +70,8 @@ async function projectWithMap(page: Page): Promise<void> {
 	await dialog.getByLabel('Project name').fill(PROJECT_NAME);
 	await dialog.getByRole('button', { name: 'Create' }).click();
 	await page.getByRole('link', { name: PROJECT_NAME }).click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+	await expect(addHistoricalMapButton(page)).toBeVisible();
+	await pickHistoricalMapFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
@@ -205,14 +206,14 @@ test.describe('the alignment route', () => {
 		await expect(historicalMap(page)).toHaveCount(0);
 		await expect(baseMap(page)).toHaveCount(0);
 		await backLink(page).click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 
 		// 5. No `?layer=`, with a perfectly good Project.
 		await page.goto(`/align?p=${PROJECT_DIRECTORY}`);
 		await expect(page.getByTestId('no-layer')).toBeVisible();
 		await expect(historicalMap(page)).toHaveCount(0);
 		await backLink(page).click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 
 		expect(thrown, 'a bad address must not throw').toEqual([]);
 	});
@@ -362,7 +363,7 @@ test.describe('the alignment route', () => {
 		await noWritesAfter();
 
 		await backLink(page).click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		await page.waitForTimeout(1000);
 
 		// The bytes agree with the counter, on both documents. `project.json` is SPEC story 36 against
@@ -407,7 +408,7 @@ test.describe('the alignment route', () => {
 		const written = await storedAlignment(page, imageId);
 
 		await backLink(page).click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		await expect(historicalMap(page)).toHaveCount(0);
 
 		await alignFromLayer(page);
@@ -445,7 +446,7 @@ test.describe('the alignment route', () => {
 		expect(placed).toEqual(opened);
 
 		await backLink(page).click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		await alignFromLayer(page);
 		await expect(rows(page)).toHaveCount(2);
 
@@ -645,7 +646,7 @@ test.describe('the route from the keyboard', () => {
 		// And it works when it is reached: activating it by keyboard lands on the Project.
 		await backLink(page).focus();
 		await page.keyboard.press('Enter');
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		expect(new URL(page.url()).searchParams.get('p')).toBe(PROJECT_DIRECTORY);
 	});
 

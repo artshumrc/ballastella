@@ -1,0 +1,270 @@
+<script lang="ts">
+	// One way into a Project for a Historical Map, offering all three of its sources at once
+	// (ticket 06, SPEC stories 21–30, 33, 36).
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THREE SOURCES, EQUALLY VISIBLE, IN ONE PLACE
+	//
+	// A scholar has a map on their laptop, a map at a library, and a map they prepared last week, and
+	// before this ticket the interface answered those three questions in three different registers: a
+	// file input at the top of a section, a URL form below it, and — for a map already in the
+	// Workspace — nothing at all. This dialog is the ticket's contract as markup: three `<section>`s,
+	// all rendered, none behind a disclosure, a link, or a tab.
+	//
+	// **Why a dialog rather than three panels in the sidebar.** The sidebar is a fixed 24rem column
+	// beside the map (ticket 04), and the library flow alone is a URL form, a rights statement, a
+	// metadata table and a scrolling list of canvases. Stacked in that column the three sources would
+	// be equally *present* and nothing like equally *visible* — the third would be several screens
+	// below the fold, which is the "behind an extra step" this ticket rules out, wearing a scrollbar
+	// instead of a link. So the sidebar carries one button with words on it (SPEC story 111) and this
+	// is what the button opens.
+	//
+	// ADR-0016 mandates `<dialog>` + `showModal()`, and {@link ModalDialog} is where that decision was
+	// made once: Escape, the focus trap, and focus restoration come with it.
+	//
+	// **Mounted outside `project-screen`** by its caller, beside the settings dialog and for the reason
+	// stated there: daisyUI's `.modal` keeps a closed `<dialog>` laid out, so its controls answer a
+	// `querySelectorAll` of visible controls while being unreachable by keyboard, and
+	// `editor-project-screen.e2e.ts` walks exactly that set.
+
+	import { describeBytes, type WorkspaceHistoricalMap } from '@ballastella/core';
+
+	import ModalDialog from '$lib/components/ModalDialog.svelte';
+	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
+
+	import type { EditorSession } from '../editor-session.svelte.js';
+
+	let {
+		session,
+		open = $bindable(false),
+		onnotice
+	}: {
+		session: EditorSession;
+		open?: boolean;
+		/**
+		 * Something a source has to say that outlives this dialog, or `''` to clear it.
+		 *
+		 * Every one of the three sources closes the dialog when it succeeds, so anything worth reading
+		 * afterwards has to be handed to the screen. See `AddRemoteMap`'s `onadded` for the case this
+		 * exists for.
+		 */
+		onnotice?: (notice: string) => void;
+	} = $props();
+
+	/**
+	 * The Workspace's Historical Maps, walked when the dialog opens and not before.
+	 *
+	 * `listWorkspaceHistoricalMaps` weighs every file under `images/`, which on a Workspace holding a
+	 * gigapixel scan is tens of thousands of `size` calls — so it is tied to the gesture that needs
+	 * it rather than to a render. Re-walked on every open, because the answer changes: an ingest
+	 * that finished, a map deleted from the hub, a Layer added in another tab.
+	 */
+	$effect(() => {
+		if (!open) return;
+		void session.refreshHistoricalMaps();
+	});
+
+	/**
+	 * The maps this Project could gain, which is every Historical Map in the Workspace **except the
+	 * ones it already draws**.
+	 *
+	 * Offering a map this Project already has would be offering an action that does nothing:
+	 * `#addMapLayer` is a no-op on the stack for a map already in it, so the row would swallow a
+	 * click and change nothing on screen. `mapLayerFor` is the session's one answer to "does this
+	 * Project draw that map?", asked here rather than re-derived, so the list and the add cannot
+	 * disagree about what is already in.
+	 *
+	 * A map whose pyramid is here but whose starter Alignment never landed is **in** this list, and
+	 * that is the point of it: it has no Layer anywhere, so nothing else on this screen mentions it.
+	 */
+	const available = $derived(
+		session.historicalMaps.filter((map) => session.mapLayerFor(map.imageId) === undefined)
+	);
+
+	/** What a map is called in the list, never its hash where anything better is known. */
+	const nameOf = (map: WorkspaceHistoricalMap): string => map.label || map.imageId;
+
+	/**
+	 * What one Workspace map weighs, and how many files that is.
+	 *
+	 * The size is the ticket's requirement and the file count is what makes it legible: "3 files" and
+	 * "31 000 files" are different news about the same 40 MB. Both come from `WorkspaceHistoricalMap`,
+	 * which is core's figure and the same one the hub's reclaim list states.
+	 */
+	const weightOf = (map: WorkspaceHistoricalMap): string =>
+		`${describeBytes(map.bytes)} in ${map.files} ${map.files === 1 ? 'file' : 'files'}`;
+
+	/** Adding a Workspace map is one at a time, so a double click cannot make two Layers. */
+	let adding = $state('');
+
+	async function addFromWorkspace(imageId: string): Promise<void> {
+		if (adding !== '') return;
+		adding = imageId;
+		onnotice?.('');
+		try {
+			const layer = await session.addWorkspaceMap(imageId);
+			// Closed only on success. A refusal has a sentence, and a dialog that vanished with it is a
+			// refusal nobody read.
+			if (layer) open = false;
+		} finally {
+			adding = '';
+		}
+	}
+
+	/** The file source. The dialog closes on the pick, because the progress is on the Layer's card. */
+	function chooseFile(input: HTMLInputElement): void {
+		const file = input.files?.[0];
+		// Cleared straight away, so picking the same file twice runs twice: `change` does not fire for
+		// an unchanged value, and "nothing happened" is indistinguishable from a silent failure.
+		input.value = '';
+		if (!file) return;
+		onnotice?.('');
+		open = false;
+		void session.ingestImage(file);
+	}
+
+	/** The library source is done with; its Layer is in the stack, and it may have something to say. */
+	function remoteAdded(added: { notice: string }): void {
+		onnotice?.(added.notice);
+		open = false;
+	}
+</script>
+
+<ModalDialog bind:open title="Add a Historical Map" wide>
+	<p class="max-w-prose text-sm">
+		A Historical Map belongs to this Workspace, not to one Project: prepared or aligned once, it can
+		be drawn by any number of Projects. Whichever of these three you use, it appears as a Layer in
+		this Project straight away.
+	</p>
+
+	<!--
+		Source one: a file on this computer (SPEC stories 21, 22, 25, 26).
+
+		Every image becomes a IIIF pyramid, including a small one, because an untiled level-0 image
+		cannot be parsed at all (ADR-0003). So this is a job with progress rather than a file input that
+		finishes instantly — and the progress is reported on the new Layer's own card in the sidebar,
+		which is why this dialog closes the moment a file is picked.
+
+		**The label is unchanged** ("Add a Historical Map from a file"): it is what a screen-reader user
+		and a keyboard user both go on, and it is what the whole browser suite reaches this control by.
+	-->
+	<section class="mt-6" aria-labelledby="add-from-file-heading">
+		<h3 id="add-from-file-heading" class="text-lg font-semibold">From a file on this computer</h3>
+		<p class="mt-1 max-w-prose text-sm opacity-70">
+			A scan or a photograph. It is converted to a IIIF pyramid and written into this Workspace as
+			you watch; you can carry on working while it runs, and you can stop it.
+		</p>
+		<label class="mt-3 block">
+			<span class="mb-1 block text-sm">Add a Historical Map from a file</span>
+			<input
+				class="file-input w-full"
+				type="file"
+				accept="image/*"
+				data-testid="add-from-file"
+				disabled={session.ingest !== null}
+				onchange={(event) => chooseFile(event.currentTarget)}
+			/>
+		</label>
+		{#if session.ingest !== null}
+			<!--
+				Why the input is disabled, said rather than left as a control that ignores a click. The
+				refusal `ingestImage` answers a second file with is the same fact after the fact; this is it
+				before, which is the half a user can act on.
+			-->
+			<p class="mt-2 max-w-prose text-sm" data-testid="ingest-busy">
+				“{session.ingestLabel}” is still being prepared. Its Layer in this Project shows how far it
+				has got, and one map is prepared at a time.
+			</p>
+		{/if}
+	</section>
+
+	<!--
+		Source two: a map on a Library's server (SPEC stories 24–26, 28–30).
+
+		`AddRemoteMap` unchanged, machinery and all — the Manifest, Collection and bare-image-service
+		reading, the canvas picker, the CORS probe and the ADR-0015 community lookup. This ticket moves
+		where it is reached from and nothing about what it does.
+	-->
+	<div class="mt-8 border-t border-base-300 pt-2">
+		<!-- Its own `<section>` and its own heading, "Add a Historical Map from a library". A second
+		     heading wrapped around it would announce the same source twice. -->
+		<AddRemoteMap {session} onadded={remoteAdded} />
+	</div>
+
+	<!--
+		Source three: a Historical Map this Workspace already holds (SPEC stories 27, 33).
+
+		The one that did not exist before, and the one ADR-0023 is for: nothing is copied, the pyramid
+		is not read, and an Alignment made in another Project applies here the moment the Layer appears.
+	-->
+	<section class="mt-8 border-t border-base-300 pt-6" aria-labelledby="add-from-workspace-heading">
+		<h3 id="add-from-workspace-heading" class="text-lg font-semibold">Already in this Workspace</h3>
+		<p class="mt-1 max-w-prose text-sm opacity-70">
+			Nothing is copied and nothing is prepared again. If the map has already been placed on the
+			earth — in this Project or any other — it is drawn as soon as it is added.
+		</p>
+
+		{#if session.addMapError}
+			<div role="alert" class="mt-3 alert max-w-prose alert-warning">
+				<p data-testid="add-from-workspace-error">{session.addMapError}</p>
+			</div>
+		{/if}
+
+		{#if session.historicalMapsLoading && session.historicalMaps.length === 0}
+			<p class="mt-3 text-sm" data-testid="workspace-maps-loading">
+				Looking through this Workspace…
+			</p>
+		{:else if available.length === 0}
+			<!--
+				Two different facts, and they must not share a sentence: a Workspace with no other maps in
+				it, and a Workspace whose maps are all already here. The second is the more common and the
+				more confusing one — a list that is empty because everything is in already reads as a list
+				that is broken.
+			-->
+			<p class="mt-3 max-w-prose text-sm" data-testid="no-workspace-maps">
+				{session.historicalMaps.length === 0
+					? 'This Workspace holds no Historical Maps yet. Add one from a file or from a library, and it is here for every Project afterwards.'
+					: 'Every Historical Map in this Workspace is already in this Project.'}
+			</p>
+		{:else}
+			<ul
+				class="mt-3 flex max-h-64 flex-col gap-1 overflow-y-auto"
+				aria-label="Historical Maps in this Workspace"
+			>
+				{#each available as map (map.imageId)}
+					<li>
+						<!--
+							A real `<button>` per map, so Tab reaches each and Enter and Space activate it — the
+							same shape the canvas picker uses, and for the same reason (SPEC story 95). The size
+							is inside the button rather than beside it, so it is part of the accessible name: a
+							screen-reader user choosing between two maps needs the number the sighted user is
+							choosing on.
+						-->
+						<button
+							class="btn h-auto w-full flex-col items-start gap-0 btn-ghost py-2"
+							type="button"
+							data-testid="workspace-map"
+							data-image-id={map.imageId}
+							disabled={adding !== ''}
+							onclick={() => void addFromWorkspace(map.imageId)}
+						>
+							<span class="font-medium">{nameOf(map)}</span>
+							<span class="text-xs font-normal opacity-70">{weightOf(map)}</span>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
+
+	{#snippet actions()}
+		<button
+			type="button"
+			class="btn btn-sm"
+			data-testid="close-add-historical-map"
+			onclick={() => (open = false)}
+		>
+			Close
+		</button>
+	{/snippet}
+</ModalDialog>

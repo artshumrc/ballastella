@@ -15,6 +15,11 @@ import {
 } from './support/editor-deployment';
 import { alignFromLayer, openLayerRow } from './support/layers';
 import {
+	addHistoricalMapButton,
+	expectNothingPreparing,
+	pickHistoricalMapFile
+} from './support/historical-maps.js';
+import {
 	clickAt,
 	emptyWorkspace,
 	gradientPng,
@@ -173,9 +178,9 @@ async function startProjectWithMap(page: Page): Promise<string> {
 	await dialog.getByLabel('Project name').fill(PROJECT_NAME);
 	await dialog.getByRole('button', { name: 'Create' }).click();
 	await page.getByRole('link', { name: PROJECT_NAME }).click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(addHistoricalMapButton(page)).toBeVisible();
 
-	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+	await pickHistoricalMapFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
@@ -194,12 +199,11 @@ async function startProjectWithMap(page: Page): Promise<string> {
 	// `TypeError … reading 'id'` for the same absence read one line later. Both were downstream of
 	// here and neither was in this function, which is what made it look like contention.
 	//
-	// Two published steps, because the row can precede either. The input is re-enabled when the
-	// ingest is over (`session.ingest !== null` disables it), so a pyramid that is still being
-	// written cannot be reloaded out from under.
-	await expect(page.getByLabel('Add a Historical Map from a file')).toBeEnabled({
-		timeout: 30_000
-	});
+	// Two published steps, because the row can precede either. The preparing card leaves the stack
+	// when the ingest is over (ticket 06), so a pyramid that is still being written cannot be
+	// reloaded out from under. Asked of the card rather than of the file input, which since ticket 06
+	// is inside a closed dialog.
+	await expectNothingPreparing(page, 30_000);
 	// And the Layer itself is in `project.json`, not only in the component's state.
 	await waitForStoredLayers(page, 1);
 	return (await addedRow.getAttribute('data-image-id'))!;
@@ -553,7 +557,7 @@ test.describe('the app with the network off', () => {
 		await expect(notice).toContainText('Base Map');
 		await expect(notice).toContainText('Historical Map');
 
-		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+		await pickHistoricalMapFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(IMAGE_WIDTH, IMAGE_HEIGHT)
@@ -610,7 +614,7 @@ test.describe('the app with the network off', () => {
 		complaints.length = 0;
 
 		await page.reload();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 
 		// **Offline, and the route change is part of what is being asserted.** Aligning is `/align/`
 		// since ticket 03, so reaching it with the network off exercises the precached prerendered page
@@ -671,7 +675,7 @@ test.describe('the app with the network off', () => {
 		// An Annotation drawn on the Project screen, and written to disk. Back out of the alignment
 		// route first: the Layer stack is on the Project (ticket 04), which is where this lands.
 		await page.getByTestId('back-to-project').click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await page.getByTestId('add-annotation-layer').click();
 		await waitForStack(page);
@@ -1007,7 +1011,7 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		// not be cached, so this map cannot be shown — but a Project that contained one and therefore
 		// would not open at all is the failure that matters.
 		await page.reload();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		await expect(
 			(
 				await openLayerRow(

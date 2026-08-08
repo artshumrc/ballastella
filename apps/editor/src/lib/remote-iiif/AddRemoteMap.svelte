@@ -19,8 +19,23 @@
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import { AddRemoteMap } from './add-remote-map.svelte.js';
 
-	let { session, onadded }: { session: EditorSession; onadded?: (layer: MapLayer) => void } =
-		$props();
+	let {
+		session,
+		onadded
+	}: {
+		session: EditorSession;
+		/**
+		 * The Layer is written, and what else the caller has to say about it.
+		 *
+		 * **`notice` travels with the Layer** because the surface this panel lives in closes on a
+		 * successful add (ticket 06), and a message rendered here would be removed in the same frame it
+		 * appeared in — which is indistinguishable from one that never happened, for a screen reader
+		 * most of all. So the panel produces the sentence and the screen keeps it, the same division
+		 * `OfflineCopyJob.completed` already has and for the same reason. `''` when there is nothing to
+		 * say, which is the ordinary case.
+		 */
+		onadded?: (added: { layer: MapLayer; notice: string }) => void;
+	} = $props();
 
 	const job = new AddRemoteMap(() => session);
 
@@ -55,7 +70,7 @@
 
 	const add = async () => {
 		const layer = await job.addSelected();
-		if (layer) onadded?.(layer);
+		if (layer) onadded?.({ layer, notice: job.notice });
 	};
 </script>
 
@@ -122,17 +137,17 @@
 		{#if status}<p class="text-sm" data-testid="remote-status">{status}</p>{/if}
 	</div>
 
-	{#if job.notice}
-		<!--
-			The add succeeded and something the user asked for did not happen, so this is `alert-info` and
-			not `alert-warning`: nothing is broken and nothing needs fixing. `role="status"` is wrong here
-			— this page's one `status` role is the save indicator — so it is announced the same way the
-			step region above is, politely, and is not a live region of its own competing with it.
-		-->
-		<div class="mt-4 alert max-w-prose flex-col items-start alert-info">
-			<p data-testid="remote-notice">{job.notice}</p>
-		</div>
-	{/if}
+	<!--
+		**`job.notice` is not rendered here**, and that is ticket 06's doing rather than an omission.
+
+		The add succeeded and something the user asked for did not happen — the community Alignment they
+		chose was kept over — so it is news they must not miss. This panel is inside the dialog that
+		*closes* on a successful add, so a message here would be inserted and removed in the same frame:
+		invisible to a reader and, worse, never announced to a screen-reader user, because a live region
+		that is removed announces nothing. It travels out through `onadded` instead and the Project
+		screen keeps it, beside the offline copy's completion message, which is where this app already
+		puts the outcome of a dialog that closes itself.
+	-->
 
 	{#if job.error}
 		<!--

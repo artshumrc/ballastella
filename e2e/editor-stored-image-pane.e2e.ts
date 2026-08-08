@@ -2,6 +2,11 @@ import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import {
+	addHistoricalMapButton,
+	expectNothingPreparing,
+	pickHistoricalMapFile
+} from './support/historical-maps.js';
 import { alignFromLayer } from './support/layers';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
@@ -167,7 +172,7 @@ async function createProject(page: Page, name: string): Promise<void> {
  */
 async function openProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('link', { name }).click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(addHistoricalMapButton(page)).toBeVisible();
 }
 
 /**
@@ -217,17 +222,18 @@ const listedImageIds = async (page: Page): Promise<string[]> =>
  */
 async function ingest(page: Page, width: number, height: number, name: string): Promise<string> {
 	const before = await listedImageIds(page);
-	const input = page.getByLabel('Add a Historical Map from a file');
-	await input.setInputFiles({
+	await pickHistoricalMapFile(page, {
 		name,
 		mimeType: 'image/png',
 		buffer: gradientPng(width, height)
 	});
 	await expect(page.getByTestId('layer-row')).toHaveCount(before.length + 1, { timeout: 30_000 });
-	// And then the settled state: the input is re-enabled when `session.ingest` is cleared, which is
-	// the last thing the ingest does. Until then this Historical Map is on screen but the gesture
-	// that adds the next one has nowhere to land.
-	await expect(input).toBeEnabled({ timeout: 30_000 });
+	// And then the settled state: the preparing card leaves the stack when `session.ingest` is
+	// cleared, which is the last thing the ingest does. Until then this Historical Map is on screen
+	// but the gesture that adds the next one has nowhere to land — since ticket 06 it is refused in
+	// words rather than dropped, and this wait is what keeps the refusal off a test that means to add
+	// two maps.
+	await expectNothingPreparing(page, 30_000);
 	const added = (await listedImageIds(page)).filter((id) => !before.includes(id));
 	expect(added, `expected exactly one new Historical Map after ingesting ${name}`).toHaveLength(1);
 	return added[0]!;
@@ -254,7 +260,7 @@ async function openPane(page: Page, imageId?: string): Promise<void> {
 /** Back to the Project, where the Layers — and their Historical Maps — are. */
 async function backToProject(page: Page): Promise<void> {
 	await page.getByTestId('back-to-project').click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(addHistoricalMapButton(page)).toBeVisible();
 }
 
 /**

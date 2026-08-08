@@ -8,6 +8,7 @@ import {
 	IMAGE_SERVICE_PLACEHOLDER_ORIGIN,
 	PYRAMID_TILE_SIZE,
 	buildImageInfo,
+	imageSizeFromInfo,
 	planPyramid,
 	pyramidScaleFactors,
 	serialiseJson
@@ -252,6 +253,45 @@ describe('buildImageManifest', () => {
 	it('derives the whole-image derivative from the coarsest level', () => {
 		expect(wholeImageDerivative(1200, 851)).toMatchObject({ width: 150, height: 107 });
 		expect(wholeImageDerivative(100, 40)).toMatchObject({ width: 100, height: 40 });
+	});
+});
+
+describe('imageSizeFromInfo', () => {
+	it('reads the dimensions out of an info.json this build wrote', () => {
+		const info = buildImageInfo({ imageId: 'abc123', width: 700, height: 500 });
+		expect(imageSizeFromInfo(info)).toEqual({ width: 700, height: 500 });
+	});
+
+	it('reads a document carrying members this build has never heard of', () => {
+		// The tolerance ADR-0010 asks for, in the direction that costs nothing: a newer build's
+		// `info.json` still has to give a Historical Map its starter Alignment.
+		expect(imageSizeFromInfo({ width: 12, height: 9, sizes: [], somethingNew: true })).toEqual({
+			width: 12,
+			height: 9
+		});
+	});
+
+	it('refuses anything that is not a pair of positive whole numbers', () => {
+		// Every one of these would otherwise become a Resource Mask over a degenerate rectangle — an
+		// Alignment that can never be solved, on a Layer that draws nothing and says nothing.
+		for (const info of [
+			null,
+			undefined,
+			'{"width":700,"height":500}',
+			[700, 500],
+			{},
+			{ width: 700 },
+			{ height: 500 },
+			{ width: '700', height: '500' },
+			{ width: 0, height: 500 },
+			{ width: 700, height: 0 },
+			{ width: -700, height: 500 },
+			{ width: 700.5, height: 500 },
+			{ width: Number.NaN, height: 500 },
+			{ width: Number.POSITIVE_INFINITY, height: 500 }
+		]) {
+			expect(imageSizeFromInfo(info), JSON.stringify(info) ?? 'undefined').toBeNull();
+		}
 	});
 });
 

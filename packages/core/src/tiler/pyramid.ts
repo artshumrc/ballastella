@@ -190,6 +190,34 @@ export function planPyramid(info: unknown, directory: StorePath): PlannedTile[] 
 	);
 }
 
+/**
+ * The pixel dimensions a stored `info.json` declares, or `null` when it declares none.
+ *
+ * **What it is for**: adding a Historical Map that is already in the Workspace to another Project
+ * (ticket 06). That gesture writes no pyramid and copies no bytes, but it still has to be able to
+ * give the map a starter Alignment if it has none — and a starter Alignment's Resource Mask is the
+ * whole sheet, so it needs the sheet's size. The one record of that size, for a map whose tiles are
+ * here, is the `info.json` the ingest wrote.
+ *
+ * **`null` rather than a guess, and never a zero.** A Resource Mask over a 0 × 0 rectangle is an
+ * Alignment that can never be solved and a Layer that draws nothing, with nothing on screen saying
+ * why; a caller that cannot find the size has to say so instead. That is the same refusal
+ * `parseServedImageInfo` makes in the viewer, for the same reason, and this is deliberately the
+ * narrow half of it: two facts, no tile geometry, so it stays usable on any `info.json` this build
+ * or a later one wrote.
+ *
+ * Indifferent to every other member, including the ones this build writes: a document from a newer
+ * version must still be readable (ADR-0010's tolerance, in the direction that costs nothing).
+ */
+export function imageSizeFromInfo(info: unknown): { width: number; height: number } | null {
+	if (typeof info !== 'object' || info === null || Array.isArray(info)) return null;
+	const record = info as Record<string, unknown>;
+	const { width, height } = record;
+	if (typeof width !== 'number' || typeof height !== 'number') return null;
+	if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) return null;
+	return { width, height };
+}
+
 /** Tab-indented with a trailing newline, matching this project's other JSON writer. */
 export const serialiseJson = (value: unknown): Uint8Array<ArrayBuffer> =>
 	new TextEncoder().encode(`${JSON.stringify(value, null, '\t')}\n`);

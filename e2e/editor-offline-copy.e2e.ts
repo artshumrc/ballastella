@@ -5,6 +5,7 @@ import zlib from 'node:zlib';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { openLayerRow } from './support/layers.js';
+import { openAddHistoricalMap } from './support/historical-maps.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -512,9 +513,8 @@ async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void
 		.getByRole('button', { name: 'Create' })
 		.click();
 	await page.getByRole('link', { name }).click();
-	await expect(
-		page.getByRole('heading', { name: 'Add a Historical Map from a library' })
-	).toBeVisible();
+	// The library is one of the three sources the "Add a Historical Map" button offers (ticket 06).
+	await openAddHistoricalMap(page);
 }
 
 /**

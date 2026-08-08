@@ -2,6 +2,7 @@ import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { addHistoricalMapButton } from './support/historical-maps.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
@@ -195,7 +196,7 @@ async function throughLayersAndBack(page: Page, resuming: number): Promise<void>
 	// whole of the helper: the undo record has to survive the workspace being destroyed and rebuilt,
 	// and the stack being drawn on the way is what destroys it.
 	await page.getByTestId('back-to-project').click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(addHistoricalMapButton(page)).toBeVisible();
 	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
 		timeout: STACK_READY_MS
@@ -295,13 +296,13 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		expect(await rowText(page, 1)).not.toBe(wasAt);
 
 		await page.getByTestId('back-to-project').click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		await delayNextReadOf(page, 'info.json', 3000);
 
 		// This workspace starts opening, but is destroyed before its Historical Map pane calls `onpane`.
 		await alignFromLayer(page);
 		await page.getByTestId('back-to-project').click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 
 		// A replacement workspace becomes live before the stale pane finishes its delayed read.
 		await alignFromLayer(page);
