@@ -23,6 +23,7 @@
 		"fflate": "catalog:",
 		"maplibre-gl": "catalog:",
 		"marked": "catalog:",
+		"modern-tar": "catalog:",
 		"pmtiles": "catalog:"
 	},
 	"devDependencies": {

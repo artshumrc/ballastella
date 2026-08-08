@@ -180,6 +180,30 @@ export {
 	type ProjectZipRejection,
 	type ReadProjectZipOptions
 } from './transfer/import-project-zip.js';
+// Whole-Workspace backup and restore, as a tar (ticket 13, ADR-0024). Editor-only — a Published
+// Site never backs anything up — but exported from the barrel rather than a subpath, because the
+// modules are plain Web Streams over `ProjectStore` and drag nothing browser-only in with them.
+export {
+	exportWorkspaceTar,
+	type ExportWorkspaceTarOptions,
+	type WorkspaceBackup
+} from './transfer/export-workspace-tar.js';
+export {
+	restoreWorkspaceTar,
+	type EstimateStorage,
+	type OpenRestoreDestination,
+	type RestoreDestination,
+	type RestoreWorkspaceTarOptions,
+	type WorkspaceRestore
+} from './transfer/restore-workspace-tar.js';
+export {
+	BACKUP_MEDIA_TYPE,
+	BackupRejectedError,
+	MAX_BACKUP_PATH_BYTES,
+	TAR_ENTRY_MTIME,
+	backupFileName,
+	type BackupRejection
+} from './transfer/workspace-tar.js';
 export type {
 	ProjectFileSource,
 	TransferFile,

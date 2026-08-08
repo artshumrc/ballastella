@@ -383,6 +383,20 @@ export class EditorSession {
 		);
 	}
 
+	/**
+	 * The store this session is bound to.
+	 *
+	 * For the whole-Workspace operations that are about the Workspace rather than about a Project, and
+	 * therefore live on `WorkspaceStorage` rather than here — a backup is the one of those so far
+	 * (ticket 13). Read-only and deliberately narrow: it does not license a second writer. Every write
+	 * still goes through this session's `Workspace` and its `Autosave` (ADR-0017 rule 4), and the one
+	 * caller of this only ever reads. `Workspace` exposes its own store the same way and for the same
+	 * reason.
+	 */
+	get store(): ProjectStore {
+		return this.#store;
+	}
+
 	/** ADR-0017 rule 3. Returns its own teardown. */
 	installFlushOnHide(): () => void {
 		return installFlushOnHide(this.#autosave, { document, window });

@@ -42,6 +42,86 @@
 	/** What happened to the last delete, announced. */
 	let outcome = $state('');
 
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// BACKING UP AND RESTORING (ticket 13, ADR-0024, SPEC stories 82–87)
+	//
+	// Here rather than on the hub, beside "where your work is stored" and "whether this browser will
+	// keep your work": those two sections tell a scholar their work is in a place they cannot see and
+	// may be evicted, and this is the answer to both. The persistence section already sends them here
+	// in as many words — "Keeping a backup, or a Workspace folder on your own disk, is the answer to
+	// that" — and until now there was nothing for that sentence to point at.
+
+	/** What a backup or restore is doing right now, or `null`. Drives the visible progress. */
+	let transfer = $state<{ kind: 'backup' | 'restore'; files: number; label: string } | null>(null);
+	/** What the last backup or restore did, announced. Visible text, never a tooltip (story 111). */
+	let transferOutcome = $state('');
+	/** Why the last backup or restore did not happen. Its own state so it can be an alert. */
+	let transferProblem = $state('');
+	/** The file input, so the button can open it without a label wrapping a hidden control. */
+	let restoreInput = $state<HTMLInputElement | null>(null);
+
+	async function backUp(): Promise<void> {
+		transferOutcome = '';
+		transferProblem = '';
+		transfer = { kind: 'backup', files: 0, label: `Backing up “${storage.name}”…` };
+		try {
+			const backup = await storage.backUp((progress) => {
+				transfer = {
+					kind: 'backup',
+					files: progress.files,
+					label: `Backing up “${storage.name}”… ${progress.files} of ${progress.totalFiles} files.`
+				};
+			});
+			transferOutcome =
+				`Backed up ${backup.totalFiles} ${backup.totalFiles === 1 ? 'file' : 'files'}, ` +
+				`${describeBytes(backup.totalBytes)}, to “${backup.fileName}”.` +
+				// A folder Workspace's name is the operating system's folder name, and a Workspace name
+				// cannot hold everything a folder name can — so the file is named after what this will
+				// restore as, and that is said rather than left as a surprise in the Downloads folder.
+				(backup.displayName === backup.workspaceName
+					? ''
+					: ` Restoring it will make a Workspace called “${backup.workspaceName}”, because a ` +
+						`Workspace name can only hold letters, numbers, spaces and “-_()”.`);
+		} catch (cause) {
+			transferProblem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			transfer = null;
+		}
+	}
+
+	async function restore(event: Event): Promise<void> {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		// Cleared immediately, so picking the same file twice in a row is two restores rather than
+		// one — a `change` event does not fire for an unchanged value.
+		input.value = '';
+		if (!file) return;
+
+		transferOutcome = '';
+		transferProblem = '';
+		transfer = { kind: 'restore', files: 0, label: `Restoring from “${file.name}”…` };
+		try {
+			const restored = await storage.restoreFrom(file, (progress) => {
+				transfer = {
+					kind: 'restore',
+					files: progress.files,
+					// A tar declares no totals — it has no index — so this counts rather than inventing a
+					// denominator it cannot know.
+					label: `Restoring from “${file.name}”… ${progress.files} files so far.`
+				};
+			});
+			// The notice comes from core rather than being phrased here, so the sentence about
+			// re-publishing is the same wherever a restore is reported (ADR-0006, story 86).
+			transferOutcome = restored.notice;
+		} catch (cause) {
+			// ADR-0010's refusal of a newer `formatVersion` arrives here as its own message, naming
+			// where to get that version, and is shown unaltered (story 114).
+			transferProblem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			transfer = null;
+		}
+	}
+
 	async function askToDelete(name: string): Promise<void> {
 		// The size is read *before* the confirmation is answered rather than quoted from a tally,
 		// because what the user is agreeing to is the bytes that are there now (ADR-0016 wants the
@@ -181,6 +261,71 @@
 	<section class="mt-6">
 		<h3 class="font-semibold">Ballastella as an installed application</h3>
 		<InstallOffer />
+	</section>
+
+	<!--
+		Backing up and restoring (ADR-0024). Every explanation is visible text rather than a tooltip
+		(story 111), and both outcomes are in an `aria-live` region so a screen-reader user is told what
+		a sighted one can see (story 112).
+	-->
+	<section class="mt-6">
+		<h3 class="font-semibold">Backing up and restoring</h3>
+		<p class="mt-2 max-w-prose text-sm">
+			A backup is one <code>.tar</code> file holding this whole Workspace — every Project, every Historical
+			Map, every Alignment. It is how you move your work to another computer, and on browsers with no
+			folder access it is the only way your work leaves this one.
+		</p>
+		<p class="mt-2 max-w-prose text-sm opacity-70">
+			Restoring always makes a <em>new</em> Workspace and switches to it. It never overwrites and never
+			merges, so recovering from damage cannot destroy what you are recovering from — you can look at
+			both and decide. A backup holds your work rather than a website, so a restored Workspace needs publishing
+			again before it is one.
+		</p>
+
+		<div class="mt-3 flex flex-wrap gap-2">
+			<button
+				class="btn btn-primary btn-sm"
+				data-testid="back-up-workspace"
+				disabled={transfer !== null}
+				onclick={() => backUp()}
+			>
+				Back up “{storage.name}”
+			</button>
+			<button
+				class="btn btn-sm"
+				data-testid="restore-workspace"
+				disabled={transfer !== null}
+				onclick={() => restoreInput?.click()}
+			>
+				Restore from a backup…
+			</button>
+			<!--
+				Off-screen rather than `hidden`: a `display: none` input is not focusable and some
+				assistive technology skips it entirely, and Playwright's `setInputFiles` needs it in the
+				accessibility tree to be found by role at all.
+			-->
+			<input
+				bind:this={restoreInput}
+				accept=".tar,application/x-tar"
+				aria-label="Choose a backup file to restore"
+				class="sr-only"
+				data-testid="restore-file"
+				onchange={restore}
+				type="file"
+			/>
+		</div>
+
+		{#if transfer}
+			<p class="mt-3 text-sm" data-testid="transfer-progress">{transfer.label}</p>
+		{/if}
+		<p aria-live="polite" class="mt-3 max-w-prose text-sm" data-testid="transfer-outcome">
+			{transferOutcome}
+		</p>
+		{#if transferProblem}
+			<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
+				<p data-testid="transfer-problem">{transferProblem}</p>
+			</div>
+		{/if}
 	</section>
 
 	<section class="mt-6">

@@ -168,5 +168,34 @@ catalog:
   # feeds to the file input, and reads back the ones the app downloads.
   fflate: ^0.8.3
 
+  # Workspace backup and restore as a tar (ticket 13, ADR-0024). Zero-dependency, Web Streams,
+  # USTAR with PAX extensions — and every one of those claims is *measured* rather than quoted,
+  # in `packages/core/src/transfer/tar-format.test.ts`, because ADR-0024 justifies the whole
+  # move off zip on them. The numbers that test pins, against this exact version:
+  #
+  # - It streams, and the evidence is **stream progress rather than a memory figure**. Holding
+  #   one entry's body unread stalls the producer after **9.00 MiB** of a 64 MiB entry, so the
+  #   decoder does not buffer whole entries; an unread packer sink stalls its writer after
+  #   **~7.94 MiB**; and across a whole archive the producer never runs more than ~9 MiB ahead
+  #   of a slow consumer, whatever the archive's size. That is the property a zip cannot have at
+  #   all, since a zip is unreadable without the central directory at its end.
+  #
+  #   ⚠ **An earlier version of this comment claimed "2.80 MiB of peak heap growth" across a
+  #   512 MiB round trip. That figure measured nothing** and should not be quoted: a
+  #   `Uint8Array`'s payload is external memory and never appears in `heapUsed`, so the same
+  #   assertion passed for a consumer holding the entire archive (heapUsed +5.24 MiB) as for one
+  #   holding none of it (+3.17 MiB). `tar-format.test.ts` records what was tried instead and
+  #   why the assertions are now counted in bytes moved rather than bytes collected.
+  # - Paths past tar's 100-byte `name` field round-trip exactly, by USTAR `prefix` up to 256
+  #   bytes and by a PAX `path` record beyond it — including Devanagari, CJK, Arabic, and
+  #   emoji, which a Workspace name can be since ticket 12. Custom PAX records round-trip too,
+  #   through both readers, which is what carries a folder Workspace's real name.
+  # - A truncated archive **throws** rather than yielding a short one, which is the exact
+  #   failure fflate made silent and the reason this dependency exists.
+  #
+  # Also a devDependency of the repository root, as fflate is: the Playwright suite builds the
+  # fixture tars it feeds to the file input and reads back the ones the app downloads.
+  modern-tar: ^0.8.2
+
 patchedDependencies:
   '@allmaps/render@1.0.0-beta.83': patches/@allmaps__render@1.0.0-beta.83.patch

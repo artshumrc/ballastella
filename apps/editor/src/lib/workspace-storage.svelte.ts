@@ -7,20 +7,44 @@ import {
 	createOpfsWorkspace,
 	deleteOpfsWorkspace,
 	ensureOpfsWorkspace,
+	exportWorkspaceTar,
 	forgetWorkspaceFolder,
 	isFolderWorkspaceSupported,
 	listOpfsWorkspaces,
 	openOpfsWorkspace,
 	rememberedFolderName,
 	reopenWorkspaceFolder,
+	restoreWorkspaceTar,
 	workspaceSize,
 	requestPersistentStorage,
 	type ProjectStore,
+	type RestoreDestination,
 	type StoragePersistence,
+	type TransferProgressListener,
+	type WorkspaceBackup,
+	type WorkspaceRestore,
 	type WorkspaceSize
 } from '@ballastella/core';
 
 import { EditorSession } from './editor-session.svelte.js';
+import { saveFile } from './save-file.js';
+
+/**
+ * What the browser will say about its storage, for the pre-restore quota check.
+ *
+ * Here rather than in `packages/core` because core has to stay Node-safe — the barrel is imported by
+ * both apps' root layouts and a value-import of anything browser-only breaks prerender — and passed
+ * in, so the refusal is provokable in a test rather than only on a full disk.
+ *
+ * `null` when the browser will not answer. Safari has historically reported a quota unrelated to the
+ * real one, and older builds have no `estimate` at all; `restoreWorkspaceTar` treats an unanswerable
+ * estimate as permission to try, because refusing a restore because the API is missing would refuse
+ * it on exactly the browsers ADR-0001 makes this path the only way out of.
+ */
+const estimateStorage = async (): Promise<{ quota?: number; usage?: number } | null> => {
+	if (typeof navigator === 'undefined' || !navigator.storage?.estimate) return null;
+	return navigator.storage.estimate();
+};
 
 /** Where the Workspace is: browser-managed storage, or a folder the user can see. */
 export type WorkspaceBacking = 'browser' | 'folder';
@@ -297,6 +321,74 @@ export class WorkspaceStorage {
 	/** What a Workspace weighs, so the confirmation can say what is about to go. `list` + `size`. */
 	async sizeOfWorkspace(name: string): Promise<WorkspaceSize> {
 		return workspaceSize(openOpfsWorkspace(name));
+	}
+
+	/**
+	 * Write the open Workspace to one tar and hand it to the user (ticket 13, SPEC stories 82–83).
+	 *
+	 * **Flushed first**, for the same reason `exportProject` flushes: a debounced rename or an
+	 * annotation edit still sitting in the `Autosave` queue is work the user has done, and a backup
+	 * taken around it is a backup missing the last thing they typed.
+	 *
+	 * Works on both backings. A folder Workspace can already be copied by hand — that is the whole
+	 * point of it — but a scholar who moves between a folder at work and a browser at home needs the
+	 * archive from both ends, and refusing here would make the feature depend on which machine they
+	 * happened to be at.
+	 */
+	async backUp(onProgress?: TransferProgressListener): Promise<WorkspaceBackup> {
+		await this.session.flush().catch(() => undefined);
+		const backup = await exportWorkspaceTar(this.session.store, this.name, { onProgress });
+		await saveFile(backup.fileName, backup.body);
+		return backup;
+	}
+
+	/**
+	 * Read a backup into a **new** named Workspace, and switch to it (SPEC stories 84–87).
+	 *
+	 * ⚠ **Always a browser-storage Workspace, whatever the current backing is**, and that is a
+	 * decision rather than a limitation. ADR-0024 requires that restore never overwrite and never
+	 * merge, which means it needs somewhere new to put things; browser storage can make that by
+	 * itself, and a folder cannot — a second folder needs a second picker gesture, and a
+	 * subdirectory of the *current* folder would be a Workspace inside a Workspace, which is
+	 * precisely the containment failure ticket 12 removed. So a folder-Workspace user restoring a
+	 * backup lands in a browser Workspace beside it, with their folder untouched, and can copy it
+	 * out from there.
+	 *
+	 * The quota check happens inside `restoreWorkspaceTar`, before the Workspace is created, against
+	 * the file's own size — which is an honest number because nothing in a tar is compressed.
+	 */
+	async restoreFrom(file: File, onProgress?: TransferProgressListener): Promise<WorkspaceRestore> {
+		const restored = await restoreWorkspaceTar(
+			file.stream(),
+			(preferred) => this.#makeRestoreDestination(preferred),
+			{
+				archiveBytes: file.size,
+				estimateStorage: estimateStorage,
+				onProgress
+			}
+		);
+		// Only once the restore has succeeded. Switching first would leave the user looking at a
+		// half-written Workspace if it then failed, and `#adopt` tears down the session they are in.
+		await this.openWorkspace(restored.workspaceName);
+		return restored;
+	}
+
+	/** A brand new browser-storage Workspace near `preferred`, and the way to throw it away. */
+	async #makeRestoreDestination(preferred: string): Promise<RestoreDestination> {
+		// `createOpfsWorkspace` rather than `ensureOpfsWorkspace`: it suffixes a taken name rather than
+		// opening the existing one, which is the difference between "restore beside what I have" and
+		// "restore on top of it". Restoring the same backup twice to compare them is a thing people do.
+		const name = await createOpfsWorkspace(preferred);
+		return {
+			name,
+			store: openOpfsWorkspace(name),
+			// The whole directory, recursively. Available because it is new: nothing in it predates
+			// this restore, so there is nothing of the user's to lose.
+			discard: async () => {
+				await deleteOpfsWorkspace(name);
+				await this.refreshWorkspaces();
+			}
+		};
 	}
 
 	/**

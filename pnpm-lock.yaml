@@ -63,6 +63,9 @@ catalogs:
     marked:
       specifier: ^18.0.9
       version: 18.0.9
+    modern-tar:
+      specifier: ^0.8.2
+      version: 0.8.2
     playwright:
       specifier: ^1.62.1
       version: 1.62.1
@@ -125,6 +128,9 @@ importers:
       globals:
         specifier: ^17.9.0
         version: 17.9.0
+      modern-tar:
+        specifier: 'catalog:'
+        version: 0.8.2
       pmtiles:
         specifier: 'catalog:'
         version: 4.4.1
@@ -301,6 +307,9 @@ importers:
       marked:
         specifier: 'catalog:'
         version: 18.0.9
+      modern-tar:
+        specifier: 'catalog:'
+        version: 0.8.2
       pmtiles:
         specifier: 'catalog:'
         version: 4.4.1
@@ -1411,6 +1420,10 @@ packages:
 
   ml-matrix@6.14.0:
     resolution: {integrity: sha512-5W31+w+6jIm05l85N3Ik04fl+5LfN1lyJLBrEM/r/j7YmvwRclcUyQGXGFWXnN7ASzVjsAnAa3FUXrduAt168A==}
+
+  modern-tar@0.8.2:
+    resolution: {integrity: sha512-hQDgGtLO0DTzHTvp96n7UH2/zsbqDJqYijp/umT9aSqy3qdFuuVf3CiUQ3nniObhb/wJwrywXrwd1MmB+cA8nQ==}
+    engines: {node: '>=18.0.0'}
 
   monotone-chain-convex-hull@1.1.0:
     resolution: {integrity: sha512-iZGaoO2qtqIWaAfscTtsH2LolE06U4JzTw8AgtjT/yzYIA0aoAHDdwBtsesnQXfVRvS375Wu0Y1+FqdI5Y22GA==}
@@ -3021,6 +3034,8 @@ snapshots:
     dependencies:
       is-any-array: 3.0.0
       ml-array-rescale: 2.0.0
+
+  modern-tar@0.8.2: {}
 
   monotone-chain-convex-hull@1.1.0: {}
 

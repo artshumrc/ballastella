@@ -30,6 +30,7 @@
 		"eslint-plugin-svelte": "^3.22.0",
 		"fflate": "catalog:",
 		"globals": "^17.9.0",
+		"modern-tar": "catalog:",
 		"pmtiles": "catalog:",
 		"prettier": "^3.9.6",
 		"prettier-plugin-svelte": "^4.1.1",
