@@ -10,7 +10,13 @@ Overall status: `In Progress`
 
 Merged to `main`: 01–05, 08–13, 16–20. Nothing in flight. **Four remain: 06, 07, 14, 15.**
 
-**One open lead nobody has closed, and it must not be absorbed into the flake budget.** Ticket 20's final suite had one flaky test and `pnpm flake:check --against main` returned **SUSPECT**, not "consistent with flake". The failure is `Cannot set properties of undefined (setting 'forceRedraw')` — OpenSeadragon by way of triiiceratops, on the unwarped→map navigation that the spec's own comment already records as a known hazard. Ticket 20's implementer checked rather than assumed: `git diff main -- apps/viewer` is empty and the built viewer bundle contains none of its changed code, so there is no mechanism by which 20 caused it. It wants a ticket. **"SUSPECT, then nothing" is exactly how a real defect gets absorbed**, and this epic has now been wrong about a flake's cause twice.
+**Two open flake leads, neither closed, and neither may be absorbed into the budget. Start here next session.**
+
+1. **`editor-workspace.e2e.ts:1006`, "does not put an edit back into a Project the user deleted" — ticket 20's own test, measured at 2 retries in 10 runs in isolation on a quiet machine (20%), then 8 clean.** Intermittent, and forty times the 0.5% budget. No failure text was captured, because the reruns went green — so the reproduction rate is known and the failure mode is not, and capturing it is the first job. **This guards a data-loss path**: whether a replayed edit can return to a Project the user deleted. A race between deletion and replay would present exactly like this, and if the app is racy then the honest outcome is an app fix, not a steadier test. Diagnosis was started and deliberately stopped at the repo owner's instruction to wrap up; nothing was changed.
+
+2. **The OpenSeadragon lead.** Ticket 20's final suite showed a *different* flaky test, and `pnpm flake:check --against main` returned **SUSPECT** rather than "consistent with flake": `Cannot set properties of undefined (setting 'forceRedraw')`, from OpenSeadragon by way of triiiceratops, on the unwarped→map navigation the spec's own comment already records as a hazard. Ticket 20's implementer checked rather than assumed — `git diff main -- apps/viewer` is empty and the built viewer bundle carries none of its changed code — so there is no mechanism by which 20 caused it. Whether it still reproduces at all is unverified.
+
+**"SUSPECT, then nothing" is exactly how a real defect gets absorbed.** This epic has been wrong about a flake's cause three times: twice "machine load" on `editor-stored-image-pane:354`, which was a silently discarded second ingest, and once a plausible-but-false story about the Base Map archive that its own mutation check disproved.
 
 **Unblocked and ready: 06 and 14.** They do not collide — 06 carves `ProjectScreen.svelte` and 14 is transfer — so they can run together. 07 waits on 06; 15 waits on 07.
 
