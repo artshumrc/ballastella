@@ -8,9 +8,11 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 17, 18, 19. **12 is implemented and under review** on `worktree-agent-a13d5f40608f2e50b`; it has not been merged, and it will conflict with the network fence — both extend Playwright's `test` across all 25 specs, and the two fixture extensions have to be composed rather than one chosen.
+Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 12, 17, 18, 19. **16 is in flight.**
 
-**Unblocked and ready:** 05 and 16.
+**Unblocked and ready:** 05. It is held only until 16 lands — 16 is a repo-wide rename and 05 carves `ProjectScreen.svelte`, so running them together would mean resolving a rename against a restructure across the same files.
+
+**The e2e fixture is now one composed root.** `e2e/support/test.ts` is the root and `network-fence.ts` is the layer beneath it; `check-e2e-network-fence.mjs` enforces both halves, because an import rule alone cannot see a composition quietly unpicked. It caught two real defects the day it landed — `expectWorkspaceNamed` was satisfied by the popover it was nested inside, so `switchToWorkspace` returned before switching, and `seedWorkspaceBytes` wrote 700 MB of ballast into the OPFS root so the hosting warning it seeds for never appeared. Both were green tests proving nothing.
 
 **No test may depend on the network — a human decision on 2026-08-07, now enforced rather than merely followed.** `demo-bucket.protomaps.com/v4.pmtiles` began answering 404 and turned three specs red on `main` with nothing in this repo having changed; ADR-0025 had already recorded that bucket as having no uptime promise. The e2e fence rides the `context` fixture every test gets, and `scripts/check-e2e-network-fence.mjs` fails any spec importing `test` from `@playwright/test` — the spelling every Playwright example uses, and the way a new spec would drift outside it. The vitest fence is `setupFiles` on both projects and covers `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon` and `node:http`/`https`. Two limits are stated rather than implied: a Node test can still open a raw `node:net` socket, and `BALLASTELLA_NETWORK_TESTS=1` disables the vitest fence for a whole run (one legitimate user, `live-services.test.ts`, excluded from `pnpm test`).
 
@@ -20,12 +22,9 @@ Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 17, 18, 19. **12 is implemente
 
 **The archive is still dead, and that is now the *product's* problem rather than the suite's.** The editor says so honestly — `BaseMapPane` listens for MapLibre's source error, which nobody did, and that is exactly how an outage rendered as a grey rectangle. **The published viewer has no equivalent notice and still shows a Reader a silent blank map.** All four catalog entries read the same dead archive, so the "try another Base Map" remedy is currently empty.
 
-**Two app bugs 17 surfaced that are not the suite's to fix**, both wanting tickets:
+**`pagehide` is not a race the user sometimes loses — for a real navigation it is never won.** Measured in a real browser: a debounced Project rename plus `page.reload()` inside the 400 ms window **lost the edit 8 times out of 8**. The event does fire and the flush takes 32 ms; the edit is lost anyway, because the store write is asynchronous and an unloading document does not run the continuation. A synchronous `localStorage.setItem` in the same handler survived 5/5, so a write-ahead journal is demonstrably viable — but it puts user bytes outside the ProjectStore, against ADR-0001, and needs an ADR-0017 amendment. **This needs a decision, not code**, and it is the largest known correctness hole in the product. Affected today: renaming a Layer or a Project, and annotation text and style edits.
 
-- **The catalog points at an archive that 404s.** `demo-bucket.protomaps.com/v4.pmtiles` began refusing on 2026-08-07. Routing fixed the *suite*; the *product* still cannot draw a Base Map on this deployment. ADR-0025 predicted exactly this — "no published rate limit, no uptime promise, and no terms of use" — and `pnpm check:deployment` already refuses the URL, but nothing runs it in the ordinary loop.
-- **The `pagehide` flush is a race the user still depends on** even though the suite no longer does. An ADR-0017 question.
-
-Smaller, recorded in 17's follow-ups: `expectWarpedDrawn` passes with a Base Map that has no tiles at all — it proves the warped layer was *added*, not that anything drew beneath it. 16 and 17 were held until 04 because 16 is a repo-wide rename and 17 rewrites the e2e suite; either would have collided with 04's restructuring of the Project screen across the same files.
+Smaller, recorded in 17's follow-ups: `expectWarpedDrawn` used to pass against a Base Map with no tiles at all — that is now fixed and is red against an all-zero archive.
 
 **One deferral 11 left, for ticket 12.** The Base Map tile cache records which archive filled it and refuses a foreign one, but the directory itself is not keyed by archive. Keying it is a published-format change — the path is copied verbatim into a Published Site, read by the viewer's HTTP store, and named in the service worker — so it belongs with 12's several named Workspaces rather than in a Base Map ticket.
 
@@ -35,7 +34,7 @@ Smaller, recorded in 17's follow-ups: `expectWarpedDrawn` passes with a Base Map
 
 **`retries` no longer hides anything.** Every retry is printed with file and line, and the run fails above 0.5%. A `--reporter=` flag on the command line replaces Playwright's whole reporter list and silently disables that budget — stated in `playwright.config.ts` and `CONTRIBUTING.md`, since nothing can pin it.
 
-Last updated: 2026-08-07 (17 merged)
+Last updated: 2026-08-08 (12, 17 and 19 merged; the network fence landed)
 
 ## Standing constraints
 
@@ -73,14 +72,14 @@ Every Alignment write now goes through `alignment/alignment-file.ts` and names w
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
 | 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Completed | 08, 10 | 6, 69–73, 75–79, 97, 99 |
-| 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Not Started | 04 | 88, 105, 107, 108 |
+| 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Completed | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Not Started | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Not Started | 13 | 89–95 |
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
-| 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Not Started | 02, 03, 09 | — |
+| 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | In Progress | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Completed | 02, 03, 09 | — |
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
-| 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Not Started | 11 | — |
+| 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Completed | 11 | — |
 
 **16, 17 and 19 were added after planning.** 16 and 17 are debt the epic's own reviews surfaced: 16 is a rename the ubiquitous language already mandates and the code never did, and 17 is the e2e suite. 19 is a scope reduction on a human decision — libvips is not needed for v1, and the path it removes cannot execute on this deployment target, so it is almost entirely deletion. Its reasoning and measurements are in the ticket; it also closes v1 ticket 05's open question and ticket 15's `[~]` criterion, both of which have been waiting on that decision.
 
