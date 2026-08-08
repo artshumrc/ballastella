@@ -503,11 +503,12 @@ export class WorkspaceStorage {
 	/**
 	 * The switch itself, without publishing a listing.
 	 *
-	 * Split out for {@link discardReview}, which leaves a Workspace it is **about to delete**. Going
-	 * through the public {@link openWorkspace} there published a switcher still offering the doomed
-	 * Workspace, and one click on it in that window ran `ensureOpfsWorkspace` — which creates —
-	 * against a directory being removed. So the listing happens once, after the deletion, and the
-	 * Workspace is never advertised in a state it cannot be opened in.
+	 * Split out for {@link discardReview}, which leaves a Workspace it is **about to delete** and has
+	 * already withdrawn from {@link workspaces}. Going through the public {@link openWorkspace} there
+	 * put the doomed name straight back on the switcher — `listOpfsWorkspaces` still returns it,
+	 * because the directory is not removed until the leave is over — and one click on it in that
+	 * window ran `ensureOpfsWorkspace`, which creates, against a directory being removed. So the
+	 * listing happens once, after the deletion.
 	 */
 	async #switchTo(name: string): Promise<void> {
 		if (this.isOpen(name)) return;
@@ -557,11 +558,13 @@ export class WorkspaceStorage {
 	/**
 	 * Delete a named Workspace and everything in it.
 	 *
-	 * **Refuses the one that is open**, here rather than only in the dialog that asks. Deleting the
-	 * Workspace out from under a live `EditorSession` leaves an `Autosave` whose next flush recreates
-	 * the directory — the store's resolver has `create: true` — so the user would watch their
-	 * Workspace come back holding one file. A guard that lives only in markup is one route away from
-	 * being absent.
+	 * **Refuses the one that is open**, in {@link #removeWorkspace} rather than here and rather than
+	 * only in the dialog that asks. Deleting the Workspace out from under a live `EditorSession`
+	 * leaves an `Autosave` whose next flush recreates the directory — the store's resolver has
+	 * `create: true` — so the user would watch their Workspace come back holding one file. A guard
+	 * that lives only in markup is one route away from being absent, and a guard that lives on one
+	 * *method* is one caller away from it: {@link discardReview} removes a Workspace without coming
+	 * through here at all, which is exactly the route that found this.
 	 *
 	 * ⚠ **It does not cover the case that actually happens, and saying so is better than implying it
 	 * does.** {@link isOpen} compares against *this tab's* Workspace, so tab A deleting the Workspace
@@ -576,18 +579,28 @@ export class WorkspaceStorage {
 	 * therefore about the one-tab mistake, and the recovery is about the two-tab one.
 	 */
 	async deleteWorkspace(name: string): Promise<void> {
+		await this.#removeWorkspace(name);
+		await this.refreshWorkspaces();
+	}
+
+	/**
+	 * The removal itself, without publishing a listing. See {@link #switchTo} for why that is split.
+	 *
+	 * ⚠ **The "not the open one" guard lives here, on the deletion, not on the public method above.**
+	 * It was on {@link deleteWorkspace}, and {@link discardReview} — the second caller, added later —
+	 * went straight past it: it deletes the Workspace it has just left, and relies on the leaving
+	 * having worked. There is a reachable arrangement where it does not (see {@link #leaveReview}),
+	 * and the consequence is the precise failure the paragraph on {@link deleteWorkspace} describes,
+	 * arriving through the one route that could not read it. A guard on the operation cannot be got
+	 * round by adding a caller.
+	 */
+	async #removeWorkspace(name: string): Promise<void> {
 		if (this.isOpen(name)) {
 			throw new Error(
 				`“${name}” is the Workspace you are in, so it cannot be deleted from inside itself. ` +
 					`Switch to another Workspace first.`
 			);
 		}
-		await this.#removeWorkspace(name);
-		await this.refreshWorkspaces();
-	}
-
-	/** The removal itself, without publishing a listing. See {@link #switchTo} for why that is split. */
-	async #removeWorkspace(name: string): Promise<void> {
 		await deleteOpfsWorkspace(name);
 		// Its journalled edits go with it (ticket 20). Without this they survive the Workspace, become
 		// orphans nothing will ever replay, and — if a Workspace of the same name is made later — are
@@ -760,10 +773,30 @@ export class WorkspaceStorage {
 		await this.refreshWorkspaces();
 	}
 
-	/** Leaving without publishing a listing, so {@link discardReview} can list once at the end. */
+	/**
+	 * Leaving without publishing a listing, so {@link discardReview} can list once at the end.
+	 *
+	 * ⚠ **It has to actually leave, and there is a reachable arrangement where the obvious switch is a
+	 * no-op.** `#switchTo` returns at once when the destination is already open, and the destination
+	 * *can be the review copy's own name*: a user in browser Workspace "assignment 7" switches to a
+	 * folder — which carries `ownWorkspaceName` across unchanged — deletes the now-unopened OPFS
+	 * "assignment 7" from settings, and opens `assignment 7.project.tar`, whose review copy takes the
+	 * name that has just come free. Pressing Discard with the folder grant refused then left the
+	 * review copy open, and the removal that follows deleted a Workspace with a live `EditorSession`
+	 * on it — the failure {@link #removeWorkspace}'s guard exists for, reached from the one caller
+	 * that used to bypass it. So when the name is taken by the Workspace being left, a **new** one
+	 * near it is made instead: a suffixed empty Workspace of the user's own is the same bargain this
+	 * method already strikes when their own has been deleted, and it is the only landing available
+	 * that is neither the review copy nor a refusal to leave it.
+	 */
 	async #leaveReview(): Promise<void> {
+		// The folder's refusal, carried across the fallback switch below — `#switchTo` clears `problem`,
+		// so without this the reason the folder was not reopened was wiped by the very step that made it
+		// matter, and the docstring above promising it was said was false.
+		let folderProblem = '';
 		if (this.ownFolderName) {
 			await this.reopenFolder();
+			folderProblem = this.problem;
 			if (this.backing === 'folder') {
 				// ⚠ **`workspaceName` is carried across a folder adopt unchanged, and coming out of a
 				// review copy that is the one thing it must not be.** It is "where a switch back to
@@ -775,7 +808,12 @@ export class WorkspaceStorage {
 				return;
 			}
 		}
-		await this.#switchTo(this.ownWorkspaceName);
+		await this.#switchTo(
+			this.isOpen(this.ownWorkspaceName)
+				? await createOpfsWorkspace(this.ownWorkspaceName)
+				: this.ownWorkspaceName
+		);
+		if (folderProblem) this.problem = folderProblem;
 	}
 
 	/**
@@ -788,17 +826,31 @@ export class WorkspaceStorage {
 	 *
 	 * The order is leave, then delete, and it cannot be the other way round: deleting the Workspace out
 	 * from under a live `EditorSession` leaves an `Autosave` whose next flush recreates the directory,
-	 * which is what `deleteWorkspace` refuses for.
+	 * which is what {@link #removeWorkspace}'s guard refuses for — and, since that guard is on the
+	 * removal rather than on the public delete, what this method is held to as well rather than merely
+	 * trusted about.
 	 *
-	 * ⚠ **Exactly one listing, published after the deletion.** Leaving through the public
-	 * `openWorkspace` published a switcher that still offered the review copy, for as long as the
-	 * removal took — and `openWorkspace` *creates*, so a click in that window would have raced a
-	 * `removeEntry` with a `getDirectoryHandle({ create: true })` on the same directory. It is also
-	 * what a browser test saw: with the banner already gone, the Workspace was still on disk.
+	 * ⚠ **The doomed name is withdrawn from {@link workspaces} first, and re-listed only after the
+	 * deletion.** `NavigationBar` renders that field on every screen, so between the leave and the
+	 * removal the switcher offered a Workspace whose directory was being deleted — and switching
+	 * *creates*, so one click in that window raced a `getDirectoryHandle({ create: true })` against a
+	 * `removeEntry` on the same directory, leaving the user in a Workspace made of whatever survived.
+	 * Withdrawing it here closes that: `workspaces` is the only thing either the switcher or Workspace
+	 * settings offers, so from the first line of this method there is no control anywhere on screen
+	 * that opens the Workspace being discarded.
+	 *
+	 * Narrower than it sounds and worth being exact about: nothing here reaches a *second tab*, which
+	 * has its own listing and no way to hear about this one, for the reason {@link deleteWorkspace}
+	 * gives at length. What is closed is every route in this tab.
+	 *
+	 * Publishing the listing once, at the end, is the other half — going out through the public
+	 * `openWorkspace` put the name straight back from OPFS, which still holds it.
 	 */
 	async discardReview(): Promise<void> {
 		refuseOutsideReview(this.name, this.review);
 		const discarding = this.workspaceName;
+		this.workspaces = this.workspaces.filter((name) => name !== discarding);
+		this.reviewWorkspaces = this.reviewWorkspaces.filter((name) => name !== discarding);
 		await this.#leaveReview();
 		await this.#removeWorkspace(discarding);
 		await this.refreshWorkspaces();

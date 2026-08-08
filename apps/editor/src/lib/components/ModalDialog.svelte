@@ -32,12 +32,32 @@
 		 * tabs in from the top of the page to find out what just happened (WCAG 2.4.3,
 		 * workspace-and-layers SPEC story 95). Consulted only when the trigger has gone, so nothing about the ordinary
 		 * Escape-and-cancel path changes.
+		 *
+		 * ⚠ **The node it answers with may be created by the very update that closes this dialog, and
+		 * this is the ordering that makes that work.** `ProjectHub` hands back a `bind:this` on the
+		 * notice line that only exists once the bundle has opened. Svelte flushes render effects — which
+		 * is where `bind:this` is written — before user effects, and the close above is a user effect, so
+		 * by the time this getter is called the binding is set. It is called, not passed a node, for
+		 * exactly that reason: a node read at render time would have been `undefined` for ever. If this
+		 * answers nothing the restoration stops rather than guessing, which is the safe end of it —
+		 * focus is on `<body>`, where it already was, and nothing has been taken off the user.
 		 */
 		restoreFocusTo?: () => HTMLElement | null | undefined;
 	} = $props();
 
 	let dialog: HTMLDialogElement | undefined = $state();
 	let trigger: HTMLElement | null = null;
+	/**
+	 * Whether focus has already been put back for the close that is happening now.
+	 *
+	 * ⚠ **This is what makes {@link restoreFocus} idempotent, which the two call sites both assume and
+	 * only one of them used to get.** Our own close restores synchronously and the queued `close` event
+	 * then restored a second time, and the second run took focus back to the trigger *unconditionally*
+	 * — so anything that moved focus in between, one task wide, had it stolen. That is the same class
+	 * of theft this restoration was written to stop, and being narrow is not being absent. Idempotent
+	 * for the trigger branch as well as the "focus is stranded" one, so both closes below can call it.
+	 */
+	let restored = true;
 	// A stable id across server render and hydration, so `aria-labelledby` never dangles.
 	const titleId = $props.id();
 
@@ -45,6 +65,7 @@
 		if (!dialog) return;
 		if (open && !dialog.open) {
 			trigger = document.activeElement as HTMLElement | null;
+			restored = false;
 			dialog.showModal();
 		} else if (!open && dialog.open) {
 			dialog.close();
@@ -65,6 +86,9 @@
 	 * the browser test asserts.
 	 */
 	function restoreFocus(): void {
+		// Once per close, whichever of the two paths below gets here first. See {@link restored}.
+		if (restored) return;
+		restored = true;
 		// `isConnected` rather than a `try`: a detached element accepts `focus()` and does nothing, so
 		// there is no failure to catch — which is exactly why this went unnoticed.
 		if (trigger?.isConnected) {
@@ -81,8 +105,9 @@
 	}
 
 	// Escape and the backdrop close the dialog without going through the effect above, so this is
-	// their path to the same restoration. Our own close has already done it, and `restoreFocus` is
-	// idempotent — by then focus is outside the dialog and on something real.
+	// their path to the same restoration. After our own close it is a no-op, because `restoreFocus`
+	// is idempotent per close — see {@link restored} for why that had to be made true rather than
+	// asserted.
 	const onclose = () => {
 		open = false;
 		restoreFocus();

@@ -941,6 +941,11 @@ test.describe('the review banner is on every screen (workspace-and-layers SPEC s
 		await confirm.focus();
 		await page.keyboard.press('Enter');
 
+		// The announcement before the listing, for the reason spelled out at "discarding removes the
+		// Workspace and every file in it" below: the banner goes when the *leave* half lands, which is
+		// before the directory has been removed, so `toBeHidden()` is not a point at which OPFS may be
+		// read. This spec had the same race and did not get the same fix.
+		await expect(page.getByTestId('review-announcement')).toContainText('Discarded');
 		await expect(banner(page)).toBeHidden();
 		// Only the discarded one went; the one that was merely left is still there.
 		expect(await workspaceNames(page)).toEqual(['My Workspace', 'amsterdam-1625']);
@@ -979,6 +984,54 @@ test.describe('the review banner is on every screen (workspace-and-layers SPEC s
 		await expect(page.getByTestId('review-announcement')).toContainText('Discarded');
 		await expect(banner(page)).toBeHidden();
 		expect(await workspaceNames(page)).toEqual(['My Workspace']);
+	});
+
+	// ⚠ **Watched rather than sampled, because the window is internal to one awaited call.**
+	// `discardReview` is leave-then-delete, and the switcher is drawn from `storage.workspaces` on
+	// every screen. Between the two halves the review copy is no longer open — so a click on its item
+	// no longer short-circuits — and its directory is being removed, so the click ran
+	// `getDirectoryHandle({ create: true })` against a `removeEntry` on the same directory. No
+	// `expect` afterwards can see that window: by the time the announcement lands it has closed. A
+	// `MutationObserver` recording the pair "is it still offered / is the banner still up" turns it
+	// into a fact about the order the two fields change in, which is the thing that was wrong.
+	test('takes the doomed Workspace off the switcher before it starts, not after it ends', async ({
+		page
+	}) => {
+		await page.evaluate(() => {
+			const sample = () => ({
+				// The switcher's popover is in the document at all times — `MenuPopover` renders it and
+				// the top layer hides it — so this reads the live listing without opening a menu, which
+				// a click on the banner would close again anyway.
+				offered: [...document.querySelectorAll('[data-testid="switch-workspace"]')].some(
+					(item) => (item as HTMLElement).dataset.workspace === 'amsterdam-1625'
+				),
+				reviewing: document.querySelector('[data-testid="review-banner"]') !== null
+			});
+			const samples = [sample()];
+			(window as unknown as { e2eSwitcherSamples?: typeof samples }).e2eSwitcherSamples = samples;
+			new MutationObserver(() => samples.push(sample())).observe(document.body, {
+				subtree: true,
+				childList: true,
+				characterData: true
+			});
+		});
+
+		await page.getByTestId('discard-review').click();
+		await page.getByTestId('confirm-discard-review').click();
+		await expect(page.getByTestId('review-announcement')).toContainText('Discarded');
+
+		const samples = await page.evaluate(
+			() =>
+				(window as unknown as { e2eSwitcherSamples?: { offered: boolean; reviewing: boolean }[] })
+					.e2eSwitcherSamples ?? []
+		);
+		// Offered while it was open, which is deliberate: a teacher moves between review copies, so they
+		// stay on the switcher rather than being filtered out of it (ADR-0024).
+		expect(samples.some((seen) => seen.offered && seen.reviewing)).toBe(true);
+		// And gone from it while the banner was still up — that is, withdrawn at the *start* of the
+		// discard. Without that, the first state in which it is not offered is one where the leave has
+		// already happened, which is the window this is about.
+		expect(samples.some((seen) => !seen.offered && seen.reviewing)).toBe(true);
 	});
 
 	test('a review copy is not backed up', async ({ page }) => {
@@ -1225,5 +1278,37 @@ test.describe('the keyboard alone (SPEC story 95)', () => {
 
 		await expect(page.getByRole('dialog', { name: 'Open a Project someone sent me' })).toBeHidden();
 		await expect(trigger).toBeFocused();
+	});
+
+	// ⚠ **Closing restores focus once, and the second run is what this is about.** `ModalDialog`
+	// restored synchronously at `close()` — which it must, or a keystroke lands on a button inside a
+	// dialog that is no longer shown — and then again from the queued `close` event, where it took
+	// focus back to the trigger *unconditionally*. That is the same theft the synchronous restore was
+	// written to stop, one task wide instead of one frame, and nothing that ran in that task could
+	// keep the focus it had been given.
+	//
+	// One task is not something a Playwright `expect` can step into, so the page steps into it: a
+	// `MutationObserver` on the dialog's own `open` attribute fires as a microtask after `close()`
+	// removes it and before the `close` event is dispatched, which is exactly the window. Whatever it
+	// focuses there must still be focused afterwards.
+	test('closing restores focus once, and does not take it back from whatever moved it', async ({
+		page
+	}) => {
+		await page.getByTestId('open-bundle').click();
+		const dialog = page.getByRole('dialog', { name: 'Open a Project someone sent me' });
+		await expect(dialog).toBeVisible();
+
+		await dialog.evaluate((element) => {
+			const elsewhere = [...document.querySelectorAll('button')].find(
+				(button) => button.textContent?.trim() === 'New Project'
+			);
+			new MutationObserver(() => {
+				if (!(element as HTMLDialogElement).open) elsewhere?.focus();
+			}).observe(element, { attributes: true, attributeFilter: ['open'] });
+		});
+		await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+		await expect(dialog).toBeHidden();
+		await expect(page.getByRole('button', { name: 'New Project' })).toBeFocused();
 	});
 });

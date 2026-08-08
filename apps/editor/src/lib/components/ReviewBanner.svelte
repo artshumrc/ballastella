@@ -31,6 +31,8 @@
 	// through a convenience. A scholar who wants a colleague's map in their own research adds the map
 	// themselves.
 
+	import { describeReviewSubject } from '@ballastella/core';
+
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	import ModalDialog from './ModalDialog.svelte';
@@ -50,8 +52,14 @@
 	 * a mark rather than with `null` when the file is there and unreadable. Saying "a Project somebody
 	 * sent you" is the truthful reading of that; inventing the Workspace's own name would claim the
 	 * bundle said something it did not.
+	 *
+	 * ⚠ **`describeReviewSubject` rather than the same conditional written here**, which is what this
+	 * was. `assertNotReviewing` names the subject in the refusal a user meets when they try to publish
+	 * or back one up, and this names it in the banner they are looking at while they do — two spellings
+	 * is how the two screens come to say different things about one Workspace. That function is in core
+	 * for exactly this, and it had no consumer.
 	 */
-	const subject = $derived(review?.project ? `“${review.project}”` : 'a Project somebody sent you');
+	const subject = $derived(review === null ? '' : describeReviewSubject(review));
 
 	/**
 	 * Go back to the user's own Workspace, and say which one they landed in.
@@ -63,13 +71,22 @@
 	 * somewhere else again. `storage.name` is what the bar is showing, which is the only honest answer
 	 * to "where am I now".
 	 *
-	 * A folder that would not reopen is reported by `storage.problem` on the settings screen; what is
-	 * said here is where the user actually is, because that is what this sentence is for.
+	 * ⚠ **A folder that would not reopen is said *here*, appended, and not left to the settings
+	 * screen.** `storage.problem` is rendered where the storage question is asked, and a user who
+	 * pressed an exit is not on that screen — so the whole report of "your folder was not opened, you
+	 * are somewhere else" was one sentence saying where they were and nothing at all saying why it was
+	 * not where they asked to go. Where the folder *did* reopen, `problem` is empty and this is the
+	 * sentence it always was.
 	 */
+	const withProblem = (said: string): string =>
+		storage?.problem ? `${said} ${storage.problem}` : said;
+
 	async function leave(): Promise<void> {
 		if (!storage) return;
 		await storage.leaveReview();
-		announcement = `Left the review copy. You are back in your own Workspace, “${storage.name}”.`;
+		announcement = withProblem(
+			`Left the review copy. You are back in your own Workspace, “${storage.name}”.`
+		);
 	}
 
 	async function discard(): Promise<void> {
@@ -78,7 +95,7 @@
 		const discarded = storage.name;
 		try {
 			await storage.discardReview();
-			announcement = `Discarded the review copy “${discarded}” and everything in it.`;
+			announcement = withProblem(`Discarded the review copy “${discarded}” and everything in it.`);
 		} catch (cause) {
 			announcement = cause instanceof Error ? cause.message : String(cause);
 		}

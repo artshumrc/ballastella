@@ -1189,21 +1189,32 @@ describe('a Review Workspace is never backed up', () => {
 		expect((cause as Error).message).toContain('cannot be backed up');
 	});
 
-	// Nothing is read and nothing is produced. A refusal that had already walked the Workspace would
-	// still be a refusal, but it would also be tens of thousands of `size` calls on a shared pool.
-	it('produces no archive at all', async () => {
+	// The Workspace is never walked, and nothing is produced. **One file is read, and it is the mark
+	// itself** — the refusal is a question about that file, so "nothing is read" would be an
+	// overstatement of a real property: what the refusal must not cost is the walk. A refusal taken
+	// after it would still be a refusal, but it would also be tens of thousands of `size` calls on a
+	// shared pool. Both halves are asserted, so a later cut that reads a manifest or a project.json
+	// "just to name the Workspace" has to come back through here.
+	it('reads the mark and nothing else, and produces no archive at all', async () => {
 		const store = marked();
 		let listed = 0;
+		const reads: string[] = [];
 		const list = store.list.bind(store);
+		const read = store.read.bind(store);
 		store.list = async (prefix: string) => {
 			listed += 1;
 			return list(prefix);
+		};
+		store.read = async (path: StorePath) => {
+			reads.push(path);
+			return read(path);
 		};
 
 		await expect(exportWorkspaceTar(store, 'amsterdam-1625')).rejects.toBeInstanceOf(
 			ReviewWorkspaceError
 		);
 		expect(listed).toBe(0);
+		expect(reads).toEqual([REVIEW_MARK_PATH]);
 	});
 
 	it('still backs up a Workspace of the user’s own', async () => {
