@@ -35,6 +35,7 @@
 	import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 	import {
 		ANNOTATION_ID_PROPERTY,
+		BASE_MAP_SOURCE_ID,
 		applyOpeningFit,
 		baseMapStyle,
 		defaultEntry,
@@ -81,7 +82,8 @@
 		popupAt = null,
 		onclickannotation,
 		onpopupclose,
-		onstack
+		onstack,
+		onbasemapstatus
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
@@ -156,6 +158,26 @@
 		 * normal states a Reader has to be able to be told about.
 		 */
 		onstack?: (outcomes: Readonly<Record<string, DrawnOutcome>>) => void;
+		/**
+		 * Whether the Base Map's own source is drawing, and that it is not when it is not (ticket 22).
+		 *
+		 * ─────────────────────────────────────────────────────────────────────────────────────
+		 * A PUBLISHED SITE HAS NO CONSOLE ANYONE IS WATCHING
+		 *
+		 * The editor's `BaseMapPane` grew this in ticket 20, after `demo-bucket.protomaps.com` began
+		 * refusing the archive every entry in this deployment's catalog reads and the application's
+		 * whole response was a pane with nothing in it. The viewer did not, and the viewer is the side
+		 * with no developer looking: a Reader cannot tell an outage from a broken tool, and cannot rule
+		 * out the third possibility either — that the scholar's own work failed to draw.
+		 *
+		 * **Reported, not rendered here**, for the same reason it is in the editor: what to say is the
+		 * page's question, and the page already owns the fallback notice and the published-without-files
+		 * notice that this has to sit beside without contradicting.
+		 *
+		 * `'drawing'` is sent when the source loads, so this is a state rather than a one-way alarm — a
+		 * Reader who switches to a Base Map that works must not be left holding a stale accusation.
+		 */
+		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -188,7 +210,7 @@
 	 * glyphs, and sprites are all site-relative paths — so building the ordinary style would fire a
 	 * pmtiles range request and two sprite requests at files that are not there. The Reader would get a
 	 * blank map, three 404s, and no account of either. So the reference map is simply absent, the Project's
-	 * own Layers still draw over the background, and the page says why (see `base-map-unavailable`).
+	 * own Layers still draw over the background, and the page says why (see `base-map-not-published`).
 	 */
 	const styleFor = (id: string): StyleSpecification => {
 		const entry = catalog.entries.find((candidate) => candidate.id === id) ?? defaultEntry(catalog);
@@ -243,7 +265,7 @@
 		// system font, which is invisible to every assertion about the map (ADR-0025).
 		//
 		// **A map with no place names on it is not a map that needs no explanation.** The page says so:
-		// `baseMapUnavailable` in `+page.svelte` has a branch for exactly this state, and dropping it
+		// `baseMapNotPublished` in `+page.svelte` has a branch for exactly this state, and dropping it
 		// would leave a Reader holding an unlabelled world with no account of why.
 		const withoutDisplayAssets = { ...style };
 		delete withoutDisplayAssets.glyphs;
@@ -302,6 +324,32 @@
 			locale: { 'Map.Title': 'Base Map' }
 		});
 		created.addControl(new NavigationControl({}), 'top-right');
+
+		// ──────────────────────────────────────────────────────────────────────────────────────
+		// THE BASE MAP'S SOURCE, AND ONLY THAT SOURCE
+		//
+		// `error` carries everything MapLibre could not do — a warped Layer's tiles, a sprite, a glyph
+		// range. Reporting the lot as "no Base Map" would be a notice that appears for reasons it does
+		// not name, so this is filtered to the one source `baseMapStyle` declares. The same filter as
+		// the editor's pane, and deliberately the same source id: `styleFor` builds both the archive
+		// style and the cached-tiles style through `baseMapStyle`, so a site drawing from its own
+		// `base-map/tiles/…` reports through this too, which is right — tiles that will not read are
+		// as blank as an archive that will not answer.
+		//
+		// The bare "this site was published without its Base Map" style declares **no sources at all**,
+		// so it can neither fail nor load here and nothing is ever reported for it. That state is not an
+		// outage and the page says something else about it — see `base-map-not-published`.
+		created.on('error', (event) => {
+			if ((event as { sourceId?: string }).sourceId !== BASE_MAP_SOURCE_ID) return;
+			onbasemapstatus?.('unavailable');
+		});
+		// `sourcedata` rather than `load`: the map fires `load` once the *style* is in, which happens
+		// whether or not the archive answered. What has to be observed is the source itself becoming
+		// loaded, which is the event that does not fire when the archive refuses.
+		created.on('sourcedata', (event) => {
+			if (event.sourceId !== BASE_MAP_SOURCE_ID || !event.isSourceLoaded) return;
+			onbasemapstatus?.('drawing');
+		});
 
 		// A click reports the Annotation under it, and nothing else. There is no "place a point" here:
 		// a Reader cannot draw, so a click on empty geography is a click on empty geography.
