@@ -9,6 +9,14 @@
 // The fake writer is four methods, which is the whole of what this class asks of `EditorSession`.
 // That is the measurement of the carve: 369 lines of the Project screen now depend on four
 // functions rather than on a 2500-line session, OPFS, and a map.
+//
+// ⚠ **`.svelte.test.ts`, not `.test.ts`, and that is load-bearing.** `screen()` below builds the
+// screen's `layers` edge out of `$state`, because the class's `$derived`s track *signals* and a
+// plain array carries none — a test that hands this class a plain array asserts nothing about a
+// derived, whichever way the derived happens to be compiled. Runes are only compiled in a file
+// whose name carries the `.svelte.` infix, which the plugin's module filter accepts anywhere
+// before the extension. See `vitest.config.ts` for the other half of this: which Svelte runtime
+// the project compiles to, and why the default one made the reactivity assertions vacuous.
 
 import {
 	newAnnotation,
@@ -61,9 +69,20 @@ class FakeWriter implements AnnotationWriter {
 	}
 }
 
-/** The screen's three edges, as plain mutable state a test can drive. */
-function screen(layers: Layer[]) {
+/**
+ * The screen's three edges, as mutable state a test can drive.
+ *
+ * **`layers` is `$state`, not the array it was handed.** On the screen this edge is
+ * `$derived(session.openProject?.layers ?? [])` — signal-backed, so a Layer being deleted
+ * invalidates every derived over it. A plain array has no signals, so `#annotationLayers` would
+ * acquire no dependencies on its first read and stay clean for ever after: "follows the open Layer
+ * being deleted" would pass without any reactivity in the class at all. Mutate `it_.layers` (the
+ * proxy this returns), not the array passed in — only writes through the proxy are writes to a
+ * signal.
+ */
+function screen(initialLayers: Layer[]) {
 	const session = new FakeWriter();
+	const layers = $state(initialLayers);
 	let documents: Record<string, unknown> = {};
 	const annotations = new AnnotationEditing({
 		session: () => session,
@@ -135,12 +154,16 @@ describe('which Layer is drawn into', () => {
 	});
 
 	it('follows the open Layer being deleted rather than pointing at a Layer that is gone', () => {
-		const layers: Layer[] = [layerNamed('one'), layerNamed('two')];
-		const it_ = screen(layers);
+		// The assertion this file's header is about: `activeLayer` is read *before* the deletion, so a
+		// derived that did not invalidate would hand back the Layer it cached — a Layer that is gone
+		// from the Project, still being drawn into. Replace either `$derived` in
+		// `annotation-editing.svelte.ts` with a plain getter and every other test in this file still
+		// passes; this one is the one that goes red.
+		const it_ = screen([layerNamed('one'), layerNamed('two')]);
 		it_.annotations.openLayer('two');
 		expect(it_.annotations.activeLayer?.id).toBe('two');
 
-		layers.splice(1, 1);
+		it_.layers.splice(1, 1);
 
 		expect(it_.annotations.activeLayer).toBeNull();
 	});

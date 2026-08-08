@@ -8,6 +8,27 @@ const config = {
 	},
 	kit: {
 		adapter: adapter(),
+		typescript: {
+			// ⚠ **The test harness is checked too, or it is not checked at all.**
+			//
+			// `pnpm check` runs `svelte-check` against `tsconfig.json`, which extends the config
+			// SvelteKit generates — and that generated `include` lists `../src/**`, `../vite.config.ts`,
+			// `../test/**` and `../tests/**` and nothing else. So `vitest.config.ts` and everything in
+			// `vitest-setup/` sat outside the type seam entirely: a broken `defineConfig`, a setup file
+			// importing a name that no longer exists, or a fence whose types drifted from
+			// `@ballastella/core/test-fence` would all have been found by a red test run at best and by
+			// nobody at worst. `packages/core/tsconfig.json` has had `vitest.config.ts` and
+			// `vitest-setup/**/*.ts` in its `include` from the start; this is the same thing said in the
+			// one place SvelteKit leaves for it.
+			//
+			// Through this hook rather than by writing `include` into `tsconfig.json`: an `include` in
+			// the extending config *replaces* the base's outright, so that route means keeping a copy of
+			// SvelteKit's generated list in step with SvelteKit for ever.
+			config(config) {
+				config.include.push('../vitest.config.ts', '../vitest-setup/**/*.ts');
+				return config;
+			}
+		},
 		// ADR-0012: the service worker exists, and its registration is the app's own.
 		//
 		// `register: false` because SvelteKit's built-in registration is an inline

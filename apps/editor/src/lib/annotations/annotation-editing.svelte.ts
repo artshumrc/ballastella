@@ -96,10 +96,6 @@ export class AnnotationEditing {
 		this.#edges.layers().filter((layer): layer is AnnotationLayer => layer.kind === 'annotation')
 	);
 
-	get annotationLayers(): readonly AnnotationLayer[] {
-		return this.#annotationLayers;
-	}
-
 	get annotationLayerCount(): number {
 		return this.#annotationLayers.length;
 	}

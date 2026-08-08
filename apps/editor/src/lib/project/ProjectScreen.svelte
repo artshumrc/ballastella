@@ -1481,9 +1481,11 @@
 	What is inside an Annotation Layer, rendered by `LayerList` inside that Layer's open row: the
 	drawing tools, the Layer's default style, its Annotations, and the selected one's editor.
 
-	**A snippet passed down rather than markup inside `LayerList`**, because everything it needs is this
-	screen's: the collection in `documents`, the selection, the `AnnotationDrawing` instance, and every
-	function that writes. `LayerList` would otherwise take fourteen props it only forwards.
+	**A snippet passed down rather than markup inside `LayerList`**, because everything it needs is
+	reachable from here and from nowhere in the stack: the collection, the selection, the
+	`AnnotationDrawing` instance and every function that writes are `annotations`' — this screen holds
+	that one object — and `session.setLayerDefaultStyle` is the screen's own. `LayerList` would
+	otherwise take fourteen props it only forwards.
 
 	The Layer it is handed *is* `annotations.activeLayer`; both come from `openLayerId`, which is where
 	that identity is explained — in `annotation-editing.svelte.ts`, which ticket 06 carved this state

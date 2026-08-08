@@ -116,10 +116,16 @@
 	 * together both find no Layer for the map.
 	 *
 	 * ⚠ **`#addMapLayer` holds the same invariant a second time**, with three `drawnAlready()`
-	 * checks across its awaits, and `editor-add-historical-map.e2e.ts`'s "two clicks in one task"
-	 * test goes red only when *both* are removed — measured. Neither is dead: this one keeps a
-	 * redundant Alignment `create` and a store read from happening at all. But neither is held in
-	 * place by a mutation of its own, so do not delete this one on the strength of a green suite.
+	 * checks across its awaits — so `editor-add-historical-map.e2e.ts`'s "two clicks in one task"
+	 * test asserts the *property* (one Layer, not two) and stays green with either guard alone.
+	 *
+	 * **Nothing re-checks that, and nothing here claims otherwise.** It was measured once, by hand,
+	 * and the measurement is written down at the assertion it is about — that test's own header —
+	 * rather than here, because that is the file a future reader is holding when the question comes
+	 * up. There is no mutation harness in this repository, so no run will tell you this guard has
+	 * gone dead: do not delete it on the strength of a green suite. What it earns on its own is
+	 * cheap and real — it keeps a redundant Alignment `create` and a store read from happening at
+	 * all, before either reaches the session.
 	 */
 	let adding = $state('');
 
