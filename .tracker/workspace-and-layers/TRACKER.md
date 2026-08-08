@@ -8,9 +8,11 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 12, 17, 18, 19. **16 is in flight.**
+Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 12, 16, 17, 18, 19. Nothing in flight.
 
-**Unblocked and ready:** 05. It is held only until 16 lands — 16 is a repo-wide rename and 05 carves `ProjectScreen.svelte`, so running them together would mean resolving a rename against a restructure across the same files.
+**Unblocked and ready: 05**, and it is the only one. Everything after it is the chain — 05 → 06 → 07 → 15 — plus the transfer pair 13 → 14, which needs 12 (now merged) and then 13 before 14.
+
+**16 was finished by the coordinator after its implementer hit a session usage limit mid-review, and the interruption left a real defect.** Four e2e assertions expected `data-image-mode="copied"` while the app emits `'offline-copy'`, and `e2e/support/reader-project.ts` carried both spellings — its *type* said one and its *default* said the other, so every fixture that did not name a mode laid down files for a mode the app would never report. `pnpm check` missed it because the default inferred as a plain string. **A rename is the change most likely to be 95% done and look finished**; budget the last 5% and re-run the whole suite, not the specs you touched.
 
 **The e2e fixture is now one composed root.** `e2e/support/test.ts` is the root and `network-fence.ts` is the layer beneath it; `check-e2e-network-fence.mjs` enforces both halves, because an import rule alone cannot see a composition quietly unpicked. It caught two real defects the day it landed — `expectWorkspaceNamed` was satisfied by the popover it was nested inside, so `switchToWorkspace` returned before switching, and `seedWorkspaceBytes` wrote 700 MB of ballast into the OPFS root so the hosting warning it seeds for never appeared. Both were green tests proving nothing.
 
@@ -34,7 +36,7 @@ Smaller, recorded in 17's follow-ups: `expectWarpedDrawn` used to pass against a
 
 **`retries` no longer hides anything.** Every retry is printed with file and line, and the run fails above 0.5%. A `--reporter=` flag on the command line replaces Playwright's whole reporter list and silently disables that budget — stated in `playwright.config.ts` and `CONTRIBUTING.md`, since nothing can pin it.
 
-Last updated: 2026-08-08 (12, 17 and 19 merged; the network fence landed)
+Last updated: 2026-08-08 (12, 16, 17 and 19 merged; the network fence landed)
 
 ## Standing constraints
 
@@ -76,7 +78,7 @@ Every Alignment write now goes through `alignment/alignment-file.ts` and names w
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Not Started | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Not Started | 13 | 89–95 |
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
-| 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | In Progress | 02, 03, 09 | — |
+| 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Completed | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Completed | 02, 03, 09 | — |
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
 | 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Completed | 11 | — |
