@@ -32,8 +32,26 @@
 	const storage = $derived(host.storage);
 	const session = $derived(storage?.session ?? null);
 
+	/**
+	 * ⚠ **Gated on `storage.recovered`, and this is the route where it matters most** (ticket 20).
+	 *
+	 * The write-ahead journal is replayed into the store as the Workspace is adopted, and this
+	 * effect runs at the same moment. `/align?p=…&layer=…` is bookmarkable, and it is the screen
+	 * that reads *and writes* Alignments — the file replay puts back through `alignment-file.ts`.
+	 * Ungated, a reload landing here inside the debounce window shows the Control Points as they
+	 * were **before** the replay, and the next drag writes those back over the rescue: the exact
+	 * defect this gate exists for, on the route where it costs a colleague's afternoon rather than
+	 * a Project name.
+	 *
+	 * The hub route carries the same gate. The promise never rejects, so a recovery that went wrong
+	 * cannot stop an alignment being opened.
+	 */
 	$effect(() => {
-		void session?.open(openDirectory);
+		const current = session;
+		const directory = openDirectory;
+		const ready = storage?.recovered;
+		if (!current || !ready) return;
+		void ready.then(() => current.open(directory));
 	});
 
 	/**

@@ -5,8 +5,37 @@
 // the published viewer carrying the whole catalog and the style-switching logic too, not merely
 // "render the configured style".
 
-export { Autosave, type AutosaveOptions, type SaveState } from './autosave/autosave.js';
+export {
+	Autosave,
+	type AutosaveJournal,
+	type AutosaveOptions,
+	type SaveState
+} from './autosave/autosave.js';
 export { installFlushOnHide, type HideEventTargets } from './autosave/flush-on-hide.js';
+// The write-ahead journal that makes ADR-0017 rule 3 true for a real navigation (ticket 20).
+export {
+	JOURNAL_FORMAT_VERSION,
+	JournalFullError,
+	JournalUnavailableError,
+	WriteAheadJournal,
+	browserJournalStorage,
+	discardJournal,
+	journalledWorkspaces,
+	readJournal,
+	type JournalContents,
+	type JournalEntry,
+	type JournalProblem,
+	type JournalProblemReason,
+	type JournalStorage
+} from './autosave/journal.js';
+export {
+	replayIsNoteworthy,
+	replayJournal,
+	type JournalReplayReport,
+	type ReplayFailure,
+	type ReplaySkipReason,
+	type ReplaySkipped
+} from './autosave/replay.js';
 // The Layer stack (CONTEXT.md, Layer; ADR-0002). Both apps: the editor edits it, and the published
 // viewer reads it to know what draws over what (ADR-0019), so it lives here and is free of
 // `terra-draw` and the tiler.

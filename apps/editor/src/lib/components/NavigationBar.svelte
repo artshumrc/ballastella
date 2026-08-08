@@ -290,6 +290,43 @@
 					{session.saveError}
 				</p>
 			{/if}
+			<!--
+				**A different sentence from the one above, with a different remedy** (ticket 20).
+				`save-error` says the edit did not reach storage. This says the edit is on its way and
+				the copy that would survive closing the tab before it lands could not be kept — a full
+				`localStorage`, usually an Annotation collection larger than the origin's whole quota.
+				The user can act on it only while this page still exists, which is exactly why the
+				journal is written at the edit rather than at `pagehide`, where there would be no screen
+				left to put this on.
+
+				`role="alert"` for the same reason `save-error` uses it: it is inserted at the moment its
+				text first exists, and a polite region does not reliably announce that (SPEC story 112).
+			-->
+			{#if session.protectionWarning}
+				<p role="alert" class="max-w-md text-sm text-warning" data-testid="protection-warning">
+					{session.protectionWarning}
+				</p>
+			{/if}
+			<!--
+				And the browser that cannot offer the protection at all — a private window with site data
+				blocked. Said once, on every screen, rather than letting the app imply a guarantee it does
+				not have on that browser.
+
+				⚠ **`aria-live="polite"` and not `role="alert"`**, unlike the two above. This is a
+				steady-state fact about the browser, true from the first frame and unchanged for the whole
+				session — CONTRIBUTING's mandated-method table puts Status in a polite region, and an
+				assertive one would interrupt a scholar mid-alignment to tell them something that was
+				already true when they opened the page.
+			-->
+			{#if storage?.unprotected}
+				<p
+					aria-live="polite"
+					class="max-w-md text-sm text-warning"
+					data-testid="unprotected-browser"
+				>
+					{storage.unprotected}
+				</p>
+			{/if}
 		</div>
 	{/if}
 </header>

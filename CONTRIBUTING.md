@@ -258,6 +258,17 @@ what it says before the save begins, and `SaveIndicator.svelte` deliberately lag
 does not strobe. A transient state cannot be caught by polling for it at all; record it with a
 `MutationObserver` and assert the sequence.
 
+**And since ticket 20 a reload no longer loses a pending write, which changes what a green reload
+proves.** An edit inside its debounce window is copied synchronously to a write-ahead journal
+(ADR-0017 rule 3) and put back at the next startup, so `page.reload()` is no longer a way to assert
+that something reached the Workspace *by the route under test* — it may have arrived by the replay.
+A test about a write should assert the file, in place, without reloading. A test about the journal
+should say so and should provoke a real navigation rather than dispatching `pagehide`: the dispatched
+version was green while the user's case was losing the edit 8 times out of 8, which is the sharpest
+example this repository has of a test that could not see the bug it was named after. If a spec needs
+a Workspace with no journalled edits in it, clear the `ballastella.journal.` keys the way
+`editor-workspace.e2e.ts` does.
+
 **The browser suite runs against `apps/*/build`, so development mode is not covered by it.** That is
 the right default — the shipped Published Site is prerendered static files with no server (ADR-0006),
 so the build is what a Reader gets. But it left `vite dev` as the one configuration nothing exercised,

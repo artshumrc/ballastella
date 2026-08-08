@@ -1,10 +1,11 @@
-import { expect, test } from './support/test.js';
+import { DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { openProjectSettings, projectNameField } from './support/project-screen';
 import { recordSaveStates } from './support/saved';
 import { readStoredFile } from './support/stored-file';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { createWorkspace, switchToWorkspace } from './support/workspace.js';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
 // and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
@@ -794,6 +795,13 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 // also an ADR-0017 decision and an ADR-0001 one — it puts user bytes somewhere that is not the
 // ProjectStore — so it was reported rather than guessed at. See the ticket.
 //
+// ✅ **FIXED BY TICKET 20**, and the fix is asserted against a genuine navigation in
+// `surviving a real navigation (ADR-0017 rule 3, as amended)` below. ADR-0017 rule 3 now reads
+// "capture synchronously, then flush", the journal is `packages/core/src/autosave/journal.ts`, and
+// the replay is `replay.ts`. This describe is kept, unchanged, because what it proves is still worth
+// proving separately — that the listeners are on the real `window` and that `flush` works — and
+// because it is the specimen for why a dispatched event is the weaker claim.
+//
 // Do not read the test below as covering the user's case. It is deliberately dispatched rather
 // than provoked, and it is the strongest claim this seam can make.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
@@ -851,6 +859,251 @@ test.describe('flushing on hide (ADR-0017 rule 3)', () => {
 		await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
 
 		await expect.poll(() => readProjectName(page)).toBe('Half a keystroke ago');
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// THE USER'S CASE, PROVOKED AND NOT DISPATCHED — TICKET 20
+//
+// This is the regression test for the measurement above. Everything about it is chosen so that it
+// can only pass for the right reason:
+//
+//   * **A real `page.reload()`**, not `dispatchEvent(new PageTransitionEvent('pagehide'))`. That is
+//     the entire difference between the 8-of-8 loss and the 32 ms success, and a test that
+//     dispatches is a test that cannot see the bug.
+//   * **The debounce is held back**, so the ordinary timer can never write. Without this the app's
+//     own 400 ms window closes inside the assertion and the test passes with the fix deleted —
+//     the exact vacuous shape the describe above documents having been caught in.
+//   * **The bytes are read from OPFS**, not from the screen. A restored name that is only in memory
+//     is not a save.
+//
+// The `flush` in the `pagehide` listener is still there and may occasionally win the race in a
+// headless browser. That does not make these vacuous — every mutation below was actually run
+// against this file, and two of them came back GREEN, which is recorded here rather than tidied
+// away, because a mutation that does not go red is a finding about the tests:
+//
+//   * remove the replay from `WorkspaceStorage.start`            →  RED
+//   * remove the `recovered` gate on the `?p=` open effect       →  RED, and it found a real defect
+//                                                                   on its first run: restored on
+//                                                                   disk, stale on screen, one
+//                                                                   keystroke from being overwritten
+//   * remove `journal.forgetUnder` from `deleteProject`          →  RED, but only against the fifth
+//                                                                   test. Against the fourth it was
+//                                                                   GREEN, because replay's own
+//                                                                   precondition already covers a
+//                                                                   Project that is simply gone; the
+//                                                                   fifth test exists because of that
+//                                                                   green, and says so itself.
+//   * remove the journal write from `Autosave.queue`             →  GREEN — `capture()` on `pagehide`
+//                                                                   picks the same bytes up.
+//   * remove `autosave.capture()` from the `pagehide` listener   →  GREEN — `queue` had already
+//                                                                   journalled them.
+//
+// The last two are a genuine redundancy rather than a gap: either half alone carries this case, so
+// no e2e mutation of one can be red. Each is pinned separately in `journal.test.ts` — `queue` by
+// "has the bytes on disk before the debounce has run at all", and `capture` by the one case only it
+// can serve, a quota that was full at the edit and has room by the time the page goes away.
+//
+// The full record, including what review found afterwards and what was deliberately not done, is
+// `.tracker/workspace-and-layers/tickets/20-a-real-navigation-does-not-lose-an-edit.md`.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () => {
+	/** The same shim the describe above documents: only a flush or a capture can write. */
+	const holdBackTheDebounce = (page: Page) =>
+		page.addInitScript(() => {
+			const real = window.setTimeout;
+			window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) =>
+				typeof delay === 'number' && delay >= 400
+					? 0
+					: real(handler as never, delay, ...args)) as typeof window.setTimeout;
+		});
+
+	test.beforeEach(async ({ page }) => {
+		await holdBackTheDebounce(page);
+		await page.goto('./');
+		await emptyWorkspace(page);
+		await page.evaluate(() => {
+			for (const key of Object.keys(localStorage)) {
+				if (key.startsWith('ballastella.journal.')) localStorage.removeItem(key);
+			}
+		});
+		await page.reload();
+	});
+
+	const openAndRename = async (page: Page, typed: string) => {
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		// An idle indicator means nothing is in flight, so what follows is about rule 3 and not about
+		// a keystroke landing while the Project is being re-read. Same reasoning as above.
+		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
+
+		const field = await projectNameField(page);
+		await field.fill(typed);
+		// Still only in memory: the debounce window cannot close, so nothing has been written.
+		expect(await readProjectName(page)).toBe('Amsterdam 1625');
+	};
+
+	test('a debounced rename survives reloading the page inside the debounce window', async ({
+		page
+	}) => {
+		await openAndRename(page, 'Amsterdam 1626');
+
+		// The real thing. Not a dispatched event.
+		await page.reload();
+
+		await expect
+			.poll(() => readProjectName(page), {
+				message: 'the rename should be in OPFS after a real reload, not only on screen'
+			})
+			.toBe('Amsterdam 1626');
+		// And the screen the reload landed on shows it, so the recovery is not only on disk.
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1626');
+	});
+
+	test('says that it put the change back, in text a screen reader is given', async ({ page }) => {
+		await openAndRename(page, 'Amsterdam 1627');
+
+		await page.reload();
+
+		// SPEC story 111: visible text, not a tooltip. Story 112: inside the `aria-live` region that
+		// was already mounted, so it is announced rather than silently inserted.
+		const notice = page.getByTestId('recovered-edits');
+		await expect(notice).toBeVisible();
+		await expect(notice).toContainText('amsterdam-1625/project.json');
+		await expect(page.getByTestId('recovered-region')).toHaveAttribute('aria-live', 'polite');
+
+		// And it goes when the user says so, not on a timer.
+		await page.getByTestId('recovered-dismiss').click();
+		await expect(notice).toBeHidden();
+	});
+
+	/**
+	 * ⚠ **This is a re-edit, not an undo, and calling it one was wrong.** Two `fill()`s exercise the
+	 * debounce and the journal's last-write-wins; they do not touch `UndoSlot` at all, so this test
+	 * says nothing about ADR-0014 however it is named. Review caught that.
+	 *
+	 * It is kept because superseding *is* worth pinning at this seam — a journal that appended rather
+	 * than replaced would fail here. The ADR-0014 claim is pinned where the mechanism actually lives,
+	 * in `journal.test.ts`'s "single-level undo across a save", which drives a real `UndoSlot` against
+	 * a store whose writes never settle: the only state in which the journal is what carries the file.
+	 */
+	test('replays the last edit to a file, not an earlier one', async ({ page }) => {
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		await expect(page.locator('[data-save-state]')).toHaveAttribute('data-save-state', 'saved');
+
+		const field = await projectNameField(page);
+		await field.fill('A name typed and thought better of');
+		await field.fill('Amsterdam 1625');
+
+		await page.reload();
+
+		expect(await readProjectName(page)).toBe('Amsterdam 1625');
+	});
+
+	test('does not put an edit back into a Project the user deleted', async ({ page }) => {
+		await openAndRename(page, 'Gone before it was saved');
+
+		// Back to the hub and delete it, with the rename still journalled.
+		await page.goto('./');
+		await page.getByRole('button', { name: /^Delete/ }).click();
+		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
+
+		await page.reload();
+
+		// The Project stays deleted, and nothing is quietly recreated under its directory name.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Gone before it was saved' })).toHaveCount(0);
+		expect(await everyPath(page)).toEqual([]);
+	});
+
+	test('does not leak a deleted Project’s file into a new one that reused its folder', async ({
+		page
+	}) => {
+		// ⚠ **The one case replay's own precondition cannot see**, and therefore the only test that
+		// pins `deleteProject`'s journal sweep down. Once a Project of the same name exists again, the
+		// directory is back and its `project.json` is there, so from replay's side an entry naming a
+		// file inside it is indistinguishable from an edit to the Project that is there now.
+		//
+		// `project.json` itself is *not* the specimen, and finding that out is what this test is for:
+		// creating the replacement Project rewrites that path, which supersedes the journalled entry
+		// and then forgets it. It is the Project's **other** files — an Annotation collection still
+		// inside its debounce window — that nothing rewrites, and they would land in a Project that
+		// has no Layer referencing them: a stray file in every size total and every backup.
+		//
+		// The entry is seeded rather than provoked, because provoking it needs an Annotation Layer and
+		// a drawn shape, which is a different test's subject. What is seeded is exactly the bytes an
+		// interrupted `writeAnnotations` leaves, at exactly the key `WriteAheadJournal` writes.
+		await createProject(page, 'Amsterdam 1625');
+		const stray = 'amsterdam-1625/annotations/stray.geojson';
+		await page.evaluate((path) => {
+			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
+			const key = `ballastella.journal.${encodeURIComponent(workspace)}/${encodeURIComponent(path)}`;
+			localStorage.setItem(
+				key,
+				JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), bytes: btoa('{}') })
+			);
+		}, stray);
+
+		await page.getByRole('button', { name: /^Delete/ }).click();
+		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
+
+		// The same display name, so the same folder name: `amsterdam-1625`.
+		await createProject(page, 'Amsterdam 1625');
+
+		await page.reload();
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+
+		expect(await everyPath(page)).toEqual(['amsterdam-1625/project.json']);
+	});
+
+	test('does not put an edit into a different named Workspace (ticket 12)', async ({ page }) => {
+		await openAndRename(page, 'Typed in the first Workspace');
+
+		// Switch Workspace, then reload. The edit belongs to the Workspace it was typed into, and the
+		// arriving one must not be given it — the failure `#adopt` prevents for queued bytes, which a
+		// journal would otherwise reintroduce across a whole browser session.
+		//
+		// Back to the hub first: Project settings is a `<dialog>` opened with `showModal()`, so
+		// everything behind it — the bar's Workspace switcher included — is inert until it is closed.
+		await page.goto('./');
+		await createWorkspace(page, 'Teaching');
+		await expect(page.getByText('No Projects yet')).toBeVisible();
+
+		await page.reload();
+
+		// The second Workspace is empty; the rename is still waiting in the first one's journal.
+		expect(await everyPath(page)).toEqual([]);
+		await expect(page.getByTestId('recovered-edits')).toBeHidden();
+	});
+
+	test('puts the edit back when the Workspace it was typed into is opened again', async ({
+		page
+	}) => {
+		// ⚠ **The other half of the test above.** "The edit is not in the *other* Workspace" is
+		// satisfied just as well by the edit having been destroyed, which is the vacuous shape this
+		// epic keeps producing; this is the assertion that says it still exists.
+		//
+		// It does **not** pin `WorkspaceStorage.#adopt`'s `capture()` call — removing that leaves this
+		// green, measured. The reason is the same redundancy as the `pagehide` pair above: `queue`
+		// journalled these bytes when they were typed, so by the time the switch happens the entry is
+		// already on disk and `capture` re-records it. `#adopt`'s capture earns its place only in the
+		// case `capture` alone can serve — a quota that was full at the edit and has room by the
+		// switch — which is pinned in `journal.test.ts` rather than here.
+		await openAndRename(page, 'Typed in the first Workspace');
+
+		await page.goto('./');
+		await createWorkspace(page, 'Teaching');
+		await expect(page.getByText('No Projects yet')).toBeVisible();
+
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+
+		await expect(page.getByRole('link', { name: 'Typed in the first Workspace' })).toBeVisible();
+		expect(await readProjectName(page)).toBe('Typed in the first Workspace');
 	});
 });
 

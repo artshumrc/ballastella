@@ -4,6 +4,7 @@
 	import { asset } from '$app/paths';
 	import favicon from '$lib/assets/favicon.svg';
 	import NavigationBar from '$lib/components/NavigationBar.svelte';
+	import RecoveredEdits from '$lib/components/RecoveredEdits.svelte';
 	import UpdatePrompt from '$lib/pwa/UpdatePrompt.svelte';
 	import { provideInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import { startTheme } from '$lib/theme.svelte';
@@ -107,3 +108,9 @@
 	mid-alignment in. It renders a fixed-position region and inserts nothing into the page's flow.
 -->
 <UpdatePrompt />
+<!--
+	Outside `children()` for the same reason, and on every route: a startup replay writes to files the
+	user owns, and the sentence saying so must not depend on which screen the bookmark landed on
+	(ticket 20, SPEC stories 111 and 112).
+-->
+<RecoveredEdits />

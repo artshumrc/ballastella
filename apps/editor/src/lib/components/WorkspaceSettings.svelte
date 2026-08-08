@@ -2,6 +2,7 @@
 	import { describeBytes, type WorkspaceSize } from '@ballastella/core';
 
 	import InstallOffer from '$lib/pwa/InstallOffer.svelte';
+	import { workspaceKeyLabel } from '$lib/editor-session.svelte.js';
 
 	import ModalDialog from './ModalDialog.svelte';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -252,6 +253,55 @@
 			<p class="mt-2 max-w-prose text-sm opacity-70">Asking this browser…</p>
 		{/if}
 	</section>
+
+	<!--
+		Unsaved changes belonging to a Workspace this browser no longer lists (ticket 20).
+
+		⚠ **Reported and never swept up.** A replay only ever looks at the Workspace being opened, so
+		an entry naming one that has gone would otherwise sit in storage for ever with nobody to meet
+		it. But "not in the list" is not "gone": a folder Workspace is never in that list at all, and
+		neither is a browser Workspace on a listing that failed — so the discard is the user's to make,
+		with the name in front of them, and nothing here throws away an unsaved edit on a guess.
+
+		Visible text with a real button rather than a tooltip (story 111), and the outcome goes into
+		the `aria-live` region below so it is not sighted-only (story 112).
+
+		⚠ **`aria-live="polite"` and not `role="alert"`.** This is a steady-state fact about the
+		Workspace, true from the moment the dialog opens, not an event that has just happened —
+		CONTRIBUTING's mandated-method table puts Status in a polite region, and `role="alert"` is
+		assertive and interrupts. `save-error`'s precedent does not reach here: that one is inserted
+		at the instant its text first exists.
+
+		The Workspace is named the way the user knows it (`workspaceKeyLabel`), never by the internal
+		journal key — a scholar has never seen `opfs:`.
+	-->
+	{#if storage.orphanedJournals.length > 0}
+		<section class="mt-6" aria-live="polite">
+			<h3 class="font-semibold">Unsaved changes with nowhere to go</h3>
+			<div class="mt-2 alert flex-col items-start alert-warning">
+				<p data-testid="orphaned-journals">
+					Ballastella is still holding unsaved changes for {storage.orphanedJournals.length === 1
+						? 'a Workspace'
+						: 'Workspaces'} it cannot find here: {storage.orphanedJournals
+						.map((key) => workspaceKeyLabel(key))
+						.join(', ')}. If that is a Workspace folder you have not opened yet, open it and the
+					changes are put back. If it is gone for good, you can throw the changes away.
+				</p>
+				{#each storage.orphanedJournals as key (key)}
+					<button
+						class="btn btn-sm"
+						data-testid="discard-orphaned-journal"
+						onclick={() => {
+							const dropped = storage.discardOrphanedJournal(key);
+							outcome = `Threw away ${dropped} unsaved ${dropped === 1 ? 'change' : 'changes'} held for “${workspaceKeyLabel(key)}”. Nothing in any Workspace was touched.`;
+						}}
+					>
+						Throw away the changes for {workspaceKeyLabel(key)}
+					</button>
+				{/each}
+			</div>
+		</section>
+	{/if}
 
 	<!--
 		The offer the sentence above has been making since ticket 12, reachable from here (SPEC story 6,

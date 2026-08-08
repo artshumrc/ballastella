@@ -17,6 +17,10 @@ import {
 	restoreWorkspaceTar,
 	workspaceSize,
 	requestPersistentStorage,
+	browserJournalStorage,
+	discardJournal,
+	journalledWorkspaces,
+	type JournalStorage,
 	type ProjectStore,
 	type RestoreDestination,
 	type StoragePersistence,
@@ -26,7 +30,7 @@ import {
 	type WorkspaceSize
 } from '@ballastella/core';
 
-import { EditorSession } from './editor-session.svelte.js';
+import { EditorSession, folderWorkspaceKey, opfsWorkspaceKey } from './editor-session.svelte.js';
 import { saveFile } from './save-file.js';
 
 /**
@@ -138,17 +142,91 @@ export class WorkspaceStorage {
 	 * user's side, from the tool having lost the folder they just pointed it at.
 	 */
 	problem = $state('');
+	/**
+	 * Journalled edits naming a Workspace that is not in browser storage any more (ticket 20).
+	 *
+	 * Reported rather than swept up, and reported *here* rather than left to replay, which only ever
+	 * looks at the Workspace being opened and so would never meet one. The user is offered the
+	 * discard; nothing discards it for them, because a Workspace can be absent from this list for
+	 * reasons that are not "it is gone" — a folder Workspace is never in it at all.
+	 */
+	orphanedJournals = $state<string[]>([]);
+	/** `''` when this browser can protect an edit against the tab closing, otherwise why it cannot. */
+	unprotected = $state('');
 
 	#teardownFlushOnHide: (() => void) | undefined;
+	/**
+	 * Where the write-ahead journal lives, resolved once for the whole app.
+	 *
+	 * `null` on a browser that will not give the page `localStorage` — a private window with storage
+	 * blocked. Said out loud in {@link unprotected} rather than treated as normal: on such a browser
+	 * an edit inside its debounce window still does not survive leaving the page, which is the whole
+	 * of what ticket 20 fixed everywhere else.
+	 */
+	readonly #journalStorage: JournalStorage | null = browserJournalStorage();
+	/**
+	 * Resolves once the arriving Workspace's journalled edits have been put back (ticket 20).
+	 *
+	 * ⚠ **Every read of a Project waits on this, and that is a correctness requirement rather than
+	 * politeness.** Opening a Project is driven by an effect over the `?p=` URL, which runs the
+	 * moment the layout mounts — concurrently with the replay. Ungated, a reload landed on the
+	 * Project screen showing the name the interrupted write was *replacing*: restored on disk, stale
+	 * on screen, and one keystroke away from being overwritten by the very edit the journal had just
+	 * rescued. Measured; it is what the first run of the new regression test found.
+	 *
+	 * Never rejects. A replay that failed has already reported itself, and a route that cannot open a
+	 * Project because a recovery went wrong would be a worse failure than the one being recovered.
+	 */
+	#recovered: Promise<void>;
+	#finishRecovery: () => void = () => undefined;
+
+	constructor() {
+		this.#recovered = this.#beginRecovery();
+	}
+
+	/** What a route awaits before reading a Project. See {@link WorkspaceStorage.#recovered}. */
+	get recovered(): Promise<void> {
+		return this.#recovered;
+	}
+
+	/**
+	 * Open a fresh recovery window, and answer the promise that closes with it.
+	 *
+	 * Called **before** the arriving session is published, never after: the effect that opens a
+	 * Project re-runs the instant `session` changes, and a window opened afterwards would be one it
+	 * had already sailed past.
+	 */
+	#beginRecovery(): Promise<void> {
+		this.#recovered = new Promise<void>((resolve) => {
+			this.#finishRecovery = resolve;
+		});
+		return this.#recovered;
+	}
 
 	/** Begin. Returns its own teardown, for the effect that created it. */
 	start(): () => void {
 		this.canChooseFolder = isFolderWorkspaceSupported();
 		this.#teardownFlushOnHide = this.session.installFlushOnHide();
+		if (this.#journalStorage === null) {
+			this.unprotected =
+				`This browser is not letting Ballastella keep a copy of an edit while it is being ` +
+				`saved, so an edit made in the last moment before you close this tab may not be kept. ` +
+				`Wait for the indicator to read “Saved” before you leave. Allowing site data for this ` +
+				`page — usually blocked in a private window — turns the protection back on.`;
+		}
 		// The Workspace the session was already built for, made real: the store creates its directory at
 		// the first write, so without this a Workspace nobody has typed into yet is missing from its own
 		// switcher. Then the list, so the switcher has something to switch between.
+		//
+		// The journal replay is chained onto it (ticket 20) rather than run beside it: putting an
+		// unfinished edit back is a *write*, and it belongs after the directory it writes into exists.
+		// It also refreshes the Project list when it changed anything, so the hub shows the restored
+		// name rather than the one the interrupted write was replacing.
 		void ensureOpfsWorkspace(this.workspaceName)
+			.then(() => this.#replayAndReport())
+			.catch(() => undefined)
+			// Before the Workspace listing, which is not something a Project read has to wait for.
+			.finally(() => this.#finishRecovery())
 			.then(() => this.refreshWorkspaces())
 			.catch(() => undefined);
 		// ADR-0024's latent data-loss fix. Fire and forget, and never awaited by anything the user is
@@ -229,6 +307,10 @@ export class WorkspaceStorage {
 	/** Reload the switcher's list. Cheap: one `entries()` of the OPFS root, no descent. */
 	async refreshWorkspaces(): Promise<void> {
 		this.workspaces = await listOpfsWorkspaces().catch(() => this.workspaces);
+		// Here rather than beside the replay, because "which Workspaces exist" is the answer the
+		// orphan check is *against* — computed before this listing it reported every Workspace but
+		// the open one as orphaned, which is a warning about nothing on every first load.
+		this.refreshOrphanedJournals();
 	}
 
 	/**
@@ -315,6 +397,10 @@ export class WorkspaceStorage {
 			);
 		}
 		await deleteOpfsWorkspace(name);
+		// Its journalled edits go with it (ticket 20). Without this they survive the Workspace, become
+		// orphans nothing will ever replay, and — if a Workspace of the same name is made later — are
+		// put back into somebody else's work under a name they happened to reuse.
+		if (this.#journalStorage) discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
 		await this.refreshWorkspaces();
 	}
 
@@ -422,10 +508,24 @@ export class WorkspaceStorage {
 		// Whatever is still queued belongs to the Workspace it was typed into. Flushed before the
 		// swap, and swallowed if that Workspace has become unreachable — which is often exactly why
 		// the user is switching.
+		//
+		// **`capture` first, and it is not redundant** (ticket 20). The flush below may reject — an
+		// unreachable folder is the common reason for switching at all — and its bytes then stay
+		// pending against a session that is about to be discarded. Captured, they are in the leaving
+		// Workspace's own journal and are put back the next time that Workspace is opened.
+		leaving.capture();
 		await leaving.flush().catch(() => undefined);
 		this.#teardownFlushOnHide?.();
 
-		const arriving = new EditorSession(store);
+		const arriving = new EditorSession(store, {
+			...(this.#journalStorage ? { journalStorage: this.#journalStorage } : {}),
+			// The key the *arriving* Workspace is, backing included — never the one being left.
+			workspaceKey:
+				backing === 'folder' ? folderWorkspaceKey(folderName) : opfsWorkspaceKey(workspaceName)
+		});
+		// Before `this.session` is published, so the route effect that re-runs on the swap waits for
+		// the arriving Workspace's replay rather than reading a Project out from under it.
+		this.#beginRecovery();
 		this.session = arriving;
 		this.backing = backing;
 		this.folderName = folderName;
@@ -450,6 +550,61 @@ export class WorkspaceStorage {
 		// listing is about to say properly — or holding a file it will not give up, and neither is a
 		// reason to refuse to open it.
 		await store.reclaimAbandonedWrites('').catch(() => undefined);
+		// After the sweep, so the atomic write a replay performs is not reclaimed out from under it.
+		await this.#replayAndReport().catch(() => undefined);
+		this.#finishRecovery();
+	}
+
+	/**
+	 * Put the arriving Workspace's journalled edits back, and account for what could not be (ticket 20).
+	 *
+	 * The refresh is conditional on something having happened, and that is deliberate rather than an
+	 * optimisation: listing a Workspace with tens of thousands of tile files in it is the expensive
+	 * walk `#adopt` goes out of its way not to duplicate, and a replay that restored nothing has
+	 * changed nothing to show.
+	 */
+	async #replayAndReport(): Promise<void> {
+		const session = this.session;
+		await session.replayJournalledEdits();
+		// Guarded against a switch that happened while the replay was running: refreshing a session
+		// the user has already left would list a Workspace that is no longer on screen.
+		if (this.session === session && session.replayReport !== null) {
+			await session.refresh().catch(() => undefined);
+			// The **open** Project is not re-read here; it is not read at all until this method has
+			// finished, because every route waits on {@link recovered}. Re-reading afterwards would be
+			// a second walk of the Workspace to fix a race that no longer exists.
+		}
+	}
+
+	/**
+	 * Which journalled Workspaces are not in browser storage any more.
+	 *
+	 * ⚠ **"Not in the list" is not "gone", which is why this only reports.** A folder Workspace never
+	 * appears in `listOpfsWorkspaces` at all, so every folder key is an orphan by this test; so is a
+	 * browser Workspace on a listing that failed. The report therefore names them and offers
+	 * {@link discardOrphanedJournal}, and nothing here deletes anybody's unsaved edit on a guess.
+	 */
+	refreshOrphanedJournals(): void {
+		if (this.#journalStorage === null) return;
+		// An array rather than a `Set`: this is a handful of names, and `svelte/prefer-svelte-reactivity`
+		// rules out a plain `Set` in a `.svelte.ts` module — a `SvelteSet` for a local nothing reads
+		// reactively would be the wrong answer to a rule about reactive state.
+		const known = [
+			...this.workspaces.map((name) => opfsWorkspaceKey(name)),
+			opfsWorkspaceKey(this.workspaceName),
+			...(this.folderName ? [folderWorkspaceKey(this.folderName)] : [])
+		];
+		this.orphanedJournals = journalledWorkspaces(this.#journalStorage).filter(
+			(key) => !known.includes(key)
+		);
+	}
+
+	/** Throw away one orphaned Workspace's journalled edits, because the user said so. */
+	discardOrphanedJournal(key: string): number {
+		if (this.#journalStorage === null) return 0;
+		const dropped = discardJournal(this.#journalStorage, key);
+		this.refreshOrphanedJournals();
+		return dropped;
 	}
 }
 

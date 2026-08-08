@@ -12,11 +12,15 @@ import {
 	ProjectFormatTooNewError,
 	ReservedDirectoryNameError,
 	UndoSlot,
+	WriteAheadJournal,
 	Workspace,
 	addLayer,
 	alignmentPath,
 	annotationStorePath,
 	assembleWithCanvas,
+	browserJournalStorage,
+	replayIsNoteworthy,
+	replayJournal,
 	// Aliased for the same reason `stampCanonicalUrl` is: the session has methods of these names, and
 	// two things called one word is how a later edit calls the wrong one.
 	baseMapCacheSize as readBaseMapCacheSize,
@@ -29,6 +33,7 @@ import {
 	deleteHistoricalMap,
 	emptyAnnotationCollection,
 	exportProjectZip,
+	imageDirectory,
 	imageManifestPath,
 	ingestImageFile,
 	fetchTilesIntoCache,
@@ -86,6 +91,8 @@ import {
 	type GeoBounds,
 	type IngestProgress,
 	type IngestedImage,
+	type JournalReplayReport,
+	type JournalStorage,
 	type Layer,
 	type MapLayer,
 	type OfflineCopyPlan,
@@ -122,6 +129,35 @@ import { saveFile } from './save-file.js';
  * trace at that moment reasonably concludes the tool has eaten their work.
  */
 export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
+
+/**
+ * The write-ahead journal's key for a named Workspace in browser storage, and for a folder.
+ *
+ * **The backing is in the key**, because a folder called `Marking 2026` and an OPFS Workspace
+ * called `Marking 2026` are two different places holding two different people's afternoons, and one
+ * replaying into the other is exactly the failure ticket 12 made easy to reach.
+ */
+export const opfsWorkspaceKey = (name: string): string => `opfs:${name}`;
+export const folderWorkspaceKey = (folderName: string): string => `folder:${folderName}`;
+
+/**
+ * A journal key as a **Workspace the user recognises**, never as the key itself.
+ *
+ * ⚠ **`opfs:` is a debug token and it was reaching the screen**, in "finished saving in
+ * `opfs:Marking 2026`" and on the buttons in Workspace settings. CONTEXT.md is that the UI names
+ * the Workspace; a scholar has never seen that prefix and has no way to find out what it means.
+ *
+ * The folder case keeps a qualifier rather than dropping the distinction, because a folder
+ * Workspace and a browser-storage one may share a name and the sentence has to be true of exactly
+ * one of them.
+ */
+export function workspaceKeyLabel(key: string): string {
+	if (key.startsWith('opfs:')) return key.slice('opfs:'.length);
+	if (key.startsWith('folder:')) return `${key.slice('folder:'.length)} (Workspace folder)`;
+	// A key from a build that keyed them differently. Shown as it is rather than mangled: the user
+	// is being asked to recognise it, and a prefix this build does not know is information.
+	return key;
+}
 
 /**
  * A transfer in flight, for the status region that announces it.
@@ -219,9 +255,39 @@ export type ReferencedMapAdded = {
  * would clobber whatever another pane had just written, and ticket 07 puts both panes on one
  * page, which makes that a race inside a single component rather than between tabs.
  */
+/** How a session is told which Workspace it is, which is what the journal is keyed by. */
+export interface EditorSessionOptions {
+	/**
+	 * Where an edit is written ahead of the store (ticket 20).
+	 *
+	 * Optional, and its absence is a real state rather than a default: a browser with no usable
+	 * `localStorage` — a locked-down private window — cannot offer this protection at all, and a
+	 * silent stand-in would make the app claim a guarantee it does not have.
+	 */
+	readonly journalStorage?: JournalStorage;
+	/**
+	 * Which Workspace this session is, for the journal's key.
+	 *
+	 * ⚠ **Includes the backing, because two different Workspaces may share a name.** `opfs:Marking
+	 * 2026` and `folder:Marking 2026` are two directories in two places, and an edit typed into one
+	 * must not be replayed into the other.
+	 *
+	 * ⚠ **And a folder Workspace is identified by its folder's name, which is not unique.** The
+	 * browser offers a picked directory no stable identifier a page may keep, so two folders called
+	 * `maps` on two drives share a key. What bounds the damage is replay's own precondition — the
+	 * Project's `project.json` has to still be there — and what remains is a case that is strictly
+	 * better than today's, where the edit is simply lost. It is recorded in ADR-0017 rather than
+	 * left here to be found.
+	 */
+	readonly workspaceKey?: string;
+}
+
 export class EditorSession {
 	readonly #workspace: Workspace;
 	readonly #autosave: Autosave;
+	/** The write-ahead journal for **this** Workspace, or `undefined` where there can be none. */
+	readonly #journal: WriteAheadJournal | undefined;
+	readonly #journalStorage: JournalStorage | undefined;
 	/** Held for the tiler, which writes tens of thousands of files that are not `project.json`. */
 	readonly #store: ProjectStore;
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
@@ -240,6 +306,22 @@ export class EditorSession {
 	unreachableDetail = $state('');
 	projects = $state<ProjectSummary[]>([]);
 	saveState = $state<SaveState>('saved');
+	/**
+	 * Why the last edit is **not** protected against this tab closing before it is saved, or `''`.
+	 *
+	 * Distinct from {@link saveError}, which is why an edit did not reach storage. This one says the
+	 * edit is on its way and the safety net under it is missing — a different sentence with a
+	 * different remedy, and one the user can act on only while the page still exists (ticket 20).
+	 */
+	protectionWarning = $state('');
+	/**
+	 * What the last startup replay put back, if anything, for the user to be told about.
+	 *
+	 * `null` until a replay has run, and left `null` when it had nothing to say. SPEC story 111 wants
+	 * this as visible text and story 112 wants it announced, and a recovery the user cannot tell
+	 * happened is one they cannot check.
+	 */
+	replayReport = $state<JournalReplayReport | null>(null);
 	/**
 	 * Why the last edit did not reach storage, if it did not. Shown beside the save indicator.
 	 *
@@ -349,9 +431,23 @@ export class EditorSession {
 	 */
 	alignmentError = $state('');
 
-	constructor(store: ProjectStore) {
+	constructor(store: ProjectStore, options: EditorSessionOptions = {}) {
 		this.#store = store;
-		this.#autosave = new Autosave(store);
+		this.#journalStorage = options.journalStorage;
+		this.#journal =
+			options.journalStorage && options.workspaceKey
+				? new WriteAheadJournal(options.journalStorage, options.workspaceKey)
+				: undefined;
+		this.#autosave = new Autosave(store, {
+			...(this.#journal ? { journal: this.#journal } : {}),
+			// The whole reason the journal is written at the edit rather than at `pagehide`: there is
+			// still a screen to put this on and a person to read it (SPEC stories 111 and 112). At
+			// `pagehide` there would be neither.
+			onJournalRefused: (problem) => {
+				this.protectionWarning =
+					problem === null ? '' : problem instanceof Error ? problem.message : String(problem);
+			}
+		});
 		this.#workspace = new Workspace(store, { autosave: this.#autosave });
 		this.#autosave.subscribe((state) => {
 			this.saveState = state;
@@ -365,7 +461,35 @@ export class EditorSession {
 
 	/** The default: a named workspace in OPFS, which every modern browser has (ADR-0001, ADR-0024). */
 	static opfs(name: string): EditorSession {
-		return new EditorSession(OpfsProjectStore.open(name));
+		const journalStorage = browserJournalStorage();
+		return new EditorSession(OpfsProjectStore.open(name), {
+			...(journalStorage ? { journalStorage } : {}),
+			workspaceKey: opfsWorkspaceKey(name)
+		});
+	}
+
+	/**
+	 * Put back whatever the journal is still holding for this Workspace (ticket 20).
+	 *
+	 * Called once, as the Workspace is adopted, and never twice for the same session: replay drops
+	 * every entry it wrote, so a second call finds nothing — but the *report* is what the user reads,
+	 * and re-running would clear it.
+	 *
+	 * Resolves rather than rejects. A Workspace too broken to replay into is one the listing beside
+	 * this is about to describe properly (ADR-0008), and a rejection from here would replace that
+	 * with an error boundary.
+	 */
+	async replayJournalledEdits(): Promise<void> {
+		const journal = this.#journal;
+		const storage = this.#journalStorage;
+		if (!journal || !storage) return;
+		try {
+			const report = await replayJournal(storage, this.#store, journal.workspace);
+			this.replayReport = replayIsNoteworthy(report) ? report : null;
+		} catch {
+			// A store that cannot even be listed. The entries stay where they are, and the listing
+			// beside this is what tells the user the Workspace is unreachable.
+		}
 	}
 
 	/**
@@ -429,7 +553,21 @@ export class EditorSession {
 		await this.#mutate(directory, () => this.#workspace.duplicateProject(directory));
 	}
 
+	/**
+	 * Remove a Project and everything in it.
+	 *
+	 * **The journal is emptied of it first** (ticket 20). `ProjectStore.delete` does not go through
+	 * `Autosave`, so a rename still inside its debounce window would otherwise sit in the journal and
+	 * be replayed at the next startup — putting `project.json` back into a directory the user had
+	 * just watched disappear. Replay has its own precondition for this, and it cannot see the case
+	 * that matters here: a *new* Project made afterwards under the same directory name, which from
+	 * replay's side is indistinguishable from the old one still being there.
+	 *
+	 * Before the deletion rather than after, so a deletion that fails part way through does not leave
+	 * journalled bytes for files that have gone.
+	 */
 	async deleteProject(directory: string): Promise<void> {
+		this.#journal?.forgetUnder(`${directory}/`);
 		await this.#mutate(directory, () => this.#workspace.deleteProject(directory));
 	}
 
@@ -1287,6 +1425,11 @@ export class EditorSession {
 	async deleteHistoricalMap(imageId: string): Promise<boolean> {
 		this.historicalMapError = '';
 		const label = this.historicalMaps.find((map) => map.imageId === imageId)?.label ?? '';
+		// The same reason `deleteProject` does it (ticket 20): the pyramid and the Alignment are both
+		// removed straight from the store, so anything journalled for them would be put back at the
+		// next startup — an Alignment file for a Historical Map that is no longer in the Workspace.
+		this.#journal?.forgetUnder(`${imageDirectory(imageId)}/`);
+		this.#journal?.forget(alignmentPath(imageId));
 		try {
 			await deleteHistoricalMap(this.#store, imageId, { label });
 		} catch (cause) {
@@ -2143,6 +2286,17 @@ export class EditorSession {
 	/** Write everything pending and wait for the store to have it. */
 	async flush(): Promise<void> {
 		await this.#autosave.flush();
+	}
+
+	/**
+	 * Put everything pending in the write-ahead journal, synchronously (ticket 20).
+	 *
+	 * The half of {@link flush} that survives the page going away. Called by `installFlushOnHide` and
+	 * by `WorkspaceStorage` before it discards a session, where the flush may reject and leave bytes
+	 * with nowhere else to be.
+	 */
+	capture(): void {
+		this.#autosave.capture();
 	}
 
 	/**

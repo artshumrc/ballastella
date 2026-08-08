@@ -26,8 +26,19 @@
 	// walking the whole Workspace once per keystroke — a Project with a 2 GB pyramid is tens of
 	// thousands of files, and the debounce would otherwise coalesce writes only to be defeated by
 	// a read storm. Re-runs when the Workspace moves to another backend, which is a new session.
+	//
+	// ⚠ **Gated on `storage.recovered`** (ticket 20). The write-ahead journal is replayed into the
+	// store as the Workspace is adopted, and this effect runs at the same moment. Ungated, a reload
+	// inside the autosave debounce window landed here showing the name the interrupted write was
+	// *replacing* — restored on disk, stale on screen, and one keystroke from being overwritten by
+	// the very edit the journal had just rescued. Reading is what has to wait; the promise never
+	// rejects, so a recovery that went wrong cannot stop a Project opening.
 	$effect(() => {
-		void session?.open(openDirectory);
+		const current = session;
+		const directory = openDirectory;
+		const ready = storage?.recovered;
+		if (!current || !ready) return;
+		void ready.then(() => current.open(directory));
 	});
 
 	/**

@@ -6,6 +6,23 @@ import type { Bytes, ProjectStore, StorePath, WritablePath } from '../store/proj
  */
 export type SaveState = 'saved' | 'saving' | 'unsaved';
 
+/**
+ * The write-ahead journal, as {@link Autosave} needs it (ticket 20).
+ *
+ * An interface rather than the class, so that `@ballastella/core`'s Node-side tests can drive every
+ * branch — including the refusal — and so that a build with no usable `localStorage` passes nothing
+ * at all rather than a stub that would make the app claim a protection it does not have.
+ *
+ * Both methods are **synchronous**, and that is the entire contract. An asynchronous journal would
+ * be exactly the thing measured not to work: a document being unloaded does not run a continuation.
+ */
+export interface AutosaveJournal {
+	/** Put `bytes` on disk for `path` now. Throws when the browser refused. */
+	record(path: StorePath, bytes: Bytes): void;
+	/** Drop `path`'s entry, because the store has the bytes. */
+	forget(path: StorePath): void;
+}
+
 export interface AutosaveOptions {
 	/**
 	 * How long a file sits idle before it is written. Per file, never global (rule 2):
@@ -13,6 +30,23 @@ export interface AutosaveOptions {
 	 * the rest.
 	 */
 	readonly debounceMs?: number;
+	/**
+	 * Where pending bytes are written ahead of the store (ADR-0017 rule 3, as amended by ticket 20).
+	 *
+	 * Optional because it is a browser capability and not a guarantee: `localStorage` can be absent
+	 * or refused outright. Omitted, this class behaves exactly as it did before — which is to say,
+	 * an edit inside its debounce window does not survive a real navigation.
+	 */
+	readonly journal?: AutosaveJournal;
+	/**
+	 * Called with the reason the journal refused an edit, and with `null` the moment it accepts one
+	 * again.
+	 *
+	 * A callback rather than a field to poll, because the whole value of journalling at the edit
+	 * rather than at `pagehide` is that there is still a screen to say this on and a person to read
+	 * it. See `journal.ts` for why that timing is the design.
+	 */
+	readonly onJournalRefused?: (problem: unknown) => void;
 }
 
 /**
@@ -20,19 +54,31 @@ export interface AutosaveOptions {
  *
  * All five of ADR-0017's rules live here rather than being reinvented per slice, which is how
  * the atomic-write rule quietly fails to happen. Rules 1 and 2 are {@link commit} and
- * {@link queue}; rule 3 is {@link flush}, wired up by `installFlushOnHide`; rule 4 belongs to
- * the store's `write`; rule 5 is {@link state} and {@link subscribe}.
+ * {@link queue}; rule 3 is {@link capture} and {@link flush}, wired up by `installFlushOnHide`;
+ * rule 4 belongs to the store's `write`; rule 5 is {@link state} and {@link subscribe}.
+ *
+ * ⚠ **Rule 3 is two halves since ticket 20, and the asynchronous one does not survive a real
+ * navigation.** {@link flush} awaits `store.write`, and a document being unloaded does not run the
+ * continuation — a debounced Project rename followed by a real `page.reload()` lost the edit 8
+ * times out of 8. So an edit is written to a synchronous journal at the moment it is queued, and
+ * replayed at startup; see `journal.ts` for the measurement and for what the journal is not.
  */
 export class Autosave {
 	readonly #store: ProjectStore;
 	readonly #debounceMs: number;
 	readonly #files = new Map<StorePath, PendingFile>();
 	readonly #listeners = new Set<(state: SaveState) => void>();
+	readonly #journal: AutosaveJournal | undefined;
+	readonly #onJournalRefused: (problem: unknown) => void;
 	#state: SaveState = 'saved';
+	/** The refusal last handed to `onJournalRefused`, so nothing is reported twice. */
+	#reportedRefusal: unknown = null;
 
 	constructor(store: ProjectStore, options: AutosaveOptions = {}) {
 		this.#store = store;
 		this.#debounceMs = options.debounceMs ?? 400;
+		this.#journal = options.journal;
+		this.#onJournalRefused = options.onJournalRefused ?? (() => undefined);
 	}
 
 	/** What the indicator should show right now. */
@@ -76,6 +122,9 @@ export class Autosave {
 	queue(path: WritablePath, bytes: Bytes): void {
 		const file = this.#file(path);
 		file.pending = bytes;
+		// Before the timer, and synchronously. This is the one call in this class that a document
+		// being torn down will actually finish (ticket 20).
+		this.#writeAhead(path, bytes);
 		if (file.timer !== undefined) clearTimeout(file.timer);
 		file.timer = setTimeout(() => {
 			file.timer = undefined;
@@ -111,6 +160,10 @@ export class Autosave {
 			file.timer = undefined;
 		}
 		file.pending = bytes;
+		// Journalled even though the write starts immediately: "immediately" is still asynchronous,
+		// and the gap between here and the store having the bytes is exactly the gap a navigation
+		// falls into. It is also the gap a failed write leaves the bytes sitting in.
+		this.#writeAhead(path, bytes);
 		return this.#drain(path);
 	}
 
@@ -145,9 +198,82 @@ export class Autosave {
 		}
 	}
 
+	/**
+	 * Rule 3's synchronous half (ticket 20). Put everything still pending in the journal, **now**,
+	 * **now**.
+	 *
+	 * Returns nothing. It briefly answered whether everything fitted, and no caller read it: a
+	 * boolean that conflated "one file did not fit" with "there is no journal on this browser" was
+	 * two different sentences in one bit, and both are already reported properly — the first through
+	 * `onJournalRefused`, the second by `WorkspaceStorage` at startup.
+	 *
+	 * Called from the `pagehide` listener *before* {@link flush}, and it is the call that has to
+	 * finish: `flush` awaits a store write, and a document being unloaded does not run the
+	 * continuation. See ADR-0017, "Rule 3, amended", for the measurement that says so.
+	 *
+	 * Ordinarily every one of these bytes is already journalled by {@link queue} or {@link commit},
+	 * so this is a re-record and not the only chance. It is here anyway because "the journal is
+	 * complete at every moment" is an invariant of two methods rather than of one, and a third
+	 * mutator added later would otherwise silently opt out of the guarantee.
+	 *
+	 * Never throws. It runs where nothing can catch, the refusal is already reported through
+	 * `onJournalRefused`, and one file that will not fit must not stop the others being kept.
+	 */
+	capture(): void {
+		if (!this.#journal) return;
+		for (const [path, file] of this.#files) {
+			if (file.pending !== undefined) this.#writeAhead(path, file.pending);
+		}
+	}
+
 	/** Whether `path` has changes the store has not been given yet. */
 	hasPendingWrite(path: StorePath): boolean {
 		return this.#files.get(path)?.pending !== undefined;
+	}
+
+	/**
+	 * Record `bytes` ahead of the store write, and report a refusal without failing the edit.
+	 *
+	 * **A journal refusal is not a failed save.** The bytes are in memory and the store write is
+	 * still going to happen, so throwing from here would turn a lost *guarantee* into a lost edit —
+	 * which is the failure this whole ticket is closing, reintroduced by its own fix. What it costs
+	 * is protection against leaving the page in the next few hundred milliseconds, and that is what
+	 * the user is told, in the words `JournalFullError` carries.
+	 */
+	#writeAhead(path: StorePath, bytes: Bytes): void {
+		if (!this.#journal) return;
+		const file = this.#file(path);
+		try {
+			this.#journal.record(path, bytes);
+			file.journalRefusal = undefined;
+		} catch (cause) {
+			file.journalRefusal = cause;
+		}
+		this.#publishJournalRefusal();
+	}
+
+	/**
+	 * Report the refusal, or its end.
+	 *
+	 * **Per file rather than one flag**, for the reason {@link lastError} is: a single field was
+	 * cleared by the next write that happened to succeed, so one enormous Annotation collection
+	 * refused by the quota would have had its warning wiped by the very next keystroke into a
+	 * Project name — and the user would be told they were protected when one of their files was not.
+	 */
+	#publishJournalRefusal(): void {
+		let refusal: unknown = null;
+		for (const file of this.#files.values()) {
+			if (file.journalRefusal !== undefined) {
+				refusal = file.journalRefusal;
+				break;
+			}
+		}
+		// On change only. Without this, every keystroke into a file that *does* fit would re-announce
+		// the refusal belonging to the one that does not, and an alert that reappears on every
+		// keystroke is one a user turns off in their head.
+		if (refusal === this.#reportedRefusal) return;
+		this.#reportedRefusal = refusal;
+		this.#onJournalRefused(refusal);
 	}
 
 	#file(path: StorePath): PendingFile {
@@ -188,7 +314,15 @@ export class Autosave {
 			}
 			// Only clear what the store actually took. An edit that arrived while it had these bytes
 			// is newer and has to survive to the next pass.
-			if (file.pending === bytes) file.pending = undefined;
+			if (file.pending === bytes) {
+				file.pending = undefined;
+				// The journal's only job is to hold what the store does not, so the entry goes the
+				// moment the store has it — and **only** then, and only when nothing newer arrived
+				// while the write was in flight. Forgetting unconditionally here would drop the
+				// journal copy of an edit typed during the write, whose own `record` happened before
+				// this line and would be undone by it.
+				this.#journal?.forget(path);
+			}
 			file.error = undefined;
 		}
 	}
@@ -218,4 +352,6 @@ interface PendingFile {
 	draining?: Promise<void> | undefined;
 	/** Why this file's last write attempt failed. Cleared when one succeeds. */
 	error?: unknown;
+	/** Why this file's bytes are not in the write-ahead journal. Cleared when they get in. */
+	journalRefusal?: unknown;
 }
