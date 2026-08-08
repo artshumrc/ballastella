@@ -8,9 +8,13 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 17, 18. Nothing in flight.
+Merged to `main`: 01, 02, 03, 04, 08, 09, 10, 11, 17, 18, 19. **12 is implemented and under review** on `worktree-agent-a13d5f40608f2e50b`; it has not been merged, and it will conflict with the network fence — both extend Playwright's `test` across all 25 specs, and the two fixture extensions have to be composed rather than one chosen.
 
-**Unblocked and ready:** 05, 12, 16 and 19. **19 is authorised** — the human decision recorded in the ticket was confirmed on 2026-08-07.
+**Unblocked and ready:** 05 and 16.
+
+**No test may depend on the network — a human decision on 2026-08-07, now enforced rather than merely followed.** `demo-bucket.protomaps.com/v4.pmtiles` began answering 404 and turned three specs red on `main` with nothing in this repo having changed; ADR-0025 had already recorded that bucket as having no uptime promise. The e2e fence rides the `context` fixture every test gets, and `scripts/check-e2e-network-fence.mjs` fails any spec importing `test` from `@playwright/test` — the spelling every Playwright example uses, and the way a new spec would drift outside it. The vitest fence is `setupFiles` on both projects and covers `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon` and `node:http`/`https`. Two limits are stated rather than implied: a Node test can still open a raw `node:net` socket, and `BALLASTELLA_NETWORK_TESTS=1` disables the vitest fence for a whole run (one legitimate user, `live-services.test.ts`, excluded from `pnpm test`).
+
+**The archive is still dead, and that is now the *product's* problem rather than the suite's.** The editor says so honestly — `BaseMapPane` listens for MapLibre's source error, which nobody did, and that is exactly how an outage rendered as a grey rectangle. **The published viewer has no equivalent notice and still shows a Reader a silent blank map.** All four catalog entries read the same dead archive, so the "try another Base Map" remedy is currently empty.
 
 **Two app bugs 17 surfaced that are not the suite's to fix**, both wanting tickets:
 
