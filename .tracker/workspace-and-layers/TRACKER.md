@@ -8,17 +8,48 @@ Scope and testing approach are in [SPEC.md](./SPEC.md); decisions are in [docs/a
 
 ## Current status
 
-Overall: `In Progress`. Merged: 01–05, 08–13, 16–20. **Remaining: 06, 07, 14, 15.** Nothing in flight.
+Overall: `In Progress`. Merged: 01–06, 08–14, 16–20. **Remaining: 07 and 15.** Nothing in flight.
 
-**Ready now: 06 and 14.** They do not collide — 06 carves `ProjectScreen.svelte`, 14 is transfer — so they can run together. 07 waits on 06; 15 waits on 07.
+**Ready now: 07.** 15 waits on it. That is the whole of what is left.
+
+06 and 14 merged 2026-08-08. The full gate on merged `main` is green: install / build / lint / check / test all exit 0, and `pnpm test:e2e` is **487 passed, 1 skipped, retry budget 0 of 488 (0.00%)**.
 
 Last updated: 2026-08-08.
 
 ## Open leads — unclosed, and not to be absorbed into the flake budget
 
-1. **`editor-workspace.e2e.ts:1006`, "does not put an edit back into a Project the user deleted".** Measured at **2 retries in 10 runs in isolation on a quiet machine**, then 8 clean. Forty times the 0.5% budget. No failure text was captured, so the reproduction rate is known and the failure mode is not — capturing it is the first job. **It guards a data-loss path**: whether a replayed edit can return to a Project the user deleted. A deletion/replay race would present exactly like this, and if the app is racy the honest outcome is an app fix, not a steadier test.
+1. **`editor-workspace.e2e.ts:1006`, "does not put an edit back into a Project the user deleted".** Measured at **2 retries in 10 runs in isolation on a quiet machine**, then 8 clean. Forty times the 0.5% budget. **The failure text is now captured (2026-08-08, ticket 06's first full run), and it is the data-loss shape, not a timing artefact:**
 
-2. **`Cannot set properties of undefined (setting 'forceRedraw')`** — OpenSeadragon by way of triiiceratops, on the unwarped→map navigation the spec's own comment records as a hazard. `pnpm flake:check --against main` returned **SUSPECT**, not "consistent with flake". Ticket 20 ruled itself out with evidence (`git diff main -- apps/viewer` empty; the built viewer bundle carries none of its code). Whether it still reproduces is unverified.
+   ```
+   Error: expect(received).toEqual(expected)
+   - Array []
+   + Array [ "amsterdam-1625/project.json" ]
+     at e2e/editor-workspace.e2e.ts:1020  →  expect(await everyPath(page)).toEqual([])
+   ```
+
+   **A deleted Project's `project.json` was back on disk.** That is the question the test guards — whether a replayed edit can return to a Project the user deleted — answered in the affirmative, intermittently.
+
+   **Reproduced three times on 2026-08-08, and now has a rate: `--repeat-each=5` gave 1 flaky / 4 passed, ~20%.** At that rate it is not a tail event and it does not need a hunt to reproduce — it needs someone to sit down with the replay path.
+
+   **The sequencing is pinned.** The page snapshot at failure shows the deleted Project back in the hub: `link "Gone before it was saved"` → `/?p=amsterdam-1625`, "Last saved Aug 8, 2026, 6:09 PM". Critically, **the two `toHaveCount(0)` assertions on lines 1018–1019 had already passed** — so the journal replay recreated the file *after* the reloaded list had rendered empty. The replay wins the race and puts the edit back into a Project the user deleted. That is a racy app, not a slow test.
+
+   **The honest outcome here is an app fix, not a steadier test.** Start from the Write-Ahead Journal replay path added in ticket 20, and from that ticket's surviving rule: *unreadable is not absent*. Artefacts (`error-context.md`, `test-failed-1.png`) were preserved out of `test-results/` before the next run overwrote them, at `/tmp/claude-1000/-home-dflood-repos-ballastella/b40f150d-1741-47dd-9e6b-ba3be7affc73/scratchpad/flake-1006-artifacts/` — copy them somewhere durable if that tmp tree is still alive.
+
+2. **`Cannot set properties of undefined (setting 'forceRedraw')`** — OpenSeadragon by way of triiiceratops, on the unwarped→map navigation the spec's own comment records as a hazard. `pnpm flake:check --against main` returned **SUSPECT**, not "consistent with flake". Ticket 20 ruled itself out with evidence (`git diff main -- apps/viewer` empty; the built viewer bundle carries none of its code). **It reproduces — verified 2026-08-08** on ticket 14's branch, which touches no viewer code. `viewer-reader.e2e.ts:1044` "opens over HTTP by link, and the navigation throws nothing" failed on the first attempt and passed on retry, and the failure text is now captured rather than inferred:
+
+   ```
+   Error: the navigation back to the map
+   expect(received).toEqual(expected)
+   + "pageerror: Cannot set properties of undefined (setting 'forceRedraw')"
+   ```
+
+   So the assertion is doing its job: a real `pageerror` is thrown during the navigation, intermittently. This is a defect in the app, not a slow test — the test asserts *nothing was thrown*, and something was.
+
+   **Root-caused 2026-08-08. Load was measured out, not assumed:** `--repeat-each=12 -j 14` (oversubscribed) gave 1 failure in 24; at the configured `workers: 4`, 0 in 16. Load *widens* the window, it does not cause it.
+
+   The defect is in the dependency: `triiiceratops/dist/components/OSDViewer.svelte:567-571` tears down with `viewer?.destroy()` but never poisons `lastTileSourceStr`, which is the only guard on three async continuations (`:698`, `:755`, `:813`). Those still call `viewer.open()` / `addTiledImage()` on a destroyed viewer, and — unlike `close()` and `destroy()` — neither early-returns on `!THIS[hash]`, so `world`'s `add-item` handler (`openseadragon.js:8236`) does `THIS[_this.hash].forceRedraw = true` on `undefined`, inside a bare `setTimeout` that the app cannot catch. The unwarped viewer runs its resolve→open cycle twice per mount, the second `info.json` landing ~130 ms before the click away, with tiles still arriving 200–350 ms after unmount.
+
+   **The fix is one line** — `lastTileSourceStr = '\0destroyed'` in the teardown — but it was deliberately not applied from a transfer ticket. It patches a third-party dist file, the repo's patch mechanism carries a fence obligation (`check-allmaps-patch.mjs` is the precedent), and triiiceratops is this project author's own package, so **upstream plus a version bump is the right end state**. Proving it in a test needs a delay injected into a dependency, which cannot be committed.
 
 3. **The published viewer has no unreachable-archive notice.** The editor got one in ticket 20's session — `BaseMapPane` listens for MapLibre's source error, which nothing did, and that is how an outage rendered as a grey rectangle. A Reader on a published site still gets a silent blank map. Related: all four catalog entries read the same archive, so the editor's "try another Base Map" remedy is currently empty, and `demo-bucket.protomaps.com/v4.pmtiles` has answered 404 since 2026-08-07. ADR-0025 predicted this; `pnpm check:deployment` refuses that URL and runs inside `pnpm test`.
 
@@ -42,19 +73,21 @@ These apply to every remaining ticket. They are not advice.
 
 ## What the remaining tickets need
 
-**06 — what to carve first, from 05's reading rather than your re-derivation.** `ProjectScreen.svelte` is 1776 lines. The extraction is the **369-line annotation state block**, from the `// Annotations` banner to `// Making this Project available offline`; 05's ticket lists every member and its three edges to the rest of the screen (`session`, `documents`, `layers`). The Historical Maps section is a further 95 lines and is 06's own subject.
+**07 — the align route is where ADR-0023's concurrent-edit gap actually bites, and 14 deferred it to you.** Nothing detects a concurrent edit: `alignment-file.ts`'s `update` writes over whatever is there, so a colleague's change arriving through a synced Workspace between read and write is lost. ADR-0023 accepts this — **the mitigation is visibility, not prevention**. Ticket 14 restated the gap rather than closing it, and gave its reason: ADR-0024's design is that two people's Alignments never meet, so nothing a Project bundle does can reach it. **The align route is the path that does.** `alignment-file.ts` now carries what the mitigation would be — hold the read bytes, re-read before `commit`, compare *bytes* not model, tell the user — written down for whoever gets here.
 
-**06 — `apps/editor/` has no unit test seam at all.** No `*.test.ts` anywhere in it, no vitest project. `EditorSession` is ~1800 lines of the app's central state whose only test seam is the 7-minute browser suite; that is why a silent-return guard survived the whole epic. The annotation-state extraction above is the same change that would make a seam worth having. Adding one is real value and real scope — decide deliberately, do not drift into it.
+**07 — every Alignment write goes through one writer, and the fence has two layers.** `alignment/alignment-file.ts` names create / update / replace. `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write`, `Autosave.commit` and `Autosave.queue` refuse, and `scripts/check-alignment-writers.mjs` catches the spellings a type cannot see. **Copy the honesty as well as the layers**: the brand's real limit is that `WritablePath` brands with an *optional* property, so a path the compiler sees as a plain `string` is accepted — write the escape out, watch it pass, then close it. Tickets 13, 18, 20 and 14 all found paths computed at runtime the fence cannot see, and every one of them said so rather than relying on the gap. That fence's honesty statement was corrected in 14 and now names both surviving runtime-computed paths.
 
-**14 — read ticket 18 before writing any "one writer of one file" rule.** Every Alignment write goes through `alignment/alignment-file.ts` and names create / update / replace. Two layers hold it: `alignmentPath` returns a branded `AlignmentPath` that `ProjectStore.write`, `Autosave.commit` and `Autosave.queue` refuse, and `scripts/check-alignment-writers.mjs` catches the spellings a type cannot see. **Copy both layers and copy the honesty** — 18's first cut claimed the blind write was inexpressible and it was not, and the brand's real limit is now stated: `WritablePath` brands with an *optional* property, so a path the compiler sees as a plain `string` is accepted. Write the escape out, watch it pass, then close it. Ticket 13 and ticket 20 both found paths computed at runtime that the fence cannot see, and both said so rather than relying on the gap.
+**07 — a referenced map's bytes are not yours.** Ticket 06 built the third source (`addWorkspaceMap`) and proved it copies nothing, with an exact before/after file list rather than a count. 07 aligns a map whose tiles stay on a Library's server; the same rule holds, and the reclaim list, the offline copy and `workspaceBytes()` all read the same records.
 
-**14 — two live gaps in what 13 and 18 left.** Nothing detects a concurrent edit: `update` writes over whatever is there, so a colleague's change arriving through a synced Workspace between read and write is lost. ADR-0023 accepts this — the mitigation is visibility, not prevention. And `writeRestored`'s declined-write path is unreachable today only because a restore destination is always new; **Review Workspaces reach it.**
+**15 — read the viewer lead below before deleting anything.** 15 removes the editor's unwarped view, and open lead 2 lives on exactly the unwarped→map navigation. Deleting the view may remove the *editor's* exposure to that defect without fixing it, and the published viewer keeps it. Do not let a green suite after the deletion be read as the bug being gone.
 
-**14 — the tar is measured and the measurements re-run themselves.** `packages/core/src/transfer/tar-format.test.ts` pins `modern-tar` 0.8.2: PAX carries the real 121-character annotation paths and Devanagari, CJK, Arabic and astral emoji; 70,000 entries round-trip, the count at which `fflate` produced an index claiming 4,464 and read it back with no error; the decoder stalls its producer 9 MiB into a 64 MiB entry held unread; and **a truncated tar throws**, cut mid-header or mid-body. That last is not in ADR-0024 and matters most — the zip is going because a short archive came back silently short.
+**Autosave has a Write-Ahead Journal** (ticket 20, ADR-0017 rule 3 as amended, ADR-0001's exception). Recording happens **at the edit, not at `pagehide`**, because `localStorage` quota can only be reported while there is still a screen to report it on. Its first cut opened two fresh data-loss paths — a refusal that deleted the identical rescue copy, and an empty listing read as proof a file was gone — so if you touch replay, the rule that survived is **"unreadable is not absent"**. **Open lead 1 is in this code and now has a 20% reproduction rate.**
+
+**`apps/editor` now has a unit test seam** (ticket 06). `annotation-editing.svelte.ts` is a real unit — its whole dependency on the app is four methods — and `apps/editor/vitest.config.ts` compiles it for the **client**. Read that file's ⚠ block before touching it: `environments.ssr.consumer: 'client'` and the *scoped* `resolve.conditions` are what make a reactivity assertion mean anything, a top-level `resolve.conditions` reaches only an environment nothing runs in, and a server-compiled `derived` is an uncached thunk that makes every such assertion pass. It was wrong in exactly that way for one round.
+
+**The tar is measured and the measurements re-run themselves.** `packages/core/src/transfer/tar-format.test.ts` pins `modern-tar` 0.8.2: PAX carries the real 121-character annotation paths and Devanagari, CJK, Arabic and astral emoji; 70,000 entries round-trip, the count at which `fflate` produced an index claiming 4,464 and read it back with no error; the decoder stalls its producer 9 MiB into a 64 MiB entry held unread; and **a truncated tar throws**, cut mid-header or mid-body. `fflate` and the Project zip are gone (ticket 14).
 
 **Anyone measuring memory: read the comment at `tar-format.test.ts:254` first.** Three instruments were tried and rejected with their numbers. `heapUsed` does not count a `Uint8Array`'s payload at all, so a consumer retaining 512 MiB moved it +5.24 MiB against a streaming consumer's +3.17 MiB — the bound could not fail. What is asserted instead is streamed consumption, in bytes moved rather than bytes collected.
-
-**Autosave now has a Write-Ahead Journal** (ticket 20, ADR-0017 rule 3 as amended, ADR-0001's exception). Recording happens **at the edit, not at `pagehide`**, because `localStorage` quota can only be reported while there is still a screen to report it on. Its first cut opened two fresh data-loss paths — a refusal that deleted the identical rescue copy, and an empty listing read as proof a file was gone — so if you touch replay, the rule that survived is **"unreadable is not absent"**.
 
 ## Ledger
 
@@ -67,7 +100,7 @@ These apply to every remaining ticket. They are not advice.
 | 03 | [03-aligning-becomes-its-own-route.md](./tickets/03-aligning-becomes-its-own-route.md) | Completed | 01 | 37, 38, 41–55, 57–60 |
 | 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Completed | 03 | 1, 2, 3, 10–13, 109, 110 |
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Completed | 02, 04 | 14–17, 20 |
-| 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Not Started | 02, 05 | 21–30, 33, 36, 106 |
+| 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Completed | 02, 05 | 21–30, 33, 36, 106 |
 | 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Not Started | 06 | 31, 32, 39, 40, 56, 80, 81 |
 | 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
@@ -75,7 +108,7 @@ These apply to every remaining ticket. They are not advice.
 | 11 | [11-make-a-project-available-offline.md](./tickets/11-make-a-project-available-offline.md) | Completed | 08, 10 | 6, 69–73, 75–79, 97, 99 |
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Completed | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Completed | 01, 12 | 82–87 |
-| 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Not Started | 13 | 89–95 |
+| 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Completed | 13 | 89–95 |
 | 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Completed | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Completed | 02, 03, 09 | — |
@@ -87,6 +120,15 @@ These apply to every remaining ticket. They are not advice.
 
 ## Critical path
 
-**06 → 07 → 15** is all that remains of the long chain, and **14** hangs off the merged 13. 06 and 14 can run in parallel.
+**07 → 15**, and nothing else. Both are single-threaded; there is no parallel work left in this epic.
 
-**06 is the ticket most likely to hurt**: three sources for adding a Historical Map, thirteen stories, and it carves `ProjectScreen.svelte` — which 05 left larger than it found it, deliberately and with the extraction named.
+**07 is the last ticket that can hurt.** It aligns a map whose bytes stay on a Library's server, and it inherits ADR-0023's concurrent-edit gap that 14 deliberately deferred to it with the mitigation written out. **15 is small but not safe**: deleting the editor's unwarped view removes the editor's exposure to open lead 2 without fixing it, and the published viewer keeps the defect — a green suite after that deletion must not be read as the bug being gone.
+
+## What 06 and 14 cost, for estimating 07
+
+Both arrived with confident green reports and **both needed three rounds**. The first review of each found user-facing defects; the second review found that the *fixes* over-claimed — a unit test seam compiling for the server and so proving nothing, and a discard race reported closed that was only narrowed. Neither would have been caught by running the tests, because both were green throughout.
+
+Two lessons worth carrying into 07:
+
+- **A fix deserves the same review as the code it fixes.** The highest-value findings of the session were against fix commits, not original ones.
+- **Reviews that measure beat reviews that read.** The two sharpest findings came from instrumenting the real toolchain — a probe of the Vite transform proving which Svelte runtime was emitted, and a `--repeat-each` run at two worker counts separating "load causes it" from "load widens the window".
