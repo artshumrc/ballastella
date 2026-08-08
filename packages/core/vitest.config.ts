@@ -40,6 +40,28 @@ export default defineConfig({
 				}
 			},
 			{
+				// ⚠ **`optimizeDeps.include` is not tuning; it is what stops this project hanging.**
+				// Vite re-optimizes dependencies when the lockfile changes, and in browser mode it
+				// does so *during* the run and then reloads — which vitest itself warns "may cause
+				// tests to fail, lead to flaky behaviour or duplicated test runs". Measured on the
+				// run that added `modern-tar` (ticket 13): the suite produced its last line at
+				// 10:06:49 and was still alive with no further output forty minutes later. The run
+				// before it exited 1 for the same reason, and its output had been discarded, so it
+				// went down as unexplained. A second run always passes, because by then the cache
+				// is warm — which is exactly what makes this look like flake rather than a cause.
+				//
+				// So every dependency the browser tests pull in is listed here. **Adding a
+				// dependency to a browser test means adding it here**, or the next person after a
+				// `pnpm install` pays the same forty minutes and is told it was contention.
+				optimizeDeps: {
+					include: [
+						'@allmaps/annotation',
+						'@allmaps/transform',
+						'@protomaps/basemaps',
+						'fflate',
+						'modern-tar'
+					]
+				},
 				test: {
 					name: 'browser',
 					include: ['src/**/*.browser.test.ts', 'vitest-setup/**/*.browser.test.ts'],
