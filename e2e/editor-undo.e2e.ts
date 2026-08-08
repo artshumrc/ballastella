@@ -14,7 +14,7 @@ import {
 	storedAlignment,
 	waitForStored,
 	waitForSurface,
-	warpedStatus
+	expectWarpedDrawn
 } from './support/alignment-workspace.js';
 import {
 	annotationLayerId,
@@ -212,7 +212,7 @@ async function alignedProject(page: Page): Promise<string> {
 	const imageId = await start(page);
 	await makePairs(page, 3);
 	await waitForStored(page, imageId, 3);
-	await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+	await expectWarpedDrawn(page);
 	await saved(page);
 	return imageId;
 }

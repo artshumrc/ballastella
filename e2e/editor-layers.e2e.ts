@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
 
+import { expectWarpedDrawn } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { projectNameField } from './support/project-screen.js';
 
@@ -445,7 +446,7 @@ async function alignedProject(page: Page): Promise<string> {
 	] as const) {
 		await pairAt(page, fx, fy);
 	}
-	await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+	await expectWarpedDrawn(page);
 	await expect(page.getByRole('status')).toHaveText('Saved');
 
 	return directory;
@@ -618,6 +619,14 @@ const rowIds = (page: Page): Promise<(string | null)[]> =>
 /**
  * Press Tab until `target` has focus, so "operable by keyboard" is asserted by *getting there* with
  * the keyboard rather than by calling `focus()` and pretending.
+ *
+ * ⚠ **This is the most expensive helper in the file and its cost is invisible at the call site.**
+ * Every iteration is two protocol round trips — an `evaluate` and a key press — so a walk past the
+ * Base Map's own controls can be a hundred of them before the first assertion runs. On a loaded
+ * machine that is tens of seconds, and the two tests that use it exhausted the default 30 s test
+ * budget in 1 of the 10 runs measured on 2026-08-07 (ticket 17). It reported as
+ * `waiting for … layer-move-down`, which reads like a button that never rendered. Both callers now
+ * state a budget; a new one must too.
  */
 async function tabTo(page: Page, target: Locator, what: string): Promise<void> {
 	// Generous, because the page also holds the Base Map's own focusable controls — MapLibre's zoom
@@ -767,7 +776,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		// The barrier, and the honest one: the alignment workspace's own warped preview is drawn, so the
 		// three pairs really do solve. Without it this waits on the Layers pane for a state the Alignment
 		// may not have reached yet, and a red run would say nothing about the sentence under test.
-		await expect(page.getByTestId('warped-status')).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		await openLayers(page, directory, { drawn: 1 });
 		await expect(rows(page).first().getByTestId('layer-problem')).toHaveCount(0);
@@ -1256,6 +1265,11 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	// functionality keyboard-inaccessible (ADR-0016) — and this is the same implementation the drag
 	// drives, so the two routes cannot diverge.
 	test('reorders by keyboard alone, with no pointer involved', async ({ page }) => {
+		// A whole aligned-Project fixture and then a Tab walk to the button — see {@link tabTo}. Both
+		// are honest work this test needs, and together they exhausted the 30 s that used to be the
+		// default in 1 of the 10 runs of 2026-08-07. The default is 60 s now; this stays above it
+		// because the measured cost of the two together is closer to that than to the ordinary test.
+		test.setTimeout(90_000);
 		const { annotationId, mapId } = await stackWithBothKinds(page);
 		const moveDown = rows(page).nth(0).getByTestId('layer-move-down');
 
@@ -1339,6 +1353,9 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	// The same thing away from the ends, where the button that was pressed is still enabled — the case
 	// that is about Svelte moving a keyed node rather than about `disabled`.
 	test('keeps focus on the same button when the move does not reach the end', async ({ page }) => {
+		// As above: an aligned Project, three Layers, and a Tab walk — see {@link tabTo}. It failed in
+		// the same run, for the same reason.
+		test.setTimeout(90_000);
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 		await page.getByTestId('add-annotation-layer').click();

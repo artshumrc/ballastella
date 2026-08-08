@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 
+import { waitForStoredLayers } from './support/saved';
+
 /**
  * SPEC's Seam 2 for the tiler: a file picked in the running app, in a real browser, against real
  * OPFS (SPEC stories 21, 22, 23).
@@ -360,6 +362,14 @@ test.describe('adding a Historical Map from a file', () => {
 			buffer: gradientPng(700, 500)
 		});
 		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
+		// **The row being on screen is not the thing this test reloads onto** (ticket 17). `project.json`
+		// is written on autosave's 400 ms debounce (ADR-0017 rule 2), and a reload takes the Workspace
+		// as it is on disk — so reloading here on the strength of the row alone was a race with the
+		// write, and it lost in 1 of the 10 runs measured on 2026-08-07 (`toHaveCount(1) … Received: 0`,
+		// which reads exactly like the Project not having remembered it). Waiting for the file is not a
+		// weaker claim than this test makes; it is the claim, since "already in the Project" means in
+		// the document.
+		await waitForStoredLayers(page, 1);
 
 		// Reopening reads it back from the store rather than remembering it.
 		await page.reload();

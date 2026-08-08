@@ -21,9 +21,9 @@ import {
 	PROJECT_NAME,
 	rows,
 	storedAlignment,
-	warpedStatus,
 	warpedTiles,
-	waitForStored
+	waitForStored,
+	expectWarpedDrawn
 } from './support/alignment-workspace';
 import {
 	annotationLayerId,
@@ -36,6 +36,7 @@ import {
 	writeProjectFile
 } from './support/annotations';
 import { seedMapLayer } from './support/project-screen';
+import { waitForStoredLayers } from './support/saved';
 
 /**
  * SPEC's Seam 2 for the PWA slice (stories 6, 8, 9; ADR-0012).
@@ -176,6 +177,25 @@ async function startProjectWithMap(page: Page): Promise<string> {
 	// The image id off the Layer the map arrived with (ADR-0023, ticket 04).
 	const addedRow = page.getByTestId('layer-row').first();
 	await expect(addedRow).toBeVisible({ timeout: 30_000 });
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// **AND THEN WAIT FOR IT TO HAVE HAPPENED, NOT MERELY TO BE ON SCREEN** (ticket 17).
+	//
+	// Every caller of this reloads the page immediately afterwards — that is the point of the file:
+	// the scholar prepared in the office and is now in the reading room — and a reload takes the
+	// Workspace as it is *on disk*. Returning at the first visible row asserted neither of the two
+	// things that have to be true by then, and this test failed in 3 of the 10 baseline runs of
+	// 2026-08-07: twice as a 30 s wait for a Layer row that was never going to arrive, once as
+	// `TypeError … reading 'id'` for the same absence read one line later. Both were downstream of
+	// here and neither was in this function, which is what made it look like contention.
+	//
+	// Two published steps, because the row can precede either. The input is re-enabled when the
+	// ingest is over (`session.ingest !== null` disables it), so a pyramid that is still being
+	// written cannot be reloaded out from under.
+	await expect(page.getByLabel('Add a Historical Map from a file')).toBeEnabled({
+		timeout: 30_000
+	});
+	// And the Layer itself is in `project.json`, not only in the component's state.
+	await waitForStoredLayers(page, 1);
 	return (await addedRow.getAttribute('data-image-id'))!;
 }
 
@@ -594,7 +614,7 @@ test.describe('the app with the network off', () => {
 		// No archive ships now and the tile cache is ticket 11, so the Base Map really is unreachable
 		// here — and the scholar's own work still draws over it. Tiles that arrived *and decoded* are
 		// counted, because an error `@allmaps/render` logs and swallows renders a blank map.
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		expect(
 			await warpedTiles(page),
 			'the aligned Historical Map did not render over the Base Map offline'

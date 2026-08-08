@@ -40,7 +40,7 @@ const editorPort = basePort;
 const viewerPort = basePort + 1;
 
 /**
- * The build is *inside* this command, and that is what makes reuse dangerous.
+ * Free the port, make sure both builds are current, then serve.
  *
  * `reuseExistingServer` decides whether to run the command by asking only whether something answers
  * on the port. If something does, the command is skipped **whole** — the build with it — and the
@@ -48,21 +48,28 @@ const viewerPort = basePort + 1;
  * simultaneous failures as a code defect before finding the cause was a reused `vite preview`
  * serving pre-change HTML; a later sweep found seven stray preview processes still listening. The
  * port hashing above closed the cross-checkout half of this. It cannot close the same-tree half,
- * because the port is stable per checkout on purpose.
+ * because the port is stable per checkout on purpose. So the command frees its own port first and
+ * `reuseExistingServer` stays off: every run gets a server it started itself.
  *
- * So the command frees its own port first, and reuse is opt-in rather than the default. The cost is
- * a rebuild per run. `BALLASTELLA_E2E_REUSE=1` takes the old behaviour back for fast iteration
- * against a build you know is current.
+ * **The build is `scripts/e2e-build.mjs` rather than this app's own** (ticket 17), for a correctness
+ * reason before a speed one. Playwright starts these two commands *in parallel*, and both of the
+ * builds they used to run write `apps/viewer/build` — the viewer's directly, and the editor's
+ * because its `build` is `stage:viewer && vite build`. Two `vite build` processes emptying and
+ * filling one directory while a third step copies it into the editor is a staged viewer bundle that
+ * is missing files, in one run and not the next, with both builds reporting success. `e2e-build.mjs`
+ * is one sequential build behind a lock, shared by both commands, and it skips when a fingerprint of
+ * every build input matches the last one — which is a stronger question than "is something listening
+ * on the port".
  *
  * @param app the workspace package name suffix, e.g. `editor`
  */
 const serveStatic = (app: string, port: number) => ({
 	command:
 		`node scripts/free-e2e-port.mjs ${port} && ` +
-		`pnpm --filter @ballastella/${app} run build && ` +
+		`node scripts/e2e-build.mjs && ` +
 		`pnpm --filter @ballastella/${app} exec vite preview --port ${port} --strictPort`,
 	port,
-	reuseExistingServer: !process.env.CI && process.env.BALLASTELLA_E2E_REUSE === '1',
+	reuseExistingServer: false,
 	timeout: 120_000
 });
 
@@ -70,42 +77,107 @@ export default defineConfig({
 	testDir: './e2e',
 	testMatch: '**/*.e2e.ts',
 	forbidOnly: !!process.env.CI,
-	// Capped rather than left to default to one worker per core.
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+	// WORKERS: 4. MEASURED 2026-08-07, ON A 20-CORE LINUX 6.17 MACHINE WITH 62 GB, NOT OTHERWISE
+	// IDLE (THE ORDINARY STATE OF THIS BOX — OTHER AGENTS AND SERVICES WERE RUNNING).
 	//
-	// Every worker drives a real WebGL context and the same origin's OPFS, and at the default (7
-	// here) the suite flaked in roughly one full run in three — a *different* test each time, never
-	// reproducible in isolation even at `--repeat-each=10 --workers=6`. That profile is contention,
-	// not a race in any one test.
+	// **The failures were counted and read, not summarised.** Ten consecutive full runs on `main`
+	// at `workers: 4` with `retries: 0`, 398 tests each, 3980 test executions:
 	//
-	// ⚠ **The cap did not fix it, and this comment used to imply it had.** Measured across four
-	// implementers and roughly a dozen full runs at `workers: 4`: still about one run in three, one
-	// to four failures each time, a *different* set every time, every one green when its own file is
-	// re-run. One run failed `pwa`+`transfer`, the next `remote-iiif`+`transfer`. So four workers is
-	// the current setting, not a remedy, and lowering the number further has not been tried against
-	// a measured rate.
+	//   6 of 10 runs failed        8 failures in 3980 executions = 0.20%
+	//   browser crashes                  0     (no `Protocol error`, no `Target closed`)
+	//   timeouts awaiting a state        5
+	//   assertion failures               2
+	//   test-timeout budget exhausted    1
 	//
-	// This matters more than the wasted wall clock. `retries` below makes CI green regardless, so a
-	// suite in this state can absorb a genuine race without anyone noticing — and it taxes every
-	// implementer, who must re-run and often bisect against the merge-base to show a failure is not
-	// theirs. `pnpm flake:check` exists so that costs one command. Ticket 17 owns the real fix and
-	// should start from the numbers above rather than re-deriving them.
+	// **Zero crashes is the number that changes the conclusion.** Earlier reports in this epic
+	// counted 8, 11 and 17 failures per run, one of them "7 of 8 were `Protocol error … session
+	// closed`". None of that reproduces here. Those runs predate the port derivation above, and a
+	// browser whose server disappears mid-run is exactly what a reused `vite preview` from another
+	// checkout produces when the first run finishes. So the crash half of the historical flake was
+	// the ports, and it is already fixed — which is why fewer workers is *not* the answer and this
+	// number stays at 4.
+	//
+	// **The rest was bugs, not contention.** All 8 failures came from 4 tests, and every one had a
+	// cause that could be found, fixed, and watched fail (ticket 17): a Workspace walk that raised
+	// when a directory was deleted underneath it — a real application bug, in
+	// `directory-handle-store.ts` — helpers that returned when a Layer was *on screen* rather than *on
+	// disk* (`e2e/support/saved.ts`), an assertion that polled for a state lasting milliseconds, and a
+	// test doing two pyramid ingests inside a 30 s budget. Contention caused none of them; it widened
+	// the windows so they showed. Which is precisely why they all "passed in isolation", and why four
+	// implementers reading that as proof of contention were reading the correlation.
+	//
+	// **After those fixes, ten more runs: 1 failure in 3990 executions, 1 run in 10, 0.025%, and
+	// nothing that survived a retry.** Down from 0.20% and from 6 runs in 10. Thirty measured runs in
+	// all, twelve failures, five distinct causes, no crashes.
 	//
 	// **Eight workers measured 19% faster (360s against 444s) and four is still the right number.**
-	// Recorded so the measurement does not read as an argument for raising it. This repository is
-	// worked by several agents at once on one machine, so a run does not have the box to itself; a
-	// per-run figure taken in isolation is not the figure that matters, and eight workers each would
-	// oversubscribe the cores and make every concurrent run slower and flakier. Four is a deliberate
-	// share of a shared machine. Raise it only for a checkout that genuinely runs alone.
-	//
-	// Note also what the 19% says about the ceiling: doubling the workers bought a fifth, so the
+	// This repository is worked by several agents at once on one machine, so a run does not have the
+	// box to itself; eight workers each would oversubscribe the cores and make every concurrent run
+	// slower. Note what the 19% says about the ceiling: doubling the workers bought a fifth, so the
 	// suite is already close to what this CPU can do. Real speed is not in this number — it is in
 	// not asking Playwright for work that belongs one seam down. A Vitest browser test costs ~12ms
 	// against ~4.6s here, because it exercises a module rather than booting the built app and
-	// software-rasterising MapLibre. Moving forty tests down beats any worker count.
+	// software-rasterising MapLibre.
 	workers: 4,
-	retries: process.env.CI ? 1 : 0,
-	reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
-	use: { ...devices['Desktop Chrome'] },
+
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+	// THE TWO BUDGETS, RAISED FROM PLAYWRIGHT'S DEFAULTS BECAUSE THE DEFAULTS WERE THE CAUSE.
+	//
+	// Playwright's defaults are 5 s per assertion and 30 s per test. Of the eleven failures counted
+	// across the first twenty measured runs of 2026-08-07, **three were neither races nor wrong
+	// answers** — they were real work that did not finish inside one of those two numbers on a loaded
+	// machine.
+	// Every one of them reported as an absence: `toHaveCount(2) … Received: 1`, or 30 s spent
+	// `waiting for … layer-move-down`. That is the worst possible spelling, because it is exactly how
+	// a genuinely missing element reads, and it is what four implementers were looking at when they
+	// concluded "contention".
+	//
+	// A run of this suite is 4 workers each driving a real Chromium with software-rasterised WebGL
+	// against real OPFS, on a box that is not the run's alone. 5 s is not a generous allowance for an
+	// assertion about that; it is a bet on the machine.
+	//
+	// **Nothing is weakened by this.** An element that never appears still fails, and a test that
+	// hangs is still bounded — by 60 s rather than 30 s. What changes is that a slow machine no longer
+	// produces a red run that means nothing. Three tests still name their own budget above these,
+	// where the work genuinely warrants it, and each says why.
+	expect: { timeout: 10_000 },
+	timeout: 60_000,
+
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+	// RETRIES: 1 EVERYWHERE, AND A BUDGET ON HOW OFTEN ONE MAY BE NEEDED.
+	//
+	// This was `CI ? 1 : 0`, which is the arrangement that let the epic get here: a retry made CI
+	// green whatever happened, and nothing counted them. A suite in that state can absorb a genuine
+	// race indefinitely. Turning retries *off* is not the fix either — it makes every implementer
+	// re-run by hand and guess.
+	//
+	// So a retry is now visible and it is *budgeted*. `scripts/retry-budget.mjs` prints every retried
+	// test as it happens, prints the rate at the end, and **fails the run** when more than 0.5% of
+	// tests passed only on a second attempt — 1 test in 398, so a single retry is the whole budget.
+	// Green-after-retry is data, not success. Locally the same rule applies, which is deliberate: a
+	// number that only exists on CI is a number nobody looks at.
+	//
+	// Check the fence rather than trusting it: `BALLASTELLA_E2E_RETRY_BUDGET=0` on a run with any
+	// retry at all must fail.
+	//
+	// ⚠ **`--reporter=…` on the command line replaces this whole list, and takes the budget with
+	// it.** `pnpm exec playwright test --reporter=line` is an ordinary thing to type and it silently
+	// runs with no budget at all — the retries still happen, the flaky count still prints, and
+	// nothing fails. Playwright offers no way to pin a reporter against that, so it is stated here
+	// rather than defended against. Spell it `--reporter=line,./scripts/retry-budget.mjs` when you
+	// want both. CI passes no `--reporter`, so CI always has the budget.
+	retries: 1,
+	reporter: process.env.CI
+		? [['github'], ['html', { open: 'never' }], ['./scripts/retry-budget.mjs']]
+		: [['list'], ['./scripts/retry-budget.mjs']],
+	use: {
+		...devices['Desktop Chrome'],
+		// A retried test is one nobody has explained yet, so the second attempt keeps everything
+		// needed to explain it. Only on the retry: a trace per test would cost more than the suite.
+		trace: 'on-first-retry',
+		screenshot: 'only-on-failure'
+	},
 	projects: [
 		{
 			// `editor*.e2e.ts`, so that a slice with a lot of browser behaviour to assert can own

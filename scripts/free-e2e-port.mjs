@@ -10,6 +10,12 @@
 // the build. The suite then runs against whatever that process is serving, which is the last build
 // somebody made, in this tree or another checkout.
 //
+// A stray listener is also how a run comes to look like a crash. When the process holding the port
+// exits part way through — the earlier run it belonged to finishing — every page in flight loses its
+// server at once, and Playwright reports `Protocol error` and `Target closed` for whatever was
+// running. That is the profile earlier reports in this epic recorded as "browser crashes"; ten
+// measured runs after the port derivation landed produced none at all (ticket 17).
+//
 // This is not theoretical. An implementer working this repo hit eighteen simultaneous failures in
 // `editor-base-map.e2e.ts` and spent time reading them as a code defect; the cause was a reused
 // `vite preview` from an earlier run serving pre-change HTML. A later sweep of the machine found
@@ -20,10 +26,11 @@
 // longer collide. It does nothing for a stale server in the same tree on the same port, which is
 // the common case, because the port is stable per checkout by design.
 //
-// So the command now frees its own port first and `reuseExistingServer` is off by default. The cost
-// is a rebuild per run. `BALLASTELLA_E2E_REUSE=1` opts back in for fast iteration against a build
-// you know is current — deliberately an opt-in, because the default has to be correct rather than
-// quick.
+// So the command frees its own port first and `reuseExistingServer` is off: every run gets a server
+// it started itself. What used to be paid for that — a full rebuild per run — is not paid any more.
+// `scripts/e2e-build.mjs` decides whether the build is current by fingerprinting every build input,
+// which answers the question this script's failure mode is about, rather than the question a
+// listening socket answers.
 
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';

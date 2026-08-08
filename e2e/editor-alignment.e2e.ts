@@ -2,6 +2,10 @@ import { parseAnnotation, validateAnnotation } from '@allmaps/annotation';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 
+import { expectWarpedDrawn } from './support/alignment-workspace';
+import { routeBaseMapArchive } from './support/editor-deployment';
+import { readStoredJsonOrNull } from './support/stored-file';
+
 /**
  * SPEC's Seam 2 for the core act of the application: Control Point pairing, in the running app,
  * against the user's own ingested pyramid and a real Base Map (stories 30, 32–37).
@@ -62,6 +66,24 @@ function gradientPng(width: number, height: number): Buffer {
 		chunk('IEND', Buffer.alloc(0))
 	]);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// THE BASE MAP COMES FROM THE COMMITTED FIXTURE, NOT FROM SOMEBODY ELSE'S BUCKET (ticket 17).
+//
+// Every entry in `base-map/catalog.ts` points at `demo-bucket.protomaps.com`, and on 2026-08-07 that
+// bucket began answering **404** for `v4.pmtiles` — with no CORS headers on the 404 and a 403 on the
+// preflight, so an unrouted request is blocked by the browser rather than answered. MapLibre's source
+// then never initialises and the warped layer is never added, so the symptom is
+// `data-warped-status=""` — which reads exactly like the feature being broken. It went red here, and
+// identically on `main`, with nothing in this repository having changed.
+//
+// ADR-0025 is explicit that this bucket has "no published rate limit, no uptime promise, and no
+// terms of use" and that "nothing about it is suitable to rely on". Fourteen other specs already
+// route it to `e2e/fixtures/base-map/amsterdam-centre.pmtiles`; these three were the outliers, and
+// not by design — see `routeBaseMapArchive` for what routing does and does not still exercise.
+test.beforeEach(async ({ page }) => {
+	await routeBaseMapArchive(page);
+});
 
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
@@ -602,7 +624,7 @@ test.describe('the warped Historical Map', () => {
 
 		// The third pair is the one that makes the map appear.
 		await makePair(page, 0.45, 0.7);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		await expect(warpedStatus(page)).toContainText('from 3 Control Points');
 
 		// Asserted as tiles that arrived *and decoded*, not as an absence of console errors: the
@@ -620,7 +642,7 @@ test.describe('the warped Historical Map', () => {
 		await makePair(page, 0.3, 0.3);
 		await makePair(page, 0.6, 0.35);
 		await makePair(page, 0.45, 0.7);
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 
 		// Back below the minimum. The map has to come off rather than stay drawn from a solve that is
 		// no longer supported by the Control Points on screen — which would be a Historical Map placed
@@ -767,7 +789,7 @@ test.describe('the Alignment on disk', () => {
 		// about the warped layer is persisted — it is rebuilt from the Alignment that was read off
 		// disk — so this is what says the whole path survives a reload rather than only the Control
 		// Points that feed it.
-		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+		await expectWarpedDrawn(page);
 		expect(
 			await warpedTiles(page),
 			'the Historical Map did not render warped after a reload'
@@ -826,16 +848,17 @@ test.describe('choosing the Base Map while aligning', () => {
 	 * Polled rather than read once: `chooseBaseMap` writes asynchronously, so the `<select>` shows
 	 * the new value before the bytes land — and reading in that window would fail as "the choice was
 	 * not recorded", which is the opposite of what happened.
+	 *
+	 * **And through `readStoredJsonOrNull`, which retries, because the app writes atomically** — a temp
+	 * file, then `move()` over the destination (ADR-0017 rule 4). A read landing inside *that* window
+	 * does not return stale bytes, it raises. This helper was a fourth hand-rolled copy of a read that
+	 * three others documented that hazard at length for, and it was the copy that omitted the retry: it
+	 * was the last remaining failure in the ten runs measured for ticket 17, with
+	 * `NotReadableError: The requested file could not be read`.
 	 */
-	const storedBaseMap = async (page: Page): Promise<unknown> => {
-		const written = await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
-			const project = await root.getDirectoryHandle('amsterdam-1625');
-			const handle = await project.getFileHandle('project.json');
-			return await (await handle.getFile()).text();
-		});
-		return JSON.parse(written).baseMap;
-	};
+	const storedBaseMap = async (page: Page): Promise<unknown> =>
+		(await readStoredJsonOrNull<{ baseMap?: unknown }>(page, 'amsterdam-1625/project.json'))
+			?.baseMap ?? null;
 
 	/**
 	 * A bundled entry, deliberately — **not** the worldwide one this whole investigation was about.
@@ -845,6 +868,12 @@ test.describe('choosing the Base Map while aligning', () => {
 	 * list). What is under test here is that the control is reachable and that operating it records
 	 * the author's choice; making that depend on a third party's bucket would buy nothing and cost
 	 * a flake on every reading-room wifi this suite is ever run on.
+	 *
+	 * ⚠ **That reasoning was right and this constant did not achieve it** (ticket 17). All four
+	 * catalog entries share one `REMOTE_ARCHIVE`, so choosing a "bundled" one still fetched the demo
+	 * bucket — and when that bucket started answering 404 this spec went red along with the two other
+	 * unrouted ones. The `routeBaseMapArchive` hook at the top of this file is what actually delivers
+	 * what this comment intended; the constant now only keeps the option list honest.
 	 */
 	const OFFLINE_ENTRY = 'physical';
 
