@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from './test.js';
 
 import { PROJECT_DIRECTORY } from './annotations';
 
@@ -42,7 +42,7 @@ export const seedMapLayer = (
 ): Promise<void> =>
 	page.evaluate(
 		async ([directory, imageId, name]) => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle(directory as string);
 			const handle = await project.getFileHandle('project.json');
 			const document = JSON.parse(await (await handle.getFile()).text());

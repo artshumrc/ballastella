@@ -4,12 +4,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	BASE_MAP_TILE_DIRECTORY,
+	BASE_MAP_TILE_ROOT,
 	ESTIMATED_BYTES_PER_TILE,
 	MEASURED_CANAL_BELT,
 	OFFLINE_TILE_LIMIT,
+	baseMapArchiveKey,
+	baseMapTileDirectory,
 	cachedTilePath,
 	countTilesForBounds,
+	parseAnyCachedTilePath,
 	parseCachedTilePath,
 	tileBudget,
 	tilesForBounds
@@ -189,20 +192,80 @@ describe('tileBudget', () => {
 	});
 });
 
+/** The deployment's archive, and a fork's, sharing a filename on different hosts. */
+const ARCHIVE = 'https://example.test/v4.pmtiles';
+const OTHER_ARCHIVE = 'https://other.test/v4.pmtiles';
+
 describe('cachedTilePath', () => {
-	it('is the ADR-0025 layout, under the Workspace-level directory', () => {
-		expect(cachedTilePath({ z: 14, x: 8434, y: 5403 })).toBe('base-map/tiles/14/8434/5403.mvt');
-		expect(cachedTilePath({ z: 0, x: 0, y: 0 }).startsWith(BASE_MAP_TILE_DIRECTORY)).toBe(true);
+	it('is the ADR-0025 layout, under the archive’s own directory', () => {
+		expect(cachedTilePath(ARCHIVE, { z: 14, x: 8434, y: 5403 })).toBe(
+			`${baseMapTileDirectory(ARCHIVE)}14/8434/5403.mvt`
+		);
+		expect(cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 }).startsWith(BASE_MAP_TILE_ROOT)).toBe(true);
 	});
 
 	it('round-trips through the parser', () => {
 		const tile = { z: 11, x: 1054, y: 675 };
-		expect(parseCachedTilePath(cachedTilePath(tile))).toEqual(tile);
+		expect(parseCachedTilePath(ARCHIVE, cachedTilePath(ARCHIVE, tile))).toEqual(tile);
 	});
 
 	it('does not claim a path that is not a cached tile', () => {
-		expect(parseCachedTilePath('base-map/fonts/Noto Sans Regular/0-255.pbf')).toBeNull();
-		expect(parseCachedTilePath('base-map/tiles/14/8434/5403.png')).toBeNull();
-		expect(parseCachedTilePath('images/abc/info.json')).toBeNull();
+		expect(parseCachedTilePath(ARCHIVE, 'base-map/fonts/Noto Sans Regular/0-255.pbf')).toBeNull();
+		expect(
+			parseCachedTilePath(ARCHIVE, `${baseMapTileDirectory(ARCHIVE)}14/8434/5403.png`)
+		).toBeNull();
+		expect(parseCachedTilePath(ARCHIVE, 'images/abc/info.json')).toBeNull();
+		// The unkeyed layout ticket 11 wrote is not this archive's, and is not anybody's: without the
+		// key there is no archive it can be attributed to.
+		expect(parseCachedTilePath(ARCHIVE, 'base-map/tiles/14/8434/5403.mvt')).toBeNull();
+	});
+});
+
+describe('the cache directory is keyed by archive (ticket 12)', () => {
+	it('gives two archives two directories, so neither can serve the other’s tiles', () => {
+		// The failure this ends: ADR-0020 makes two entries on two archives a supported deployment, and
+		// one directory serving both draws a plausible pane of the *wrong world* — well-formed tiles,
+		// no 404, no log, nothing to notice. `parseCachedTilePath` is the half that refuses to read a
+		// foreign tile back as this archive's, which is what keeps `offlineCoverage` from counting it.
+		expect(baseMapTileDirectory(ARCHIVE)).not.toBe(baseMapTileDirectory(OTHER_ARCHIVE));
+
+		const tile = { z: 14, x: 8434, y: 5403 };
+		expect(parseCachedTilePath(ARCHIVE, cachedTilePath(OTHER_ARCHIVE, tile))).toBeNull();
+		expect(parseCachedTilePath(OTHER_ARCHIVE, cachedTilePath(ARCHIVE, tile))).toBeNull();
+	});
+
+	it('is stable for one archive, because a Published Site’s paths are already written', () => {
+		// The key is the published format: the tiles are copied verbatim into a site and read back by
+		// the viewer over HTTP, which cannot list a directory to find them. A key that varied per call,
+		// per session, or per deployment would be a site whose own viewer cannot find its own tiles.
+		expect(baseMapArchiveKey(ARCHIVE)).toBe(baseMapArchiveKey(ARCHIVE));
+		expect(baseMapTileDirectory(ARCHIVE)).toBe(
+			`${BASE_MAP_TILE_ROOT}${baseMapArchiveKey(ARCHIVE)}/`
+		);
+	});
+
+	it('is a single path segment a filesystem will take, whatever the archive looks like', () => {
+		// The key becomes a directory name in OPFS, in a folder the user can see, and in a URL a static
+		// host serves. A `/`, a `?`, or a space in it is a path that is not the path anybody meant.
+		for (const archive of [
+			ARCHIVE,
+			'base-map/amsterdam-centre.pmtiles',
+			'https://demo.test/a b/v4.pmtiles?token=x#y',
+			'../escape.pmtiles',
+			''
+		]) {
+			expect(baseMapArchiveKey(archive), archive).toMatch(/^[a-z0-9][a-z0-9-]*$/);
+		}
+	});
+
+	it('reads the key back off a path, which is how a whole-Workspace walk finds every cache', () => {
+		// `baseMapCaches` has to answer for archives it is not holding — the hub's size and clear, and
+		// publishing's list — and the key is a one-way function, so the walk parses rather than guesses.
+		const tile = { z: 3, x: 4, y: 5 };
+		expect(parseAnyCachedTilePath(cachedTilePath(ARCHIVE, tile))).toEqual({
+			key: baseMapArchiveKey(ARCHIVE),
+			tile
+		});
+		expect(parseAnyCachedTilePath('base-map/tiles/some-key/tile-source.json')).toBeNull();
 	});
 });

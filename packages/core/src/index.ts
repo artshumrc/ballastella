@@ -129,6 +129,18 @@ export {
 } from './store/http-project-store.js';
 export { MemoryProjectStore } from './store/memory-project-store.js';
 export { OpfsProjectStore } from './store/opfs-project-store.js';
+// The OPFS root as a place holding several named Workspaces (ADR-0024's amendment to ADR-0001).
+export {
+	DEFAULT_WORKSPACE_NAME,
+	createOpfsWorkspace,
+	deleteOpfsWorkspace,
+	ensureOpfsWorkspace,
+	listOpfsWorkspaces,
+	openOpfsWorkspace,
+	requestPersistentStorage,
+	toWorkspaceName,
+	type StoragePersistence
+} from './store/opfs-workspaces.js';
 export {
 	InvalidPathError,
 	PathNotFoundError,

@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Locator, type Page, type Response } from '@playwright/test';
 
 // Seam 2 (SPEC, Testing Decisions): the running app, real MapLibre, no map abstraction.

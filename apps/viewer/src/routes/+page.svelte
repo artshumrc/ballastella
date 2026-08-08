@@ -541,19 +541,26 @@
 	/**
 	 * The site's own Base Map tiles, or `null` when it carries none (ADR-0025).
 	 *
-	 * `baseMapMaxZoom` comes off the site record because a static host cannot list a directory, so the
-	 * viewer has no way to read the pyramid's depth off the files the way the editor does. Reading a
-	 * tile goes through the same read-only HTTP store every other byte of this site does: `null` for a
-	 * 404, which the protocol handler answers with an empty tile rather than a console full of errors.
+	 * **Matched to the entry the Reader is looking at** (ticket 12). The cache directory is keyed by
+	 * archive, and ADR-0020 lets a Reader switch entries — so a site carrying tiles for one archive must
+	 * draw the *other* entry from the network rather than from a pile of tiles that are not its. The
+	 * match is on the entry's own `archive` string, which is what the key is derived from.
+	 *
+	 * `baseMapCaches` comes off the site record because a static host cannot list a directory, so the
+	 * viewer has no way to read either which archives are here or how deep each goes the way the editor
+	 * does. Reading a tile goes through the same read-only HTTP store every other byte of this site
+	 * does: `null` for a 404, which the protocol handler answers with an empty tile rather than a
+	 * console full of errors.
 	 */
 	const cachedBaseMap = $derived.by(() => {
-		const maxZoom = site?.baseMapMaxZoom;
-		if (site?.baseMapBundled !== true || typeof maxZoom !== 'number') return null;
+		const archive = baseMap.entry.archive;
+		const held = site?.baseMapCaches.find((cache) => cache.archive === archive);
+		if (!held) return null;
 		return {
-			maxZoom,
+			maxZoom: held.maxZoom,
 			readTile: async (tile: { z: number; x: number; y: number }) => {
 				try {
-					return await siteStore().read(cachedTilePath(tile));
+					return await siteStore().read(cachedTilePath(archive, tile));
 				} catch {
 					return null;
 				}

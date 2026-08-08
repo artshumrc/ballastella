@@ -837,7 +837,10 @@
 		entry: BaseMapEntry,
 		forLayers: readonly Layer[]
 	): Promise<void> {
-		cache = await current.baseMapCacheSize();
+		// This entry's own cache, not the Workspace's total: `maxZoom` below becomes the MapLibre
+		// source's `maxzoom`, and another archive's depth there is a map that goes blank above the zoom
+		// this one actually covers (ticket 12).
+		cache = await current.baseMapCacheSizeFor(entry.archive);
 		try {
 			const read = await readOfflineCoverage(current, entry, forLayers);
 			offlineReady = read.coverage?.complete ?? false;
@@ -885,7 +888,8 @@
 
 	const cachedBaseMap = $derived.by(() => {
 		const held = cache;
-		const readTile = session?.readCachedBaseMapTile();
+		const archive = resolution?.entry.archive;
+		const readTile = archive === undefined ? undefined : session?.readCachedBaseMapTile(archive);
 		if (!held || held.maxZoom === null || !readTile || offlineReady === false) {
 			servedCache = null;
 			return null;

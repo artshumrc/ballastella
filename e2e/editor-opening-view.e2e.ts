@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 
@@ -253,17 +253,34 @@ function workspaceFiles(options: {
 
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
+		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
+		// one — so no test can see another's, whichever Workspace it was in.
+		//
+		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
+		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
+		// subdirectory* rather than the OPFS root, which cannot vanish. Deleting the directory out from
+		// under a running app therefore latches it "unreachable" until a reload — a state about the
+		// harness rather than about the product, and one that used to be unreachable because emptying
+		// the root left the root itself in place. Emptying it is exactly what this always meant.
 		const root = await navigator.storage.getDirectory();
+		const open = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
-		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
+		await Promise.all(
+			names
+				.filter((name) => name !== open.name)
+				.map((name) => root.removeEntry(name, { recursive: true }))
+		);
+		const inside: string[] = [];
+		for await (const name of open.keys()) inside.push(name);
+		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
 	});
 }
 
 /** Write files straight into OPFS at the paths given, which are Workspace-relative (ADR-0023). */
 async function seed(page: Page, files: Record<string, string>): Promise<void> {
 	await page.evaluate(async (entries: [string, string][]) => {
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		for (const [relative, text] of entries) {
 			let handle = root;
 			const segments = relative.split('/');
@@ -741,7 +758,7 @@ async function watchWrites(page: Page): Promise<void> {
 async function hashesUnder(page: Page): Promise<string[]> {
 	const files = await page.evaluate(async () => {
 		const out: [string, number[]][] = [];
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		const walk = async (handle: FileSystemDirectoryHandle, at: string): Promise<void> => {
 			for await (const [name, entry] of handle.entries()) {
 				const path = at === '' ? name : `${at}/${name}`;

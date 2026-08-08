@@ -67,30 +67,124 @@ export interface TileCoordinate {
 }
 
 /**
- * The Workspace directory the cache lives in, with its trailing `/` (ADR-0023's reserved names).
+ * The Workspace directory every Base Map cache sits under, with its trailing `/` (ADR-0023's
+ * reserved names).
  *
  * Workspace-level and not per-Project, which is the whole of ADR-0025's deduplication argument: two
  * Projects in the same city share tiles, and "is this Project available offline?" is therefore a
  * question about which files exist rather than a flag in `project.json` that can lie.
+ *
+ * **It is a parent, never a cache.** One level below it is {@link baseMapTileDirectory}, keyed by
+ * archive — see the note there. Nothing writes tiles directly into this directory, and the only
+ * things that name it are the ones that must reason about *every* cache at once: the hub's size and
+ * clear, publishing's list, and the publish sweep's exclusion.
  */
-export const BASE_MAP_TILE_DIRECTORY = 'base-map/tiles/';
-
-/** `base-map/tiles/{z}/{x}/{y}.mvt`. Decompressed MVT — see the note at the top of this file. */
-export const cachedTilePath = (tile: TileCoordinate): string =>
-	`${BASE_MAP_TILE_DIRECTORY}${tile.z}/${tile.x}/${tile.y}.mvt`;
+export const BASE_MAP_TILE_ROOT = 'base-map/tiles/';
 
 /**
- * The tile a cache path names, or `null` when the path is not one of ours.
+ * A directory name for one archive: readable at the front, and unambiguous at the back.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THE CACHE IS KEYED AT ALL (the deferral ticket 11 left for ticket 12)
+ *
+ * ADR-0020 promises that repointing a catalog entry needs no change anywhere else, and
+ * `scripts/check-base-map-catalog.mjs` enforces it — so **two entries on two archives is a supported
+ * deployment**, and it is the deployment a fork produces. An unkeyed directory serves both from one
+ * pile of `{z}/{x}/{y}.mvt`: the tiles are well-formed, MapLibre parses them, nothing 404s and
+ * nothing logs, and a scholar gets a plausible pane of the *wrong world*. Ticket 11 could only
+ * detect that, because the path was already copied verbatim into a Published Site and read by the
+ * viewer's HTTP store; keying it is a change to the published format, which is why it waited for the
+ * ticket that was changing where a Workspace's files sit anyway.
+ *
+ * ⚠ **The key is derived from `BaseMapEntry.archive` exactly as the catalog writes it, not from the
+ * URL a deployment resolves it to.** A bundled archive is a deployment-relative path, so the
+ * resolved URL carries the origin the editor happened to be running on — and the same Workspace,
+ * published and served from somebody else's host, would then compute a different key for the same
+ * files and find no cache at all. The catalog's own string is the one thing the editor and every
+ * Published Site made from it agree on.
+ *
+ * The slug in front is for a human reading the folder — ADR-0006 makes the folder the product — and
+ * the hash behind it is what actually distinguishes: two archives can share a filename, and one of
+ * them is `…/v4.pmtiles` on two different servers.
+ */
+export function baseMapArchiveKey(archive: string): string {
+	const slug = (archive.split(/[/\\]/).pop() ?? '')
+		.replace(/\.pmtiles$/i, '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 24)
+		.replace(/-+$/, '');
+	return `${slug || 'archive'}-${fingerprint(archive)}`;
+}
+
+/**
+ * Sixteen hex digits of FNV-1a over the UTF-8 bytes, run twice from different offset bases.
+ *
+ * Not a cryptographic digest and not trying to be: nothing here is a security boundary, and
+ * `crypto.subtle` is asynchronous, which would make a path builder that every caller uses
+ * synchronously — the MapLibre protocol handler included — into a promise. Two independent 32-bit
+ * rounds because one is 4 billion buckets over a handful of archives and the failure of a collision
+ * is precisely the wrong-map bug this key exists to prevent.
+ */
+function fingerprint(value: string): string {
+	const bytes = new TextEncoder().encode(value);
+	const round = (basis: number): string => {
+		let hash = basis;
+		for (const byte of bytes) {
+			hash ^= byte;
+			// `Math.imul` keeps the multiply in 32 bits; `>>> 0` keeps the result unsigned.
+			hash = Math.imul(hash, 0x01000193) >>> 0;
+		}
+		return hash.toString(16).padStart(8, '0');
+	};
+	return `${round(0x811c9dc5)}${round(0x9dc5811c)}`;
+}
+
+/**
+ * Where one archive's cached tiles live, with its trailing `/`: `base-map/tiles/<key>/`.
+ *
+ * The path is part of the published format — a Published Site carries these files and the viewer
+ * reads them over HTTP with no ability to list a directory — so which archive a site's tiles belong
+ * to travels on `PublishedSite.baseMapTiles` rather than being guessed from the folder.
+ */
+export const baseMapTileDirectory = (archive: string): string =>
+	`${BASE_MAP_TILE_ROOT}${baseMapArchiveKey(archive)}/`;
+
+/** `base-map/tiles/<key>/{z}/{x}/{y}.mvt`. Decompressed MVT — see the note at the top of this file. */
+export const cachedTilePath = (archive: string, tile: TileCoordinate): string =>
+	`${baseMapTileDirectory(archive)}${tile.z}/${tile.x}/${tile.y}.mvt`;
+
+/** `^base-map/tiles/<key>/<z>/<x>/<y>.mvt$`, with the key captured. */
+const CACHED_TILE_PATH = new RegExp(`^${BASE_MAP_TILE_ROOT}([^/]+)/(\\d+)/(\\d+)/(\\d+)\\.mvt$`);
+
+/**
+ * The archive key and tile a cache path names, or `null` when the path is not one of ours.
+ *
+ * Key-agnostic on purpose, and that is what the whole-cache callers need: the hub's size, the hub's
+ * clear, and publishing's list all have to answer for *every* archive a Workspace has cached, and
+ * the key is a one-way function of an archive they are not holding. {@link parseCachedTilePath} is
+ * the same read narrowed to one archive.
+ */
+export function parseAnyCachedTilePath(
+	path: string
+): { readonly key: string; readonly tile: TileCoordinate } | null {
+	const matched = CACHED_TILE_PATH.exec(path);
+	if (!matched) return null;
+	const [, key, z, x, y] = matched as unknown as [string, string, string, string, string];
+	return { key, tile: { z: Number(z), x: Number(x), y: Number(y) } };
+}
+
+/**
+ * The tile one archive's cache path names, or `null` when the path is not that archive's.
  *
  * The inverse of {@link cachedTilePath}, and it has a caller: a `list()` of the cache directory is
  * how the size and the coverage are both computed, and reading the coordinates back off the paths is
  * what keeps that from needing a second index nobody maintains.
  */
-export function parseCachedTilePath(path: string): TileCoordinate | null {
-	const matched = new RegExp(`^${BASE_MAP_TILE_DIRECTORY}(\\d+)/(\\d+)/(\\d+)\\.mvt$`).exec(path);
-	if (!matched) return null;
-	const [, z, x, y] = matched as unknown as [string, string, string, string];
-	return { z: Number(z), x: Number(x), y: Number(y) };
+export function parseCachedTilePath(archive: string, path: string): TileCoordinate | null {
+	const parsed = parseAnyCachedTilePath(path);
+	return parsed !== null && parsed.key === baseMapArchiveKey(archive) ? parsed.tile : null;
 }
 
 /**

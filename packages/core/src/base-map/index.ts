@@ -23,12 +23,15 @@ export {
 // The opt-in offline tile cache (ADR-0025). The enumeration is pure and asserted numerically; the
 // store half answers "is this Project available offline?" by looking, never by reading a flag.
 export {
-	BASE_MAP_TILE_DIRECTORY,
+	BASE_MAP_TILE_ROOT,
 	ESTIMATED_BYTES_PER_TILE,
 	MEASURED_CANAL_BELT,
 	OFFLINE_TILE_LIMIT,
+	baseMapArchiveKey,
+	baseMapTileDirectory,
 	cachedTilePath,
 	countTilesForBounds,
+	parseAnyCachedTilePath,
 	parseCachedTilePath,
 	tileBudget,
 	tilesForBounds,
@@ -36,9 +39,11 @@ export {
 	type TileCoordinate
 } from './tile-cache';
 export {
-	BASE_MAP_TILE_SOURCE_PATH,
 	baseMapCacheSize,
-	cachedTilesMatchArchive,
+	baseMapCacheSizeFor,
+	baseMapCaches,
+	totalBaseMapCacheSize,
+	baseMapTileSourcePath,
 	clearBaseMapCache,
 	describeTileBudget,
 	fetchTilesIntoCache,
@@ -46,6 +51,7 @@ export {
 	readCachedTileSource,
 	tileBudgetRefusal,
 	writeCachedTileSource,
+	type BaseMapCache,
 	type BaseMapCacheSize,
 	type CachedTileSource,
 	type FetchTilesOptions,

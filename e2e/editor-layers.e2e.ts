@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
@@ -201,7 +201,7 @@ async function delayWritesTo(page: Page, needle: string, ms: number): Promise<vo
  */
 const storedImageIds = (page: Page): Promise<string[]> =>
 	page.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		const images = await root.getDirectoryHandle('images');
 		const names: string[] = [];
 		for await (const name of images.keys()) names.push(name);
@@ -221,7 +221,7 @@ const storedImageIds = (page: Page): Promise<string[]> =>
  */
 const completedPyramid = (page: Page): Promise<string | null> =>
 	page.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		let images: FileSystemDirectoryHandle;
 		try {
 			images = await root.getDirectoryHandle('images');
@@ -243,10 +243,27 @@ const completedPyramid = (page: Page): Promise<string | null> =>
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
+		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
+		// one — so no test can see another's, whichever Workspace it was in.
+		//
+		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
+		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
+		// subdirectory* rather than the OPFS root, which cannot vanish. Deleting the directory out from
+		// under a running app therefore latches it "unreachable" until a reload — a state about the
+		// harness rather than about the product, and one that used to be unreachable because emptying
+		// the root left the root itself in place. Emptying it is exactly what this always meant.
 		const root = await navigator.storage.getDirectory();
+		const open = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
-		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
+		await Promise.all(
+			names
+				.filter((name) => name !== open.name)
+				.map((name) => root.removeEntry(name, { recursive: true }))
+		);
+		const inside: string[] = [];
+		for await (const name of open.keys()) inside.push(name);
+		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
 	});
 }
 
@@ -259,7 +276,7 @@ async function emptyWorkspace(page: Page): Promise<void> {
 const readProjectFile = (page: Page, directory: string, path: string): Promise<string> =>
 	page.evaluate(
 		async ([directory, path]) => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			let handle = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
@@ -279,7 +296,7 @@ const writeProjectFile = (
 ): Promise<void> =>
 	page.evaluate(
 		async ([directory, path, text]) => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			let handle = await root.getDirectoryHandle(directory as string, { create: true });
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
@@ -299,7 +316,7 @@ async function hashesUnder(page: Page, directory: string, prefix: string) {
 	const files = await page.evaluate(
 		async ([directory, prefix]) => {
 			const out: [string, number[]][] = [];
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			// `''` is the Workspace root, which is where an Alignment lives now (ADR-0023).
 			const project = directory === '' ? root : await root.getDirectoryHandle(directory as string);
 			const walk = async (handle: FileSystemDirectoryHandle, at: string): Promise<void> => {

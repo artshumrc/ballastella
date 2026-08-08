@@ -1,7 +1,20 @@
 #!/usr/bin/env node
 // **No test in this suite may depend on the network** — a decision by the repository owner, and the
 // reason `e2e/support/network-fence.ts` exists. That module puts the fence on the `context` fixture,
-// so a spec is covered by importing its `test` and by nothing else.
+// so a spec is covered by importing a `test` built on it and by nothing else.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// THERE IS ONE ROOT `test`, AND THIS CHECKS BOTH HALVES OF IT (ticket 12)
+//
+// `e2e/support/test.ts` composes two fixtures that arrived separately: the network fence, and the
+// `workspaceRoot()` a `page.evaluate` needs now that a Workspace is a *named directory* in the OPFS
+// root rather than the root itself. Two roots would be a suite where a spec gets whichever its
+// author imported — the fence without `workspaceRoot()`, or `workspaceRoot()` reaching the network
+// — so specs take `test` from the composed root and from nowhere else, `network-fence.js` included.
+//
+// And the composition itself is checked, because the import rule alone cannot see it: if
+// `support/test.ts` stopped extending the fence, every spec would still import the right module and
+// every one of them would reach the network.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS A FENCE AND NOT A CONVENTION
@@ -33,14 +46,19 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const e2eRoot = path.join(repoRoot, 'e2e');
 
 /**
- * The module every spec must take `test` from.
+ * The module every spec must take `test` from: the composed root.
  *
- * Spelled without an extension here because both `'./support/network-fence'` and
- * `'./support/network-fence.js'` appear in this repository — the suite's tsconfig is
- * `module: Preserve`, which accepts either, and the existing specs are split between the two.
- * Refusing one of them would be a formatting rule wearing a fence's clothes.
+ * Spelled without an extension here because both `'./support/test'` and `'./support/test.js'` are
+ * accepted by the suite's tsconfig (`module: Preserve`). Refusing one of them would be a formatting
+ * rule wearing a fence's clothes.
  */
+const ROOT_MODULE = 'support/test';
+
+/** The fence layer the root is required to be built on. Specs may not take `test` from it. */
 const FENCE_MODULE = 'support/network-fence';
+
+/** The composed root's own source, relative to the repository. */
+const ROOT_FILE = 'e2e/support/test.ts';
 
 /**
  * A value import of `test` from `@playwright/test`: the one spelling that bypasses the fence.
@@ -69,6 +87,10 @@ function bindsTest(clause) {
 		});
 }
 
+/** An import from the fence layer. Taking `test` from it skips the composed root's other half. */
+const FENCE_IMPORT =
+	/import\s+(?!type\b)([^;]*?)\s+from\s+['"]\.[^'"]*network-fence(?:\.js)?['"]/gs;
+
 /**
  * Why this file's source is a violation, or `null`. The scan and the positive control share it, so
  * the control exercises the code that runs rather than a paraphrase of it.
@@ -77,13 +99,43 @@ function violationIn(source) {
 	PLAYWRIGHT_IMPORT.lastIndex = 0;
 	for (const match of source.matchAll(PLAYWRIGHT_IMPORT)) {
 		if (bindsTest(match[1])) {
-			return "imports `test` from '@playwright/test', which is not behind the network fence";
+			return "imports `test` from '@playwright/test', which is behind neither fixture";
 		}
 	}
-	if (!source.includes(FENCE_MODULE)) {
-		return `does not import \`test\` from './${FENCE_MODULE}'`;
+	FENCE_IMPORT.lastIndex = 0;
+	for (const match of source.matchAll(FENCE_IMPORT)) {
+		if (bindsTest(match[1])) {
+			return (
+				"imports `test` from './support/network-fence', which is the fence layer and not the " +
+				'composed root — it carries no `workspaceRoot()`'
+			);
+		}
+	}
+	if (!source.includes(ROOT_MODULE)) {
+		return `does not import \`test\` from './${ROOT_MODULE}'`;
 	}
 	return null;
+}
+
+/**
+ * Why the composed root is not in fact composed, or `null`.
+ *
+ * Structural rather than a string match on a comment: the root must bind a `test` from the fence
+ * layer and must not bind one from `@playwright/test`. That is what "still fenced" means here, and
+ * it is not something a reader of any individual spec could check.
+ */
+function rootCompositionFault(source) {
+	PLAYWRIGHT_IMPORT.lastIndex = 0;
+	for (const match of source.matchAll(PLAYWRIGHT_IMPORT)) {
+		if (bindsTest(match[1])) {
+			return 'takes its `test` from `@playwright/test`, so nothing it exports is fenced';
+		}
+	}
+	FENCE_IMPORT.lastIndex = 0;
+	const buildsOnFence = [...source.matchAll(FENCE_IMPORT)].some((match) =>
+		/(^|[{,\s])test(\s+as\s+\w+)?\s*[,}]/.test(match[1])
+	);
+	return buildsOnFence ? null : `does not build on './${FENCE_MODULE}'`;
 }
 
 /**
@@ -119,9 +171,12 @@ const KNOWN_BAD = [
 		expect: 'the Playwright import with types mixed in'
 	},
 	{
-		source:
-			"import { expect } from './support/network-fence.js';\nimport { test } from '@playwright/test';",
-		expect: 'the fence imported for `expect` while `test` still comes from Playwright'
+		source: "import { expect } from './support/test.js';\nimport { test } from '@playwright/test';",
+		expect: 'the root imported for `expect` while `test` still comes from Playwright'
+	},
+	{
+		source: "import { expect, test } from './support/network-fence.js';",
+		expect: 'the fence layer imported directly, skipping the composed root'
 	},
 	{
 		source: "import { test as t } from '@playwright/test';",
@@ -129,17 +184,35 @@ const KNOWN_BAD = [
 	},
 	{
 		source: "import { expect } from '@playwright/test';",
-		expect: 'a spec that imports the fence module nowhere at all'
+		expect: 'a spec that imports the root module nowhere at all'
 	}
 ];
 
 /** Spellings that must keep passing. Every one of them is in the suite today. */
 const KNOWN_GOOD = [
-	"import { expect, test } from './support/network-fence.js';",
-	"import { expect, test } from './support/network-fence';",
-	"import { expect, test } from './support/network-fence.js';\nimport type { Page } from '@playwright/test';",
-	"import { expect, test } from './support/network-fence.js';\nimport { type Locator, type Route } from '@playwright/test';",
-	"import { test } from './support/network-fence.js';\nimport { expect } from '@playwright/test';"
+	"import { expect, test } from './support/test.js';",
+	"import { expect, test } from './support/test';",
+	"import { expect, test } from './support/test.js';\nimport type { Page } from '@playwright/test';",
+	"import { expect, test } from './support/test.js';\nimport { type Locator, type Route } from '@playwright/test';",
+	"import { test } from './support/test.js';\nimport { expect } from '@playwright/test';",
+	// The fence layer's own predicate, imported for assertion rather than for `test`. This is what
+	// `editor-network-fence.e2e.ts` does, and refusing it would push the fence's positive control
+	// into testing a copy of the thing instead of the thing itself.
+	"import { expect, test } from './support/test.js';\nimport { reachesTheNetwork } from './support/network-fence.js';"
+];
+
+/** The composed root, in the shape that is right and the two that quietly are not. */
+const ROOT_GOOD =
+	"import { test as fenced } from './network-fence.js';\nexport const test = fenced.extend({});";
+const ROOT_BAD = [
+	{
+		source: "import { test as base } from '@playwright/test';\nexport const test = base.extend({});",
+		expect: 'a root built straight on Playwright, fencing nothing'
+	},
+	{
+		source: "import { expect } from './network-fence.js';\nexport const test = somethingElse;",
+		expect: 'a root that mentions the fence but does not build on it'
+	}
 ];
 
 const controlFailures = [];
@@ -151,6 +224,12 @@ for (const source of KNOWN_GOOD) {
 	if (why !== null) {
 		controlFailures.push(`a legitimate spelling is now refused (${why}): ${source.split('\n')[0]}`);
 	}
+}
+if (rootCompositionFault(ROOT_GOOD) !== null) {
+	controlFailures.push('the composed root is no longer recognised as composed');
+}
+for (const { source, expect } of ROOT_BAD) {
+	if (rootCompositionFault(source) === null) controlFailures.push(`${expect} is no longer caught`);
 }
 // The allowance reader has to keep reading, or the list below silently empties and a growing set of
 // exceptions reads as none at all.
@@ -179,6 +258,18 @@ const walk = (directory) =>
 		return statSync(absolute).isDirectory() ? walk(absolute) : [absolute];
 	});
 
+// The composition first: without it every spec below could import the right module and still reach
+// the network.
+const rootFault = rootCompositionFault(readFileSync(path.join(repoRoot, ROOT_FILE), 'utf8'));
+if (rootFault !== null) {
+	console.error(`\n${ROOT_FILE} ${rootFault}.\n`);
+	console.error(
+		'Every spec takes its `test` from there, so the network fence reaches them only through it.\n' +
+			`It must extend the \`test\` exported by './${FENCE_MODULE}.js'.\n`
+	);
+	process.exit(1);
+}
+
 const specs = walk(e2eRoot).filter((file) => file.endsWith('.e2e.ts'));
 if (specs.length === 0) {
 	console.error(
@@ -198,7 +289,9 @@ for (const absolute of specs) {
 }
 
 if (allowances.length === 0) {
-	console.log(`check-e2e-network-fence: ${specs.length} specs, no external hosts allowed.`);
+	console.log(
+		`check-e2e-network-fence: ${specs.length} specs behind the composed root, no external hosts allowed.`
+	);
 } else {
 	console.log(
 		`check-e2e-network-fence: ${specs.length} specs, ${allowances.length} allowed host(s):`
@@ -210,10 +303,11 @@ if (violations.length > 0) {
 	console.error('\nThese specs are not behind the network fence:\n');
 	for (const { file, why } of violations) console.error(`  ${file} ${why}`);
 	console.error(
-		'\nNo test in this suite may depend on the network. Import `test` from the fence instead:\n\n' +
-			`    import { expect, test } from './${FENCE_MODULE}.js';\n\n` +
-			'It is `@playwright/test`’s `test` with a `context` that refuses any request to an origin\n' +
-			'other than localhost, naming the URL. Types may still come from `@playwright/test`.\n'
+		'\nNo test in this suite may depend on the network. Import `test` from the suite root instead:\n\n' +
+			`    import { expect, test } from './${ROOT_MODULE}.js';\n\n` +
+			'It is `@playwright/test`’s `test` with two things built in: a `context` that refuses any\n' +
+			'request to an origin other than localhost, naming the URL, and a `workspaceRoot()` for the\n' +
+			'`page.evaluate` bodies that read the Workspace. Types may still come from `@playwright/test`.\n'
 	);
 	process.exit(1);
 }

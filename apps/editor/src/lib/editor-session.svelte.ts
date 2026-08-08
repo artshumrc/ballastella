@@ -20,6 +20,7 @@ import {
 	// Aliased for the same reason `stampCanonicalUrl` is: the session has methods of these names, and
 	// two things called one word is how a later edit calls the wrong one.
 	baseMapCacheSize as readBaseMapCacheSize,
+	baseMapCacheSizeFor as readBaseMapCacheSizeFor,
 	cachedTilePath,
 	clearBaseMapCache as emptyBaseMapCache,
 	createStoreImageFetch,
@@ -362,9 +363,9 @@ export class EditorSession {
 		});
 	}
 
-	/** The default: a workspace in OPFS, which every modern browser has (ADR-0001). */
-	static opfs(): EditorSession {
-		return new EditorSession(OpfsProjectStore.open());
+	/** The default: a named workspace in OPFS, which every modern browser has (ADR-0001, ADR-0024). */
+	static opfs(name: string): EditorSession {
+		return new EditorSession(OpfsProjectStore.open(name));
 	}
 
 	/**
@@ -1289,9 +1290,19 @@ export class EditorSession {
 	// Every one of these is a thin pass-through to core, for the same reason the rest of this class is
 	// — the store is held here and nowhere else.
 
-	/** How much of what `bounds` needs is already cached, and what filling it would take. */
-	async offlineBaseMapCoverage(bounds: GeoBounds, maxZoom: number): Promise<OfflineCoverage> {
-		return offlineCoverage(this.#store, bounds, maxZoom);
+	/**
+	 * How much of what `bounds` needs is already cached for one archive, and what filling it takes.
+	 *
+	 * `archive` is the catalog entry's own `archive` string, which is what the cache directory is keyed
+	 * on (ticket 12). Asked per archive because a Workspace may hold a cache for each of several, and
+	 * one archive's tiles do not make a Project drawn on another available offline.
+	 */
+	async offlineBaseMapCoverage(
+		archive: string,
+		bounds: GeoBounds,
+		maxZoom: number
+	): Promise<OfflineCoverage> {
+		return offlineCoverage(this.#store, archive, bounds, maxZoom);
 	}
 
 	/** Fetch the tiles a coverage says are missing into the Workspace. */
@@ -1299,14 +1310,24 @@ export class EditorSession {
 		return fetchTilesIntoCache({ ...options, store: this.#store });
 	}
 
-	/** What the cache is taking up, for the hub's reclaim list. `list` + `size`, never `read`. */
+	/**
+	 * What **every** Base Map cache in this Workspace is taking up, for the hub's reclaim list.
+	 *
+	 * `list` + `size`, never `read`. Summed across archives because the sentence it feeds is about the
+	 * Workspace's disk and the button beside it clears the lot.
+	 */
 	async baseMapCacheSize(): Promise<BaseMapCacheSize> {
 		return readBaseMapCacheSize(this.#store);
 	}
 
-	/** Which archive filled the cache and how deep it said it went, or `null` if unrecorded. */
-	async cachedBaseMapTileSource(): Promise<CachedTileSource | null> {
-		return readCachedTileSource(this.#store);
+	/** What one archive's cache holds, which is the depth its own MapLibre source is capped at. */
+	async baseMapCacheSizeFor(archive: string): Promise<BaseMapCacheSize> {
+		return readBaseMapCacheSizeFor(this.#store, archive);
+	}
+
+	/** What one archive's cache records about its own depth, or `null` if it records nothing. */
+	async cachedBaseMapTileSource(archive: string): Promise<CachedTileSource | null> {
+		return readCachedTileSource(this.#store, archive);
 	}
 
 	/** Record where the cache came from. Called after a run, never before one. */
@@ -1332,17 +1353,41 @@ export class EditorSession {
 	 * MapLibre keeps a `maxzoom`-bearing source pointed at a handler that is briefly `null`. The store
 	 * is fixed for the life of a session, so there is nothing for a second closure to capture.
 	 */
-	readCachedBaseMapTile(): (tile: TileCoordinate) => Promise<Uint8Array | null> {
-		return (this.#readCachedBaseMapTile ??= this.#makeCachedBaseMapTileReader());
+	readCachedBaseMapTile(archive: string): (tile: TileCoordinate) => Promise<Uint8Array | null> {
+		if (this.#readCachedBaseMapTile?.archive !== archive) {
+			this.#readCachedBaseMapTile = {
+				archive,
+				read: this.#makeCachedBaseMapTileReader(archive)
+			};
+		}
+		return this.#readCachedBaseMapTile.read;
 	}
 
-	#readCachedBaseMapTile: ((tile: TileCoordinate) => Promise<Uint8Array | null>) | null = null;
+	/**
+	 * The reader for the archive last asked about, kept — see the warning above.
+	 *
+	 * One slot rather than a cache per archive, and keyed since ticket 12 keyed the cache directory: a
+	 * pane draws one Base Map at a time, so the reader only has to be stable *while* an entry is
+	 * selected. Picking another entry deliberately produces a new function, which is exactly what the
+	 * registering `$effect` should see — the tiles being served really have changed, and a reader that
+	 * stayed identical while closing over the previous archive's key is the wrong-map failure arriving
+	 * through the cache instead of through the directory.
+	 *
+	 * A plain field and not `$state`: it is written from inside a `$derived`, and nothing may re-run
+	 * because a memo was filled in.
+	 */
+	#readCachedBaseMapTile: {
+		archive: string;
+		read: (tile: TileCoordinate) => Promise<Uint8Array | null>;
+	} | null = null;
 
-	#makeCachedBaseMapTileReader(): (tile: TileCoordinate) => Promise<Uint8Array | null> {
+	#makeCachedBaseMapTileReader(
+		archive: string
+	): (tile: TileCoordinate) => Promise<Uint8Array | null> {
 		const store = this.#store;
 		return async (tile) => {
 			try {
-				return await store.read(cachedTilePath(tile));
+				return await store.read(cachedTilePath(archive, tile));
 			} catch {
 				// A tile the cache does not hold. Answered as absence rather than as an error, because a
 				// stray request outside a partly filled cache is ordinary — and the Project-level claim

@@ -1,14 +1,23 @@
 import { getContext, setContext } from 'svelte';
 
 import {
+	DEFAULT_WORKSPACE_NAME,
 	FolderPermissionDeniedError,
-	OpfsProjectStore,
 	chooseWorkspaceFolder,
+	createOpfsWorkspace,
+	deleteOpfsWorkspace,
+	ensureOpfsWorkspace,
 	forgetWorkspaceFolder,
 	isFolderWorkspaceSupported,
+	listOpfsWorkspaces,
+	openOpfsWorkspace,
 	rememberedFolderName,
 	reopenWorkspaceFolder,
-	type ProjectStore
+	requestPersistentStorage,
+	workspaceSize,
+	type ProjectStore,
+	type StoragePersistence,
+	type WorkspaceSize
 } from '@ballastella/core';
 
 import { EditorSession } from './editor-session.svelte.js';
@@ -17,23 +26,76 @@ import { EditorSession } from './editor-session.svelte.js';
 export type WorkspaceBacking = 'browser' | 'folder';
 
 /**
- * Which backend the Workspace is on, and the whole of moving between them.
+ * Which named Workspace browser storage was last opened in, kept across visits.
  *
- * Owns the {@link EditorSession} rather than living beside it, because switching backends means
- * *replacing* the session: an `EditorSession` holds one `Autosave` bound to one store, and
- * repointing that store underneath it would leave queued bytes addressed to a Workspace the user
- * has already left. So the swap is a flush, a teardown, and a new session — in that order.
+ * `localStorage` rather than anything in OPFS, and deliberately outside the Workspaces themselves:
+ * "which one was I in" is a fact about this browser, not about anybody's work, and writing it into a
+ * Workspace would put it in the folder that gets published, backed up (ticket 13), and handed to a
+ * colleague (ticket 14).
+ */
+const OPEN_WORKSPACE_KEY = 'ballastella.workspace';
+
+/** The remembered Workspace name, or the default. Never throws: private mode has no storage. */
+function rememberedWorkspaceName(): string {
+	try {
+		return localStorage.getItem(OPEN_WORKSPACE_KEY) || DEFAULT_WORKSPACE_NAME;
+	} catch {
+		return DEFAULT_WORKSPACE_NAME;
+	}
+}
+
+function rememberWorkspaceName(name: string): void {
+	try {
+		localStorage.setItem(OPEN_WORKSPACE_KEY, name);
+	} catch {
+		// A browser refusing storage still gets a working Workspace; it simply opens the default one
+		// next time. Failing the switch over it would be refusing the feature to keep a bookmark.
+	}
+}
+
+/**
+ * Which Workspace is open and the whole of moving between them — across backends, and since
+ * ticket 12 across the several named Workspaces browser storage now holds (ADR-0024).
+ *
+ * Owns the {@link EditorSession} rather than living beside it, because switching means *replacing*
+ * the session: an `EditorSession` holds one `Autosave` bound to one store, and repointing that store
+ * underneath it would leave queued bytes addressed to a Workspace the user has already left. So the
+ * swap is a flush, a teardown, and a new session — in that order.
+ *
+ * **Switching between two named Workspaces is the same operation as switching backends**, and goes
+ * through the same {@link #adopt}. It has to: the failure it prevents is not about OPFS versus a
+ * folder, it is about a queued write landing in whichever Workspace the store happens to point at
+ * when the debounce fires — and two OPFS Workspaces make that failure *easier* to reach than two
+ * backends did, because switching is now one click on the bar rather than a trip through a picker.
  *
  * A folder Workspace is a capability upgrade and never a gate (ADR-0001). Where the browser has no
  * picker the option is simply absent, and everything else about the app is identical; where it
  * does, the offer is made once and not repeated.
  */
 export class WorkspaceStorage {
-	/** The live session. Replaced, never repointed, when the backend changes. */
-	session = $state<EditorSession>(EditorSession.opfs());
+	/** The live session. Replaced, never repointed, when the Workspace changes. */
+	session = $state<EditorSession>(EditorSession.opfs(rememberedWorkspaceName()));
 	backing = $state<WorkspaceBacking>('browser');
 	/** The folder's name while {@link backing} is `folder`. */
 	folderName = $state('');
+	/**
+	 * The named browser-storage Workspace that is open, or was last open.
+	 *
+	 * Kept while {@link backing} is `folder` too, so that "use browser storage instead" returns to the
+	 * Workspace the user left rather than to the default one — which, with several of them, would be
+	 * somebody else's work appearing where their own had been.
+	 */
+	workspaceName = $state(rememberedWorkspaceName());
+	/** Every named Workspace in browser storage, for the bar's switcher. */
+	workspaces = $state<string[]>([]);
+	/**
+	 * What the browser said when asked to keep this origin's storage, or `null` before it answered.
+	 *
+	 * Recorded rather than acted on: nothing here changes behaviour by it. It is reported in Workspace
+	 * settings because a refusal means everything the user has is evictable under disk pressure
+	 * (ADR-0024), and they are the only one who can do anything about it.
+	 */
+	persistence = $state<StoragePersistence | null>(null);
 	/**
 	 * A folder from a previous visit, named so the offer to reopen it can name it too.
 	 *
@@ -59,6 +121,20 @@ export class WorkspaceStorage {
 	start(): () => void {
 		this.canChooseFolder = isFolderWorkspaceSupported();
 		this.#teardownFlushOnHide = this.session.installFlushOnHide();
+		// The Workspace the session was already built for, made real: the store creates its directory at
+		// the first write, so without this a Workspace nobody has typed into yet is missing from its own
+		// switcher. Then the list, so the switcher has something to switch between.
+		void ensureOpfsWorkspace(this.workspaceName)
+			.then(() => this.refreshWorkspaces())
+			.catch(() => undefined);
+		// ADR-0024's latent data-loss fix. Fire and forget, and never awaited by anything the user is
+		// waiting on: Chromium answers from its own heuristics and Firefox may not answer at all until a
+		// permission prompt is dealt with, and neither is a reason to hold up opening a Workspace.
+		void requestPersistentStorage()
+			.then((answer) => {
+				this.persistence = answer;
+			})
+			.catch(() => undefined);
 		if (this.canChooseFolder) {
 			// Reading IndexedDB prompts for nothing, so it is safe on load; it is the *permission*
 			// that needs the gesture.
@@ -123,7 +199,97 @@ export class WorkspaceStorage {
 			await forgetWorkspaceFolder().catch(() => undefined);
 			this.reopenable = null;
 		}
-		await this.#adopt(OpfsProjectStore.open(), 'browser', '');
+		await this.openWorkspace(this.workspaceName);
+	}
+
+	/** Reload the switcher's list. Cheap: one `entries()` of the OPFS root, no descent. */
+	async refreshWorkspaces(): Promise<void> {
+		this.workspaces = await listOpfsWorkspaces().catch(() => this.workspaces);
+	}
+
+	/**
+	 * Open a named Workspace in browser storage.
+	 *
+	 * **The same replacement every other switch is** — flush, teardown, new session — because the
+	 * queued bytes belong to the Workspace they were typed into. See {@link #adopt}.
+	 *
+	 * A no-op when it is already the open one, so the switcher's own item does not throw away a live
+	 * session and the Project list under it.
+	 */
+	async openWorkspace(name: string): Promise<void> {
+		if (this.backing === 'browser' && this.workspaceName === name) return;
+		this.problem = '';
+		const opened = await ensureOpfsWorkspace(name);
+		await this.#adopt(openOpfsWorkspace(opened), 'browser', '', opened);
+		await this.refreshWorkspaces();
+	}
+
+	/**
+	 * Try the Workspace that is open again, from scratch. The "locate again" affordance (ADR-0008).
+	 *
+	 * ⚠ **A new store, not a re-listing, and that is the whole point.** `DirectoryHandleStore` caches
+	 * its root handle once it resolves, and since ticket 12 that handle is a *named subdirectory* of
+	 * the OPFS root rather than the root itself — which can now be deleted, by a second tab or by the
+	 * user in another window. The cached handle is then permanently dead: every operation on it raises
+	 * `NotFoundError`, and `session.refresh()` re-lists through the same dead handle, so the recovery
+	 * button was one that could not recover. Replacing the session re-resolves it.
+	 *
+	 * For a folder Workspace this is not the recovery — the way back there is the picker, because the
+	 * grant is what was lost — so this only rebuilds a browser-managed one.
+	 */
+	async locateWorkspaceAgain(): Promise<void> {
+		if (this.backing !== 'browser') {
+			await this.session.refresh();
+			return;
+		}
+		const name = this.workspaceName;
+		// Best-effort: a Workspace that is still gone stays gone, and the fresh session's own listing is
+		// what says so — in the words ADR-0008 wants, rather than as a rejection from a click handler.
+		await ensureOpfsWorkspace(name).catch(() => undefined);
+		await this.#adopt(openOpfsWorkspace(name), 'browser', '', name);
+		await this.refreshWorkspaces();
+	}
+
+	/** Make a Workspace and switch into it. Answers with the name it really got. */
+	async createWorkspace(displayName: string): Promise<string> {
+		const name = await createOpfsWorkspace(displayName);
+		await this.openWorkspace(name);
+		return name;
+	}
+
+	/**
+	 * Delete a named Workspace and everything in it.
+	 *
+	 * **Refuses the one that is open**, here rather than only in the dialog that asks. Deleting the
+	 * Workspace out from under a live `EditorSession` leaves an `Autosave` whose next flush recreates
+	 * the directory — the store's resolver has `create: true` — so the user would watch their
+	 * Workspace come back holding one file. A guard that lives only in markup is one route away from
+	 * being absent.
+	 */
+	async deleteWorkspace(name: string): Promise<void> {
+		if (this.backing === 'browser' && name === this.workspaceName) {
+			throw new Error(
+				`“${name}” is the Workspace you are in, so it cannot be deleted from inside itself. ` +
+					`Switch to another Workspace first.`
+			);
+		}
+		await deleteOpfsWorkspace(name);
+		await this.refreshWorkspaces();
+	}
+
+	/** What a Workspace weighs, so the confirmation can say what is about to go. `list` + `size`. */
+	async sizeOfWorkspace(name: string): Promise<WorkspaceSize> {
+		return workspaceSize(openOpfsWorkspace(name));
+	}
+
+	/**
+	 * Which Workspace the bar names (SPEC story 88).
+	 *
+	 * The folder's own name when there is one, and the named Workspace otherwise — the two backings
+	 * name a Workspace the same way, because in both the directory *is* the Workspace.
+	 */
+	get name(): string {
+		return this.backing === 'folder' ? this.folderName || 'Workspace folder' : this.workspaceName;
 	}
 
 	/**
@@ -137,7 +303,12 @@ export class WorkspaceStorage {
 		return this.backing === 'browser' && this.reopenable !== null;
 	}
 
-	async #adopt(store: ProjectStore, backing: WorkspaceBacking, folderName: string): Promise<void> {
+	async #adopt(
+		store: ProjectStore,
+		backing: WorkspaceBacking,
+		folderName: string,
+		workspaceName = this.workspaceName
+	): Promise<void> {
 		const leaving = this.session;
 		// Whatever is still queued belongs to the Workspace it was typed into. Flushed before the
 		// swap, and swallowed if that Workspace has become unreachable — which is often exactly why
@@ -149,6 +320,8 @@ export class WorkspaceStorage {
 		this.session = arriving;
 		this.backing = backing;
 		this.folderName = folderName;
+		this.workspaceName = workspaceName;
+		rememberWorkspaceName(workspaceName);
 		this.reopenable = backing === 'folder' ? folderName : this.reopenable;
 		this.#teardownFlushOnHide = arriving.installFlushOnHide();
 		// Listing is left to the effect over the URL that opens the Workspace, so a swap and a

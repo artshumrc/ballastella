@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { DEFAULT_WORKSPACE, expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { gradientPng } from './support/alignment-workspace.js';
@@ -300,8 +300,10 @@ test.describe('the navigation bar', () => {
 
 		await freshWorkspace(page);
 		await assertBar('the hub');
-		// Browser storage is the silent default, and the bar says which Workspace this is.
-		await expect(bar.getByTestId('workspace-identity')).toContainText('Browser storage');
+		// Browser storage is the silent default, and the bar names the **Workspace** rather than the
+		// backing (ticket 12): with several named Workspaces on one backing, "Browser storage" would
+		// identify nothing, and from ticket 14 a throwaway Review Workspace is browser-backed too.
+		await expect(bar.getByTestId('workspace-identity')).toContainText(DEFAULT_WORKSPACE);
 
 		await openProject(page);
 		await assertBar('the Project screen');

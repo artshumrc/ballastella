@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -104,7 +104,7 @@ test.describe('the alignment route', () => {
 		// document rather than inferred: an image id in `?layer=` would satisfy "there is a query
 		// parameter" and nothing else.
 		const stored = await page.evaluate(async (directory) => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle(directory);
 			const handle = await project.getFileHandle('project.json');
 			return JSON.parse(await (await handle.getFile()).text()) as {
@@ -180,7 +180,7 @@ test.describe('the alignment route', () => {
 		// 3. A Project directory that exists and cannot be opened. `project.json` is unparseable, which
 		//    is a different state from missing and must not read as one.
 		await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle('broken', { create: true });
 			const handle = await project.getFileHandle('project.json', { create: true });
 			const writable = await handle.createWritable();
@@ -548,7 +548,7 @@ test.describe('“Check this alignment”', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const stored = await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle('amsterdam-1625');
 			const handle = await project.getFileHandle('project.json');
 			return await (await handle.getFile()).text();

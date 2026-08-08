@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';

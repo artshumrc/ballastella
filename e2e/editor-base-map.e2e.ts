@@ -1,7 +1,9 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import {
+	baseMapTileDirectory,
+	baseMapTileSourcePath,
 	cachedBaseMapTiles,
 	refuseBaseMapArchive,
 	routeBaseMapArchive
@@ -82,10 +84,27 @@ async function waitForLoadedMap(page: Page): Promise<void> {
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
+		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
+		// one — so no test can see another's, whichever Workspace it was in.
+		//
+		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
+		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
+		// subdirectory* rather than the OPFS root, which cannot vanish. Deleting the directory out from
+		// under a running app therefore latches it "unreachable" until a reload — a state about the
+		// harness rather than about the product, and one that used to be unreachable because emptying
+		// the root left the root itself in place. Emptying it is exactly what this always meant.
 		const root = await navigator.storage.getDirectory();
+		const open = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
-		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
+		await Promise.all(
+			names
+				.filter((name) => name !== open.name)
+				.map((name) => root.removeEntry(name, { recursive: true }))
+		);
+		const inside: string[] = [];
+		for await (const name of open.keys()) inside.push(name);
+		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
 	});
 }
 
@@ -93,7 +112,7 @@ async function emptyWorkspace(page: Page): Promise<void> {
 async function seedProject(page: Page, contents: string): Promise<void> {
 	await page.evaluate(
 		async ([directory, file, json]) => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle(directory, { create: true });
 			const handle = await project.getFileHandle(file, { create: true });
 			const writable = await handle.createWritable();
@@ -125,7 +144,7 @@ async function readProjectFile(page: Page): Promise<string | null> {
 	return page.evaluate(
 		async ([directory, file]) => {
 			try {
-				const root = await navigator.storage.getDirectory();
+				const root = await workspaceRoot();
 				const project = await root.getDirectoryHandle(directory);
 				const handle = await project.getFileHandle(file);
 				return await (await handle.getFile()).text();
@@ -140,7 +159,7 @@ async function readProjectFile(page: Page): Promise<string | null> {
 /** Every top-level name in the Workspace, so "the pane created nothing" is provable. */
 async function workspaceEntries(page: Page): Promise<string[]> {
 	return page.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
 		return names.sort();
@@ -612,6 +631,19 @@ test.describe('the Project the pane opens', () => {
 /** The canal belt, inside the Amsterdam fixture's own extent so the archive really has these tiles. */
 const CANAL_BELT_BOX = { west: 4.88, south: 52.36, east: 4.92, north: 52.38 };
 
+/**
+ * The archive every entry in this deployment's catalog points at (ADR-0020).
+ *
+ * Named here because the cache directory is keyed on it (ticket 12) and a test that asserts on the
+ * *files* has to know where they are. `scripts/check-base-map-catalog.mjs` exempts `*.e2e.ts` for
+ * exactly this class of assertion — the switcher test below already names entry ids for the same
+ * reason — and never exempts a support module, so the harness stays fork-safe.
+ */
+const ARCHIVE = 'https://demo-bucket.protomaps.com/v4.pmtiles';
+
+/** Where this deployment's cached tiles sit in a Workspace, with its trailing `/`. */
+const TILES = baseMapTileDirectory(ARCHIVE);
+
 /** The same box as a closed ring, for the Annotation that gives a seeded Project its extent. */
 const CANAL_BELT_RING = [
 	[4.88, 52.36],
@@ -655,7 +687,7 @@ async function seedProjectWithWork(page: Page, ring = CANAL_BELT_RING): Promise<
 	await seedProject(page, seeded.project);
 	await page.evaluate(
 		async ([directory, geojson]) => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			const project = await root.getDirectoryHandle(directory, { create: true });
 			const folder = await project.getDirectoryHandle('annotations', { create: true });
 			const handle = await folder.getFileHandle('notes.geojson', { create: true });
@@ -669,7 +701,7 @@ async function seedProjectWithWork(page: Page, ring = CANAL_BELT_RING): Promise<
 
 /** Every cached tile path in the Workspace, sorted. The behaviour *is* the files (SPEC, Seam 1). */
 async function cachedTilePaths(page: Page): Promise<string[]> {
-	return page.evaluate(async () => {
+	return page.evaluate(async (prefix) => {
 		const walk = async (
 			directory: FileSystemDirectoryHandle,
 			prefix: string
@@ -685,15 +717,19 @@ async function cachedTilePaths(page: Page): Promise<string[]> {
 			}
 			return found;
 		};
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		try {
-			const baseMap = await root.getDirectoryHandle('base-map');
-			const tiles = await baseMap.getDirectoryHandle('tiles');
-			return (await walk(tiles, 'base-map/tiles/')).sort();
+			let directory = root;
+			for (const segment of prefix.split('/').filter(Boolean)) {
+				directory = await directory.getDirectoryHandle(segment);
+			}
+			// Tiles only: the provenance record lives in the same keyed directory since ticket 12, and
+			// counting it as a tile would make "23 tiles for a city centre" quietly 24.
+			return (await walk(directory, prefix)).filter((path) => path.endsWith('.mvt')).sort();
 		} catch {
 			return [];
 		}
-	});
+	}, TILES);
 }
 
 /** One file's text out of the Workspace, or `''` when it is not there. */
@@ -701,7 +737,7 @@ async function workspaceFile(page: Page, path: string): Promise<string> {
 	return page.evaluate(async (wanted) => {
 		const parts = wanted.split('/');
 		const name = parts.pop()!;
-		let directory = await navigator.storage.getDirectory();
+		let directory = await workspaceRoot();
 		try {
 			for (const part of parts) directory = await directory.getDirectoryHandle(part);
 			return await (await (await directory.getFileHandle(name)).getFile()).text();
@@ -771,7 +807,7 @@ async function makeAvailableOffline(page: Page): Promise<void> {
  */
 test.describe('what ADR-0025’s numbers were measured against', () => {
 	test('a city-centre Project at every zoom is tens of tiles and a few megabytes', async () => {
-		const measured = await cachedBaseMapTiles(CANAL_BELT_BOX, 14);
+		const measured = await cachedBaseMapTiles(ARCHIVE, CANAL_BELT_BOX, 14);
 
 		// The row ADR-0025's "a city centre is tens of tiles" is asserted from. Exact, because an extent
 		// this size has an exact answer and a range would hide a change in the enumeration.
@@ -790,7 +826,7 @@ test.describe('what ADR-0025’s numbers were measured against', () => {
 	});
 
 	test('the whole fixture extent weighs what the compression decision says it does', async () => {
-		const measured = await cachedBaseMapTiles();
+		const measured = await cachedBaseMapTiles(ARCHIVE);
 
 		expect(measured.archiveBytes).toBe(4_137_622);
 		expect(measured.tilesInExtent).toBe(43);
@@ -841,12 +877,13 @@ test.describe('making a Project available offline', () => {
 		const paths = await cachedTilePaths(page);
 		expect(paths.length).toBe(23);
 		// **Every** zoom, because omitting the low ones makes zooming out go blank (SPEC story 6).
-		const zooms = [...new Set(paths.map((path) => Number(path.split('/')[2])))].sort(
+		// The zoom is the segment after the archive key: `base-map/tiles/<key>/<z>/…`.
+		const zooms = [...new Set(paths.map((path) => Number(path.split('/')[3])))].sort(
 			(a, b) => a - b
 		);
 		expect(zooms).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
-		expect(paths).toContain('base-map/tiles/0/0/0.mvt');
-		expect(paths).toContain('base-map/tiles/14/8414/5383.mvt');
+		expect(paths).toContain(`${TILES}0/0/0.mvt`);
+		expect(paths).toContain(`${TILES}14/8414/5383.mvt`);
 
 		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
 	});
@@ -863,7 +900,7 @@ test.describe('making a Project available offline', () => {
 		await openProjectScreen(page);
 		await makeAvailableOffline(page);
 		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
-		expect(await workspaceFile(page, 'base-map/tile-source.json')).toContain('"maxZoom":14');
+		expect(await workspaceFile(page, baseMapTileSourcePath(ARCHIVE))).toContain('"maxZoom":14');
 
 		await context.route(/\.pmtiles$/, (route) => route.abort());
 		await page.reload();
@@ -877,23 +914,28 @@ test.describe('making a Project available offline', () => {
 	});
 
 	test('does not answer from a record left by a different archive', async ({ page, context }) => {
-		// ADR-0020 lets a catalog entry be repointed with no change anywhere else, and `base-map/tiles/`
-		// carries no archive in its path — so one directory can end up serving two pyramids. A record
-		// naming an archive that is not the one now shown is not used, and the screen goes back to
-		// saying it cannot check rather than claiming a depth it has no warrant for.
+		// ADR-0020 lets a catalog entry be repointed with no change anywhere else, so one Workspace can
+		// hold tiles from two pyramids. Since ticket 12 they are in **different directories**, keyed by
+		// archive — but a record inside this archive's own directory naming another archive can still
+		// arrive by hand, and it is not evidence about this one. The screen goes back to saying it
+		// cannot check rather than claiming a depth it has no warrant for.
 		await openProjectScreen(page);
 		await makeAvailableOffline(page);
 
-		await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
-			const folder = await root.getDirectoryHandle('base-map', { create: true });
-			const handle = await folder.getFileHandle('tile-source.json', { create: true });
+		await page.evaluate(async (path) => {
+			const segments = path.split('/');
+			const name = segments.pop()!;
+			let directory = await workspaceRoot();
+			for (const segment of segments) {
+				directory = await directory.getDirectoryHandle(segment, { create: true });
+			}
+			const handle = await directory.getFileHandle(name, { create: true });
 			const writable = await handle.createWritable();
 			await writable.write(
 				JSON.stringify({ archive: 'https://elsewhere.test/other.pmtiles', maxZoom: 14 })
 			);
 			await writable.close();
-		});
+		}, baseMapTileSourcePath(ARCHIVE));
 
 		await context.route(/\.pmtiles$/, (route) => route.abort());
 		await page.reload();
@@ -1035,7 +1077,7 @@ test.describe('making a Project available offline', () => {
 		// A second Project, a few streets inside the first one's extent.
 		await page.evaluate(
 			async ([json, geojson]) => {
-				const root = await navigator.storage.getDirectory();
+				const root = await workspaceRoot();
 				const project = await root.getDirectoryHandle('boston-1775', { create: true });
 				const handle = await project.getFileHandle('project.json', { create: true });
 				let writable = await handle.createWritable();

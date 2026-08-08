@@ -15,8 +15,10 @@
 // supply one over a fixture, and reach no network.
 
 import {
-	BASE_MAP_TILE_DIRECTORY,
+	BASE_MAP_TILE_ROOT,
+	baseMapTileDirectory,
 	cachedTilePath,
+	parseAnyCachedTilePath,
 	parseCachedTilePath,
 	tileBudget,
 	type TileBudget,
@@ -45,15 +47,22 @@ export interface OfflineCoverage {
 	readonly complete: boolean;
 }
 
-/** The paths of every tile in the cache, as a set, from one `list`. */
-async function cachedPaths(store: ProjectStore): Promise<Set<string>> {
+/** The paths of every tile one archive's cache holds, as a set, from one `list`. */
+async function cachedPaths(store: ProjectStore, archive: string): Promise<Set<string>> {
 	return new Set(
-		(await store.list(BASE_MAP_TILE_DIRECTORY)).filter((path) => parseCachedTilePath(path) !== null)
+		(await store.list(baseMapTileDirectory(archive))).filter(
+			(path) => parseCachedTilePath(archive, path) !== null
+		)
 	);
 }
 
 /**
  * Whether a Project whose content occupies `bounds` is available offline, and what filling it takes.
+ *
+ * `archive` is the catalog entry's own `archive` string — see {@link baseMapArchiveKey} for why it
+ * is that and not the URL a deployment resolves it to. Coverage is asked *of one archive*, because
+ * a Workspace may hold a cache for each of several and a Project drawn on one of them is not made
+ * available offline by another's tiles.
  *
  * `bounds` is `projectOpeningBounds`' answer — the same box ADR-0026 frames the Project on, so the
  * area cached is the area the Project opens on and the two cannot drift. A Project with nothing
@@ -62,6 +71,7 @@ async function cachedPaths(store: ProjectStore): Promise<Set<string>> {
  */
 export async function offlineCoverage(
 	store: ProjectStore,
+	archive: string,
 	bounds: GeoBounds,
 	maxZoom: number
 ): Promise<OfflineCoverage> {
@@ -73,8 +83,8 @@ export async function offlineCoverage(
 	if (budget.overThreshold) {
 		return { budget, missing: [], present: 0, complete: false };
 	}
-	const have = await cachedPaths(store);
-	const missing = budget.tiles.filter((tile) => !have.has(cachedTilePath(tile)));
+	const have = await cachedPaths(store, archive);
+	const missing = budget.tiles.filter((tile) => !have.has(cachedTilePath(archive, tile)));
 	return {
 		budget,
 		missing,
@@ -100,11 +110,83 @@ export interface BaseMapCacheSize {
 	readonly maxZoom: number | null;
 }
 
-/** How much room the cache is taking, for the hub. `list` + `size`, never `read` (ADR-0001). */
+/** One archive's cache as it sits in the Workspace. */
+export interface BaseMapCache extends BaseMapCacheSize {
+	/** The archive the cache's own record names, or `null` when it records none. */
+	readonly archive: string | null;
+	/** The keyed directory the tiles are in, with its trailing `/`. */
+	readonly directory: string;
+	/**
+	 * The source's own maximum zoom as its header reported it at fetch time, or `null` when
+	 * unrecorded. **Not** {@link BaseMapCacheSize.maxZoom}, which is read back off the files — see
+	 * the note above {@link CachedTileSource} for why the two are different questions.
+	 */
+	readonly sourceMaxZoom: number | null;
+}
+
+/**
+ * Every archive this Workspace has cached tiles for.
+ *
+ * The whole-Workspace read, for the three callers that must answer for all of them at once: the
+ * hub's size and clear, and publishing, which writes the list into the site record because a
+ * Reader's HTTP store cannot list a directory (ADR-0006). One `list` of {@link BASE_MAP_TILE_ROOT}
+ * and a `size` per tile — never a `read` of one (ADR-0001) — plus one small `read` per archive for
+ * the provenance record, which is the only place a key can be turned back into an archive.
+ */
+export async function baseMapCaches(store: ProjectStore): Promise<BaseMapCache[]> {
+	const byKey = new Map<string, { paths: string[]; zooms: number[] }>();
+	for (const path of await store.list(BASE_MAP_TILE_ROOT)) {
+		const parsed = parseAnyCachedTilePath(path);
+		if (parsed === null) continue;
+		const found = byKey.get(parsed.key) ?? { paths: [], zooms: [] };
+		found.paths.push(path);
+		found.zooms.push(parsed.tile.z);
+		byKey.set(parsed.key, found);
+	}
+
+	return Promise.all(
+		[...byKey].map(async ([key, { paths, zooms }]) => {
+			const directory = `${BASE_MAP_TILE_ROOT}${key}/`;
+			const sizes = await Promise.all(paths.map((path) => store.size(path).catch(() => 0)));
+			const record = await readTileSourceAt(store, `${directory}${TILE_SOURCE_NAME}`);
+			return {
+				archive: record?.archive ?? null,
+				directory,
+				sourceMaxZoom: record?.maxZoom ?? null,
+				tiles: paths.length,
+				bytes: sizes.reduce((sum, size) => sum + size, 0),
+				maxZoom: zooms.length === 0 ? null : Math.max(...zooms)
+			};
+		})
+	);
+}
+
+/**
+ * How much room **every** Base Map cache in this Workspace is taking, for the hub.
+ *
+ * Summed across archives rather than asked of one, because the sentence it feeds is about the
+ * Workspace's disk and the button beside it clears the lot. `maxZoom` is the deepest zoom anywhere
+ * in it, which is the honest answer to "how deep does what is on disk go".
+ */
 export async function baseMapCacheSize(store: ProjectStore): Promise<BaseMapCacheSize> {
-	const paths = [...(await cachedPaths(store))];
+	return totalBaseMapCacheSize(await baseMapCaches(store));
+}
+
+/**
+ * What **one archive's** cache holds, for the pane that is about to draw from it.
+ *
+ * The Project screen's counterpart to {@link baseMapCacheSize}: the map is drawn from the tiles of
+ * the entry the author picked, and `maxZoom` here is what the style's `maxzoom` is set to. Summing
+ * across archives for that would cap the source at another archive's depth — MapLibre would then ask
+ * for tiles this one has none of, and the map goes blank above the zoom that actually works.
+ */
+export async function baseMapCacheSizeFor(
+	store: ProjectStore,
+	archive: string
+): Promise<BaseMapCacheSize> {
+	const paths = [...(await cachedPaths(store, archive))];
 	const sizes = await Promise.all(paths.map((path) => store.size(path).catch(() => 0)));
-	const zooms = paths.map((path) => parseCachedTilePath(path)?.z ?? 0);
+	const zooms = paths.map((path) => parseCachedTilePath(archive, path)?.z ?? 0);
 	return {
 		tiles: paths.length,
 		bytes: sizes.reduce((sum, size) => sum + size, 0),
@@ -112,19 +194,36 @@ export async function baseMapCacheSize(store: ProjectStore): Promise<BaseMapCach
 	};
 }
 
+/** {@link baseMapCacheSize} over a list already in hand, so publishing walks the folder once. */
+export function totalBaseMapCacheSize(caches: readonly BaseMapCache[]): BaseMapCacheSize {
+	const depths = caches.map((cache) => cache.maxZoom).filter((zoom) => zoom !== null);
+	return {
+		tiles: caches.reduce((sum, cache) => sum + cache.tiles, 0),
+		bytes: caches.reduce((sum, cache) => sum + cache.bytes, 0),
+		maxZoom: depths.length === 0 ? null : Math.max(...depths)
+	};
+}
+
 /**
- * Delete every cached tile, and report how many went.
+ * Delete every cached tile of every archive, and report how many went.
  *
- * Confined to paths {@link parseCachedTilePath} recognises, so a file somebody put under
+ * Confined to paths {@link parseAnyCachedTilePath} recognises, so a file somebody put under
  * `base-map/tiles/` by hand is left alone rather than swept up by a reclaim action.
  */
 export async function clearBaseMapCache(store: ProjectStore): Promise<number> {
-	const paths = [...(await cachedPaths(store))];
-	for (const path of paths) await store.delete(path);
-	// The provenance record goes with them. Leaving it would have a cleared cache still claiming an
-	// archive and a depth, which is the one way {@link readCachedTileSource} could lie.
-	await store.delete(BASE_MAP_TILE_SOURCE_PATH).catch(() => undefined);
-	return paths.length;
+	const caches = await baseMapCaches(store);
+	let cleared = 0;
+	for (const cache of caches) {
+		for (const path of await store.list(cache.directory)) {
+			if (parseAnyCachedTilePath(path) === null) continue;
+			await store.delete(path);
+			cleared += 1;
+		}
+		// The provenance record goes with them. Leaving it would have a cleared cache still claiming an
+		// archive and a depth, which is the one way {@link readCachedTileSource} could lie.
+		await store.delete(`${cache.directory}${TILE_SOURCE_NAME}`).catch(() => undefined);
+	}
+	return cleared;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -141,38 +240,56 @@ export async function clearBaseMapCache(store: ProjectStore): Promise<number> {
 // {@link BaseMapCacheSize.maxZoom} warns about: that one is read back off our own files and can only
 // under-report a half-filled cache, which is why it is right for *drawing* and wrong for *claiming*.
 //
-// **And the cache is one directory, shared by every catalog entry.** `BASE_MAP_TILE_DIRECTORY` and
-// `cachedBaseMapTileTemplate()` carry no archive identity, which is latent only because all four
-// entries in `BASE_MAP_CATALOG` presently share one archive — and ADR-0020 promises that repointing
-// an entry requires no change anywhere else, with `scripts/check-base-map-catalog.mjs` enforcing it.
-// Two entries on two archives would give one directory serving both: a plausible pane of the wrong
-// map, with no error anywhere.
+// **And the key alone does not say which archive it is.** {@link baseMapArchiveKey} is one-way, so
+// the record is also what lets `base-map/tiles/<key>/` be read back as an archive — which publishing
+// needs, because a Published Site's viewer has an HTTP store that cannot list a directory (ADR-0006)
+// and has to be told on the site record which archives it carries tiles for.
 //
-// ⚠ **Keying the directory itself is deliberately not done here**, because the path is not ours
-// alone: `base-map/tiles/…` is copied verbatim into a Published Site, read by the viewer's HTTP
-// store, and named in the service worker, so changing its shape is a change to the published format
-// and to two apps. What is done instead is *detection* — {@link cachedTilesMatchArchive} — so a cache
-// filled from another archive is reported as not this Project's rather than drawn as if it were.
-// **Ticket 12 makes this live**: several named Workspaces, each with its own cache, is exactly the
-// arrangement in which two archives meet. Keying the directory belongs with that ticket, which is
-// already changing where a Workspace's files sit.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// WHY THIS IS NO LONGER ALSO A MISMATCH DETECTOR (ticket 12)
+//
+// Ticket 11 left the cache as one directory shared by every catalog entry and covered the resulting
+// wrong-map risk with a comparison — `cachedTilesMatchArchive`, checked at each call site. Keying the
+// directory removes the state that check existed for: two archives can no longer meet in one
+// directory, so there is nothing left to compare and nothing left for a call site to forget. The one
+// residue is kept here rather than deleted — {@link readCachedTileSource} refuses a record whose
+// `archive` is not the one asked for, so a hand-edited or colliding record is "unknown" rather than
+// authoritative — and it is one function's business instead of every caller's.
 
 /** Which archive filled the cache, and how deep that archive said it went. */
 export interface CachedTileSource {
-	/** The archive's URL, as `archiveUrl` resolved it at fetch time. Identity, not a fetch target. */
+	/**
+	 * The catalog entry's own `archive` string. Identity, not a fetch target.
+	 *
+	 * Deliberately the *unresolved* string — see {@link baseMapArchiveKey}. A bundled archive is a
+	 * deployment-relative path, and recording the URL the editor resolved it to would make a Workspace
+	 * published to another host disagree with itself about which archive its own tiles came from.
+	 */
 	readonly archive: string;
 	/** The source's own maximum zoom, read from its header — not read back off the cached files. */
 	readonly maxZoom: number;
 }
 
-/** Where {@link CachedTileSource} lives. Beside `base-map/tiles/`, never inside it. */
-export const BASE_MAP_TILE_SOURCE_PATH = 'base-map/tile-source.json';
+/** The record's filename inside one archive's keyed directory. */
+const TILE_SOURCE_NAME = 'tile-source.json';
 
-/** What the cache records about where it came from, or `null` when it records nothing. */
-export async function readCachedTileSource(store: ProjectStore): Promise<CachedTileSource | null> {
+/**
+ * Where one archive's {@link CachedTileSource} lives: inside its own keyed directory.
+ *
+ * Inside rather than beside, so that deleting the directory deletes the claim with it. A record
+ * outliving the tiles it describes is the one way this can lie.
+ */
+export const baseMapTileSourcePath = (archive: string): string =>
+	`${baseMapTileDirectory(archive)}${TILE_SOURCE_NAME}`;
+
+/** The record at one exact path, or `null` when there is none or it cannot be believed. */
+async function readTileSourceAt(
+	store: ProjectStore,
+	path: string
+): Promise<CachedTileSource | null> {
 	let bytes: Bytes;
 	try {
-		bytes = await store.read(BASE_MAP_TILE_SOURCE_PATH);
+		bytes = await store.read(path);
 	} catch {
 		// No record. A cache filled before this file existed, or none at all — in both cases the answer
 		// is "unknown", which the callers treat as needing the network rather than as a mismatch.
@@ -190,26 +307,27 @@ export async function readCachedTileSource(store: ProjectStore): Promise<CachedT
 	}
 }
 
-/** Record where the cache came from. Written after a run, never before one. */
+/** What one archive's cache records about where it came from, or `null` when it records nothing. */
+export async function readCachedTileSource(
+	store: ProjectStore,
+	archive: string
+): Promise<CachedTileSource | null> {
+	const record = await readTileSourceAt(store, baseMapTileSourcePath(archive));
+	// A record in this archive's directory naming a different archive is not evidence about this
+	// archive. It can only arrive by a hand edit or a key collision, and in both cases "unknown" is the
+	// honest answer — the callers then reach for the network rather than trusting a foreign depth.
+	return record !== null && record.archive === archive ? record : null;
+}
+
+/** Record where one archive's cache came from. Written after a run, never before one. */
 export async function writeCachedTileSource(
 	store: ProjectStore,
 	source: CachedTileSource
 ): Promise<void> {
 	await store.write(
-		BASE_MAP_TILE_SOURCE_PATH,
+		baseMapTileSourcePath(source.archive),
 		new TextEncoder().encode(JSON.stringify(source)) as Bytes
 	);
-}
-
-/**
- * Whether the cached tiles belong to the archive now being shown.
- *
- * `true` when nothing is recorded, which is the pre-existing cache: unknown provenance is not the
- * same as known-wrong, and refusing to draw a cache filled by an earlier version of this app would
- * take the feature away from the people who already used it.
- */
-export function cachedTilesMatchArchive(source: CachedTileSource | null, archive: string): boolean {
-	return source === null || source.archive === archive;
 }
 
 /** Where one tile's bytes come from: `null` when the source has no tile there. */
@@ -229,6 +347,8 @@ export interface TileFetchResult {
 
 export interface FetchTilesOptions {
 	readonly store: ProjectStore;
+	/** Whose cache these tiles go in — the catalog entry's own `archive` string. */
+	readonly archive: string;
 	/** The tiles to fetch. Pass {@link OfflineCoverage.missing}, never the whole budget. */
 	readonly tiles: readonly TileCoordinate[];
 	readonly readTile: ReadSourceTile;
@@ -253,7 +373,7 @@ export interface FetchTilesOptions {
  * hole, which is precisely the lie the computed claim exists to make impossible.
  */
 export async function fetchTilesIntoCache(options: FetchTilesOptions): Promise<TileFetchResult> {
-	const { store, tiles, readTile, signal, onProgress } = options;
+	const { store, archive, tiles, readTile, signal, onProgress } = options;
 	let written = 0;
 	let bytes = 0;
 	let absent = 0;
@@ -264,7 +384,7 @@ export async function fetchTilesIntoCache(options: FetchTilesOptions): Promise<T
 		if (data === null || data.byteLength === 0) {
 			absent += 1;
 		} else {
-			await store.write(cachedTilePath(tile), data);
+			await store.write(cachedTilePath(archive, tile), data);
 			written += 1;
 			bytes += data.byteLength;
 		}

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CATALOG_WITH_STALE_DEFAULT, FORKED_CATALOG } from '../base-map/fixture-catalogs.js';
+import { writeCachedTileSource } from '../base-map/offline-cache.js';
+import { cachedTilePath } from '../base-map/tile-cache.js';
 import { imageInfoPath } from '../project/image-files.js';
 import { newMapLayer, newAnnotationLayer } from '../project/layer.js';
 import { newProjectFile, parseProjectFile, serialiseProjectFile } from '../project/project-file.js';
@@ -34,6 +36,9 @@ import { parseViewerBundle } from './viewer-bundle.js';
 
 const encode = (text: string): Bytes => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+/** An archive, so the keyed cache directory is built rather than spelled (ticket 12). */
+const ARCHIVE = 'https://example.test/v4.pmtiles';
 
 /**
  * A staged viewer bundle, shaped exactly as `scripts/stage-viewer-bundle.mjs` writes it.
@@ -532,28 +537,61 @@ describe('publishing', () => {
 		// and since ADR-0025 the opt-in tile cache lives inside it — bytes a user asked for and fetched
 		// from somebody else's server. Publishing once with the checkbox off used to delete every one of
 		// them silently, and the Project would simply stop being available offline with nothing said.
-		await store.write('base-map/tiles/0/0/0.mvt', new Uint8Array([1, 2, 3]));
-		await store.write('base-map/tiles/14/8414/5383.mvt', new Uint8Array([4, 5]));
+		const first = cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 });
+		await store.write(first, new Uint8Array([1, 2, 3]));
+		await store.write(cachedTilePath(ARCHIVE, { z: 14, x: 8414, y: 5383 }), new Uint8Array([4, 5]));
 
 		await publish({ includeBaseMap: true });
 		await publish({ includeBaseMap: false });
 
-		expect(await store.list('base-map/')).toEqual([
-			'base-map/tiles/0/0/0.mvt',
-			'base-map/tiles/14/8414/5383.mvt'
-		]);
-		expect([...(await store.read('base-map/tiles/0/0/0.mvt'))]).toEqual([1, 2, 3]);
+		expect(await store.list('base-map/')).toEqual(
+			[first, cachedTilePath(ARCHIVE, { z: 14, x: 8414, y: 5383 })].sort()
+		);
+		expect([...(await store.read(first))]).toEqual([1, 2, 3]);
 	});
 
 	it('records a Workspace carrying cached tiles as having its Base Map, whatever the checkbox said', async () => {
 		// ADR-0025's change of meaning: `baseMapBundled` is now an observation of the folder, and
 		// publishing copies nothing to make it true — the tiles are already in the published root. The
 		// glyphs and sprites are the separate, chosen half.
-		await store.write('base-map/tiles/0/0/0.mvt', new Uint8Array([1]));
+		await store.write(cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 }), new Uint8Array([1]));
 		await publish({ includeBaseMap: false });
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
 		expect(record.baseMapBundled).toBe(true);
 		expect(record.baseMapAssetsBundled).toBe(false);
+	});
+
+	it('names which archives it carries tiles for, because the viewer cannot list a directory', async () => {
+		// The published half of ticket 12's keyed cache. The tiles are at `base-map/tiles/<key>/…` and
+		// the key is one-way, so a Reader — whose store is HTTP over a static host (ADR-0006) — has no
+		// way to discover which catalog entry they belong to. Drawing them under whichever entry is
+		// selected is exactly the wrong-map failure the key exists to end, so the record says.
+		const other = 'https://other.test/v4.pmtiles';
+		await store.write(cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 }), new Uint8Array([1]));
+		await writeCachedTileSource(store, { archive: ARCHIVE, maxZoom: 14 });
+		await store.write(cachedTilePath(other, { z: 0, x: 0, y: 0 }), new Uint8Array([2]));
+		await writeCachedTileSource(store, { archive: other, maxZoom: 11 });
+
+		await publish({ includeBaseMap: false });
+
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+		expect([...record.baseMapCaches].sort((a, b) => a.archive.localeCompare(b.archive))).toEqual([
+			{ archive: ARCHIVE, maxZoom: 14 },
+			{ archive: other, maxZoom: 11 }
+		]);
+	});
+
+	it('claims no archive for a cache whose provenance record is missing', async () => {
+		// The tiles are still served — publishing copies nothing and deletes nothing — but there is no
+		// honest thing to say about them, and attaching them to a guessed entry is worse than silence.
+		await store.write(cachedTilePath(ARCHIVE, { z: 0, x: 0, y: 0 }), new Uint8Array([1]));
+
+		await publish({ includeBaseMap: false });
+
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+		expect(record.baseMapCaches).toEqual([]);
+		// It is still a Workspace carrying tiles, and the size sentence still counts them.
+		expect(record.baseMapBundled).toBe(true);
 	});
 
 	it('records the glyphs and sprites separately from the tiles', async () => {
@@ -665,7 +703,7 @@ describe('telling the author a Published Site is behind', () => {
 		baseMap: FORKED_CATALOG,
 		baseMapBundled: false,
 		baseMapAssetsBundled: false,
-		baseMapMaxZoom: null
+		baseMapCaches: []
 	};
 	const summary = (directory: string, name: string) => ({
 		directory,

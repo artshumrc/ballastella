@@ -4,10 +4,11 @@
 	/**
 	 * "Install Ballastella" — offered where the question it answers is being asked (SPEC story 6).
 	 *
-	 * This sits under {@link StorageChoice}'s account of the folder permission on purpose. ADR-0012 is
-	 * blunt about what the PWA is for: Chrome's persistent File System Access grant works best for an
-	 * installed app, so "install this" is the honest answer to "why does it keep asking about my
-	 * folder?" — and an offer made anywhere else is decoration.
+	 * This sits inside Workspace settings, under that dialog's account of the folder permission and of
+	 * whether the browser will keep this origin's storage at all. ADR-0012 is blunt about what the PWA
+	 * is for: Chrome's persistent File System Access grant works best for an installed app, and
+	 * `navigator.storage.persist()` is likelier to be granted to one — so "install this" is the honest
+	 * answer to both questions that screen asks, and an offer made anywhere else is decoration.
 	 *
 	 * Three states, because there are three truths and conflating them produces a button that does
 	 * nothing:

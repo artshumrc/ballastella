@@ -1,4 +1,4 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { readFile } from 'node:fs/promises';
@@ -19,17 +19,34 @@ import { readFile } from 'node:fs/promises';
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
 	await page.evaluate(async () => {
+		// The whole of browser storage, which since ticket 12 is **every named Workspace** rather than
+		// one — so no test can see another's, whichever Workspace it was in.
+		//
+		// ⚠ **The Workspace the app is holding open is emptied, not removed.** `DirectoryHandleStore`
+		// caches its root handle once it resolves (ADR-0008), and that handle is now a *named
+		// subdirectory* rather than the OPFS root, which cannot vanish. Deleting the directory out from
+		// under a running app therefore latches it "unreachable" until a reload — a state about the
+		// harness rather than about the product, and one that used to be unreachable because emptying
+		// the root left the root itself in place. Emptying it is exactly what this always meant.
 		const root = await navigator.storage.getDirectory();
+		const open = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
-		await Promise.all(names.map((name) => root.removeEntry(name, { recursive: true })));
+		await Promise.all(
+			names
+				.filter((name) => name !== open.name)
+				.map((name) => root.removeEntry(name, { recursive: true }))
+		);
+		const inside: string[] = [];
+		for await (const name of open.keys()) inside.push(name);
+		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
 	});
 }
 
 /** The names directly under the Workspace root, sorted. What "nothing was written" is measured on. */
-async function workspaceRoot(page: Page): Promise<string[]> {
+async function workspaceEntries(page: Page): Promise<string[]> {
 	return page.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		const names: string[] = [];
 		for await (const name of root.keys()) names.push(name);
 		return names.sort();
@@ -57,7 +74,7 @@ async function projectContents(page: Page, directory: string): Promise<Record<st
 				}
 			}
 		};
-		const root = await navigator.storage.getDirectory();
+		const root = await workspaceRoot();
 		await walk(await root.getDirectoryHandle(directory), '');
 		for (const shared of ['images', 'alignments']) {
 			try {
@@ -90,7 +107,7 @@ async function seedProject(
 	await page.evaluate(
 		async ([directory, files]) => {
 			const shared = (path: string) => path.startsWith('images/') || path.startsWith('alignments/');
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			for (const [path, text] of Object.entries(files as Record<string, string>)) {
 				const segments = path.split('/');
 				let handle = shared(path)
@@ -256,7 +273,7 @@ test.describe('exporting a Project as a zip (SPEC story 5)', () => {
 
 		// Delete it underneath the open hub, the way a second tab would.
 		await page.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
+			const root = await workspaceRoot();
 			await root.removeEntry('amsterdam-1625', { recursive: true });
 		});
 		await page.getByRole('button', { name: /^Export/ }).click();
@@ -324,7 +341,7 @@ test.describe('importing a Project zip (SPEC story 13)', () => {
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
 		// `images` and `alignments` are the Workspace's own, hoisted out of the archive (ADR-0023), so the
 		// root holds them beside the Project rather than the Project holding them.
-		expect(await workspaceRoot(page)).toEqual(['alignments', 'assignment-3', 'images']);
+		expect(await workspaceEntries(page)).toEqual(['alignments', 'assignment-3', 'images']);
 	});
 
 	test('a shared display name alone does not block the import', async ({ page }) => {
@@ -334,7 +351,7 @@ test.describe('importing a Project zip (SPEC story 13)', () => {
 		await importZip(page, zipFixture(projectFiles()));
 
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(2);
-		expect(await workspaceRoot(page)).toEqual([
+		expect(await workspaceEntries(page)).toEqual([
 			'alignments',
 			'amsterdam-1625',
 			'images',
@@ -360,7 +377,7 @@ test.describe('importing a Project zip (SPEC story 13)', () => {
 		const contents = await projectContents(page, 'assignment-3');
 		expect(contents['images/amsterdam-1625/info.json']).toBe('{"width":1,"height":1}');
 		// And the Project itself holds only its own files.
-		expect(await workspaceRoot(page)).toEqual(['alignments', 'assignment-3', 'images', 'mine']);
+		expect(await workspaceEntries(page)).toEqual(['alignments', 'assignment-3', 'images', 'mine']);
 	});
 });
 
@@ -392,7 +409,7 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		await expect(dialog).toBeHidden();
 		// Not one byte of the Project that was here, and no half-written directory beside it.
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(mine);
-		expect(await workspaceRoot(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
+		expect(await workspaceEntries(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
 	});
 
 	test('a different case of the same name does not overwrite the existing Project', async ({
@@ -414,7 +431,7 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		// Reported again rather than accepted, and the dialog is still open with the question in it.
 		await expect(dialog).toBeVisible();
 		await expect(dialog.getByRole('alert')).toContainText('already has a folder called');
-		expect(await workspaceRoot(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
+		expect(await workspaceEntries(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
 		expect(await projectContents(page, 'amsterdam-1625')).toEqual(mine);
 	});
 
@@ -429,7 +446,7 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		await dialog.getByLabel('Import as folder').fill('   ');
 
 		await expect(page.getByRole('button', { name: 'Import under this name' })).toBeDisabled();
-		expect(await workspaceRoot(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
+		expect(await workspaceEntries(page)).toEqual(['alignments', 'amsterdam-1625', 'images']);
 	});
 
 	test('imports under a new folder name, leaving the existing Project alone', async ({ page }) => {
@@ -441,7 +458,7 @@ test.describe('a folder name that is already taken (SPEC story 14)', () => {
 		await page.getByRole('button', { name: 'Import under this name' }).click();
 
 		await expect(dialog).toBeHidden();
-		expect(await workspaceRoot(page)).toEqual([
+		expect(await workspaceEntries(page)).toEqual([
 			'alignments',
 			'amsterdam-1625',
 			'amsterdam-1625-colleague',
@@ -475,7 +492,7 @@ test.describe('a zip that is refused, with nothing written', () => {
 		// The dialog is still open, so the message is not a flash the user can miss.
 		await expect(page.getByRole('dialog', { name: 'Import Project' })).toBeVisible();
 		// And the Workspace is exactly as it was: no new folder, and the existing Project untouched.
-		expect(await workspaceRoot(page)).toEqual(['alignments', 'boston-1775', 'images']);
+		expect(await workspaceEntries(page)).toEqual(['alignments', 'boston-1775', 'images']);
 		expect(await projectContents(page, 'boston-1775')).toEqual(mine);
 	};
 
@@ -539,7 +556,7 @@ test.describe('a zip that is refused, with nothing written', () => {
 			'climbs out of the Project directory'
 		);
 		// Nothing anywhere in the Workspace, which is the whole of what the origin's OPFS can hold.
-		expect(await workspaceRoot(page)).toEqual(['alignments', 'boston-1775', 'images']);
+		expect(await workspaceEntries(page)).toEqual(['alignments', 'boston-1775', 'images']);
 	});
 });
 

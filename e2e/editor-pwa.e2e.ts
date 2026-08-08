@@ -1,4 +1,6 @@
-import { expect, test } from './support/network-fence.js';
+import { expect, test } from './support/test.js';
+
+import { openWorkspaceSettings } from './support/workspace';
 import { type Page } from '@playwright/test';
 
 import {
@@ -1057,10 +1059,15 @@ test.describe('the offer to install', () => {
 		await emptyWorkspace(page);
 		await page.reload();
 
-		// SPEC story 6, and ADR-0012's reason for the whole slice: installing is the answer to "why does
-		// it keep asking about my folder?", so the offer belongs beside that explanation and nowhere else.
-		const storage = page.getByRole('region', { name: 'Where your work is stored' });
-		await expect(storage.getByTestId('install-offer')).toBeVisible();
+		// SPEC story 6, and ADR-0012's reason for the whole slice: installing is the answer both to "why
+		// does it keep asking about my folder?" and to "will this browser keep my Workspace at all?", so
+		// the offer sits beside those two explanations and nowhere else. Since ticket 12 that is
+		// Workspace settings rather than a permanently visible hub section — the offer moved with the
+		// question it answers.
+		await expect(page.getByTestId('install-offer')).toHaveCount(0);
+		await openWorkspaceSettings(page);
+		const settings = page.getByRole('dialog', { name: 'Workspace settings' });
+		await expect(settings.getByTestId('install-offer')).toBeVisible();
 
 		// Headless Chromium does not fire `beforeinstallprompt`, and neither does Firefox or Safari ever.
 		// So the state that most users are in is the one asserted first: a sentence saying where to look,
@@ -1079,6 +1086,10 @@ test.describe('the offer to install', () => {
 		// **Waited for, because the listener is attached in the layout's mount effect** — which runs
 		// after `load`, since hydration is a dynamic import. Dispatching before it is attached is a
 		// test that measures nothing, and it failed as "the offer never appeared".
+		//
+		// The offer lives in Workspace settings since ticket 12, so the dialog is opened to see it. The
+		// listener is in the layout and not in the dialog, so it is attached either way.
+		await openWorkspaceSettings(page);
 		await expect(page.getByTestId('install-state-unavailable')).toBeVisible();
 
 		// The event is synthesised because Chromium's install criteria include engagement heuristics no

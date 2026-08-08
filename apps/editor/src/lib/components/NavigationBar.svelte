@@ -18,7 +18,9 @@
 	// the save indicator and the undo control were on three pages each, mounted separately. Three
 	// copies of a thing that has one meaning is how they came to look different from each other.
 	//
-	// Workspace identity is a **label** in this slice. Ticket 12 makes it a switcher.
+	// Workspace identity was a **label** in ticket 04. Ticket 12 makes it a switcher, because browser
+	// storage now holds several named Workspaces (ADR-0024) — and from ticket 14 onward one of them can
+	// be a throwaway Review Workspace, which is a thing a user must never be in doubt about.
 
 	import { otherTheme } from '@ballastella/core';
 
@@ -26,7 +28,9 @@
 	import { theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
+	import MenuPopover from './MenuPopover.svelte';
 	import SaveIndicator from './SaveIndicator.svelte';
+	import WorkspaceSettings from './WorkspaceSettings.svelte';
 
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
@@ -35,17 +39,35 @@
 	/**
 	 * Which Workspace this is, in words (SPEC story 88).
 	 *
-	 * Named rather than iconified, because "am I in the folder one or the browser one?" is exactly
-	 * the question a scholar asks after their last edit went somewhere they did not expect — and a
-	 * disc glyph answers it for nobody using a screen reader (SPEC story 111).
+	 * Named rather than iconified, because "which Workspace did that last edit go into?" is exactly
+	 * the question a scholar asks after their work is not where they left it — and a disc glyph
+	 * answers it for nobody using a screen reader (SPEC story 111).
+	 *
+	 * The Workspace's own name in both backings, rather than "Browser storage", which named the
+	 * *backing*: with several named Workspaces on one backing that sentence no longer identifies
+	 * anything, and from ticket 14 a Review Workspace is browser-backed too.
 	 */
-	const workspaceName = $derived(
-		storage === null
-			? 'Starting…'
-			: storage.backing === 'folder' && storage.folderName
-				? storage.folderName
-				: 'Browser storage'
-	);
+	const workspaceName = $derived(storage === null ? 'Starting…' : storage.name);
+
+	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
+	let settingsOpen = $state(false);
+	/** The new-Workspace field, or `null` when it is not being asked for. */
+	let newName = $state<string | null>(null);
+	let newNameField = $state<HTMLInputElement | undefined>();
+
+	/** Open something from the menu, having handed focus back first — see `MenuPopover.dismiss`. */
+	function fromMenu(act: () => void): void {
+		menu?.dismiss();
+		act();
+	}
+
+	async function createWorkspace(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		const asked = newName ?? '';
+		newName = null;
+		if (asked.trim() === '') return;
+		await storage?.createWorkspace(asked);
+	}
 </script>
 
 <!--
@@ -57,11 +79,106 @@
 	data-testid="navigation-bar"
 	class="flex flex-wrap items-center gap-4 border-b border-base-300 bg-base-200 px-4 py-2"
 >
-	<!-- 1. Which Workspace. -->
-	<p class="text-sm" data-testid="workspace-identity">
+	<!--
+		1. Which Workspace, and the way to another one.
+
+		**Always visible, on every screen** — the label was, and the switcher has to be for a stronger
+		reason: from ticket 14 a user can be inside a throwaway Review Workspace, and a control that
+		says which one you are in is worth nothing on the screens it is missing from.
+
+		The menu is the Popover API through `MenuPopover`, which is mandated rather than merely
+		available (ADR-0016) — a `<details>` or CSS-`:focus` dropdown dismisses on neither Escape nor a
+		click elsewhere. The button's text carries the name, so the identity is readable without
+		opening anything.
+	-->
+	<div class="flex items-center gap-2 text-sm" data-testid="workspace-identity">
 		<span class="opacity-70">Workspace:</span>
-		<span class="font-medium">{workspaceName}</span>
-	</p>
+		{#if storage === null}
+			<span class="font-medium">{workspaceName}</span>
+		{:else}
+			<MenuPopover
+				bind:this={menu}
+				label={workspaceName}
+				buttonClass="btn btn-sm font-medium"
+				testid="workspace-switcher"
+			>
+				<li class="menu-title">Switch to</li>
+				{#each storage.workspaces as name (name)}
+					<li>
+						<button
+							type="button"
+							data-testid="switch-workspace"
+							data-workspace={name}
+							aria-current={storage.backing === 'browser' && name === storage.workspaceName
+								? 'true'
+								: undefined}
+							onclick={() => fromMenu(() => void storage.openWorkspace(name))}
+						>
+							{name}
+							{#if storage.backing === 'browser' && name === storage.workspaceName}
+								<span class="opacity-70">(open)</span>
+							{/if}
+						</button>
+					</li>
+				{/each}
+				{#if storage.backing === 'folder'}
+					<!-- The folder Workspace is not one of the named ones and never appears in the list: it
+					     is a different backing, and showing it as a sibling would suggest it can be deleted
+					     from settings alongside them, which it cannot. -->
+					<li>
+						<span class="opacity-70"
+							>{storage.folderName || 'A folder on this computer'} (open)</span
+						>
+					</li>
+				{/if}
+				<li>
+					<button
+						type="button"
+						data-testid="new-workspace"
+						onclick={() =>
+							fromMenu(() => {
+								newName = '';
+								// After the popover has gone, or focus lands on an element about to be hidden.
+								queueMicrotask(() => newNameField?.focus());
+							})}
+					>
+						New Workspace…
+					</button>
+				</li>
+				<li>
+					<button
+						type="button"
+						data-testid="open-workspace-settings"
+						onclick={() => fromMenu(() => (settingsOpen = true))}
+					>
+						Workspace settings…
+					</button>
+				</li>
+			</MenuPopover>
+		{/if}
+	</div>
+
+	{#if newName !== null && storage !== null}
+		<!-- Inline on the bar rather than in a dialog: it is one field and one button, and a modal for
+		     that is a modal a user has to dismiss to see the Workspace they just left. -->
+		<form class="flex items-center gap-2" onsubmit={(event) => void createWorkspace(event)}>
+			<label class="text-sm" for="new-workspace-name">Name</label>
+			<input
+				id="new-workspace-name"
+				class="input input-sm"
+				bind:this={newNameField}
+				bind:value={newName}
+				data-testid="new-workspace-name"
+				onkeydown={(event) => {
+					if (event.key === 'Escape') newName = null;
+				}}
+			/>
+			<button class="btn btn-primary btn-sm" type="submit" data-testid="create-workspace">
+				Create and switch
+			</button>
+			<button class="btn btn-sm" type="button" onclick={() => (newName = null)}>Cancel</button>
+		</form>
+	{/if}
 
 	<div class="grow"></div>
 
@@ -112,3 +229,11 @@
 		</div>
 	{/if}
 </header>
+
+<!--
+	Outside the `<header>` so the bar's own layout does not have to make room for a modal, and mounted
+	unconditionally so the `<dialog>` element exists before `showModal()` is asked for.
+-->
+{#if storage !== null}
+	<WorkspaceSettings bind:open={settingsOpen} {storage} />
+{/if}

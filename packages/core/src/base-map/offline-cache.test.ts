@@ -7,9 +7,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-	BASE_MAP_TILE_SOURCE_PATH,
 	baseMapCacheSize,
-	cachedTilesMatchArchive,
+	baseMapTileSourcePath,
 	clearBaseMapCache,
 	describeTileBudget,
 	fetchTilesIntoCache,
@@ -18,9 +17,25 @@ import {
 	tileBudgetRefusal,
 	writeCachedTileSource
 } from './offline-cache';
-import { cachedTilePath, tileBudget, type TileCoordinate } from './tile-cache';
+import {
+	baseMapTileDirectory,
+	cachedTilePath,
+	tileBudget,
+	type TileCoordinate
+} from './tile-cache';
 import type { GeoBounds } from '../project/opening-view';
 import { MemoryProjectStore } from '../store/memory-project-store';
+
+/**
+ * The deployment's archive, as a catalog entry spells it. Every cache in this file is keyed on it.
+ *
+ * A second one appears where two archives have to meet — the arrangement ticket 12 keyed the
+ * directory for, and the one an unkeyed cache drew the wrong world in.
+ */
+const ARCHIVE = 'https://example.test/basemaps.pmtiles';
+
+/** A fork's own extract: the same filename, a different host. */
+const OTHER_ARCHIVE = 'https://other.test/basemaps.pmtiles';
 
 /** Central Amsterdam's canal belt — 23 tiles over z0–14. See `tile-cache.test.ts`. */
 const CANAL_BELT: GeoBounds = { west: 4.88, south: 52.36, east: 4.92, north: 52.38 };
@@ -48,7 +63,7 @@ const source = (size = 40) => {
 describe('offlineCoverage', () => {
 	it('is incomplete, and every tile missing, for an empty Workspace', async () => {
 		const store = new MemoryProjectStore();
-		const coverage = await offlineCoverage(store, CANAL_BELT, 14);
+		const coverage = await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14);
 		expect(coverage.budget.count).toBe(23);
 		expect(coverage.missing.length).toBe(23);
 		expect(coverage.present).toBe(0);
@@ -58,8 +73,13 @@ describe('offlineCoverage', () => {
 	it('is complete once every tile the extent needs is a file', async () => {
 		const store = new MemoryProjectStore();
 		const { readTile } = source();
-		await fetchTilesIntoCache({ store, tiles: tileBudget(CANAL_BELT, 14).tiles, readTile });
-		const coverage = await offlineCoverage(store, CANAL_BELT, 14);
+		await fetchTilesIntoCache({
+			store,
+			archive: ARCHIVE,
+			tiles: tileBudget(CANAL_BELT, 14).tiles,
+			readTile
+		});
+		const coverage = await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14);
 		expect(coverage.complete).toBe(true);
 		expect(coverage.missing).toEqual([]);
 	});
@@ -71,8 +91,8 @@ describe('offlineCoverage', () => {
 		const store = new MemoryProjectStore();
 		const tiles = tileBudget(CANAL_BELT, 14).tiles;
 		const { readTile } = source();
-		await fetchTilesIntoCache({ store, tiles: tiles.slice(0, -1), readTile });
-		const coverage = await offlineCoverage(store, CANAL_BELT, 14);
+		await fetchTilesIntoCache({ store, archive: ARCHIVE, tiles: tiles.slice(0, -1), readTile });
+		const coverage = await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14);
 		expect(coverage.present).toBe(22);
 		expect(coverage.complete).toBe(false);
 		expect(coverage.missing).toEqual([tiles[tiles.length - 1]]);
@@ -83,12 +103,13 @@ describe('offlineCoverage', () => {
 		const first = source();
 		await fetchTilesIntoCache({
 			store,
+			archive: ARCHIVE,
 			tiles: tileBudget(CANAL_BELT, 14).tiles,
 			readTile: first.readTile
 		});
 		const before = (await baseMapCacheSize(store)).tiles;
 
-		const second = await offlineCoverage(store, NEARBY, 14);
+		const second = await offlineCoverage(store, ARCHIVE, NEARBY, 14);
 		expect(second.complete).toBe(true);
 		expect(second.missing).toEqual([]);
 
@@ -96,6 +117,7 @@ describe('offlineCoverage', () => {
 		// the second Project is offline because of the first Project's tiles (ADR-0023, ADR-0025).
 		const run = await fetchTilesIntoCache({
 			store,
+			archive: ARCHIVE,
 			tiles: second.missing,
 			readTile: first.readTile
 		});
@@ -106,15 +128,23 @@ describe('offlineCoverage', () => {
 	it('reports a Project whose extent has outgrown the cache as not available offline', async () => {
 		const store = new MemoryProjectStore();
 		const { readTile } = source();
-		await fetchTilesIntoCache({ store, tiles: tileBudget(CANAL_BELT, 14).tiles, readTile });
-		const grown = await offlineCoverage(store, GROWN, 14);
+		await fetchTilesIntoCache({
+			store,
+			archive: ARCHIVE,
+			tiles: tileBudget(CANAL_BELT, 14).tiles,
+			readTile
+		});
+		const grown = await offlineCoverage(store, ARCHIVE, GROWN, 14);
 		expect(grown.complete).toBe(false);
 		expect(grown.missing.length).toBeGreaterThan(0);
 	});
 
 	it('ignores files under the cache directory that are not tiles', async () => {
 		const store = new MemoryProjectStore();
-		await store.write('base-map/tiles/readme.txt', new TextEncoder().encode('hello'));
+		await store.write(
+			`${baseMapTileDirectory(ARCHIVE)}readme.txt`,
+			new TextEncoder().encode('hello')
+		);
 		expect(await baseMapCacheSize(store)).toEqual({ tiles: 0, bytes: 0, maxZoom: null });
 	});
 });
@@ -124,16 +154,18 @@ describe('fetchTilesIntoCache', () => {
 		const store = new MemoryProjectStore();
 		const { readTile } = source(64);
 		const tiles = tileBudget(CANAL_BELT, 14).tiles;
-		const run = await fetchTilesIntoCache({ store, tiles, readTile });
+		const run = await fetchTilesIntoCache({ store, archive: ARCHIVE, tiles, readTile });
 
 		expect(run.written).toBe(23);
 		expect(run.bytes).toBe(23 * 64);
-		expect(await store.list('base-map/tiles/')).toEqual(
-			[...tiles].map(cachedTilePath).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+		expect(await store.list(baseMapTileDirectory(ARCHIVE))).toEqual(
+			[...tiles]
+				.map((tile) => cachedTilePath(ARCHIVE, tile))
+				.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 		);
 		// Stored as handed over — no compression step in either direction. See the note in
 		// `tile-cache.ts`: converting here is the silent blank map.
-		const one = await store.read(cachedTilePath({ z: 14, x: 8414, y: 5383 }));
+		const one = await store.read(cachedTilePath(ARCHIVE, { z: 14, x: 8414, y: 5383 }));
 		expect(one.byteLength).toBe(64);
 		expect(one[0]).toBe(14);
 	});
@@ -143,22 +175,28 @@ describe('fetchTilesIntoCache', () => {
 		const first = source();
 		const tiles = tileBudget(CANAL_BELT, 14).tiles;
 		// A first, partial run: the user cancelled, or the tab died.
-		await fetchTilesIntoCache({ store, tiles: tiles.slice(0, 10), readTile: first.readTile });
+		await fetchTilesIntoCache({
+			store,
+			archive: ARCHIVE,
+			tiles: tiles.slice(0, 10),
+			readTile: first.readTile
+		});
 
 		const second = source();
-		const coverage = await offlineCoverage(store, CANAL_BELT, 14);
+		const coverage = await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14);
 		const run = await fetchTilesIntoCache({
 			store,
+			archive: ARCHIVE,
 			tiles: coverage.missing,
 			readTile: second.readTile
 		});
 
 		expect(run.written).toBe(13);
 		expect(second.asked.length).toBe(13);
-		expect(second.asked.map(cachedTilePath)).not.toContain(
-			cachedTilePath(tiles[0] as TileCoordinate)
+		expect(second.asked.map((tile) => cachedTilePath(ARCHIVE, tile))).not.toContain(
+			cachedTilePath(ARCHIVE, tiles[0] as TileCoordinate)
 		);
-		expect((await offlineCoverage(store, CANAL_BELT, 14)).complete).toBe(true);
+		expect((await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14)).complete).toBe(true);
 	});
 
 	it('does not write a tile the source has nothing at, so coverage stays honest', async () => {
@@ -166,12 +204,13 @@ describe('fetchTilesIntoCache', () => {
 		const tiles = tileBudget(CANAL_BELT, 14).tiles;
 		const run = await fetchTilesIntoCache({
 			store,
+			archive: ARCHIVE,
 			tiles,
 			readTile: async (tile) => (tile.z === 14 ? null : new Uint8Array(8))
 		});
 		expect(run.absent).toBe(6);
 		expect(run.written).toBe(17);
-		expect((await offlineCoverage(store, CANAL_BELT, 14)).complete).toBe(false);
+		expect((await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14)).complete).toBe(false);
 	});
 
 	it('stops on its signal and says it was cancelled', async () => {
@@ -180,6 +219,7 @@ describe('fetchTilesIntoCache', () => {
 		let seen = 0;
 		const run = await fetchTilesIntoCache({
 			store,
+			archive: ARCHIVE,
 			tiles: tileBudget(CANAL_BELT, 14).tiles,
 			signal: controller.signal,
 			readTile: async () => {
@@ -196,7 +236,13 @@ describe('fetchTilesIntoCache', () => {
 		const store = new MemoryProjectStore();
 		const onProgress = vi.fn();
 		const tiles = tileBudget(CANAL_BELT, 14).tiles;
-		await fetchTilesIntoCache({ store, tiles, readTile: source().readTile, onProgress });
+		await fetchTilesIntoCache({
+			store,
+			archive: ARCHIVE,
+			tiles,
+			readTile: source().readTile,
+			onProgress
+		});
 		expect(onProgress).toHaveBeenCalledTimes(23);
 		expect(onProgress).toHaveBeenLastCalledWith({ done: 23, total: 23, bytes: 23 * 40 });
 	});
@@ -209,7 +255,7 @@ describe('an extent past the threshold', () => {
 		// offline having cached not one tile.
 		const store = new MemoryProjectStore();
 		const world: GeoBounds = { west: -179, south: -85, east: 179, north: 85 };
-		const coverage = await offlineCoverage(store, world, 14);
+		const coverage = await offlineCoverage(store, ARCHIVE, world, 14);
 		expect(coverage.budget.overThreshold).toBe(true);
 		expect(coverage.complete).toBe(false);
 		expect(coverage.missing).toEqual([]);
@@ -224,7 +270,7 @@ describe('baseMapCacheSize', () => {
 		// cache and a map that overzooms rather than one that goes blank.
 		const store = new MemoryProjectStore();
 		const tiles = tileBudget(CANAL_BELT, 14).tiles.filter((tile) => tile.z <= 11);
-		await fetchTilesIntoCache({ store, tiles, readTile: source().readTile });
+		await fetchTilesIntoCache({ store, archive: ARCHIVE, tiles, readTile: source().readTile });
 		expect((await baseMapCacheSize(store)).maxZoom).toBe(11);
 	});
 });
@@ -241,32 +287,31 @@ describe('what the cache records about where it came from', () => {
 		const store = new MemoryProjectStore();
 		await writeCachedTileSource(store, { archive: ARCHIVE, maxZoom: 14 });
 
-		expect(await readCachedTileSource(store)).toEqual({ archive: ARCHIVE, maxZoom: 14 });
+		expect(await readCachedTileSource(store, ARCHIVE)).toEqual({ archive: ARCHIVE, maxZoom: 14 });
 	});
 
 	it('records nothing when nothing was recorded, rather than guessing', async () => {
-		expect(await readCachedTileSource(new MemoryProjectStore())).toBeNull();
+		expect(await readCachedTileSource(new MemoryProjectStore(), ARCHIVE)).toBeNull();
 	});
 
 	it('refuses a record it cannot believe rather than half-reading it', async () => {
 		const store = new MemoryProjectStore();
 		for (const body of ['not json', '{}', '{"archive":"","maxZoom":14}', `{"archive":"a"}`]) {
-			await store.write(BASE_MAP_TILE_SOURCE_PATH, new TextEncoder().encode(body));
-			expect(await readCachedTileSource(store), body).toBeNull();
+			await store.write(baseMapTileSourcePath(ARCHIVE), new TextEncoder().encode(body));
+			expect(await readCachedTileSource(store, ARCHIVE), body).toBeNull();
 		}
 	});
 
-	it('says when the tiles on disk came out of a different archive', async () => {
-		// ADR-0020 promises that repointing a catalog entry needs no change anywhere else, and
-		// `check-base-map-catalog.mjs` enforces it — so two entries on two archives is a supported
-		// deployment, and `base-map/tiles/` carries no archive in its path. One directory would then
-		// serve both: a plausible pane of the wrong map, with no error anywhere.
-		const source = { archive: ARCHIVE, maxZoom: 14 };
+	it('refuses a record naming an archive other than the one asked about', async () => {
+		// It can only arrive by a hand edit or a key collision, and "unknown" is the honest reading: the
+		// caller then reaches for the network rather than trusting a foreign archive's depth.
+		const store = new MemoryProjectStore();
+		await store.write(
+			baseMapTileSourcePath(ARCHIVE),
+			new TextEncoder().encode(JSON.stringify({ archive: OTHER_ARCHIVE, maxZoom: 14 }))
+		);
 
-		expect(cachedTilesMatchArchive(source, ARCHIVE)).toBe(true);
-		expect(cachedTilesMatchArchive(source, 'https://example.test/other.pmtiles')).toBe(false);
-		// Unknown provenance is not known-wrong: a cache filled before this record existed still draws.
-		expect(cachedTilesMatchArchive(null, ARCHIVE)).toBe(true);
+		expect(await readCachedTileSource(store, ARCHIVE)).toBeNull();
 	});
 });
 
@@ -275,20 +320,22 @@ describe('clearBaseMapCache', () => {
 		const store = new MemoryProjectStore();
 		await fetchTilesIntoCache({
 			store,
+			archive: ARCHIVE,
 			tiles: tileBudget(CANAL_BELT, 14).tiles,
 			readTile: source().readTile
 		});
-		await writeCachedTileSource(store, { archive: 'https://example.test/a.pmtiles', maxZoom: 14 });
+		await writeCachedTileSource(store, { archive: ARCHIVE, maxZoom: 14 });
 
 		await clearBaseMapCache(store);
 
-		expect(await readCachedTileSource(store)).toBeNull();
+		expect(await readCachedTileSource(store, ARCHIVE)).toBeNull();
 	});
 
 	it('reclaims the cache and makes every Project report itself not available offline', async () => {
 		const store = new MemoryProjectStore();
 		await fetchTilesIntoCache({
 			store,
+			archive: ARCHIVE,
 			tiles: tileBudget(CANAL_BELT, 14).tiles,
 			readTile: source(100).readTile
 		});
@@ -297,8 +344,8 @@ describe('clearBaseMapCache', () => {
 		expect(await clearBaseMapCache(store)).toBe(23);
 
 		expect(await baseMapCacheSize(store)).toEqual({ tiles: 0, bytes: 0, maxZoom: null });
-		expect((await offlineCoverage(store, CANAL_BELT, 14)).complete).toBe(false);
-		expect((await offlineCoverage(store, NEARBY, 14)).complete).toBe(false);
+		expect((await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14)).complete).toBe(false);
+		expect((await offlineCoverage(store, ARCHIVE, NEARBY, 14)).complete).toBe(false);
 	});
 
 	it('leaves everything outside the cache alone', async () => {
@@ -307,6 +354,7 @@ describe('clearBaseMapCache', () => {
 		await store.write('my-project/project.json', new TextEncoder().encode('{}'));
 		await fetchTilesIntoCache({
 			store,
+			archive: ARCHIVE,
 			tiles: tileBudget(CANAL_BELT, 14).tiles,
 			readTile: source().readTile
 		});

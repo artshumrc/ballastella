@@ -99,7 +99,10 @@ export function siteRecord(
 			// completely differently to a Reader: no tiles is no geography, no glyphs is no place names.
 			baseMapBundled: false,
 			baseMapAssetsBundled: true,
-			baseMapMaxZoom: null,
+			// One entry per archive the site carries tiles for, and empty by default (ticket 12). The
+			// directory is keyed by archive, and a Reader's HTTP store cannot list one — so this is the
+			// only way the viewer can tell whether the entry it is showing has tiles here.
+			baseMapCaches: [],
 			...overrides
 		},
 		null,

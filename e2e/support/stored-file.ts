@@ -19,7 +19,7 @@
 // **The retry is on the read, never on an assertion.** Bytes that are genuinely absent are still
 // absent after twenty attempts, so nothing here can turn a missing file into a passing test.
 
-import type { Page } from '@playwright/test';
+import type { Page } from './test.js';
 
 /**
  * Twenty attempts, 25 ms apart — half a second, against a `move()` that takes microseconds.
@@ -61,7 +61,7 @@ const attemptRead = (
 			let failure = 'it was never attempted';
 			for (let attempt = 0; attempt < (attempts as number); attempt += 1) {
 				try {
-					let handle = await navigator.storage.getDirectory();
+					let handle = await workspaceRoot();
 					const segments = (path as string).split('/').filter((segment) => segment !== '');
 					for (const segment of segments.slice(0, -1)) {
 						handle = await handle.getDirectoryHandle(segment);
