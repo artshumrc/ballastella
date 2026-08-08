@@ -34,6 +34,10 @@ Merged to `main`: 01–05, 08–13, 16–19. Nothing in flight. **Four remain: 0
 
 **`pagehide` is not a race the user sometimes loses — for a real navigation it is never won.** Measured in a real browser: a debounced Project rename plus `page.reload()` inside the 400 ms window **lost the edit 8 times out of 8**. The event does fire and the flush takes 32 ms; the edit is lost anyway, because the store write is asynchronous and an unloading document does not run the continuation. A synchronous `localStorage.setItem` in the same handler survived 5/5. **The repo owner decided on 2026-08-08 to fix it, and it is fixed**: a Write-Ahead Journal, with ADR-0017 rule 3 amended and ADR-0001 carrying the exception's exact size.
 
+**20 is added after planning**, like 16, 17 and 19 — a defect the epic's own work surfaced rather than a slice of the plan.
+
+**The fix's first cut opened two new ways to lose data, which is worth more than the fix itself as a warning.** `capture()` re-records unchanged bytes at `pagehide`, so a quota that filled in between made the refusal path delete the valid, *identical* rescue copy at the moment it was needed — the ADR's own justification ("an older entry is a state the user passed through") did not hold when old and new bytes are the same. And replay read an empty listing as proof a Historical Map was gone, then forgot the entry permanently, while the Project branch beside it was careful and said so: **"unreadable is not absent."** Two branches in one file, one right and one wrong. A third: the `recovered` gate was on the hub but not on `/align` — bookmarkable, and the screen that reads and writes the very Alignments replay restores — while ADR-0017 already claimed every route waited. The implementer found that race itself, fixed it where it was testing, and generalised.
+
 **The design lesson is that the recording happens at the edit, not at `pagehide`.** `localStorage` quota can only be reported to a user while there is still a screen and a reader to report it to; at `pagehide` there is neither. So every queued write records synchronously and every successful store write forgets, and `capture()` runs *before* `flush()` — after would be a continuation, which is the thing that does not run.
 
 Smaller, recorded in 17's follow-ups: `expectWarpedDrawn` used to pass against a Base Map with no tiles at all — that is now fixed and is red against an all-zero archive.
@@ -46,7 +50,7 @@ Smaller, recorded in 17's follow-ups: `expectWarpedDrawn` used to pass against a
 
 **`retries` no longer hides anything.** Every retry is printed with file and line, and the run fails above 0.5%. A `--reporter=` flag on the command line replaces Playwright's whole reporter list and silently disables that budget — stated in `playwright.config.ts` and `CONTRIBUTING.md`, since nothing can pin it.
 
-Last updated: 2026-08-08 (05, 12, 13, 16, 17 and 19 merged; the network fence landed)
+Last updated: 2026-08-08 (05, 12, 13, 16, 17, 19 and 20 merged; the network fence landed)
 
 ## Standing constraints
 
@@ -92,6 +96,7 @@ Every Alignment write now goes through `alignment/alignment-file.ts` and names w
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Completed | 02, 03, 09 | — |
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
 | 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Completed | 11 | — |
+| 20 | [20-a-real-navigation-does-not-lose-an-edit.md](./tickets/20-a-real-navigation-does-not-lose-an-edit.md) | Completed | 12 | — |
 
 **16, 17 and 19 were added after planning.** 16 and 17 are debt the epic's own reviews surfaced: 16 is a rename the ubiquitous language already mandates and the code never did, and 17 is the e2e suite. 19 is a scope reduction on a human decision — libvips is not needed for v1, and the path it removes cannot execute on this deployment target, so it is almost entirely deletion. Its reasoning and measurements are in the ticket; it also closes v1 ticket 05's open question and ticket 15's `[~]` criterion, both of which have been waiting on that decision.
 
