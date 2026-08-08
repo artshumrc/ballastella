@@ -34,7 +34,9 @@ import {
 	emptyAnnotationCollection,
 	exportProjectZip,
 	imageDirectory,
+	imageInfoPath,
 	imageManifestPath,
+	imageSizeFromInfo,
 	ingestImageFile,
 	fetchTilesIntoCache,
 	insertLayerAt,
@@ -415,6 +417,16 @@ export class EditorSession {
 	 */
 	historicalMapError = $state('');
 
+	/**
+	 * Why adding a Historical Map the Workspace already holds did not happen, or `''`.
+	 *
+	 * Its own field rather than {@link ingestError}, which is the file source's, and rather than
+	 * {@link historicalMapError}, which is the hub's refusal to delete. Three different gestures fail
+	 * for three different reasons, and a shared field is how one of them ends up wearing another's
+	 * sentence — which this epic has already shipped once, in `layer-not-aligned`.
+	 */
+	addMapError = $state('');
+
 	ingest = $state<IngestProgress | null>(null);
 	/** The name of the file being ingested, for the progress message (SPEC story 23). */
 	ingestLabel = $state('');
@@ -768,6 +780,7 @@ export class EditorSession {
 		this.referencedImages = [];
 		this.referencedImageErrors = [];
 		this.ingestError = '';
+		this.addMapError = '';
 		// The hub is what a null `?p=` shows, and it needs the list. Listing here rather than on
 		// every mutation is what keeps typing a Project name from walking the whole Workspace once
 		// per keystroke — a 2 GB pyramid is tens of thousands of files.
@@ -1359,6 +1372,88 @@ export class EditorSession {
 	}
 
 	/**
+	 * Draw a Historical Map this Workspace already holds in **this** Project too (SPEC stories 27, 33).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * NOTHING IS COPIED, AND THAT IS THE WHOLE FEATURE
+	 *
+	 * This writes a Layer and, at most, a starter Alignment. It does not read a tile, does not write
+	 * one, and does not touch `images/` at all — which is what ADR-0023 bought: one pyramid, prepared
+	 * once, drawn by any number of Projects. The Alignment is the Workspace's too, so a map that was
+	 * placed on the earth in another Project is placed here the moment its Layer appears, with no
+	 * further action.
+	 *
+	 * **`create`, never `replace`.** {@link #addMapLayer} routes the Alignment through
+	 * {@link writeAlignmentFile}'s `create` intent, so the file somebody else's afternoon is in is
+	 * kept and the starter is written only when there is nothing there. The one case that reaches the
+	 * write is the reason this source has to offer more than the maps a Project already has: a
+	 * Historical Map whose ingest landed and whose starter Alignment did not arrives with a pyramid
+	 * and **without** a Layer (ADR-0023 writes the Alignment first on purpose), and after a reload
+	 * nothing on the Project screen connects the two. Adding it from here is the repair.
+	 *
+	 * **The size comes off `info.json`, or off the `remote.json` for a map whose tiles are a
+	 * Library's**, because a starter Alignment's Resource Mask is the whole sheet and a sheet of
+	 * unknown size is not one this can invent. A map neither record describes is refused in words
+	 * rather than added with a Resource Mask over nothing.
+	 *
+	 * @returns the Layer — the new one, or the one this Project already had — or `null` when nothing
+	 *   was written
+	 */
+	async addWorkspaceMap(imageId: string): Promise<MapLayer | null> {
+		this.addMapError = '';
+		if (!this.openDirectory || !this.openProject) return null;
+
+		const image = await this.#storedImageSize(imageId);
+		if (image === null) {
+			this.addMapError =
+				`That Historical Map was not added: this Workspace holds no readable description of its ` +
+				`size, so there is nothing to place an Alignment over. Its record at ` +
+				`images/${imageId}/ is missing or damaged.`;
+			return null;
+		}
+
+		// The Library's service for a referenced map, `{}` for one whose pyramid is here — the same
+		// answer `writeAlignment` spreads, out of the same helper, so a map added from this source and
+		// one added from the library flow cannot end up with different `target.source.id`s.
+		const added = await this.#addMapLayer({
+			imageId,
+			image,
+			...this.#alignmentAddressFor(imageId)
+		});
+		if (added === null) {
+			this.addMapError =
+				this.saveError || 'That Historical Map was not added: the Layer could not be written.';
+			return null;
+		}
+		return added.layer;
+	}
+
+	/**
+	 * The pixel dimensions of a Historical Map already in this Workspace, or `null`.
+	 *
+	 * Two records, in this order, and the order is the same rule {@link tileLocation} states: an
+	 * `info.json` of ours means the tiles are here and it is the authority on their size; otherwise
+	 * the `remote.json` is what the Workspace knows. An offline copy has both, and they agree —
+	 * `makeOfflineCopy` tiles the image the record describes — so preferring the local one costs
+	 * nothing and keeps the answer on the file the pyramid was actually cut from.
+	 */
+	async #storedImageSize(imageId: string): Promise<{ width: number; height: number } | null> {
+		try {
+			const bytes = await this.#store.read(imageInfoPath(imageId));
+			const size = imageSizeFromInfo(JSON.parse(new TextDecoder().decode(bytes)));
+			if (size !== null) return size;
+		} catch {
+			// No `info.json`, or one that will not parse. The remote record is the other half of the
+			// question rather than a fallback for a failure — a referenced map has never had one.
+		}
+		const record = this.referencedImages.find((image) => image.imageId === imageId);
+		if (record && record.width > 0 && record.height > 0) {
+			return { width: record.width, height: record.height };
+		}
+		return null;
+	}
+
+	/**
 	 * The Historical Maps **the Workspace** still fetches from a library, and the ones it has copied.
 	 *
 	 * Split on **whether the pyramid is there**, which is now the only thing there is to split on
@@ -1401,9 +1496,56 @@ export class EditorSession {
 		} catch (cause) {
 			// The same call `refresh` makes about the Project list: a Workspace that cannot be walked is
 			// the unreachable state, not an exception the hub has to survive.
+			//
+			// ⚠ **This verdict is the hub's to afford, and only the hub's.** It blanks the whole screen
+			// and offers the Workspace-recovery affordance, which is right when the Workspace *is* the
+			// screen. {@link refreshAddableHistoricalMaps} is the same walk asked for from a dialog on
+			// an open Project, and it deliberately does not come here: a transient failure reading
+			// `images/` must not take a scholar's Project off the screen because they pressed a button.
 			this.historicalMaps = [];
 			this.status = 'unreachable';
 			this.unreachableDetail = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			this.historicalMapsLoading = false;
+		}
+	}
+
+	/**
+	 * Re-read everything the "already in this Workspace" picker is built from (ticket 06).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * ONE WALK, THREE RECORDS, BECAUSE TWO OF THEM DECIDED DIFFERENT HALVES OF ONE ANSWER
+	 *
+	 * The picker lists {@link historicalMaps} and adds out of {@link referencedImages} and
+	 * {@link images}. Re-walking only the first is how a dialog comes to **offer a map it will then
+	 * refuse**: `listWorkspaceHistoricalMaps` lists an image directory holding a `remote.json`
+	 * whether or not this session has ever read that record, and `addWorkspaceMap` gets the map's
+	 * size out of the record. A referenced map that entered the Workspace after this Project was
+	 * opened — another tab, a synced folder, which is exactly what ADR-0023 invites — was listed by
+	 * the fresh walk and refused by the stale one.
+	 *
+	 * `images` is here for the other half of the same rule: whether a map is still *referenced* is
+	 * `partitionByOfflineCopy(referencedImages, images)`, so a map copied offline in another tab
+	 * would otherwise be added with a Library's address over a pyramid that is right here.
+	 *
+	 * **A walk failure is a sentence in the dialog, not the unreachable verdict.** See the warning
+	 * on {@link refreshHistoricalMaps}. `addMapError` is where it goes because that is the element
+	 * the picker already renders, beside the list the failure is about.
+	 */
+	async refreshAddableHistoricalMaps(): Promise<void> {
+		this.addMapError = '';
+		this.historicalMapsLoading = true;
+		try {
+			const referenced = await listReferencedImages(this.#store);
+			this.referencedImages = referenced.images;
+			this.referencedImageErrors = referenced.unreadable;
+			this.images = await listIngestedImages(this.#store);
+			this.historicalMaps = await listWorkspaceHistoricalMaps(this.#store);
+		} catch (cause) {
+			this.addMapError =
+				`The Historical Maps in this Workspace could not be looked through: ` +
+				`${cause instanceof Error ? cause.message : String(cause)} Everything already in this ` +
+				`Project is unaffected, and a file or a library address still works.`;
 		} finally {
 			this.historicalMapsLoading = false;
 		}

@@ -603,6 +603,7 @@ export {
 	TILE_MEDIA_TYPE,
 	buildImageInfo,
 	imageServiceId,
+	imageSizeFromInfo,
 	planPyramid,
 	pyramidScaleFactors,
 	serialiseJson,

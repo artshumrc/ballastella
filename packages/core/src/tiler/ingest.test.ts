@@ -370,6 +370,75 @@ describe('ingestImageFile', () => {
 		expect(await store.list('')).toEqual([]);
 	});
 
+	it('leaves nothing behind when it is cancelled during `finishing`', async () => {
+		// ┌───────────────────────────────────────────────────────────────────────────────────────┐
+		// │ THE WINDOW WHERE CANCEL USED TO DO NOTHING AT ALL.                                    │
+		// └───────────────────────────────────────────────────────────────────────────────────────┘
+		//
+		// The Cancel affordance stays live until the phase is `done`, and there used to be one abort
+		// check at the top of `finishing` and none across the two writes that follow it. A cancel
+		// landing there aborted nothing: the map the user cancelled was created — `info.json` and
+		// all, so it is offered by every list in the app — with no error and nothing to notice.
+		//
+		// Cancelled *at* the last write, which is the far end of the window and the case the single
+		// check at the top of the phase could never have caught. Its near end — a cancel landing on
+		// the manifest write, which the check *before* `info.json` is the one that catches — is the
+		// test below; between them the two checks added across this window are each exercised alone.
+		const controller = new AbortController();
+		const store = new MemoryProjectStore();
+		const write = store.write.bind(store);
+		store.write = async (path, bytes) => {
+			if (path.endsWith('/info.json')) controller.abort();
+			return write(path, bytes);
+		};
+
+		await expect(
+			ingestImageFile({
+				store,
+				file: imageFile(600, 400),
+				openDecodeAndCrop: stubTiler({ width: 600, height: 400 }),
+				signal: controller.signal
+			})
+		).rejects.toThrow();
+
+		// Not "no `info.json`" but nothing at all: an abandoned pyramid is unreachable and still
+		// occupies the bytes ADR-0008's hosting warning counts.
+		expect(await store.list('')).toEqual([]);
+	});
+
+	it('writes no `info.json` when the cancel lands on the manifest write', async () => {
+		// The near end of the same window, and the only case that reaches the abort check *between*
+		// the two writes. The test above cancels during the `info.json` write itself, so by then that
+		// check has already passed and it is the one after it that fires — leaving the earlier check
+		// asserted by nothing, which is how a guard quietly becomes decoration.
+		//
+		// `info.json` is the completion marker for the whole directory: everything in the app finds a
+		// Historical Map by finding one. So this asserts more than "nothing is left behind" — it
+		// asserts the cancel was taken *before* the map became findable, rather than after it and
+		// undone.
+		const controller = new AbortController();
+		const store = new MemoryProjectStore();
+		const write = store.write.bind(store);
+		const paths: string[] = [];
+		store.write = async (path, bytes) => {
+			paths.push(path);
+			if (path.endsWith('/manifest.json')) controller.abort();
+			return write(path, bytes);
+		};
+
+		await expect(
+			ingestImageFile({
+				store,
+				file: imageFile(600, 400),
+				openDecodeAndCrop: stubTiler({ width: 600, height: 400 }),
+				signal: controller.signal
+			})
+		).rejects.toThrow();
+
+		expect(paths.filter((path) => path.endsWith('/info.json'))).toEqual([]);
+		expect(await store.list('')).toEqual([]);
+	});
+
 	it('leaves nothing behind when a tile fails halfway', async () => {
 		await expect(
 			ingestImageFile({

@@ -10,12 +10,19 @@
 	// screen now, and this is it: a Base Map with the Layer stack beside it.
 	//
 	// **This file is `/layers/`'s script, moved, not rewritten.** The document-loading chain — the
-	// `documentKey` guard, `drawn`, `outcomes`, `annotationPoints` and the annotation editing
-	// functions — is the state layer for the whole screen and it is load-bearing in ways no test
-	// names: `documentKey` exists because a rename once re-read every Alignment and one drag of an
-	// opacity slider cost twenty reads per Layer. What `ProjectView` contributed is added around it:
-	// the Project name (now in a dialog), the way a Historical Map gets in, and the remote-origin
-	// affordances.
+	// `documentKey` guard, `drawn` and `outcomes` — is the state layer for the whole screen and it is
+	// load-bearing in ways no test names: `documentKey` exists because a rename once re-read every
+	// Alignment and one drag of an opacity slider cost twenty reads per Layer. What `ProjectView`
+	// contributed is added around it: the Project name (now in a dialog), the way a Historical Map
+	// gets in, and the remote-origin affordances.
+	//
+	// **What is left here, after ticket 06's carve.** Four subjects shared this `<script>`, and the
+	// annotation editing layer — `openLayerId`, the selection, the drawing gesture, and every
+	// function that writes an Annotation — is now `annotations/annotation-editing.svelte.ts`, where
+	// it has a unit test rather than only the browser suite. What remains is the document-loading
+	// chain, the opening view (ADR-0026), offline availability (ADR-0025) and the way a Historical
+	// Map gets in. **1776 lines before ticket 06, 1879 after its first cut, and this is what the
+	// carve leaves.** If this file is growing again, the next thing to leave is one of those four.
 	//
 	// **A component rather than a route.** A Project is `/?p=<dir>` (ADR-0008) — the same prerendered
 	// page as the hub, choosing its subject client-side — so the thing that renders it has to be
@@ -27,29 +34,16 @@
 
 	import { resolve } from '$app/paths';
 	import {
-		addAnnotation,
 		baseMapArchiveHost,
 		baseMapFallbackNotice,
 		baseMapUnavailableNotice,
 		canSolve,
-		findAnnotation,
-		insertAnnotationAt,
-		newAnnotation,
 		openingViewSentence,
-		removeAnnotation,
 		resolveBaseMap,
-		setGeometry,
-		setLineStyle,
-		setStyle,
-		setText,
 		type Alignment,
 		type AnnotationCollection,
-		type AnnotationDeletedUndo,
-		type AnnotationGeometry,
 		type AnnotationLayer,
-		type GeoPoint,
 		type Layer,
-		type LineStyle,
 		type MapLayer,
 		type BaseMapCacheSize,
 		type BaseMapEntry,
@@ -60,8 +54,8 @@
 	import { untrack } from 'svelte';
 
 	import AnnotationLayerContents from '$lib/annotations/AnnotationLayerContents.svelte';
-	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
-	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
+	import { AnnotationEditing } from '$lib/annotations/annotation-editing.svelte.js';
+	import BaseMapPane from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import MakeOfflineDialog from '$lib/base-map/MakeOfflineDialog.svelte';
 	import { MakeProjectOffline, readOfflineCoverage } from '$lib/base-map/make-offline.svelte.js';
@@ -69,9 +63,9 @@
 	import MenuPopover from '$lib/components/MenuPopover.svelte';
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
+	import AddHistoricalMap from '$lib/historical-maps/AddHistoricalMap.svelte';
 	import LayerList from '$lib/layers/LayerList.svelte';
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
-	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
 	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
@@ -436,372 +430,26 @@
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Annotations
+	//
+	// **Carved out of this file** into `annotations/annotation-editing.svelte.ts` (ticket 06, on
+	// ticket 05's reading). It was 369 lines of one subject with exactly three edges to the rest of
+	// the screen — the session, the `documents` record, and `layers` — which is what those three
+	// arguments are. Everything about *why* each member is shaped as it is moved with it.
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
-	const annotationLayers = $derived(
-		layers.filter((layer): layer is AnnotationLayer => layer.kind === 'annotation')
-	);
-
-	const annotationLayerCount = $derived(annotationLayers.length);
-
-	/**
-	 * Which Layer is open in the sidebar — and, for an Annotation Layer, the one being drawn into.
-	 *
-	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * ONE VALUE, NOT TWO
-	 *
-	 * This used to be `chosenLayerId`, and beside it the sidebar had no notion of a Layer being open at
-	 * all: the drawing surface was a panel below the stack with a `<select>` of its own. So "which
-	 * Layer am I looking at" and "which Layer am I drawing into" were two facts that could disagree,
-	 * and nothing in the interface said which one a click on the map would write to. Ticket 05 makes
-	 * opening a Layer *be* choosing it, so there is one value and no way to make it disagree with
-	 * itself.
-	 *
-	 * A **working choice, not a property of the Project**, so it is component state and is not written
-	 * anywhere — not to `project.json` and not to `localStorage`. Which Layer somebody happened to have
-	 * open is not part of their work, and persisting it would mean a write on a click that changed
-	 * nothing (ADR-0010, ADR-0002).
-	 */
-	let openLayerId = $state<string | null>(null);
-
-	/**
-	 * The open Layer, when it is an Annotation Layer. `null` when nothing is open, when a map or a
-	 * `foreign` Layer is open, and when the open Layer has since been deleted.
-	 *
-	 * **No fallback to the topmost Annotation Layer**, which is what this had before and is exactly the
-	 * disagreement above: a Layer that is "chosen" while its row is closed is a Layer the user is not
-	 * looking at, and the drawing tools now live inside the row, so there is nothing to draw with until
-	 * one is open.
-	 */
-	const activeLayer = $derived<AnnotationLayer | null>(
-		annotationLayers.find((layer) => layer.id === openLayerId) ?? null
-	);
-
-	/**
-	 * The active Layer's Annotations.
-	 *
-	 * Read out of `documents`, which is the **one** in-memory copy: an edit replaces the entry there and
-	 * the map re-renders from it, so there is no second copy of a Layer's contents that could disagree
-	 * with what was written. That is the same rule `EditorSession` follows for `project.json`.
-	 */
-	const activeCollection = $derived<AnnotationCollection | null>(
-		activeLayer === null
-			? null
-			: ((documents[activeLayer.id] as AnnotationCollection | undefined) ?? null)
-	);
-
-	let selectedAnnotationId = $state<string | null>(null);
-	const drawing = new AnnotationDrawing();
-
-	/**
-	 * Why an undo did not happen, or `''`.
-	 *
-	 * The affordance disappears when it is pressed, so an undo that quietly declined to do anything
-	 * would look exactly like an undo that worked — and the one thing this feature has to convey is
-	 * whether the user's work is back. `UndoControl` announces the success; a refusal has to be said
-	 * from here, because it is this screen that knows which Layer the record named.
-	 */
-	let undoRefusal = $state('');
-
-	/**
-	 * Where the open popup is anchored, or `null` for none.
-	 *
-	 * The *place* rather than the popup, because MapLibre's `Popup` belongs inside the pane that owns
-	 * the map — the screen says which Annotation is open and where, and the pane puts it on the map. A
-	 * page holding a `Popup` would be a second thing reaching into MapLibre from outside it.
-	 */
-	let popupAt = $state.raw<GeoPoint | null>(null);
-
-	/** Replace the active Layer's collection in memory and write it. */
-	async function commitAnnotations(
-		next: AnnotationCollection,
-		options: { debounce?: boolean } = {}
-	): Promise<void> {
-		const layer = activeLayer;
-		if (!layer) return;
-		await commitAnnotationsIn(layer, next, options);
-	}
-
-	/**
-	 * The same, into a Layer named outright rather than whichever one is chosen.
-	 *
-	 * **Undo is why this exists**, and it is the only caller that needs it: an `AnnotationDeletedUndo`
-	 * carries the Layer the Annotation was in precisely so it cannot be restored into another one, and
-	 * the picker may well have moved between the deletion and the undo. Everything else edits what the
-	 * user is looking at, which is what {@link commitAnnotations} is for.
-	 */
-	async function commitAnnotationsIn(
-		layer: AnnotationLayer,
-		next: AnnotationCollection,
-		options: { debounce?: boolean } = {}
-	): Promise<void> {
-		if (next === documents[layer.id]) return;
-		documents = { ...documents, [layer.id]: next };
-		await session.writeAnnotations(layer, next, options);
-	}
-
-	/**
-	 * A place on the earth the user asked for — a click, or Enter over the pane.
-	 *
-	 * With a drawing tool active this places a vertex; with the select tool it does nothing, and the
-	 * Annotation hit (if any) is what {@link selectAnnotation} handles. One write happens here and only
-	 * for a pin, whose gesture is complete at one point; a line and a shape are written by
-	 * {@link finishShape}, which is ADR-0017 rule 1's "the gesture is over".
-	 */
-	async function placePoint(point: GeoPoint): Promise<void> {
-		if (drawing.tool === 'select') return;
-		const finished = drawing.place(point);
-		if (finished !== null) await addDrawn(finished);
-	}
-
-	/** End a line or a shape, and keep it. */
-	async function finishShape(): Promise<void> {
-		const finished = drawing.finish();
-		if (finished !== null) await addDrawn(finished);
-	}
-
-	/** Put a finished geometry in the Layer as a new Annotation, and select it so it can be titled. */
-	async function addDrawn(geometry: AnnotationGeometry): Promise<void> {
-		const collection = activeCollection ?? { annotations: [] };
-		const annotation = newAnnotation({ id: crypto.randomUUID(), geometry });
-		selectedAnnotationId = annotation.id;
-		popupAt = null;
-		await commitAnnotations(addAnnotation(collection, annotation));
-	}
-
-	/**
-	 * Select an Annotation, and where asked, show what it says.
-	 *
-	 * The popup is the reader-facing surface and is shown to the author too, because an author needs to
-	 * see what a reader will — it is the only place the rendered Markdown appears over the map rather
-	 * than beside it. Selecting from the list opens no popup: there is no place on the map the user
-	 * pointed at, and one appearing at an arbitrary coordinate would be worse than none.
-	 */
-	function selectAnnotation(id: string | null, at: GeoPoint | null = null): void {
-		selectedAnnotationId = id;
-		popupAt = id === null ? null : at;
-	}
-
-	const selectedAnnotation = $derived(
-		activeCollection && selectedAnnotationId
-			? (findAnnotation(activeCollection, selectedAnnotationId) ?? null)
-			: null
-	);
-
-	/**
-	 * The overlay points on the Base Map: the shape being drawn, and the selected Annotation's vertices.
-	 *
-	 * On the same seam as a Control Point and a Resource Mask corner, which is what gives every vertex a
-	 * named `<button>`, arrow-key movement, Delete, and one store write per gesture without any of it
-	 * being written here — see `drawing.svelte.ts` for why this rather than a WebGL drawing library.
-	 */
-	const annotationPoints = $derived.by((): BaseMapOverlayPoint[] => {
-		const points: BaseMapOverlayPoint[] = [];
-
-		// The vertices placed so far in the gesture in progress. Not operable: the next click on one of
-		// them is the click that places the next vertex.
-		drawing.vertices.forEach((vertex, index) => {
-			points.push({
-				key: `annotation-draft-${index}`,
-				point: vertex,
-				kind: 'annotation-draft',
-				ordinal: index + 1,
-				label: `Point ${index + 1} of the shape being drawn`
-			});
-		});
-
-		const annotation = selectedAnnotation;
-		const geometry = annotation?.geometry;
-		if (!annotation || !geometry || geometry.type === 'foreign') return points;
-		// A polygon's ring is closed (RFC 7946), so its last position repeats its first: it is drawn as
-		// one fewer handle than the ring has positions, and `reshape` closes it again. Two handles on the
-		// same spot, one of which silently had to follow the other, is the alternative.
-		const positions: readonly (readonly [number, number])[] =
-			geometry.type === 'Point'
-				? [geometry.coordinates]
-				: geometry.type === 'Polygon'
-					? (geometry.coordinates[0] ?? []).slice(0, -1)
-					: geometry.coordinates;
-
-		positions.forEach((position, index) => {
-			points.push({
-				key: `annotation-vertex-${annotation.id}-${index}`,
-				point: { lng: position[0] ?? 0, lat: position[1] ?? 0 },
-				kind: 'annotation-vertex',
-				ordinal: index + 1,
-				label:
-					`Point ${index + 1} of ${positions.length} of ${annotationName(annotation.id)}. ` +
-					'Arrow keys move it.',
-				// **Once, on gesture end.** Pointer-up, or the release of a held arrow key — never per
-				// pointer-move, which is what makes "one edit is one store write" a number the suite counts.
-				onmoveend: (to) => void reshape(index, to)
-			});
-		});
-
-		return points;
+	const annotations = new AnnotationEditing({
+		session: () => session,
+		layers: () => layers,
+		documents: () => documents,
+		// The one write back through the middle of the edge: `documents` holds the map Layers'
+		// Alignments too, so the screen keeps the record and this replaces one entry in it.
+		replaceDocument: (layerId, collection) => {
+			documents = { ...documents, [layerId]: collection };
+		}
 	});
 
-	/** What an Annotation is called, for a handle's accessible name. */
-	const annotationName = (id: string): string => {
-		const collection = activeCollection;
-		const annotation = collection ? findAnnotation(collection, id) : undefined;
-		return annotation?.properties.title || 'this Annotation';
-	};
-
-	/** Move one vertex of the selected Annotation, writing once. */
-	async function reshape(index: number, to: GeoPoint): Promise<void> {
-		const collection = activeCollection;
-		const annotation = selectedAnnotation;
-		const geometry = annotation?.geometry;
-		if (!collection || !annotation || !geometry || geometry.type === 'foreign') return;
-
-		const moved: [number, number] = [to.lng, to.lat];
-		let next: AnnotationGeometry;
-		if (geometry.type === 'Point') {
-			next = { type: 'Point', coordinates: moved };
-		} else if (geometry.type === 'LineString') {
-			const positions = geometry.coordinates.map((position, at) =>
-				at === index ? moved : position
-			);
-			next = { type: 'LineString', coordinates: positions };
-		} else {
-			const ring = (geometry.coordinates[0] ?? []).slice(0, -1);
-			const positions = ring.map((position, at) => (at === index ? moved : position));
-			// Closed again, because a LinearRing whose ends differ is what other tools reject.
-			next = {
-				type: 'Polygon',
-				coordinates: [[...positions, positions[0] ?? moved], ...geometry.coordinates.slice(1)]
-			};
-		}
-		await commitAnnotations(setGeometry(collection, annotation.id, next));
-	}
-
-	/**
-	 * Delete the selected Annotation, recording what it takes away.
-	 *
-	 * The record holds the Annotation itself, so every one of its `properties` comes back — including
-	 * `stroke-dasharray`, where "solid" is the property being *absent* (ADR-0009): an undo that rebuilt
-	 * the Annotation from the controls' current values would silently turn a dotted conjectural route
-	 * into a solid certain one.
-	 */
-	async function deleteSelected(): Promise<void> {
-		const collection = activeCollection;
-		const layer = activeLayer;
-		const id = selectedAnnotationId;
-		if (!collection || !layer || !id) return;
-		const at = collection.annotations.findIndex((one) => one.id === id);
-		const annotation = collection.annotations[at];
-		// A refusal is about the record that is being replaced, so it goes with it.
-		undoRefusal = '';
-		selectedAnnotationId = null;
-		popupAt = null;
-		await commitAnnotations(removeAnnotation(collection, id));
-		if (!annotation) return;
-		const record: AnnotationDeletedUndo = {
-			kind: 'annotation-deleted',
-			layerId: layer.id,
-			at,
-			annotation
-		};
-		// Recorded *after* the write, so a deletion the store refused is not offered as something to undo
-		// — the same discipline `writeAlignment` follows when it counts a write.
-		session.record(record, () => restoreDeleted(record));
-	}
-
-	/**
-	 * Put a deleted Annotation back **into the Layer it was deleted from**.
-	 *
-	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * WHY THE RECORD NAMES THE LAYER AND THIS READS IT
-	 *
-	 * {@link openLayerId} is a working choice the user is free to change, and nothing stops them
-	 * changing it between the deletion and the undo — another Layer's row is a few pixels from the
-	 * affordance. An undo that wrote into whichever Layer happened to be open would take an Annotation
-	 * out of one `.geojson` and put it into another, which is not an undo of anything: it is a move the
-	 * user did not ask for, into a file they were not looking at. `AnnotationDeletedUndo.layerId` exists
-	 * for exactly this, and this is where it is spent.
-	 *
-	 * The sidebar follows the record rather than the other way round — the Layer the Annotation came
-	 * from is *opened* — so the user watches the Annotation come back instead of being told it did, the
-	 * same reason `AlignmentPairing.restore` selects the pair it put back.
-	 *
-	 * Restored into that Layer's collection **as it is now** rather than into a snapshot: whatever else
-	 * has been drawn or edited in it since must survive an undo of one deletion.
-	 */
-	async function restoreDeleted(record: AnnotationDeletedUndo): Promise<void> {
-		undoRefusal = '';
-		const layer = annotationLayers.find((one) => one.id === record.layerId);
-		if (!layer) {
-			// Not reachable through the interface — deleting a Layer is itself one of the four recorded
-			// actions, so it replaces this record rather than orphaning it. Said rather than silently
-			// redirected all the same, because the alternative to saying so is writing the Annotation into
-			// a Layer the user never deleted it from.
-			undoRefusal =
-				`The Annotation could not be put back: the Annotation Layer it was in is no longer in ` +
-				'this Project.';
-			return;
-		}
-		let collection = documents[layer.id] as AnnotationCollection | undefined;
-		if (collection === undefined) {
-			// Only a Layer that has since been hidden gets here: `documents` holds the Layers the map is
-			// given, and a hidden one is absent from it. Read rather than assumed empty — assuming would
-			// write a file holding one Annotation over a file holding twenty.
-			try {
-				collection = await session.readAnnotations(layer);
-			} catch (cause) {
-				undoRefusal =
-					`The Annotation could not be put back: ${layer.name || 'its Annotation Layer'} could ` +
-					`not be read. ${cause instanceof Error ? cause.message : String(cause)}`;
-				return;
-			}
-		}
-		openLayerId = layer.id;
-		selectedAnnotationId = record.annotation.id;
-		popupAt = null;
-		await commitAnnotationsIn(layer, insertAnnotationAt(collection, record.annotation, record.at));
-	}
-
-	/** Type into the title or the description. Coalesced per file (ADR-0017 rule 2). */
-	async function typeText(text: { title?: string; description?: string }): Promise<void> {
-		const collection = activeCollection;
-		const id = selectedAnnotationId;
-		if (!collection || !id) return;
-		await commitAnnotations(setText(collection, id, text), { debounce: true });
-	}
-
-	/**
-	 * The edit is over — a field blurred, Enter was pressed, or a slider was released.
-	 *
-	 * A no-op unless something is waiting to be written, which is the same guard `commitLayerEdit` and
-	 * `commitProjectName` both carry: tabbing through a title field is *looking*, and ADR-0010 is
-	 * explicit that merely looking at an old Project must not modify a single byte of it.
-	 */
-	async function commitAnnotationEdit(): Promise<void> {
-		const layer = activeLayer;
-		const collection = activeCollection;
-		if (!layer || !collection) return;
-		if (!session.hasPendingAnnotationWrite(layer)) return;
-		await session.writeAnnotations(layer, collection);
-	}
-
-	/** Set style properties on the selected Annotation, by their exact simplestyle names. */
-	async function styleSelected(
-		style: Record<string, unknown>,
-		options: { debounce?: boolean } = {}
-	): Promise<void> {
-		const collection = activeCollection;
-		const id = selectedAnnotationId;
-		if (!collection || !id) return;
-		await commitAnnotations(setStyle(collection, id, style), options);
-	}
-
-	/** Set the selected Annotation's line style. Stores the tuple; solid is its absence (ADR-0009). */
-	async function lineStyleSelected(line: LineStyle): Promise<void> {
-		const collection = activeCollection;
-		const id = selectedAnnotationId;
-		if (!collection || !id) return;
-		await commitAnnotations(setLineStyle(collection, id, line));
-	}
+	/** The gesture in progress, read by the window's Escape handler and by the pane. */
+	const drawing = annotations.drawing;
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Making this Project available offline (ADR-0025, SPEC stories 6, 70–73)
@@ -949,21 +597,6 @@
 		untrack(() => (offlineGeneration += 1));
 	});
 
-	/**
-	 * Open a Layer, or close whatever is open.
-	 *
-	 * Opening a different Layer abandons a part-drawn shape and clears the selection with it, which is
-	 * what choosing another Layer to draw into has always done — the gesture in progress belongs to the
-	 * Layer that is being left, and carrying it across would drop it into a file the user was not
-	 * drawing in. Closing does the same for the same reason: the tools go off the screen with the row.
-	 */
-	function openLayer(id: string | null): void {
-		openLayerId = id;
-		selectedAnnotationId = null;
-		popupAt = null;
-		drawing.cancel();
-	}
-
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Project settings, and the menu it opens from (SPEC stories 10, 11)
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1063,6 +696,47 @@
 		)
 	]);
 
+	/** Whether the "Add a Historical Map" dialog is up (ticket 06). A working choice, stored nowhere. */
+	let addingMap = $state(false);
+
+	/**
+	 * What the last add had to say beyond having happened, or `''`.
+	 *
+	 * **Held here rather than in the dialog because the dialog closes on success.** The one thing that
+	 * says this today is the community Alignment a user asked to import and did not get: the Layer is
+	 * there, the import did not happen, and *why* is not guessable from anything on screen — one
+	 * Alignment per Historical Map, shared by every Project that draws it, is a property of this
+	 * application's storage (ADR-0023). A message rendered inside the dialog would be inserted and
+	 * removed in the same frame, which announces nothing at all.
+	 */
+	let addNotice = $state('');
+
+	/**
+	 * What the preparation of a Historical Map is doing, in one sentence (SPEC story 23).
+	 *
+	 * **One string, rendered twice**: visibly on the Layer's card, and in the always-present live
+	 * region below the stack. The ticket asks for the announcement to carry the same numbers as the
+	 * bar, and the only way to be sure of that is for there to be one sentence rather than two that
+	 * have to be kept agreeing.
+	 */
+	const ingestSentence = $derived.by((): string => {
+		const ingest = session.ingest;
+		if (!ingest) return '';
+		const label = session.ingestLabel;
+		switch (ingest.phase) {
+			case 'inspecting':
+				return `Reading ${label}…`;
+			case 'opening':
+				return `Opening ${label}…`;
+			case 'tiling':
+				return `Preparing ${label}: tile ${ingest.tilesWritten} of ${ingest.tileCount}`;
+			case 'finishing':
+				return `Finishing ${label}…`;
+			case 'done':
+				return `Added ${label}`;
+		}
+	});
+
 	/**
 	 * Which referenced Historical Map is being read unwarped, by image id. `''` for none.
 	 *
@@ -1083,21 +757,24 @@
 	you have not moved the focus" is not a cancel affordance. It abandons rather than commits, because a
 	half-drawn shape somebody walked away from is not something they asked to keep.
 
-	**Not while the settings dialog or the Project menu is open.** Both of them consume Escape
-	themselves — `<dialog>` closes, and a popover light-dismisses — and both keep the keypress
-	propagating afterwards, so acting on it here as well would abandon a drawing gesture the user
-	cannot even see behind whichever one they were closing.
+	**Not while a dialog or the Project menu is open.** All three consume Escape themselves — a
+	`<dialog>` closes, and a popover light-dismisses — and all three keep the keypress propagating
+	afterwards, so acting on it here as well would abandon a drawing gesture the user cannot even see
+	behind whichever one they were closing. `addingMap` is in that list for the same reason
+	`settingsOpen` is, and it is the reason this is a list rather than one flag: every dialog added to
+	this screen has to join it, and the next one will be `MakeOfflineDialog`'s if it ever gains a
+	drawing gesture behind it.
 -->
 <svelte:window
 	onkeydown={(event) => {
-		if (event.key !== 'Escape' || settingsOpen) return;
+		if (event.key !== 'Escape' || settingsOpen || addingMap) return;
 		// **Asked of the element, not of a flag.** `MenuPopover.isOpen()` reads `:popover-open`, which
 		// is true throughout the keypress that dismisses it and false on the very next one — a reactive
 		// copy of the same fact lags one flush behind, and that lag swallowed the Escape a user
 		// pressed *after* closing the menu, which is the cancel they actually meant.
 		if (menu?.isOpen()) return;
 		if (drawing.cancel()) return;
-		if (popupAt !== null) popupAt = null;
+		if (annotations.popupAt !== null) annotations.popupAt = null;
 	}}
 />
 
@@ -1201,27 +878,44 @@
 					{layers}
 					{outcomes}
 					{referencedImageIds}
-					{openLayerId}
-					onopen={openLayer}
+					openLayerId={annotations.openLayerId}
+					onopen={(id) => annotations.openLayer(id)}
 					ontypename={(id, name) => session.typeLayerName(id, name)}
 					oncommit={() => session.commitLayerEdit()}
 					onshow={(id, visible) => session.showLayer(id, visible)}
 					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
 					ondelete={(id) => void session.deleteLayer(id)}
+					preparing={session.ingest ? preparingLayer : undefined}
 					{mapContents}
 					{annotationContents}
 				/>
 
+				<!--
+					The one way a Historical Map gets into this Project (ticket 06), and it is a button with
+					words on it rather than an icon (SPEC story 111). What it opens offers all three sources
+					at once — a file, a library, and a map this Workspace already holds — which is why this is
+					one affordance rather than three sections competing for a 24rem column.
+				-->
 				<button
-					class="btn mt-4 btn-sm"
+					class="btn mt-4 btn-primary btn-sm"
+					type="button"
+					data-testid="add-historical-map"
+					onclick={() => (addingMap = true)}
+				>
+					Add a Historical Map
+				</button>
+
+				<button
+					class="btn mt-4 ml-2 btn-sm"
 					data-testid="add-annotation-layer"
-					onclick={() => session.addAnnotationLayer(`Annotations ${annotationLayerCount + 1}`)}
+					onclick={() =>
+						session.addAnnotationLayer(`Annotations ${annotations.annotationLayerCount + 1}`)}
 				>
 					Add an Annotation Layer
 				</button>
 
-				{#if annotationLayerCount === 0}
+				{#if annotations.annotationLayerCount === 0}
 					<!--
 						What to do when there is nothing to draw into yet, beside the button that fixes it.
 
@@ -1251,119 +945,72 @@
 					aria-atomic="true"
 					data-testid="undo-refused"
 				>
-					{undoRefusal}
+					{annotations.undoRefusal}
 				</p>
 
-				<hr class="my-6 border-base-300" />
+				<!--
+					What the preparation in the stack is doing, announced (SPEC stories 23, 112).
+
+					─────────────────────────────────────────────────────────────────────────────────────────
+					WHY THE ANNOUNCEMENT IS HERE AND THE PROGRESS IS ON THE CARD
+
+					`aria-live="polite"` with `aria-atomic="true"` rather than `role="status"`, and the reason
+					is unchanged from where this used to live: the save indicator already owns `status` for the
+					whole app, so a second one makes `getByRole('status')` ambiguous — which is a hint that a
+					screen-reader user would have to disambiguate too. `aria-atomic` so each update is read as
+					a whole sentence rather than as the digits that changed.
+
+					**Always rendered, which is what makes it work.** A live region is announced when its text
+					*changes*, not when the element carrying it is inserted — the same rule this file states at
+					length for `base-map-offline`, which is an `alert` for exactly that reason. The Layer's
+					card is inserted with its text already in it, so a live region inside the card would be an
+					announcement a screen-reader user never hears. So the card carries the visible sentence and
+					this carries the announced one, they are the same string ({@link ingestSentence}), and this
+					one is `sr-only` because the card is already showing it.
+				-->
+				<p class="sr-only" aria-live="polite" aria-atomic="true" data-testid="ingest-announcement">
+					{ingestSentence}
+				</p>
 
 				<!--
-					Adding a Historical Map from a file on this computer (SPEC stories 21, 22, 25, 26).
+					Why an add did not happen, from either of the two sources that fail in the sidebar rather
+					than in the dialog: a file that could not be tiled, and a second file picked while one was
+					still running. `role="alert"` because this element is *inserted* when its text first exists,
+					and an `aria-live` region is announced on a text change rather than on insertion.
 
-					Every image becomes a IIIF pyramid, including a small one, because an untiled level-0
-					image cannot be parsed at all (ADR-0003). So this is a job with progress rather than a
-					file input that finishes instantly, and the progress region below is what a scholar
-					watching a large scan has to go on.
-
-					In the sidebar because that is where Layers come from. Ticket 06 makes it one "Add a
-					Layer" flow offering all three sources; what is here is the two that already work, kept
-					working.
+					Here and not in the dialog because the dialog is closed by then: picking a file closes it, so
+					the refusal has to land where the user is left. The "already in this Workspace" source fails
+					with the dialog still open and says so there, beside the list that was clicked.
 				-->
-				<section aria-labelledby="historical-maps-heading">
-					<h2 id="historical-maps-heading" class="text-sm font-semibold">Historical Maps</h2>
-
-					<label class="mt-3 block">
-						<span class="mb-1 block text-sm">Add a Historical Map from a file</span>
-						<input
-							class="file-input w-full"
-							type="file"
-							accept="image/*"
-							disabled={session.ingest !== null}
-							onchange={(event) => {
-								const input = event.currentTarget;
-								const file = input.files?.[0];
-								// Cleared straight away, so picking the same file twice runs twice: `change` does
-								// not fire for an unchanged value, and "nothing happened" is indistinguishable
-								// from a silent failure.
-								input.value = '';
-								if (file) session.ingestImage(file);
-							}}
-						/>
-					</label>
-
-					<!--
-						`aria-live="polite"` rather than `role="status"`, which would be the idiomatic choice
-						but for the save indicator already being the app's one `status` role — two of them make
-						`getByRole('status')` ambiguous, and a test that has to disambiguate is a hint that a
-						screen-reader user would have to as well. `aria-atomic` so each update is read as a
-						whole sentence rather than as the digits that changed.
-					-->
-					<div aria-live="polite" aria-atomic="true" class="mt-4 min-h-6">
-						{#if session.ingest}
-							{@const ingest = session.ingest}
-							<p class="text-sm">
-								{#if ingest.phase === 'inspecting'}
-									Reading {session.ingestLabel}…
-								{:else if ingest.phase === 'opening'}
-									Opening {session.ingestLabel}…
-								{:else if ingest.phase === 'tiling'}
-									Preparing {session.ingestLabel}: tile {ingest.tilesWritten} of {ingest.tileCount}
-								{:else if ingest.phase === 'finishing'}
-									Finishing {session.ingestLabel}…
-								{:else}
-									Added {session.ingestLabel}
-								{/if}
-							</p>
-							<progress
-								class="progress mt-1 w-full"
-								value={ingest.fraction}
-								max="1"
-								aria-label="Preparing {session.ingestLabel}"
-							></progress>
-							<!--
-								A real button, beside the bar and reachable by tab. A gigapixel scan is thousands
-								of tiles and several minutes; picking the wrong file and having no way out of it
-								is the thing `ingest.ts` claimed to support and the app never wired up. The job
-								cleans up after itself, so cancelling leaves the Project as it was.
-							-->
-							<button
-								type="button"
-								class="btn mt-2 btn-sm"
-								aria-label="Cancel preparing {session.ingestLabel}"
-								onclick={() => session.cancelIngest()}
-								disabled={ingest.phase === 'done'}>Cancel</button
-							>
-						{/if}
+				{#if session.ingestError}
+					<div role="alert" class="mt-4 alert max-w-prose alert-warning">
+						<p>{session.ingestError}</p>
 					</div>
+				{/if}
 
-					{#if session.ingestError}
-						<div role="alert" class="mt-4 alert max-w-prose alert-warning">
-							<p>{session.ingestError}</p>
-						</div>
-					{/if}
-
-					{#if mapLayers.length === 0 && session.ingest === null}
-						<!--
-							The empty state, and it names the one useful next action (SPEC story 106). Derived from
-							the Layers rather than from the Workspace's pyramids, which is the change ADR-0023
-							makes to what this sentence *means*: the Workspace may hold a dozen Historical Maps
-							and this Project draw none of them, and "you have no maps" would be false while "this
-							Project has none" stays true. It is also what says a cancelled or refused ingest left
-							the Project exactly as it was.
-						-->
-						<p class="mt-4 max-w-prose text-sm">
-							This Project has no Historical Maps yet. What works now is bringing one in — the image
-							is converted to a IIIF pyramid, written into the Workspace as you watch, and then
-							Align opens it beside the Base Map to place onto the world.
-						</p>
-					{/if}
-
+				{#if mapLayers.length === 0 && session.ingest === null}
 					<!--
-						Adding a Historical Map from a library's IIIF endpoint. Beside the file input, because
-						the two are the same act — bringing a map in — reached from two different kinds of
-						source, and what differs afterwards is only whether the tiles are ours.
+						The Historical Map empty state, beside the button that answers it (SPEC story 106). Derived
+						from the Layers rather than from the Workspace's pyramids, which is the change ADR-0023 makes
+						to what this sentence *means*: the Workspace may hold a dozen Historical Maps and this Project
+						draw none of them, and "you have no maps" would be false while "this Project has none" stays
+						true. It is also what says a cancelled or refused preparation left the Project exactly as it
+						was.
+
+						**And it now names the third source, which is the state ticket 04 left unsaid.** A Historical
+						Map whose starter Alignment could not be written arrives with its pyramid and without its
+						Layer (ADR-0023 writes the Alignment first on purpose); `session.ingestError` says so while
+						it is on screen and `open()` clears it, so after a reload this sentence was the only thing
+						left and it described a Workspace that was not empty as if it were. The pyramid is offered by
+						the "already in this Workspace" source, and adding it from there is what writes the Alignment
+						that failed — so the useful next action is available rather than merely described.
 					-->
-					<AddRemoteMap {session} />
-				</section>
+					<p class="mt-4 max-w-prose text-sm" data-testid="no-historical-maps">
+						This Project has no Historical Maps yet. Press Add a Historical Map to bring one in —
+						from a file on this computer, from a library’s IIIF address, or from one this Workspace
+						already holds, which copies nothing and keeps the alignment it already has.
+					</p>
+				{/if}
 
 				<!--
 					The outcome of a copy, announced from out here rather than from inside the dialog: the
@@ -1377,6 +1024,22 @@
 					data-testid="offline-copy-done"
 				>
 					{offlineCopy.completed}
+				</p>
+
+				<!--
+					What an add had to say for itself after its dialog closed (ticket 06), out here for exactly
+					the reason stated above it. Always rendered so that its text *changing* is what a screen
+					reader hears; `alert-info` when there is something, because the add succeeded and nothing
+					is broken — what did not happen is one thing the user asked for, and it is said in the
+					words `add-remote-map.svelte.ts` chose for it.
+				-->
+				<p
+					class="mt-2 min-h-6 max-w-prose text-sm"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="remote-notice"
+				>
+					{addNotice}
 				</p>
 
 				{#if session.referencedImageErrors.length > 0}
@@ -1469,27 +1132,26 @@
 						{cachedBaseMap}
 						layers={drawn}
 						{openingFit}
-						overlayPoints={annotationPoints}
-						popupAnnotation={selectedAnnotation}
-						{popupAt}
+						overlayPoints={annotations.annotationPoints}
+						popupAnnotation={annotations.selectedAnnotation}
+						popupAt={annotations.popupAt}
 						{fetchTile}
 						onbasemapstatus={(status) => {
 							baseMapStatus = status;
 						}}
-						onclickpoint={(point) => void placePoint(point)}
+						onclickpoint={(point) => void annotations.placePoint(point)}
 						onclickannotation={(hit) => {
 							// Only when nothing is being drawn: with a tool in hand the click places a vertex,
 							// and the Annotation underneath is not what the user is pointing at.
 							if (drawing.tool !== 'select') return;
 							// **Opens that Layer's row**, so the user is shown where the thing they clicked
-							// lives rather than left to find it. Assigned rather than routed through
-							// `openLayer`, which clears the selection — and a selection is precisely what this
-							// is making. Nothing is part-drawn here: the guard above is that guarantee.
-							openLayerId = hit.layerId;
-							selectAnnotation(hit.annotationId, hit.at);
+							// lives rather than left to find it. `openFromMap` rather than `openLayer`, which
+							// clears the selection — and a selection is precisely what this is making. Nothing
+							// is part-drawn here: the guard above is that guarantee.
+							annotations.openFromMap(hit.layerId, hit.annotationId, hit.at);
 						}}
-						onfinishshape={() => void finishShape()}
-						onpopupclose={() => (popupAt = null)}
+						onfinishshape={() => void annotations.finishShape()}
+						onpopupclose={() => (annotations.popupAt = null)}
 						onstack={(reported) => (rendered = reported)}
 					/>
 				</div>
@@ -1587,6 +1249,13 @@
 	<MakeOfflineDialog job={offline} entry={resolution.entry} {layers} />
 
 	<!--
+		The three sources a Historical Map comes from (ticket 06). **Outside `project-screen` for the
+		reason stated above** — a closed daisyUI modal is laid out, so every control in it would answer
+		the tab walk's `querySelectorAll` while being unreachable by keyboard.
+	-->
+	<AddHistoricalMap {session} bind:open={addingMap} onnotice={(notice) => (addNotice = notice)} />
+
+	<!--
 		Project settings (SPEC stories 10, 11): the one editable field and the two facts a scholar needs
 		to find their files and trust that they are current. A dialog rather than a page, because a page
 		for three values is the navigation this ticket exists to remove.
@@ -1651,6 +1320,73 @@
 	Nothing here says the opposite when a map *is* aligned — the Align button is that affordance either
 	way, and an unrequested "Aligned" line was the first cut's other mistake.
 -->
+{#snippet preparingLayer()}
+	<!--
+		The Historical Map being prepared, as its own card at the top of the stack (ticket 06).
+
+		─────────────────────────────────────────────────────────────────────────────────────────
+		WHY THIS LAYER IS NOT IN `project.json` YET, AND WHY THAT IS THE POINT
+
+		The ticket asks for a Layer to appear first and report its own preparation, and for cancelling
+		to remove it. The obvious way to build that is to write the Layer into `project.json` at the
+		start and delete it at the end if the user cancels — and that reintroduces the dangling
+		reference ticket 02 closed, by another door: for the minutes a gigapixel scan takes, the Project
+		on disk holds a map Layer whose pyramid and whose `alignments/<id>.json` do not exist, which is
+		a Project `assertReferencesPresent` refuses and this build would export and then decline to
+		import. Close the tab in that window and the Layer is permanent, because the code that would
+		have removed it is gone with the page. ADR-0023's write order — Alignment first, `project.json`
+		last — exists precisely to keep that state off the disk.
+
+		So the card is the Layer *before it is a Layer*: it is in the stack, at the position the row
+		will take, carrying the name of the file and the way to stop it. Cancelling removes it because
+		nothing was written; the criterion is met by construction rather than by a cleanup path that has
+		to run. What is given up is a rename or a reorder during the preparation, which are edits to a
+		document the map is not in yet.
+	-->
+	{#if session.ingest}
+		{@const ingest = session.ingest}
+		<div class="flex flex-col gap-2">
+			<div class="flex flex-wrap items-baseline gap-2">
+				<span class="font-medium" data-testid="preparing-layer-name">{session.ingestLabel}</span>
+				<span class="text-sm opacity-70">Historical Map</span>
+			</div>
+
+			<!--
+				The same sentence the live region announces, drawn where the eye is (SPEC story 111: visible
+				text, never a tooltip). `ingestSentence` is the one source of it — see the region below the
+				stack for why the announcement cannot live inside this card.
+			-->
+			<p class="text-sm" data-testid="preparing-layer-status">{ingestSentence}</p>
+
+			<progress
+				class="progress w-full"
+				value={ingest.fraction}
+				max="1"
+				aria-label="Preparing {session.ingestLabel}"
+			></progress>
+
+			<!--
+				A real button, beside the bar and reachable by tab. A gigapixel scan is thousands of tiles
+				and several minutes; picking the wrong file and having no way out of it is the thing
+				`ingest.ts` claimed to support and the app did not wire up until ticket 04. Named for what
+				it cancels rather than "Cancel", which tells a screen-reader user nothing when it is one of
+				several buttons on the page (ADR-0016).
+			-->
+			<div>
+				<button
+					type="button"
+					class="btn btn-sm"
+					aria-label="Cancel preparing {session.ingestLabel}"
+					onclick={() => session.cancelIngest()}
+					disabled={ingest.phase === 'done'}
+				>
+					Cancel
+				</button>
+			</div>
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet mapContents(layer: MapLayer)}
 	{@const origin = originFor(layer)}
 	{@const referenced = referencedImageIds.has(layer.imageId)}
@@ -1745,32 +1481,35 @@
 	What is inside an Annotation Layer, rendered by `LayerList` inside that Layer's open row: the
 	drawing tools, the Layer's default style, its Annotations, and the selected one's editor.
 
-	**A snippet passed down rather than markup inside `LayerList`**, because everything it needs is this
-	screen's: the collection in `documents`, the selection, the `AnnotationDrawing` instance, and every
-	function that writes. `LayerList` would otherwise take fourteen props it only forwards.
+	**A snippet passed down rather than markup inside `LayerList`**, because everything it needs is
+	reachable from here and from nowhere in the stack: the collection, the selection, the
+	`AnnotationDrawing` instance and every function that writes are `annotations`' — this screen holds
+	that one object — and `session.setLayerDefaultStyle` is the screen's own. `LayerList` would
+	otherwise take fourteen props it only forwards.
 
-	The Layer it is handed *is* {@link activeLayer}; both come from {@link openLayerId}, which is where
-	that identity is explained and is the whole of what ticket 05 changed.
+	The Layer it is handed *is* `annotations.activeLayer`; both come from `openLayerId`, which is where
+	that identity is explained — in `annotation-editing.svelte.ts`, which ticket 06 carved this state
+	layer out into — and is the whole of what ticket 05 changed.
 -->
 {#snippet annotationContents(layer: AnnotationLayer)}
 	<AnnotationLayerContents
 		{layer}
-		collection={activeCollection}
-		selectedId={selectedAnnotationId}
+		collection={annotations.activeCollection}
+		selectedId={annotations.selectedAnnotationId}
 		tool={drawing.tool}
 		status={drawing.status}
 		drawing={drawing.drawing}
 		canFinish={drawing.canFinish}
 		onchoosetool={(tool) => drawing.choose(tool)}
-		onfinish={() => void finishShape()}
+		onfinish={() => void annotations.finishShape()}
 		oncancel={() => drawing.cancel()}
 		onundovertex={() => drawing.undoVertex()}
-		onselect={(id) => selectAnnotation(id)}
-		ontext={(text) => void typeText(text)}
-		oncommit={() => void commitAnnotationEdit()}
-		onstyle={(style, options) => void styleSelected(style, options)}
-		onlinestyle={(line) => void lineStyleSelected(line)}
-		ondelete={() => void deleteSelected()}
+		onselect={(id) => annotations.selectAnnotation(id)}
+		ontext={(text) => void annotations.typeText(text)}
+		oncommit={() => void annotations.commitAnnotationEdit()}
+		onstyle={(style, options) => void annotations.styleSelected(style, options)}
+		onlinestyle={(line) => void annotations.lineStyleSelected(line)}
+		ondelete={() => void annotations.deleteSelected()}
 		onlayerstyle={(style, options) => void session.setLayerDefaultStyle(layer.id, style, options)}
 	/>
 {/snippet}

@@ -5,6 +5,7 @@ import zlib from 'node:zlib';
 
 import { expectWarpedDrawn } from './support/alignment-workspace';
 import { routeBaseMapArchive } from './support/editor-deployment';
+import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
 import { alignFromLayer } from './support/layers';
 import { readStoredJsonOrNull } from './support/stored-file';
 
@@ -130,7 +131,7 @@ async function createProject(page: Page, name: string): Promise<void> {
  */
 async function openProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('link', { name }).click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(addHistoricalMapButton(page)).toBeVisible();
 }
 
 /** How long a freshly ingested pyramid may take to decode every tile of its first view. */
@@ -138,7 +139,7 @@ const TILES_READY_MS = 30_000;
 
 /** Bring in one Historical Map and wait for its pyramid and both panes to be ready. */
 async function ingestAndOpen(page: Page): Promise<string> {
-	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+	await pickHistoricalMapFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)

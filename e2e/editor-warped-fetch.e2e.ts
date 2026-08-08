@@ -3,6 +3,7 @@ import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
 import { alignFromLayer } from './support/layers';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
@@ -145,9 +146,9 @@ async function projectWithImage(page: Page): Promise<string> {
 	await page.reload();
 	await createProject(page, 'Amsterdam 1625');
 	await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(addHistoricalMapButton(page)).toBeVisible();
 
-	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+	await pickHistoricalMapFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)

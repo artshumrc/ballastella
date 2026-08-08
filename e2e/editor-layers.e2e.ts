@@ -5,6 +5,11 @@ import zlib from 'node:zlib';
 
 import { expectWarpedDrawn } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import {
+	addHistoricalMapButton,
+	expectNothingPreparing,
+	pickHistoricalMapFile
+} from './support/historical-maps.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { projectNameField } from './support/project-screen.js';
 
@@ -424,7 +429,7 @@ async function emptyProject(page: Page): Promise<string> {
 	await page.reload();
 	await createProject(page, 'Amsterdam 1625');
 	await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-	await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+	await expect(addHistoricalMapButton(page)).toBeVisible();
 	return 'amsterdam-1625';
 }
 
@@ -439,18 +444,18 @@ async function emptyProject(page: Page): Promise<string> {
  * ingest ends and the Layer is on its way.
  */
 async function addHistoricalMap(page: Page): Promise<void> {
-	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+	await pickHistoricalMapFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(700, 500)
 	});
 	await expect.poll(() => completedPyramid(page), { timeout: 30_000 }).not.toBeNull();
 	// And the *whole* add is over, Layer write included: `ingestImage` clears its job in a `finally`,
-	// which re-enables the file input — so this is one signal for the success and the failure alike,
-	// which is exactly what the failing-Alignment test below needs.
-	await expect(page.getByLabel('Add a Historical Map from a file')).toBeEnabled({
-		timeout: 30_000
-	});
+	// which is what takes the preparing card out of the stack — so this is one signal for the success
+	// and the failure alike, which is exactly what the failing-Alignment test below needs. Asked of
+	// the card rather than of the file input, which since ticket 06 is inside a closed dialog: a
+	// control the user cannot see is not evidence of anything.
+	await expectNothingPreparing(page, 30_000);
 }
 
 /**
@@ -973,7 +978,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		// only makes it wide enough to drive on purpose.
 		await delayReadsOf(page, 'manifest.json', 3000);
 
-		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+		await pickHistoricalMapFile(page, {
 			name: 'la-floride.png',
 			mimeType: 'image/png',
 			buffer: gradientPng(700, 500)
@@ -1046,7 +1051,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 
 		// Out of the alignment route, which is where the warped pane being torn down now lives.
 		await page.getByTestId('back-to-project').click();
-		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+		await expect(addHistoricalMapButton(page)).toBeVisible();
 		await openLayers(page, directory, { via: 'link' });
 
 		const layerId = (await rowIds(page))[0] as string;

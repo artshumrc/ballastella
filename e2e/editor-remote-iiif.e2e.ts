@@ -5,6 +5,11 @@ import { readFile } from 'node:fs/promises';
 import zlib from 'node:zlib';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import {
+	addHistoricalMapButton,
+	addHistoricalMapIsOpen,
+	ensureAddHistoricalMapOpen
+} from './support/historical-maps.js';
 import { layerRows, openLayerRow } from './support/layers.js';
 
 // The catalog's archive is somebody else's bucket, and **no spec may reach the internet**. This suite
@@ -493,12 +498,20 @@ async function createProject(page: Page, name: string): Promise<void> {
 		.click();
 }
 
+/**
+ * A new Project, open, on its own Project screen.
+ *
+ * ⚠ **This deliberately does not open the "Add a Historical Map" dialog**, and it used to. The
+ * library flow is one of the three sources that dialog offers, so `lookUp` opens it — which is the
+ * one gesture that needs it. Opening it here instead left a **modal** dialog up for the rest of
+ * every test, inerting the Project screen behind it: every call site today happens to add a map
+ * (which closes it) before touching the screen, so nothing was broken, and the next test written
+ * after this helper that did not add one would have failed as an unexplained flake.
+ */
 async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void> {
 	await createProject(page, name);
 	await page.getByRole('link', { name }).click();
-	await expect(
-		page.getByRole('heading', { name: 'Add a Historical Map from a library' })
-	).toBeVisible();
+	await expect(page.getByTestId('project-screen')).toBeVisible();
 }
 
 /**
@@ -517,8 +530,14 @@ async function expectReferencedMap(page: Page, at: number | Locator = 0): Promis
 	return row;
 }
 
-/** Paste a URL and look it up. */
+/**
+ * Paste a URL and look it up, from the dialog that offers the library as one of three sources.
+ *
+ * The dialog is opened first if a successful add has closed it: adding a map takes the panel off the
+ * screen, so a spec that adds one and then looks up another address has to come back in.
+ */
 async function lookUp(page: Page, url: string): Promise<void> {
+	await ensureAddHistoricalMapOpen(page);
 	await page.getByTestId('remote-url').fill(url);
 	await page.getByTestId('remote-read').click();
 }
@@ -1031,7 +1050,10 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 					).body.features.length
 			)
 			.toBe(3);
-		await expect(page.getByTestId('remote-notice')).toHaveCount(0);
+		// The screen's notice region is always there and says nothing, which is the honest shape of
+		// "nothing was kept over": an element that is *absent* would also be satisfied by a region that
+		// had stopped rendering at all.
+		await expect(page.getByTestId('remote-notice')).toHaveText('');
 	});
 
 	/**
@@ -1156,6 +1178,11 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 			if (request.url().includes('annotations.allmaps.org')) allmapsRequests.push(request.url());
 		});
 
+		// The setting is at the point of use, which since ticket 06 is inside the dialog the library
+		// source lives in — so reaching it is the same gesture as reaching the URL field, and this
+		// is the one test in this suite that asks about it before looking anything up.
+		await ensureAddHistoricalMapOpen(page);
+
 		// On by default, and it says so at the point of use.
 		const toggle = page.getByTestId('community-lookup-toggle');
 		await expect(toggle).toBeChecked();
@@ -1199,10 +1226,16 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	});
 
 	test('is reachable and operable by keyboard alone', async ({ page }) => {
-		// SPEC story 95. Driven entirely from the keyboard: focus the URL field by its accessible
-		// label, type, press Enter, then Tab to a canvas button and activate it with Enter.
+		// SPEC story 95. Driven entirely from the keyboard, **including the step that reaches it**:
+		// ticket 06 put the library source inside a dialog, so "reachable" now starts one gesture
+		// earlier. Reaching it with `click()` while the test's name claimed otherwise made the first
+		// half of this criterion untrue and unasserted at the same time.
 		await installFixtureHosts(page);
 		await openNewProject(page);
+
+		await addHistoricalMapButton(page).focus();
+		await page.keyboard.press('Enter');
+		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(true);
 
 		await page.getByLabel('IIIF Manifest, Collection, or image address').focus();
 		await page.keyboard.type('https://library.test/iiif/atlas/manifest.json');
@@ -1382,7 +1415,20 @@ test.describe('reading a referenced Historical Map as a document', () => {
 			await lookUp(page, `${service('images.test', name)}/info.json`);
 			await expect(page.getByTestId('remote-add')).toBeVisible();
 			await page.getByTestId('remote-add').click();
-			await expectReferencedMap(page);
+			// ⚠ **By image id, never by position, once this Project has more than one Layer.** A new
+			// map Layer goes to the *top* of the stack, so between the add and the re-render index 0
+			// names the row that was already there — and `openLayerRow` is idempotent, so it reads
+			// `aria-expanded="true"` off the *old* row, clicks nothing, and hands back a locator that
+			// then resolves to the new, still-closed one. Measured on the second pass of this loop: 2
+			// failures in 11 runs, always "referenced-image-host … element(s) not found", with the page
+			// snapshot showing row 2 open and row 1 closed. An index is not a subject when the list can
+			// grow at the front.
+			await expectReferencedMap(
+				page,
+				page.locator(
+					`[data-testid="layer-row"][data-image-id="${generateId(service('images.test', name))}"]`
+				)
+			);
 		}
 		await expect(page.getByRole('status')).toHaveText('Saved');
 

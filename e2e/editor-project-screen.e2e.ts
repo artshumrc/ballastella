@@ -13,6 +13,7 @@ import {
 	readProjectFile
 } from './support/annotations.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { addHistoricalMapFromFile } from './support/historical-maps.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { openProjectSettings } from './support/project-screen.js';
 
@@ -57,12 +58,11 @@ async function openProject(page: Page): Promise<void> {
 
 /** Add a Historical Map from a file, and return once its Layer is in the stack. */
 async function addHistoricalMap(page: Page): Promise<void> {
-	await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+	await addHistoricalMapFromFile(page, {
 		name: 'la-floride.png',
 		mimeType: 'image/png',
 		buffer: gradientPng(280, 200)
 	});
-	await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 30_000 });
 }
 
 /** Every href the page offers a user, so "nothing links there" can be a claim rather than a hope. */

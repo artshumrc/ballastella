@@ -5,6 +5,7 @@ import zlib from 'node:zlib';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { openLayerRow } from './support/layers.js';
+import { ensureAddHistoricalMapOpen } from './support/historical-maps.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -512,9 +513,11 @@ async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void
 		.getByRole('button', { name: 'Create' })
 		.click();
 	await page.getByRole('link', { name }).click();
-	await expect(
-		page.getByRole('heading', { name: 'Add a Historical Map from a library' })
-	).toBeVisible();
+	// ⚠ **The dialog is deliberately not opened here**, and it used to be. It is a *modal*, so
+	// leaving it up inerts the Project screen for the rest of the test — harmless only for as long
+	// as every call site happens to add a map first, which closes it. Each of the three places that
+	// wants the library source opens it for itself, one line above the URL it types.
+	await expect(page.getByTestId('project-screen')).toBeVisible();
 }
 
 /**
@@ -540,6 +543,7 @@ async function seedWorkspaceBytes(page: Page, bytes: number): Promise<void> {
 
 /** Add one referenced Historical Map from a bare image service URL. */
 async function addReferenced(page: Page, host: string, name = 'florida'): Promise<void> {
+	await ensureAddHistoricalMapOpen(page);
 	await page.getByTestId('remote-url').fill(`${service(host, name)}/info.json`);
 	await page.getByTestId('remote-read').click();
 	await expect(page.getByTestId('remote-add')).toBeVisible();
@@ -708,6 +712,7 @@ test.describe('making an offline copy', () => {
 		await installFixtureHosts(page);
 		await openNewProject(page);
 
+		await ensureAddHistoricalMapOpen(page);
 		await page.getByTestId('remote-url').fill('https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('remote-add')).toBeVisible();
@@ -1172,6 +1177,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await openNewProject(page);
 
 		// A community Alignment, so the Layer has three Control Points and can actually be drawn.
+		await ensureAddHistoricalMapOpen(page);
 		await page.getByTestId('remote-url').fill('https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('community-offer')).toBeVisible();
@@ -1342,6 +1348,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
 		await openNewProject(page);
+		await ensureAddHistoricalMapOpen(page);
 		await page.getByTestId('remote-url').fill('https://library.test/iiif/atlas/manifest.json');
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('community-offer')).toBeVisible();
