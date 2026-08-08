@@ -205,3 +205,80 @@ caller, in the shape ticket 18 recommends, and it has no test of its own.
   but the store caches its root handle, so the existing recovery was inert against it. Fixed above,
   and the e2e "empty everything" helpers now *empty* the open Workspace rather than removing it, so
   the harness stops creating a state the product cannot be in.
+
+## Review round 1: nine findings, and the composition the rebase forced
+
+**Two were serious, and both were in the same twenty lines of naming code.**
+
+- **`createOpfsWorkspace` spun for ever on a name already at the length cap.** `toWorkspaceName`
+  ended in a truncation, so `toWorkspaceName(`${preferred} (2)`)` cut the suffix straight back off
+  and handed back `preferred` unchanged: the candidate stayed taken for every value of the counter,
+  and the loop advanced by nothing — synchronously, on the main thread. A user reached it by typing
+  a long name twice, and it froze the tab. The suffix now reserves its own room and shortens the
+  stem, so every candidate differs; the search is additionally bounded, which is what stops a future
+  change to that function from hanging it again rather than what makes it terminate today. The
+  mutation check is the old spelling restored: with the bound in place it fails in 128 ms instead of
+  never returning, which is the two layers doing their separate jobs.
+- **`toWorkspaceName` was not idempotent, and its own comment said it was.** `slice(0, 64)` counts
+  UTF-16 code units, so a cap landing inside an astral character left a **lone surrogate** — half a
+  character, a name OPFS may refuse, and a string the next pass silently repaired into something
+  *different*. `createOpfsWorkspace`'s correctness rests on that idempotence, so this was the same
+  bug as the first one wearing different clothes. It slices code points now and the contract is
+  asserted over the specimens that broke it. Combining marks (`\p{M}`) also survive: dropping them
+  is not a filesystem safety property, it is mangling Devanagari, Thai and Arabic.
+
+**The compatibility gap, which the missing criteria are why nobody caught.**
+`PublishedSite.baseMapMaxZoom` became `baseMapCaches` with no fallback, so a site published before
+the keying read as "carries tiles, for no archive": no cached geography, `baseMapBundled: true`
+beside it, and nothing said why — the silent blank ADR-0025 exists to prevent, arriving through the
+record instead of through the tiles. Likewise the unkeyed `base-map/tiles/{z}/…` stopped parsing, so
+a pre-12 Workspace's tiles were invisible to the hub's size and to its clear button. Both are read
+again: the old field becomes one cache **belonging to no archive**, which is what it meant when there
+was one directory serving whichever entry was showing, and the viewer matches a `null` archive
+against any entry. The version is 2 — and the code says plainly that the bump protects nobody,
+because nothing refuses a site record by version, and that the fallback is the part that works.
+
+**Scope, honestly.** The keying was ticket 11's deferral, handed here by the tracker rather than by
+this ticket's contract, and it landed a published-format change under criteria that said nothing
+about it. That is exactly how the gap above escaped. The criteria it needed are now in the list.
+
+**The rebase forced a real design decision.** `main` landed a default-deny network fence that extends
+Playwright's `test` across the same 25 specs this ticket's `workspaceRoot()` fixture does. Two roots
+is a suite where a spec gets whichever its author imported — the fence without `workspaceRoot()`, or
+`workspaceRoot()` reaching the network — so `support/test.ts` composes them and `network-fence.ts`
+stays the layer, where its measurement and its own positive control live.
+`check-e2e-network-fence.mjs` enforces both halves: a spec may take `test` from neither
+`@playwright/test` nor the fence layer, **and the root itself is checked for still building on the
+fence**, because the import rule alone cannot see a composition that has been quietly unpicked.
+
+Two fixture faults the reviewer named went with it: `workspaceRoot()` claimed to be "the current
+Workspace" while hardcoding the default — false the moment `switchToWorkspace` existed, and wrong in
+the quiet direction, since the read succeeds against the wrong Workspace. It follows the editor's own
+`localStorage` now. And its `create: true` made it useless for "has this been deleted?", which it
+would answer with an empty directory; `workspaceRootIfAny()` is the helper for that question.
+
+**The composed fence immediately found a defect in this ticket's own helper.**
+`expectWorkspaceNamed` asserted on the `workspace-identity` block — which *contains* the popover, so
+it was satisfied by the menu's own list of Workspace names and passed the instant the menu opened,
+whichever Workspace was current. `switchToWorkspace` therefore returned before the switch had
+happened, and the next step read the wrong Workspace's files. It asks the switcher button now.
+
+**Accessibility.** Switching and creating announced nothing: the only signal was the switcher
+button's own label mutating, which no screen reader reports. Both are announced now, and the
+announcement carries the name a Workspace *really* got — the one case where saying the typed name
+back is wrong is exactly the case where it matters. The inline form also hands focus back to the
+switcher instead of dropping it to `<body>` on submit, on Cancel, and on Escape.
+
+**The delete guard is weaker than the first write-up claimed**, and now says so: it compares against
+*this tab's* Workspace, so tab A deleting the Workspace tab B has open walks straight through. There
+is no lock and no cross-tab channel in this application, and inventing one for a confirmation dialog
+would be a coordination protocol with a single caller. What covers the two-tab case is the
+consequence rather than the prevention — tab B reports the Workspace unreachable rather than
+silently empty, and `locateWorkspaceAgain` makes that recovery real.
+
+**Smaller.** The harness's copy of the archive-key hash is held to the application's by two existing
+tests pulling in opposite directions, and both now say so rather than a third test re-deriving it;
+`isOpen` replaces four copies of one predicate; the inline field's `id` is `$props.id()` rather than a
+literal, for the reason `MenuPopover` documents about its own; the switcher truncates a 64-character
+name instead of pushing the bar off screen; and `requestPersistentStorage` moved to
+`store/persistent-storage.ts`, since it names no Workspace and covers the whole origin.
