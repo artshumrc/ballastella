@@ -146,7 +146,7 @@ function fingerprint(value: string): string {
  *
  * The path is part of the published format — a Published Site carries these files and the viewer
  * reads them over HTTP with no ability to list a directory — so which archive a site's tiles belong
- * to travels on `PublishedSite.baseMapTiles` rather than being guessed from the folder.
+ * to travels on `PublishedSite.baseMapCaches` rather than being guessed from the folder.
  */
 export const baseMapTileDirectory = (archive: string): string =>
 	`${BASE_MAP_TILE_ROOT}${baseMapArchiveKey(archive)}/`;

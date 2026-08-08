@@ -337,12 +337,15 @@ test.describe('the Base Map pane', () => {
 	}) => {
 		await openPane(page);
 
-		// Every control is reachable. The **theme toggle is the first tab stop now** and the switcher
-		// the second, because ticket 04 moved the theme onto the app's navigation bar, which is above
-		// the Project and therefore before it in the document. Choosing *within* a focused `<select>`
-		// is the browser's own arrow-key handling — which is exactly why ADR-0016 mandates a native
-		// `<select>` here — and headless Chromium does not run its native popup, so this asserts the
-		// reach and the element, and leaves the popup to the platform.
+		// Every control is reachable, in the order the bar puts them. **The Workspace switcher is the
+		// first tab stop since ticket 12** — it was a label and is now a button — then the theme
+		// toggle, then the Base Map switcher: ticket 04 moved the theme onto the app's navigation bar,
+		// which is above the Project and therefore before it in the document. Choosing *within* a
+		// focused `<select>` is the browser's own arrow-key handling — which is exactly why ADR-0016
+		// mandates a native `<select>` here — and headless Chromium does not run its native popup, so
+		// this asserts the reach and the element, and leaves the popup to the platform.
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('workspace-switcher')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(themeToggle(page)).toBeFocused();
 		await page.keyboard.press('Tab');
