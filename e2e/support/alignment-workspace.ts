@@ -10,6 +10,7 @@
 import { expect, type Locator, type Page } from './test.js';
 import zlib from 'node:zlib';
 
+import { openLayerRow } from './layers';
 import { readStoredFileOrNull } from './stored-file';
 
 const crcTable = (() => {
@@ -200,9 +201,13 @@ export async function start(page: Page): Promise<string> {
  * The URL is asserted rather than only the heading, because "the route is
  * `/align/?p=<project>&layer=<layer-id>`" is the ticket's contract and a helper that waited on a
  * heading alone would keep passing if the button started rendering the panes in place again.
+ *
+ * The Layer's row is opened first, because since ticket 05 the Align link is inside it — a Historical
+ * Map Layer opens to show whether it is aligned and the button that aligns it.
  */
-export async function openAlignment(page: Page): Promise<void> {
-	await page.getByTestId('align-historical-map').click();
+export async function openAlignment(page: Page, at = 0): Promise<void> {
+	const row = await openLayerRow(page, at);
+	await row.getByTestId('align-historical-map').click();
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 	await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 }

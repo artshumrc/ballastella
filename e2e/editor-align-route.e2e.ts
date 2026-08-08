@@ -24,6 +24,7 @@ import {
 	expectWarpedDrawn
 } from './support/alignment-workspace';
 import { routeBaseMapArchive } from './support/editor-deployment';
+import { alignFromLayer, openLayerRow } from './support/layers';
 
 /**
  * Ticket 03: aligning is a route of its own.
@@ -90,8 +91,10 @@ test.describe('the alignment route', () => {
 		// Nothing has been aligned, and the Layer is nonetheless already there: adding the Historical Map
 		// is what put it in the stack (ADR-0023). So Align is a plain link whose `href` was knowable
 		// before the click, which is what the URL assertions below are really measuring.
-		await expect(page.getByTestId('align-historical-map')).toHaveRole('link');
-		await page.getByTestId('align-historical-map').click();
+		// Opened first, because Align is inside the Layer it aligns (ticket 05).
+		const row = await openLayerRow(page);
+		await expect(row.getByTestId('align-historical-map')).toHaveRole('link');
+		await row.getByTestId('align-historical-map').click();
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
 		const url = new URL(page.url());
@@ -161,7 +164,7 @@ test.describe('the alignment route', () => {
 		page.on('pageerror', (error) => thrown.push(`${error.name}: ${error.message}`));
 
 		await projectWithMap(page);
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 		const layerId = layerParam(page);
 		expect(layerId).not.toBe('');
@@ -336,7 +339,7 @@ test.describe('the alignment route', () => {
 
 		// 1. In by the link, all the way to both panes drawn.
 		await watchWrites(page);
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
@@ -407,7 +410,7 @@ test.describe('the alignment route', () => {
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 		await expect(historicalMap(page)).toHaveCount(0);
 
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
 			'true',
@@ -443,7 +446,7 @@ test.describe('the alignment route', () => {
 
 		await backLink(page).click();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(rows(page)).toHaveCount(2);
 
 		// Reopened, the view is on the pairs rather than on the deployment default.

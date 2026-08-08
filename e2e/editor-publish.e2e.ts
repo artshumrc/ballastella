@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { alignFromLayer } from './support/layers.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
@@ -743,8 +744,9 @@ test.describe('publishing a Workspace', () => {
 		await expect(row).toBeVisible({ timeout: 30_000 });
 		const imageId = (await row.getAttribute('data-image-id'))!;
 		// The pane that reads through the shim is the `/align/` route since ticket 03, so this is where
-		// `ballastellaServedTiles` is filled from.
-		await page.getByTestId('align-historical-map').click();
+		// `ballastellaServedTiles` is filled from. Reached by opening the Layer, which is where the Align
+		// link lives since ticket 05.
+		await alignFromLayer(page, row);
 		await expect
 			.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
 				timeout: 30_000
@@ -787,7 +789,7 @@ test.describe('publishing a Workspace', () => {
 		await page.reload();
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect
 			.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
 				timeout: 30_000

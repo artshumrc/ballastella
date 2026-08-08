@@ -9,6 +9,7 @@
 import { expect, type Locator, type Page } from './test.js';
 import { createHash } from 'node:crypto';
 
+import { openLayerRow } from './layers';
 import { readStoredFile } from './stored-file';
 
 export const PROJECT_NAME = 'Amsterdam 1625';
@@ -243,7 +244,12 @@ export async function createProject(page: Page, name = PROJECT_NAME): Promise<vo
 }
 
 /**
- * A Project open on the Layers pane with one Annotation Layer, ready to draw into.
+ * A Project open on the Layers pane with one Annotation Layer **open**, ready to draw into.
+ *
+ * The open row is the step ticket 05 added, and it is the *only* change this suite's helpers needed
+ * for it: the drawing tools, the Annotation list, the style controls and the Layer's default style
+ * all moved inside the Layer's own row, and opening that row is now what chooses the Layer to draw
+ * into. Nothing any spec asserts about them changed, which is the check that the move was a move.
  *
  * @returns the Annotation Layer's id
  */
@@ -258,6 +264,7 @@ export async function startAnnotating(page: Page): Promise<string> {
 	await page.getByTestId('add-annotation-layer').click();
 	await expect(page.getByTestId('layer-row')).toHaveCount(1);
 	await expect(page.getByRole('status')).toHaveText('Saved');
+	await openLayerRow(page);
 	await waitForStack(page);
 	await centreOnAmsterdam(page);
 
@@ -349,13 +356,20 @@ export async function waitForStack(page: Page): Promise<void> {
 /**
  * Reload the Layers pane on a Project that already has a Layer, ready to assert against the map.
  *
- * What every test that seeds a fixture behind the app's back needs: open, wait for the stack, and put
- * the view back where the fixture's coordinates are.
+ * What every test that seeds a fixture behind the app's back needs: open, wait for the stack, put the
+ * view back where the fixture's coordinates are, and **open the Layer**.
+ *
+ * That last step is the same one {@link startAnnotating} takes, and it is here for the reason it is a
+ * step at all: which Layer is open is component state and is deliberately not persisted (ticket 05,
+ * ADR-0002, ADR-0010), so a reload correctly leaves every row closed. A test that reloads and expects
+ * to find the Annotation list where it left it is asking for the Layer to be opened again, and this
+ * is where that is said once rather than in seven specs.
  */
 export async function reopenLayers(page: Page, directory = PROJECT_DIRECTORY): Promise<void> {
 	await openLayers(page, directory);
 	await waitForStack(page);
 	await centreOnAmsterdam(page);
+	await openLayerRow(page);
 }
 
 export const baseMap = (page: Page) => page.getByTestId('base-map-pane');

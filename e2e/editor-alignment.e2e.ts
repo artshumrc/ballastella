@@ -5,6 +5,7 @@ import zlib from 'node:zlib';
 
 import { expectWarpedDrawn } from './support/alignment-workspace';
 import { routeBaseMapArchive } from './support/editor-deployment';
+import { alignFromLayer } from './support/layers';
 import { readStoredJsonOrNull } from './support/stored-file';
 
 /**
@@ -150,9 +151,9 @@ async function ingestAndOpen(page: Page): Promise<string> {
 	const imageId = (await addedRow.getAttribute('data-image-id'))!;
 
 	// **The workspace is a route of its own since ticket 03**, so getting to it is a navigation and no
-	// longer a scroll. The id is read above, before the click: the Historical Maps list is on the
-	// Project page and this leaves it.
-	await page.getByTestId('align-historical-map').click();
+	// longer a scroll; since ticket 05 the link that goes there is inside the Layer's own row. The id is
+	// read above, before the click: the Historical Maps list is on the Project page and this leaves it.
+	await alignFromLayer(page, addedRow);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
 	await expect(page.getByTestId('image-pane')).toBeVisible();

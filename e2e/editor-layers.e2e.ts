@@ -5,6 +5,7 @@ import zlib from 'node:zlib';
 
 import { expectWarpedDrawn } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { projectNameField } from './support/project-screen.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
@@ -99,6 +100,8 @@ declare global {
 		};
 		/** How many times each file has been opened for reading — see `countFileReads`. */
 		ballastellaFileReads?: Record<string, number>;
+		/** Every file opened for writing, in order — see `countFileWrites`. */
+		ballastellaFileWrites?: string[];
 	}
 }
 
@@ -124,6 +127,49 @@ async function countFileReads(page: Page): Promise<void> {
 
 const fileReads = (page: Page): Promise<Record<string, number>> =>
 	page.evaluate(() => ({ ...window.ballastellaFileReads }));
+
+/**
+ * Record every file the page opens for **writing** from now on, by file name.
+ *
+ * The other half of {@link countFileReads}, and the only way to assert "this gesture costs no write"
+ * from outside: OPFS issues no requests, so there is nothing on the network to watch, and a
+ * `project.json` that happens to be byte-identical afterwards cannot distinguish "nothing was written"
+ * from "the same bytes were written again with a fresh `updatedAt` that happened to round the same
+ * way". `createWritable()` is the one call every write in `DirectoryHandleStore` goes through,
+ * atomic temp file included.
+ */
+async function countFileWrites(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const written: string[] = [];
+		window.ballastellaFileWrites = written;
+		const proto = FileSystemFileHandle.prototype;
+		const original = proto.createWritable;
+		proto.createWritable = function (this: FileSystemFileHandle, ...args: unknown[]) {
+			written.push(this.name);
+			return (original as (...args: unknown[]) => unknown).apply(this, args) as ReturnType<
+				typeof original
+			>;
+		};
+	});
+}
+
+const fileWrites = (page: Page): Promise<string[]> =>
+	page.evaluate(() => [...(window.ballastellaFileWrites ?? [])]);
+
+/**
+ * A row's text **as assistive technology receives it**: `aria-hidden` subtrees removed.
+ *
+ * Written out rather than asserted with `toContainText`, because the criterion is precisely that the
+ * state is *not* conveyed by a colour: a `class:text-warning` assertion passes while a screen reader
+ * is told nothing at all, and so does a `toBeVisible` on an element inside an `aria-hidden` wrapper.
+ * A class contributes no characters here, so this cannot be satisfied by one.
+ */
+const accessibleText = (row: Locator): Promise<string> =>
+	row.evaluate((element) => {
+		const clone = element.cloneNode(true) as HTMLElement;
+		for (const hidden of clone.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+		return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+	});
 
 /**
  * Hold up every read of a file called `name` by `ms`, widening a window the machine usually closes.
@@ -297,7 +343,13 @@ const writeProjectFile = (
 	page.evaluate(
 		async ([directory, path, text]) => {
 			const root = await workspaceRoot();
-			let handle = await root.getDirectoryHandle(directory as string, { create: true });
+			// `''` writes at the Workspace root, where a Historical Map's pyramid and its Alignment live
+			// (ADR-0023). The reader above already took `''` to mean that; this did not, and the two
+			// disagreeing is how a fixture asks for `alignments/…` and gets a `NotAllowedError`.
+			let handle =
+				directory === ''
+					? root
+					: await root.getDirectoryHandle(directory as string, { create: true });
 			const segments = (path as string).split('/');
 			for (const segment of segments.slice(0, -1)) {
 				handle = await handle.getDirectoryHandle(segment, { create: true });
@@ -427,7 +479,8 @@ async function projectWithImage(page: Page): Promise<string> {
  * stay on the Project page to see it.
  */
 async function openAlignment(page: Page): Promise<void> {
-	await page.getByTestId('align-historical-map').click();
+	// The Align link is inside the Layer's own row since ticket 05, so getting there opens it.
+	await alignFromLayer(page);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 }
@@ -1606,6 +1659,19 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 		// Skipped at the render boundary rather than throwing: the map Layer below it still drew.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
 
+		// **It opens too, and says what it is** (ticket 05, ADR-0014). A row that could not be opened at
+		// all would be a second kind of row; a row that opened onto nothing would read as contents that
+		// failed to load. Asserted on the sentence rather than on the absence of anything, because the
+		// honest thing here is a sentence.
+		const foreign = await openLayerRow(page, 0);
+		await expect(foreign.getByTestId('layer-foreign-note')).toContainText(
+			'a kind this version of Ballastella does not understand'
+		);
+		await expect(foreign.getByTestId('layer-foreign-note')).toContainText('nothing');
+		// And nothing of the two kinds this build *can* draw was rendered into it.
+		await expect(foreign.getByTestId('align-historical-map')).toHaveCount(0);
+		await expect(foreign.getByTestId('annotation-tools')).toHaveCount(0);
+
 		await rows(page).nth(0).getByTestId('layer-name').fill('The cartouche');
 		await rows(page).nth(0).getByTestId('layer-name').blur();
 		await rows(page).nth(0).getByTestId('layer-move-down').click();
@@ -1685,7 +1751,7 @@ test.describe('leaving the Project screen and coming back', () => {
 		page.on('pageerror', (error) => crashes.push(error.message));
 		await openLayers(page, directory);
 
-		await rows(page).first().getByTestId('align-historical-map').click();
+		await alignFromLayer(page, rows(page).first());
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 
@@ -1733,12 +1799,16 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 		// of the stack is `disabled` and so out of the tab order on purpose — "the top Layer cannot go
 		// higher" is a disabled button, which is why the two rows have different lists.
 		const walk: [number, string][] = [
+			// Ticket 05's disclosure, first in each row: it is a plain `<button>` precisely so that opening
+			// a Layer needs nothing added to make it keyboard-operable.
+			[0, 'layer-disclosure'],
 			[0, 'layer-visible'],
 			[0, 'layer-name'],
 			[0, 'layer-move-down'],
 			// Ticket 11's delete, which is the one control here that cannot be shrugged off — so it has to
 			// be on the keyboard path, and the undo that makes it safe has one of its own.
 			[0, 'layer-delete'],
+			[1, 'layer-disclosure'],
 			[1, 'layer-visible'],
 			[1, 'layer-name'],
 			[1, 'layer-move-up'],
@@ -1753,5 +1823,217 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 		// Reaching the last one means every one before it was on the way, in order; asserting it
 		// explicitly is what makes the loop above a claim rather than a walk.
 		await expect(rows(page).nth(1).getByTestId('layer-opacity')).toBeFocused();
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// ONE LAYER OPENS AT A TIME (ticket 05)
+//
+// A Project is a stack of Layers and a Layer opens to reveal what is inside it. What a *closed* row
+// still shows is the load-bearing half: the name, the visibility toggle, the position controls, and
+// whatever the Layer is warning about — because "this Historical Map needs aligning" is the state a
+// scholar has to be able to notice **without opening anything**.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+test.describe('one Layer opens at a time (ticket 05)', () => {
+	/** What an unaligned map Layer says about itself, in the sidebar, once. */
+	const NOT_ALIGNED = 'Not aligned yet, so there is nothing to draw.';
+
+	const disclosure = (page: Page, at: number) => rows(page).nth(at).getByTestId('layer-disclosure');
+
+	test('opening a row closes whichever one was open, and every row can be closed', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(2);
+
+		// Nothing opens itself: the sidebar arrives as a list of Layers.
+		await expect(page.getByTestId('layer-contents')).toHaveCount(0);
+		await expect(disclosure(page, 0)).toHaveAttribute('aria-expanded', 'false');
+		await expect(disclosure(page, 1)).toHaveAttribute('aria-expanded', 'false');
+
+		// One opens.
+		await openLayerRow(page, 0);
+		await expect(disclosure(page, 0)).toHaveAttribute('aria-expanded', 'true');
+		await expect(disclosure(page, 1)).toHaveAttribute('aria-expanded', 'false');
+		await expect(page.getByTestId('layer-contents')).toHaveCount(1);
+
+		// The other opens, and the first closes without being asked to. **Counted as well as
+		// attributed**: `aria-expanded` is the promise made to a screen reader and the count is the
+		// promise made to the eye, and a version that rendered both and hid one with CSS would satisfy
+		// only the first.
+		await openLayerRow(page, 1);
+		await expect(disclosure(page, 0)).toHaveAttribute('aria-expanded', 'false');
+		await expect(disclosure(page, 1)).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('layer-contents')).toHaveCount(1);
+
+		// And the open one closes, leaving none — the disclosure is a toggle rather than a one-way door.
+		await disclosure(page, 1).click();
+		await expect(disclosure(page, 1)).toHaveAttribute('aria-expanded', 'false');
+		await expect(page.getByTestId('layer-contents')).toHaveCount(0);
+	});
+
+	/**
+	 * The criterion the whole "closed rows stay useful" contract exists for.
+	 *
+	 * Asserted on the row's **accessible text with the row still closed**, which is two claims at
+	 * once: that a user can see the map needs aligning without opening anything, and that the state is
+	 * information rather than a colour. A `class:text-warning` implementation passes a `toBeVisible`
+	 * and fails this, because a class contributes no characters.
+	 */
+	test('a closed map Layer row says it is not aligned, as text and not as a colour', async ({
+		page
+	}) => {
+		const directory = await projectWithImage(page);
+		await openLayers(page, directory, { drawn: 0 });
+		// After the documents have been read: every Layer starts with none in hand, and a Layer with no
+		// Alignment reads as not aligned too — so asserting on the first paint would go green on the
+		// state that exists before anything has been opened.
+		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
+
+		const row = rows(page).first();
+		await expect(row.getByTestId('layer-disclosure')).toHaveAttribute('aria-expanded', 'false');
+		expect(await accessibleText(row)).toContain(NOT_ALIGNED);
+
+		// And it is still said inside the open row, beside the button that answers it. One sentence,
+		// computed once, so the two cannot drift.
+		const open = await openLayerRow(page, 0);
+		await expect(open.getByTestId('layer-not-aligned')).toHaveText(NOT_ALIGNED);
+		expect(await accessibleText(row)).toContain(NOT_ALIGNED);
+	});
+
+	/**
+	 * An element may only ever say the thing its id names.
+	 *
+	 * An Alignment file that is *there and unreadable* is not a map that needs aligning: it is work the
+	 * user made that is not on screen, and the two want different actions. The first cut of the open
+	 * row rendered any `refused` outcome under an id reading "alignment state", which announced the
+	 * second as the first — the mislabelling this epic has been paying for elsewhere.
+	 *
+	 * Narrowing to the derived not-aligned set was **not** enough and that is the interesting half: a
+	 * Layer whose Alignment cannot be read has no document at all, and "no document" counts as not
+	 * aligned. Only the *reported* outcome carries the precedence between the three, so only it can be
+	 * asked. Both halves are asserted here — the row says the true thing under the generic id, and says
+	 * nothing at all under the specific one.
+	 */
+	test('an Alignment that cannot be read is not announced as a map needing alignment', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		const alignmentRef = await alignmentRefOf(page, directory);
+
+		// Corrupt it behind the app's back. A hand-edited or half-written Workspace is the only way to
+		// reach this state, which is exactly why it has to be seeded rather than driven.
+		// alignment-write-is-the-fixture: the unreadable Alignment this labelling test is about
+		await writeProjectFile(page, '', alignmentRef, '{ this is not JSON');
+
+		// Nothing is drawn, because the file the Layer draws from cannot be parsed.
+		await openLayers(page, directory, { drawn: 0 });
+
+		const row = rows(page).first();
+		const problem = row.getByTestId('layer-problem');
+		// The generic slot says what actually happened, and it is not the not-aligned sentence.
+		await expect(problem).not.toHaveText('');
+		await expect(problem).not.toContainText('Not aligned yet');
+		// It is real text in the accessibility tree rather than a colour, on the closed row.
+		expect(await accessibleText(row)).not.toContain('Not aligned yet');
+
+		// And the open row does not claim the map merely needs aligning.
+		const open = await openLayerRow(page, 0);
+		await expect(open.getByTestId('layer-not-aligned')).toHaveCount(0);
+		// The Align button is still there, because aligning is still the thing to do about a map with a
+		// broken Alignment — this is about what is *said*, not about what is offered.
+		await expect(open.getByTestId('align-historical-map')).toHaveCount(1);
+	});
+
+	test('the Align link is inside the Layer, and is not on the screen until it is opened', async ({
+		page
+	}) => {
+		const directory = await projectWithImage(page);
+		await openLayers(page, directory, { drawn: 0 });
+
+		// Closed, there is no Align anywhere on the screen — which is what makes every other spec's
+		// `openLayerRow` a step the user really takes rather than a formality.
+		await expect(page.getByTestId('align-historical-map')).toHaveCount(0);
+
+		const row = await openLayerRow(page, 0);
+		const align = row.getByTestId('align-historical-map');
+		await expect(align).toHaveRole('link');
+		const layerId = (await projectJson(page, directory)).layers[0].id as string;
+		expect(await align.getAttribute('href')).toContain(`?p=${directory}&layer=${layerId}`);
+		expect(await align.getAttribute('href')).toMatch(/\/align\/?\?p=/);
+	});
+
+	/**
+	 * The negative half, and it is about a Layer's *visibility* rather than its Alignment.
+	 *
+	 * "Not aligned yet" is about where the Historical Map sits on the earth, and a Layer does not
+	 * become aligned, or stop being, by being ticked — so an aligned Layer must say nothing about
+	 * needing alignment whether it is shown or hidden. Hiding one takes it off the map and out of what
+	 * the renderer reports, which is precisely the way this could go wrong.
+	 *
+	 * Nothing asserts a positive "Aligned" sentence, because there is none: the ticket asks for the
+	 * warning state and the Align button, and an unrequested line claiming success is UI this slice
+	 * has no business adding.
+	 */
+	test('an aligned map Layer never claims it needs aligning, hidden or shown', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+
+		const row = await openLayerRow(page, 0);
+		await expect(row.getByTestId('layer-not-aligned')).toHaveCount(0);
+		await expect(row.getByTestId('layer-problem')).toHaveCount(0);
+		expect(await accessibleText(rows(page).first())).not.toContain('Not aligned yet');
+
+		await row.getByTestId('layer-visible').uncheck();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(row.getByTestId('layer-not-aligned')).toHaveCount(0);
+		expect(await accessibleText(rows(page).first())).not.toContain('Not aligned yet');
+	});
+
+	/**
+	 * ADR-0002 and ADR-0010: which Layer somebody happened to have open is not part of their work.
+	 *
+	 * Three assertions, and each rules out a different way of getting this wrong. The **write spy** is
+	 * the one that matters: a byte comparison of `project.json` cannot tell "nothing was written" from
+	 * "the same bytes were written again", and a write on a click that changed nothing is exactly what
+	 * ADR-0010 forbids. `localStorage` is checked because it is the other place a preference would
+	 * plausibly be put, and the document is searched for the Layer id because a field with any name at
+	 * all would carry it.
+	 */
+	test('opening a Layer writes nothing, and is nowhere in project.json or localStorage', async ({
+		page
+	}) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(rows(page)).toHaveCount(2);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const before = await readProjectFile(page, directory, 'project.json');
+		const storageBefore = await page.evaluate(() => JSON.stringify({ ...localStorage }));
+		await countFileWrites(page);
+
+		const openId = (await rowIds(page))[0] as string;
+		await openLayerRow(page, 0);
+		await openLayerRow(page, 1);
+		await disclosure(page, 1).click();
+		await expect(page.getByTestId('layer-contents')).toHaveCount(0);
+		// Long enough for autosave's 400 ms debounce to have fired if anything had queued one
+		// (ADR-0017 rule 2), so this is "no write happened" rather than "no write has happened yet".
+		await page.waitForTimeout(1500);
+
+		expect(await fileWrites(page), 'opening a Layer wrote to the store').toEqual([]);
+		expect(await readProjectFile(page, directory, 'project.json')).toBe(before);
+		expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).toBe(storageBefore);
+
+		// And no field of the document names the Layer that was open, whatever it might be called: the
+		// id appears exactly once, as that Layer's own `id`.
+		expect(
+			before.split(`"${openId}"`).length - 1,
+			'the open Layer id appears more than once, so something beside the Layer itself names it'
+		).toBe(1);
 	});
 });

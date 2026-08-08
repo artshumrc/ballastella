@@ -1,0 +1,57 @@
+// Driving the Layer sidebar, where one Layer at a time opens in place (ticket 05).
+//
+// **Why every suite needs this and did not before.** A Layer row used to show everything about the
+// Layer at once — the Align link, the library a referenced Historical Map's tiles come from, the
+// drawing tools — so a test could reach any of it straight after the row appeared. Since ticket 05 a
+// closed row shows the Layer's name, its visibility, its position controls and whatever it is
+// warning about, and the rest is behind the row's disclosure. So the step this file adds is a real
+// one a user takes, not a workaround: the contents of a Layer are reached by opening it.
+//
+// It matters that this is written once. Without it, an assertion that something is *absent* —
+// `toHaveCount(0)` on a referenced map's host, say — would pass for the wrong reason in every spec
+// that forgot the click, which is the vacuous green this epic keeps finding.
+
+import { expect, type Locator, type Page } from './test.js';
+
+/** The Layer rows in the sidebar, top first. */
+export const layerRows = (page: Page) => page.getByTestId('layer-row');
+
+/**
+ * Open a Layer's row and wait until its contents are on screen.
+ *
+ * Idempotent: the disclosure is a toggle, so a caller that has already opened this row — or reached
+ * it through something else that opens it, like clicking one of its Annotations on the map — must
+ * not close it again. `aria-expanded` is asked rather than a class, because that attribute is what
+ * the app promises a screen reader and is therefore the thing worth depending on.
+ *
+ * @param at the row's index in the stack, or the row itself
+ * @returns the row, so the caller can scope its own queries to it
+ */
+export async function openLayerRow(page: Page, at: number | Locator = 0): Promise<Locator> {
+	const row = typeof at === 'number' ? layerRows(page).nth(at) : at;
+	const disclosure = row.getByTestId('layer-disclosure');
+	await expect(disclosure).toBeVisible();
+	if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click();
+	await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+	await expect(row.getByTestId('layer-contents')).toBeVisible();
+	return row;
+}
+
+/** Close whichever row is open. */
+export async function closeLayerRow(page: Page, at: number | Locator = 0): Promise<void> {
+	const row = typeof at === 'number' ? layerRows(page).nth(at) : at;
+	const disclosure = row.getByTestId('layer-disclosure');
+	if ((await disclosure.getAttribute('aria-expanded')) === 'true') await disclosure.click();
+	await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+}
+
+/**
+ * Open a Historical Map Layer and follow its Align link (SPEC story 37).
+ *
+ * The commonest two-step in the suite: nineteen specs went straight to `align-historical-map`, and
+ * every one of them now has to open the Layer that holds it first.
+ */
+export async function alignFromLayer(page: Page, at: number | Locator = 0): Promise<void> {
+	const row = await openLayerRow(page, at);
+	await row.getByTestId('align-historical-map').click();
+}

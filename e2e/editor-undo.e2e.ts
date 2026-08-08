@@ -2,6 +2,7 @@ import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { alignFromLayer, openLayerRow } from './support/layers.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -141,6 +142,10 @@ const rowIds = (page: Page): Promise<(string | null)[]> =>
 		elements.map((element) => element.getAttribute('data-layer-id'))
 	);
 
+/** One Layer's row, by its id, since a reorder moves rows about. */
+const rowFor = (page: Page, layerId: string) =>
+	page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`);
+
 /** The coordinates a Control Point row shows, which is what the file holds rounded for reading. */
 const rowText = (page: Page, ordinal: number): Promise<string> =>
 	page
@@ -166,9 +171,10 @@ const rowText = (page: Page, ordinal: number): Promise<string> =>
  */
 async function openWorkspace(page: Page): Promise<void> {
 	await page.goto('/?p=amsterdam-1625');
-	// Aligning is `/align/?p=…&layer=…` since ticket 03, and it is entered by the button rather than by
-	// a hand-written URL: the route is keyed by Layer id, which this test has no other way to learn.
-	await page.getByTestId('align-historical-map').click();
+	// Aligning is `/align/?p=…&layer=…` since ticket 03, and it is entered by the link rather than by a
+	// hand-written URL: the route is keyed by Layer id, which this test has no other way to learn. The
+	// link is inside the Layer's own row since ticket 05, so the row is opened on the way.
+	await alignFromLayer(page);
 	await waitForSurface(page);
 	await expect(page.getByTestId('pairing-status')).toContainText('Control Point');
 }
@@ -195,7 +201,7 @@ async function throughLayersAndBack(page: Page, resuming: number): Promise<void>
 		timeout: STACK_READY_MS
 	});
 
-	await page.getByTestId('align-historical-map').click();
+	await alignFromLayer(page);
 	await waitForSurface(page);
 	// **The rows are the barrier, not the pane.** `pairing` is `undefined` until the pyramid has been
 	// read and the Alignment after it, and the status line reads "…your first Control Point" in the
@@ -293,12 +299,12 @@ test.describe('a moved Control Point (SPEC story 38)', () => {
 		await delayNextReadOf(page, 'info.json', 3000);
 
 		// This workspace starts opening, but is destroyed before its Historical Map pane calls `onpane`.
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await page.getByTestId('back-to-project').click();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 
 		// A replacement workspace becomes live before the stale pane finishes its delayed read.
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await waitForSurface(page);
 		await expect(controlPointRows(page)).toHaveCount(3);
 		await page.waitForTimeout(3500);
@@ -472,10 +478,11 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(layerRows(page)).toHaveCount(2);
 		await saved(page);
-		// A new Layer goes on top of the stack and the picker follows it, so the older one is chosen back
-		// before anything is drawn.
+		// A new Layer goes on top of the stack; the older one is the one drawn into, so it is the one
+		// opened before anything is drawn. Since ticket 05 opening a Layer *is* choosing it, so this is
+		// the whole of the gesture rather than a click and then a picker.
 		const places = (await rowIds(page)).find((id) => id !== routes) as string;
-		await page.getByTestId('annotation-layer-choice').selectOption(routes);
+		await openLayerRow(page, rowFor(page, routes));
 
 		await drawPin(page, 0.4, 0.45);
 		await selectAnnotation(page);
@@ -493,8 +500,9 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		await saved(page);
 		expect((await storedAnnotations(page, routes)).features).toHaveLength(0);
 
-		// The gesture the record's `layerId` exists to survive.
-		await page.getByTestId('annotation-layer-choice').selectOption(places);
+		// The gesture the record's `layerId` exists to survive: the *other* Layer is opened, which closes
+		// the one the Annotation was deleted from and makes it the Layer being drawn into.
+		await openLayerRow(page, rowFor(page, places));
 		await expect(page.getByTestId('annotation-list-empty')).toBeVisible();
 
 		await expect(undoButton(page)).toHaveText('Undo delete of “Fort Amsterdam”');
@@ -508,9 +516,17 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		expect(back?.id).toBe(annotationId);
 		expect(back?.properties).toEqual(deleted?.properties);
 
-		// The picker followed the record, so the user *watches* it come back rather than being told it
-		// happened somewhere they are not looking.
-		await expect(page.getByTestId('annotation-layer-choice')).toHaveValue(routes);
+		// The sidebar followed the record — the Layer the Annotation came from is the one now open — so
+		// the user *watches* it come back rather than being told it happened somewhere they are not
+		// looking. Asserted on `aria-expanded`, which is what the app promises a screen reader.
+		await expect(rowFor(page, routes).getByTestId('layer-disclosure')).toHaveAttribute(
+			'aria-expanded',
+			'true'
+		);
+		await expect(rowFor(page, places).getByTestId('layer-disclosure')).toHaveAttribute(
+			'aria-expanded',
+			'false'
+		);
 		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
 		await expect(page.getByTestId('undo-refused')).toHaveText('');
 		const restored = await waitForPaintedAnnotations(page, [annotationId]);

@@ -59,7 +59,7 @@
 	import type { DrawnLayer, DrawnOutcome, ReadCachedTile } from '@ballastella/core/render';
 	import { untrack } from 'svelte';
 
-	import AnnotationPanel from '$lib/annotations/AnnotationPanel.svelte';
+	import AnnotationLayerContents from '$lib/annotations/AnnotationLayerContents.svelte';
 	import { AnnotationDrawing } from '$lib/annotations/drawing.svelte';
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
@@ -445,17 +445,36 @@
 	const annotationLayerCount = $derived(annotationLayers.length);
 
 	/**
-	 * Which Annotation Layer is being drawn into.
+	 * Which Layer is open in the sidebar — and, for an Annotation Layer, the one being drawn into.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * ONE VALUE, NOT TWO
+	 *
+	 * This used to be `chosenLayerId`, and beside it the sidebar had no notion of a Layer being open at
+	 * all: the drawing surface was a panel below the stack with a `<select>` of its own. So "which
+	 * Layer am I looking at" and "which Layer am I drawing into" were two facts that could disagree,
+	 * and nothing in the interface said which one a click on the map would write to. Ticket 05 makes
+	 * opening a Layer *be* choosing it, so there is one value and no way to make it disagree with
+	 * itself.
 	 *
 	 * A **working choice, not a property of the Project**, so it is component state and is not written
-	 * anywhere: which Layer somebody happened to have selected is not part of their work, and persisting
-	 * it would mean a write on a click that changed nothing (ADR-0010, ADR-0002).
+	 * anywhere — not to `project.json` and not to `localStorage`. Which Layer somebody happened to have
+	 * open is not part of their work, and persisting it would mean a write on a click that changed
+	 * nothing (ADR-0010, ADR-0002).
 	 */
-	let chosenLayerId = $state<string | null>(null);
+	let openLayerId = $state<string | null>(null);
 
-	/** The chosen Layer, or the topmost Annotation Layer when nothing has been chosen yet. */
+	/**
+	 * The open Layer, when it is an Annotation Layer. `null` when nothing is open, when a map or a
+	 * `foreign` Layer is open, and when the open Layer has since been deleted.
+	 *
+	 * **No fallback to the topmost Annotation Layer**, which is what this had before and is exactly the
+	 * disagreement above: a Layer that is "chosen" while its row is closed is a Layer the user is not
+	 * looking at, and the drawing tools now live inside the row, so there is nothing to draw with until
+	 * one is open.
+	 */
 	const activeLayer = $derived<AnnotationLayer | null>(
-		annotationLayers.find((layer) => layer.id === chosenLayerId) ?? annotationLayers[0] ?? null
+		annotationLayers.find((layer) => layer.id === openLayerId) ?? null
 	);
 
 	/**
@@ -695,16 +714,16 @@
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHY THE RECORD NAMES THE LAYER AND THIS READS IT
 	 *
-	 * `chosenLayerId` is a working choice the user is free to change, and nothing stops them changing
-	 * it between the deletion and the undo — the picker is a few pixels from the affordance. An undo
-	 * that wrote into whichever Layer happened to be chosen would take an Annotation out of one
-	 * `.geojson` and put it into another, which is not an undo of anything: it is a move the user did
-	 * not ask for, into a file they were not looking at. `AnnotationDeletedUndo.layerId` exists for
-	 * exactly this, and this is where it is spent.
+	 * {@link openLayerId} is a working choice the user is free to change, and nothing stops them
+	 * changing it between the deletion and the undo — another Layer's row is a few pixels from the
+	 * affordance. An undo that wrote into whichever Layer happened to be open would take an Annotation
+	 * out of one `.geojson` and put it into another, which is not an undo of anything: it is a move the
+	 * user did not ask for, into a file they were not looking at. `AnnotationDeletedUndo.layerId` exists
+	 * for exactly this, and this is where it is spent.
 	 *
-	 * The picker follows the record rather than the other way round, so the user *watches* the
-	 * Annotation come back instead of being told it did — the same reason `AlignmentPairing.restore`
-	 * selects the pair it put back.
+	 * The sidebar follows the record rather than the other way round — the Layer the Annotation came
+	 * from is *opened* — so the user watches the Annotation come back instead of being told it did, the
+	 * same reason `AlignmentPairing.restore` selects the pair it put back.
 	 *
 	 * Restored into that Layer's collection **as it is now** rather than into a snapshot: whatever else
 	 * has been drawn or edited in it since must survive an undo of one deletion.
@@ -736,7 +755,7 @@
 				return;
 			}
 		}
-		chosenLayerId = layer.id;
+		openLayerId = layer.id;
 		selectedAnnotationId = record.annotation.id;
 		popupAt = null;
 		await commitAnnotationsIn(layer, insertAnnotationAt(collection, record.annotation, record.at));
@@ -930,9 +949,16 @@
 		untrack(() => (offlineGeneration += 1));
 	});
 
-	/** Choosing another Layer abandons a part-drawn shape and clears the selection with it. */
-	function chooseLayer(id: string): void {
-		chosenLayerId = id;
+	/**
+	 * Open a Layer, or close whatever is open.
+	 *
+	 * Opening a different Layer abandons a part-drawn shape and clears the selection with it, which is
+	 * what choosing another Layer to draw into has always done — the gesture in progress belongs to the
+	 * Layer that is being left, and carrying it across would drop it into a file the user was not
+	 * drawing in. Closing does the same for the same reason: the tools go off the screen with the row.
+	 */
+	function openLayer(id: string | null): void {
+		openLayerId = id;
 		selectedAnnotationId = null;
 		popupAt = null;
 		drawing.cancel();
@@ -1175,13 +1201,16 @@
 					{layers}
 					{outcomes}
 					{referencedImageIds}
+					{openLayerId}
+					onopen={openLayer}
 					ontypename={(id, name) => session.typeLayerName(id, name)}
 					oncommit={() => session.commitLayerEdit()}
 					onshow={(id, visible) => session.showLayer(id, visible)}
 					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
 					ondelete={(id) => void session.deleteLayer(id)}
-					{mapActions}
+					{mapContents}
+					{annotationContents}
 				/>
 
 				<button
@@ -1191,6 +1220,24 @@
 				>
 					Add an Annotation Layer
 				</button>
+
+				{#if annotationLayerCount === 0}
+					<!--
+						What to do when there is nothing to draw into yet, beside the button that fixes it.
+
+						**This sentence is not new; it is where it went.** It used to be `AnnotationPanel`'s
+						`layers.length === 0` branch, and the toolbar beneath it announced "Add an Annotation
+						Layer to start drawing." from a `disabled` state. Ticket 05 put the toolbar inside an
+						open Annotation Layer's row, which makes both of those unreachable — and an
+						announcement that disappears with the state it described is fine, while guidance that
+						disappears with it is an accessibility regression (SPEC story 112). So the guidance
+						moved to the affordance it is about rather than going with the panel.
+					-->
+					<p class="mt-2 max-w-prose text-sm" data-testid="no-annotation-layers">
+						No Annotation Layers yet. Add one, then open it to draw: its pins, lines, and shapes are
+						kept in one GeoJSON file that opens in other mapping tools.
+					</p>
+				{/if}
 
 				<!--
 					Why an undo did not happen. `aria-live="polite"` is ADR-0016's mandated method for a
@@ -1206,32 +1253,6 @@
 				>
 					{undoRefusal}
 				</p>
-
-				<hr class="my-6 border-base-300" />
-
-				<AnnotationPanel
-					layers={annotationLayers}
-					layer={activeLayer}
-					collection={activeCollection}
-					selectedId={selectedAnnotationId}
-					tool={drawing.tool}
-					status={drawing.status}
-					drawing={drawing.drawing}
-					canFinish={drawing.canFinish}
-					onchooselayer={chooseLayer}
-					onchoosetool={(tool) => drawing.choose(tool)}
-					onfinish={() => void finishShape()}
-					oncancel={() => drawing.cancel()}
-					onundovertex={() => drawing.undoVertex()}
-					onselect={(id) => selectAnnotation(id)}
-					ontext={(text) => void typeText(text)}
-					oncommit={() => void commitAnnotationEdit()}
-					onstyle={(style, options) => void styleSelected(style, options)}
-					onlinestyle={(line) => void lineStyleSelected(line)}
-					ondelete={() => void deleteSelected()}
-					onlayerstyle={(style, options) =>
-						void (activeLayer && session.setLayerDefaultStyle(activeLayer.id, style, options))}
-				/>
 
 				<hr class="my-6 border-base-300" />
 
@@ -1460,7 +1481,11 @@
 							// Only when nothing is being drawn: with a tool in hand the click places a vertex,
 							// and the Annotation underneath is not what the user is pointing at.
 							if (drawing.tool !== 'select') return;
-							chosenLayerId = hit.layerId;
+							// **Opens that Layer's row**, so the user is shown where the thing they clicked
+							// lives rather than left to find it. Assigned rather than routed through
+							// `openLayer`, which clears the selection — and a selection is precisely what this
+							// is making. Nothing is part-drawn here: the guard above is that guarantee.
+							openLayerId = hit.layerId;
 							selectAnnotation(hit.annotationId, hit.at);
 						}}
 						onfinishshape={() => void finishShape()}
@@ -1605,7 +1630,8 @@
 {/if}
 
 <!--
-	The per-Layer actions on a Historical Map Layer, rendered by `LayerList` inside the Layer's own row.
+	What is inside a Historical Map Layer, rendered by `LayerList` inside that Layer's open row: whether
+	it is placed on the earth yet, the button that places it, and where its tiles are fetched from.
 
 	**A snippet passed down rather than markup inside `LayerList`**, for one concrete reason: the Align
 	link has to be spelled `{resolve('/align')}?p=…&layer=…` at the point it is written, because
@@ -1617,60 +1643,134 @@
 	its Layer since it was added (ADR-0023), so there is nothing to resolve on the way — an earlier
 	shape pressed a button that created the Layer and then navigated, which meant a disabled control
 	across a store read and a Workspace-shared `alignments/<id>.json` written to do it.
+
+	**"Not aligned yet" is said here *and* on the closed row**, which is not a duplication that could
+	drift: one sentence, `NOT_ALIGNED`, and one predicate, `notAligned`. The closed row has to carry it
+	because "this map needs aligning" is the state a scholar has to be able to notice without opening
+	anything; the open row carries it because it is the sentence the Align button beside it answers.
+	Nothing here says the opposite when a map *is* aligned — the Align button is that affordance either
+	way, and an unrequested "Aligned" line was the first cut's other mistake.
 -->
-{#snippet mapActions(layer: MapLayer)}
+{#snippet mapContents(layer: MapLayer)}
 	{@const origin = originFor(layer)}
 	{@const referenced = referencedImageIds.has(layer.imageId)}
-	<div class="mt-2 flex flex-wrap items-center gap-2">
-		<!--
-			**`session.openDirectory`, not the `?p=` prop**, and the difference is a real window rather
-			than a style preference. `open()` clears `openProject` and sets its own directory, so between
-			a navigation to another Project and that call the URL names the new folder while the Layers
-			on screen are still the old Project's — which is exactly why the opening-fit effect above
-			compares the two. Built from the prop, this link would spend that window naming the *new*
-			directory with the *old* Project's Layer id: a pair that has never been true together. The
-			align route refuses an unknown `?layer=` and says so, so the cost is a wrong explanation
-			rather than a wrong map, but the pair the link carries has to come from one source.
-		-->
-		<a
-			class="btn btn-primary btn-xs"
-			data-testid="align-historical-map"
-			href="{resolve('/align')}?p={encodeURIComponent(
-				session.openDirectory ?? ''
-			)}&layer={encodeURIComponent(layer.id)}"
-		>
-			Align
-		</a>
-
-		{#if referenced && origin}
-			<!-- Where the tiles come from, on the Layer that fetches them (SPEC story 80). -->
-			<span class="text-xs" data-testid="referenced-image-label"
-				>{origin.label || origin.imageId}</span
-			>
-			<code class="text-xs opacity-70" data-testid="referenced-image-host"
-				>{new URL(origin.service).hostname}</code
-			>
-			<button
-				class="btn btn-xs"
-				type="button"
-				data-testid="view-unwarped"
-				aria-pressed={unwarpedImageId === layer.imageId}
-				onclick={() => (unwarpedImageId = unwarpedImageId === layer.imageId ? '' : layer.imageId)}
-			>
-				View unwarped
-			</button>
-			<OfflineCopyDialog image={origin} job={offlineCopy} />
-		{:else if origin}
+	{@const reported = outcomes[layer.id]}
+	<div class="flex flex-col gap-2">
+		{#if reported?.status === 'refused' && reported.reason === NOT_ALIGNED}
 			<!--
-				An offline copy, and the address it came from (SPEC story 76). Kept visible because making
-				an offline copy keeps `remote.json` precisely so a copy can still be cited and traced back
-				to the library it came from (ADR-0007), and a copy nobody can cite is a copy that has been
-				orphaned.
+				A colour **and** a sentence, because a class reaches nobody: a screen reader is told nothing
+				by `text-warning`, so the state has to be in the accessibility tree as text or it is not
+				information at all. Ticket 07 adds the needs-the-network state beside this one, under the
+				same rule and with an element and an id of its own.
+
+				─────────────────────────────────────────────────────────────────────────────────────────
+				AN ELEMENT MAY ONLY EVER SAY THE THING ITS ID NAMES
+
+				The first cut rendered `outcome.reason` for *any* `refused` outcome under an id reading
+				"alignment state", so an Alignment file that was there and unreadable was announced as a map
+				that merely needed aligning — a different failure wearing this one's label.
+
+				Narrowing to {@link notAligned} was not enough, and the reason is worth keeping: a Layer
+				whose Alignment could not be read has **no document**, and `notAligned` counts a missing
+				document as not aligned. So the honest test is the *reported* outcome, which is where the
+				precedence between the three already lives — `outcomes` puts an unreadable file above both
+				the renderer's refusal and this one, "because it is the only one of the three that means
+				work the user made is not on screen". Asking it here reuses that one rule rather than
+				deriving a second answer beside it.
+
+				No refusal is lost by the narrowing: the row above shows every one of them out of the same
+				`outcomes`, under `layer-problem`, whose name claims nothing in particular.
 			-->
-			<span class="text-xs" data-testid="offline-copy-label">{origin.label || origin.imageId}</span>
-			<code class="text-xs break-all opacity-70" data-testid="offline-copy-source"
-				>{origin.service}</code
-			>
+			<p class="text-sm text-warning" data-testid="layer-not-aligned">{NOT_ALIGNED}</p>
 		{/if}
+
+		<div class="flex flex-wrap items-center gap-2">
+			<!--
+				**`session.openDirectory`, not the `?p=` prop**, and the difference is a real window rather
+				than a style preference. `open()` clears `openProject` and sets its own directory, so between
+				a navigation to another Project and that call the URL names the new folder while the Layers
+				on screen are still the old Project's — which is exactly why the opening-fit effect above
+				compares the two. Built from the prop, this link would spend that window naming the *new*
+				directory with the *old* Project's Layer id: a pair that has never been true together. The
+				align route refuses an unknown `?layer=` and says so, so the cost is a wrong explanation
+				rather than a wrong map, but the pair the link carries has to come from one source.
+			-->
+			<a
+				class="btn btn-primary btn-xs"
+				data-testid="align-historical-map"
+				href="{resolve('/align')}?p={encodeURIComponent(
+					session.openDirectory ?? ''
+				)}&layer={encodeURIComponent(layer.id)}"
+			>
+				Align
+			</a>
+
+			{#if referenced && origin}
+				<!-- Where the tiles come from, on the Layer that fetches them (SPEC story 80). -->
+				<span class="text-xs" data-testid="referenced-image-label"
+					>{origin.label || origin.imageId}</span
+				>
+				<code class="text-xs opacity-70" data-testid="referenced-image-host"
+					>{new URL(origin.service).hostname}</code
+				>
+				<button
+					class="btn btn-xs"
+					type="button"
+					data-testid="view-unwarped"
+					aria-pressed={unwarpedImageId === layer.imageId}
+					onclick={() => (unwarpedImageId = unwarpedImageId === layer.imageId ? '' : layer.imageId)}
+				>
+					View unwarped
+				</button>
+				<OfflineCopyDialog image={origin} job={offlineCopy} />
+			{:else if origin}
+				<!--
+					An offline copy, and the address it came from (SPEC story 76). Kept visible because making
+					an offline copy keeps `remote.json` precisely so a copy can still be cited and traced back
+					to the library it came from (ADR-0007), and a copy nobody can cite is a copy that has been
+					orphaned.
+				-->
+				<span class="text-xs" data-testid="offline-copy-label"
+					>{origin.label || origin.imageId}</span
+				>
+				<code class="text-xs break-all opacity-70" data-testid="offline-copy-source"
+					>{origin.service}</code
+				>
+			{/if}
+		</div>
 	</div>
+{/snippet}
+
+<!--
+	What is inside an Annotation Layer, rendered by `LayerList` inside that Layer's open row: the
+	drawing tools, the Layer's default style, its Annotations, and the selected one's editor.
+
+	**A snippet passed down rather than markup inside `LayerList`**, because everything it needs is this
+	screen's: the collection in `documents`, the selection, the `AnnotationDrawing` instance, and every
+	function that writes. `LayerList` would otherwise take fourteen props it only forwards.
+
+	The Layer it is handed *is* {@link activeLayer}; both come from {@link openLayerId}, which is where
+	that identity is explained and is the whole of what ticket 05 changed.
+-->
+{#snippet annotationContents(layer: AnnotationLayer)}
+	<AnnotationLayerContents
+		{layer}
+		collection={activeCollection}
+		selectedId={selectedAnnotationId}
+		tool={drawing.tool}
+		status={drawing.status}
+		drawing={drawing.drawing}
+		canFinish={drawing.canFinish}
+		onchoosetool={(tool) => drawing.choose(tool)}
+		onfinish={() => void finishShape()}
+		oncancel={() => drawing.cancel()}
+		onundovertex={() => drawing.undoVertex()}
+		onselect={(id) => selectAnnotation(id)}
+		ontext={(text) => void typeText(text)}
+		oncommit={() => void commitAnnotationEdit()}
+		onstyle={(style, options) => void styleSelected(style, options)}
+		onlinestyle={(line) => void lineStyleSelected(line)}
+		ondelete={() => void deleteSelected()}
+		onlayerstyle={(style, options) => void session.setLayerDefaultStyle(layer.id, style, options)}
+	/>
 {/snippet}

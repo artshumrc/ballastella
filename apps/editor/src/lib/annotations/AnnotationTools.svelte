@@ -17,7 +17,6 @@
 		status,
 		drawing,
 		canFinish,
-		disabled = false,
 		onchoose,
 		onfinish,
 		oncancel,
@@ -28,8 +27,6 @@
 		status: string;
 		drawing: boolean;
 		canFinish: boolean;
-		/** True when there is no Annotation Layer to draw into, which is a normal first state. */
-		disabled?: boolean;
 		onchoose: (tool: AnnotationTool) => void;
 		onfinish: () => void;
 		oncancel: () => void;
@@ -47,10 +44,22 @@
 	 * attribute and reaches nobody. Each tool's own status line then says what to do with it, which is
 	 * where the four per-button `title` tooltips went: CONTRIBUTING is explicit that a tooltip is not an
 	 * information channel, and this is text that is both visible and read out.
+	 *
+	 * **The "no Layer to draw into" announcement is gone because the state is now unreachable, not
+	 * because it stopped mattering.** It read "Add an Annotation Layer to start drawing." and rode a
+	 * `disabled` prop that `AnnotationPanel` passed as `layer === null`. Since ticket 05 the only
+	 * render path to this component is `AnnotationLayerContents`, which `LayerList` renders only from
+	 * its `annotationContents` snippet, which it invokes only for a Layer that is both `kind ===
+	 * 'annotation'` and open — so `layer` is always a real Annotation Layer and there is no state
+	 * left for the sentence to describe. Removing an announcement is otherwise an accessibility
+	 * regression (SPEC story 112), so if a second render path is ever added, the `disabled` state and
+	 * its sentence have to come back with it.
+	 *
+	 * What that sentence *also* did — tell a scholar with no Annotation Layer yet what to do about it
+	 * — did not go away with it. It is beside the "Add an Annotation Layer" button in
+	 * `ProjectScreen.svelte`, which is the affordance it is about.
 	 */
-	const announcement = $derived(
-		disabled ? 'Add an Annotation Layer to start drawing.' : `${toolName(tool)} tool. ${status}`
-	);
+	const announcement = $derived(`${toolName(tool)} tool. ${status}`);
 </script>
 
 <div class="flex flex-col gap-2">
@@ -67,7 +76,6 @@
 				class="btn join-item btn-sm"
 				class:btn-primary={tool === entry}
 				aria-pressed={tool === entry}
-				{disabled}
 				data-testid="annotation-tool-{entry}"
 				onclick={() => onchoose(entry)}
 			>

@@ -21,6 +21,7 @@
 import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { openLayerRow } from './support/layers.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -29,9 +30,13 @@ import {
 	baseMap,
 	chooseTool,
 	clickAt,
+	createProject,
 	drawPin,
 	drawShape,
+	emptyWorkspace,
 	hashesUnder,
+	openLayers,
+	PROJECT_NAME,
 	reopenLayers,
 	selectAnnotation,
 	paintProperty,
@@ -1219,3 +1224,284 @@ async function tabTo(page: Page, target: import('@playwright/test').Locator, wha
 	}
 	throw new Error(`“${what}” could not be reached with the keyboard`);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// THE OPEN LAYER IS THE LAYER BEING DRAWN INTO (ticket 05)
+//
+// There used to be two values — which Layer the sidebar was showing, and which one the "Drawing into"
+// picker had selected — and nothing stopped them disagreeing. They are one now, so opening a Layer is
+// what chooses it, and the tools are inside the Layer they draw into rather than in a panel beneath
+// the stack. What follows is that identity asserted from both ends.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+test.describe('drawing into the Layer that is open (ticket 05)', () => {
+	/** One Layer's row, by its id, because adding a Layer puts it on top and moves the others down. */
+	const rowFor = (page: Page, layerId: string) =>
+		page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`);
+
+	/**
+	 * A Project with no Annotation Layer says what to do about it, and stops saying it once done.
+	 *
+	 * **Guidance, not an announcement, and the difference is why this test exists.** Before ticket 05
+	 * this was said twice: `AnnotationPanel` had a "No Annotation Layers yet" branch, and the toolbar
+	 * beneath it announced "Add an Annotation Layer to start drawing." from a `disabled` state. Putting
+	 * the toolbar inside an open Layer's row makes the disabled state unreachable — there is no render
+	 * path to it that is not already inside an Annotation Layer — so *that* sentence went with the
+	 * state it described, which is the only condition under which removing an announcement is not an
+	 * accessibility regression (SPEC story 112).
+	 *
+	 * What could not go with it is the guidance, because the state it is about — a Project with Layers
+	 * and no Annotation Layer — is as reachable as it ever was. It is beside the button that resolves
+	 * it, and asserted as visible text rather than as a `title` (SPEC story 111).
+	 */
+	test('a Project with no Annotation Layer says so, beside the button that fixes it', async ({
+		page
+	}) => {
+		await page.goto('/');
+		await emptyWorkspace(page);
+		await page.reload();
+		await createProject(page);
+		await expect(page.getByRole('link', { name: PROJECT_NAME })).toBeVisible();
+		await openLayers(page);
+
+		const guidance = page.getByTestId('no-annotation-layers');
+		await expect(guidance).toBeVisible();
+		await expect(guidance).toContainText('No Annotation Layers yet');
+		// It names the two steps the interface now takes, the second of which is ticket 05's.
+		await expect(guidance).toContainText('open it to draw');
+		// And there are no drawing tools anywhere, which is the state it is explaining.
+		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
+
+		// It goes when it stops being true, rather than sitting under a Layer that exists.
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
+		await expect(guidance).toHaveCount(0);
+	});
+
+	/**
+	 * The drawing tools exist only inside an open Annotation Layer.
+	 *
+	 * The "Drawing into" picker is gone and this is the assertion that it did not simply move: with
+	 * every row closed there is no toolbar, no Annotation list, and no Layer default style anywhere on
+	 * the screen, because there is no Layer chosen to draw into.
+	 */
+	test('the tools and the Annotations are inside the Layer, and nowhere else', async ({ page }) => {
+		const layerId = await startAnnotating(page);
+		const failures = watchFailures(page);
+
+		// `startAnnotating` leaves the Layer open, so the tools are there.
+		await expect(page.getByTestId('annotation-tools')).toHaveCount(1);
+		await expect(page.getByTestId('layer-default-stroke')).toHaveCount(1);
+		// And they are inside that Layer's own row rather than merely somewhere on the page.
+		await expect(rowFor(page, layerId).getByTestId('annotation-tools')).toHaveCount(1);
+
+		// Drawing into the open Layer works, and lands in that Layer's file.
+		await drawPin(page, 0.4, 0.45);
+		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
+		await expect(rowFor(page, layerId).getByTestId('annotation-row')).toHaveCount(1);
+
+		// Closed, none of it is on the screen — and the picker it replaced is not there either.
+		await rowFor(page, layerId).getByTestId('layer-disclosure').click();
+		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-list')).toHaveCount(0);
+		await expect(page.getByTestId('layer-default-stroke')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-layer-choice')).toHaveCount(0);
+
+		// The Annotation is still on the map: closing a Layer is not hiding it.
+		const drawn = (await storedAnnotations(page, layerId)).features[0]!.id;
+		const painted = await waitForPaintedAnnotations(page, [drawn]);
+		expect(painted[drawn]?.length ?? 0).toBeGreaterThan(0);
+
+		expect(failures).toEqual([]);
+	});
+
+	/**
+	 * **With no Layer open, nothing is being drawn into, and a click on the map writes nowhere.**
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THIS IS THE DEFECT THE CONTRACT NAMES, AND IT IS REACHABLE BY THREE CLICKS
+	 *
+	 * `activeLayer` used to fall back to `annotationLayers[0]` when nothing was chosen, and ticket 05
+	 * removed that fallback. Nothing else in this suite can see the removal: the drawing tools, the
+	 * Annotation list and the editor all render *inside* the open row, so restoring the fallback
+	 * changes no markup and leaves every other test green.
+	 *
+	 * What it does change is the one path into the annotation writes that is live whether a row is
+	 * open or not: `BaseMapPane`'s `onclickpoint`, which is mounted for the whole screen. Closing a
+	 * Layer abandons a part-drawn shape but deliberately leaves the *tool* in hand — `cancel()` clears
+	 * vertices and nothing else — so a scholar who picks the pin tool, closes the row, and then clicks
+	 * the map reaches `placePoint` with no tools anywhere on screen. With the fallback that click
+	 * writes an Annotation into whichever Layer happens to be topmost: a file they were not looking
+	 * at, from a gesture the interface gave them no way to attribute. Without it `activeLayer` is
+	 * `null`, `commitAnnotations` returns, and the click does nothing at all.
+	 *
+	 * Asserted on the **bytes and the write count**, not on the absence of a list row: a list that is
+	 * not rendered proves nothing about a file, and the file is the user's work.
+	 */
+	test('with no Layer open, a click on the map writes into no Layer at all', async ({ page }) => {
+		const layerId = await startAnnotating(page);
+		const failures = watchFailures(page);
+
+		// A second Layer, so "the topmost one" is a real and distinguishable answer for the fallback to
+		// give. It goes on top, so it is the one a restored fallback would choose.
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(2);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		const topmost = (await projectJson(page)).layers.find(
+			(layer: { kind: string; id: string }) => layer.kind === 'annotation' && layer.id !== layerId
+		).id as string;
+
+		// The pin tool is taken while a row is open, because that is the only place it exists.
+		await openLayerRow(page, rowFor(page, layerId));
+		await chooseTool(page, 'point');
+		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', 'point');
+
+		// And the row is closed with it still in hand. No tools are on the screen now — which is the
+		// whole of what the interface says about which Layer a click would go to.
+		await watchAnnotationWrites(page);
+		await rowFor(page, layerId).getByTestId('layer-disclosure').click();
+		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
+		await expect(page.getByTestId('layer-contents')).toHaveCount(0);
+
+		await clickAt(baseMap(page), 0.45, 0.45);
+		// Given long enough for a write to have been debounced and flushed if one had been queued
+		// (ADR-0017 rule 2), so this is "nothing was written" rather than "nothing yet".
+		await page.waitForTimeout(1500);
+
+		expect(await annotationWrites(page), 'a click with no Layer open wrote an Annotation').toEqual(
+			[]
+		);
+		expect((await storedAnnotations(page, layerId)).features).toHaveLength(0);
+		expect((await storedAnnotations(page, topmost)).features).toHaveLength(0);
+
+		// **The control.** The same click, with the same tool, into an open Layer does write — so the
+		// assertions above are about the absent Layer and not about a click that never landed, a tool
+		// that was never held, or a pane that was not listening.
+		await openLayerRow(page, rowFor(page, layerId));
+		await chooseTool(page, 'point');
+		await clickAt(baseMap(page), 0.45, 0.45);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
+		expect((await storedAnnotations(page, topmost)).features).toHaveLength(0);
+
+		expect(failures).toEqual([]);
+	});
+
+	/**
+	 * The rule `chooseLayer` has always carried, now reached by opening a row.
+	 *
+	 * A gesture in progress belongs to the Layer being left: carrying a half-drawn shape into another
+	 * Layer would drop it into a file the user was not drawing in. Asserted on the *file* as well as on
+	 * the toolbar's own state, because "the vertices are gone from the screen" and "nothing was
+	 * written" are different claims and only the second one is about the user's work.
+	 */
+	test('opening a different Layer abandons a part-drawn shape and clears the selection', async ({
+		page
+	}) => {
+		const routes = await startAnnotating(page);
+		const failures = watchFailures(page);
+
+		// Something already drawn and selected, so the cleared selection is a change rather than a
+		// starting state.
+		await drawPin(page, 0.35, 0.4);
+		await selectAnnotation(page);
+		await expect(page.getByTestId('annotation-editor')).toBeVisible();
+
+		// A second Layer to open. It goes on top, so `routes` moves down and stays open.
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(2);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		const places = (await projectJson(page)).layers.find(
+			(layer: { kind: string; id: string }) => layer.kind === 'annotation' && layer.id !== routes
+		).id as string;
+
+		// A shape half drawn: two vertices of a polygon, unfinished and unwritten.
+		await watchAnnotationWrites(page);
+		await chooseTool(page, 'polygon');
+		await clickAt(baseMap(page), 0.45, 0.45);
+		await clickAt(baseMap(page), 0.6, 0.45);
+		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'true');
+
+		await openLayerRow(page, rowFor(page, places));
+
+		// The gesture is gone and the selection with it. **The tool stays in hand**, which is
+		// `AnnotationDrawing.cancel()`'s existing behaviour and not an oversight: cancelling a shape
+		// almost always means drawing another, and Escape has always left the tool selected too. Ticket
+		// 05 moved where the toolbar is drawn and changed nothing about what it holds.
+		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'false');
+		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', 'polygon');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-list-empty')).toBeVisible();
+
+		// And nothing was written into either Layer: the abandoned polygon is not in the file it was
+		// being drawn in, and it did not land in the one that was opened.
+		expect(await annotationWrites(page)).toEqual([]);
+		expect((await storedAnnotations(page, routes)).features).toHaveLength(1);
+		expect((await storedAnnotations(page, places)).features).toHaveLength(0);
+
+		expect(failures).toEqual([]);
+	});
+
+	/**
+	 * SPEC story 20, and the reason the two values had to become one.
+	 *
+	 * Clicking an Annotation on the Base Map already selected it; with the picker sitting elsewhere, a
+	 * user could be shown the editor for something they could not find in the sidebar. Now the click
+	 * *opens the Layer it lives in*, so the answer to "where is this?" is on the screen.
+	 *
+	 * The click is on a Layer that is **not** the open one, which is what makes it a claim about
+	 * opening rather than about selecting.
+	 */
+	test('clicking an Annotation on the Base Map opens its Layer and selects it', async ({
+		page
+	}) => {
+		test.setTimeout(90_000);
+		const routes = await startAnnotating(page);
+		const failures = watchFailures(page);
+
+		// One Annotation in the first Layer, titled so the editor is identifiable.
+		await drawPin(page, 0.4, 0.45);
+		await selectAnnotation(page);
+		await page.getByTestId('annotation-title').fill('Fort Amsterdam');
+		await page.getByTestId('annotation-title').blur();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		const pinId = (await storedAnnotations(page, routes)).features[0]!.id;
+
+		// A second Layer, opened, so the first is closed and its Annotation is not the selected one.
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(2);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		const places = (await projectJson(page)).layers.find(
+			(layer: { kind: string; id: string }) => layer.kind === 'annotation' && layer.id !== routes
+		).id as string;
+		await openLayerRow(page, rowFor(page, places));
+		await expect(rowFor(page, routes).getByTestId('layer-disclosure')).toHaveAttribute(
+			'aria-expanded',
+			'false'
+		);
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+
+		// The pin is still painted, so the click below has something to hit.
+		await waitForPaintedAnnotations(page, [pinId]);
+		await chooseTool(page, 'select');
+		await clickAt(baseMap(page), 0.4, 0.45);
+
+		// Its Layer is open, the other is closed, and the Annotation is selected inside it.
+		await expect(rowFor(page, routes).getByTestId('layer-disclosure')).toHaveAttribute(
+			'aria-expanded',
+			'true'
+		);
+		await expect(rowFor(page, places).getByTestId('layer-disclosure')).toHaveAttribute(
+			'aria-expanded',
+			'false'
+		);
+		await expect(page.getByTestId('annotation-editor')).toBeVisible();
+		await expect(page.getByTestId('annotation-title')).toHaveValue('Fort Amsterdam');
+		await expect(rowFor(page, routes).getByTestId('annotation-row').first()).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+
+		expect(failures).toEqual([]);
+	});
+});

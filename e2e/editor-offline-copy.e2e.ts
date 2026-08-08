@@ -1,9 +1,10 @@
 import { expect, test } from './support/test.js';
-import { type Page, type Route } from '@playwright/test';
+import { type Locator, type Page, type Route } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { openLayerRow } from './support/layers.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -543,7 +544,28 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
 	await page.getByTestId('remote-read').click();
 	await expect(page.getByTestId('remote-add')).toBeVisible();
 	await page.getByTestId('remote-add').click();
-	await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
+	await expectReferencedLayer(page);
+}
+
+/**
+ * Wait until a referenced Historical Map is on the Project screen, and leave its Layer open.
+ *
+ * Since ticket 05 the library a referenced map's tiles come from — and the "Make an offline copy"
+ * offer beside it — are *inside* the Layer that fetches them, so seeing either is opening the row.
+ *
+ * @returns the row, so a caller can go on asking about that Layer and no other
+ */
+async function expectReferencedLayer(page: Page, at: number | Locator = 0): Promise<Locator> {
+	const row = await openLayerRow(page, at);
+	await expect(row.getByTestId('referenced-image-host')).toBeVisible();
+	return row;
+}
+
+/** The same, for a map whose tiles are now in the Workspace: the source URI in place of a host. */
+async function expectOfflineCopyLayer(page: Page, at: number | Locator = 0): Promise<Locator> {
+	const row = await openLayerRow(page, at);
+	await expect(row.getByTestId('offline-copy-source')).toBeVisible();
+	return row;
 }
 
 /**
@@ -565,9 +587,11 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
  */
 async function openMirrorDialog(page: Page): Promise<void> {
 	// "Make an offline copy" lives on the Layer card, which ticket 04 made the Project screen itself —
-	// so arriving is already being there, and there is no navigation left for this to do.
+	// so arriving is already being there, and there is no navigation left for this to do. Since ticket
+	// 05 the card is the Layer's *open* row, so the row is opened on the way in.
 	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
-	await page.getByTestId('offline-copy-open').click();
+	const row = await openLayerRow(page);
+	await row.getByTestId('offline-copy-open').click();
 	await expect(page.getByRole('dialog', { name: 'Make an offline copy' })).toBeVisible();
 	await expect(page.getByTestId('offline-copy-status')).toHaveAttribute('data-step', 'deciding');
 }
@@ -688,10 +712,12 @@ test.describe('making an offline copy', () => {
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('remote-add')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
+		const offeredRow = await expectReferencedLayer(page);
 
 		// On the Layer card, and only there — one Layer, one offer (ADR-0007, ADR-0025).
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+		await expect(offeredRow.getByTestId('offline-copy-open')).toHaveCount(1);
+		// And nowhere else on the screen, which is what "only there" means.
 		await expect(page.getByTestId('offline-copy-open')).toHaveCount(1);
 
 		const requestsBefore: string[] = [];
@@ -955,12 +981,13 @@ test.describe('making an offline copy', () => {
 		);
 
 		// And the source URI is still on screen, so the copy can be cited.
-		await expect(page.getByTestId('offline-copy-source').first()).toBeVisible();
-		await expect(page.getByTestId('offline-copy-source')).toHaveText(
+		const copiedRow = await expectOfflineCopyLayer(page);
+		await expect(copiedRow.getByTestId('offline-copy-source')).toHaveText(
 			service('images.test', 'florida')
 		);
-		// It has left the referenced list, because it is not referenced any more.
-		await expect(page.getByTestId('referenced-image-host')).toHaveCount(0);
+		// It is not referenced any more, said of the *open* row: a page-wide count would be 0 for a Layer
+		// nobody had opened, which is the same green for the opposite reason.
+		await expect(copiedRow.getByTestId('referenced-image-host')).toHaveCount(0);
 	});
 
 	test('reports progress, and announces it to assistive technology', async ({ page }) => {
@@ -1023,8 +1050,9 @@ test.describe('making an offline copy', () => {
 		await expect(
 			readJson(page, '', `images/${generateId(service('images.test', 'florida'))}/info.json`)
 		).rejects.toThrow();
-		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
-		await expect(page.getByTestId('offline-copy-source')).toHaveCount(0);
+		await expect(
+			(await expectReferencedLayer(page)).getByTestId('offline-copy-source')
+		).toHaveCount(0);
 	});
 
 	test('leaves the Layer referenced and working when the copy fails', async ({ page }) => {
@@ -1148,7 +1176,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('community-offer')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
+		await expectReferencedLayer(page);
 
 		const imageId = generateId(service('images.test', 'florida'));
 
@@ -1168,7 +1196,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		beforeCopy.stop();
 
 		await page.goto('/?p=amsterdam-1625');
-		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
+		await expectReferencedLayer(page);
 
 		await openMirrorDialog(page);
 		await page.getByTestId('offline-copy-start').click();
@@ -1259,8 +1287,8 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await page.context().setOffline(true);
 		try {
 			await page.reload();
-			await expect(page.getByTestId('offline-copy-source').first()).toBeVisible();
-			await expect(page.getByTestId('referenced-image-host')).toHaveCount(0);
+			const copiedRow = await expectOfflineCopyLayer(page);
+			await expect(copiedRow.getByTestId('referenced-image-host')).toHaveCount(0);
 			// It is one of the Project's own Historical Maps now — one Layer, drawing local tiles — and
 			// the source URI is still on it. The Layer stack *is* that list since ticket 04.
 			await expect(page.getByTestId('layer-row')).toHaveCount(1);
@@ -1268,14 +1296,14 @@ test.describe('a copied Historical Map, once it is copied', () => {
 				'data-image-mode',
 				'offline-copy'
 			);
-			await expect(page.getByTestId('offline-copy-source')).toHaveText(
+			await expect(copiedRow.getByTestId('offline-copy-source')).toHaveText(
 				service('images.test', 'florida')
 			);
 
 			// The pane drew the copy, tile by tile, out of the Project — with no network at all. The pane
 			// is `/align/` since ticket 03, and reaching it offline is part of what that asserts.
 			const imageId = generateId(service('images.test', 'florida'));
-			await page.getByTestId('align-historical-map').click();
+			await copiedRow.getByTestId('align-historical-map').click();
 			await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 			await expect
 				.poll(() => page.evaluate(() => (window.ballastellaServedTiles ?? []).length), {
@@ -1318,7 +1346,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await page.getByTestId('remote-read').click();
 		await expect(page.getByTestId('community-offer')).toBeVisible();
 		await page.getByTestId('remote-add').click();
-		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
+		await expectReferencedLayer(page);
 
 		await openMirrorDialog(page);
 		await page.getByTestId('offline-copy-start').click();

@@ -13,6 +13,7 @@ import {
 	routeBaseMapArchive,
 	type EditorDeployment
 } from './support/editor-deployment';
+import { alignFromLayer, openLayerRow } from './support/layers';
 import {
 	clickAt,
 	emptyWorkspace,
@@ -212,10 +213,8 @@ async function startProjectWithMap(page: Page): Promise<string> {
  * that is readable.
  */
 const alignLayerFor = (page: Page, imageId: string) =>
-	page
-		.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`)
-		.getByTestId('align-historical-map')
-		.click();
+	// Opened first: since ticket 05 the Align link is inside the Layer's own row.
+	alignFromLayer(page, page.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`));
 
 /** Whatever has focus, said in enough detail that a change of focus is a change of string. */
 const focusedDescription = (page: Page) =>
@@ -616,7 +615,7 @@ test.describe('the app with the network off', () => {
 		// **Offline, and the route change is part of what is being asserted.** Aligning is `/align/`
 		// since ticket 03, so reaching it with the network off exercises the precached prerendered page
 		// and its code chunks as well as the panes themselves.
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
 		// The user's own pyramid draws with no network, which is ADR-0011's injection layer earning its
@@ -679,6 +678,10 @@ test.describe('the app with the network off', () => {
 		await centreOnAmsterdam(page);
 		const layerId = await annotationLayerId(page);
 
+		// The new Layer goes on top of the stack, and its drawing tools are inside its own row since
+		// ticket 05 — opening it is what chooses it to draw into. Done offline, like everything else in
+		// this test: it is component state and asks nothing of the network.
+		await openLayerRow(page, 0);
 		await chooseTool(page, 'point');
 		await clickAt(annotationBaseMap(page), 0.5, 0.5);
 		await expect.poll(async () => (await storedAnnotations(page, layerId)).features.length).toBe(1);
@@ -876,11 +879,18 @@ test.describe('a working session that reaches other people’s servers', () => {
 		// only the Workspace's half is writing a map no Project uses.
 		await seedMapLayer(page, 'btv1b8592433v', 'Carte de la Floride', project!);
 		await page.reload();
-		await expect(page.getByTestId('referenced-image-host')).toHaveText(LIBRARY);
+		// Where its tiles come from is inside the Layer that fetches them (ticket 05), so the row is
+		// opened to reach it — and to reach the button below, which is the thing that actually asks the
+		// library for bytes.
+		const referencedRow = await openLayerRow(
+			page,
+			page.locator('[data-testid="layer-row"][data-image-id="btv1b8592433v"]')
+		);
+		await expect(referencedRow.getByTestId('referenced-image-host')).toHaveText(LIBRARY);
 
 		// Reading it as a document is what actually pulls tiles off the library's server (SPEC story
 		// 48) — the pane alone would leave fence 3 asserted against a map nobody had loaded.
-		await page.getByTestId('view-unwarped').click();
+		await referencedRow.getByTestId('view-unwarped').click();
 		await expect(page.getByTestId('unwarped-view')).toBeVisible();
 		await expect.poll(() => libraryRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(1);
 		await page.getByTestId('unwarped-close').click();
@@ -968,7 +978,14 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		// And the Layer of this Project that draws it — see the note in the session test above.
 		await seedMapLayer(page, 'btv1b8592433v', 'Carte de la Floride');
 		await page.reload();
-		await expect(page.getByTestId('referenced-image-host')).toHaveText('gallica.example.test');
+		await expect(
+			(
+				await openLayerRow(
+					page,
+					page.locator('[data-testid="layer-row"][data-image-id="btv1b8592433v"]')
+				)
+			).getByTestId('referenced-image-host')
+		).toHaveText('gallica.example.test');
 		await expect(page.getByTestId('referenced-offline')).toBeHidden();
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -991,9 +1008,16 @@ test.describe('what offline cannot fix, and what it must not break', () => {
 		// would not open at all is the failure that matters.
 		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
-		await expect(page.getByTestId('referenced-image-host')).toHaveText('gallica.example.test');
+		await expect(
+			(
+				await openLayerRow(
+					page,
+					page.locator('[data-testid="layer-row"][data-image-id="btv1b8592433v"]')
+				)
+			).getByTestId('referenced-image-host')
+		).toHaveText('gallica.example.test');
 		// The Project's *own* Historical Map still aligns, on `/align/` (ticket 03), reached from its
-		// own Layer (ticket 04).
+		// own Layer (ticket 04), opened (ticket 05).
 		await alignLayerFor(page, imageId);
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
@@ -1199,7 +1223,7 @@ test.describe('an update, and who decides when', () => {
 		await startProjectWithMap(page);
 		// Mid-alignment now means on the alignment route (ticket 03), which is also the sharper form of
 		// this test: an update that reloaded would take the pending half *and* the route with it.
-		await page.getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',
 			'true',

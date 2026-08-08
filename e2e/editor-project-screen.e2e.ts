@@ -13,6 +13,7 @@ import {
 	readProjectFile
 } from './support/annotations.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { openProjectSettings } from './support/project-screen.js';
 
 /**
@@ -134,6 +135,11 @@ test.describe('the Project screen', () => {
 		await addHistoricalMap(page);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
+		// **With a Layer open**, because since ticket 05 the drawing tools, the Annotation list and the
+		// Layer's default style are inside an open Annotation Layer's row. Walked with the row closed
+		// this test would still pass and would cover a dozen fewer controls, which is the vacuous shape
+		// of green this suite keeps finding.
+		await openLayerRow(page, 0);
 
 		// Every visible, enabled, natively focusable control **inside `project-screen`** — asked of the
 		// DOM rather than listed here, so a control added to the screen later is covered without anybody
@@ -186,6 +192,8 @@ test.describe('the Project screen', () => {
 		await openProject(page);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
+		// The tools are inside the Layer that is drawn into (ticket 05).
+		await openLayerRow(page);
 
 		await chooseTool(page, 'polygon');
 		await clickAt(baseMap(page), 0.4, 0.4);
@@ -214,7 +222,7 @@ test.describe('the Project screen', () => {
 
 		const row = page.getByTestId('layer-row').first();
 		await expect(row).toHaveAttribute('data-layer-kind', 'map');
-		await row.getByTestId('align-historical-map').click();
+		await alignFromLayer(page, row);
 
 		await expect(page).toHaveURL(/\/align\/?\?p=amsterdam-1625&layer=[^&]+/);
 		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
@@ -261,7 +269,7 @@ test.describe('the Layer stack and the Base Map are not pages of their own', () 
 		expect((await hrefs(page)).filter((href) => gone.test(href))).toEqual([]);
 
 		// And the alignment route.
-		await page.getByTestId('layer-row').first().getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 		expect((await hrefs(page)).filter((href) => gone.test(href))).toEqual([]);
 	});
@@ -309,7 +317,7 @@ test.describe('the navigation bar', () => {
 		await assertBar('the Project screen');
 		await addHistoricalMap(page);
 
-		await page.getByTestId('layer-row').first().getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 		await assertBar('the alignment route');
 	});
@@ -451,7 +459,7 @@ test.describe('what the app says when something is wrong (SPEC stories 111, 112)
 		await context.setOffline(false);
 
 		// And the alignment route.
-		await page.getByTestId('layer-row').first().getByTestId('align-historical-map').click();
+		await alignFromLayer(page);
 		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 		await expect(page.getByRole('status')).toHaveCount(1);
 	});

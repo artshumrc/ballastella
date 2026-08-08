@@ -2,6 +2,7 @@ import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { alignFromLayer } from './support/layers';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
 // and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
@@ -245,7 +246,8 @@ async function openPane(page: Page, imageId?: string): Promise<void> {
 		imageId === undefined
 			? page.getByTestId('layer-row').first()
 			: page.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`);
-	await row.getByTestId('align-historical-map').click();
+	// Opened first: since ticket 05 the Align link is inside the Layer's row rather than beside it.
+	await alignFromLayer(page, row);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 }
 

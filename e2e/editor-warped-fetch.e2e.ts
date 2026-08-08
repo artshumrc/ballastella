@@ -3,6 +3,7 @@ import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { alignFromLayer } from './support/layers';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
 // and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
@@ -158,9 +159,10 @@ async function projectWithImage(page: Page): Promise<string> {
 	await expect(addedRow).toBeVisible({ timeout: 30_000 });
 	const imageId = (await addedRow.getAttribute('data-image-id'))!;
 
-	// Both panes are the `/align/` route since ticket 03. The id is read above, before the click: the
-	// Historical Maps list is on the Project page and this leaves it.
-	await page.getByTestId('align-historical-map').click();
+	// Both panes are the `/align/` route since ticket 03, and since ticket 05 the link that goes there
+	// is inside the Layer's own row. The id is read above, before the click: the Historical Maps list is
+	// on the Project page and this leaves it.
+	await alignFromLayer(page, addedRow);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
 
 	await expect(historicalMap(page)).toBeVisible();

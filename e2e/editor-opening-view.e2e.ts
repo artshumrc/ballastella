@@ -11,6 +11,7 @@ import {
 	waitForSurface
 } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import { openLayerRow } from './support/layers.js';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
 // and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
@@ -538,7 +539,12 @@ test.describe('the fit happens once, on open', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		await stillParked(page, 'after a Layer was renamed');
 
-		// 4. Drawing an Annotation. The Project's content genuinely grows, and the map must still not
+		// 4. Opening a Layer, which since ticket 05 is what reveals the drawing tools — and is itself a
+		//    change to the sidebar that must not move the map.
+		await openLayerRow(page, 0);
+		await stillParked(page, 'after a Layer was opened');
+
+		// 5. Drawing an Annotation. The Project's content genuinely grows, and the map must still not
 		//    move: a scholar placing a pin is looking at the place they are placing it.
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(page.getByTestId('base-map-pane'), 0.5, 0.5);

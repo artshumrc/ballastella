@@ -14,8 +14,16 @@
 	// markup rather than from a label somebody has to remember to update. The position is drawn beside
 	// each row as well, and `aria-hidden` there, because the `<ol>` already says it — announcing
 	// "1 of 2" twice per row is worse than not drawing it.
+	//
+	// **One row opens at a time, in place** (ticket 05). A Project is a stack of Layers and a Layer
+	// opens to reveal its contents — a Historical Map's alignment state and the button that aligns it,
+	// an Annotation Layer's tools and Annotations — which is one idea applied twice rather than two
+	// panels that have to be kept agreeing. What a *closed* row shows is chosen for the same reason:
+	// the name, the visibility toggle, the position controls, and whatever the Layer is warning about,
+	// because a map that needs aligning is the state a user has to be able to notice **without opening
+	// anything**.
 
-	import type { Layer, MapLayer } from '@ballastella/core';
+	import type { AnnotationLayer, Layer, MapLayer } from '@ballastella/core';
 	import { tick, type Snippet } from 'svelte';
 
 	import type { DrawnOutcome } from '@ballastella/core/render';
@@ -24,13 +32,16 @@
 		layers,
 		outcomes,
 		referencedImageIds,
+		openLayerId,
+		onopen,
 		ontypename,
 		oncommit,
 		onshow,
 		ondragopacity,
 		onmove,
 		ondelete,
-		mapActions
+		mapContents,
+		annotationContents
 	}: {
 		/** The stack, top first. Index 0 draws over everything else. */
 		layers: readonly Layer[];
@@ -46,6 +57,16 @@
 		 * for tiles that had already been copied into the folder.
 		 */
 		referencedImageIds: ReadonlySet<string>;
+		/**
+		 * Which Layer is open, or `null` for none. At most one, which is what makes it one value.
+		 *
+		 * **Held by the screen rather than here**, because for an Annotation Layer it is also the Layer
+		 * being drawn into, and a copy kept in this component would be a second thing that could
+		 * disagree with the first. `ProjectScreen`'s `openLayerId` is where that is explained.
+		 */
+		openLayerId: string | null;
+		/** Open this Layer, or `null` to close whatever is open. */
+		onopen: (id: string | null) => void;
 		ontypename: (id: string, name: string) => void;
 		/** The edit that was in flight is over — a field blurred, a slider released (ADR-0017 rule 1). */
 		oncommit: () => void;
@@ -64,13 +85,23 @@
 		 */
 		ondelete: (id: string) => void;
 		/**
-		 * What a Historical Map Layer can be *done to*, rendered inside its own row.
+		 * What is inside a Historical Map Layer, revealed when its row is open: whether it is aligned,
+		 * the button that aligns it, and where its tiles come from.
 		 *
 		 * A snippet, so the row stays the one place a Layer is described and the actions stay with the
 		 * screen that knows the routes and the Workspace's remote-origin records. Optional because a
 		 * Layer stack is also rendered where there is nothing to do to it.
 		 */
-		mapActions?: Snippet<[MapLayer]>;
+		mapContents?: Snippet<[MapLayer]>;
+		/**
+		 * What is inside an Annotation Layer, revealed when its row is open: its drawing tools, its
+		 * Annotations, and the selected one's editor.
+		 *
+		 * A snippet for the same reason as {@link mapContents}. It takes no separate "which Layer is
+		 * being drawn into" argument because there is no such second value — the Layer it is handed is
+		 * the one it draws into.
+		 */
+		annotationContents?: Snippet<[AnnotationLayer]>;
 	} = $props();
 
 	/**
@@ -270,6 +301,33 @@
 							{index + 1}/{layers.length}
 						</span>
 
+						<!--
+							The disclosure, and it is a plain `<button>` with `aria-expanded` — ADR-0016's shape
+							for exactly this, so a screen reader is told the row can be opened and whether it is,
+							with nothing reimplemented.
+
+							**A control of its own rather than the row's name being the trigger**, which is the
+							usual accordion shape and is not available here: the name is an editable `<input>`,
+							and a click that both put the caret in a field and opened a panel would make renaming
+							a Layer impossible without opening it.
+
+							"Open"/"Close" as words rather than a chevron, per SPEC story 111 — and the Layer's
+							name in the accessible name, because four buttons all called "Open" are four
+							identical controls to a screen reader.
+						-->
+						<button
+							type="button"
+							class="btn btn-sm"
+							aria-expanded={openLayerId === layer.id}
+							aria-controls={openLayerId === layer.id ? `layer-contents-${layer.id}` : undefined}
+							data-testid="layer-disclosure"
+							onclick={() => onopen(openLayerId === layer.id ? null : layer.id)}
+						>
+							{openLayerId === layer.id ? 'Close' : 'Open'}<span class="sr-only">
+								— {layer.name || 'Untitled Layer'}</span
+							>
+						</button>
+
 						<label class="flex items-center gap-2 text-sm">
 							<input
 								type="checkbox"
@@ -390,14 +448,42 @@
 						{/if}
 					</div>
 
-					{#if layer.kind === 'map' && mapActions}
+					{#if openLayerId === layer.id}
 						<!--
-							What can be done to this Historical Map, on the Layer that holds it (SPEC story 37:
-							one button, on the Layer that needs aligning). Supplied by the screen rather than
-							built here — see the snippet's own comment in `ProjectScreen.svelte` for why the
-							Align link cannot be a string passed in.
+							What is inside this Layer (ticket 05). One row is open at a time, so this markup
+							exists once on the screen however many Layers there are — which is why the ids and
+							the headings inside it can be fixed strings.
+
+							The two kinds this build draws are supplied by the screen rather than built here —
+							see the snippets' own comments in `ProjectScreen.svelte` for why the Align link
+							cannot be a string passed in, and why the drawing surface needs the screen's state.
+							The third kind is answered here, because there is nothing to supply.
 						-->
-						{@render mapActions(layer)}
+						<div
+							id="layer-contents-{layer.id}"
+							class="mt-3 border-t border-base-300 pt-3"
+							data-testid="layer-contents"
+							data-layer-id={layer.id}
+						>
+							{#if layer.kind === 'map'}
+								{@render mapContents?.(layer)}
+							{:else if layer.kind === 'annotation'}
+								{@render annotationContents?.(layer)}
+							{:else}
+								<!--
+									ADR-0014: a Layer of a kind this version does not understand is kept, nameable
+									and reorderable, and not drawn. It has no contents to reveal, and saying so is
+									the honest thing — an empty panel would read as a Layer whose contents failed to
+									load, which is a different and much more alarming state.
+								-->
+								<p class="max-w-prose text-sm" data-testid="layer-foreign-note">
+									This is a Layer of a kind this version of Ballastella does not understand, so
+									there is nothing inside it to show and nothing of it is drawn on the map. It is
+									kept exactly as it was found and written back untouched, and you can still rename
+									it, hide it, and move it in the stack.
+								</p>
+							{/if}
+						</div>
 					{/if}
 				</li>
 			{/each}
