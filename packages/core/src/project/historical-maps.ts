@@ -8,7 +8,7 @@
 // with the bytes on disk, and repairing that disagreement is what the deleted interrupted-copy path
 // existed for. But it did not give the *derived* answer a home, so "is this map's pyramid here, or is
 // it on a Library's server?" acquired five implementations: a private `referencedImageIds` in
-// `publish.ts`, `partitionByLocalCopy` in `remote-iiif/referenced-image.ts`, a 404 probe in the
+// `publish.ts`, `partitionByOfflineCopy` in `remote-iiif/referenced-image.ts`, a 404 probe in the
 // viewer's `readMapLayer`, and a `$derived` set in each app's page. Five spellings of one rule is how
 // a Workspace ends up telling a user two different things about the same map.
 //
@@ -21,7 +21,7 @@
 //     listing — answers by asking for the two files by name and reading the 404. That is the viewer's
 //     `readMapLayer`, which builds the same {@link HistoricalMapFiles} pair and hands it to the same
 //     rule.
-//   * **{@link partitionByLocalCopy}**, which observes only one of the two: every record it is handed
+//   * **{@link partitionByOfflineCopy}**, which observes only one of the two: every record it is handed
 //     came out of a `remote.json`, so `remoteJson` is true by construction and the rule there reduces
 //     to "is a pyramid of ours beside it?". It routes through {@link tileLocation} anyway so that the
 //     reading of *both files present* — an offline copy, not an ambiguity — is decided in one place;
@@ -34,7 +34,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY NOTHING HERE OPENS A PYRAMID
 //
-// `workspace-size.ts` states the discipline in full and it applies unchanged: a mirrored pyramid is
+// `workspace-size.ts` states the discipline in full and it applies unchanged: an offline copy's pyramid is
 // tens of thousands of tiles, `ProjectStore#size` answers from directory metadata for free, and a
 // total assembled with `read` would be the slowest thing in the application while returning exactly
 // the same number. Nothing below reads a tile or an `info.json`.
@@ -97,7 +97,7 @@ export interface HistoricalMapFiles {
  * ingest that was interrupted, since `info.json` is written last precisely so that an incomplete
  * pyramid is invisible (`listIngestedImages`). Nothing may list it, delete it, or count it.
  *
- * **Both files means the tiles are here**, and that is mirroring working rather than an ambiguity: an
+ * **Both files means the tiles are here**, and that is making an offline copy working rather than an ambiguity: an
  * offline copy writes a pyramid into the directory and deliberately leaves the `remote.json`, because
  * that record is the citation ADR-0007 exists to protect. Reading "both" the other way is the defect
  * this rule was gathered to stop — publishing warned about a network dependency the Workspace no
@@ -313,7 +313,7 @@ export async function listWorkspaceHistoricalMaps(
 					imageId,
 					label: named || remote?.label || '',
 					tiles,
-					// A mirrored map's tiles are here, so it names no Library even though it still
+					// A copied map's tiles are here, so it names no Library even though it still
 					// records where it came from.
 					library: tiles === 'referenced' ? libraryOf(remote?.service ?? '') : '',
 					...(await weigh(store, imageId, paths)),
@@ -512,7 +512,7 @@ export class HistoricalMapPartlyDeletedError extends Error {
  *   1. the **Alignment first**, so that no failure below it can leave `alignments/<id>.json` behind
  *      for a map that is gone, which is the one leftover this function exists to prevent;
  *   2. the tiles and the manifest;
- *   3. **`remote.json` and then `info.json` last**, mirroring the ingest, which writes `info.json`
+ *   3. **`remote.json` and then `info.json` last**, making an offline copy the ingest, which writes `info.json`
  *      last precisely so that an incomplete pyramid is invisible. They are the two files
  *      {@link tileLocation} classifies by, so while either survives the map is still *listed* — a
  *      half-deleted map the user can see and finish deleting, rather than orphaned bytes that no
@@ -574,31 +574,29 @@ export async function deleteHistoricalMap(
  * Moved here from `remote-iiif/referenced-image.ts` so that it and {@link referencedHistoricalMaps}
  * answer through {@link tileLocation} rather than through two independent readings of the same rule.
  *
- * `mirrored` keeps its record, which is why this is a partition of the records rather than a removal
- * from them: a mirrored Historical Map must still be able to say where it came from (ADR-0007 —
- * "mirroring must not orphan the copy").
+ * `offlineCopies` keeps its record, which is why this is a partition of the records rather than a
+ * removal from them: a Historical Map with an Offline Copy must still be able to say where it came
+ * from (ADR-0007 — an offline copy must not orphan the citation).
  *
  * **It carries one observation through the rule rather than two**, since `remoteJson` is true by
- * construction here — see the note in the module header. `mirror`/`mirrored` is CONTEXT.md's banned
- * synonym for **Offline Copy** and is left standing on purpose: the word runs from `remote-iiif/`
- * through the editor's UI, and renaming it is its own ticket rather than a rider on this one.
+ * construction here — see the note in the module header.
  */
-export function partitionByLocalCopy(
+export function partitionByOfflineCopy(
 	images: readonly ReferencedImage[],
 	ingested: readonly { readonly imageId: string }[]
-): { referenced: ReferencedImage[]; mirrored: ReferencedImage[] } {
+): { referenced: ReferencedImage[]; offlineCopies: ReferencedImage[] } {
 	const local = new Set(ingested.map((image) => image.imageId));
 	const referenced: ReferencedImage[] = [];
-	const mirrored: ReferencedImage[] = [];
+	const offlineCopies: ReferencedImage[] = [];
 
 	for (const image of images) {
 		// Every image here came from a `remote.json`, which is `remoteJson: true`; `ingested` is the
 		// `info.json` half. The same two observations the listing walk makes, through the same rule.
 		const where = tileLocation({ infoJson: local.has(image.imageId), remoteJson: true });
-		(where === 'referenced' ? referenced : mirrored).push(image);
+		(where === 'referenced' ? referenced : offlineCopies).push(image);
 	}
 
-	return { referenced, mirrored };
+	return { referenced, offlineCopies };
 }
 
 /** The record beside a referenced map, or `null` when it will not parse. */

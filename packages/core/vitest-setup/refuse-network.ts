@@ -10,7 +10,7 @@
 // WHAT THIS CHANGES, HONESTLY: FROM *FOLLOWED* TO *ENFORCED*
 //
 // The discipline was already there and it was real. Every unit test that needs an HTTP answer takes
-// a `FetchFn` and is handed a fake — `remote-iiif/mirror.test.ts`, `store/http-project-store.test.ts`,
+// a `FetchFn` and is handed a fake — `remote-iiif/offline-copy.test.ts`, `store/http-project-store.test.ts`,
 // `remote-iiif/referenced-image.test.ts`. Nothing in the suite reached the network before this file
 // existed, which was checked rather than assumed.
 //
@@ -125,7 +125,7 @@ export function refusedNetworkMessage(api: string, url: string): string {
 		'    const fetch: FetchFn = async (input) => new Response(bytes, { status: 200 });',
 		'    const remote = await readRemoteImageService(uri, { fetch });',
 		'',
-		'`remote-iiif/mirror.test.ts` and `store/http-project-store.test.ts` are the worked examples.',
+		'`remote-iiif/offline-copy.test.ts` and `store/http-project-store.test.ts` are the worked examples.',
 		'',
 		'If a check genuinely has to reach a live service — and there is exactly one, the corpus',
 		'check in `remote-iiif/live-services.test.ts` — it belongs behind',

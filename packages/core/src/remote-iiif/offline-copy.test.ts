@@ -1,4 +1,4 @@
-// SPEC's Seam 1 for mirroring: the job driven against an in-memory ProjectStore and a stub host,
+// SPEC's Seam 1 for making an offline copy: the job driven against an in-memory ProjectStore and a stub host,
 // with the assertions on the files that land.
 //
 // The corpus is ticket 14's — the same fourteen `info.json` documents captured from live services —
@@ -23,15 +23,15 @@ import { ingestImageFile, type OpenTileSource, type TileSource } from '../tiler/
 import { buildImageInfo, type PlannedTile } from '../tiler/pyramid.js';
 import { acceptRemoteImageService, type RemoteImageService } from './image-service.js';
 import {
-	ESTIMATED_MIRROR_BYTES_PER_PIXEL,
-	MIRROR_LIMITS,
-	MirrorRefusedError,
-	estimateMirrorBytes,
-	mirrorRemoteImage,
-	planMirror,
+	ESTIMATED_OFFLINE_COPY_BYTES_PER_PIXEL,
+	OFFLINE_COPY_LIMITS,
+	OfflineCopyRefusedError,
+	estimateOfflineCopyBytes,
+	makeOfflineCopy,
+	planOfflineCopy,
 	type AssembleImage,
-	type MirrorProgress
-} from './mirror.js';
+	type OfflineCopyProgress
+} from './offline-copy.js';
 
 const corpus = JSON.parse(
 	readFileSync(new URL('fixtures/real-world-image-services.json', import.meta.url), 'utf8')
@@ -94,9 +94,9 @@ function scaleFactorsFor(width: number, height: number, tile: number): number[] 
 	return factors;
 }
 
-describe('planMirror: which of the two paths, and what it costs the host', () => {
+describe('planOfflineCopy: which of the two paths, and what it costs the host', () => {
 	it('takes one request for a service that serves any region at any size', async () => {
-		const plan = planMirror(await levelTwo(700, 500));
+		const plan = planOfflineCopy(await levelTwo(700, 500));
 
 		expect(plan.path).toBe('full-max');
 		expect(plan.requests).toHaveLength(1);
@@ -108,16 +108,16 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 		// 2.1. Asking either version for the other's spelling is a 400 from a strict server. Built here
 		// rather than by `Image#getImageUrl`, which emits `full/full` for a version 3 service — recorded
 		// with the ticket as an upstream defect.
-		const three = planMirror(await levelTwo(700, 500));
+		const three = planOfflineCopy(await levelTwo(700, 500));
 		expect(three.requests[0]).toBe('https://images.test/iiif/3/chart/full/max/0/default.jpg');
 
-		const two = planMirror(await acceptCaptured('bodleian'));
+		const two = planOfflineCopy(await acceptCaptured('bodleian'));
 		expect(two.requests[0]).toMatch(/\/full\/full\/0\/default\.jpg$/);
 	});
 
 	it('pulls the whole finest level of a level-0 service, one request per tile it has cut', async () => {
 		// ADR-0007's expensive case. 700×500 at 256-pixel tiles is 3 columns by 2 rows.
-		const plan = planMirror(await levelZero(700, 500));
+		const plan = planOfflineCopy(await levelZero(700, 500));
 
 		expect(plan.path).toBe('assembled');
 		expect(plan.requests).toHaveLength(6);
@@ -139,7 +139,7 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 	});
 
 	it('names the host and the number of requests in the warning, because that is the obligation', async () => {
-		const plan = planMirror(await levelZero(4000, 3000));
+		const plan = planOfflineCopy(await levelZero(4000, 3000));
 		const note = plan.notes.join(' ');
 
 		expect(plan.requests).toHaveLength(Math.ceil(4000 / 256) * Math.ceil(3000 / 256));
@@ -149,7 +149,7 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 	});
 
 	it('says nothing about many requests when there is only one', async () => {
-		expect(planMirror(await levelTwo(700, 500)).notes.join(' ')).not.toMatch(/requests to/i);
+		expect(planOfflineCopy(await levelTwo(700, 500)).notes.join(' ')).not.toMatch(/requests to/i);
 	});
 
 	describe('a service that caps what it will serve in one request', () => {
@@ -158,7 +158,7 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 			// `getImageUrl` throws "Width of requested image is too large: 4880 > 2000" for this, which is
 			// the 400 a real server would send. So `full/max` is not an option and the copy takes the
 			// per-tile path instead — every tile of which is 256 pixels and inside the cap.
-			const plan = planMirror(await acceptCaptured('cambridge'));
+			const plan = planOfflineCopy(await acceptCaptured('cambridge'));
 
 			expect(plan.cappedBy).toContain('2000');
 			expect(plan.path).toBe('assembled');
@@ -168,7 +168,7 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 
 		it('is respected when the cap is an area rather than a side', async () => {
 			// Micrio, as the Rijksmuseum runs it: `maxArea` 17 550 000 over 6560×4224 = 27.7 megapixels.
-			const plan = planMirror(await acceptCaptured('rijks-micrio'));
+			const plan = planOfflineCopy(await acceptCaptured('rijks-micrio'));
 
 			expect(plan.cappedBy).toContain('17550000');
 			expect(plan.path).toBe('assembled');
@@ -178,16 +178,16 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 			// The Bodleian declares maxWidth 4000 over a 1000×1500 image, and NYPL a maxArea of 400
 			// megapixels over 4.8 of them. A plan that read any declared limit as a cap would send both of
 			// those down the expensive path for nothing.
-			expect(planMirror(await acceptCaptured('bodleian')).path).toBe('full-max');
-			expect(planMirror(await acceptCaptured('nypl')).path).toBe('full-max');
-			expect(planMirror(await acceptCaptured('leipzig')).path).toBe('full-max');
+			expect(planOfflineCopy(await acceptCaptured('bodleian')).path).toBe('full-max');
+			expect(planOfflineCopy(await acceptCaptured('nypl')).path).toBe('full-max');
+			expect(planOfflineCopy(await acceptCaptured('leipzig')).path).toBe('full-max');
 		});
 
 		it('caps a height that is only implied by maxWidth', async () => {
 			// Image API 3: "If maxHeight is not specified, it is assumed to be the same as maxWidth."
 			// A plan that read `maxHeight` as absent would happily ask for a 4000-pixel-tall image from a
 			// service that said 1000.
-			const plan = planMirror(await levelTwo(500, 4000, { maxWidth: 1000 }));
+			const plan = planOfflineCopy(await levelTwo(500, 4000, { maxWidth: 1000 }));
 
 			expect(plan.cappedBy).toContain('1000');
 			expect(plan.path).toBe('assembled');
@@ -201,7 +201,7 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 		const paths = await Promise.all(
 			corpus.services.map(async (entry) => [
 				entry.name,
-				planMirror(await acceptCaptured(entry.name)).path
+				planOfflineCopy(await acceptCaptured(entry.name)).path
 			])
 		);
 
@@ -212,23 +212,23 @@ describe('planMirror: which of the two paths, and what it costs the host', () =>
 	});
 });
 
-describe('planMirror: what the copy will cost the Workspace', () => {
+describe('planOfflineCopy: what the copy will cost the Workspace', () => {
 	it('estimates from the dimensions, over-stating rather than under-stating', () => {
 		// Measured against the committed 1200×851 pyramid in `apps/editor/static/fixtures`: 29 tiles,
 		// 575 261 bytes, which is 0.563 bytes per source pixel at quality 85. The constant is above that
 		// on purpose — the number exists to warn about a hosting limit, and an estimate that came in
 		// under the truth would be the one that let a user walk off the cliff unwarned.
-		expect(ESTIMATED_MIRROR_BYTES_PER_PIXEL).toBeGreaterThan(0.5633);
-		expect(estimateMirrorBytes(1200, 851)).toBeGreaterThan(575_261);
+		expect(ESTIMATED_OFFLINE_COPY_BYTES_PER_PIXEL).toBeGreaterThan(0.5633);
+		expect(estimateOfflineCopyBytes(1200, 851)).toBeGreaterThan(575_261);
 	});
 
 	it('carries the dimensions that estimate is taken from', async () => {
 		// The plan no longer carries the estimate itself — a stored arithmetic result is a thing that can
 		// disagree with the fields it came from — so what it owes the dialog is the two numbers.
-		const plan = planMirror(await levelTwo(1200, 851));
+		const plan = planOfflineCopy(await levelTwo(1200, 851));
 
 		expect([plan.width, plan.height]).toEqual([1200, 851]);
-		expect(estimateMirrorBytes(plan.width, plan.height)).toBe(estimateMirrorBytes(1200, 851));
+		expect(estimateOfflineCopyBytes(plan.width, plan.height)).toBe(estimateOfflineCopyBytes(1200, 851));
 	});
 
 	// **A refusal, where it used to be a warning** (ADR-0027). The note this replaces said a copy
@@ -241,8 +241,8 @@ describe('planMirror: what the copy will cost the Workspace', () => {
 			['full-max', await levelTwo(4000, 4000)],
 			['assembled', await levelZero(4000, 4000)]
 		] as const) {
-			const under = planMirror(service, { maxIngestPixels: 100_000_000 });
-			const over = planMirror(service, { maxIngestPixels: 1_000_000 });
+			const under = planOfflineCopy(service, { maxIngestPixels: 100_000_000 });
+			const over = planOfflineCopy(service, { maxIngestPixels: 1_000_000 });
 
 			expect(under.refusal, name).toBe('');
 			expect(over.refusal, name).not.toBe('');
@@ -261,7 +261,7 @@ describe('planMirror: what the copy will cost the Workspace', () => {
 		// inherits the decode ceiling rather than escaping it, and its refusal says so in its own
 		// words. Named up front, not discovered as a dead tab part way through thousands of requests
 		// to somebody else's server. 30000 × 30000 is 900 megapixels, above the real cap.
-		const plan = planMirror(await levelZero(30_000, 30_000));
+		const plan = planOfflineCopy(await levelZero(30_000, 30_000));
 
 		expect(plan.refusal).not.toBe('');
 		expect(plan.refusal).toMatch(/megapixel/i);
@@ -363,11 +363,11 @@ beforeEach(() => {
 	store = new MemoryProjectStore();
 });
 
-const mirror = async (service: RemoteImageService, overrides: Record<string, unknown> = {}) => {
+const makeCopy = async (service: RemoteImageService, overrides: Record<string, unknown> = {}) => {
 	const host = stubHost({ whole: { width: service.width, height: service.height } });
 	return {
 		host,
-		result: await mirrorRemoteImage({
+		result: await makeOfflineCopy({
 			store,
 			service,
 			fetch: host.fetch,
@@ -378,10 +378,10 @@ const mirror = async (service: RemoteImageService, overrides: Record<string, unk
 	};
 };
 
-describe('mirrorRemoteImage: the level-2 path', () => {
+describe('makeOfflineCopy: the level-2 path', () => {
 	it('makes exactly one request to the host and then tiles locally', async () => {
 		const service = await levelTwo(700, 500);
-		const { host, result } = await mirror(service);
+		const { host, result } = await makeCopy(service);
 
 		expect(host.requested).toEqual(['https://images.test/iiif/3/chart/full/max/0/default.jpg']);
 		expect(result.path).toBe('full-max');
@@ -392,8 +392,8 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 		// The whole of the ticket's contract in one assertion: "the output must be indistinguishable
 		// from a locally ingested image, so nothing downstream needs to know how a pyramid arrived".
 		const service = await levelTwo(700, 500);
-		await mirror(service);
-		const mirrored = [...(await store.list('amsterdam-1625/'))];
+		await makeCopy(service);
+		const copied = [...(await store.list('amsterdam-1625/'))];
 
 		const local = new MemoryProjectStore();
 		const ingested = await ingestImageFile({
@@ -403,15 +403,15 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 		});
 
 		// Same paths once the image id is put aside — the id differs by design (a local ingest mints a
-		// random one, a mirror keeps `generateId(uri)`), and nothing else may.
+		// random one, an offline copy keeps `generateId(uri)`), and nothing else may.
 		const strip = (paths: readonly string[], id: string) =>
 			paths.map((path) => path.replace(id, '<id>')).sort();
-		expect(strip(mirrored, service.imageId)).toEqual(
+		expect(strip(copied, service.imageId)).toEqual(
 			strip(await local.list('amsterdam-1625/'), ingested.imageId)
 		);
 
 		// And byte for byte: the tiler ran over the same geometry, so every tile's content matches.
-		for (const path of mirrored) {
+		for (const path of copied) {
 			if (path.endsWith('info.json') || path.endsWith('manifest.json')) continue;
 			const here = await store.read(path);
 			const there = await local.read(path.replace(service.imageId, ingested.imageId));
@@ -421,7 +421,7 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 
 	it('keeps the image id, so every Alignment that names it still names it', async () => {
 		const service = await levelTwo(700, 500);
-		const { result } = await mirror(service);
+		const { result } = await makeCopy(service);
 
 		expect(result.imageId).toBe(service.imageId);
 		expect(result.ingest.imageId).toBe(service.imageId);
@@ -429,10 +429,10 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 	});
 
 	it('writes the unset.invalid placeholder as the pyramid id, never the remote service', async () => {
-		// ADR-0004. A mirrored `info.json` that kept the library's URI would send the injection shim
+		// ADR-0004. A copied `info.json` that kept the library's URI would send the injection shim
 		// straight back out to the network — which is the one thing an offline copy must not do.
 		const service = await levelTwo(700, 500);
-		const { result } = await mirror(service);
+		const { result } = await makeCopy(service);
 		const info = JSON.parse(new TextDecoder().decode(await store.read(result.ingest.infoPath)));
 
 		expect(info.id).toBe(`https://unset.invalid/${service.imageId}`);
@@ -448,14 +448,14 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 		const host = stubHost({ bytes: () => jpeg(350, 250) });
 
 		await expect(
-			mirrorRemoteImage({
+			makeOfflineCopy({
 				store,
 				service,
 				fetch: host.fetch,
 				assemble: stubAssemble(),
 				openDecodeAndCrop: stubTiler({ width: 350, height: 250 })
 			})
-		).rejects.toThrow(MirrorRefusedError);
+		).rejects.toThrow(OfflineCopyRefusedError);
 
 		expect(await store.list('amsterdam-1625/')).toEqual([]);
 	});
@@ -465,14 +465,14 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 		// bytes rather than believing `content-length`, and there is no `content-length` here at all —
 		// the bound is enforced against the stream, so a response with no end is abandoned rather than
 		// buffered until the tab dies.
-		expect(MIRROR_LIMITS.responseBytes).toBeGreaterThan(64 * 1024 * 1024);
+		expect(OFFLINE_COPY_LIMITS.responseBytes).toBeGreaterThan(64 * 1024 * 1024);
 		const service = await levelTwo(700, 500);
 		const oversized = new Uint8Array(9000);
 		oversized.set(jpegHeader(700, 500));
 		const host = stubHost({ bytes: () => new Blob([oversized as BlobPart]) });
 
 		await expect(
-			mirrorRemoteImage({
+			makeOfflineCopy({
 				store,
 				service,
 				fetch: host.fetch,
@@ -486,7 +486,7 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 	});
 
 	it('refuses before it fetches when the source is above the decode ceiling', async () => {
-		// 30000 × 20000 is 600 megapixels. `mirrorRemoteImage` recomputes the plan when none is
+		// 30000 × 20000 is 600 megapixels. `makeOfflineCopy` recomputes the plan when none is
 		// passed, so the refusal has to reach the caller as an error rather than as a field nobody
 		// read — and it has to happen before a byte is fetched or written.
 		const service = await levelTwo(30_000, 20_000);
@@ -499,27 +499,27 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 			};
 		};
 
-		const failure = await mirror(service, {
+		const failure = await makeCopy(service, {
 			openDecodeAndCrop: watch({ width: 30_000, height: 20_000 })
 		}).then(
 			() => undefined,
 			(cause: unknown) => cause as Error
 		);
 
-		expect(failure).toBeInstanceOf(MirrorRefusedError);
+		expect(failure).toBeInstanceOf(OfflineCopyRefusedError);
 		expect(failure?.message).toMatch(/600 megapixel/i);
 		expect(opened).toEqual([]);
 		expect(await store.list('')).toEqual([]);
 	});
 });
 
-describe('mirrorRemoteImage: the level-0 path', () => {
+describe('makeOfflineCopy: the level-0 path', () => {
 	it('fetches every tile of the finest level and stitches them at 1:1', async () => {
 		const service = await levelZero(700, 500);
 		const log = { regions: [] as { x: number; y: number; width: number; height: number }[] };
 		const host = stubHost();
 
-		const result = await mirrorRemoteImage({
+		const result = await makeOfflineCopy({
 			store,
 			service,
 			fetch: host.fetch,
@@ -545,7 +545,7 @@ describe('mirrorRemoteImage: the level-0 path', () => {
 		});
 
 		await expect(
-			mirrorRemoteImage({
+			makeOfflineCopy({
 				store,
 				service,
 				fetch: host.fetch,
@@ -569,7 +569,7 @@ describe('mirrorRemoteImage: the level-0 path', () => {
 				},
 				openDecodeAndCrop: stubTiler({ width: 700, height: 500 })
 			})
-		).rejects.toThrow(MirrorRefusedError);
+		).rejects.toThrow(OfflineCopyRefusedError);
 
 		expect(await store.list('amsterdam-1625/')).toEqual([]);
 	});
@@ -579,26 +579,26 @@ describe('mirrorRemoteImage: the level-0 path', () => {
 		const host = stubHost();
 
 		await expect(
-			mirrorRemoteImage({
+			makeOfflineCopy({
 				store,
 				service,
 				fetch: host.fetch,
 				assemble: stubAssemble(),
 				openDecodeAndCrop: stubTiler({ width: 30_000, height: 30_000 })
 			})
-		).rejects.toThrow(MirrorRefusedError);
+		).rejects.toThrow(OfflineCopyRefusedError);
 
 		expect(host.requested).toEqual([]);
 	});
 });
 
-describe('mirrorRemoteImage: progress and cancellation', () => {
+describe('makeOfflineCopy: progress and cancellation', () => {
 	it('reports progress that reaches 1 only when the pyramid is complete', async () => {
 		const service = await levelZero(700, 500);
-		const reports: MirrorProgress[] = [];
+		const reports: OfflineCopyProgress[] = [];
 		const host = stubHost();
 
-		await mirrorRemoteImage({
+		await makeOfflineCopy({
 			store,
 			service,
 			fetch: host.fetch,
@@ -628,7 +628,7 @@ describe('mirrorRemoteImage: progress and cancellation', () => {
 		};
 
 		await expect(
-			mirrorRemoteImage({
+			makeOfflineCopy({
 				store,
 				service,
 				fetch,
@@ -645,14 +645,14 @@ describe('mirrorRemoteImage: progress and cancellation', () => {
 
 	it('leaves no partial pyramid when it is cancelled part way through the tiling', async () => {
 		// A partial pyramid renders with holes, which looks like corruption rather than like a cancelled
-		// job. `ingestImageFile` owns the cleanup; this is the assertion that mirroring inherits it.
+		// job. `ingestImageFile` owns the cleanup; this is the assertion that making an offline copy inherits it.
 		const service = await levelTwo(700, 500);
 		const abort = new AbortController();
 		const host = stubHost({ whole: { width: 700, height: 500 } });
 		let written = 0;
 
 		await expect(
-			mirrorRemoteImage({
+			makeOfflineCopy({
 				store,
 				service,
 				fetch: host.fetch,
@@ -673,12 +673,12 @@ describe('mirrorRemoteImage: progress and cancellation', () => {
 	});
 
 	it('never reads a file to do any of it', async () => {
-		// Mirroring writes; it has no business opening what it wrote, and a version that read tiles
+		// Making an offline copy writes; it has no business opening what it wrote, and a version that read tiles
 		// back to count bytes would make the ADR-0008 warning cost a second pass over the pyramid.
 		const service = await levelTwo(700, 500);
 		const read = vi.spyOn(store, 'read');
 
-		await mirror(service);
+		await makeCopy(service);
 
 		expect(read).not.toHaveBeenCalled();
 	});

@@ -37,7 +37,7 @@ import {
 	listIngestedImages,
 	listReferencedImages,
 	listWorkspaceHistoricalMaps,
-	mirrorRemoteImage,
+	makeOfflineCopy,
 	moveLayer,
 	isControlPointUndo,
 	layerFileRef,
@@ -50,7 +50,7 @@ import {
 	openDecodeAndCropSource,
 	parseAlignment,
 	parseAnnotations,
-	partitionByLocalCopy,
+	partitionByOfflineCopy,
 	planPublish,
 	projectFilePath,
 	publishSite,
@@ -88,8 +88,8 @@ import {
 	type IngestedImage,
 	type Layer,
 	type MapLayer,
-	type MirrorPlan,
-	type MirrorProgress,
+	type OfflineCopyPlan,
+	type OfflineCopyProgress,
 	type OfflineCoverage,
 	type ProjectFile,
 	type ProjectStore,
@@ -126,7 +126,7 @@ export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
 /**
  * A transfer in flight, for the status region that announces it.
  *
- * A zip of a mirrored pyramid takes real seconds to tens of seconds, and it is announced rather
+ * A zip of an offline copy's pyramid takes real seconds to tens of seconds, and it is announced rather
  * than merely drawn: SPEC story 96 asks for status to reach assistive technology, and this is one
  * of the two places in the app where the user is waiting on something they cannot see.
  */
@@ -1215,15 +1215,15 @@ export class EditorSession {
 	 * a lasting disagreement with a repair button behind it; there is nothing left to disagree, so the
 	 * repair path is deleted rather than kept as dead code that lies.
 	 */
-	get remoteOrigins(): { referenced: ReferencedImage[]; mirrored: ReferencedImage[] } {
-		return partitionByLocalCopy(this.referencedImages, this.images);
+	get remoteOrigins(): { referenced: ReferencedImage[]; offlineCopies: ReferencedImage[] } {
+		return partitionByOfflineCopy(this.referencedImages, this.images);
 	}
 
 	/**
 	 * The Workspace Historical Maps whose tiles are on somebody else's server, by image id.
 	 *
 	 * **Here rather than derived again in the Layers pane**, which is where it used to be: it is the
-	 * same question `partitionByLocalCopy` above has just answered, and a `$derived` set in a page is
+	 * same question `partitionByOfflineCopy` above has just answered, and a `$derived` set in a page is
 	 * how one rule acquires a second reading. Every pane that needs it takes this one.
 	 */
 	get referencedImageIds(): ReadonlySet<string> {
@@ -1301,7 +1301,7 @@ export class EditorSession {
 	 * How many bytes the whole Workspace holds, for the ADR-0008 hosting warning (ticket 15, 16).
 	 *
 	 * Through `workspaceSize`, which uses `ProjectStore#size` and never `read`: a Workspace with a
-	 * mirrored pyramid in it is tens of thousands of files, and opening every one of them to add up
+	 * offline copy's pyramid in it is tens of thousands of files, and opening every one of them to add up
 	 * their lengths would make this the slowest thing in the application. The whole Workspace rather
 	 * than the open Project, because the ~1 GB budget is shared by every Project published together.
 	 */
@@ -1537,7 +1537,7 @@ export class EditorSession {
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * TWO WRITES NOW, WHERE THERE WERE THREE
 	 *
-	 *   1. the pyramid, through `mirrorRemoteImage` → `ingestImageFile`, whose `info.json` lands last
+	 *   1. the pyramid, through `makeOfflineCopy` → `ingestImageFile`, whose `info.json` lands last
 	 *      and is therefore the completion marker for the whole directory;
 	 *   2. `alignments/<id>.json`, rewritten to name the ADR-0004 placeholder instead of the library.
 	 *
@@ -1555,7 +1555,7 @@ export class EditorSession {
 	 * **Step 2 is not optional.** The stored Alignment of a referenced image names the remote service as
 	 * its `resource.id`, which is what made it resolvable by Allmaps and what made the warped Layer
 	 * render at all. Left alone after a copy it would keep sending `@allmaps/maplibre` to the library for
-	 * tiles that are now in this folder — so the copy would work, the map would draw, and mirroring would
+	 * tiles that are now in this folder — so the copy would work, the map would draw, and making an offline copy would
 	 * have bought nothing. It is also what publishing serves, and a self-contained site whose Alignment
 	 * points at a stranger's server is not self-contained.
 	 *
@@ -1564,17 +1564,17 @@ export class EditorSession {
 	 *
 	 * @returns `true` when the copy landed and the Alignment names this Workspace's own tiles
 	 */
-	async mirrorImage(options: {
+	async makeOfflineCopy(options: {
 		image: ReferencedImage;
 		service: RemoteImageService;
 		/** The plan the user was shown, so what was agreed to is what runs. */
-		plan: MirrorPlan;
-		onProgress?: (progress: MirrorProgress) => void;
+		plan: OfflineCopyPlan;
+		onProgress?: (progress: OfflineCopyProgress) => void;
 		signal?: AbortSignal;
 	}): Promise<boolean> {
 		const { image, service, plan } = options;
 
-		await mirrorRemoteImage({
+		await makeOfflineCopy({
 			store: this.#store,
 			service,
 			plan,
@@ -1596,7 +1596,7 @@ export class EditorSession {
 	/**
 	 * Rewrite a copied map's Alignment to name this Workspace's own tiles rather than the library.
 	 *
-	 * The second of {@link mirrorImage}'s two writes, kept as its own method because it is the only part
+	 * The second of {@link makeOfflineCopy}'s two writes, kept as its own method because it is the only part
 	 * of a copy that touches a document the user made.
 	 *
 	 * Idempotent: re-serialising an Alignment that already names the ADR-0004 placeholder produces the

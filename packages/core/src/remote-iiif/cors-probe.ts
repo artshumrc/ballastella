@@ -12,7 +12,7 @@
 // scholar, and a support request for whoever maintains this. So the question is asked once, at
 // the moment the user adds the resource, when there is still a dialog to put the answer in.
 //
-// Mirroring is not a way round it (ticket 15): an offline copy has to fetch the tiles too.
+// Making an offline copy is not a way round it (ticket 15): an offline copy has to fetch the tiles too.
 //
 // **`info.json` and one tile are both probed, and the tile is the one that matters.** They are
 // commonly served by different infrastructure — a JSON endpoint behind one proxy, image bytes
@@ -210,7 +210,7 @@ export async function probeRemoteImageService(
 	const infoUrl = `${service.uri}/info.json`;
 
 	// The `info.json` half. It has already been fetched once to get here, but not necessarily by
-	// the browser under CORS — a captured document, a mirrored copy, or an embedded service
+	// the browser under CORS — a captured document, a copied copy, or an embedded service
 	// description in a Manifest all reach `acceptRemoteImageService` without a cross-origin read.
 	// Asking again is one request and removes the case where the gate only *looks* like it ran.
 	await readOrRefuse(infoUrl, {

@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY THIS IS `list` + `size` AND NEVER `read`
 //
-// A mirrored pyramid is thousands of tile files. `ProjectStore#size` exists in ADR-0001's
+// An offline copy's pyramid is thousands of tile files. `ProjectStore#size` exists in ADR-0001's
 // interface precisely so that a byte total can be had **without opening anything** — both real
 // backends answer it from directory metadata for free, and ticket 02's shared adapter suite has a
 // spy on `read` keeping it that way. A total assembled by reading every tile would be the slowest

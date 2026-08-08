@@ -1,11 +1,11 @@
-// Mirroring, in real browsers, on the pixels of a real 1657 chart.
+// Making an offline copy, in real browsers, on the pixels of a real 1657 chart.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHAT THIS FILE IS FOR, AND WHY IT IS NOT THE NODE TESTS AGAIN
 //
-// `mirror.test.ts` asserts the *job*: which path, how many requests, what is written, what is
+// `offline-copy.test.ts` asserts the *job*: which path, how many requests, what is written, what is
 // refused. It cannot assert the one claim this ticket makes that matters most, because the claim is
-// about pixels: **a mirrored pyramid honours IIIF's exact-resize semantics the way ticket 05's tiler
+// about pixels: **an offline copy's pyramid honours IIIF's exact-resize semantics the way ticket 05's tiler
 // does, so ticket 03's `placement = region ÷ scaleFactor` is the right number for it.**
 //
 // Ticket 14 could only check the checkable half of that against a stranger's server — a ragged probe
@@ -33,7 +33,7 @@ import { openDecodeAndCropSource } from '../tiler/decode-and-crop-tiler.js';
 import { ingestImageFile } from '../tiler/ingest.js';
 import { buildImageInfo, planPyramid, type PlannedTile } from '../tiler/pyramid.js';
 import { acceptRemoteImageService, type RemoteImageService } from './image-service.js';
-import { MirrorRefusedError, assembleWithCanvas, mirrorRemoteImage, planMirror } from './mirror.js';
+import { OfflineCopyRefusedError, assembleWithCanvas, makeOfflineCopy, planOfflineCopy } from './offline-copy.js';
 
 declare global {
 	interface ImportMeta {
@@ -200,7 +200,7 @@ describe('assembleWithCanvas', () => {
 	});
 });
 
-describe('a level-0 remote service, mirrored end to end', () => {
+describe('a level-0 remote service, copied end to end', () => {
 	let store: MemoryProjectStore;
 	let requested: string[];
 	let directory: string;
@@ -213,7 +213,7 @@ describe('a level-0 remote service, mirrored end to end', () => {
 		const host = fixtureHost();
 		requested = host.requested;
 
-		const result = await mirrorRemoteImage({
+		const result = await makeOfflineCopy({
 			store,
 			service,
 			label: 'floride-1657',
@@ -281,10 +281,10 @@ describe('a level-0 remote service, mirrored end to end', () => {
 			openDecodeAndCrop: openDecodeAndCropSource
 		});
 
-		const mirroredPaths = await store.list(`${directory}/`);
-		expect(mirroredPaths).toHaveLength(31);
+		const copiedPaths = await store.list(`${directory}/`);
+		expect(copiedPaths).toHaveLength(31);
 
-		for (const path of mirroredPaths) {
+		for (const path of copiedPaths) {
 			if (path.endsWith('/info.json') || path.endsWith('/manifest.json')) continue;
 			const mine = await store.read(path);
 			const theirs = await local.read(
@@ -361,7 +361,7 @@ describe('IIIF exact-resize, in a pyramid that arrived by being copied', () => {
 			{ ...buildImageInfo({ imageId: 'x', ...dimensions }), id: SERVICE_URI },
 			{ requestedUrl: `${SERVICE_URI}/info.json`, fallbackUri: SERVICE_URI }
 		);
-		expect(planMirror(raggedService).path).toBe('assembled');
+		expect(planOfflineCopy(raggedService).path).toBe('assembled');
 
 		const ragged = planFor(dimensions).filter(
 			(tile) =>
@@ -371,7 +371,7 @@ describe('IIIF exact-resize, in a pyramid that arrived by being copied', () => {
 
 		for (const tile of ragged) {
 			const store = new MemoryProjectStore();
-			const result = await mirrorRemoteImage({
+			const result = await makeOfflineCopy({
 				store,
 				service: raggedService,
 				fetch: hostFor(await uniformRegionImage(tile.region)),
@@ -418,7 +418,7 @@ describe('a level-0 remote service that will not serve what it declared', () => 
 		const host = fixtureHost();
 
 		await expect(
-			mirrorRemoteImage({
+			makeOfflineCopy({
 				store,
 				service,
 				fetch: async (input, init) => {
@@ -429,15 +429,15 @@ describe('a level-0 remote service that will not serve what it declared', () => 
 				assemble: assembleWithCanvas,
 				openDecodeAndCrop: openDecodeAndCropSource
 			})
-		).rejects.toThrow(MirrorRefusedError);
+		).rejects.toThrow(OfflineCopyRefusedError);
 
 		expect(await store.list('images/')).toEqual([]);
 	});
 });
 
-describe('planMirror against the fixture service', () => {
+describe('planOfflineCopy against the fixture service', () => {
 	it('takes the per-tile path, because a level-0 service serves nothing it did not cut', () => {
-		const plan = planMirror(service);
+		const plan = planOfflineCopy(service);
 
 		expect(plan.path).toBe('assembled');
 		expect(plan.requests).toHaveLength(20);

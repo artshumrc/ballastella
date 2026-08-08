@@ -86,9 +86,9 @@ export type IngestOptions = {
 	 *
 	 * Absent is right for a file the user picked: there is no URI to derive an identity from, and two
 	 * ingests of one file are two Historical Maps (ADR-0015). It is supplied by exactly one caller —
-	 * `mirrorRemoteImage`, making an offline copy of a referenced remote image — where the opposite
+	 * `makeOfflineCopy`, making an offline copy of a referenced remote image — where the opposite
 	 * holds and is load-bearing: that image's id is `generateId(uri)`, which is what every Alignment in
-	 * the Workspace names and what `annotations.allmaps.org` keys the image on, so mirroring must land on
+	 * the Workspace names and what `annotations.allmaps.org` keys the image on, so making an offline copy must land on
 	 * the id the image already has rather than mint a second one.
 	 */
 	readonly imageId?: string;

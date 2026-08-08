@@ -10,7 +10,7 @@ If the Allmaps community has already aligned that map, they are offered the chan
 
 ## Where to start
 
-[ADR-0015](../../../docs/adr/0015-ingest-surface-ids-and-community-alignment-lookup.md) (ingest surface, ids, the lookup), [ADR-0007](../../../docs/adr/0007-remote-iiif-is-referenced-by-default-mirrored-on-request.md) (referenced by default; the CORS gate), [ADR-0018](../../../docs/adr/0018-triiiceratops-embedded-as-a-svelte-component.md) (how triiiceratops is embedded and the parser boundary), [ADR-0011](../../../docs/adr/0011-local-tiles-reach-renderers-by-per-consumer-injection.md) (the OpenSeadragon `TileSource`).
+[ADR-0015](../../../docs/adr/0015-ingest-surface-ids-and-community-alignment-lookup.md) (ingest surface, ids, the lookup), [ADR-0007](../../../docs/adr/0007-remote-iiif-is-referenced-by-default-copied-on-request.md) (referenced by default; the CORS gate), [ADR-0018](../../../docs/adr/0018-triiiceratops-embedded-as-a-svelte-component.md) (how triiiceratops is embedded and the parser boundary), [ADR-0011](../../../docs/adr/0011-local-tiles-reach-renderers-by-per-consumer-injection.md) (the OpenSeadragon `TileSource`).
 
 ```
 triiiceratops           import from ./svelte — NOT the web component

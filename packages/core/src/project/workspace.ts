@@ -288,7 +288,7 @@ export class Workspace {
 	 * Write a Project that came from somewhere else into `directory`, which must be free.
 	 *
 	 * Zip-agnostic on purpose: `source` is any {@link ProjectFileSource}, so this is also the path
-	 * ticket 14's remote ingest and ticket 15's mirroring will take. What it knows about is the two
+	 * ticket 14's remote ingest and ticket 15's making an offline copy will take. What it knows about is the two
 	 * things only the Workspace can decide.
 	 *
 	 * **The collision.** `directory` is the Project's identity (ADR-0008), and if it is taken this

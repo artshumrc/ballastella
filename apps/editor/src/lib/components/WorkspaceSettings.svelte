@@ -45,7 +45,7 @@
 	async function askToDelete(name: string): Promise<void> {
 		// The size is read *before* the confirmation is answered rather than quoted from a tally,
 		// because what the user is agreeing to is the bytes that are there now (ADR-0016 wants the
-		// Workspace and its size named). `list` + `size`, never `read` — a Workspace with a mirrored
+		// Workspace and its size named). `list` + `size`, never `read` — a Workspace with a copied
 		// pyramid in it is tens of thousands of files.
 		confirming = { name, size: null };
 		confirmOpen = true;

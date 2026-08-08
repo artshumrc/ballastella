@@ -23,13 +23,13 @@
 import {
 	crossesHostingLimit,
 	describeBytes,
-	estimateMirrorBytes,
+	estimateOfflineCopyBytes,
 	hostingLimitWarning,
-	planMirror,
+	planOfflineCopy,
 	readRemoteImageService,
 	type FetchFn,
-	type MirrorPlan,
-	type MirrorProgress,
+	type OfflineCopyPlan,
+	type OfflineCopyProgress,
 	type ReferencedImage,
 	type RemoteImageService,
 	type WorkspaceSize
@@ -39,7 +39,7 @@ import type { EditorSession } from '../editor-session.svelte.js';
 import { recordRemoteRequest } from './browser-test-handle.js';
 
 /** Which step the job is on, for the region that announces it (SPEC story 96). */
-export type MirrorStep =
+export type OfflineCopyStep =
 	| 'idle'
 	/** Re-reading the service's `info.json` and working out what the copy will cost. */
 	| 'preparing'
@@ -48,7 +48,7 @@ export type MirrorStep =
 	/** Fetching, stitching, and tiling. */
 	| 'copying';
 
-export class MirrorMap {
+export class OfflineCopyJob {
 	/**
 	 * Read through a getter rather than captured, for the reason `AddRemoteMap` gives: captured, this
 	 * would keep writing into the session a *previous* Project was opened with, which is a pyramid in
@@ -56,7 +56,7 @@ export class MirrorMap {
 	 */
 	readonly #session: () => EditorSession;
 
-	step = $state<MirrorStep>('idle');
+	step = $state<OfflineCopyStep>('idle');
 	/** The refusal to show, in the words the core modules chose. `''` when there is nothing wrong. */
 	error = $state('');
 
@@ -65,12 +65,12 @@ export class MirrorMap {
 	/** Its service, re-read so the pyramid geometry is the service's own and current. */
 	service = $state<RemoteImageService | null>(null);
 	/** What the copy will do. `null` until it has been worked out. */
-	plan = $state<MirrorPlan | null>(null);
+	plan = $state<OfflineCopyPlan | null>(null);
 	/** What the Workspace already holds. `null` until it has been measured. */
 	workspace = $state<WorkspaceSize | null>(null);
 
 	/** How far the copy has got, or `null` between jobs. */
-	progress = $state<MirrorProgress | null>(null);
+	progress = $state<OfflineCopyProgress | null>(null);
 	/**
 	 * What to announce once a copy has finished, or `''`.
 	 *
@@ -135,7 +135,7 @@ export class MirrorMap {
 
 		try {
 			const service = await readRemoteImageService(image.service, { fetch: this.#fetch() });
-			const plan = planMirror(service);
+			const plan = planOfflineCopy(service);
 			// Measured after the plan rather than before, so a plan that refuses outright does not walk the
 			// whole Workspace for a number nobody will be shown.
 			const workspace = plan.refusal === '' ? await this.#session().workspaceBytes() : null;
@@ -171,13 +171,13 @@ export class MirrorMap {
 	/**
 	 * What this copy will add to the Workspace, in bytes, or `0` when there is no plan yet.
 	 *
-	 * Worked out here rather than carried as a field on {@link MirrorPlan}: it is a pure function of the
+	 * Worked out here rather than carried as a field on {@link OfflineCopyPlan}: it is a pure function of the
 	 * plan's own `width` and `height`, and a stored copy of an arithmetic result is one more thing that
 	 * can disagree with the numbers it came from. The three things below — the sentence, the warning,
 	 * and whether there is one — then cannot be looking at different figures.
 	 */
 	get estimatedBytes(): number {
-		return this.plan ? estimateMirrorBytes(this.plan.width, this.plan.height) : 0;
+		return this.plan ? estimateOfflineCopyBytes(this.plan.width, this.plan.height) : 0;
 	}
 
 	/** What the copy will add, and what the Workspace holds, as a person reads it. */
@@ -247,7 +247,7 @@ export class MirrorMap {
 		this.progress = null;
 
 		try {
-			const copied = await this.#session().mirrorImage({
+			const copied = await this.#session().makeOfflineCopy({
 				image,
 				service,
 				plan,

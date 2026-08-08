@@ -46,7 +46,7 @@ describe('workspaceSize', () => {
 	});
 
 	it('never reads a file', async () => {
-		// ADR-0001 put `size` in the interface for exactly this: a mirrored pyramid is thousands of
+		// ADR-0001 put `size` in the interface for exactly this: an offline copy's pyramid is thousands of
 		// tiles, and summing it by reading every one of them would be the slowest possible way to
 		// answer a question both real backends answer from directory metadata. A version of this
 		// written with `read` would pass every other assertion in this file, so the spy is the

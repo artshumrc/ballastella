@@ -52,7 +52,7 @@ export {
 	deleteHistoricalMap,
 	historicalMapUsage,
 	listWorkspaceHistoricalMaps,
-	partitionByLocalCopy,
+	partitionByOfflineCopy,
 	referencedHistoricalMaps,
 	tileLocation,
 	unusedHistoricalMapBytes,
@@ -441,25 +441,25 @@ export {
 	readRemoteImageService,
 	type RemoteImageService
 } from './remote-iiif/image-service.js';
-// Mirroring (ticket 15; ADR-0007). Adds no dependency: it is a funnel into the tiler this barrel
+// Making an offline copy (ticket 15; ADR-0007). Adds no dependency: it is a funnel into the tiler this barrel
 // already exports, with `assemble` and the tilers themselves injected, so `apps/viewer` gains nothing
 // it did not already have by depending on this package (ADR-0019).
 export {
-	ESTIMATED_MIRROR_BYTES_PER_PIXEL,
-	MIRROR_LIMITS,
-	MirrorRefusedError,
+	ESTIMATED_OFFLINE_COPY_BYTES_PER_PIXEL,
+	OFFLINE_COPY_LIMITS,
+	OfflineCopyRefusedError,
 	assembleWithCanvas,
-	estimateMirrorBytes,
-	mirrorRemoteImage,
-	planMirror,
+	estimateOfflineCopyBytes,
+	makeOfflineCopy,
+	planOfflineCopy,
 	type AssembleImage,
-	type MirrorPath,
-	type MirrorPiece,
-	type MirrorPiecePayload,
-	type MirrorPlan,
-	type MirrorProgress,
-	type MirrorResult
-} from './remote-iiif/mirror.js';
+	type OfflineCopyPath,
+	type OfflineCopyPiece,
+	type OfflineCopyPiecePayload,
+	type OfflineCopyPlan,
+	type OfflineCopyProgress,
+	type OfflineCopyResult
+} from './remote-iiif/offline-copy.js';
 export {
 	ParserBoundaryError,
 	imageServiceUriCrossingBoundary

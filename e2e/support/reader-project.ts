@@ -150,9 +150,9 @@ export type ProjectFixture = {
 	 *
 	 * **Not written into `project.json`** — ADR-0023 deleted that field. It decides which *files* the
 	 * fixture lays down, which is where the answer now lives: `'referenced'` writes a `remote.json` and no
-	 * `info.json`, and `'mirrored'` writes the pyramid. That is exactly the observation the app makes.
+	 * `info.json`, and `'offline-copy'` writes the pyramid. That is exactly the observation the app makes.
 	 */
-	imageMode?: 'mirrored' | 'referenced';
+	imageMode?: 'offline-copy' | 'referenced';
 	/** The remote service a `'referenced'` image claims, or `undefined` to write no `remote.json`. */
 	remoteService?: string;
 	/** The author's default Base Map, by id. */
@@ -182,7 +182,7 @@ export type ProjectFixture = {
  */
 export function projectFiles(fixture: ProjectFixture = {}): SiteFiles {
 	const directory = fixture.directory ?? 'amsterdam-1625';
-	const imageMode = fixture.imageMode ?? 'mirrored';
+	const imageMode = fixture.imageMode ?? 'offline-copy';
 	const files: SiteFiles = {
 		[`${directory}/project.json`]: asJson({
 			formatVersion: 1,

@@ -4,7 +4,7 @@ import { newAlignment, type Alignment } from '../alignment/alignment';
 import { parseAlignment, serialiseAlignment } from '../alignment/georeference-annotation';
 import { createImagePane } from '../image-pane/iiif-image-pane';
 import { createStoreImageFetch } from '../injection/store-image-fetch';
-import { partitionByLocalCopy } from '../project/historical-maps';
+import { partitionByOfflineCopy } from '../project/historical-maps';
 import { imageInfoPath } from '../project/image-files';
 import { MemoryProjectStore } from '../store/memory-project-store';
 import { imageServiceId } from '../tiler/pyramid';
@@ -44,7 +44,7 @@ const record = () =>
  * The union itself stays — it is how a pane is told where to fetch from — but nothing constructs the
  * local half from a Layer any more, because a Layer no longer claims which half it is.
  */
-const mirroredSource = { imageMode: 'mirrored', imageId: 'local-1234' } as const;
+const offlineCopySource = { imageMode: 'offline-copy', imageId: 'local-1234' } as const;
 
 const alignment = (): Alignment => ({
 	...newAlignment('a8eb9e9cf936cc3d', { width: 2781, height: 3622 }),
@@ -60,13 +60,13 @@ describe('where a Historical Map’s tiles come from', () => {
 		// The whole distinction. `{ storedImageId }` means "in this Workspace, reach it through the
 		// ADR-0011 shim"; a string means "served over HTTP from here". They are different *types*, so
 		// getting them the wrong way round is a compile error rather than a blank pane.
-		expect(tileBaseFor(mirroredSource)).toEqual({ storedImageId: 'local-1234' });
+		expect(tileBaseFor(offlineCopySource)).toEqual({ storedImageId: 'local-1234' });
 		expect(tileBaseFor(sourceOf(record()))).toBe(SERVICE);
 	});
 
 	it('says which of the two a source is, and nothing stores that answer', () => {
 		expect(isReferenced(sourceOf(record()))).toBe(true);
-		expect(isReferenced(mirroredSource)).toBe(false);
+		expect(isReferenced(offlineCopySource)).toBe(false);
 	});
 
 	it('is asserted by ticket 03’s own guard: a local base as a string is refused', () => {
@@ -88,7 +88,7 @@ describe('where a Historical Map’s tiles come from', () => {
 			/unset\.invalid placeholder as a base URI/
 		);
 		// The same document, through the answer `tileBaseFor` gives for a local copy: accepted.
-		expect(() => createImagePane(info, tileBaseFor(mirroredSource))).not.toThrow();
+		expect(() => createImagePane(info, tileBaseFor(offlineCopySource))).not.toThrow();
 	});
 
 	it('leaves a remote request alone in the ADR-0011 shim, which is the half that is easy to break', async () => {
@@ -125,7 +125,7 @@ describe('where a Historical Map’s tiles come from', () => {
 
 		// `createImagePane` resolves `{ storedImageId }` to the placeholder base, which is the shim's
 		// routing key — so the URL a local copy's pane asks for is this one.
-		const base = tileBaseFor(mirroredSource);
+		const base = tileBaseFor(offlineCopySource);
 		expect(base).toEqual({ storedImageId: 'local-1234' });
 
 		const response = await fetch(`${imageServiceId('local-1234')}/info.json`);
@@ -134,7 +134,7 @@ describe('where a Historical Map’s tiles come from', () => {
 });
 
 describe('the record beside a referenced image', () => {
-	it('lives where a local pyramid’s own files live, so mirroring is a re-tiling job', () => {
+	it('lives where a local pyramid’s own files live, so making an offline copy is a re-tiling job', () => {
 		// An offline copy writes a pyramid into this same directory and the record of where the image came
 		// from stays, which is the canonical citation ADR-0007 protects. It is also — since ADR-0023 —
 		// what *says* the image is referenced at all, so the two files sitting side by side is the whole
@@ -335,27 +335,27 @@ describe('a Historical Map that has been copied offline', () => {
 		// ADR-0023: there is no longer a claim in `project.json` for this to be the better of two answers
 		// than. It is the only answer, so a copy can no longer be half-recorded and the whole "finish the
 		// offline copy" repair path is gone with the state it repaired.
-		const split = partitionByLocalCopy([record(), other()], [{ imageId: 'a8eb9e9cf936cc3d' }]);
+		const split = partitionByOfflineCopy([record(), other()], [{ imageId: 'a8eb9e9cf936cc3d' }]);
 
-		expect(split.mirrored.map((image) => image.imageId)).toEqual(['a8eb9e9cf936cc3d']);
+		expect(split.offlineCopies.map((image) => image.imageId)).toEqual(['a8eb9e9cf936cc3d']);
 		expect(split.referenced.map((image) => image.imageId)).toEqual(['ffff0000ffff0000']);
 	});
 
 	it('keeps its record, so it can still be cited and traced back', () => {
-		// ADR-0007's whole reason for keeping `remote.json` where it is: mirroring must not orphan the copy.
-		const [mirrored] = partitionByLocalCopy([record()], [{ imageId: 'a8eb9e9cf936cc3d' }]).mirrored;
+		// ADR-0007's whole reason for keeping `remote.json` where it is: making an offline copy must not orphan the copy.
+		const [copied] = partitionByOfflineCopy([record()], [{ imageId: 'a8eb9e9cf936cc3d' }]).offlineCopies;
 
-		expect(mirrored?.service).toBe(SERVICE);
-		expect(mirrored?.rights).toBe('http://rightsstatements.org/vocab/NoC-US/1.0/');
-		expect(mirrored?.attribution).toBe('Library of Congress, Geography and Map Division');
+		expect(copied?.service).toBe(SERVICE);
+		expect(copied?.rights).toBe('http://rightsstatements.org/vocab/NoC-US/1.0/');
+		expect(copied?.attribution).toBe('Library of Congress, Geography and Map Division');
 	});
 
 	it('reaches its tiles through the injection layer once the pyramid is beside it', () => {
 		// The transition the `HistoricalMapSource` union was shaped for, in one assertion: the same image
 		// id, and a base that has stopped being a URL on somebody else's host. What decides which side of
-		// it a map is on is `partitionByLocalCopy` reading the folder, not a field anybody wrote.
+		// it a map is on is `partitionByOfflineCopy` reading the folder, not a field anybody wrote.
 		const before = sourceOf(record());
-		const after = { imageMode: 'mirrored', imageId: record().imageId } as const;
+		const after = { imageMode: 'offline-copy', imageId: record().imageId } as const;
 
 		expect(tileBaseFor(before)).toBe(SERVICE);
 		expect(tileBaseFor(after)).toEqual({ storedImageId: 'a8eb9e9cf936cc3d' });

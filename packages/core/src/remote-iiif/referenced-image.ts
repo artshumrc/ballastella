@@ -29,7 +29,7 @@
 // ingested image keeps its `info.json` and `manifest.json`. Three reasons, in order of how much they
 // matter:
 //
-//   1. **It makes an offline copy a re-tiling job and not a migration.** Mirroring writes a pyramid
+//   1. **It makes an offline copy a re-tiling job and not a migration.** Making an offline copy writes a pyramid
 //      into that same directory; the record of where the image came from stays, which is the canonical
 //      citation ADR-0007 is protecting.
 //   2. **`project.json` has one writer** (`EditorSession`), and adding a second kind of thing to
@@ -62,7 +62,7 @@ import { canonicalServiceUri } from './service-uri.js';
  * describes an observation rather than a claim a `project.json` could get wrong.
  */
 export type HistoricalMapSource =
-	| { readonly imageMode: 'mirrored'; readonly imageId: string }
+	| { readonly imageMode: 'offline-copy'; readonly imageId: string }
 	| {
 			readonly imageMode: 'referenced';
 			readonly imageId: string;
@@ -252,11 +252,11 @@ export function parseReferencedImage(
  * else's server — so the two lists start out disjoint and together they are the Workspace's Historical
  * Maps.
  *
- * **They stop being disjoint the moment an offline copy is made, and that is mirroring working rather
+ * **They stop being disjoint the moment an offline copy is made, and that is making an offline copy working rather
  * than a defect.** A copy writes a pyramid into the same directory and deliberately leaves this record
  * where it is: the record is the citation ADR-0007 exists to protect, and a copy that deleted it would
  * have orphaned the one thing that says where the map came from. An image in *both* lists is one that
- * has been mirrored, which is what `partitionByLocalCopy` exists to say. This function answers
+ * has been copied, which is what `partitionByOfflineCopy` exists to say. This function answers
  * "what does the Workspace record about where its images came from" and nothing about where their bytes
  * are now.
  *
@@ -295,7 +295,7 @@ export const sourceOf = (image: ReferencedImage): HistoricalMapSource => ({
 	service: image.service
 });
 
-// `partitionByLocalCopy` used to be here, and is now `project/historical-maps.ts`'s — beside
+// `partitionByOfflineCopy` used to be here, and is now `project/historical-maps.ts`'s — beside
 // `tileLocation`, which is the single implementation of "referenced or local copy?" it and
 // `referencedHistoricalMaps` now share. It was one of five readings of that rule; see that module's
 // header for the other four and for why the split had to be a module rather than a comment.

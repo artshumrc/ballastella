@@ -353,7 +353,7 @@
 								class:badge-success={!referenced}
 								class:badge-warning={referenced}
 								data-testid="layer-image-mode"
-								data-image-mode={referenced ? 'referenced' : 'mirrored'}
+								data-image-mode={referenced ? 'referenced' : 'offline-copy'}
 							>
 								{referenced
 									? 'Remote reference — needs the network'

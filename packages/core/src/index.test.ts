@@ -83,21 +83,21 @@ it('exposes the tiler and its cap', () => {
 	expect(Object.keys(core)).not.toContain('STREAMING_TILER_THRESHOLD_PIXELS');
 });
 
-// Mirroring (ticket 15) and the ADR-0008 hosting total, reachable through the same barrel. Mirroring
+// Making an offline copy (ticket 15) and the ADR-0008 hosting total, reachable through the same barrel. Making an offline copy
 // is a funnel into the tiler above rather than a second one, so the assertion that matters for
 // ADR-0019 is the one above: this adds no new dependency for `apps/viewer` to acquire.
-it('exposes mirroring and the hosting-limit total', () => {
+it('exposes making an offline copy and the hosting-limit total', () => {
 	expect(Object.keys(core)).toEqual(
 		expect.arrayContaining([
 			'STATIC_HOSTING_LIMIT_BYTES',
 			'assembleWithCanvas',
 			'crossesHostingLimit',
 			'describeBytes',
-			'estimateMirrorBytes',
+			'estimateOfflineCopyBytes',
 			'hostingLimitWarning',
-			'mirrorRemoteImage',
-			'partitionByLocalCopy',
-			'planMirror',
+			'makeOfflineCopy',
+			'partitionByOfflineCopy',
+			'planOfflineCopy',
 			'workspaceSize'
 		])
 	);

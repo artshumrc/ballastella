@@ -20,7 +20,7 @@ export interface TransferFile {
  *
  * Both totals are known before the first byte moves — export lists and sizes the Project first,
  * import reads the archive's central directory — so this is a real proportion and not a spinner.
- * A mirrored pyramid is hundreds of megabytes across thousands of tiles, and a scholar watching
+ * An offline copy's pyramid is hundreds of megabytes across thousands of tiles, and a scholar watching
  * a still screen concludes the tool has hung.
  */
 export interface TransferProgress {
@@ -40,7 +40,7 @@ export type TransferProgressListener = (progress: TransferProgress) => void;
  * A Project's files, ready to be written, with the totals known before the first one is.
  *
  * `Workspace.importProject` takes this rather than a zip, so the Workspace knows nothing about zip
- * archives — ticket 14's remote ingest and ticket 15's mirroring produce files the same way. The
+ * archives — ticket 14's remote ingest and ticket 15's making an offline copy produce files the same way. The
  * iterable is async and pulled one file at a time on purpose: whatever produces the files decides
  * how much of the source it holds in memory, and the zip reader holds one bounded batch.
  *

@@ -121,7 +121,7 @@ describe('planning a publish', () => {
 	});
 
 	it('weighs the Workspace without opening a single file', async () => {
-		// ADR-0008's cliff has to be answerable about a Workspace holding a mirrored pyramid, which is
+		// ADR-0008's cliff has to be answerable about a Workspace holding an offline copy's pyramid, which is
 		// tens of thousands of tiles. The *absence* of a read is the claim, and it is the one thing
 		// here no assertion about files could carry: a version written with `read` returns exactly the
 		// same total, correct in every respect and unusable on a real Workspace.

@@ -80,7 +80,7 @@ export interface ProjectExport {
 	 * The archive, produced as it is consumed.
 	 *
 	 * One Project file is in memory at a time and each is released as soon as its entry has been
-	 * emitted, so a mirrored pyramid of hundreds of megabytes never sits in the heap whole
+	 * emitted, so an offline copy's pyramid of hundreds of megabytes never sits in the heap whole
 	 * (ADR-0001 makes this the only way out for a Firefox, Safari, or iPad user, so it has to work
 	 * at the size real Projects reach). The caller chooses the sink — a file handle, a `Blob` the
 	 * browser backs with its own storage — and backpressure reaches back here: nothing is read
@@ -273,7 +273,7 @@ function zipStream(
 }
 
 function zipEntry(relative: string): ZipPassThrough | ZipDeflate {
-	// Tiles are JPEG or PNG and a mirrored pyramid is nearly all tiles: deflating them costs real
+	// Tiles are JPEG or PNG and an offline copy's pyramid is nearly all tiles: deflating them costs real
 	// seconds per hundred megabytes and saves close to nothing. `project.json`, `info.json`,
 	// manifests, Alignments, and GeoJSON are text, where it saves most of the file.
 	const entry = ALREADY_COMPRESSED.test(relative)

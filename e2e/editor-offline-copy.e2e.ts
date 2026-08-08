@@ -8,7 +8,7 @@ import { routeBaseMapArchive } from './support/editor-deployment.js';
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
 /**
- * SPEC's Seam 2 for mirroring: "make an offline copy" driven in a real browser, against real OPFS,
+ * SPEC's Seam 2 for making an offline copy: "make an offline copy" driven in a real browser, against real OPFS,
  * with real fixture hosts (SPEC stories 27 and 28, ADR-0007).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
@@ -552,7 +552,7 @@ async function addReferenced(page: Page, host: string, name = 'florida'): Promis
  *
  * **The second wait is not belt-and-braces.** The dialog opens in the frame the button is pressed —
  * deliberately, so the gesture is answered — while `prepare` is still re-reading the service's
- * `info.json`, and until that resolves there is no plan: `mirror-start` is disabled, the size and the
+ * `info.json`, and until that resolves there is no plan: `offline-copy-start` is disabled, the size and the
  * notes are not on the page, and `job.start()` returns `false` without doing anything. Every test
  * below that reaches for a control or asserts the *absence* of a note was therefore racing one HTTP
  * request. It surfaced as the keyboard test failing 2 runs in 9: focus went to a disabled button,
@@ -567,9 +567,9 @@ async function openMirrorDialog(page: Page): Promise<void> {
 	// "Make an offline copy" lives on the Layer card, which ticket 04 made the Project screen itself —
 	// so arriving is already being there, and there is no navigation left for this to do.
 	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
-	await page.getByTestId('mirror-open').click();
+	await page.getByTestId('offline-copy-open').click();
 	await expect(page.getByRole('dialog', { name: 'Make an offline copy' })).toBeVisible();
-	await expect(page.getByTestId('mirror-status')).toHaveAttribute('data-step', 'deciding');
+	await expect(page.getByTestId('offline-copy-status')).toHaveAttribute('data-step', 'deciding');
 }
 
 /**
@@ -602,7 +602,7 @@ function watchRequests(page: Page): {
  * WHY THE WAY IN IS A PARAMETER, WHICH IS NOT A CONVENIENCE
  *
  * **Two independent defects in this pane once made each of the two routes to it work for exactly one of
- * the two cases below.** Neither was caused by mirroring; both were found by this ticket trying to
+ * the two cases below.** Neither was caused by making an offline copy; both were found by this ticket trying to
  * measure the same thing twice, and both are fixed — but the parameter stays, because the reason the
  * defects survived so long is that every test used one route or the other and never both.
  *
@@ -692,14 +692,14 @@ test.describe('making an offline copy', () => {
 
 		// On the Layer card, and only there — one Layer, one offer (ADR-0007, ADR-0025).
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
-		await expect(page.getByTestId('mirror-open')).toHaveCount(1);
+		await expect(page.getByTestId('offline-copy-open')).toHaveCount(1);
 
 		const requestsBefore: string[] = [];
 		page.on('request', (request) => requestsBefore.push(request.url()));
 
 		await openMirrorDialog(page);
 
-		const rights = page.getByTestId('mirror-rights');
+		const rights = page.getByTestId('offline-copy-rights');
 		await expect(rights).toContainText('creativecommons.org/licenses/by/4.0');
 		await expect(rights).toContainText('Provided by the Example Library');
 
@@ -719,14 +719,14 @@ test.describe('making an offline copy', () => {
 		await addReferenced(page, 'images.test');
 		await openMirrorDialog(page);
 
-		const size = page.getByTestId('mirror-size');
+		const size = page.getByTestId('offline-copy-size');
 		// 700 × 500 at the measured 0.7 bytes per pixel is about 245 kB, and the Workspace holds a
 		// `project.json` and one `remote.json`.
 		await expect(size).toContainText('245 kB');
 		await expect(size).toContainText('this Workspace already holds');
 		await expect(size).toContainText('files');
 		// Well under the cliff, so nothing is said about it.
-		await expect(page.getByTestId('mirror-hosting-warning')).toHaveCount(0);
+		await expect(page.getByTestId('offline-copy-hosting-warning')).toHaveCount(0);
 	});
 
 	test('warns explicitly about the ~1 GB hosting limit and still lets the copy proceed', async ({
@@ -746,14 +746,14 @@ test.describe('making an offline copy', () => {
 		await addReferenced(page, 'large.test', 'enormous');
 		await openMirrorDialog(page);
 
-		const warning = page.getByTestId('mirror-hosting-warning');
+		const warning = page.getByTestId('offline-copy-hosting-warning');
 		await expect(warning).toBeVisible();
 		await expect(warning).toContainText('1.0 GB');
 		await expect(warning).toContainText('GitHub Pages');
 		await expect(warning).toContainText('You can still make the copy');
 
 		// Not a gate.
-		await expect(page.getByTestId('mirror-start')).toBeEnabled();
+		await expect(page.getByTestId('offline-copy-start')).toBeEnabled();
 	});
 
 	test('refuses a copy of a source above the decode cap, before it fetches anything', async ({
@@ -772,7 +772,7 @@ test.describe('making an offline copy', () => {
 		page.on('request', (request) => requested.push(request.url()));
 		await openMirrorDialog(page);
 
-		const refusal = page.getByTestId('mirror-refusal');
+		const refusal = page.getByTestId('offline-copy-refusal');
 		await expect(refusal).toBeVisible();
 		await expect(refusal).toContainText('1440 megapixels');
 		await expect(refusal).toContainText('outside the browser');
@@ -784,7 +784,7 @@ test.describe('making an offline copy', () => {
 
 		// A gate, and it is closed before a byte is asked for. That is the whole value of refusing in
 		// the plan rather than in the tiler.
-		await expect(page.getByTestId('mirror-start')).toBeDisabled();
+		await expect(page.getByTestId('offline-copy-start')).toBeDisabled();
 		expect(requested.filter((url) => /default\.(jpg|png)$/.test(url))).toEqual([]);
 	});
 
@@ -803,10 +803,10 @@ test.describe('making an offline copy', () => {
 
 		await openMirrorDialog(page);
 		// One request, and nothing about many of them.
-		await expect(page.getByTestId('mirror-note')).toHaveCount(0);
-		await page.getByTestId('mirror-start').click();
+		await expect(page.getByTestId('offline-copy-note')).toHaveCount(0);
+		await page.getByTestId('offline-copy-start').click();
 
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 30_000
 		});
 
@@ -826,7 +826,7 @@ test.describe('making an offline copy', () => {
 		await addReferenced(page, 'static.test', 'pyramid');
 
 		await openMirrorDialog(page);
-		const note = page.getByTestId('mirror-note');
+		const note = page.getByTestId('offline-copy-note');
 		await expect(note).toBeVisible();
 		await expect(note).toContainText('static.test');
 		// 700 × 500 at 256-pixel tiles is 3 columns by 2 rows.
@@ -839,8 +839,8 @@ test.describe('making an offline copy', () => {
 				imageRequests.push(request.url());
 		});
 
-		await page.getByTestId('mirror-start').click();
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await page.getByTestId('offline-copy-start').click();
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 30_000
 		});
 
@@ -869,9 +869,9 @@ test.describe('making an offline copy', () => {
 		});
 
 		await openMirrorDialog(page);
-		await expect(page.getByTestId('mirror-note')).toContainText('400');
-		await page.getByTestId('mirror-start').click();
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await expect(page.getByTestId('offline-copy-note')).toContainText('400');
+		await page.getByTestId('offline-copy-start').click();
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 30_000
 		});
 
@@ -886,8 +886,8 @@ test.describe('making an offline copy', () => {
 		await openNewProject(page);
 		await addReferenced(page, 'images.test');
 		await openMirrorDialog(page);
-		await page.getByTestId('mirror-start').click();
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await page.getByTestId('offline-copy-start').click();
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 30_000
 		});
 
@@ -905,7 +905,7 @@ test.describe('making an offline copy', () => {
 		for (const path of tiles) expect(path.startsWith(`images/${imageId}/`)).toBe(true);
 		expect(files).toContain(`images/${imageId}/info.json`);
 		expect(files).toContain(`images/${imageId}/manifest.json`);
-		// The record of where it came from is still there — mirroring must not orphan the copy.
+		// The record of where it came from is still there — making an offline copy must not orphan the copy.
 		expect(files).toContain(`images/${imageId}/remote.json`);
 
 		// Every tile path is a IIIF `region/size/rotation/quality.format`, exactly as a local ingest
@@ -939,12 +939,12 @@ test.describe('making an offline copy', () => {
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
 			'data-image-mode',
-			'mirrored'
+			'offline-copy'
 		);
 
 		// And the source URI is still on screen, so the copy can be cited.
-		await expect(page.getByTestId('mirrored-image-source').first()).toBeVisible();
-		await expect(page.getByTestId('mirrored-image-source')).toHaveText(
+		await expect(page.getByTestId('offline-copy-source').first()).toBeVisible();
+		await expect(page.getByTestId('offline-copy-source')).toHaveText(
 			service('images.test', 'florida')
 		);
 		// It has left the referenced list, because it is not referenced any more.
@@ -958,9 +958,9 @@ test.describe('making an offline copy', () => {
 		await openNewProject(page);
 		await addReferenced(page, 'slow.test', 'slow');
 		await openMirrorDialog(page);
-		await page.getByTestId('mirror-start').click();
+		await page.getByTestId('offline-copy-start').click();
 
-		const progress = page.getByTestId('mirror-progress');
+		const progress = page.getByTestId('offline-copy-progress');
 		await expect(progress).toBeVisible();
 		// The numbers a screen-reader user is told are the same numbers the bar carries.
 		await expect(progress).toContainText('slow.test');
@@ -975,7 +975,7 @@ test.describe('making an offline copy', () => {
 
 		// It gets to tiling, and the sentence changes with it.
 		await expect(progress).toContainText(/tile \d+ of \d+/, { timeout: 60_000 });
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 60_000
 		});
 	});
@@ -991,16 +991,16 @@ test.describe('making an offline copy', () => {
 		const before = await listWorkspaceFiles(page);
 
 		await openMirrorDialog(page);
-		await page.getByTestId('mirror-start').click();
-		await expect(page.getByTestId('mirror-progress')).toContainText(/fetched [1-9]\d* of 48/);
+		await page.getByTestId('offline-copy-start').click();
+		await expect(page.getByTestId('offline-copy-progress')).toContainText(/fetched [1-9]\d* of 48/);
 
-		await page.getByTestId('mirror-cancel').click();
-		await expect(page.getByTestId('mirror-error')).toContainText('cancelled');
+		await page.getByTestId('offline-copy-cancel').click();
+		await expect(page.getByTestId('offline-copy-error')).toContainText('cancelled');
 
 		// Nothing was added at all: not a tile, not an `info.json`.
 		expect(await listWorkspaceFiles(page)).toEqual(before);
 
-		await page.getByTestId('mirror-dismiss').click();
+		await page.getByTestId('offline-copy-dismiss').click();
 
 		// The map is still referenced, and it is still there. Said by the files — no `info.json` beside its
 		// `remote.json` — because that is the only thing that says it (ADR-0023) — and by the Layer card,
@@ -1009,7 +1009,7 @@ test.describe('making an offline copy', () => {
 			readJson(page, '', `images/${generateId(service('images.test', 'florida'))}/info.json`)
 		).rejects.toThrow();
 		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
-		await expect(page.getByTestId('mirrored-image-source')).toHaveCount(0);
+		await expect(page.getByTestId('offline-copy-source')).toHaveCount(0);
 	});
 
 	test('leaves the Layer referenced and working when the copy fails', async ({ page }) => {
@@ -1020,21 +1020,21 @@ test.describe('making an offline copy', () => {
 		const before = await listWorkspaceFiles(page);
 
 		await openMirrorDialog(page);
-		await page.getByTestId('mirror-start').click();
+		await page.getByTestId('offline-copy-start').click();
 
-		const error = page.getByTestId('mirror-error');
+		const error = page.getByTestId('offline-copy-error');
 		await expect(error).toContainText('broken.test');
 		await expect(error).toContainText('500');
 		await expect(error).toContainText('still works');
 
 		expect(await listWorkspaceFiles(page)).toEqual(before);
 
-		await page.getByTestId('mirror-dismiss').click();
+		await page.getByTestId('offline-copy-dismiss').click();
 		// Still referenced, said by the absence of a pyramid rather than by a field (ADR-0023).
 		await expect(
 			readJson(page, '', `images/${generateId(service('broken.test', 'broken'))}/info.json`)
 		).rejects.toThrow();
-		await expect(page.getByTestId('mirror-open')).toBeVisible();
+		await expect(page.getByTestId('offline-copy-open')).toBeVisible();
 	});
 
 	test('is reachable and operable by keyboard alone', async ({ page }) => {
@@ -1045,14 +1045,14 @@ test.describe('making an offline copy', () => {
 		await addReferenced(page, 'images.test');
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 
-		const button = page.getByTestId('mirror-open');
+		const button = page.getByTestId('offline-copy-open');
 		await button.focus();
 		await expect(button).toBeFocused();
 		await page.keyboard.press('Enter');
 
 		const dialog = page.getByRole('dialog', { name: 'Make an offline copy' });
 		await expect(dialog).toBeVisible();
-		await expect(page.getByTestId('mirror-size')).toBeVisible();
+		await expect(page.getByTestId('offline-copy-size')).toBeVisible();
 
 		await page.keyboard.press('Escape');
 		await expect(dialog).toHaveCount(0);
@@ -1060,10 +1060,10 @@ test.describe('making an offline copy', () => {
 
 		// And it can be driven the whole way from the keyboard.
 		await page.keyboard.press('Enter');
-		await expect(page.getByTestId('mirror-start')).toBeEnabled();
-		await page.getByTestId('mirror-start').focus();
+		await expect(page.getByTestId('offline-copy-start')).toBeEnabled();
+		await page.getByTestId('offline-copy-start').focus();
 		await page.keyboard.press('Enter');
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 30_000
 		});
 	});
@@ -1084,16 +1084,16 @@ test.describe('making an offline copy', () => {
 		await addReferenced(page, 'slow.test', 'slow');
 		await openMirrorDialog(page);
 
-		await page.getByTestId('mirror-start').focus();
+		await page.getByTestId('offline-copy-start').focus();
 		await page.keyboard.press('Enter');
-		await expect(page.getByTestId('mirror-cancel')).toBeFocused();
+		await expect(page.getByTestId('offline-copy-cancel')).toBeFocused();
 
 		// So the way out of the copy is reachable by pressing the key again, rather than by Tabbing back
 		// in from the top of the document.
 		await page.keyboard.press('Enter');
-		await expect(page.getByTestId('mirror-error')).toContainText('cancelled');
+		await expect(page.getByTestId('offline-copy-error')).toContainText('cancelled');
 		// And the keyboard is left on the control that would start it again, not on the body.
-		await expect(page.getByTestId('mirror-start')).toBeFocused();
+		await expect(page.getByTestId('offline-copy-start')).toBeFocused();
 	});
 });
 
@@ -1109,7 +1109,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 	}) => {
 		test.slow();
 		// **The assertion the whole ticket exists for**, and the only proof that the copy is being used:
-		// a mirrored map that quietly kept fetching from the library looks identical on screen to one that
+		// a copied map that quietly kept fetching from the library looks identical on screen to one that
 		// does not. So it is asserted by request interception, and positively — the warped Layer's own tile
 		// cache has to have bytes in it — because ticket 06 established that a blank warped map is exactly
 		// what an error `@allmaps/render` logs and swallows looks like.
@@ -1153,21 +1153,21 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		await openMirrorDialog(page);
-		await page.getByTestId('mirror-start').click();
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await page.getByTestId('offline-copy-start').click();
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 60_000
 		});
 
 		// The Alignment now names the ADR-0004 placeholder. Left naming the library it would keep sending
 		// `@allmaps/maplibre` there for tiles that are in this folder — the copy would work, the map would
-		// draw, and mirroring would have bought nothing.
-		const mirroredAlignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
+		// draw, and making an offline copy would have bought nothing.
+		const copiedAlignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
 			target: { source: { id: string } };
 			body: { features: unknown[] };
 		};
-		expect(mirroredAlignment.target.source.id).toBe(`https://unset.invalid/${imageId}`);
+		expect(copiedAlignment.target.source.id).toBe(`https://unset.invalid/${imageId}`);
 		// And the Control Points survived the rewrite, which is the thing that would be worst to lose.
-		expect(mirroredAlignment.body.features).toHaveLength(3);
+		expect(copiedAlignment.body.features).toHaveLength(3);
 
 		// ── And the claim. The same pane, the same Layer, the same instrument, **and the same route in**:
 		// the only difference between this measurement and the control above is the copy.
@@ -1215,8 +1215,8 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		expect(await page.evaluate(() => window.ballastellaServedTiles ?? [])).toEqual([]);
 
 		await openMirrorDialog(page);
-		await page.getByTestId('mirror-start').click();
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await page.getByTestId('offline-copy-start').click();
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 30_000
 		});
 
@@ -1235,16 +1235,16 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await page.context().setOffline(true);
 		try {
 			await page.reload();
-			await expect(page.getByTestId('mirrored-image-source').first()).toBeVisible();
+			await expect(page.getByTestId('offline-copy-source').first()).toBeVisible();
 			await expect(page.getByTestId('referenced-image-host')).toHaveCount(0);
 			// It is one of the Project's own Historical Maps now — one Layer, drawing local tiles — and
 			// the source URI is still on it. The Layer stack *is* that list since ticket 04.
 			await expect(page.getByTestId('layer-row')).toHaveCount(1);
 			await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
 				'data-image-mode',
-				'mirrored'
+				'offline-copy'
 			);
-			await expect(page.getByTestId('mirrored-image-source')).toHaveText(
+			await expect(page.getByTestId('offline-copy-source')).toHaveText(
 				service('images.test', 'florida')
 			);
 
@@ -1297,8 +1297,8 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await expect(page.getByTestId('referenced-image-host').first()).toBeVisible();
 
 		await openMirrorDialog(page);
-		await page.getByTestId('mirror-start').click();
-		await expect(page.getByTestId('mirror-done')).toContainText('offline copy in this Project', {
+		await page.getByTestId('offline-copy-start').click();
+		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
 			timeout: 30_000
 		});
 
@@ -1341,7 +1341,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 			// disagreement the deleted `imageMode` used to produce for every Project but the open one.
 			await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
 				'data-image-mode',
-				'mirrored'
+				'offline-copy'
 			);
 		}
 	});

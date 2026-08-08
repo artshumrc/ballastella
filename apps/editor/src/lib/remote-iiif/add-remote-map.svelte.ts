@@ -122,7 +122,7 @@ export class AddRemoteMap {
 	 * Deliberately the **ADR-0011 shim** rather than the bare `fetch`, even though nothing here is
 	 * stored: the shim passes every non-placeholder host straight through unmodified, and routing
 	 * remote reads through it is what keeps one answer to "how does this app fetch an image service".
-	 * A mirrored copy (ticket 15) then needs no second code path — the same call reaches the store.
+	 * A copied copy (ticket 15) then needs no second code path — the same call reaches the store.
 	 *
 	 * Wrapped so the Playwright suite can count what was requested, which is how "the lookup is off,
 	 * so nothing is sent to annotations.allmaps.org" becomes a claim about the network.

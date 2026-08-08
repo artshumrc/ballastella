@@ -29,7 +29,7 @@ describe('the network fence, in the browser', () => {
 
 	it('leaves Vitest’s own origin alone, which is what makes the fixtures work', async () => {
 		// Vitest serves this module, every `import.meta.glob(…, 'url')` fixture, and its own
-		// WebSocket back to the runner from `localhost`. `mirror.browser.test.ts` and
+		// WebSocket back to the runner from `localhost`. `offline-copy.browser.test.ts` and
 		// `decode-and-crop-tiler.browser.test.ts` both `fetch` bundled fixture URLs, so this is not a
 		// hypothetical: refusing same-origin traffic would fail them and stop the project booting.
 		const response = await fetch(new URL('../src/index.ts', import.meta.url).href);

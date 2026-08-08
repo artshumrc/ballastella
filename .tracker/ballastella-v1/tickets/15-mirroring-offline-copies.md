@@ -10,7 +10,7 @@ The user sees the source's rights statement at the moment they choose to copy, a
 
 ## Where to start
 
-[ADR-0007](../../../docs/adr/0007-remote-iiif-is-referenced-by-default-mirrored-on-request.md) (the whole slice), [ADR-0003](../../../docs/adr/0003-every-image-is-tiled-client-side.md) (the tiler this reuses), [ADR-0002](../../../docs/adr/0002-display-state-separate-from-portable-documents.md) (`imageMode` on the Layer).
+[ADR-0007](../../../docs/adr/0007-remote-iiif-is-referenced-by-default-copied-on-request.md) (the whole slice), [ADR-0003](../../../docs/adr/0003-every-image-is-tiled-client-side.md) (the tiler this reuses), [ADR-0002](../../../docs/adr/0002-display-state-separate-from-portable-documents.md) (`imageMode` on the Layer).
 
 The tiler is ticket 05, remote ingest is ticket 14, the injection shim is ticket 06.
 

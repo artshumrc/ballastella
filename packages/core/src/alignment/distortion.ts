@@ -136,6 +136,14 @@ export interface FoldWarning {
 	 * Points" error and shows up even under an affine transformation, which cannot fold locally.
 	 * `local` is a single Control Point in the wrong place, and needs `projective` or
 	 * `thinPlateSpline` to be possible at all.
+	 *
+	 * **`mirrored` here is the geometric word, and it survives ticket 16's rename deliberately.**
+	 * CONTEXT.md lists "mirror" as the synonym to avoid for an **Offline Copy**, and that spelling is
+	 * gone from the codebase — but this is not that concept and never was: the sheet really has been
+	 * turned over, reflected about an axis, and "mirrored" is what a scholar reading the warning
+	 * understands. Renaming a reflection into Offline Copy vocabulary would collide two unrelated
+	 * things in one word, which is the failure the rename existed to undo rather than repeat. This
+	 * is the same judgement the ticket applies to the Base Map tile `cache`.
 	 */
 	readonly kind: 'mirrored' | 'local';
 	/**

@@ -1,7 +1,7 @@
 // "Make this Project available offline": the state of that job, from the button to the last tile
 // (ADR-0025, SPEC stories 70–73).
 //
-// A class of its own beside `MirrorMap`, and shaped like it deliberately — the two are the same
+// A class of its own beside `OfflineCopyJob`, and shaped like it deliberately — the two are the same
 // decision about two different servers, and ADR-0007's rule governs both: **the cost is stated before
 // it is spent, and the decision is never made implicitly by a button.** So `inspect` reads and shows;
 // `start` fetches. Nothing between them writes a byte.
@@ -66,7 +66,7 @@ export class MakeProjectOffline {
 	/**
 	 * What to announce once a run has finished, or `''`.
 	 *
-	 * On the job rather than in the dialog, for the reason `MirrorMap.completed` is: the dialog closes
+	 * On the job rather than in the dialog, for the reason `OfflineCopyJob.completed` is: the dialog closes
 	 * on success, and an announcement inside it would leave the accessibility tree in the frame it
 	 * entered — indistinguishable from never having been made.
 	 */

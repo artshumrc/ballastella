@@ -86,7 +86,7 @@ export type StoredPyramidTileSourceOptions = {
 	readonly scaleFactors: readonly number[];
 	/**
 	 * The ADR-0011 shim — `createStoreImageFetch` bound to this Project. The one seam: hand in a
-	 * different `fetch` and this source reads from wherever that goes, which is how a *mirrored*
+	 * different `fetch` and this source reads from wherever that goes, which is how a *copied*
 	 * copy and a remote service are the same code path.
 	 */
 	readonly fetch: FetchFn;

@@ -960,7 +960,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		// The badge is now an **observation of the Workspace's files** rather than a field of
 		// `project.json` (ADR-0023): the image directory has an `info.json` of ours, so the tiles are here.
 		const badge = page.getByTestId('layer-image-mode');
-		await expect(badge).toHaveAttribute('data-image-mode', 'mirrored');
+		await expect(badge).toHaveAttribute('data-image-mode', 'offline-copy');
 		await expect(badge).toContainText('Local copy');
 	});
 

@@ -72,8 +72,8 @@
 	import LayerList from '$lib/layers/LayerList.svelte';
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import AddRemoteMap from '$lib/remote-iiif/AddRemoteMap.svelte';
-	import MirrorMap from '$lib/remote-iiif/MirrorMap.svelte';
-	import { MirrorMap as MirrorMapJob } from '$lib/remote-iiif/mirror-map.svelte.js';
+	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
+	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
 	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
@@ -272,7 +272,7 @@
 	 * Where a referenced Layer's tiles are served from, or `''` for a local copy.
 	 *
 	 * Keyed off {@link referencedImageIds} rather than off "is there a record for this image", so this
-	 * answers `''` for a local copy and only for a local copy — a mirrored map keeps its `remote.json`
+	 * answers `''` for a local copy and only for a local copy — a copied map keeps its `remote.json`
 	 * for the citation (ADR-0007), and handing its address to the renderer would send it back to the
 	 * library for tiles that are right here.
 	 *
@@ -974,12 +974,12 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/**
-	 * One mirroring job for the whole screen, not one per Layer.
+	 * One offline-copy job for the whole screen, not one per Layer.
 	 *
-	 * Mirroring is deliberately one image at a time, so a second job would be a second way to start a
-	 * copy that the first one's `busy` guard cannot see.
+	 * An offline copy is deliberately made one image at a time, so a second job would be a second way
+	 * to start a copy that the first one's `busy` guard cannot see.
 	 */
-	const mirror = new MirrorMapJob(() => session);
+	const offlineCopy = new OfflineCopyJob(() => session);
 
 	/**
 	 * The app's one online signal, so a referenced Historical Map can say why it is not there.
@@ -1067,7 +1067,7 @@
 		if (event.key !== 'Escape' || settingsOpen) return;
 		// **Asked of the element, not of a flag.** `MenuPopover.isOpen()` reads `:popover-open`, which
 		// is true throughout the keypress that dismisses it and false on the very next one — a reactive
-		// mirror of the same fact lags one flush behind, and that lag swallowed the Escape a user
+		// copy of the same fact lags one flush behind, and that lag swallowed the Escape a user
 		// pressed *after* closing the menu, which is the cancel they actually meant.
 		if (menu?.isOpen()) return;
 		if (drawing.cancel()) return;
@@ -1353,9 +1353,9 @@
 					class="mt-4 min-h-6 text-sm"
 					aria-live="polite"
 					aria-atomic="true"
-					data-testid="mirror-done"
+					data-testid="offline-copy-done"
 				>
-					{mirror.completed}
+					{offlineCopy.completed}
 				</p>
 
 				{#if session.referencedImageErrors.length > 0}
@@ -1524,7 +1524,7 @@
 					</p>
 					<!--
 						Held outside the dialog's own tree so its completion announcement survives the dialog
-						closing — the same reason `MirrorMap.completed` lives on the job.
+						closing — the same reason `OfflineCopyJob.completed` lives on the job.
 					-->
 					<p
 						class="min-h-6 text-sm"
@@ -1659,17 +1659,18 @@
 			>
 				View unwarped
 			</button>
-			<MirrorMap image={origin} job={mirror} />
+			<OfflineCopyDialog image={origin} job={offlineCopy} />
 		{:else if origin}
 			<!--
-				An offline copy, and the address it came from (SPEC story 76). Kept visible because
-				mirroring keeps `remote.json` precisely so a copy can still be cited and traced back to the
-				library it came from (ADR-0007), and a copy nobody can cite is a copy that has been orphaned.
+				An offline copy, and the address it came from (SPEC story 76). Kept visible because making
+				an offline copy keeps `remote.json` precisely so a copy can still be cited and traced back
+				to the library it came from (ADR-0007), and a copy nobody can cite is a copy that has been
+				orphaned.
 			-->
-			<span class="text-xs" data-testid="mirrored-image-label"
+			<span class="text-xs" data-testid="offline-copy-label"
 				>{origin.label || origin.imageId}</span
 			>
-			<code class="text-xs break-all opacity-70" data-testid="mirrored-image-source"
+			<code class="text-xs break-all opacity-70" data-testid="offline-copy-source"
 				>{origin.service}</code
 			>
 		{/if}

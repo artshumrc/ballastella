@@ -18,7 +18,7 @@ import {
 	deleteHistoricalMap,
 	historicalMapUsage,
 	listWorkspaceHistoricalMaps,
-	partitionByLocalCopy,
+	partitionByOfflineCopy,
 	referencedHistoricalMaps,
 	tileLocation,
 	unusedHistoricalMapBytes,
@@ -96,7 +96,7 @@ async function seedProject(
 
 describe('where a Historical Map’s tiles are', () => {
 	// ADR-0023's rule, and this is now its only implementation. It used to have five: `publish.ts`,
-	// `partitionByLocalCopy`, the viewer's 404 probe, and a derived set in each app's page. The rule
+	// `partitionByOfflineCopy`, the viewer's 404 probe, and a derived set in each app's page. The rule
 	// itself is what they disagreed about most cheaply, so it is the thing that got one home.
 	it('is this Workspace when an info.json of ours is beside it', () => {
 		expect(tileLocation({ infoJson: true, remoteJson: false })).toBe('in-workspace');
@@ -107,7 +107,7 @@ describe('where a Historical Map’s tiles are', () => {
 	});
 
 	it('is this Workspace once a copy has been made, though the citation stays', () => {
-		// A mirrored map keeps its `remote.json` — that record is the citation ADR-0007 protects — so
+		// A copied map keeps its `remote.json` — that record is the citation ADR-0007 protects — so
 		// "both" is the offline copy, not an ambiguity. Reading it the other way is what made publishing
 		// warn about a network dependency the Workspace no longer had.
 		expect(tileLocation({ infoJson: true, remoteJson: true })).toBe('in-workspace');
@@ -185,7 +185,7 @@ describe('listWorkspaceHistoricalMaps', () => {
 	it('opens no pyramid: the sizes come from ProjectStore#size', async () => {
 		// ADR-0001 put `size` in the interface for exactly this, and `workspace-size.ts` keeps the
 		// discipline. A version of this written with `read` returns the same numbers and is unusable on a
-		// Workspace holding a mirrored pyramid — tens of thousands of tiles — so the absence of the read
+		// Workspace holding an offline copy's pyramid — tens of thousands of tiles — so the absence of the read
 		// is the claim, and no assertion about the numbers could carry it.
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Amsterdam 1625.tif');
@@ -342,7 +342,7 @@ describe('referencedHistoricalMaps', () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Mine');
 		await seedReferencedMap(store, 'bbb2', 'Theirs');
-		// Mirrored: a copy was made and the citation stayed.
+		// Copied: a copy was made and the citation stayed.
 		await seedLocalMap(store, 'ccc3', 'Copied');
 		await seedReferencedMap(store, 'ccc3', 'Copied');
 
@@ -534,7 +534,7 @@ describe('unusedHistoricalMapBytes', () => {
 	});
 });
 
-describe('partitionByLocalCopy', () => {
+describe('partitionByOfflineCopy', () => {
 	// Moved here from `referenced-image.ts` so that it and `referencedHistoricalMaps` answer through
 	// one rule rather than two. Its behaviour is unchanged, and `referenced-image.test.ts` still
 	// asserts it end to end from the records on disk.
@@ -546,10 +546,10 @@ describe('partitionByLocalCopy', () => {
 			height: 100
 		});
 
-	it('calls an image with a pyramid of ours mirrored, and one without referenced', () => {
-		const split = partitionByLocalCopy([record('aaa1'), record('bbb2')], [{ imageId: 'aaa1' }]);
+	it('calls an image with a pyramid of ours copied, and one without referenced', () => {
+		const split = partitionByOfflineCopy([record('aaa1'), record('bbb2')], [{ imageId: 'aaa1' }]);
 
-		expect(split.mirrored.map((image) => image.imageId)).toEqual(['aaa1']);
+		expect(split.offlineCopies.map((image) => image.imageId)).toEqual(['aaa1']);
 		expect(split.referenced.map((image) => image.imageId)).toEqual(['bbb2']);
 	});
 });

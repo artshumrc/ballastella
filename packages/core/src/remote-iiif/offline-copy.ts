@@ -5,9 +5,9 @@
 // WHAT THIS IS, IN ONE LINE
 //
 // A **funnel into ticket 05**. Both paths below end with one full-resolution image handed to
-// `ingestImageFile`, so a mirrored pyramid is not merely shaped like a locally ingested one — it is
+// `ingestImageFile`, so an offline copy's pyramid is not merely shaped like a locally ingested one — it is
 // produced by the same code, over the same geometry, with the same `info.json` and the same
-// `manifest.json`. `mirror.test.ts` asserts that byte for byte against a local ingest of the same
+// `manifest.json`. `offline-copy.test.ts` asserts that byte for byte against a local ingest of the same
 // dimensions, which is the only form of that claim worth having.
 //
 // That is also what makes the exact-resize question go away rather than be tolerated. Ticket 14's CORS
@@ -74,11 +74,11 @@ import type { RemoteImageService } from './image-service.js';
  * photographs most rules of thumb are calibrated on, so the true figure for a fine engraving is
  * higher than for a scan of a painting.
  */
-export const ESTIMATED_MIRROR_BYTES_PER_PIXEL = 0.7;
+export const ESTIMATED_OFFLINE_COPY_BYTES_PER_PIXEL = 0.7;
 
 /** What a copy of a `width` × `height` image will add to the Workspace, roughly. */
-export const estimateMirrorBytes = (width: number, height: number): number =>
-	Math.round(width * height * ESTIMATED_MIRROR_BYTES_PER_PIXEL);
+export const estimateOfflineCopyBytes = (width: number, height: number): number =>
+	Math.round(width * height * ESTIMATED_OFFLINE_COPY_BYTES_PER_PIXEL);
 
 /**
  * The bounds this applies to bytes coming off somebody else's server.
@@ -92,40 +92,40 @@ export const estimateMirrorBytes = (width: number, height: number): number =>
  * and small enough that a response with no end cannot take the tab with it. The timeout is longer than
  * `REMOTE_IIIF_LIMITS.timeoutMs` because this really is a large download rather than a JSON document.
  */
-export const MIRROR_LIMITS = {
+export const OFFLINE_COPY_LIMITS = {
 	responseBytes: 256 * 1024 * 1024,
 	timeoutMs: 120_000
 } as const;
 
-export type MirrorLimits = { readonly responseBytes: number; readonly timeoutMs: number };
+export type OfflineCopyLimits = { readonly responseBytes: number; readonly timeoutMs: number };
 
 /** Which of the two paths a copy takes. See the note at the top of this file. */
-export type MirrorPath = 'full-max' | 'assembled';
+export type OfflineCopyPath = 'full-max' | 'assembled';
 
 /** One 1:1 piece of the source, as the `assembled` path fetches it. */
-export type MirrorPiece = {
+export type OfflineCopyPiece = {
 	readonly url: string;
 	/** Where this piece belongs in the source, in source pixels. Its served size is the same. */
 	readonly region: Region;
 };
 
 /** A fetched piece, ready to be stitched. */
-export type MirrorPiecePayload = MirrorPiece & { readonly bytes: Blob };
+export type OfflineCopyPiecePayload = OfflineCopyPiece & { readonly bytes: Blob };
 
 /**
  * What a copy will do, decided before anything is fetched so the user can be told and can decline.
  *
  * Everything the dialog shows comes from here rather than being recomputed in the UI, so what the
- * user agreed to and what runs cannot differ: {@link mirrorRemoteImage} takes the same plan back.
+ * user agreed to and what runs cannot differ: {@link makeOfflineCopy} takes the same plan back.
  *
- * **Decisions, not restatements.** Every field below is something `planMirror` worked out and nothing
+ * **Decisions, not restatements.** Every field below is something `planOfflineCopy` worked out and nothing
  * else can; a number that is a pure function of two other fields is not carried, because a stored copy
  * of an arithmetic result is a thing that can disagree with the fields it was computed from. So the
- * estimated size is {@link estimateMirrorBytes} of `width` and `height` at the one place that shows it,
+ * estimated size is {@link estimateOfflineCopyBytes} of `width` and `height` at the one place that shows it,
  * and "is this more than one request" is `requests.length > 1` at the one place that asks.
  */
-export type MirrorPlan = {
-	readonly path: MirrorPath;
+export type OfflineCopyPlan = {
+	readonly path: OfflineCopyPath;
 	readonly width: number;
 	readonly height: number;
 	/** The host this will ask, for the warning that has to name it. */
@@ -140,7 +140,7 @@ export type MirrorPlan = {
 	 */
 	readonly requests: readonly string[];
 	/** The pieces the `assembled` path stitches. `[]` for `'full-max'`. */
-	readonly pieces: readonly MirrorPiece[];
+	readonly pieces: readonly OfflineCopyPiece[];
 	/**
 	 * Which of the service's own declared limits rules out one whole-image request, or `''`.
 	 *
@@ -154,7 +154,7 @@ export type MirrorPlan = {
 	readonly refusal: string;
 };
 
-export type PlanMirrorOptions = {
+export type PlanOfflineCopyOptions = {
 	/**
 	 * Largest source a copy can be made of, in pixels. Defaults to the tiler's own `MAX_INGEST_PIXELS`.
 	 *
@@ -170,13 +170,13 @@ export type PlanMirrorOptions = {
  * different again: the resource is fine and the host is fine, and what has gone wrong is this
  * particular copy. The Layer is untouched and still renders from the library.
  */
-export class MirrorRefusedError extends Error {
+export class OfflineCopyRefusedError extends Error {
 	readonly host: string;
 	readonly url: string;
 
 	constructor(options: { host: string; url: string; reason: string }) {
 		super(options.reason);
-		this.name = 'MirrorRefusedError';
+		this.name = 'OfflineCopyRefusedError';
 		this.host = options.host;
 		this.url = options.url;
 	}
@@ -189,10 +189,10 @@ export class MirrorRefusedError extends Error {
  * served, which is what lets the whole decision be asserted against a corpus of captured real-world
  * documents with no network at all.
  */
-export function planMirror(
+export function planOfflineCopy(
 	service: RemoteImageService,
-	options: PlanMirrorOptions = {}
-): MirrorPlan {
+	options: PlanOfflineCopyOptions = {}
+): OfflineCopyPlan {
 	const { width, height, uri } = service;
 	const host = hostOf(uri);
 	// The tiler's own cap, because a copy meets it twice: the `assembled` path has to hold the whole
@@ -208,7 +208,7 @@ export function planMirror(
 
 	const cappedBy = declaredCap(service);
 	const wholeImageInOneRequest = service.pane.image.supportsAnyRegionAndSize && cappedBy === '';
-	const path: MirrorPath = wholeImageInOneRequest ? 'full-max' : 'assembled';
+	const path: OfflineCopyPath = wholeImageInOneRequest ? 'full-max' : 'assembled';
 
 	const pieces = path === 'assembled' ? finestLevelPieces(service) : [];
 	const requests =
@@ -318,7 +318,7 @@ function wholeImageUrl(service: RemoteImageService): string {
  * decoded, and a wrong answer there is a piece that will not fit rather than a sub-pixel stretch
  * nobody can see.
  */
-function finestLevelPieces(service: RemoteImageService): MirrorPiece[] {
+function finestLevelPieces(service: RemoteImageService): OfflineCopyPiece[] {
 	return service.pane
 		.allTiles()
 		.filter((tile) => tile.scaleFactor === 1)
@@ -338,7 +338,7 @@ function finestLevelPieces(service: RemoteImageService): MirrorPiece[] {
 }
 
 /** What the UI needs in order to say something true while a copy runs (SPEC stories 28, 96). */
-export type MirrorProgress = {
+export type OfflineCopyProgress = {
 	readonly phase: 'fetching' | 'assembling' | 'tiling' | 'done';
 	readonly requestsDone: number;
 	readonly requestCount: number;
@@ -358,7 +358,7 @@ export type MirrorProgress = {
  */
 const FETCH_SHARE = 0.3;
 
-export type MirrorOptions = {
+export type MakeOfflineCopyOptions = {
 	readonly store: ProjectStore;
 	readonly service: RemoteImageService;
 	/** What to call this Historical Map. The library's label, normally. */
@@ -376,16 +376,16 @@ export type MirrorOptions = {
 	 * request count, and the size warning were displayed beside — a copy that quietly took a different
 	 * path would have been agreed to on the strength of a different sentence.
 	 */
-	readonly plan?: MirrorPlan;
-	readonly limits?: Partial<MirrorLimits>;
-	readonly onProgress?: (progress: MirrorProgress) => void;
+	readonly plan?: OfflineCopyPlan;
+	readonly limits?: Partial<OfflineCopyLimits>;
+	readonly onProgress?: (progress: OfflineCopyProgress) => void;
 	readonly signal?: AbortSignal;
 };
 
-export type MirrorResult = {
+export type OfflineCopyResult = {
 	/** `generateId(uri)`, unchanged by the copy. */
 	readonly imageId: string;
-	readonly path: MirrorPath;
+	readonly path: OfflineCopyPath;
 	/** Every URL that was actually fetched. The last requests this image will ever need. */
 	readonly requests: readonly string[];
 	readonly bytesFetched: number;
@@ -407,7 +407,7 @@ export type MirrorResult = {
  */
 export type AssembleImage = (
 	dimensions: { readonly width: number; readonly height: number },
-	pieces: readonly MirrorPiecePayload[]
+	pieces: readonly OfflineCopyPiecePayload[]
 ) => Promise<Blob>;
 
 /**
@@ -423,21 +423,21 @@ export type AssembleImage = (
  * ADR-0007 exists to protect, and a copy that orphaned it would have thrown away the one thing that
  * says where this map came from.
  */
-export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorResult> {
+export async function makeOfflineCopy(options: MakeOfflineCopyOptions): Promise<OfflineCopyResult> {
 	const { store, service, fetch, assemble, signal } = options;
-	const limits: MirrorLimits = { ...MIRROR_LIMITS, ...options.limits };
-	const plan = options.plan ?? planMirror(service, options);
+	const limits: OfflineCopyLimits = { ...OFFLINE_COPY_LIMITS, ...options.limits };
+	const plan = options.plan ?? planOfflineCopy(service, options);
 	const host = plan.host;
 
 	if (plan.refusal !== '') {
-		throw new MirrorRefusedError({ host, url: service.uri, reason: plan.refusal });
+		throw new OfflineCopyRefusedError({ host, url: service.uri, reason: plan.refusal });
 	}
 
 	let requestsDone = 0;
 	let bytesFetched = 0;
 	let ingest: IngestProgress | null = null;
 
-	const report = (phase: MirrorProgress['phase']) => {
+	const report = (phase: OfflineCopyProgress['phase']) => {
 		const fetched = plan.requests.length === 0 ? 1 : requestsDone / plan.requests.length;
 		options.onProgress?.({
 			phase,
@@ -472,7 +472,7 @@ export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorR
 		source = await fetchPiece(url);
 		await assertServedTheWholeImage(source, { service, plan, url });
 	} else {
-		const pieces: MirrorPiecePayload[] = [];
+		const pieces: OfflineCopyPiecePayload[] = [];
 		for (const piece of plan.pieces) {
 			pieces.push({ ...piece, bytes: await fetchPiece(piece.url) });
 		}
@@ -481,7 +481,7 @@ export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorR
 		try {
 			source = await assemble({ width: plan.width, height: plan.height }, pieces);
 		} catch (cause) {
-			throw new MirrorRefusedError({
+			throw new OfflineCopyRefusedError({
 				host,
 				url: service.uri,
 				reason:
@@ -498,7 +498,7 @@ export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorR
 	const result = await ingestImageFile({
 		store,
 		file: source,
-		// The whole reason ingest takes an id: mirroring must not change it. ADR-0015's `generateId(uri)`
+		// The whole reason ingest takes an id: making an offline copy must not change it. ADR-0015's `generateId(uri)`
 		// is what every Alignment in the Workspace names and what `annotations.allmaps.org` keys the image
 		// on, so a copy that minted a fresh one would break both while looking like it had worked.
 		imageId: service.imageId,
@@ -518,7 +518,7 @@ export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorR
 	// Point is in the wrong place, not a smaller map.
 	if (result.width !== service.width || result.height !== service.height) {
 		await removePyramid(store, result.directory);
-		throw new MirrorRefusedError({
+		throw new OfflineCopyRefusedError({
 			host,
 			url: plan.requests[0] ?? service.uri,
 			reason: servedWrongSizeReason({
@@ -554,14 +554,14 @@ export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorR
  */
 async function assertServedTheWholeImage(
 	blob: Blob,
-	context: { service: RemoteImageService; plan: MirrorPlan; url: string }
+	context: { service: RemoteImageService; plan: OfflineCopyPlan; url: string }
 ): Promise<void> {
 	const { service, plan, url } = context;
 	const header = readImageHeader(new Uint8Array(await blob.slice(0, 64 * 1024).arrayBuffer()));
 	if (!header) return;
 	if (header.width === service.width && header.height === service.height) return;
 
-	throw new MirrorRefusedError({
+	throw new OfflineCopyRefusedError({
 		host: plan.host,
 		url,
 		reason: servedWrongSizeReason({ host: plan.host, service, served: header })
@@ -587,7 +587,7 @@ async function removePyramid(store: ProjectStore, directory: string): Promise<vo
 }
 
 /**
- * One URL's bytes, under every bound in {@link MirrorLimits}.
+ * One URL's bytes, under every bound in {@link OfflineCopyLimits}.
  *
  * The bytes are counted as they arrive rather than taken from `content-length`, which is the same
  * discipline `fetchRemoteJson` applies to a IIIF document and for the same reason: a declared size is
@@ -596,7 +596,7 @@ async function removePyramid(store: ProjectStore, directory: string): Promise<vo
  */
 async function fetchBounded(
 	url: string,
-	options: { fetch: FetchFn; host: string; limits: MirrorLimits; signal: AbortSignal | undefined }
+	options: { fetch: FetchFn; host: string; limits: OfflineCopyLimits; signal: AbortSignal | undefined }
 ): Promise<Blob> {
 	const { host, limits } = options;
 	const abort = new AbortController();
@@ -604,7 +604,7 @@ async function fetchBounded(
 	const cancel = () => abort.abort();
 	options.signal?.addEventListener('abort', cancel, { once: true });
 
-	const refuse = (reason: string) => new MirrorRefusedError({ host, url, reason });
+	const refuse = (reason: string) => new OfflineCopyRefusedError({ host, url, reason });
 
 	try {
 		let response: Response;
@@ -661,7 +661,7 @@ async function fetchBounded(
 	}
 }
 
-const tooLarge = (host: string, bytes: number, limits: MirrorLimits): string =>
+const tooLarge = (host: string, bytes: number, limits: OfflineCopyLimits): string =>
 	`${host} is sending an image larger than the ` +
 	`${Math.round(limits.responseBytes / (1024 * 1024))} MB Ballastella will hold in one piece ` +
 	`(${bytes} bytes so far). Nothing has been copied.`;

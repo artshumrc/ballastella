@@ -18,6 +18,12 @@ import { RemoteIiifRejectedError } from './remote-resource';
 // hand-written fixture in this repository does: one declares no `tiles` at all, one omits
 // `tiles[].height`, and one declares an `id` on a **different host** from the URL it was fetched
 // from. Each of those is a real behaviour of this slice, and none was predicted.
+//
+// **Captured verbatim, so the fixture spells things the way the servers do.** Ten of the fourteen
+// list `"mirroring"` in `extraFeatures` — a IIIF Image API 3 feature name, meaning the service can
+// reflect an image about its vertical axis. It is a third-party API member and has nothing to do
+// with CONTEXT.md's **Offline Copy**, so ticket 16's rename left it alone; editing it would make the
+// corpus stop being a capture, which is the one property it has.
 
 const corpus = JSON.parse(
 	readFileSync(new URL('fixtures/real-world-image-services.json', import.meta.url), 'utf8')

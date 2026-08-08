@@ -76,3 +76,19 @@ The sites, all added after this ticket was written:
 5. The diff contains no change to a `.svelte` file's rendered text other than where that text used a banned word.
 
 Because this ticket changes no behaviour, the usual mutation check does not apply. The check that matters instead: **confirm the test count is unchanged before and after**, and that no test was deleted rather than renamed.
+
+## Outcome
+
+Finished by the epic coordinator after the implementer hit a session usage limit during its final prose review. The mechanical work was complete; what follows was verified independently rather than taken from a report.
+
+**Criterion 1 is amended, not ticked.** As written it expects `grep -rn "\bmirror"` to return "only third-party API members, each with a comment saying so." Two hits remain and neither is third-party: `distortion.ts:141` and `distortion.test.ts:126`, both the **geometric** sense — an Alignment that is mirrored because two Control Points were swapped. That is a different concept from the banned "mirror = Offline Copy", it is the ordinary word for the thing, and `distortion.ts:140-148` now says so explicitly and points at CONTEXT.md. The criterion did not anticipate the collision. Renaming the geometric use would have obeyed the letter and damaged the vocabulary.
+
+**Criteria 2, 3 and 5 verified.** Every surviving `cache` is the Base Map tile cache the Contract permits, a genuine HTTP/service-worker cache, or `DirectoryHandleStore`'s handle cache. No aliasing shim was left behind. No `.svelte` rendered text changed except where it carried a banned word.
+
+**Criterion 4:** `pnpm -r build`, `pnpm -r test` (58 files, **1493 passed**, 15 skipped), `pnpm lint`, `pnpm check` (0 errors) all green.
+
+**The substitute check passed exactly.** Core test count is 1493 before and after. In the diff, test declarations balance 3 removed against 3 added and `describe` blocks 8 against 8 — every one a rename, none a deletion.
+
+**ADR-0007 was renamed with a banner** recording its old title rather than rewriting history, which is this repo's convention and the right call for a document other records cite.
+
+**The composed e2e fixture survived.** A repo-wide rename is the change most likely to quietly unpick it, so this was checked rather than assumed: `check-e2e-network-fence` reports 26 specs behind the composed root, and the root still layers the fence.

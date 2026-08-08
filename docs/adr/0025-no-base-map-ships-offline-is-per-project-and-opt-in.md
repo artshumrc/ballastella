@@ -45,7 +45,7 @@ Storing tiles as files also means:
 ## Consequences
 
 - **ADR-0012's offline claim narrows, and SPEC story 8 must be reworded rather than quietly broken.** The honest claim: a user's Historical Maps, Alignments, and Annotations always work with no network; the Base Map works offline once that Project has been made available offline.
-- **The tile budget is shown before it is spent, and there is a refusal threshold.** A city centre at z0–14 is tens of tiles; a country at z14 is thousands; a continent is hundreds of thousands. The user sees tile count and megabytes before agreeing — this fetches from someone else's server, and ADR-0007 already demands that courtesy before mirroring a level-0 pyramid.
+- **The tile budget is shown before it is spent, and there is a refusal threshold.** A city centre at z0–14 is tens of tiles; a country at z14 is thousands; a continent is hundreds of thousands. The user sees tile count and megabytes before agreeing — this fetches from someone else's server, and ADR-0007 already demands that courtesy before making an offline copy a level-0 pyramid.
 - **Every zoom level from 0 to the source's maximum is cached over the Project's extent.** Low zooms are one or two tiles each and nearly free, and omitting them makes zooming out go blank, which reads as breakage.
 - **Compression is explicit.** PMTiles stores tiles gzipped and its Protocol decompresses on the way out; storing them compressed and serving them as though they were not is a silent blank map.
 - **Attribution survives caching.** The data is OSM under ODbL, and the obligation does not lapse because no network request happens.

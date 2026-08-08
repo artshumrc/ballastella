@@ -378,7 +378,7 @@ export async function planPublish(
 
 	// Before the files are written, so the bundle's own bytes are not counted as bytes the
 	// Workspace already held. `workspaceSize` is `list` + `size` and never `read` — a Workspace with
-	// a mirrored pyramid in it is tens of thousands of files (ADR-0001, ADR-0008).
+	// an offline copy's pyramid in it is tens of thousands of files (ADR-0001, ADR-0008).
 	const workspace = await workspaceSize(store);
 	// Cheap even beside that walk: the classification and the used-by are one `list` of `images/` and
 	// one read per Project, and the `size` calls happen only for the maps nothing draws — usually none.

@@ -6,7 +6,7 @@
  *
  * `Response(…).blob()` rather than accumulating chunks into an array first: a `Blob` is backed by
  * the browser's own storage, which spills to disk, so the archive does not have to fit in the JS
- * heap. Exporting a mirrored pyramid of several hundred megabytes is the case this has to survive,
+ * heap. Exporting an offline copy's pyramid of several hundred megabytes is the case this has to survive,
  * and it is exactly the case where the user has no folder access to fall back on (ADR-0001).
  *
  * `showSaveFilePicker` would stream straight to a file the user picked and is better still, but it

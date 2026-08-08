@@ -44,7 +44,7 @@ export interface SimpleStyle {
 /**
  * What every Layer carries, whatever its kind: its identity and its presentation.
  *
- * `order` mirrors the Layer's position in the stack and **0 is the top** — the Layer that draws over
+ * `order` follows the Layer's position in the stack and **0 is the top** — the Layer that draws over
  * everything else — matching the list a user reads and the mental model QGIS, Photoshop, and Google
  * Earth already installed (ADR-0002). Exactly one function knows that drawing runs the other way:
  * {@link drawingOrder}.

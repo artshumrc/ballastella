@@ -1,7 +1,7 @@
 <script lang="ts">
 	// "Make this Project available offline" (SPEC stories 70–73, ADR-0025).
 	//
-	// The Base Map's counterpart to `MirrorMap`, and deliberately the same two-step shape: ADR-0007's
+	// The Base Map's counterpart to `OfflineCopyJob`, and deliberately the same two-step shape: ADR-0007's
 	// rule is that fetching from somebody else's server is a decision the user takes knowingly, and it
 	// governs a planet of vector tiles exactly as it governs a library's pyramid. So the dialog states
 	// the tile count and the byte estimate, and the button that starts the fetch appears only after
@@ -37,7 +37,7 @@
 	 * The button that was pressed is destroyed by pressing it — the actions snippet swaps to Cancel —
 	 * so a keyboard user would otherwise be dropped to `document.body` behind a modal focus trap for
 	 * the length of a job that runs for as long as several hundred tiles take. The same reasoning, and
-	 * the same shape, as `MirrorMap.start`.
+	 * the same shape, as `OfflineCopyJob.start`.
 	 */
 	const start = async (): Promise<void> => {
 		const running = job.start(entry);
@@ -106,7 +106,7 @@
 		screen, and two of them make `getByRole('status')` ambiguous for a test and a screen reader
 		alike. `aria-atomic` so each update is read as a sentence rather than as the digits that changed.
 
-		`data-step` is the dialog saying which step it is on, the same handle `mirror-status` carries:
+		`data-step` is the dialog saying which step it is on, the same handle `offline-copy-status` carries:
 		without it a browser test has only "the dialog is visible" to wait for and samples one that is
 		still counting.
 	-->

@@ -21,9 +21,9 @@
 
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 
-	import type { MirrorMap } from './mirror-map.svelte.js';
+	import type { OfflineCopyJob } from './offline-copy-job.svelte.js';
 
-	let { image, job }: { image: ReferencedImage; job: MirrorMap } = $props();
+	let { image, job }: { image: ReferencedImage; job: OfflineCopyJob } = $props();
 
 	/** Whether this row's dialog is the open one. One job, and therefore one dialog, for the whole list. */
 	const mine = $derived(job.image?.imageId === image.imageId);
@@ -65,7 +65,7 @@
 <button
 	class="btn btn-sm"
 	type="button"
-	data-testid="mirror-open"
+	data-testid="offline-copy-open"
 	disabled={job.busy}
 	onclick={open}
 >
@@ -79,7 +79,7 @@
 	>
 		<p class="font-medium">{image.label || image.imageId}</p>
 		<p class="text-sm opacity-70">
-			Served by <code data-testid="mirror-host">{new URL(image.service).hostname}</code>
+			Served by <code data-testid="offline-copy-host">{new URL(image.service).hostname}</code>
 		</p>
 
 		<!--
@@ -89,7 +89,7 @@
 			published nothing about rights" is a different fact from "nobody has looked", and only one of
 			them means the scholar has to go and find out.
 		-->
-		<dl class="mt-4 text-sm" data-testid="mirror-rights">
+		<dl class="mt-4 text-sm" data-testid="offline-copy-rights">
 			<dt class="font-medium">Rights</dt>
 			<dd class="break-all">
 				{image.rights || 'This library published no rights statement for this image.'}
@@ -109,23 +109,23 @@
 		{#if plan}
 			{#if plan.refusal}
 				<div role="alert" class="mt-4 alert max-w-prose flex-col items-start alert-warning">
-					<p data-testid="mirror-refusal">{plan.refusal}</p>
+					<p data-testid="offline-copy-refusal">{plan.refusal}</p>
 				</div>
 			{:else}
-				<p class="mt-4 text-sm" data-testid="mirror-size">{job.sizeSummary}</p>
+				<p class="mt-4 text-sm" data-testid="offline-copy-size">{job.sizeSummary}</p>
 
 				<!--
 					The politeness obligation, and anything else that has to be said before the copy starts.
 					`alert-info`: neither is a fault, and the ticket is explicit that none of this is a gate.
 				-->
 				{#each plan.notes as note (note)}
-					<div class="mt-4 alert max-w-prose alert-info" data-testid="mirror-note">
+					<div class="mt-4 alert max-w-prose alert-info" data-testid="offline-copy-note">
 						<p>{note}</p>
 					</div>
 				{/each}
 
 				{#if job.hostingWarning}
-					<div class="mt-4 alert max-w-prose alert-warning" data-testid="mirror-hosting-warning">
+					<div class="mt-4 alert max-w-prose alert-warning" data-testid="offline-copy-hosting-warning">
 						<p>{job.hostingWarning}</p>
 					</div>
 				{/if}
@@ -134,7 +134,7 @@
 
 		{#if job.error}
 			<div role="alert" class="mt-4 alert max-w-prose flex-col items-start alert-warning">
-				<p data-testid="mirror-error">{job.error}</p>
+				<p data-testid="offline-copy-error">{job.error}</p>
 			</div>
 		{/if}
 
@@ -150,7 +150,7 @@
 			request, so the dialog is on screen — rights statement and all — for as long as that request
 			takes, with the size, the notes, and the Copy button still to arrive. Read by the browser
 			suite, which otherwise has only "the dialog is visible" to wait for and so samples a dialog
-			that is still filling in: `mirror-start` is disabled while `step === 'preparing'`, and a test
+			that is still filling in: `offline-copy-start` is disabled while `step === 'preparing'`, and a test
 			that pressed it then watched nothing happen. The same pattern as `data-transfer` on the hub's
 			status line.
 		-->
@@ -158,11 +158,11 @@
 			aria-live="polite"
 			aria-atomic="true"
 			class="mt-4 min-h-6"
-			data-testid="mirror-status"
+			data-testid="offline-copy-status"
 			data-step={job.step}
 		>
 			{#if job.progress}
-				<p class="text-sm" data-testid="mirror-progress">{job.progressMessage}</p>
+				<p class="text-sm" data-testid="offline-copy-progress">{job.progressMessage}</p>
 				<progress
 					class="progress mt-1 w-full"
 					value={job.progress.fraction}
@@ -178,7 +178,7 @@
 					bind:this={cancelButton}
 					class="btn btn-sm"
 					type="button"
-					data-testid="mirror-cancel"
+					data-testid="offline-copy-cancel"
 					onclick={() => job.cancel()}
 				>
 					Cancel the copy
@@ -187,7 +187,7 @@
 				<button
 					class="btn btn-sm"
 					type="button"
-					data-testid="mirror-dismiss"
+					data-testid="offline-copy-dismiss"
 					onclick={() => job.dismiss()}
 				>
 					Not now
@@ -196,7 +196,7 @@
 					bind:this={startButton}
 					class="btn btn-primary btn-sm"
 					type="button"
-					data-testid="mirror-start"
+					data-testid="offline-copy-start"
 					disabled={!plan || plan.refusal !== '' || job.step === 'preparing'}
 					onclick={start}
 				>

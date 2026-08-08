@@ -91,7 +91,7 @@ const BATCH_ENTRIES = 128;
  * The numbers are generous rather than tight, because refusing a real Project is its own failure:
  * SPEC's largest is a 2 GB pyramid and ADR-0008's whole-workspace hosting budget is about 1 GB, so
  * four gigabytes leaves a Project twice the largest one contemplated. `entryBytes` is sized for
- * ticket 15's mirrored `full/max` image, which is the only single file in ADR-0006's layout that can
+ * ticket 15's copied `full/max` image, which is the only single file in ADR-0006's layout that can
  * be large at all; everything else is a tile, a manifest, or JSON.
  */
 export interface ProjectZipLimits {
@@ -510,7 +510,7 @@ function assertUndamaged(path: string, bytes: Bytes, checksums: ReadonlyMap<stri
  *
  * Each batch is checked against its checksums as it is inflated rather than the whole archive being
  * verified up front, which would mean inflating everything twice — once to check and once to write.
- * On a mirrored pyramid of several hundred megabytes that doubles the slowest part of the import for
+ * On an offline copy's pyramid of several hundred megabytes that doubles the slowest part of the import for
  * a machine whose browser is the only place that Project lives (ADR-0001), and it would defeat the
  * "compressed archive plus one batch" memory bound this batching exists for.
  *
