@@ -8,9 +8,9 @@ Scope and testing approach are in [SPEC.md](./SPEC.md); decisions are in [docs/a
 
 ## Current status
 
-Overall: `In Progress`. Merged: 01–06, 08–14, 16–20. **Remaining: 07 and 15.** Nothing in flight.
+Overall: `In Progress`. Merged: 01–06, 08–14, 16–20. **Remaining: 07, 15, 21, 22.** In flight: 07, 21 and 22, running in parallel.
 
-**Ready now: 07.** 15 waits on it. That is the whole of what is left.
+**21 is open lead 1, promoted to a ticket** (human decision, 2026-08-08): a deleted Project's `project.json` comes back at a measured ~20% rate, and the epic should not close carrying a known data-loss path. It is independent of 07 — autosave and deletion, not the align route — so the two run together. 15 waits on 07.
 
 06 and 14 merged 2026-08-08. The full gate on merged `main` is green: install / build / lint / check / test all exit 0, and `pnpm test:e2e` is **487 passed, 1 skipped, retry budget 0 of 488 (0.00%)**.
 
@@ -49,9 +49,11 @@ Last updated: 2026-08-08.
 
    The defect is in the dependency: `triiiceratops/dist/components/OSDViewer.svelte:567-571` tears down with `viewer?.destroy()` but never poisons `lastTileSourceStr`, which is the only guard on three async continuations (`:698`, `:755`, `:813`). Those still call `viewer.open()` / `addTiledImage()` on a destroyed viewer, and — unlike `close()` and `destroy()` — neither early-returns on `!THIS[hash]`, so `world`'s `add-item` handler (`openseadragon.js:8236`) does `THIS[_this.hash].forceRedraw = true` on `undefined`, inside a bare `setTimeout` that the app cannot catch. The unwarped viewer runs its resolve→open cycle twice per mount, the second `info.json` landing ~130 ms before the click away, with tiles still arriving 200–350 ms after unmount.
 
+   **Triaged 2026-08-08: left for later, deliberately.** The error is thrown from a `setTimeout` after the component is destroyed, on the way out of a page — the destination renders, nothing is lost, no state is corrupted, and a Reader sees nothing. Its real cost is developer-facing: one retry per full suite run, which consumes most of the 0.5% budget and leaves little room for a second genuine flake. Note that **ticket 15 does not remove this**: 15 takes triiiceratops out of the *editor* only, the published viewer keeps its unwarped view by contract, and the failing spec is the viewer's.
+
    **The fix is one line** — `lastTileSourceStr = '\0destroyed'` in the teardown — but it was deliberately not applied from a transfer ticket. It patches a third-party dist file, the repo's patch mechanism carries a fence obligation (`check-allmaps-patch.mjs` is the precedent), and triiiceratops is this project author's own package, so **upstream plus a version bump is the right end state**. Proving it in a test needs a delay injected into a dependency, which cannot be committed.
 
-3. **The published viewer has no unreachable-archive notice.** The editor got one in ticket 20's session — `BaseMapPane` listens for MapLibre's source error, which nothing did, and that is how an outage rendered as a grey rectangle. A Reader on a published site still gets a silent blank map. Related: all four catalog entries read the same archive, so the editor's "try another Base Map" remedy is currently empty, and `demo-bucket.protomaps.com/v4.pmtiles` has answered 404 since 2026-08-07. ADR-0025 predicted this; `pnpm check:deployment` refuses that URL and runs inside `pnpm test`.
+3. **Triaged 2026-08-08: the notice is ticket 22; the catalog is a decision for the repository owner.** **The published viewer has no unreachable-archive notice.** The editor got one in ticket 20's session — `BaseMapPane` listens for MapLibre's source error, which nothing did, and that is how an outage rendered as a grey rectangle. A Reader on a published site still gets a silent blank map. Related: all four catalog entries read the same archive, so the editor's "try another Base Map" remedy is currently empty, and `demo-bucket.protomaps.com/v4.pmtiles` has answered 404 since 2026-08-07. ADR-0025 predicted this; `pnpm check:deployment` refuses that URL and runs inside `pnpm test`.
 
 ## Standing constraints
 
@@ -101,7 +103,7 @@ These apply to every remaining ticket. They are not advice.
 | 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Completed | 03 | 1, 2, 3, 10–13, 109, 110 |
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Completed | 02, 04 | 14–17, 20 |
 | 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Completed | 02, 05 | 21–30, 33, 36, 106 |
-| 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Not Started | 06 | 31, 32, 39, 40, 56, 80, 81 |
+| 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | In Progress | 06 | 31, 32, 39, 40, 56, 80, 81 |
 | 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
@@ -115,12 +117,18 @@ These apply to every remaining ticket. They are not advice.
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
 | 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Completed | 11 | — |
 | 20 | [20-a-real-navigation-does-not-lose-an-edit.md](./tickets/20-a-real-navigation-does-not-lose-an-edit.md) | Completed | 12 | — |
+| 21 | [21-a-deleted-project-stays-deleted.md](./tickets/21-a-deleted-project-stays-deleted.md) | In Progress | — | — |
+| 22 | [22-a-reader-is-told-when-the-base-map-is-missing.md](./tickets/22-a-reader-is-told-when-the-base-map-is-missing.md) | In Progress | — | 111, 112 |
+
+**22 was added after planning** — it promotes the first half of open lead 3. The Base Map archive every catalog entry reads has refused since 2026-08-07, so a blank map with no explanation is the *current* behaviour of every published site, not a hypothetical. The notice is a defect fix; **what the catalog should point at instead is a product decision and is deliberately not in it** (human decision, 2026-08-08).
+
+**21 was added after planning too** — it promotes open lead 1 from a recorded flake to a ticket, because it is a measured ~20% data-loss race and the epic should not close carrying it.
 
 **16, 17, 19 and 20 were added after planning** — debt and defects the epic's own work surfaced rather than slices of the plan. Each carries its reasoning and measurements in its own ticket.
 
 ## Critical path
 
-**07 → 15**, and nothing else. Both are single-threaded; there is no parallel work left in this epic.
+**07 → 15**, with **21** alongside, independent of both.
 
 **07 is the last ticket that can hurt.** It aligns a map whose bytes stay on a Library's server, and it inherits ADR-0023's concurrent-edit gap that 14 deliberately deferred to it with the mitigation written out. **15 is small but not safe**: deleting the editor's unwarped view removes the editor's exposure to open lead 2 without fixing it, and the published viewer keeps the defect — a green suite after that deletion must not be read as the bug being gone.
 
