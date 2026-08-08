@@ -8,7 +8,9 @@ This document tracks the status of all tickets in the epic. The goal of `workspa
 
 Overall status: `In Progress`
 
-Merged to `main`: 01–05, 08–13, 16–19. Nothing in flight. **Four remain: 06, 07, 14, 15.**
+Merged to `main`: 01–05, 08–13, 16–20. Nothing in flight. **Four remain: 06, 07, 14, 15.**
+
+**One open lead nobody has closed, and it must not be absorbed into the flake budget.** Ticket 20's final suite had one flaky test and `pnpm flake:check --against main` returned **SUSPECT**, not "consistent with flake". The failure is `Cannot set properties of undefined (setting 'forceRedraw')` — OpenSeadragon by way of triiiceratops, on the unwarped→map navigation that the spec's own comment already records as a known hazard. Ticket 20's implementer checked rather than assumed: `git diff main -- apps/viewer` is empty and the built viewer bundle contains none of its changed code, so there is no mechanism by which 20 caused it. It wants a ticket. **"SUSPECT, then nothing" is exactly how a real defect gets absorbed**, and this epic has now been wrong about a flake's cause twice.
 
 **Unblocked and ready: 06 and 14.** They do not collide — 06 carves `ProjectScreen.svelte` and 14 is transfer — so they can run together. 07 waits on 06; 15 waits on 07.
 
