@@ -1064,7 +1064,10 @@ test.describe('the offer to install', () => {
 		// the offer sits beside those two explanations and nowhere else. Since ticket 12 that is
 		// Workspace settings rather than a permanently visible hub section — the offer moved with the
 		// question it answers.
-		await expect(page.getByTestId('install-offer')).toHaveCount(0);
+		// `toBeHidden` rather than `toHaveCount(0)`: the settings dialog is in the DOM from the first
+		// frame, because a `<dialog>` has to exist before `showModal()` can be called on it. The claim
+		// is that the offer is not *on screen* until the dialog is opened.
+		await expect(page.getByTestId('install-offer')).toBeHidden();
 		await openWorkspaceSettings(page);
 		const settings = page.getByRole('dialog', { name: 'Workspace settings' });
 		await expect(settings.getByTestId('install-offer')).toBeVisible();
