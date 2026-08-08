@@ -526,7 +526,10 @@ async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void
  */
 async function seedWorkspaceBytes(page: Page, bytes: number): Promise<void> {
 	await page.evaluate(async (size) => {
-		const root = await navigator.storage.getDirectory();
+		// **The Workspace, not the OPFS root.** The cliff is a Workspace total, and since ticket 12 the
+		// root merely *holds* Workspaces — ballast written there is counted by nothing, and the warning
+		// this seeds for never appears.
+		const root = await workspaceRoot();
 		const handle = await root.getFileHandle('ballast.bin', { create: true });
 		const writable = await handle.createWritable();
 		await writable.truncate(size);
