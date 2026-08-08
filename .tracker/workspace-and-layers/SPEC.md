@@ -186,7 +186,7 @@ workspace/
 ├── index.html                     ← publish output (ADR-0008)
 ├── images/<image-id>/             ← shared: info.json, manifest.json, remote.json, tiles
 ├── alignments/<image-id>.json     ← shared: one per Historical Map
-├── base-map/tiles/{z}/{x}/{y}.mvt ← opt-in offline cache (ADR-0025)
+├── base-map/tiles/<archive>/{z}/{x}/{y}.mvt  ← opt-in offline cache, keyed by archive (ADR-0025)
 └── <project-directory>/
     ├── project.json
     └── annotations/<layer-id>.geojson
