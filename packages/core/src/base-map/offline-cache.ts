@@ -114,7 +114,15 @@ export interface BaseMapCacheSize {
 export interface BaseMapCache extends BaseMapCacheSize {
 	/** The archive the cache's own record names, or `null` when it records none. */
 	readonly archive: string | null;
-	/** The keyed directory the tiles are in, with its trailing `/`. */
+	/**
+	 * Whether this is the **pre-ticket-12 unkeyed pile** at `base-map/tiles/{z}/…`.
+	 *
+	 * Distinct from `archive === null`, which a keyed cache reaches by losing its record. A legacy
+	 * pile is not missing its provenance so much as predating the idea: there was one directory and
+	 * it served whichever catalog entry was showing. Nothing writes it any more.
+	 */
+	readonly legacy: boolean;
+	/** The directory the tiles are in, with its trailing `/`. The root itself when {@link legacy}. */
 	readonly directory: string;
 	/**
 	 * The source's own maximum zoom as its header reported it at fetch time, or `null` when
@@ -134,7 +142,8 @@ export interface BaseMapCache extends BaseMapCacheSize {
  * the provenance record, which is the only place a key can be turned back into an archive.
  */
 export async function baseMapCaches(store: ProjectStore): Promise<BaseMapCache[]> {
-	const byKey = new Map<string, { paths: string[]; zooms: number[] }>();
+	/** `null` is the pre-ticket-12 unkeyed pile — see {@link parseAnyCachedTilePath}. */
+	const byKey = new Map<string | null, { paths: string[]; zooms: number[] }>();
 	for (const path of await store.list(BASE_MAP_TILE_ROOT)) {
 		const parsed = parseAnyCachedTilePath(path);
 		if (parsed === null) continue;
@@ -146,11 +155,15 @@ export async function baseMapCaches(store: ProjectStore): Promise<BaseMapCache[]
 
 	return Promise.all(
 		[...byKey].map(async ([key, { paths, zooms }]) => {
-			const directory = `${BASE_MAP_TILE_ROOT}${key}/`;
+			// The unkeyed pile lives directly in the root, so its "directory" is the root — which is why
+			// every caller that deletes filters by the parser rather than by the prefix.
+			const directory = key === null ? BASE_MAP_TILE_ROOT : `${BASE_MAP_TILE_ROOT}${key}/`;
 			const sizes = await Promise.all(paths.map((path) => store.size(path).catch(() => 0)));
-			const record = await readTileSourceAt(store, `${directory}${TILE_SOURCE_NAME}`);
+			const record =
+				key === null ? null : await readTileSourceAt(store, `${directory}${TILE_SOURCE_NAME}`);
 			return {
 				archive: record?.archive ?? null,
+				legacy: key === null,
 				directory,
 				sourceMaxZoom: record?.maxZoom ?? null,
 				tiles: paths.length,
@@ -215,7 +228,11 @@ export async function clearBaseMapCache(store: ProjectStore): Promise<number> {
 	let cleared = 0;
 	for (const cache of caches) {
 		for (const path of await store.list(cache.directory)) {
-			if (parseAnyCachedTilePath(path) === null) continue;
+			const parsed = parseAnyCachedTilePath(path);
+			// A legacy pile's "directory" is the root, so its listing sees every keyed cache's tiles
+			// too. Deleting those here would remove them once per cache — harmless for the files and
+			// wrong for the count, which is what the hub tells the user it removed.
+			if (parsed === null || (parsed.key === null) !== cache.legacy) continue;
 			await store.delete(path);
 			cleared += 1;
 		}

@@ -58,7 +58,7 @@
 
 	const id = $props.id();
 
-	let button = $state<HTMLButtonElement | undefined>();
+	let button_ = $state<HTMLButtonElement | undefined>();
 	let popover = $state<HTMLElement | undefined>();
 
 	/**
@@ -71,7 +71,7 @@
 	 */
 	export function dismiss(): void {
 		popover?.hidePopover();
-		button?.focus();
+		button_?.focus();
 	}
 
 	/**
@@ -86,13 +86,25 @@
 	export function isOpen(): boolean {
 		return popover?.matches(':popover-open') ?? false;
 	}
+
+	/**
+	 * The button that opens this menu, for a caller that has to put focus back on it later.
+	 *
+	 * {@link dismiss} covers the ordinary case — a menu item that closes the menu and stops. This is
+	 * for an item that *opens something inline*, where focus has to return here when that thing is
+	 * dismissed, which may be many interactions later. Handing back the element rather than a second
+	 * `focus()` method keeps the caller's own "where did this come from" explicit.
+	 */
+	export function button(): HTMLButtonElement | undefined {
+		return button_;
+	}
 </script>
 
 <button
 	type="button"
 	class={buttonClass}
 	popovertarget={id}
-	bind:this={button}
+	bind:this={button_}
 	data-testid={testid}
 	aria-expanded={open}
 	aria-controls={id}

@@ -242,6 +242,13 @@ export async function refuseBaseMapArchive(target: Pick<Page, 'route'>): Promise
  * the catalog entry's own `archive` string, and `scripts/check-base-map-catalog.mjs` exempts
  * `*.e2e.ts` but not this file — for the good reason that a fork repointing its catalog must not have
  * to edit the harness. So the specs supply it and this computes the key.
+ *
+ * ⚠ **The two copies of this hash are held together by two tests, in opposite directions**, because
+ * a duplicated derivation with nothing comparing it drifts. `editor-base-map.e2e.ts`'s "writes a tile
+ * file for every zoom" looks *under this directory* for tiles the **app** wrote;
+ * `viewer-reader.e2e.ts`'s "draws its Base Map from its own cached tiles" writes files **here** and
+ * has the app read them. Either one goes red the moment the two spellings part company — which
+ * matters, because the failure otherwise reads like a product bug rather than a harness one.
  */
 export function baseMapArchiveKey(archive: string): string {
 	const slug = (archive.split(/[/\\]/).pop() ?? '')

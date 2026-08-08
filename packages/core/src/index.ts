@@ -137,10 +137,12 @@ export {
 	ensureOpfsWorkspace,
 	listOpfsWorkspaces,
 	openOpfsWorkspace,
-	requestPersistentStorage,
 	toWorkspaceName,
-	type StoragePersistence
+	MAX_WORKSPACE_NAME_LENGTH,
+	WorkspaceNameExhaustedError
 } from './store/opfs-workspaces.js';
+// Whether this **origin's** storage is evictable — a question about the browser, not a Workspace.
+export { requestPersistentStorage, type StoragePersistence } from './store/persistent-storage.js';
 export {
 	InvalidPathError,
 	PathNotFoundError,

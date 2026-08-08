@@ -112,7 +112,9 @@
 		 * Independent of {@link bundledBaseMapAvailable}, which is about glyphs and sprites: a site can
 		 * carry tiles and no labels, or labels and no tiles, and the two failures read differently to a
 		 * Reader. `maxZoom` comes off the site record because a static host cannot be asked to list a
-		 * directory — see `PublishedSite.baseMapMaxZoom`.
+		 * directory — see `PublishedSite.baseMapCaches`, which since ticket 12 also says *which
+		 * archive* each cache is for, because the directory is keyed by one and a key cannot be read
+		 * backwards.
 		 */
 		cachedBaseMap?: { maxZoom: number; readTile: ReadCachedTile } | null;
 		/**

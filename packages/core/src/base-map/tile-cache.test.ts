@@ -12,6 +12,7 @@ import {
 	baseMapTileDirectory,
 	cachedTilePath,
 	countTilesForBounds,
+	legacyCachedTilePath,
 	parseAnyCachedTilePath,
 	parseCachedTilePath,
 	tileBudget,
@@ -216,7 +217,7 @@ describe('cachedTilePath', () => {
 		).toBeNull();
 		expect(parseCachedTilePath(ARCHIVE, 'images/abc/info.json')).toBeNull();
 		// The unkeyed layout ticket 11 wrote is not this archive's, and is not anybody's: without the
-		// key there is no archive it can be attributed to.
+		// key there is no archive it can be attributed to. It is still *recognised* — see below.
 		expect(parseCachedTilePath(ARCHIVE, 'base-map/tiles/14/8434/5403.mvt')).toBeNull();
 	});
 });
@@ -256,6 +257,19 @@ describe('the cache directory is keyed by archive (ticket 12)', () => {
 		]) {
 			expect(baseMapArchiveKey(archive), archive).toMatch(/^[a-z0-9][a-z0-9-]*$/);
 		}
+	});
+
+	it('still recognises the unkeyed layout ticket 11 wrote, as belonging to no archive', () => {
+		// A Workspace filled before this change holds `base-map/tiles/{z}/{x}/{y}.mvt`. A reader that
+		// stopped seeing those bytes would make them invisible to the hub's size report and to its
+		// clear button — megabytes a user deliberately fetched from somebody else's server, occupying
+		// disk that nothing in the application admits to.
+		const tile = { z: 14, x: 8434, y: 5403 };
+		expect(legacyCachedTilePath(tile)).toBe('base-map/tiles/14/8434/5403.mvt');
+		expect(parseAnyCachedTilePath(legacyCachedTilePath(tile))).toEqual({ key: null, tile });
+
+		// `null` is not "some archive": coverage must not be satisfied by tiles it cannot attribute.
+		expect(parseCachedTilePath(ARCHIVE, legacyCachedTilePath(tile))).toBeNull();
 	});
 
 	it('reads the key back off a path, which is how a whole-Workspace walk finds every cache', () => {

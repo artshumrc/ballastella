@@ -206,7 +206,8 @@ const ROOT_GOOD =
 	"import { test as fenced } from './network-fence.js';\nexport const test = fenced.extend({});";
 const ROOT_BAD = [
 	{
-		source: "import { test as base } from '@playwright/test';\nexport const test = base.extend({});",
+		source:
+			"import { test as base } from '@playwright/test';\nexport const test = base.extend({});",
 		expect: 'a root built straight on Playwright, fencing nothing'
 	},
 	{

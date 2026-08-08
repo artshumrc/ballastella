@@ -31,6 +31,7 @@ export {
 	baseMapTileDirectory,
 	cachedTilePath,
 	countTilesForBounds,
+	legacyCachedTilePath,
 	parseAnyCachedTilePath,
 	parseCachedTilePath,
 	tileBudget,

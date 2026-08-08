@@ -1,11 +1,13 @@
 import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
+import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { seedMapLayer } from './support/project-screen';
 import { recordSaveStates } from './support/saved';
 import {
 	closeWorkspaceSettings,
 	createWorkspace,
 	expectWorkspaceNamed,
+	openWorkspaceMenu,
 	openWorkspaceSettings,
 	switchToWorkspace,
 	workspaceButton
@@ -29,6 +31,12 @@ import {
 
 const HUB = './';
 const PROJECT = 'amsterdam-1625';
+
+// Every spec in this suite is behind the default-deny network fence, and opening a Project screen
+// draws a Base Map from an archive on somebody else's host. Routed to the committed fixture for the
+// whole file, on the `context` rather than the `page`, so a request that has been through a service
+// worker is covered too.
+test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /** Empty the whole of browser storage — every named Workspace — so no test sees another's. */
 async function emptyBrowserStorage(page: Page): Promise<void> {
@@ -190,6 +198,69 @@ test.describe('the Workspace on the bar', () => {
 
 		await expectWorkspaceNamed(page, 'Marking 2026');
 		await expect(page.getByRole('link', { name: 'Boston 1775' })).toBeVisible();
+	});
+
+	test('announces a switch and a creation, which a mutating button label does not', async ({
+		page
+	}) => {
+		// SPEC stories 111 and 112. Switching changes almost everything on screen; the only visible
+		// signal is the switcher button's own label, and a control's accessible name changing is not
+		// something a screen reader reports. Without this a scholar using one moves between Workspaces,
+		// hears silence, and is looking at somebody else's Project list.
+		const announced = page.getByTestId('workspace-announcement');
+
+		await createWorkspace(page, 'Marking 2026');
+		await expect(announced).toHaveText('Created the Workspace “Marking 2026” and switched to it.');
+
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+		await expect(announced).toHaveText(`Switched to the Workspace “${DEFAULT_WORKSPACE}”.`);
+	});
+
+	test('announces the name a Workspace really got, not the one that was typed', async ({
+		page
+	}) => {
+		// The one announcement that is wrong exactly when it matters: a second "Marking 2026" is
+		// created as "Marking 2026 (2)", and a reader told otherwise is looking for the wrong thing in
+		// the switcher.
+		await createWorkspace(page, 'Marking 2026');
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+
+		await openWorkspaceMenu(page);
+		await page.getByTestId('new-workspace').click();
+		await page.getByTestId('new-workspace-name').fill('Marking 2026');
+		await page.getByTestId('create-workspace').click();
+
+		await expect(page.getByTestId('workspace-announcement')).toHaveText(
+			'Created the Workspace “Marking 2026 (2)” and switched to it.'
+		);
+		await expectWorkspaceNamed(page, 'Marking 2026 (2)');
+	});
+
+	test('gives focus back to the switcher when the inline form goes, not to the body', async ({
+		page
+	}) => {
+		// The form unmounts with the pressed button still focused, so without a hand-back focus falls to
+		// `<body>` — a keyboard user is returned to the top of the document with no idea whether
+		// anything happened (WCAG 2.4.3).
+		await openWorkspaceMenu(page);
+		await page.getByTestId('new-workspace').click();
+		await page.getByTestId('new-workspace-name').fill('Marking 2026');
+		await page.getByTestId('create-workspace').click();
+		await expectWorkspaceNamed(page, 'Marking 2026');
+		await expect(workspaceButton(page)).toBeFocused();
+
+		// And on the two ways out that create nothing.
+		for (const dismiss of [
+			async () => page.getByRole('button', { name: 'Cancel' }).click(),
+			async () => page.keyboard.press('Escape')
+		]) {
+			await openWorkspaceMenu(page);
+			await page.getByTestId('new-workspace').click();
+			await expect(page.getByTestId('new-workspace-name')).toBeFocused();
+			await dismiss();
+			await expect(page.getByTestId('new-workspace-name')).toHaveCount(0);
+			await expect(workspaceButton(page)).toBeFocused();
+		}
 	});
 
 	test('is reachable and operable from the keyboard alone', async ({ page }) => {

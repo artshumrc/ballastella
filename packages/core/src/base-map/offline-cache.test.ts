@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
 	baseMapCacheSize,
+	baseMapCaches,
 	baseMapTileSourcePath,
 	clearBaseMapCache,
 	describeTileBudget,
@@ -20,6 +21,7 @@ import {
 import {
 	baseMapTileDirectory,
 	cachedTilePath,
+	legacyCachedTilePath,
 	tileBudget,
 	type TileCoordinate
 } from './tile-cache';
@@ -312,6 +314,52 @@ describe('what the cache records about where it came from', () => {
 		);
 
 		expect(await readCachedTileSource(store, ARCHIVE)).toBeNull();
+	});
+});
+
+describe('a Workspace filled before the directory was keyed (ticket 11)', () => {
+	/** The unkeyed layout, seeded the way ticket 11's build left it. */
+	const seedLegacy = async (store: MemoryProjectStore, tiles: readonly TileCoordinate[]) => {
+		for (const tile of tiles) await store.write(legacyCachedTilePath(tile), new Uint8Array(100));
+	};
+
+	it('is counted by the hub rather than being invisible disk', async () => {
+		// Bytes a user deliberately fetched from somebody else's server. A size report that stopped
+		// seeing them would show a Workspace smaller than it is and offer no way to reclaim them.
+		const store = new MemoryProjectStore();
+		await seedLegacy(store, tileBudget(CANAL_BELT, 14).tiles);
+
+		expect(await baseMapCacheSize(store)).toEqual({ tiles: 23, bytes: 2300, maxZoom: 14 });
+		const [only] = await baseMapCaches(store);
+		expect(only?.legacy).toBe(true);
+		expect(only?.archive).toBeNull();
+	});
+
+	it('is cleared by the hub’s clear, and counted once', async () => {
+		// Its "directory" is the root, so a naive clear would walk every keyed cache's tiles through it
+		// as well and report a total larger than what it removed.
+		const store = new MemoryProjectStore();
+		await seedLegacy(store, tileBudget(CANAL_BELT, 14).tiles);
+		await fetchTilesIntoCache({
+			store,
+			archive: ARCHIVE,
+			tiles: tileBudget(CANAL_BELT, 14).tiles,
+			readTile: source().readTile
+		});
+
+		expect(await clearBaseMapCache(store)).toBe(46);
+
+		expect(await baseMapCacheSize(store)).toEqual({ tiles: 0, bytes: 0, maxZoom: null });
+	});
+
+	it('does not make a Project report itself available offline for an archive', async () => {
+		// The one thing it must not do. A tile whose provenance is unknown cannot support a claim
+		// about a particular archive — that is the wrong-map failure keying exists to end, arriving
+		// through the legacy reader instead.
+		const store = new MemoryProjectStore();
+		await seedLegacy(store, tileBudget(CANAL_BELT, 14).tiles);
+
+		expect((await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14)).complete).toBe(false);
 	});
 });
 

@@ -575,10 +575,48 @@ describe('publishing', () => {
 		await publish({ includeBaseMap: false });
 
 		const record = parsePublishedSite(await store.read('ballastella-site.json'));
-		expect([...record.baseMapCaches].sort((a, b) => a.archive.localeCompare(b.archive))).toEqual([
+		expect(
+			[...record.baseMapCaches].sort((a, b) => (a.archive ?? '').localeCompare(b.archive ?? ''))
+		).toEqual([
 			{ archive: ARCHIVE, maxZoom: 14 },
 			{ archive: other, maxZoom: 11 }
 		]);
+	});
+
+	it('reads a pre-ticket-12 record’s baseMapMaxZoom rather than drawing nothing', async () => {
+		// ⚠ The silent failure this fallback exists for. A site published before the cache was keyed
+		// says `baseMapBundled: true` and carries `baseMapMaxZoom`, with its tiles at the unkeyed
+		// `base-map/tiles/{z}/…`. Read strictly, its `baseMapCaches` is empty, the viewer draws no
+		// geography at all, and nothing says why — indistinguishable from the archive being down.
+		const record = parsePublishedSite(
+			new TextEncoder().encode(
+				JSON.stringify({
+					formatVersion: 1,
+					viewerVersion: 'v1',
+					publishedAt: '2026-01-01T00:00:00.000Z',
+					projects: [],
+					baseMapBundled: true,
+					baseMapMaxZoom: 14
+				})
+			)
+		);
+
+		// No archive, because the old layout belonged to no entry in particular: one directory served
+		// whichever the Reader had selected, and `ReaderMapPane` matches a `null` against any entry.
+		expect(record.baseMapCaches).toEqual([{ archive: null, maxZoom: 14 }]);
+	});
+
+	it('publishes a pre-ticket-12 pile as what it is, rather than dropping it', async () => {
+		// Re-publishing must not take a working offline site away from a scholar. The depth comes off
+		// the files, which is exactly what the old `baseMapMaxZoom` was.
+		await store.write('base-map/tiles/0/0/0.mvt', new Uint8Array([1]));
+		await store.write('base-map/tiles/11/1054/675.mvt', new Uint8Array([2]));
+
+		await publish({ includeBaseMap: false });
+
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+		expect(record.baseMapCaches).toEqual([{ archive: null, maxZoom: 11 }]);
+		expect(record.baseMapBundled).toBe(true);
 	});
 
 	it('claims no archive for a cache whose provenance record is missing', async () => {

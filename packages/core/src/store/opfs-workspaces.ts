@@ -42,32 +42,111 @@ import { OpfsProjectStore } from './opfs-project-store.js';
 export const DEFAULT_WORKSPACE_NAME = 'My Workspace';
 
 /**
+ * The longest a Workspace name may be, in **code points**.
+ *
+ * 64 is well inside every filesystem's per-component limit once encoded, and long enough that no
+ * plausible name meets it. It is a cap on a directory name, not on a sentence.
+ */
+export const MAX_WORKSPACE_NAME_LENGTH = 64;
+
+/** The code points of a string, so slicing cannot cut a character in half. See {@link truncate}. */
+const codePoints = (value: string): string[] => [...value];
+
+/**
+ * The first `limit` **code points**, never `limit` code units.
+ *
+ * ⚠ **`String#slice` is the wrong tool and the bug it caused is not theoretical.** It counts UTF-16
+ * code units, so slicing at 64 through an astral character — a mathematical letter, an emoji, most
+ * of Deseret and Gothic — leaves a **lone surrogate** at the end. That is not a character: it is
+ * half of one, a name OPFS may refuse outright, and a string a second pass through
+ * {@link toWorkspaceName} silently repairs into something *different*. That second fact is what
+ * mattered, because {@link createOpfsWorkspace} relies on this function being idempotent.
+ */
+const truncate = (value: string, limit: number): string =>
+	codePoints(value).slice(0, limit).join('');
+
+/**
  * A typed name reduced to something that is one directory name on every filesystem.
  *
- * Conservative about characters and generous about shape. Letters, numbers, spaces, `(`, `)`, `_`
- * and `-` survive; everything else — `/` and `\` above all, but also the characters Windows refuses
- * in a filename and the control characters — is dropped, so the result cannot be a path, cannot
- * escape the root, and cannot be `.` or `..`. Runs of whitespace collapse and the ends are trimmed,
- * because a directory called `"Marking "` is one nobody can type again.
+ * Conservative about characters and generous about shape. Letters, numbers, combining marks,
+ * spaces, `(`, `)`, `_` and `-` survive; everything else — `/` and `\` above all, but also the
+ * characters Windows refuses in a filename and the control characters — is dropped, so the result
+ * cannot be a path, cannot escape the root, and cannot be `.` or `..`. Runs of whitespace collapse
+ * and the ends are trimmed, because a directory called `"Marking "` is one nobody can type again.
+ *
+ * **Combining marks are kept** (`\p{M}`) because dropping them is not a safety property, it is
+ * mangling somebody's language: NFC composes what it can, and a script whose marks have no composed
+ * form — Devanagari, Thai, Arabic — would otherwise have every one of them replaced by a space.
  *
  * **Parentheses survive because {@link createOpfsWorkspace} writes them**, and this function has to
  * be idempotent for that to work: it suffixes a taken name with ` (2)`, and a normalisation that
  * dropped the brackets would hand back `Marking 2` — a *different* name from the one it had just
  * checked was free, which is a uniqueness check that does not check the name it returns.
  *
+ * ⚠ **Idempotence is a contract here, not an observation**, and it is asserted in
+ * `opfs-workspaces.test.ts` over specimens that have broken it: an astral character straddling the
+ * length cap, and a name that is already exactly the cap.
+ *
  * A name that reduces to nothing gets {@link DEFAULT_WORKSPACE_NAME} rather than being refused: the
  * user asked for a Workspace, and a script this function cannot transliterate is not a reason to
  * decline to make one.
  */
 export function toWorkspaceName(displayName: string): string {
-	const cleaned = displayName
-		.normalize('NFC')
-		.replace(/[^\p{L}\p{N} ()_-]+/gu, ' ')
-		.replace(/\s+/g, ' ')
-		.trim()
-		.slice(0, 64)
-		.trim();
+	const cleaned = truncate(
+		displayName
+			.normalize('NFC')
+			.replace(/[^\p{L}\p{M}\p{N} ()_-]+/gu, ' ')
+			.replace(/\s+/g, ' ')
+			.trim(),
+		MAX_WORKSPACE_NAME_LENGTH
+	).trim();
 	return cleaned === '' || cleaned === '.' || cleaned === '..' ? DEFAULT_WORKSPACE_NAME : cleaned;
+}
+
+/**
+ * `preferred` with ` (n)` on the end, **shortening the stem to make room** rather than losing it.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THE TAB-FREEZING BUG THIS EXISTS TO END.                                                   │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * The obvious spelling is `toWorkspaceName(`${preferred} (${suffix})`)`. When `preferred` is already
+ * at the length cap, the normaliser truncates the suffix straight back off and hands back
+ * `preferred` — **unchanged**. The candidate is therefore taken, on every iteration, for every
+ * value of `suffix`, and `createOpfsWorkspace`'s loop spins on the main thread for ever. A user
+ * typing a long name twice froze the tab.
+ *
+ * So the marker is reserved first and the stem is cut to fit. Every suffix then yields a distinct
+ * name, which is what makes the search terminate, and the name a user gets is recognisably the one
+ * they typed rather than a truncation with no number on it.
+ */
+function suffixedWorkspaceName(preferred: string, suffix: number): string {
+	const marker = ` (${suffix})`;
+	const room = MAX_WORKSPACE_NAME_LENGTH - codePoints(marker).length;
+	// `room` is only ever small for an absurd suffix; one code point of stem still distinguishes.
+	const stem = truncate(preferred, Math.max(1, room)).trim();
+	return toWorkspaceName(`${stem || DEFAULT_WORKSPACE_NAME}${marker}`);
+}
+
+/**
+ * How many suffixes are tried before the request is refused.
+ *
+ * Bounded on purpose. {@link suffixedWorkspaceName} guarantees each candidate differs, so this is
+ * not what makes the loop terminate — it is what makes a *future* change to that function unable to
+ * hang the tab again. A thousand Workspaces sharing one name is a condition to report, not one to
+ * keep searching through.
+ */
+const SUFFIX_ATTEMPTS = 1000;
+
+/** A Workspace could not be given a free name near the one that was asked for. */
+export class WorkspaceNameExhaustedError extends Error {
+	constructor(preferred: string) {
+		super(
+			`There are already too many Workspaces called “${preferred}” to make another one. ` +
+				`Rename or delete some of them, or choose a different name. Nothing has been created.`
+		);
+		this.name = 'WorkspaceNameExhaustedError';
+	}
 }
 
 /**
@@ -125,14 +204,16 @@ export async function ensureOpfsWorkspace(name: string): Promise<string> {
 export async function createOpfsWorkspace(displayName: string): Promise<string> {
 	const preferred = toWorkspaceName(displayName);
 	const taken = new Set((await listOpfsWorkspaces()).map(fold));
-	// Each candidate is normalised before it is tested, so the name checked is the name created. See
-	// the note on {@link toWorkspaceName}: a suffix the normaliser rewrites is a uniqueness check
-	// answered about a different string from the one that ends up on disk.
-	let name = preferred;
-	for (let suffix = 2; taken.has(fold(name)); suffix += 1) {
-		name = toWorkspaceName(`${preferred} (${suffix})`);
+	if (!taken.has(fold(preferred))) return ensureOpfsWorkspace(preferred);
+	// Each candidate is already normalised, so the name checked is the name created. See the note on
+	// {@link toWorkspaceName}: a suffix the normaliser rewrites is a uniqueness check answered about
+	// a different string from the one that ends up on disk — and, when the rewrite is a no-op, a loop
+	// that never advances.
+	for (let suffix = 2; suffix <= SUFFIX_ATTEMPTS; suffix += 1) {
+		const candidate = suffixedWorkspaceName(preferred, suffix);
+		if (!taken.has(fold(candidate))) return ensureOpfsWorkspace(candidate);
 	}
-	return ensureOpfsWorkspace(name);
+	throw new WorkspaceNameExhaustedError(preferred);
 }
 
 /**
@@ -149,56 +230,3 @@ export async function deleteOpfsWorkspace(name: string): Promise<void> {
 
 /** Open one named Workspace as a store. The store itself knows nothing about the name. */
 export const openOpfsWorkspace = (name: string): OpfsProjectStore => OpfsProjectStore.open(name);
-
-/**
- * What the browser answered when asked to keep this origin's storage.
- *
- * Three states rather than two, because "this browser has no such API" is not a refusal and must not
- * be reported to the user as one.
- */
-export type StoragePersistence = 'granted' | 'refused' | 'unsupported';
-
-/**
- * Ask the browser to stop treating this origin's storage as evictable, and report what it said.
- *
- * ─────────────────────────────────────────────────────────────────────────────────────────────
- * THIS IS A DATA-LOSS FIX, NOT A NICETY (ADR-0024)
- *
- * `navigator.storage.persist()` was called nowhere in this tree, so OPFS data was best-effort and
- * evictable under disk pressure. That was tolerable while browser storage was a starter store; it is
- * not, now that it is the primary home for a shared pool of gigabyte pyramids (ADR-0023) — and it is
- * where every user on Firefox, Safari, and iPadOS keeps everything they have, because File System
- * Access exists on none of them.
- *
- * **`persisted()` is asked first, and that is not an optimisation.** Firefox's `persist()` opens a
- * permission prompt; asking again on every load of an origin that already has the grant is the
- * nagging ADR-0012 rules out. Chromium grants or declines silently on its own heuristics — installing
- * the app is what usually turns it — so the answer is worth *recording* rather than acting on.
- *
- * The refusal is returned rather than swallowed because the user is entitled to know that the thing
- * holding all of their work is evictable, and what to do about it. Workspace settings says so.
- *
- * `storage` is injectable so the three answers can be asserted. A real browser cannot be made to
- * produce all three — Chromium decides on its own heuristics, and Firefox's `persist()` blocks on a
- * permission prompt that never appears with no user gesture — so a test against the real API can only
- * assert that *something* came back, which is the shape of assertion that passes when the function
- * has been deleted. The real call is exercised by the running app in `e2e/editor-workspace.e2e.ts`.
- */
-export async function requestPersistentStorage(
-	storage: StorageManager | undefined = typeof navigator === 'undefined'
-		? undefined
-		: navigator.storage
-): Promise<StoragePersistence> {
-	if (typeof storage?.persist !== 'function' || typeof storage?.persisted !== 'function') {
-		return 'unsupported';
-	}
-	try {
-		if (await storage.persisted()) return 'granted';
-		return (await storage.persist()) ? 'granted' : 'refused';
-	} catch {
-		// A browser that has the methods and throws from them is one that cannot answer, which is what
-		// `unsupported` means to every caller. Reporting it as a refusal would tell the user their
-		// browser declined something it was never asked.
-		return 'unsupported';
-	}
-}

@@ -33,11 +33,7 @@
 	const unreachable = $derived(storage.session.status === 'unreachable');
 
 	/** The Workspaces that may be deleted: every named one except the one being looked out of. */
-	const deletable = $derived(
-		storage.workspaces.filter(
-			(name) => !(storage.backing === 'browser' && name === storage.workspaceName)
-		)
-	);
+	const deletable = $derived(storage.workspaces.filter((name) => !storage.isOpen(name)));
 
 	/** The Workspace the confirmation is about, or `null` when nothing is being confirmed. */
 	let confirming = $state<{ name: string; size: WorkspaceSize | null } | null>(null);

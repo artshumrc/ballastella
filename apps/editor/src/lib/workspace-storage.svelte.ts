@@ -13,8 +13,8 @@ import {
 	openOpfsWorkspace,
 	rememberedFolderName,
 	reopenWorkspaceFolder,
-	requestPersistentStorage,
 	workspaceSize,
+	requestPersistentStorage,
 	type ProjectStore,
 	type StoragePersistence,
 	type WorkspaceSize
@@ -217,7 +217,7 @@ export class WorkspaceStorage {
 	 * session and the Project list under it.
 	 */
 	async openWorkspace(name: string): Promise<void> {
-		if (this.backing === 'browser' && this.workspaceName === name) return;
+		if (this.isOpen(name)) return;
 		this.problem = '';
 		const opened = await ensureOpfsWorkspace(name);
 		await this.#adopt(openOpfsWorkspace(opened), 'browser', '', opened);
@@ -257,6 +257,11 @@ export class WorkspaceStorage {
 		return name;
 	}
 
+	/** Whether `name` is the browser-storage Workspace **this tab** currently has open. */
+	isOpen(name: string): boolean {
+		return this.backing === 'browser' && name === this.workspaceName;
+	}
+
 	/**
 	 * Delete a named Workspace and everything in it.
 	 *
@@ -265,9 +270,21 @@ export class WorkspaceStorage {
 	 * the directory — the store's resolver has `create: true` — so the user would watch their
 	 * Workspace come back holding one file. A guard that lives only in markup is one route away from
 	 * being absent.
+	 *
+	 * ⚠ **It does not cover the case that actually happens, and saying so is better than implying it
+	 * does.** {@link isOpen} compares against *this tab's* Workspace, so tab A deleting the Workspace
+	 * tab B is working in walks straight through — and browser storage is shared across tabs, which is
+	 * the whole reason a Workspace can now vanish under a running app at all. Nothing here can see
+	 * another tab: there is no lock and no cross-tab channel in this application, and inventing one
+	 * for a confirmation dialog would be a coordination protocol with a single caller.
+	 *
+	 * What *is* covered is the consequence, which is the half that matters to the user whose
+	 * Workspace went: tab B reports it unreachable rather than silently empty (ADR-0008), and
+	 * {@link locateWorkspaceAgain} rebuilds the session so the recovery is real. The guard here is
+	 * therefore about the one-tab mistake, and the recovery is about the two-tab one.
 	 */
 	async deleteWorkspace(name: string): Promise<void> {
-		if (this.backing === 'browser' && name === this.workspaceName) {
+		if (this.isOpen(name)) {
 			throw new Error(
 				`“${name}” is the Workspace you are in, so it cannot be deleted from inside itself. ` +
 					`Switch to another Workspace first.`
@@ -297,7 +314,7 @@ export class WorkspaceStorage {
 	 *
 	 * The state a bookmarked `?p=` lands in: the Project is in the folder, the folder needs a gesture
 	 * to reopen, and browser storage does not have that Project. Said rather than silently treated as
-	 * "no such Project", and said on every route rather than only where {@link StorageChoice} is.
+	 * "no such Project", and said on every route rather than only where the storage question is asked.
 	 */
 	get awaitingFolder(): boolean {
 		return this.backing === 'browser' && this.reopenable !== null;

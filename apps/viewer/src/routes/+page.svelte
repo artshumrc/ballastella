@@ -43,6 +43,7 @@
 		SiteFileUnreachableError,
 		baseMapFallbackNotice,
 		cachedTilePath,
+		legacyCachedTilePath,
 		createStoreImageFetch,
 		imageInfoPath,
 		isAbsoluteUrl,
@@ -554,13 +555,20 @@
 	 */
 	const cachedBaseMap = $derived.by(() => {
 		const archive = baseMap.entry.archive;
-		const held = site?.baseMapCaches.find((cache) => cache.archive === archive);
+		// An exact match first, so a site carrying tiles for two archives serves the right one. A
+		// `null` archive is the pre-ticket-12 layout — one unkeyed directory that belonged to no
+		// entry in particular — and it answers for any entry, which is what it did when it was written.
+		const held =
+			site?.baseMapCaches.find((cache) => cache.archive === archive) ??
+			site?.baseMapCaches.find((cache) => cache.archive === null);
 		if (!held) return null;
+		const pathOf = (tile: { z: number; x: number; y: number }) =>
+			held.archive === null ? legacyCachedTilePath(tile) : cachedTilePath(archive, tile);
 		return {
 			maxZoom: held.maxZoom,
 			readTile: async (tile: { z: number; x: number; y: number }) => {
 				try {
-					return await siteStore().read(cachedTilePath(archive, tile));
+					return await siteStore().read(pathOf(tile));
 				} catch {
 					return null;
 				}

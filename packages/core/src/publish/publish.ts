@@ -59,8 +59,25 @@ import {
 } from '../transfer/viewer-files.js';
 import { bundleBytes, type ViewerBundle, type ViewerBundleFile } from './viewer-bundle.js';
 
-/** The record's format, versioned for the same reason `project.json` is (ADR-0010). */
-export const PUBLISHED_SITE_FORMAT_VERSION = 1;
+/**
+ * The site record's format, versioned for the same reason `project.json` is (ADR-0010). **2 since ticket 12 keyed the Base Map tile cache by archive.**
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * BUMPED *AND* GIVEN A FALLBACK, AND THE FALLBACK IS THE PART THAT MATTERS
+ *
+ * `baseMapMaxZoom` became {@link PublishedSite.baseMapCaches}, which is a change of shape and not
+ * only of name. The bump is the honest label on that; it is not what protects anybody, because
+ * nothing in this repository refuses a site record by version — only `project.json` does (ADR-0010).
+ * What protects a site published before this change is {@link parseBaseMapCaches}' reading of the
+ * old field, without which its cached geography would simply stop drawing and nothing would say why:
+ * `baseMapBundled: true`, no `baseMapCaches`, and a blank reference map under the Project's own
+ * Layers. That is the same silent-blank failure ADR-0025 exists to prevent, arriving through the
+ * record instead of through the tiles.
+ *
+ * Migration was rejected: a Published Site is somebody else's directory on somebody else's host, and
+ * this build has no occasion to rewrite it. Reading both shapes costs one `??`.
+ */
+export const PUBLISHED_SITE_FORMAT_VERSION = 2;
 
 /** One Project as the hub page lists it. */
 export type PublishedProject = {
@@ -122,8 +139,14 @@ export type PublishedSite = {
 
 /** One archive a Published Site carries cached Base Map tiles for (ADR-0025). */
 export type PublishedBaseMapCache = {
-	/** The catalog entry's own `archive` string, unresolved — see `baseMapArchiveKey`. */
-	readonly archive: string;
+	/**
+	 * The catalog entry's own `archive` string, unresolved — see `baseMapArchiveKey`.
+	 *
+	 * **`null` means the pre-ticket-12 unkeyed cache**, which belonged to no particular entry
+	 * because there was only one directory. A viewer matches it against whichever entry is showing
+	 * and reads `legacyCachedTilePath`; see {@link parseBaseMapCaches}.
+	 */
+	readonly archive: string | null;
 	/** The source archive's own maximum zoom, as its header reported it when the cache was filled. */
 	readonly maxZoom: number;
 };
@@ -188,25 +211,49 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 			typeof record.baseMapAssetsBundled === 'boolean'
 				? record.baseMapAssetsBundled
 				: record.baseMapBundled === true,
-		baseMapCaches: parseBaseMapCaches(record.baseMapCaches)
+		baseMapCaches: parseBaseMapCaches(record.baseMapCaches, record.baseMapMaxZoom)
 	};
 }
 
 /**
- * The cached-archive list, read defensively.
+ * The cached-archive list, read defensively — **and the pre-ticket-12 field it replaced**.
  *
  * An entry missing either half is dropped rather than defaulted: a cache whose archive is unknown
  * cannot be matched to an entry, and one whose depth is unknown would make MapLibre ask past the
  * pyramid — so "no cache for that entry" is the only honest reading of a half-written entry, and it
  * costs a Reader the network rather than a blank map.
+ *
+ * ⚠ **A record written before ticket 12 has `baseMapMaxZoom` and no `baseMapCaches`, and its tiles
+ * are at the unkeyed `base-map/tiles/{z}/…`.** Reading the new field strictly would leave every
+ * already-published offline site drawing no geography at all, with `baseMapBundled: true` beside it
+ * — silent, and indistinguishable from the archive being down. So the old field is read as one
+ * cache with **no archive**, which is exactly what it meant: there was one directory and it served
+ * whichever catalog entry the Reader had selected. `ReaderMapPane` matches a `null` archive against
+ * any entry and reads `legacyCachedTilePath`.
+ *
+ * This is the same shape of fallback, for the same reason, as `baseMapAssetsBundled` above.
  */
-function parseBaseMapCaches(value: unknown): readonly PublishedBaseMapCache[] {
-	if (!Array.isArray(value)) return [];
-	return value.flatMap((entry: unknown) => {
+function parseBaseMapCaches(
+	value: unknown,
+	legacyMaxZoom: unknown
+): readonly PublishedBaseMapCache[] {
+	if (!Array.isArray(value)) {
+		return typeof legacyMaxZoom === 'number' &&
+			Number.isInteger(legacyMaxZoom) &&
+			legacyMaxZoom >= 0
+			? [{ archive: null, maxZoom: legacyMaxZoom }]
+			: [];
+	}
+	return value.flatMap<PublishedBaseMapCache>((entry: unknown) => {
 		const { archive, maxZoom } = (entry ?? {}) as { archive?: unknown; maxZoom?: unknown };
-		if (typeof archive !== 'string' || archive === '') return [];
+		// `null` is a value this build **writes**, for a legacy pile re-published — so refusing it here
+		// would make the record unreadable by the code that produced it, which is the one round trip a
+		// format has to survive. An absent or empty `archive` is still a half-written entry.
+		const named =
+			archive === null ? null : typeof archive === 'string' && archive !== '' ? archive : undefined;
+		if (named === undefined) return [];
 		if (typeof maxZoom !== 'number' || !Number.isInteger(maxZoom) || maxZoom < 0) return [];
-		return [{ archive, maxZoom }];
+		return [{ archive: named, maxZoom }];
 	});
 }
 
@@ -430,11 +477,18 @@ export async function planPublish(
  * exists to end, and it would arrive on somebody else's screen rather than on the author's.
  */
 const publishableCaches = (caches: readonly BaseMapCache[]): readonly PublishedBaseMapCache[] =>
-	caches.flatMap((cache) =>
-		cache.archive !== null && cache.sourceMaxZoom !== null && cache.tiles > 0
+	caches.flatMap<PublishedBaseMapCache>((cache) => {
+		if (cache.tiles === 0) return [];
+		// A pre-ticket-12 pile is published as what it is: no archive, and the depth read off its own
+		// files, which is exactly what the old `baseMapMaxZoom` was. Dropping it would take a working
+		// offline site away from a scholar the first time they re-published.
+		if (cache.legacy) {
+			return cache.maxZoom === null ? [] : [{ archive: null, maxZoom: cache.maxZoom }];
+		}
+		return cache.archive !== null && cache.sourceMaxZoom !== null
 			? [{ archive: cache.archive, maxZoom: cache.sourceMaxZoom }]
-			: []
-	);
+			: [];
+	});
 
 const collisionMessage = (collisions: readonly string[]): string =>
 	`${collisions.map((directory) => `“${directory}”`).join(', ')} ` +

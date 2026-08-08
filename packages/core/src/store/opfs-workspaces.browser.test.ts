@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+	MAX_WORKSPACE_NAME_LENGTH,
 	createOpfsWorkspace,
 	deleteOpfsWorkspace,
 	ensureOpfsWorkspace,
 	listOpfsWorkspaces,
-	openOpfsWorkspace
+	openOpfsWorkspace,
+	toWorkspaceName
 } from './opfs-workspaces.js';
 
 /**
@@ -79,6 +81,35 @@ describe('the OPFS root holds several named Workspaces', () => {
 		expect(second).not.toBe(first);
 		expect(second).toBe(`${wanted} (2)`);
 	});
+
+	it('suffixes a name that is already at the length cap, rather than spinning for ever', async () => {
+		// ┌─────────────────────────────────────────────────────────────────────────────────────┐
+		// │ THIS FROZE THE TAB, AND A USER REACHED IT BY TYPING A LONG NAME TWICE.               │
+		// └─────────────────────────────────────────────────────────────────────────────────────┘
+		//
+		// `toWorkspaceName(`${preferred} (2)`)` truncates the suffix straight back off when
+		// `preferred` is already at the cap, so the candidate equalled `preferred`, stayed taken, and
+		// the search loop advanced by nothing — synchronously, on the main thread, for ever.
+		//
+		// The timeout is what makes this a test of termination rather than of naming: a spinning
+		// implementation never reaches the assertion at all, and Vitest kills it.
+		const stem = `Marking ${crypto.randomUUID()}`.padEnd(MAX_WORKSPACE_NAME_LENGTH, 'x');
+		const preferred = toWorkspaceName(stem);
+		expect([...preferred].length).toBe(MAX_WORKSPACE_NAME_LENGTH);
+
+		const first = await remember(await createOpfsWorkspace(preferred));
+		const second = await remember(await createOpfsWorkspace(preferred));
+		const third = await remember(await createOpfsWorkspace(preferred));
+
+		expect(first).toBe(preferred);
+		// Distinct, still within the cap, and still recognisably the name that was asked for: the
+		// stem gives way to the marker rather than the marker being dropped.
+		expect(new Set([first, second, third]).size).toBe(3);
+		for (const name of [second, third]) {
+			expect([...name].length, name).toBeLessThanOrEqual(MAX_WORKSPACE_NAME_LENGTH);
+			expect(name, name).toMatch(/ \(\d+\)$/);
+		}
+	}, 15_000);
 
 	it('treats a name differing only in case as taken, the way APFS and NTFS do', async () => {
 		// `getDirectoryHandle('Marking')` hands back the existing `marking` on the two most common

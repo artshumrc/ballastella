@@ -62,6 +62,21 @@ Read [ADR-0024](../../../docs/adr/0024-backup-and-handoff-are-different-artefact
 - [x] Deleting a Workspace confirms first; the open Workspace cannot be deleted.
 - [x] Every control is keyboard-reachable.
 
+**Added in review.** The Base Map cache keying was ticket 11's deferral, handed to this ticket by the
+tracker rather than by the contract above — so it arrived as a published-format change under a list
+of criteria that said nothing about it, which is how the compatibility gap below escaped the first
+round. The criteria it needed:
+
+- [x] A Workspace holding tiles for two archives keeps them in two directories, and neither archive's
+      coverage is satisfied by the other's tiles.
+- [x] A Published Site names which archives it carries tiles for, and the viewer draws cached
+      geography only for the entry those tiles belong to.
+- [x] **A site published before the keying still draws its cached geography**, rather than going
+      blank with `baseMapBundled: true` beside it.
+- [x] **A Workspace filled before the keying still has its tiles counted and cleared by the hub**,
+      rather than becoming disk nothing in the application admits to.
+- [x] Switching Workspaces and creating one are announced, not left to a mutating button label.
+
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check
 pnpm --filter @ballastella/core test

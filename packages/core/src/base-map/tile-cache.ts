@@ -159,20 +159,46 @@ export const cachedTilePath = (archive: string, tile: TileCoordinate): string =>
 const CACHED_TILE_PATH = new RegExp(`^${BASE_MAP_TILE_ROOT}([^/]+)/(\\d+)/(\\d+)/(\\d+)\\.mvt$`);
 
 /**
+ * `base-map/tiles/{z}/{x}/{y}.mvt` — **the layout before ticket 12 keyed the directory**.
+ *
+ * Still recognised, and that is not politeness. A Workspace filled by ticket 11's build holds these
+ * paths, and a reader that stopped seeing them would make those bytes invisible to the hub's size
+ * report and to its clear button — megabytes a user deliberately fetched from somebody else's
+ * server, occupying disk that nothing in the application admits to. Nothing *writes* this shape any
+ * more; {@link legacyCachedTilePath} exists so the one place that still reads it can say which
+ * layout it means.
+ */
+const LEGACY_CACHED_TILE_PATH = new RegExp(`^${BASE_MAP_TILE_ROOT}(\\d+)/(\\d+)/(\\d+)\\.mvt$`);
+
+/** Where a tile sat before the directory was keyed. Read-only: nothing writes here now. */
+export const legacyCachedTilePath = (tile: TileCoordinate): string =>
+	`${BASE_MAP_TILE_ROOT}${tile.z}/${tile.x}/${tile.y}.mvt`;
+
+/**
  * The archive key and tile a cache path names, or `null` when the path is not one of ours.
  *
  * Key-agnostic on purpose, and that is what the whole-cache callers need: the hub's size, the hub's
  * clear, and publishing's list all have to answer for *every* archive a Workspace has cached, and
  * the key is a one-way function of an archive they are not holding. {@link parseCachedTilePath} is
  * the same read narrowed to one archive.
+ *
+ * **`key` is `null` for the pre-ticket-12 unkeyed layout**, which is exactly what it means: tiles
+ * that are certainly cached and whose archive is not recorded anywhere. Callers that only need to
+ * count or delete treat it as one more cache; callers deciding *coverage* must not, because a tile
+ * of unknown provenance cannot make a claim about a particular archive.
  */
 export function parseAnyCachedTilePath(
 	path: string
-): { readonly key: string; readonly tile: TileCoordinate } | null {
+): { readonly key: string | null; readonly tile: TileCoordinate } | null {
 	const matched = CACHED_TILE_PATH.exec(path);
-	if (!matched) return null;
-	const [, key, z, x, y] = matched as unknown as [string, string, string, string, string];
-	return { key, tile: { z: Number(z), x: Number(x), y: Number(y) } };
+	if (matched) {
+		const [, key, z, x, y] = matched as unknown as [string, string, string, string, string];
+		return { key, tile: { z: Number(z), x: Number(x), y: Number(y) } };
+	}
+	const legacy = LEGACY_CACHED_TILE_PATH.exec(path);
+	if (!legacy) return null;
+	const [, z, x, y] = legacy as unknown as [string, string, string, string];
+	return { key: null, tile: { z: Number(z), x: Number(x), y: Number(y) } };
 }
 
 /**

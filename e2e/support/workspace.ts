@@ -10,9 +10,18 @@ import { expect, type Page } from './test.js';
 /** The Workspace control on the bar. Its button carries the Workspace's name. */
 export const workspaceButton = (page: Page) => page.getByTestId('workspace-switcher');
 
-/** What the bar says the current Workspace is. Visible on every screen (SPEC story 88). */
+/**
+ * What the bar says the current Workspace is. Visible on every screen (SPEC story 88).
+ *
+ * ⚠ **Asserted on the switcher button, never on the `workspace-identity` block around it.** The
+ * popover is rendered *inside* that block, so `toContainText(name)` was satisfied by the menu's own
+ * list of Workspaces — which meant this passed the instant the menu was open, whichever Workspace was
+ * actually current. `switchToWorkspace` then returned before the switch had happened and the next
+ * step read the wrong Workspace's files. The button's label is the one place that says which
+ * Workspace you are *in*, so it is the only place worth asking.
+ */
 export async function expectWorkspaceNamed(page: Page, name: string): Promise<void> {
-	await expect(page.getByTestId('workspace-identity')).toContainText(name);
+	await expect(workspaceButton(page)).toHaveText(name);
 }
 
 /** Open the Workspace menu on the bar. */

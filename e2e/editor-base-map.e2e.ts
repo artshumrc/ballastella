@@ -702,7 +702,17 @@ async function seedProjectWithWork(page: Page, ring = CANAL_BELT_RING): Promise<
 	);
 }
 
-/** Every cached tile path in the Workspace, sorted. The behaviour *is* the files (SPEC, Seam 1). */
+/**
+ * Every cached tile path in the Workspace, sorted. The behaviour *is* the files (SPEC, Seam 1).
+ *
+ * ⚠ **This is also what holds the harness's copy of `baseMapArchiveKey` to the application's.**
+ * `support/editor-deployment.ts` re-derives that key because the suite's tsconfig covers `e2e/`
+ * alone and cannot import from the packages, and a duplicated derivation with nothing comparing it
+ * drifts. Nothing compares them directly; what compares them is this walk, which looks under the
+ * *harness's* directory for tiles the *app* wrote — so "writes a tile file for every zoom" below goes
+ * red the moment the two disagree. The other direction is `viewer-reader.e2e.ts`'s offline test,
+ * where the harness writes the files and the app reads them.
+ */
 async function cachedTilePaths(page: Page): Promise<string[]> {
 	return page.evaluate(async (prefix) => {
 		const walk = async (
