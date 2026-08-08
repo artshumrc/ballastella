@@ -18,8 +18,8 @@
 // murky permission semantics inside a service worker, and that is the backend most users will
 // have. Do not reintroduce it as the cleaner approach.
 //
-// This module is deliberately free of the tiler and of `wasm-vips` (ADR-0019): `apps/viewer`
-// will read published pyramids through this same shim, and it must not acquire either. What it
+// This module is deliberately free of the tiler (ADR-0019): `apps/viewer` will read published
+// pyramids through this same shim, and it must not acquire one. What it
 // does import from the tiler's `pyramid.ts` is the pyramid *format* — where an image's files
 // live and what its placeholder `id` is — which is exactly the knowledge a reader has to share
 // with the writer for the two not to drift.

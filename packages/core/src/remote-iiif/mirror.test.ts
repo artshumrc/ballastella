@@ -231,24 +231,41 @@ describe('planMirror: what the copy will cost the Workspace', () => {
 		expect(estimateMirrorBytes(plan.width, plan.height)).toBe(estimateMirrorBytes(1200, 851));
 	});
 
-	it('says when the copy will need the streaming tiler', async () => {
-		const under = planMirror(await levelTwo(4000, 4000), { streamingThresholdPixels: 100_000_000 });
-		const over = planMirror(await levelTwo(4000, 4000), { streamingThresholdPixels: 1_000_000 });
+	// **A refusal, where it used to be a warning** (ADR-0027). The note this replaces said a copy
+	// this size "needs the streaming tiler", and then let the user start it — thousands of requests
+	// to somebody else's server ending at a wall. There is no streaming tiler to need, and there is
+	// nowhere for either path to escape to: a copy has to exist as one full-resolution image before
+	// it can be re-cut. This is v1 ticket 15's `[~]` criterion, closed.
+	it('refuses a source above the decode ceiling, on both paths', async () => {
+		for (const [name, service] of [
+			['full-max', await levelTwo(4000, 4000)],
+			['assembled', await levelZero(4000, 4000)]
+		] as const) {
+			const under = planMirror(service, { maxIngestPixels: 100_000_000 });
+			const over = planMirror(service, { maxIngestPixels: 1_000_000 });
 
-		expect(under.needsStreamingTiler).toBe(false);
-		expect(over.needsStreamingTiler).toBe(true);
-		// And it is said plainly, because on a static host that tiler cannot run at all today.
-		expect(over.notes.join(' ')).toMatch(/megapixel|streaming|larger/i);
+			expect(under.refusal, name).toBe('');
+			expect(over.refusal, name).not.toBe('');
+			expect(over.refusal, name).toMatch(/megapixel/i);
+			// The remedy, not the deployment. Nothing user-facing may name the headers any more.
+			expect(over.refusal, name).toContain('outside the browser');
+			for (const word of ['COOP', 'COEP', 'SharedArrayBuffer', 'streaming tiler']) {
+				expect(over.refusal, `${name}: ${word}`).not.toContain(word);
+			}
+			expect(over.notes.join(' '), name).not.toContain('SharedArrayBuffer');
+		}
 	});
 
 	it('refuses to stitch a level-0 source too large to hold in one image', async () => {
-		// The per-tile path has to hold the whole source at full resolution to re-cut it, so it inherits
-		// the decode ceiling rather than escaping it. Refused up front and named, not discovered as a
-		// dead tab part way through thousands of requests to somebody else's server.
+		// The per-tile path has to hold the whole source at full resolution to re-cut it, so it
+		// inherits the decode ceiling rather than escaping it, and its refusal says so in its own
+		// words. Named up front, not discovered as a dead tab part way through thousands of requests
+		// to somebody else's server. 30000 × 30000 is 900 megapixels, above the real cap.
 		const plan = planMirror(await levelZero(30_000, 30_000));
 
 		expect(plan.refusal).not.toBe('');
 		expect(plan.refusal).toMatch(/megapixel/i);
+		expect(plan.refusal).toContain('reassembled at full resolution');
 	});
 });
 
@@ -468,24 +485,31 @@ describe('mirrorRemoteImage: the level-2 path', () => {
 		expect(await store.list('amsterdam-1625/')).toEqual([]);
 	});
 
-	it('routes an image above the decode ceiling to the streaming tiler', async () => {
-		const service = await levelTwo(20_000, 16_000);
+	it('refuses before it fetches when the source is above the decode ceiling', async () => {
+		// 30000 × 20000 is 600 megapixels. `mirrorRemoteImage` recomputes the plan when none is
+		// passed, so the refusal has to reach the caller as an error rather than as a field nobody
+		// read — and it has to happen before a byte is fetched or written.
+		const service = await levelTwo(30_000, 20_000);
 		const opened: string[] = [];
-		const watch = (kind: string, dimensions: { width: number; height: number }): OpenTileSource => {
+		const watch = (dimensions: { width: number; height: number }): OpenTileSource => {
 			const inner = stubTiler(dimensions);
 			return async (file) => {
-				opened.push(kind);
+				opened.push('decode-and-crop');
 				return inner(file);
 			};
 		};
 
-		const { result } = await mirror(service, {
-			openDecodeAndCrop: watch('decode-and-crop', { width: 20_000, height: 16_000 }),
-			openStreaming: watch('streaming', { width: 20_000, height: 16_000 })
-		});
+		const failure = await mirror(service, {
+			openDecodeAndCrop: watch({ width: 30_000, height: 20_000 })
+		}).then(
+			() => undefined,
+			(cause: unknown) => cause as Error
+		);
 
-		expect(opened).toEqual(['streaming']);
-		expect(result.ingest.tiler).toBe('streaming');
+		expect(failure).toBeInstanceOf(MirrorRefusedError);
+		expect(failure?.message).toMatch(/600 megapixel/i);
+		expect(opened).toEqual([]);
+		expect(await store.list('')).toEqual([]);
 	});
 });
 

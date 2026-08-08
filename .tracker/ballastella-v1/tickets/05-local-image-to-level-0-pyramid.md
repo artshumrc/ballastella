@@ -233,9 +233,26 @@ identical:
   and nothing else, which is what pins the regions, their order, and their orientation.
 - **The ragged coarse tiles agree on semantics**, by the profile test tabulated above.
 
-### The streaming tiler cannot run where ADR-0003 needs it to
+### ~~The streaming tiler cannot run where ADR-0003 needs it to~~ — CLOSED, option 3 chosen
 
-**This needs a human, and no implementer can decide it away.**
+**Decided by a human on 2026-08-07, and implemented by
+[workspace-and-layers ticket 19](../../workspace-and-layers/tickets/19-drop-libvips-for-v1.md):
+option 3.** `wasm-vips` and the streaming tiler are removed from the repository, ingest is capped at
+the measured decode ceiling, and ADR-0003's streaming clause is superseded by
+[ADR-0027](../../../docs/adr/0027-no-streaming-tiler-in-v1.md).
+
+Two things the analysis below got right and one it did not foresee:
+
+- The blocker was real and total. The path never executed in dev, preview, e2e, or production.
+- The seam did make the change small — but it was `TileSource`, not `streamingTiler(loadVips)`, that
+  paid off. The injected *loader* went with the tiler; the injected *source* is what let everything
+  above the tiler keep its tests.
+- **The cap is not this ticket's threshold, and the warning below about that was worth having.**
+  `MAX_INGEST_PIXELS` is 528,006,700 — the measured ceiling — and not 2^28. Ingest therefore
+  *widened* by roughly a factor of two: a 300-megapixel scan both engines decode is now accepted.
+  Story 22 is less retired than option 3 predicted.
+
+The original analysis follows, unchanged.
 
 ADR-0003 and this ticket both require the **single-threaded** `wasm-vips` build, because the
 threaded one needs COOP/COEP cross-origin isolation and GitHub Pages cannot send those headers —
@@ -268,7 +285,8 @@ The options, none of which is an implementer's call:
    Safari. It also interacts with ticket 18's own service worker.
 3. **Drop the streaming tiler from v1.** Cap ingest at the decode ceiling with the refusal that now
    exists, and lean on ADR-0003's already-documented `sharp` CLI as the escape hatch for images that
-   defeat the browser. Cheapest, and honest, but it retires part of story 22.
+   defeat the browser. Cheapest, and honest, but it retires part of story 22. **← chosen, 2026-08-07.
+   It retired less of story 22 than this line expected: the cap is the ceiling, so ingest widened.**
 4. Something else — a different WASM codec path, or server-side tiling, both of which are larger
    decisions than this ticket.
 

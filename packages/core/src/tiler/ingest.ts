@@ -9,10 +9,12 @@
 // Cancel button beside the progress bar; a cancellation that no user can reach is not one, and
 // this comment described that state of affairs for a while.
 //
-// The two tilers are injected rather than imported. That is what keeps `wasm-vips` out of the
-// initial bundle (ADR-0019, and the acceptance criterion that greps the built entry chunk for
-// it): `@ballastella/core` names a seam, `apps/editor` supplies a loader that dynamically
-// imports the module, and `apps/viewer` supplies neither because it never ingests anything.
+// **There is one tiler, and above the decode ceiling there is a refusal** (ADR-0027). There used
+// to be a second, streaming implementation backed by `wasm-vips`, taken for images the browser
+// cannot decode in one piece; it was removed because it could not run on the deployment target at
+// all. The tiler is still injected rather than imported: it needs `createImageBitmap` and an
+// `OffscreenCanvas`, and naming the seam here is what lets everything above it be tested in Node
+// and keeps this module free of anything `apps/viewer` must not acquire (ADR-0019).
 
 import { generateRandomId } from '@allmaps/id';
 
@@ -23,20 +25,19 @@ import {
 	imageInfoPath,
 	imageManifestPath
 } from '../project/image-files.js';
-import { STREAMING_TILER_THRESHOLD_PIXELS } from './decode-ceiling.js';
+import { MAX_INGEST_PIXELS } from './decode-ceiling.js';
 import { readImageHeaderFromBlob } from './image-header.js';
 import { buildImageManifest } from './image-manifest.js';
 import { buildImageInfo, planPyramid, serialiseJson, type PlannedTile } from './pyramid.js';
 
-/** Which implementation of the ADR-0003 contract produced a pyramid. */
-export type TilerKind = 'decode-and-crop' | 'streaming';
-
 /**
  * A source image, opened and ready to be cut up.
  *
- * The seam between "what a pyramid is" and "how pixels are produced". Both tilers implement it:
- * one decodes the whole image once and crops per tile, the other pushes each tile through
- * libvips. Nothing above this interface knows which one it has.
+ * The seam between "what a pyramid is" and "how pixels are produced": the shipped implementation
+ * decodes the whole image once and crops per tile, and nothing above this interface knows that.
+ * Keeping the seam after ADR-0027 removed the second implementation is deliberate — it is what
+ * lets every test above this line run in Node with no canvas, and it is where the `sharp` escape
+ * hatch would attach if it were ever brought in-process.
  */
 export interface TileSource {
 	/** The image's real dimensions, as the decoder sees them. */
@@ -57,8 +58,6 @@ export type OpenTileSource = (file: Blob) => Promise<TileSource>;
 /** What the UI needs in order to say something true while an ingest runs (SPEC story 23). */
 export type IngestProgress = {
 	readonly phase: 'inspecting' | 'opening' | 'tiling' | 'finishing' | 'done';
-	/** Which tiler is running. Unknown during `inspecting`. */
-	readonly tiler: TilerKind | undefined;
 	readonly tilesWritten: number;
 	/** Total tiles in the pyramid. 0 until the image's dimensions are known. */
 	readonly tileCount: number;
@@ -75,7 +74,6 @@ export type IngestResult = {
 	readonly width: number;
 	readonly height: number;
 	readonly tileCount: number;
-	readonly tiler: TilerKind;
 };
 
 export type IngestOptions = {
@@ -94,28 +92,10 @@ export type IngestOptions = {
 	 * the id the image already has rather than mint a second one.
 	 */
 	readonly imageId?: string;
-	/** The decode-and-crop tiler. Required: it is the default path for every image. */
+	/** The decode-and-crop tiler. Required: it is the path every image takes. */
 	readonly openDecodeAndCrop: OpenTileSource;
-	/**
-	 * The streaming tiler, if this consumer has one. Absent is a legitimate configuration — a
-	 * build that has no `wasm-vips` — and an image above the threshold then fails with a message
-	 * that says so instead of being quietly decoded and killing the tab.
-	 */
-	readonly openStreaming?: OpenTileSource;
-	/**
-	 * Why {@link openStreaming} cannot run **in this document**, or `''` when it can. Asked before
-	 * the tiler is opened, and only for an image above the threshold.
-	 *
-	 * This exists because "the streaming tiler is present" and "the streaming tiler can run" are
-	 * different questions, and on a static host the answers differ: npm publishes only the threaded
-	 * `wasm-vips`, which needs a cross-origin isolated document (ADR-0003). Asking first is what
-	 * keeps the refusal a statement about the deployment rather than a false statement about the
-	 * user's file — and it is the refusal `apps/editor` actually produces, since it always supplies
-	 * `openStreaming`.
-	 */
-	readonly streamingTilerUnavailableReason?: () => string;
-	/** Overridable so tests can drive the streaming path without a 268-megapixel fixture. */
-	readonly streamingThresholdPixels?: number;
+	/** Overridable so tests can drive the refusal without a 528-megapixel fixture. */
+	readonly maxIngestPixels?: number;
 	readonly onProgress?: (progress: IngestProgress) => void;
 	readonly signal?: AbortSignal;
 };
@@ -151,50 +131,52 @@ export async function listIngestedImages(store: ProjectStore): Promise<IngestedI
 }
 
 /**
- * Thrown when the image is above the decode ceiling and the streaming tiler cannot take it.
+ * Thrown when the image is larger than a browser will decode, so no pyramid can be cut from it
+ * here at all (ADR-0027).
  *
- * One error for two reasons, because to a user they are the same event and the difference is
- * ours: either this build has no streaming tiler at all, or it has one that cannot run in this
- * document (see {@link IngestOptions.streamingTilerUnavailableReason}). What must not happen is
- * what used to: the second case arriving as {@link UnreadableImageError}, whose first sentence
- * says the file could not be read and tells the user to convert a TIFF they may not have. SPEC's
- * *On the audience* makes "errors must name what is wrong and what to do" binding, and the size
- * of the image plus the reason the tiler is unavailable is that.
+ * **The message says the size and the remedy, and nothing about the deployment.** It used to name
+ * `Cross-Origin-Embedder-Policy` and cross-origin isolation, because the refusal was really about
+ * a streaming tiler that could not start; with that tiler gone the refusal is about the image, and
+ * the only thing the user can do about it is prepare the pyramid outside the browser. SPEC's *On
+ * the audience* makes "errors must name what is wrong and what to do" binding, and a scholar who
+ * has never heard of COEP could act on neither half of the old sentence.
+ *
+ * What must also not happen is what used to happen before that: this arriving as
+ * {@link UnreadableImageError}, whose first sentence says the file could not be read and tells the
+ * user to convert a TIFF they may not have.
  */
-export class StreamingTilerUnavailableError extends Error {
-	/** The unadorned reason, for a caller that wants to render it on its own. */
-	readonly reason: string;
+export class ImageTooLargeError extends Error {
+	/** The image's size in pixels, for a caller that wants to render its own sentence. */
+	readonly pixels: number;
+	/** The cap this image exceeded, in pixels. */
+	readonly maxPixels: number;
 
-	constructor(pixels: number, threshold: number, reason: string) {
+	constructor(pixels: number, maxPixels: number) {
 		super(
-			`This image is ${Math.round(pixels / 1e6)} megapixels, above the ${Math.round(
-				threshold / 1e6
-			)} megapixel limit of the built-in tiler. ${reason} Nothing has been added to the Workspace.`
+			`This image is ${Math.round(pixels / 1e6)} megapixels, above the ` +
+				`${Math.round(maxPixels / 1e6)} megapixel limit of what a browser can decode. Convert it ` +
+				`to a IIIF pyramid outside the browser and add that instead. Nothing has been added to ` +
+				`the Workspace.`
 		);
-		this.name = 'StreamingTilerUnavailableError';
-		this.reason = reason;
+		this.name = 'ImageTooLargeError';
+		this.pixels = pixels;
+		this.maxPixels = maxPixels;
 	}
 }
 
-/** The reason used when a build simply has no `wasm-vips` — `apps/viewer`, and nothing else. */
-const NO_STREAMING_TILER = 'This build has no streaming tiler to fall back to.';
-
 /**
- * Thrown when the tiler that was chosen could not read the file — an unsupported format, or a
- * truncated one.
+ * Thrown when the tiler could not read the file — an unsupported format, or a truncated one.
  *
- * The advice depends on which tiler failed, because the two read different things. Telling
- * someone whose TIFF libvips choked on that "a TIFF archival master needs to be converted first"
- * is advice to do the thing that just failed.
+ * Distinct from {@link ImageTooLargeError} on purpose, and the pair is asserted: a TIFF under the
+ * cap must fail as a format this browser does not read, not as an image that is too large, because
+ * the advice differs and one of them is advice to do the thing that just failed.
  */
 export class UnreadableImageError extends Error {
-	constructor(tiler: TilerKind, cause: unknown) {
+	constructor(cause: unknown) {
 		const detail = cause instanceof Error ? cause.message : String(cause);
 		super(
-			tiler === 'decode-and-crop'
-				? `This file could not be read as an image. Browsers read JPEG, PNG, WebP, GIF and AVIF; ` +
-						`a TIFF or JPEG 2000 archival master needs to be converted first. (${detail})`
-				: `This file could not be read as an image by the streaming tiler. (${detail})`
+			`This file could not be read as an image. Browsers read JPEG, PNG, WebP, GIF and AVIF; ` +
+				`a TIFF or JPEG 2000 archival master needs to be converted first. (${detail})`
 		);
 		this.name = 'UnreadableImageError';
 	}
@@ -216,8 +198,7 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 		store,
 		file,
 		openDecodeAndCrop,
-		openStreaming,
-		streamingThresholdPixels = STREAMING_TILER_THRESHOLD_PIXELS,
+		maxIngestPixels = MAX_INGEST_PIXELS,
 		onProgress,
 		signal
 	} = options;
@@ -227,12 +208,9 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 	let tilesWritten = 0;
 	let tileCount = 0;
 
-	// `tiler` is passed in rather than closed over, because it is decided exactly once and only the
-	// first report is made before that. The counts below really do change as the job runs.
-	const report = (phase: IngestProgress['phase'], tiler?: TilerKind) => {
+	const report = (phase: IngestProgress['phase']) => {
 		onProgress?.({
 			phase,
-			tiler,
 			tilesWritten,
 			tileCount,
 			// Tiling is all of the work, so the fraction is the tile count and the two ends are
@@ -246,42 +224,25 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 	report('inspecting');
 	signal?.throwIfAborted();
 
-	// The header first, so that an image above the ceiling is never handed to a decoder. An
+	// The header first, so that an image above the cap is never handed to a decoder. An
 	// unrecognised container falls through with `undefined` and is decoded, which is right for
-	// the formats a browser reads and this does not — but it means the routing decision for those
+	// the formats a browser reads and this does not — but it means the size decision for those
 	// is made by the decoder itself, which either succeeds or reports a decode failure.
 	const header = await readImageHeaderFromBlob(file);
 	const headerPixels = header ? header.width * header.height : undefined;
 
-	const overThreshold = headerPixels !== undefined && headerPixels > streamingThresholdPixels;
-
-	if (overThreshold) {
-		// Asked before the tiler is opened, so a deployment that cannot run libvips refuses with a
-		// sentence about the deployment — and never fetches the module to find out.
-		const unavailable = openStreaming
-			? (options.streamingTilerUnavailableReason?.() ?? '')
-			: NO_STREAMING_TILER;
-
-		if (unavailable) {
-			throw new StreamingTilerUnavailableError(
-				headerPixels!,
-				streamingThresholdPixels,
-				unavailable
-			);
-		}
+	if (headerPixels !== undefined && headerPixels > maxIngestPixels) {
+		throw new ImageTooLargeError(headerPixels, maxIngestPixels);
 	}
 
-	const tiler: TilerKind = overThreshold ? 'streaming' : 'decode-and-crop';
-
-	report('opening', tiler);
+	report('opening');
 	signal?.throwIfAborted();
 
-	const open = tiler === 'streaming' ? openStreaming! : openDecodeAndCrop;
 	let source: TileSource;
 	try {
-		source = await open(file);
+		source = await openDecodeAndCrop(file);
 	} catch (cause) {
-		throw new UnreadableImageError(tiler, cause);
+		throw new UnreadableImageError(cause);
 	}
 
 	const written: StorePath[] = [];
@@ -294,7 +255,7 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 		const tiles = planPyramid(info, directory);
 		tileCount = tiles.length;
 
-		report('tiling', tiler);
+		report('tiling');
 
 		for (const tile of tiles) {
 			signal?.throwIfAborted();
@@ -302,10 +263,10 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 			await store.write(tile.path, bytes);
 			written.push(tile.path);
 			tilesWritten += 1;
-			report('tiling', tiler);
+			report('tiling');
 		}
 
-		report('finishing', tiler);
+		report('finishing');
 		signal?.throwIfAborted();
 
 		const infoPath = imageInfoPath(imageId);
@@ -317,7 +278,7 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 		await store.write(infoPath, serialiseJson(info));
 		written.push(infoPath);
 
-		report('done', tiler);
+		report('done');
 
 		return {
 			imageId,
@@ -326,8 +287,7 @@ export async function ingestImageFile(options: IngestOptions): Promise<IngestRes
 			manifestPath,
 			width,
 			height,
-			tileCount,
-			tiler
+			tileCount
 		};
 	} catch (cause) {
 		// Leave nothing behind. An abandoned pyramid is unreachable — nothing finds tiles except

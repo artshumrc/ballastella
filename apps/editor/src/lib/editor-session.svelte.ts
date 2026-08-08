@@ -68,7 +68,6 @@ import {
 	// Aliased: the session has a method of the same name, and the two doing different amounts of work
 	// under one word is how a later edit calls the wrong one.
 	stampCanonicalUrl as stampWorkspaceImages,
-	streamingTiler,
 	toDirectoryName,
 	workspaceSize,
 	writeAlignmentFile,
@@ -113,7 +112,6 @@ import {
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
 import { recordAnnotationWrite } from './annotations/browser-test-handle.js';
-import { libvipsUnavailableReason, loadLibvips } from './ingest/libvips-loader.js';
 import { saveFile } from './save-file.js';
 
 /**
@@ -683,8 +681,10 @@ export class EditorSession {
 	 * about an edit that is ending, which this is not. `project.json` is written once at the end, by
 	 * {@link #addMapLayer}, because the stack genuinely changed.
 	 *
-	 * The two tilers are handed in from here — the one place in the app that knows both that
-	 * `wasm-vips` exists and that it must not be fetched until it is needed (ADR-0019).
+	 * The tiler is handed in from here, because `@ballastella/core` names the seam rather than
+	 * reaching for a canvas of its own (ADR-0019). An image larger than a browser will decode is
+	 * refused by `ingestImageFile` before anything is opened (ADR-0027); there is no second tiler to
+	 * fall back to and the refusal says so in terms of the image rather than of the deployment.
 	 */
 	async ingestImage(file: File): Promise<void> {
 		const directory = this.openDirectory;
@@ -694,7 +694,6 @@ export class EditorSession {
 		this.ingestLabel = file.name;
 		this.ingest = {
 			phase: 'inspecting',
-			tiler: undefined,
 			tilesWritten: 0,
 			tileCount: 0,
 			fraction: 0
@@ -711,10 +710,6 @@ export class EditorSession {
 				store: this.#store,
 				file,
 				openDecodeAndCrop: openDecodeAndCropSource,
-				openStreaming: streamingTiler(loadLibvips),
-				// Asked before the module is imported, so an over-threshold image on a static host is
-				// refused with the reason it cannot be tiled rather than with a claim about the file.
-				streamingTilerUnavailableReason: libvipsUnavailableReason,
 				onProgress: (progress) => {
 					this.ingest = progress;
 				},
@@ -1516,7 +1511,6 @@ export class EditorSession {
 			fetch: this.imageServiceFetch(),
 			assemble: assembleWithCanvas,
 			openDecodeAndCrop: openDecodeAndCropSource,
-			openStreaming: streamingTiler(loadLibvips),
 			...(options.onProgress ? { onProgress: options.onProgress } : {}),
 			...(options.signal ? { signal: options.signal } : {})
 		});

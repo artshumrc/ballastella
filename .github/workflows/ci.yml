@@ -23,16 +23,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # ADR-0019: the viewer must never depend on terra-draw, the tiler, or wasm-vips.
+      # ADR-0019: the viewer must never depend on terra-draw or the tiler.
       # `pnpm lint` runs this too; it is first here so a violation is the first thing read.
+      #
+      # This used to be one of a pair. `scripts/check-tiler-lazy.mjs` fenced the half a manifest
+      # cannot see — `wasm-vips` reachable only by dynamic import — and ADR-0027 removed the
+      # package, so it was deleted rather than left inspecting an absence.
       - name: Viewer dependency fence
         run: node scripts/check-viewer-deps.mjs
-
-      # The other half of ADR-0019, which the manifest cannot see: wasm-vips reachable only by
-      # dynamic import, and no tiler in the viewer. `pnpm lint` runs the source half; the
-      # built-output half runs after `pnpm -r build` below, where there is something to look at.
-      - name: Tiler laziness fence (source)
-        run: node scripts/check-tiler-lazy.mjs
 
       # `pnpm lint` runs this too; it is called out here because the thing it guards fails silently.
       # Without the patch, warped rendering — the whole point of the application — renders blank with
@@ -46,13 +44,6 @@ jobs:
       - run: pnpm check
 
       - run: pnpm -r build
-
-      # ADR-0019 against the built output, which is the only place the question can be settled:
-      # a lazy import is lazy because the bundler put it in its own chunk, and the viewer's
-      # leanness must not rest on tree-shaking. Same script as the lint step, now with something
-      # to inspect, and `--require-build` makes a missing build fatal rather than skipped.
-      - name: Tiler laziness fence (built bundles)
-        run: pnpm check:bundles
 
       # ADR-0006: one build has to serve a domain root and a project subdirectory, so no
       # asset may be referenced by absolute path. Checked against the built output rather

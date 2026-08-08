@@ -59,7 +59,6 @@ but no `build`.
 | `pnpm --filter @ballastella/core test` | core tests only                              |
 | `pnpm test:e2e`                      | browser tests (Playwright, headless Chromium)  |
 | `pnpm lint`                          | lint, format check, and the source fences      |
-| `pnpm check:bundles`                 | ADR-0019 against built output (needs a build)  |
 | `pnpm check:deployment`              | refuse development-only deployment settings   |
 | `pnpm check:dev`                     | both apps answer their root route under `vite dev` |
 | `pnpm check`                         | Svelte and TypeScript checks                   |
@@ -71,20 +70,20 @@ catalog uses Protomaps' demo bucket for educational development and evaluation.
 
 ## Three rules the toolchain enforces for you
 
-**`apps/viewer` must never depend on `terra-draw`, the tiler, or `wasm-vips`**
+**`apps/viewer` must never depend on `terra-draw` or the tiler**
 ([ADR-0019](docs/adr/0019-minimal-pnpm-monorepo.md)). The viewer is a separate build so that
 its leanness is enforced by the dependency graph rather than by tree-shaking, because
 tree-shaking is not a boundary: one incautious import and every published site silently
 grows by megabytes, with no error and nobody looking. `scripts/check-viewer-deps.mjs` runs
-as part of `pnpm lint` and fails if any of them appear in the viewer's manifest.
+as part of `pnpm lint` and fails if either appears in the viewer's manifest, or in the manifest
+of a workspace package the viewer reaches.
 
-The tiler is not in a manifest — it lives inside `@ballastella/core`, which the viewer does
-depend on — so `scripts/check-tiler-lazy.mjs` covers that half. It runs in `pnpm lint` over the
-source (nothing under `packages/core/src` may name `wasm-vips`; nothing in `apps/editor/src` may
-import it other than dynamically), and again as `pnpm check:bundles` **after `pnpm -r build`**,
-where it walks the built editor's chunk graph and greps the built viewer for the tiler's own
-string literals. Both halves fail if they find nothing to guard, because the check they replaced
-— a `grep` for a module specifier that bundling resolves away — reported success unconditionally.
+This was a pair of checks until [ADR-0027](docs/adr/0027-no-streaming-tiler-in-v1.md).
+`scripts/check-tiler-lazy.mjs` fenced the half no manifest can see — `wasm-vips` reachable only by
+dynamic import — and that package is no longer in the repository, so the script and its
+`pnpm check:bundles` step were deleted rather than left inspecting an absence. The tiler that
+remains is `createImageBitmap` and an `OffscreenCanvas`, injected by whichever app has one, and it
+draws in no dependency for a manifest to name.
 
 **No asset may be referenced by an absolute path.** `paths.relative: true` is set in both
 apps' `svelte.config.js` and is mandatory

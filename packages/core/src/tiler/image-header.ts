@@ -11,9 +11,12 @@
 //
 // TIFF is included even though most browsers cannot decode one, because an uncompressed or LZW
 // TIFF is what a library hands a scholar when they ask for the archival master (SPEC story 22).
-// libvips reads it, so the streaming path can tile it; what would otherwise happen is that the
-// format falls through to the decode path, `createImageBitmap` refuses it, and the user is told
-// their file is broken.
+// Reading its header is what lets ingest give a straight answer about it: a TIFF over the cap is
+// refused for its size, and one under the cap reaches `createImageBitmap` and is refused as a
+// format the browser does not read, with the advice to convert it. Without the header both cases
+// arrived as the same vague decode failure. (Before ADR-0027 the reason was different — libvips
+// could tile a TIFF, so the header routed it to the streaming path — but the read is worth as much
+// now as it was then.)
 //
 // **TIFF needs two reads, and with one it was mostly unreachable.** Unlike every other container
 // here, a TIFF does not put its metadata at the front: the 8-byte header holds only a pointer to

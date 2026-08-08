@@ -90,9 +90,6 @@ catalogs:
     vitest:
       specifier: ^4.1.10
       version: 4.1.10
-    wasm-vips:
-      specifier: 0.0.18
-      version: 0.0.18
 
 patchedDependencies:
   '@allmaps/render@1.0.0-beta.83': 243385713f5c8ece7a52461ff6adc73819ce016c56402994f56c1e7257ddf4cd
@@ -176,9 +173,6 @@ importers:
       triiiceratops:
         specifier: 'catalog:'
         version: 1.0.0-rc.35(svelte@5.56.8(@typescript-eslint/types@8.66.0))
-      wasm-vips:
-        specifier: 'catalog:'
-        version: 0.0.18
     devDependencies:
       '@ballastella/viewer':
         specifier: workspace:*
@@ -326,9 +320,6 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(@vitest/browser-playwright@4.1.10)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
-      wasm-vips:
-        specifier: 'catalog:'
-        version: 0.0.18
 
 packages:
 
@@ -1903,10 +1894,6 @@ packages:
       jsdom:
         optional: true
 
-  wasm-vips@0.0.18:
-    resolution: {integrity: sha512-AJyCvxZj/3qceKNnh+YyEobu/IaJFoPN7x7SxyyHmYBS3kASMqJqxQEuN0ZHKQDWsCJ8armfx4Tq3uKrNc+nMA==}
-    engines: {node: '>=17.0.0'}
-
   webidl-conversions@3.0.1:
     resolution: {integrity: sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==}
 
@@ -3382,8 +3369,6 @@ snapshots:
       '@vitest/browser-playwright': 4.1.10(playwright@1.62.1)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))(vitest@4.1.10)
     transitivePeerDependencies:
       - msw
-
-  wasm-vips@0.0.18: {}
 
   webidl-conversions@3.0.1: {}
 

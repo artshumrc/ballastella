@@ -356,19 +356,22 @@ test.describe('the web app manifest and the service worker scope', () => {
 					expect(path, 'a PMTiles archive shipped in the installed app').not.toMatch(/\.pmtiles$/);
 				}
 
-				// ADR-0019, the half the dependency and bundle fences cannot see. The editor's `static/`
-				// holds the staged read-only viewer that Publish writes into a Workspace, and `build` holds
-				// two byte-identical 5,084,535-byte copies of `vips.wasm`. A worker that swept either
-				// directory whole would put megabytes a Reader never asked for, and a tiler nobody in this
-				// session will use, into a cache — which no `package.json` check and no bundle check can
-				// observe. Ticket 10 measured taking the `.wasm` in `build`: 5,084,535 bytes on install,
-				// 23% more than the archive it removed, for a module this deployment cannot even run
-				// (`libvipsUnavailableReason` refuses it without COOP/COEP).
+				// ADR-0019, the half the dependency fence cannot see. The editor's `static/` holds the
+				// staged read-only viewer that Publish writes into a Workspace, and its test fixtures. A
+				// worker that swept that directory whole would put megabytes a Reader never asked for into
+				// a cache, which no `package.json` check can observe.
+				//
+				// **The `.wasm` assertion that stood here is deleted rather than kept green.** It said
+				// `wasm-vips` must never be cached, and ADR-0027 removed the package: `build` no longer
+				// contains a `.wasm` of any kind, so the assertion could not have failed whatever this
+				// worker did. This repository's own rule is that a check which cannot fail is worse than
+				// no check, because it is read as evidence — the ticket-10 measurement it stood on
+				// (5,084,535 bytes on install, 23% more than the archive that ticket removed, for a module
+				// this deployment could not run) is recorded in the service worker's own header instead.
 				for (const path of [...shell, ...bundled]) {
 					expect(path, 'the staged viewer bundle must never be cached').not.toContain(
 						'/viewer-bundle/'
 					);
-					expect(path, 'wasm-vips must never be cached (ADR-0019)').not.toMatch(/\.wasm$/);
 					expect(path, 'test fixtures must never be cached').not.toContain('/fixtures/');
 				}
 			});

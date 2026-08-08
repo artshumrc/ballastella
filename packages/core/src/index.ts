@@ -9,7 +9,7 @@ export { Autosave, type AutosaveOptions, type SaveState } from './autosave/autos
 export { installFlushOnHide, type HideEventTargets } from './autosave/flush-on-hide.js';
 // The Layer stack (CONTEXT.md, Layer; ADR-0002). Both apps: the editor edits it, and the published
 // viewer reads it to know what draws over what (ADR-0019), so it lives here and is free of
-// `terra-draw`, the tiler, and `wasm-vips`.
+// `terra-draw` and the tiler.
 export {
 	ANNOTATION_DIRECTORY,
 	addLayer,
@@ -374,7 +374,7 @@ export type {
 export { padTileToCell } from './image-pane/pad-tile-to-cell.js';
 
 // The injection layer (ADR-0011): the one `ProjectStore` → `Response` shim every consumer of a
-// stored pyramid resolves through. Free of the tiler and of `wasm-vips`, because `apps/viewer`
+// stored pyramid resolves through. Free of the tiler, because `apps/viewer`
 // reads published pyramids through it too (ADR-0019).
 export {
 	MissingImageServiceOverrideError,
@@ -506,13 +506,10 @@ export * from './theme';
 // `publish.test.ts` and every other Seam 1 test depend on — and makes "this module needs a browser"
 // legible at the import site.
 
-// The tiler (ADR-0003). `wasm-vips` is deliberately absent: `streamingTiler` takes the module
-// through a loader the consumer supplies, so nothing here imports it and `apps/viewer` cannot
-// acquire it by depending on this package (ADR-0019).
-export {
-	MEASURED_DECODE_CEILING_PIXELS,
-	STREAMING_TILER_THRESHOLD_PIXELS
-} from './tiler/decode-ceiling.js';
+// The tiler (ADR-0003, ADR-0027). One implementation, decode-and-crop, injected rather than
+// imported so that everything above it is testable in Node; an image above the measured decode
+// ceiling is refused rather than routed to a second tiler.
+export { MAX_INGEST_PIXELS, MEASURED_DECODE_CEILING_PIXELS } from './tiler/decode-ceiling.js';
 export { openDecodeAndCropSource } from './tiler/decode-and-crop-tiler.js';
 export {
 	readImageHeader,
@@ -521,7 +518,7 @@ export {
 } from './tiler/image-header.js';
 export { buildImageManifest, readImageLabel, type ImageManifest } from './tiler/image-manifest.js';
 export {
-	StreamingTilerUnavailableError,
+	ImageTooLargeError,
 	UnreadableImageError,
 	ingestImageFile,
 	listIngestedImages,
@@ -530,8 +527,7 @@ export {
 	type IngestProgress,
 	type IngestResult,
 	type OpenTileSource,
-	type TileSource,
-	type TilerKind
+	type TileSource
 } from './tiler/ingest.js';
 export {
 	IMAGE_SERVICE_PLACEHOLDER_ORIGIN,
@@ -546,9 +542,3 @@ export {
 	type Level0ImageInfo,
 	type PlannedTile
 } from './tiler/pyramid.js';
-export {
-	streamingTiler,
-	type LoadVips,
-	type VipsImage,
-	type VipsModule
-} from './tiler/streaming-tiler.js';

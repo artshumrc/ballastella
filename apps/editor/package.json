@@ -19,8 +19,7 @@
 		"maplibre-gl": "catalog:",
 		"marked": "catalog:",
 		"pmtiles": "catalog:",
-		"triiiceratops": "catalog:",
-		"wasm-vips": "catalog:"
+		"triiiceratops": "catalog:"
 	},
 	"devDependencies": {
 		"@ballastella/viewer": "workspace:*",

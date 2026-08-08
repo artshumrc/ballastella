@@ -11,9 +11,8 @@
 //
 // It adds `maplibre-gl`, `@allmaps/maplibre`, and `pmtiles` to this package's dependencies. All three
 // were already dependencies of `apps/editor`, and `apps/viewer` needs all three to render a Project at
-// all, so nothing gains a dependency it did not need — and ADR-0019's three forbidden names
-// (`terra-draw`, the tiler, `wasm-vips`) are still absent, which is what
-// `scripts/check-viewer-deps.mjs` and `scripts/check-tiler-lazy.mjs` police.
+// all, so nothing gains a dependency it did not need — and ADR-0019's forbidden names
+// (`terra-draw`, the tiler) are still absent, which is what `scripts/check-viewer-deps.mjs` polices.
 
 export { showAnnotationPopup, type AnnotationPopup } from './annotation-popup.js';
 export { distortionRamp } from './distortion-ramp.js';

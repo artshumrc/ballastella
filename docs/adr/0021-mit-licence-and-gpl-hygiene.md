@@ -14,7 +14,9 @@ Dependency licences as of this decision: `@allmaps/*` packages MIT, triiiceratop
 
 This is precisely what a well-meaning contributor does while "just fixing the projection bug," and it is near-impossible to unwind afterwards. It belongs in `CONTRIBUTING.md`, where someone will actually encounter it, not only in this ADR.
 
-## `wasm-vips` requires a third-party licence notice
+## ~~`wasm-vips` requires a third-party licence notice~~ — superseded by [ADR-0027](./0027-no-streaming-tiler-in-v1.md)
+
+**The dependency is gone, so the obligation is discharged by removal rather than met.** The section below is kept as the record of what was owed while it shipped; nothing in it is live. `THIRD-PARTY-NOTICES.md` no longer carries the entry, its twenty-library table, or the outstanding open item for the LGPLv3 text — which was never fetched and committed, and now never needs to be. No remaining dependency of this repository is under the GPL or the LGPL, checked by reading all 291 installed manifests rather than assumed.
 
 The wrapper is MIT, but the artefact it ships is compiled **libvips, which `wasm-vips` states as LGPLv3** — reached via the "any later version" clause of LGPLv2.1, so LGPLv3's terms are the ones that bind, not LGPL-2.1's. This decision originally said LGPL-2.1-or-later, and that was checked against the installed package and corrected when ticket 05 made the dependency real.
 

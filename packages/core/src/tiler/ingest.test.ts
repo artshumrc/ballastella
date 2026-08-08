@@ -1,15 +1,15 @@
 // SPEC's Seam 1: the ingest job driven against an in-memory ProjectStore, with assertions on
-// the resulting files. The tilers themselves are stubs here — a stub is enough to assert the
-// job's behaviour, and the two real ones are asserted where their pixels can be looked at
-// (`decode-and-crop-tiler.browser.test.ts` and `streaming-tiler.test.ts`).
+// the resulting files. The tiler itself is a stub here — a stub is enough to assert the job's
+// behaviour, and the real one is asserted where its pixels can be looked at
+// (`decode-and-crop-tiler.browser.test.ts`).
 
 import { Image } from '@allmaps/iiif-parser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MemoryProjectStore } from '../store/memory-project-store.js';
-import { STREAMING_TILER_THRESHOLD_PIXELS } from './decode-ceiling.js';
+import { MAX_INGEST_PIXELS } from './decode-ceiling.js';
 import {
-	StreamingTilerUnavailableError,
+	ImageTooLargeError,
 	UnreadableImageError,
 	ingestImageFile,
 	listIngestedImages,
@@ -67,7 +67,6 @@ describe('ingestImageFile', () => {
 
 		expect(result.tileCount).toBe(29);
 		expect(result.width).toBe(1200);
-		expect(result.tiler).toBe('decode-and-crop');
 		// At the Workspace root, shared by every Project (ADR-0023): a scan is prepared once and any
 		// number of Projects can draw it.
 		expect(result.directory).toBe(`images/${result.imageId}`);
@@ -145,168 +144,140 @@ describe('ingestImageFile', () => {
 		expect(info.tiles[0].width).toBe(PYRAMID_TILE_SIZE);
 	});
 
-	it('reports progress for both paths, and for a small file', async () => {
-		for (const [kind, threshold] of [
-			['decode-and-crop', STREAMING_TILER_THRESHOLD_PIXELS],
-			['streaming', 1]
-		] as const) {
-			const local = new MemoryProjectStore();
-			const progress: IngestProgress[] = [];
-			await ingestImageFile({
-				store: local,
-				file: imageFile(600, 400),
-				openDecodeAndCrop: stubTiler({ width: 600, height: 400 }),
-				openStreaming: stubTiler({ width: 600, height: 400 }),
-				streamingThresholdPixels: threshold,
-				onProgress: (update) => progress.push(update)
+	it('reports progress from inspecting to done, monotonically', async () => {
+		const progress: IngestProgress[] = [];
+		await ingestImageFile({
+			store,
+			file: imageFile(600, 400),
+			openDecodeAndCrop: stubTiler({ width: 600, height: 400 }),
+			onProgress: (update) => progress.push(update)
+		});
+
+		expect(progress[0]?.phase).toBe('inspecting');
+		expect(progress.at(-1)?.phase).toBe('done');
+		expect(progress.at(-1)?.fraction).toBe(1);
+		expect(progress.map((update) => update.phase)).toContain('tiling');
+		expect(progress.map((update) => update.phase)).toContain('finishing');
+
+		// SPEC story 23: the number must move, and it must not claim to be finished early.
+		const fractions = progress.map((update) => update.fraction);
+		expect(fractions).toEqual([...fractions].sort((a, b) => a - b));
+		expect(Math.max(...fractions.slice(0, -1))).toBeLessThan(1);
+		expect(progress.filter((update) => update.phase === 'tiling').length).toBe(
+			progress.at(-1)!.tileCount + 1
+		);
+	});
+
+	// **The case ADR-0027 was written to unblock, and it is asserted on the pyramid rather than on
+	// the absence of an error.** 25000 × 20000 is 500 megapixels: above the 268-megapixel routing
+	// threshold that used to refuse it outright, below the 528-megapixel ceiling both measured
+	// engines decode. A scholar with a 500-megapixel scan could not ingest it before this decision
+	// and can now, and what has to be true is that the pyramid is *correct*, not merely that nothing
+	// threw — a refusal that returned an empty result would pass a `rejects.not.toThrow`.
+	it('ingests an image between the old threshold and the ceiling, and cuts a real pyramid', async () => {
+		expect(25_000 * 20_000).toBeGreaterThan(268_435_456);
+		expect(25_000 * 20_000).toBeLessThan(MAX_INGEST_PIXELS);
+
+		const result = await ingestImageFile({
+			store,
+			file: imageFile(25_000, 20_000, 'archival-master.jpg'),
+			openDecodeAndCrop: stubTiler({ width: 25_000, height: 20_000 })
+		});
+
+		expect(result.width).toBe(25_000);
+		expect(result.height).toBe(20_000);
+
+		// Every tile the plan describes is on disk, at the path it names and with the geometry it
+		// names. That is the same assertion the 1200 × 851 case makes, at a size that used to refuse.
+		const info = JSON.parse(new TextDecoder().decode(await store.read(result.infoPath)));
+		const planned = planPyramid(info, result.directory);
+		expect(planned).toHaveLength(result.tileCount);
+		expect(result.tileCount).toBeGreaterThan(1000);
+		for (const tile of planned) {
+			expect(JSON.parse(new TextDecoder().decode(await store.read(tile.path))), tile.path).toEqual({
+				region: tile.region,
+				size: tile.size,
+				scaleFactor: tile.scaleFactor
 			});
-
-			expect(progress[0]?.phase, kind).toBe('inspecting');
-			expect(progress.at(-1)?.phase, kind).toBe('done');
-			expect(progress.at(-1)?.fraction, kind).toBe(1);
-			expect(progress.at(-1)?.tiler, kind).toBe(kind);
-			expect(
-				progress.map((update) => update.phase),
-				kind
-			).toContain('tiling');
-			expect(
-				progress.map((update) => update.phase),
-				kind
-			).toContain('finishing');
-
-			// SPEC story 23: the number must move, and it must not claim to be finished early.
-			const fractions = progress.map((update) => update.fraction);
-			expect(fractions, kind).toEqual([...fractions].sort((a, b) => a - b));
-			expect(Math.max(...fractions.slice(0, -1)), kind).toBeLessThan(1);
-			expect(progress.filter((update) => update.phase === 'tiling').length, kind).toBe(
-				progress.at(-1)!.tileCount + 1
-			);
 		}
 	});
 
-	it('routes an image above the ceiling to the streaming tiler', async () => {
-		const log = { opened: [] as string[], kind: 'streaming' };
-		const decode = { opened: log.opened, kind: 'decode-and-crop' };
-
-		const result = await ingestImageFile({
-			store,
-			// 30000 × 20000 is 600 megapixels: above the measured decode ceiling in every browser
-			// measured, and well above the threshold.
-			file: imageFile(30_000, 20_000),
-			openDecodeAndCrop: stubTiler({ width: 30_000, height: 20_000 }, decode),
-			openStreaming: stubTiler({ width: 30_000, height: 20_000 }, log)
-		});
-
-		expect(log.opened).toEqual(['streaming']);
-		expect(result.tiler).toBe('streaming');
-	});
-
-	it('routes an image below the threshold to decode-and-crop', async () => {
-		const log = { opened: [] as string[], kind: 'streaming' };
-		const decode = { opened: log.opened, kind: 'decode-and-crop' };
-
-		await ingestImageFile({
-			store,
-			file: imageFile(4000, 3000),
-			openDecodeAndCrop: stubTiler({ width: 4000, height: 3000 }, decode),
-			openStreaming: stubTiler({ width: 4000, height: 3000 }, log)
-		});
-
-		expect(log.opened).toEqual(['decode-and-crop']);
-	});
-
-	it('decides from the header, before anything is decoded', async () => {
-		// The routing has to happen without asking a decoder anything, because asking is the
-		// allocation it exists to avoid. A file whose bytes stop after the header proves it: the
-		// decode tiler is never opened.
-		const openDecodeAndCrop = vi.fn(async () => {
-			throw new Error('the decode path must not be opened for an image above the ceiling');
-		});
-
-		const result = await ingestImageFile({
-			store,
-			file: imageFile(40_000, 30_000),
-			openDecodeAndCrop,
-			openStreaming: stubTiler({ width: 40_000, height: 30_000 })
-		});
-
-		expect(openDecodeAndCrop).not.toHaveBeenCalled();
-		expect(result.tiler).toBe('streaming');
-	});
-
-	it('refuses, without writing anything, when there is no streaming tiler to route to', async () => {
-		await expect(
-			ingestImageFile({
-				store,
-				file: imageFile(40_000, 30_000),
-				openDecodeAndCrop: stubTiler({ width: 40_000, height: 30_000 })
-			})
-		).rejects.toThrow(StreamingTilerUnavailableError);
-
-		expect(await store.list('')).toEqual([]);
-	});
-
-	it('refuses with the reason the streaming tiler cannot run, not with a decode diagnosis', async () => {
-		// **This is the refusal the shipped app actually produces**, and it used to be a different
-		// code path from the one under test. `apps/editor` always supplies `openStreaming`, so the
-		// "no streaming tiler in this build" refusal above is unreachable there; what a scholar on
-		// GitHub Pages meets is a streaming tiler that exists and cannot run, because npm publishes
-		// only the threaded `wasm-vips` and a static host cannot send COOP/COEP.
-		//
-		// That reason used to arrive wrapped in `UnreadableImageError`, whose first sentence told the
-		// user their valid JPEG "could not be read as an image" and to convert a TIFF they do not
-		// have. SPEC's *On the audience* makes "errors must name what is wrong and what to do"
-		// binding, so the reason is asked for **before** the tiler is opened and is not wrapped.
+	// **The refusal the shipped app produces, and the wording is the assertion** (ADR-0027).
+	//
+	// It used to name `Cross-Origin-Embedder-Policy` and cross-origin isolation, because the real
+	// obstacle was a streaming tiler that could not start on a static host. That was accurate about
+	// the cause and actionable by nobody. Before that it was worse still: it arrived as
+	// `UnreadableImageError`, telling a scholar their valid JPEG "could not be read as an image" and
+	// to convert a TIFF they do not have. SPEC's *On the audience* makes "errors must name what is
+	// wrong and what to do" binding, and the size plus the IIIF remedy is that.
+	it('refuses an image above the ceiling by naming its size and the remedy', async () => {
 		const opened: string[] = [];
-		const reason = 'The streaming tiler cannot run here: this deployment does not send COOP/COEP.';
 
 		const failure = await ingestImageFile({
 			store,
-			file: imageFile(20_000, 15_000, 'archival-master.jpg'),
+			// 30000 × 20000 is 600 megapixels, above the ceiling in both measured engines.
+			file: imageFile(30_000, 20_000, 'archival-master.jpg'),
 			openDecodeAndCrop: stubTiler(
-				{ width: 20_000, height: 15_000 },
-				{
-					opened,
-					kind: 'decode-and-crop'
-				}
-			),
-			openStreaming: stubTiler({ width: 20_000, height: 15_000 }, { opened, kind: 'streaming' }),
-			streamingTilerUnavailableReason: () => reason
+				{ width: 30_000, height: 20_000 },
+				{ opened, kind: 'decode-and-crop' }
+			)
 		}).then(
 			() => undefined,
 			(cause: unknown) => cause as Error
 		);
 
-		expect(failure).toBeInstanceOf(StreamingTilerUnavailableError);
-		expect(failure?.message).toContain(reason);
-		expect(failure?.message).toContain('300 megapixels');
-		expect(failure?.message, 'the refusal blames the file instead of the deployment').not.toContain(
+		expect(failure).toBeInstanceOf(ImageTooLargeError);
+		expect(failure?.message).toContain('600 megapixels');
+		expect(failure?.message).toContain('528 megapixel');
+		expect(failure?.message).toContain('IIIF pyramid outside the browser');
+		expect(failure?.message, 'the refusal blames the file instead of the size').not.toContain(
 			'could not be read as an image'
 		);
-		// Refused before anything was opened, so nothing fetched a 5 MB WebAssembly module either.
+
+		// Nothing user-facing may name the deployment any more; the tiler that needed those headers
+		// is gone, and a sentence about COEP is now false as well as unactionable.
+		for (const word of ['COOP', 'COEP', 'Cross-Origin', 'cross-origin', 'SharedArrayBuffer']) {
+			expect(failure?.message, word).not.toContain(word);
+		}
+
+		// Decided from the header, so no decoder was ever asked and nothing was written. Asking is
+		// the allocation the cap exists to avoid.
 		expect(opened).toEqual([]);
 		expect(await store.list('')).toEqual([]);
 	});
 
-	it('ingests normally when the streaming tiler reports itself available', async () => {
-		const opened: string[] = [];
-
-		const result = await ingestImageFile({
-			store,
-			file: imageFile(20_000, 15_000),
-			openDecodeAndCrop: stubTiler(
-				{ width: 20_000, height: 15_000 },
-				{
-					opened,
-					kind: 'decode-and-crop'
-				}
-			),
-			openStreaming: stubTiler({ width: 600, height: 400 }, { opened, kind: 'streaming' }),
-			streamingTilerUnavailableReason: () => ''
+	it('decides from the header, before anything is decoded', async () => {
+		const openDecodeAndCrop = vi.fn(async () => {
+			throw new Error('the decode path must not be opened for an image above the ceiling');
 		});
 
-		expect(opened).toEqual(['streaming']);
-		expect(result.tiler).toBe('streaming');
+		await expect(
+			ingestImageFile({ store, file: imageFile(40_000, 30_000), openDecodeAndCrop })
+		).rejects.toThrow(ImageTooLargeError);
+
+		expect(openDecodeAndCrop).not.toHaveBeenCalled();
+	});
+
+	// The boundary itself, both sides of it, against an injected cap so the assertion is about the
+	// comparison rather than about a 528-megapixel fixture. `>` and not `>=`: the measured number is
+	// the largest image Firefox *decoded*, so an image of exactly that size must be admitted.
+	it('admits an image of exactly the cap and refuses the next pixel', async () => {
+		const at = await ingestImageFile({
+			store,
+			file: imageFile(1000, 1000),
+			openDecodeAndCrop: stubTiler({ width: 1000, height: 1000 }),
+			maxIngestPixels: 1_000_000
+		});
+		expect(at.tileCount).toBeGreaterThan(0);
+
+		await expect(
+			ingestImageFile({
+				store,
+				file: imageFile(1000, 1001),
+				openDecodeAndCrop: stubTiler({ width: 1000, height: 1001 }),
+				maxIngestPixels: 1_000_000
+			})
+		).rejects.toThrow(ImageTooLargeError);
 	});
 
 	it('says what is wrong when nothing can read the file', async () => {
@@ -323,16 +294,21 @@ describe('ingestImageFile', () => {
 		expect(await store.list('')).toEqual([]);
 	});
 
-	it('does not blame the browser’s format support for a libvips failure', async () => {
-		// The decode-and-crop message lists the formats *browsers* read and tells the user a TIFF
-		// needs converting first. Said about a libvips failure it is simply false — libvips reads
-		// TIFF, which is why the streaming path exists at all.
+	// **A big TIFF must fail as a format, not as a size** — the two refusals give opposite advice and
+	// only one of them is actionable. 300 megapixels is comfortably under ADR-0027's 528-megapixel
+	// cap, so the size check must let it through and the decoder must be the thing that objects.
+	//
+	// This pairing is why the cap being *raised* matters here: at the old 268-megapixel threshold a
+	// 300-megapixel TIFF was refused for its size before any decoder saw it, and the user was told to
+	// do something about a number rather than about the file.
+	it('blames the format, not the size, for a TIFF under the cap', async () => {
+		expect(20_000 * 15_000).toBeLessThan(MAX_INGEST_PIXELS);
+
 		const failure = await ingestImageFile({
 			store,
 			file: imageFile(20_000, 15_000, 'master.tif'),
-			openDecodeAndCrop: stubTiler({ width: 20_000, height: 15_000 }),
-			openStreaming: async () => {
-				throw new Error('vips: bad extension');
+			openDecodeAndCrop: async () => {
+				throw new Error('The source image could not be decoded.');
 			}
 		}).then(
 			() => undefined,
@@ -340,8 +316,10 @@ describe('ingestImageFile', () => {
 		);
 
 		expect(failure).toBeInstanceOf(UnreadableImageError);
-		expect(failure?.message).toContain('vips: bad extension');
-		expect(failure?.message).not.toContain('Browsers read JPEG');
+		expect(failure).not.toBeInstanceOf(ImageTooLargeError);
+		expect(failure?.message).toContain('Browsers read JPEG');
+		expect(failure?.message).toContain('TIFF or JPEG 2000 archival master needs to be converted');
+		expect(failure?.message).not.toContain('megapixels');
 	});
 
 	it('writes info.json last, so its presence means the pyramid is complete', async () => {

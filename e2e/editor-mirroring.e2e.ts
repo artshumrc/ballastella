@@ -34,8 +34,10 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
  *                    what a statically cut pyramid on a plain web server really is.
  *   `capped.test`    level 2 with `maxWidth` below the image. The case two of the fourteen real
  *                    services captured in ticket 14's corpus are in.
- *   `huge.test`      level 2 declaring a 1.4-gigapixel image, so the ADR-0008 warning is reachable
- *                    without writing a gigabyte.
+ *   `huge.test`      level 2 declaring a 1.4-gigapixel image, above ADR-0027's decode cap, so the
+ *                    refusal is reachable without a gigapixel of pixels.
+ *   `large.test`     level 2 at 520 megapixels — just *under* that cap, so the ADR-0008 hosting
+ *                    warning is still reachable on an image the browser would really decode.
  *   `slow.test`      level 0 with enough tiles, served slowly enough, to cancel in the middle of.
  *   `broken.test`    level 2 whose `full/max` is a 500.
  *
@@ -148,6 +150,7 @@ const HOSTS: Record<string, HostShape> = {
 		wholeImage: true
 	},
 	'huge.test': { profile: 'level2', width: 40_000, height: 36_000, tile: 256, wholeImage: true },
+	'large.test': { profile: 'level2', width: 26_000, height: 20_000, tile: 256, wholeImage: true },
 	'slow.test': {
 		profile: 'level0',
 		width: 2000,
@@ -495,6 +498,24 @@ async function openNewProject(page: Page, name = 'Amsterdam 1625'): Promise<void
 	).toBeVisible();
 }
 
+/**
+ * Make the Workspace report at least `bytes`, without writing them.
+ *
+ * `workspaceSize` answers from `ProjectStore#size`, which is `getFile().size` on an OPFS handle —
+ * so a file extended with `truncate` counts in full while costing nothing to produce. The
+ * alternative is transferring and storing hundreds of megabytes to assert a warning about a number,
+ * which is the sort of test that gets deleted for being slow rather than kept for being true.
+ */
+async function seedWorkspaceBytes(page: Page, bytes: number): Promise<void> {
+	await page.evaluate(async (size) => {
+		const root = await navigator.storage.getDirectory();
+		const handle = await root.getFileHandle('ballast.bin', { create: true });
+		const writable = await handle.createWritable();
+		await writable.truncate(size);
+		await writable.close();
+	}, bytes);
+}
+
 /** Add one referenced Historical Map from a bare image service URL. */
 async function addReferenced(page: Page, host: string, name = 'florida'): Promise<void> {
 	await page.getByTestId('remote-url').fill(`${service(host, name)}/info.json`);
@@ -691,11 +712,17 @@ test.describe('making an offline copy', () => {
 		page
 	}) => {
 		// ADR-0008's cliff, and the ticket is explicit that this is information rather than a gate: the
-		// scholar may never publish this Workspace to a free static host at all. `huge.test` declares a
-		// 1.4-gigapixel image, which is about a gigabyte of pyramid.
+		// scholar may never publish this Workspace to a free static host at all.
+		//
+		// **The Workspace is seeded rather than the image made enormous, and that is ADR-0027's
+		// doing.** A copy is estimated at 0.7 bytes per pixel, so the largest one the 528-megapixel
+		// decode cap now admits is about 370 MB — no single offline copy can cross a gigabyte on its
+		// own any more. The cliff is a Workspace total and always was, so the honest way to reach it is
+		// a Workspace that already holds most of it plus a copy the browser would really decode.
 		await installFixtureHosts(page);
 		await openNewProject(page);
-		await addReferenced(page, 'huge.test', 'enormous');
+		await seedWorkspaceBytes(page, 700_000_000);
+		await addReferenced(page, 'large.test', 'enormous');
 		await openMirrorDialog(page);
 
 		const warning = page.getByTestId('mirror-hosting-warning');
@@ -706,12 +733,38 @@ test.describe('making an offline copy', () => {
 
 		// Not a gate.
 		await expect(page.getByTestId('mirror-start')).toBeEnabled();
+	});
 
-		// And the other thing that has to be said plainly about an image this size: it is past the limit
-		// of the tiler built into the browser, and the streaming one needs a capability a plain static
-		// host cannot switch on.
-		await expect(page.getByTestId('mirror-note').filter({ hasText: 'megapixel' })).toBeVisible();
-		await expect(page.getByTestId('mirror-note')).toContainText('SharedArrayBuffer');
+	test('refuses a copy of a source above the decode cap, before it fetches anything', async ({
+		page
+	}) => {
+		// **A refusal where there used to be a warning** (ADR-0027). `huge.test` declares 1.4
+		// gigapixels. The note this replaces told the user the copy "needs the streaming tiler" and
+		// then let them start it — thousands of requests to somebody else's server, ending at a wall.
+		// There is no streaming tiler to need and nowhere for either path to escape to: an offline copy
+		// has to exist as one full-resolution image before it can be cut into tiles.
+		await installFixtureHosts(page);
+		await openNewProject(page);
+		await addReferenced(page, 'huge.test', 'enormous');
+
+		const requested: string[] = [];
+		page.on('request', (request) => requested.push(request.url()));
+		await openMirrorDialog(page);
+
+		const refusal = page.getByTestId('mirror-refusal');
+		await expect(refusal).toBeVisible();
+		await expect(refusal).toContainText('1440 megapixels');
+		await expect(refusal).toContainText('outside the browser');
+		await expect(refusal).toContainText('still works, read from huge.test');
+		// The words that may no longer reach a user, and the promise that may no longer be made.
+		for (const word of ['SharedArrayBuffer', 'COOP', 'COEP', 'streaming tiler']) {
+			await expect(refusal, word).not.toContainText(word);
+		}
+
+		// A gate, and it is closed before a byte is asked for. That is the whole value of refusing in
+		// the plan rather than in the tiler.
+		await expect(page.getByTestId('mirror-start')).toBeDisabled();
+		expect(requested.filter((url) => /default\.(jpg|png)$/.test(url))).toEqual([]);
 	});
 
 	test('copies a level-2 source with a single full-image request and then tiles locally', async ({

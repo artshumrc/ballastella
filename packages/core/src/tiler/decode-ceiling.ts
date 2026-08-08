@@ -1,10 +1,10 @@
-// The measured `createImageBitmap` decode ceiling, and the threshold it sets.
+// The measured `createImageBitmap` decode ceiling, and the cap it sets on ingest.
 //
 // This file exists because the number cannot be re-derived from the code. It is a property of
-// the browsers, it decides which tiler runs (ADR-0003), and getting it wrong in the optimistic
-// direction is not a slow ingest but a dead tab in the middle of one — so the measurement, the
-// browsers, and the method are written down here rather than left as a constant somebody later
-// has to trust.
+// the browsers, it decides whether an image can be ingested at all (ADR-0027), and getting it
+// wrong in the optimistic direction is not a slow ingest but a dead tab in the middle of one —
+// so the measurement, the browsers, and the method are written down here rather than left as a
+// constant somebody later has to trust.
 //
 // ## Method
 //
@@ -15,7 +15,7 @@
 // failure therefore measures the decode ceiling directly, with no dependence on how well any
 // real image compresses. Each probe ran in a fresh browser process, and each decoded bitmap was
 // sampled at its far corner so that a lazy decode could not pass. The probe script is recorded
-// in the ticket; it is not part of the app.
+// in v1 ticket 05; it is not part of the app.
 //
 // ## Measurements — 2026-08-05, Linux x86-64, 62 GiB RAM
 //
@@ -33,66 +33,56 @@
 // Not measured: Safari. No WebKit build was available to drive here, and WebKit's limit is
 // documented to be lower — ADR-0003 already notes its *canvas* area limit can be as low as
 // 5,242,880 pixels, which the decode-and-crop path avoids by never making a canvas bigger than
-// one tile, but its decode limit is a separate number nobody here has measured.
+// one tile, but its decode limit is a separate number nobody here has measured. It is recorded
+// as unmeasured rather than guessed at, here and in ADR-0027.
 
 /**
  * The largest image both measured browsers decoded, in pixels.
  *
- * Recorded as the measurement, not as the threshold. Read {@link STREAMING_TILER_THRESHOLD_PIXELS}
- * for the number the tiler actually routes on.
+ * Firefox's number, because it is the lower of the two and a cap has to hold in the browser that
+ * gives least. Recorded separately from {@link MAX_INGEST_PIXELS} because the two are different
+ * kinds of fact — this one is a property of the browsers, that one is this project's policy — and
+ * because a later margin, or a Safari measurement, changes one of them and not the other.
  */
 export const MEASURED_DECODE_CEILING_PIXELS = 528_006_700;
 
 /**
- * Above this many pixels, ingest uses the streaming tiler (ADR-0003).
+ * The largest image ingest will accept, in pixels. Anything above this is refused up front.
  *
- * 2^28 pixels — a little over half the measured ceiling. The margin is deliberate and is not
- * timidity about the measurement:
+ * **The measured ceiling exactly, with no margin** (ADR-0027, human decision of 2026-08-07). There
+ * is one tiler — decode-and-crop — so this is not a routing threshold deciding which of two paths
+ * runs; it is the answer to "can this be ingested at all", and the honest answer is "yes, up to
+ * what a browser will decode".
  *
- * - The measurement was taken on a workstation with 62 GiB of RAM. The cap is not the only
- *   limit; on a tablet with 4 GiB the allocation fails long before the cap does, and SPEC story
- *   22 is about the machine a scholar actually has.
- * - Safari is unmeasured, and it is the browser whose limits are historically lowest.
- * - **Where the streaming tiler can run**, the two outcomes are not symmetric. Routing an image to
- *   it that the decode path could have handled costs time. Routing one the other way costs the
- *   user their ingest, partway through, with an out-of-memory failure that reads as the tool being
- *   broken.
+ * ### Why no margin, when the previous number was half this
  *
- * A 2^28-pixel image is a 16384×16384 scan, comfortably above anything a camera produces and
- * above most library derivatives; the pyramid for one is around 4 700 tiles.
+ * The constant this replaced was 2^28 (268,435,456), and it was argued down there on an asymmetry:
+ * routing an image to the streaming tiler that decode-and-crop could have handled cost only time,
+ * while routing it the other way cost the user their ingest. **That asymmetry is gone with the
+ * streaming tiler** (ADR-0027, superseding ADR-0003's streaming clause). Both directions now cost
+ * the ingest, and the conservative direction was costing it for images the browsers demonstrably
+ * decode: a 300-megapixel scan was refused although both engines decoded 528.
  *
- * ## The asymmetry does not hold on a static host, which is where the app actually runs
+ * What remains of the old argument is the machine rather than the browser — a tablet with 4 GiB of
+ * RAM will fail somewhere below this number. That is a real limit and this constant is not the
+ * place for it: it is not a fixed number at all, it varies by device and by what else is open, and
+ * no value written here can predict it. What this cap can do is refuse promptly and legibly the
+ * images **no** browser will decode, which it now does at the measured boundary. Below it, a
+ * machine that cannot allocate the bitmap gets `createImageBitmap`'s own rejection, surfaced as
+ * {@link UnreadableImageError} — a worse message than the size refusal, and the reason ADR-0003's
+ * `sharp` CLI escape hatch is still the documented answer for a scan this large.
  *
- * That third argument is the one this number was chosen on, and on GitHub Pages it is false. npm
- * publishes only the threaded `wasm-vips`, so the streaming tiler refuses before it loads
- * (`StreamingTilerUnavailableError`), and **both directions cost the user their ingest** — one
- * with an out-of-memory failure, the other with a refusal. The conservative direction is still the
- * better failure, because a refusal names what is wrong and an OOM does not; but it is no longer
- * free, and it costs the ingest for images the browser demonstrably handles. A 300-megapixel scan
- * is refused here although both measured engines decoded 528.
+ * Safari is unmeasured (see the header), so its users may meet a decode rejection below this cap.
+ * Firefox's 65535-pixel limit on a single side is likewise not enforced here: an image within this
+ * cap but 70000 pixels wide is refused by the decoder rather than by this check.
  *
- * So this number is **conservative for a case that currently cannot be served either way**, and it
- * is left alone deliberately rather than raised, for two reasons: raising it would trade a legible
- * refusal for a dead tab on exactly the machines SPEC story 22 is about, and the blocker is
- * expected to be resolved rather than lived with (ticket 05 lists four options, and the choice is
- * not an implementer's).
+ * ## What this cap does not cover
  *
- * **Ticket 05's option 3 — "cap ingest at the decode ceiling" — is a different number from this
- * one, and choosing it means changing this constant.** This threshold exists to decide *which of
- * two tilers runs*. A cap exists to decide *whether ingest is possible at all*, and the honest
- * value for that is derived from {@link MEASURED_DECODE_CEILING_PIXELS} with a margin for the
- * machine and the browser — nearer 2^29 than 2^28 on the measurements above, and it would want
- * Safari measured first. Shipping option 3 while leaving 2^28 in place would refuse half the
- * images the cap is meant to admit.
- *
- * ## What this threshold does not cover
- *
- * Routing reads the container's header (`readImageHeader`, in `image-header.ts`), and one it does
- * not know
- * — AVIF, JPEG XL, an SVG — falls through with `undefined` and is handed to `createImageBitmap`
- * **at any declared size**. For those formats the ceiling is enforced by the decoder refusing,
- * which both measured engines do promptly and without attempting the allocation, so the outcome is
- * a decode error rather than a dead tab. It is nonetheless a different failure from the one above:
- * the message says the file could not be read, not that it is too large.
+ * The check reads the container's header (`readImageHeader`, in `image-header.ts`), and one it does
+ * not know — AVIF, JPEG XL, an SVG — falls through with `undefined` and is handed to
+ * `createImageBitmap` **at any declared size**. For those formats the ceiling is enforced by the
+ * decoder refusing, which both measured engines do promptly and without attempting the allocation,
+ * so the outcome is a decode error rather than a dead tab. It is nonetheless a different failure
+ * from the one above: the message says the file could not be read, not that it is too large.
  */
-export const STREAMING_TILER_THRESHOLD_PIXELS = 268_435_456;
+export const MAX_INGEST_PIXELS = MEASURED_DECODE_CEILING_PIXELS;

@@ -47,24 +47,32 @@ it('exposes the image pane projection to both apps', () => {
 	);
 });
 
-// The tiler, reachable through the barrel and *without* dragging `wasm-vips` in with it. That
-// second half is the ADR-0019 boundary: `apps/viewer` imports this barrel, so an import of
-// `wasm-vips` anywhere under `src` would put a 5 MB WebAssembly module in the published reader's
-// dependency graph with nothing to make it loud.
-it('exposes the tiler, and takes libvips only as an injected loader', () => {
+// The tiler, reachable through the barrel and adding no dependency for `apps/viewer` to acquire.
+// That second half is the ADR-0019 boundary: `apps/viewer` imports this barrel, and it used to be
+// possible for an import of `wasm-vips` anywhere under `src` to put a 5 MB WebAssembly module in
+// the published reader's dependency graph with nothing to make it loud. ADR-0027 removed the
+// package; what is left is `createImageBitmap` and an `OffscreenCanvas`, injected by the app.
+it('exposes the tiler and its cap', () => {
 	expect(Object.keys(core)).toEqual(
 		expect.arrayContaining([
+			'MAX_INGEST_PIXELS',
 			'MEASURED_DECODE_CEILING_PIXELS',
-			'STREAMING_TILER_THRESHOLD_PIXELS',
+			'ImageTooLargeError',
 			'buildImageInfo',
 			'ingestImageFile',
 			'openDecodeAndCropSource',
-			'planPyramid',
-			'streamingTiler'
+			'planPyramid'
 		])
 	);
-	// Curried on the loader: calling it does not load anything.
-	expect(typeof core.streamingTiler(async () => ({}) as core.VipsModule)).toBe('function');
+	// The cap is the measured ceiling exactly (ADR-0027), not the old 2^28 routing threshold. If
+	// these ever diverge it will be because a margin was added, which is a decision and not a tidy-up.
+	expect(core.MAX_INGEST_PIXELS).toBe(core.MEASURED_DECODE_CEILING_PIXELS);
+	expect(core.MAX_INGEST_PIXELS).toBe(528_006_700);
+
+	// The name that is gone, asserted as gone. `apps/editor` imported it from here, and an export
+	// that lingers is how a deleted path gets quietly rewired.
+	expect(Object.keys(core)).not.toContain('streamingTiler');
+	expect(Object.keys(core)).not.toContain('STREAMING_TILER_THRESHOLD_PIXELS');
 });
 
 // Mirroring (ticket 15) and the ADR-0008 hosting total, reachable through the same barrel. Mirroring
