@@ -159,7 +159,7 @@ export function workspaceKeyLabel(key: string): string {
  * A transfer in flight, for the status region that announces it.
  *
  * A bundle of an offline copy's pyramid takes real seconds to tens of seconds, and it is announced
- * rather than merely drawn: SPEC story 96 asks for status to reach assistive technology, and this is
+ * rather than merely drawn: workspace-and-layers SPEC story 96 asks for status to reach assistive technology, and this is
  * one of the two places in the app where the user is waiting on something they cannot see.
  */
 export interface TransferState {
@@ -546,7 +546,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Hand one Project to somebody else as a self-contained bundle (SPEC story 89, ADR-0024).
+	 * Hand one Project to somebody else as a self-contained bundle (workspace-and-layers SPEC story 89, ADR-0024).
 	 *
 	 * The bundle carries `project.json`, the Project's `annotations/`, and the `images/<id>/` and
 	 * `alignments/<id>.json` its Layers reference — and **not** the Workspace's other maps, which is

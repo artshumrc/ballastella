@@ -1,5 +1,6 @@
 import { createTarPacker } from 'modern-tar';
 
+import { assertNotReviewing, readReviewMark } from '../project/review-workspace.js';
 import type { ProjectStore, StorePath } from '../store/project-store.js';
 import type { TransferProgressListener } from './transfer.js';
 import { toWorkspaceName } from '../store/opfs-workspaces.js';
@@ -98,12 +99,24 @@ export interface WorkspaceBackup {
  * parse, nothing to be defeated by a `project.json` that will not parse, and no way for a Project from
  * a newer version of the app to be anything other than backed up — which is precisely the Project a
  * user most needs to get out of a browser they cannot see into (ADR-0010).
+ *
+ * ⚠ **A Review Workspace is refused here, in the writer, and not only where the button is**
+ * (ADR-0024, ticket 14). An archive of somebody else's work sitting in the user's Downloads folder is
+ * indistinguishable from a backup of their own, which is how a review copy comes to be restored
+ * months later as though it were theirs. The editor hides the button as well and refuses before the
+ * walk starts, so the message arrives without reading a Workspace first — but a guard that lives only
+ * in an app is one caller away from being absent, and this is the function that would have written
+ * the file. Nothing is read and nothing is produced when it refuses.
+ *
+ * @throws ReviewWorkspaceError when `store` is a Review Workspace
  */
 export async function exportWorkspaceTar(
 	store: ProjectStore,
 	displayName: string,
 	options: ExportWorkspaceTarOptions = {}
 ): Promise<WorkspaceBackup> {
+	assertNotReviewing(displayName, await readReviewMark(store), 'backed up');
+
 	const excluded = options.excluded ?? isViewerFile;
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────

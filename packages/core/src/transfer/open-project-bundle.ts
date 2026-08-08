@@ -1,6 +1,6 @@
 import { createTarDecoder } from 'modern-tar';
 
-import { ALIGNMENT_DIRECTORY, alignmentPath } from '../alignment/alignment.js';
+import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
 import { IMAGE_DIRECTORY, imageDirectory } from '../project/image-files.js';
 import type { Layer } from '../project/layer.js';
@@ -116,17 +116,16 @@ export interface OpenedBundle {
 	/**
 	 * Archive paths that were deliberately **not** written, and are not counted above.
 	 *
-	 * Empty for every honest bundle: the destination is a Workspace made moments ago, so the one
-	 * writer of `alignments/<id>.json` has nothing to decline. A bundle carrying **two entries for one
-	 * Alignment** reaches it — tar has no index and nothing stops an archive naming a path twice — and
-	 * the second is declined rather than being allowed to overwrite the first.
+	 * Empty for every honest bundle: a tar has no index, but nothing an exporter writes names a path
+	 * twice. A bundle that **does** name one twice — any path, not only an Alignment — has its second
+	 * and later entries declined rather than being allowed to overwrite the first.
 	 *
 	 * Reported rather than swallowed. `restoreWorkspaceTar`'s first cut counted a declined file as
 	 * restored, and a transfer that says it delivered more than it did is the zip writer claiming 4,464 of
 	 * 70,000 with a different spelling — which is the failure this whole format change escaped.
 	 */
 	readonly declined: readonly string[];
-	/** What the user has to be told, in the words they should see (SPEC story 111). */
+	/** What the user has to be told, in the words they should see (workspace-and-layers SPEC story 111). */
 	readonly notice: string;
 }
 
@@ -256,8 +255,8 @@ export async function openProjectBundle(
 					: ` ${outcome.declined.length} ${
 							outcome.declined.length === 1 ? 'entry' : 'entries'
 						} in the bundle ${outcome.declined.length === 1 ? 'was' : 'were'} not written, ` +
-						`because the bundle names the same Alignment more than once: ` +
-						`${outcome.declined.join(', ')}.`)
+						`because the bundle names the same file more than once and the first copy of ` +
+						`each is the one that was kept: ${outcome.declined.join(', ')}.`)
 		};
 	} catch (cause) {
 		// The refusals' closing sentence is "Nothing has been opened", and this is what makes it true. A
@@ -416,6 +415,24 @@ async function drainInto(
 			continue;
 		}
 
+		// ⚠ **An archive path named twice is declined, whatever it names, and the first one wins.**
+		// A tar has no index and nothing stops a file from carrying the same entry more than once.
+		// Ticket 18's writer already refused a second `alignments/<id>.json`, so that one path was
+		// safe — but `images/…` and the Project's own files went straight through `store.write`,
+		// which overwrites, **and were counted again**: a bundle with a repeated tile silently
+		// delivered the later copy and reported more files than were on disk. A transfer that says it
+		// delivered more than it did is the zip writer claiming 4,464 of 70,000 with a different
+		// spelling, which is the failure this whole format change escaped.
+		//
+		// It also means the Alignment's own decline is no longer *reached from here* — this refuses
+		// the duplicate a step earlier. The routing stays, because it is the rule about who may write
+		// that file rather than a duplicate check, and because the decline is what would catch a
+		// destination that was not empty.
+		if (present.has(header.name)) {
+			declined.push(header.name);
+			report(header.name);
+			continue;
+		}
 		present.add(header.name);
 		const outcome = await writeBundled(store, directory, header.name, content);
 		if (outcome === 'declined') {
@@ -459,15 +476,17 @@ async function drainInto(
  * it is that "the bundle reader writes Alignments with the generic writer" is a *true statement about
  * the codebase* that the next person reads as permission.
  *
- * **And here it is not merely hygiene.** The destination is empty, so `intent: 'create'` writes — for
- * the *first* entry naming a given Alignment. A tar has no index and nothing stops an archive from
- * naming a path twice, so a bundle carrying two `alignments/<id>.json` entries reaches the decline,
- * and the first one wins rather than the last. Without the routing the second would silently
- * overwrite the first, which is precisely the shape of the defect ticket 18 exists for.
+ * ⚠ **Its decline is not reached from this module, and that is a change worth stating.** It used to
+ * be: an archive naming one Alignment twice got here twice, and `intent: 'create'` refused the
+ * second. That left every *other* repeated path — a tile, an Annotation — silently overwriting and
+ * double-counted, so {@link drainInto} now refuses a repeated entry before it arrives here, whatever
+ * it names. The routing is kept as what it always was, ticket 18's rule about **who may write that
+ * file**, not a duplicate check; its decline is the layer that would catch a destination which was
+ * not empty, which a Review Workspace never is today.
  *
  * The bytes go through verbatim — `writeAlignmentBytes`, not `writeAlignmentFile` — because what is
  * being copied is a document another build wrote, and re-serialising it from this build's model is
- * the loss SPEC story 60 forbids.
+ * the loss workspace-and-layers SPEC story 60 forbids.
  */
 async function writeBundled(
 	store: ProjectStore,
@@ -525,14 +544,22 @@ function readManifest(bytes: Bytes): ProjectFile {
  */
 function layerReferences(layer: Layer): readonly string[] {
 	switch (layer.kind) {
-		// **Both derived from the one `imageId`, and nothing is opened to derive them** (ADR-0023). The
-		// Alignment is `alignments/<image-id>.json` and the pyramid is `images/<image-id>/`, so a map
-		// Layer's references are computed rather than read out of the document — which removes the class
-		// of archive that named an Alignment and an image that disagreed. **No untrusted Annotation is
-		// parsed during validation**, which is the property this whole path is built on: it interprets
-		// nothing but `project.json`.
+		// ⚠ **A map Layer references no *file* that a bundle must carry, and requiring its Alignment
+		// was a refusal of the ordinary case.** A Historical Map added to a Project is a Layer from
+		// that moment, aligned or not — ADR-0023, and the Layer card says "Not aligned yet, so there
+		// is nothing to draw" — so `alignments/<image-id>.json` need not exist at all. The exporter
+		// already treats a missing one as ordinary (`export-project-bundle.ts`, "a Historical Map
+		// nobody has placed yet has no Alignment"), so demanding it here meant a scholar could export
+		// a Project and then be refused their own file on the way back in. The pyramid is a different
+		// matter and is still required, below: a Layer pointing at an image directory the bundle does
+		// not carry is what actually loses a reader's map.
+		//
+		// Nothing is opened to decide any of this (ADR-0023): both paths are computed from the one
+		// `imageId`, which removes the class of archive naming an Alignment and an image that
+		// disagreed. **No untrusted Annotation is parsed during validation**, which is the property
+		// this whole path is built on: it interprets nothing but `project.json`.
 		case 'map':
-			return layer.imageId === '' ? [] : [alignmentPath(layer.imageId)];
+			return [];
 		case 'annotation':
 			return [layer.geojsonRef];
 		// A kind this build has never heard of is still asked about `geojsonRef`, because a Layer
@@ -549,11 +576,17 @@ function layerReferences(layer: Layer): readonly string[] {
 /**
  * Refuse a bundle whose `project.json` points at files it does not carry.
  *
- * **What this establishes.** Every file a Layer names is in the archive: a map Layer's Alignment or an
- * Annotation Layer's GeoJSON. And for **every** map Layer, that its image directory is in the archive
- * at all — a Layer pointing at an image directory the bundle does not carry is the case that actually
- * loses a reader's map, and the structural check below cannot see it because there is no directory
- * there to check.
+ * **What this establishes.** Every file a Layer names is in the archive — an Annotation Layer's
+ * GeoJSON — and, for **every** map Layer, that its image directory is in the archive at all. That
+ * second one is the case that actually loses a reader's map, and the structural check below cannot
+ * see it because there is no directory there to check.
+ *
+ * ⚠ **An Alignment is deliberately not required**, though a map Layer's path to one is computable.
+ * A Historical Map added to a Project is a Layer from that moment, aligned or not (ADR-0023), so a
+ * Project in that ordinary state has no `alignments/<image-id>.json` to carry — and the exporter
+ * already skips it silently. Requiring it here meant that Project exported to a bundle **its own
+ * sender could not re-open**, which is the worst shape a transfer defect can take: it is discovered
+ * by the recipient, about a file the sender can no longer change.
  *
  * **What it does not establish, deliberately.** Nothing here opens an Alignment or a
  * `FeatureCollection`. Both paths are derived from the Layer's `imageId`, and an Alignment's identity

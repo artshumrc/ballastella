@@ -50,7 +50,7 @@
 	let publishing = $state(false);
 
 	/**
-	 * The "open a Project somebody sent you" dialog (SPEC story 90).
+	 * The "open a Project somebody sent you" dialog (workspace-and-layers SPEC story 90).
 	 *
 	 * ⚠ **This is not an import, and the difference is the whole of ticket 14.** A bundle opens into a
 	 * *new Review Workspace* and there is no path that merges it into the Workspace this hub is
@@ -74,6 +74,14 @@
 	 * carried that was deliberately not written.
 	 */
 	let bundleNotice = $state('');
+	/**
+	 * The line that says what opening a bundle did, focused when the dialog closes on success.
+	 *
+	 * The button that opened the dialog has been unmounted by then — `{#if review === null}`, and the
+	 * user is now inside a review copy — so `ModalDialog`'s ordinary restore has nothing to put focus
+	 * back on. Same shape as {@link cacheStatusLine} below, for the same reason and the same rule.
+	 */
+	let bundleNoticeLine: HTMLElement | null = $state(null);
 
 	const dateFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: 'medium',
@@ -310,20 +318,46 @@
 		cacheStatusLine?.focus();
 	};
 
+	/**
+	 * The transfer this page is announcing: a bundle being read, or a Project being exported.
+	 *
+	 * ⚠ **The bundle's lives on the `WorkspaceStorage` and the export's on the `EditorSession`, and
+	 * that is not an inconsistency.** An export never leaves the Workspace it is reading, so the
+	 * session is the right owner; opening a bundle *replaces* the session, so a state kept there would
+	 * be discarded along with the session that was holding it — and the closing "Opened …" would be
+	 * announced onto a component that had already been handed a different one. The storage's takes
+	 * precedence because it is the one that can be in flight across a swap.
+	 */
+	const transfer = $derived(storage?.transfer ?? session.transfer);
+
 	/** A transfer in flight, which the Export buttons must not lose focus to (SPEC story 95). */
-	const transferring = $derived(session.transfer !== null && !session.transfer.finished);
+	const transferring = $derived(transfer !== null && !transfer.finished);
+
+	/**
+	 * Export a Project, having put down whatever the last bundle said.
+	 *
+	 * Without the first line the finished "Opened …" would shadow the export's own progress for as
+	 * long as the user stayed on this hub, because the storage's account outranks the session's.
+	 */
+	const exportProject = (project: ProjectSummary) => {
+		if (transferring) return;
+		if (storage) storage.transfer = null;
+		void session.exportProject(project);
+	};
 
 	/** The announced progress line. Empty when nothing is moving, so the region says nothing. */
 	const transferMessage = $derived.by(() => {
-		const transfer = session.transfer;
 		if (!transfer) return '';
-		const verb = transfer.kind === 'export' ? 'Exporting' : 'Importing';
-		if (transfer.finished) {
-			return transfer.kind === 'export'
-				? `Exported ${transfer.subject}: ${transfer.totalFiles} files.`
-				: `Imported ${transfer.subject}: ${transfer.totalFiles} files.`;
+		// A tar declares no totals — it has no index — so an open counts rather than inventing a
+		// denominator, which is why its two numbers are the same one until it has finished.
+		if (transfer.kind === 'open') {
+			return transfer.finished
+				? `Opened ${transfer.subject}: ${transfer.totalFiles} files.`
+				: `Opening ${transfer.subject}: ${transfer.files} files so far.`;
 		}
-		return `${verb} ${transfer.subject}: ${transfer.files} of ${transfer.totalFiles} files.`;
+		return transfer.finished
+			? `Exported ${transfer.subject}: ${transfer.totalFiles} files.`
+			: `Exporting ${transfer.subject}: ${transfer.files} of ${transfer.totalFiles} files.`;
 	});
 </script>
 
@@ -332,7 +366,7 @@
 		<h2 class="text-2xl font-semibold">Projects</h2>
 		<div class="flex flex-wrap gap-2">
 			<!--
-				Opening a Project somebody sent you (SPEC story 90). Beside New Project rather than in a
+				Opening a Project somebody sent you (workspace-and-layers SPEC story 90). Beside New Project rather than in a
 				menu, because for a Firefox, Safari, or iPad user whose Workspace lives in storage they
 				cannot see (ADR-0001), a file is the only way anything gets in or out at all.
 
@@ -382,7 +416,7 @@
 		aria-live="polite"
 		aria-atomic="true"
 		class="mt-2 text-sm opacity-80"
-		data-transfer={session.transfer?.kind ?? ''}
+		data-transfer={transfer?.kind ?? ''}
 	>
 		{transferMessage}
 	</p>
@@ -397,7 +431,13 @@
 			`aria-live="polite"` and not `role="status"`, this page's settled convention: the transfer
 			line above and the save indicator on the bar already account for the status role here.
 		-->
-		<p aria-live="polite" class="mt-4 text-sm opacity-80" data-testid="bundle-notice">
+		<p
+			bind:this={bundleNoticeLine}
+			tabindex="-1"
+			aria-live="polite"
+			class="mt-4 text-sm opacity-80"
+			data-testid="bundle-notice"
+		>
 			{bundleNotice}
 		</p>
 	{/if}
@@ -495,7 +535,7 @@
 								class="btn btn-sm"
 								class:btn-disabled={transferring}
 								aria-disabled={transferring}
-								onclick={() => !transferring && session.exportProject(project)}
+								onclick={() => exportProject(project)}
 							>
 								Export<span class="sr-only"> {project.name}</span>
 							</button>
@@ -714,6 +754,7 @@
 <ModalDialog
 	bind:open={() => openingBundle, (open) => (open ? (openingBundle = true) : cancelOpeningBundle())}
 	title="Open a Project someone sent me"
+	restoreFocusTo={() => bundleNoticeLine}
 >
 	<label class="floating-label">
 		<span>Project bundle</span>
@@ -743,11 +784,20 @@
 	{/if}
 	{#snippet actions()}
 		<button class="btn" onclick={cancelOpeningBundle}>Cancel</button>
+		<!-- `aria-disabled` for the *busy* half, never `disabled`. A `disabled` button leaves the tab
+		     order the moment it is pressed, so a keyboard user's focus fell to `<body>` for the length
+		     of the read — the identical defect the Export buttons above are shaped by, and the one
+		     `keeps the Export button focusable while an export runs` already guards
+		     (workspace-and-layers SPEC story 95, WCAG 2.4.3). `disabled` is still right for "no file
+		     chosen yet", because that button has never been pressed and cannot lose a focus it never
+		     had. -->
 		<button
 			class="btn btn-primary"
+			class:btn-disabled={bundleBusy}
+			aria-disabled={bundleBusy}
 			data-testid="confirm-open-bundle"
-			onclick={runOpenBundle}
-			disabled={bundleBusy || !chosen?.length}
+			onclick={() => !bundleBusy && runOpenBundle()}
+			disabled={!chosen?.length}
 		>
 			{bundleBusy ? 'Opening…' : 'Open in a review copy'}
 		</button>

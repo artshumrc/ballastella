@@ -143,3 +143,57 @@ const unreadableMark = (): ReviewMark => ({
 	directory: '',
 	openedAt: ''
 });
+
+/** An action a Review Workspace does not get, or one only a Review Workspace gets. */
+export class ReviewWorkspaceError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'ReviewWorkspaceError';
+	}
+}
+
+/**
+ * What a Review Workspace is holding, in the words the user should see.
+ *
+ * A mark that could not be read carries no Project name — see {@link readReviewMark} — so this says
+ * "a Project somebody sent you" rather than inventing one.
+ */
+export function describeReviewSubject(mark: ReviewMark): string {
+	return mark.project ? `“${mark.project}”` : 'a Project somebody sent you';
+}
+
+/**
+ * Refuse an action a Review Workspace does not get, in the words the user should see (workspace-and-layers SPEC story 111).
+ *
+ * ⚠ **One sentence for every one of them rather than a phrase per call site.** Publishing and backing
+ * up are refused for the same reason and the user is owed the same explanation; two spellings is how
+ * two screens come to say different things about one rule. In `packages/core` rather than in the
+ * editor so it has a test seam at all — the app has none — and so that the *writer* of a backup can
+ * refuse as well as the button that presses it.
+ */
+export function assertNotReviewing(
+	workspaceName: string,
+	mark: ReviewMark | null,
+	verb: string
+): void {
+	if (mark === null) return;
+	throw new ReviewWorkspaceError(
+		`“${workspaceName}” is a review copy of ${describeReviewSubject(mark)}, so it cannot be ` +
+			`${verb}. It holds somebody else's work and is meant to be discarded. Go back to your own ` +
+			`Workspace first.`
+	);
+}
+
+/**
+ * Refuse an action **only** a Review Workspace gets, in the words the user should see.
+ *
+ * The other direction, and the destructive one: discarding removes a Workspace and everything in it,
+ * and the only thing standing between that and a user's own research is which Workspace is open.
+ */
+export function assertReviewing(workspaceName: string, mark: ReviewMark | null): void {
+	if (mark !== null) return;
+	throw new ReviewWorkspaceError(
+		`“${workspaceName}” is one of your own Workspaces rather than a review copy, so it is not ` +
+			`discarded from here. Workspace settings is where a Workspace of your own is deleted.`
+	);
+}

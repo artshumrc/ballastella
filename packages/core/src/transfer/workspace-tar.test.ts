@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import { imageInfoPath } from '../project/image-files.js';
 import { ProjectFormatTooNewError } from '../project/project-file.js';
+import {
+	REVIEW_MARK_FORMAT_VERSION,
+	REVIEW_MARK_PATH,
+	ReviewWorkspaceError,
+	serialiseReviewMark
+} from '../project/review-workspace.js';
 import { Workspace } from '../project/workspace.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { toWorkspaceName } from '../store/opfs-workspaces.js';
@@ -1148,5 +1154,61 @@ describe('WorkspaceRestore describes what happened', () => {
 		);
 		expect(restored.totalFiles).toBe(Object.keys(files).length);
 		expect(restored.totalBytes).toBe(expectedBytes);
+	});
+});
+
+// ⚠ **The refusal lives in the writer, not only in the button** (ADR-0024, ticket 14).
+//
+// An archive of somebody else's work sitting in the user's Downloads folder is indistinguishable
+// from a backup of their own, which is how a review copy comes to be restored months later as though
+// it were theirs. The editor hides the button *and* refuses before the walk starts — but the editor
+// has no test project at all, so a guard that lived only there was a guard whose call site could be
+// deleted with the whole suite staying green. This is the layer that can be asserted.
+describe('a Review Workspace is never backed up', () => {
+	const marked = (): MemoryProjectStore => {
+		const store = seed(twoProjectsOneMap());
+		store.plant(
+			REVIEW_MARK_PATH,
+			serialiseReviewMark({
+				formatVersion: REVIEW_MARK_FORMAT_VERSION,
+				project: 'Amsterdam 1625',
+				directory: 'amsterdam-1625',
+				openedAt: '2026-08-08T09:00:00.000Z'
+			})
+		);
+		return store;
+	};
+
+	it('refuses, naming what it holds and the way out', async () => {
+		const cause = await exportWorkspaceTar(marked(), 'amsterdam-1625').catch(
+			(thrown: unknown) => thrown
+		);
+
+		expect(cause).toBeInstanceOf(ReviewWorkspaceError);
+		expect((cause as Error).message).toContain('“Amsterdam 1625”');
+		expect((cause as Error).message).toContain('cannot be backed up');
+	});
+
+	// Nothing is read and nothing is produced. A refusal that had already walked the Workspace would
+	// still be a refusal, but it would also be tens of thousands of `size` calls on a shared pool.
+	it('produces no archive at all', async () => {
+		const store = marked();
+		let listed = 0;
+		const list = store.list.bind(store);
+		store.list = async (prefix: string) => {
+			listed += 1;
+			return list(prefix);
+		};
+
+		await expect(exportWorkspaceTar(store, 'amsterdam-1625')).rejects.toBeInstanceOf(
+			ReviewWorkspaceError
+		);
+		expect(listed).toBe(0);
+	});
+
+	it('still backs up a Workspace of the user’s own', async () => {
+		const backup = await exportWorkspaceTar(seed(twoProjectsOneMap()), 'My Workspace');
+
+		expect(backup.totalFiles).toBe(Object.keys(twoProjectsOneMap()).length);
 	});
 });

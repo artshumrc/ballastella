@@ -659,7 +659,7 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 		throw new PublishRefusedError(
 			`Publishing would write ${unrecorded.map((file) => file.path).join(', ')}, which ` +
 				`VIEWER_FILE_PATHS does not record. ADR-0006 requires the viewer file set to be ` +
-				`enumerable, so that a data-only Project zip can exclude exactly it. Record the path ` +
+				`enumerable, so that a data-only Project archive can exclude exactly it. Record the path ` +
 				`there and publish again. Nothing has been written.`
 		);
 	}

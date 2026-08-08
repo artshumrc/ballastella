@@ -1,6 +1,6 @@
 <script lang="ts">
 	// "You are inside a review copy", on every screen, with the only two exits out of it
-	// (ticket 14, ADR-0024, SPEC stories 92–94).
+	// (ticket 14, ADR-0024, workspace-and-layers SPEC stories 92–94).
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// WHY THIS IS IN THE LAYOUT AND NOT ON THE HUB
@@ -16,7 +16,7 @@
 	// `NavigationBar` and `RecoveredEdits`, which is what makes "every screen" a structural fact
 	// rather than three components that were each remembered.
 	//
-	// **Visible text rather than a badge, a tint, or an icon** (SPEC story 111). "Review copy" in a
+	// **Visible text rather than a badge, a tint, or an icon** (workspace-and-layers SPEC story 111). "Review copy" in a
 	// coloured stripe is unreadable to a screen reader and ambiguous to everybody else; the sentence
 	// says whose work this is, that nothing here reaches the user's own Workspace, and what the two
 	// buttons do.
@@ -53,11 +53,23 @@
 	 */
 	const subject = $derived(review?.project ? `“${review.project}”` : 'a Project somebody sent you');
 
+	/**
+	 * Go back to the user's own Workspace, and say which one they landed in.
+	 *
+	 * ⚠ **The name is read *after* the switch, never predicted before it.** It used to announce
+	 * `ownWorkspaceName`, which is the browser-storage fallback and is not where a folder-Workspace
+	 * user goes — so the sentence claimed "You are back in your own Workspace, “My Workspace”" while
+	 * the exit had reopened their folder, or, worse, while a refused folder grant had left them
+	 * somewhere else again. `storage.name` is what the bar is showing, which is the only honest answer
+	 * to "where am I now".
+	 *
+	 * A folder that would not reopen is reported by `storage.problem` on the settings screen; what is
+	 * said here is where the user actually is, because that is what this sentence is for.
+	 */
 	async function leave(): Promise<void> {
 		if (!storage) return;
-		const own = storage.ownWorkspaceName;
 		await storage.leaveReview();
-		announcement = `Left the review copy. You are back in your own Workspace, “${own}”.`;
+		announcement = `Left the review copy. You are back in your own Workspace, “${storage.name}”.`;
 	}
 
 	async function discard(): Promise<void> {

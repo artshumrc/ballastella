@@ -277,9 +277,8 @@ export class Workspace {
 		const paths = await this.#store.list('');
 		return new Set([
 			// Seeded, so `#unusedDirectory` can never *offer* a reserved name either — which matters
-			// because it is what `suggestDirectory` returns to the rename field and what `duplicateProject`
-			// lands on. An empty Workspace holds none of these directories yet, so listing alone would say
-			// they were free.
+			// because it is what `createProject` and `duplicateProject` land on. An empty Workspace holds
+			// none of these directories yet, so listing alone would say they were free.
 			...RESERVED_DIRECTORY_NAMES.map(foldName),
 			...paths.map((path) => foldName(topLevelSegment(path)))
 		]);

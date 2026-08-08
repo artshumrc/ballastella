@@ -335,7 +335,7 @@
 		{#if storage.review !== null}
 			<!--
 				ADR-0024: a review copy is never backed up. Said in visible text rather than left as a
-				disabled button with no explanation (SPEC story 111) — an archive of somebody else's work
+				disabled button with no explanation (workspace-and-layers SPEC story 111) — an archive of somebody else's work
 				sitting in the user's Downloads folder is indistinguishable from a backup of their own,
 				which is how a review copy comes to be restored months later as though it were theirs.
 				`WorkspaceStorage.backUp` refuses it as well, because a guard that lives only in markup is

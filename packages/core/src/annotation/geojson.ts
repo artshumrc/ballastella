@@ -13,10 +13,11 @@
 //    and the bytes are the same. It is what lets a Workspace live in git without every save producing
 //    a diff, and what makes ADR-0010's "merely looking must not modify files" checkable.
 //
-// 2. **Nothing here is on the import path.** `assertReferencesPresent` in `import-project-zip.ts`
-//    validates that a Layer's named GeoJSON is *present* through the typed union, without ever
-//    parsing an untrusted Annotation. That property is deliberate and must be kept: a stranger's
-//    document is bytes until the user opens the Layer that draws it.
+// 2. **Nothing here is on the path a stranger's archive takes in.** `assertReferencesPresent` in
+//    `transfer/open-project-bundle.ts` validates that a Layer's named GeoJSON is *present* through
+//    the typed union, without ever parsing an untrusted Annotation, and `restore-workspace-tar.ts`
+//    interprets nothing at all. That property is deliberate and must be kept: a stranger's document
+//    is bytes until the user opens the Layer that draws it.
 
 import type { Bytes } from '../store/project-store.js';
 

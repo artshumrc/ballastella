@@ -15,12 +15,25 @@
 		open = $bindable(false),
 		title,
 		children,
-		actions
+		actions,
+		restoreFocusTo
 	}: {
 		open?: boolean;
 		title: string;
 		children: Snippet;
 		actions: Snippet;
+		/**
+		 * Where focus goes when the element that opened this dialog is **no longer in the document**.
+		 *
+		 * ⚠ **A dialog can outlive its own trigger, and `focus()` on a detached node is a no-op with no
+		 * complaint.** Opening a Project bundle is the case: the button that opened this is inside
+		 * `{#if review === null}`, and succeeding puts the user inside a review copy — so by the time
+		 * the dialog closes the trigger has been unmounted, focus falls to `<body>`, and a keyboard user
+		 * tabs in from the top of the page to find out what just happened (WCAG 2.4.3,
+		 * workspace-and-layers SPEC story 95). Consulted only when the trigger has gone, so nothing about the ordinary
+		 * Escape-and-cancel path changes.
+		 */
+		restoreFocusTo?: () => HTMLElement | null | undefined;
 	} = $props();
 
 	let dialog: HTMLDialogElement | undefined = $state();
@@ -35,15 +48,44 @@
 			dialog.showModal();
 		} else if (!open && dialog.open) {
 			dialog.close();
+			// ⚠ **Here, synchronously, and not in `onclose` — the timing is the whole of it.** `close()`
+			// leaves the top layer at once but *queues* the `close` event, so restoring from the handler
+			// leaves a window in which focus is on a button inside a dialog that is no longer shown. A
+			// keystroke arriving in that window is answered by the dead element, and a restore performed
+			// afterwards yanks focus back out of wherever the user had just put it. Measured, twice, as a
+			// browser test that focused the review banner's exit and had it taken away a frame later.
+			restoreFocus();
 		}
 	});
 
-	// Fires for Escape and for the backdrop as well as for our own close, so this is the one
-	// place that has to put focus back — the browser restores it too, but only for the element
-	// it saw focused, and being explicit is what the browser test asserts.
+	/**
+	 * Put focus back where the user can use it.
+	 *
+	 * The browser restores it too, but only for the element it saw focused, and being explicit is what
+	 * the browser test asserts.
+	 */
+	function restoreFocus(): void {
+		// `isConnected` rather than a `try`: a detached element accepts `focus()` and does nothing, so
+		// there is no failure to catch — which is exactly why this went unnoticed.
+		if (trigger?.isConnected) {
+			trigger.focus();
+			return;
+		}
+		// **Only when focus has nowhere to be**, which is `<body>`, nothing at all, or still inside the
+		// dialog that has just closed. Anywhere else is somewhere the user chose, and taking it off them
+		// would be a worse failure than the `<body>` this exists to avoid.
+		const focused = document.activeElement;
+		const stranded =
+			focused === null || focused === document.body || (dialog?.contains(focused) ?? false);
+		if (stranded) restoreFocusTo?.()?.focus();
+	}
+
+	// Escape and the backdrop close the dialog without going through the effect above, so this is
+	// their path to the same restoration. Our own close has already done it, and `restoreFocus` is
+	// idempotent — by then focus is outside the dialog and on something real.
 	const onclose = () => {
 		open = false;
-		trigger?.focus();
+		restoreFocus();
 	};
 </script>
 

@@ -306,11 +306,18 @@ interface RestoreOutcome {
  * whole point.** An Alignment goes through ticket 18's one writer, which may decline it — see
  * {@link writeRestored} — and the first cut of this function incremented the counters regardless.
  * That made a restore report more than it had delivered: the archive's Alignment was dropped and
- * still counted. Unreachable while the destination is always new, but ticket 14's Review Workspaces
- * reach it, and **a transfer that reports more than it wrote is the zip writer claiming 4,464 of 70,000
- * with a different spelling** — which is the failure this entire format change exists to escape. So
- * a declined file is counted nowhere and named in {@link RestoreOutcome.declined}, and the caller
- * says so.
+ * still counted. **A transfer that reports more than it wrote is the zip writer claiming 4,464 of
+ * 70,000 with a different spelling** — which is the failure this entire format change exists to
+ * escape. So a declined file is counted nowhere and named in {@link RestoreOutcome.declined}, and
+ * the caller says so.
+ *
+ * ⚠ **`writeRestored`'s own decline is still unreached, and that is stated rather than implied.**
+ * The claim here used to be that ticket 14's Review Workspaces reach it; they do not. A bundle goes
+ * through `open-project-bundle.ts`, which has its own writer with its own decline — the *equivalent*
+ * path in a different module. A restore destination is still always a brand-new Workspace, so
+ * nothing on this path has an Alignment to refuse: what makes the counting correct here is that it
+ * is written to be correct, not that a test has driven it. Duplicate entries in a *restore* archive
+ * are the case that would reach it, and no test lays one down.
  */
 async function drainInto(
 	store: ProjectStore,

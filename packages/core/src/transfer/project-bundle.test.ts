@@ -426,6 +426,44 @@ describe('a bundle opens into a Review Workspace', () => {
 		expect(opened.notice).toContain('alignments/amsterdam-1625.json');
 	});
 
+	// ⚠ **The same rule for every other path, which is where it was missing.** Ticket 18's writer
+	// covered `alignments/<id>.json` and nothing covered anything else, so a repeated tile or a
+	// repeated `annotations/*.geojson` went through `store.write` — which overwrites — **and was
+	// counted twice**. `totalFiles` then reported more files than were on disk, which is the zip
+	// writer claiming 4,464 of 70,000 with a different spelling.
+	it('declines a second copy of any repeated entry, keeps the first, and counts it once', async () => {
+		const into = destination();
+		const archive = await handBuilt([
+			['project.json', projectJson()],
+			['annotations/warehouses.geojson', '{"type":"FeatureCollection","features":[]}'],
+			// alignment-write-is-the-fixture: the Alignment a bundle fixture carries, as bytes to be packed into a tar; nothing here writes to a store
+			['alignments/amsterdam-1625.json', '{"type":"Annotation"}'],
+			['images/amsterdam-1625/info.json', '{"width":1,"height":1}'],
+			['images/amsterdam-1625/0,0,1,1/1,1/0/default.jpg', 'the tile that was sent'],
+			['images/amsterdam-1625/0,0,1,1/1,1/0/default.jpg', 'a second, different tile'],
+			['annotations/warehouses.geojson', '{"type":"FeatureCollection","features":["late"]}']
+		]);
+
+		const opened = await openProjectBundle(streamOf(archive), into.open, {
+			fileName: 'amsterdam-1625.project.tar'
+		});
+
+		// The first of each pair is what is on disk, byte for byte.
+		expect(
+			decode(await into.store.read('images/amsterdam-1625/0,0,1,1/1,1/0/default.jpg' as StorePath))
+		).toBe('the tile that was sent');
+		expect(
+			decode(await into.store.read('amsterdam-1625/annotations/warehouses.geojson' as StorePath))
+		).toBe('{"type":"FeatureCollection","features":[]}');
+		expect(opened.declined).toEqual([
+			'images/amsterdam-1625/0,0,1,1/1,1/0/default.jpg',
+			'annotations/warehouses.geojson'
+		]);
+		// Five distinct paths were written. The count is of what is on disk, never of what was read.
+		expect(opened.totalFiles).toBe(5);
+		expect(Object.keys(contents(into.store)).length).toBe(opened.totalFiles + 1);
+	});
+
 	it('names the Review Workspace and the Project directory after the file that was picked', async () => {
 		const source = seed(twoProjectsTwoMaps());
 		const into = destination();
@@ -606,15 +644,16 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 		const { cause, into } = await refusal(
 			await handBuiltFrom({
 				'project.json': projectJson(),
-				'annotations/warehouses.geojson': '{"type":"FeatureCollection"}',
+				// alignment-write-is-the-fixture: the Alignment a bundle fixture carries, as bytes to be packed into a tar; nothing here writes to a store
+				'alignments/amsterdam-1625.json': '{"type":"Annotation"}',
 				'images/amsterdam-1625/info.json': '{"width":1,"height":1}'
-				// No `alignments/amsterdam-1625.json`, which the map Layer names.
+				// No `annotations/warehouses.geojson`, which the Annotation Layer names.
 			})
 		);
 
 		expect((cause as BundleRejectedError).reason).toBe('missing-reference');
-		expect((cause as Error).message).toContain('alignments/amsterdam-1625.json');
-		expect((cause as Error).message).toContain('The 1625 plan');
+		expect((cause as Error).message).toContain('annotations/warehouses.geojson');
+		expect((cause as Error).message).toContain('Warehouses');
 		expect(into.discarded()).toBe(true);
 		expect(contents(into.store)).toEqual({});
 	});
@@ -631,6 +670,42 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 
 		expect((cause as BundleRejectedError).reason).toBe('missing-reference');
 		expect((cause as Error).message).toContain('images/amsterdam-1625/');
+	});
+
+	// ⚠ **The asymmetry that let a Project export to a bundle its own sender could not re-open.**
+	// `exportProjectBundle` treats a Historical Map nobody has placed yet as ordinary and leaves the
+	// Alignment out; the reader used to require one for every map Layer. So a scholar who added a map
+	// and had not aligned it — the state the Layer card itself describes as "Not aligned yet" —
+	// exported a file that was refused on the way back in, which is the worst shape a transfer defect
+	// can take: found by the recipient, about a file the sender can no longer change. Driven through
+	// the real exporter rather than a hand-built archive, because it is the *pair* that was wrong.
+	it('opens a Project whose Historical Map has not been aligned yet', async () => {
+		const workspace = seed({
+			'amsterdam-1625/project.json': projectJson(),
+			'amsterdam-1625/annotations/warehouses.geojson': '{"type":"FeatureCollection"}',
+			'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}'
+			// No `alignments/amsterdam-1625.json`: the map is in the Project and not yet placed.
+		});
+		const bundle = await bundleOf(workspace, 'amsterdam-1625');
+		expect((await unpackTar(bundle, { strict: true })).map((entry) => entry.header.name)).toEqual([
+			'annotations/warehouses.geojson',
+			'images/amsterdam-1625/info.json',
+			'project.json'
+		]);
+
+		const into = destination();
+		const opened = await openProjectBundle(streamOf(bundle), into.open, {
+			fileName: 'amsterdam-1625.project.tar'
+		});
+
+		expect(into.discarded()).toBe(false);
+		expect(opened.project.name).toBe('Amsterdam 1625');
+		expect(contents(into.store)).toEqual({
+			[REVIEW_MARK_PATH]: expect.any(String),
+			'amsterdam-1625/project.json': projectJson(),
+			'amsterdam-1625/annotations/warehouses.geojson': '{"type":"FeatureCollection"}',
+			'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}'
+		});
 	});
 
 	// A referenced image keeps `remote.json` instead of `info.json`, because its tiles and its

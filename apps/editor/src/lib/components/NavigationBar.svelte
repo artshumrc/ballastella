@@ -171,7 +171,7 @@
 							{name}
 							<!--
 								Which of these is somebody else's work in a throwaway Workspace, in **words**
-								rather than as a tint or an icon (SPEC story 111). Review copies stay in the
+								rather than as a tint or an icon (workspace-and-layers SPEC story 111). Review copies stay in the
 								list rather than being filtered out of it: a teacher marking thirty submissions
 								moves between them, and two students' conflicting Alignments of the same sheet
 								never meet precisely because each is in its own Workspace (ADR-0024).

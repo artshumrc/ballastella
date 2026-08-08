@@ -139,6 +139,10 @@ export {
 export {
 	REVIEW_MARK_FORMAT_VERSION,
 	REVIEW_MARK_PATH,
+	ReviewWorkspaceError,
+	assertNotReviewing,
+	assertReviewing,
+	describeReviewSubject,
 	parseReviewMark,
 	readReviewMark,
 	serialiseReviewMark,
@@ -255,12 +259,7 @@ export {
 	backupFileName,
 	type BackupRejection
 } from './transfer/workspace-tar.js';
-export type {
-	ProjectFileSource,
-	TransferFile,
-	TransferProgress,
-	TransferProgressListener
-} from './transfer/transfer.js';
+export type { TransferProgress, TransferProgressListener } from './transfer/transfer.js';
 export {
 	PUBLISHED_APP_DIRECTORY,
 	PUBLISHED_SITE_RECORD_NAME,

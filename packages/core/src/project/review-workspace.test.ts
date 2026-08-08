@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { PathNotFoundError, type Bytes } from '../store/project-store.js';
 import {
+	assertNotReviewing,
+	assertReviewing,
 	parseReviewMark,
 	readReviewMark,
+	ReviewWorkspaceError,
 	REVIEW_MARK_FORMAT_VERSION,
 	REVIEW_MARK_PATH,
 	serialiseReviewMark
@@ -95,5 +98,52 @@ describe('the mark that makes a Workspace a review copy', () => {
 		expect(toDirectoryName('review.json')).not.toBe(REVIEW_MARK_PATH);
 		expect(toDirectoryName('Review')).not.toBe(REVIEW_MARK_PATH);
 		expect(REVIEW_MARK_PATH).toContain('.');
+	});
+});
+
+// ⚠ **The two refusals, at the only seam they have.** Both sentences used to live in
+// `apps/editor/src/lib/workspace-storage.svelte.ts`, which has no test project at all, so the
+// wording and both branches were unasserted — and a message nobody asserts is a message that
+// drifts, which is the whole reason there is one sentence rather than a phrase per call site
+// (workspace-and-layers SPEC story 111).
+describe('what a Review Workspace may and may not be asked to do', () => {
+	it('lets a Workspace of the user’s own be backed up', () => {
+		expect(() => assertNotReviewing('My Workspace', null, 'backed up')).not.toThrow();
+	});
+
+	it('refuses a review copy, naming the Workspace, the Project, and the way out', () => {
+		let thrown: unknown;
+		try {
+			assertNotReviewing('amsterdam-1625', mark, 'backed up');
+		} catch (cause) {
+			thrown = cause;
+		}
+
+		expect(thrown).toBeInstanceOf(ReviewWorkspaceError);
+		const message = (thrown as Error).message;
+		expect(message).toContain('“amsterdam-1625”');
+		expect(message).toContain('“Amsterdam 1625”');
+		expect(message).toContain('cannot be backed up');
+		expect(message).toContain('Go back to your own Workspace first.');
+	});
+
+	// A mark that could not be read carries no Project name, and the refusal must not invent one:
+	// the Workspace's own name is not what the bundle said.
+	it('says “a Project somebody sent you” for a mark it could not read', () => {
+		expect(() =>
+			assertNotReviewing(
+				'assignment 3',
+				{ formatVersion: REVIEW_MARK_FORMAT_VERSION, project: '', directory: '', openedAt: '' },
+				'published'
+			)
+		).toThrow(/a Project somebody sent you.*cannot be published/s);
+	});
+
+	it('lets a review copy be discarded, and refuses to discard one of the user’s own', () => {
+		expect(() => assertReviewing('amsterdam-1625', mark)).not.toThrow();
+		expect(() => assertReviewing('My Workspace', null)).toThrow(ReviewWorkspaceError);
+		expect(() => assertReviewing('My Workspace', null)).toThrow(
+			/“My Workspace” is one of your own Workspaces.*Workspace settings/s
+		);
 	});
 });
