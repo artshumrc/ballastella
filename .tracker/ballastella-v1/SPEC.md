@@ -228,7 +228,7 @@ Display state lives here and **never** in the Georeference Annotation or the Geo
 Every image is tiled; there is no size exemption, because an untiled level-0 image cannot be parsed at all (ADR-0003). Two implementations of one contract, `ImageSource → level-0 pyramid in the ProjectStore`:
 
 - **Decode-and-crop**, default, zero bundle cost. `createImageBitmap(blob, sx, sy, sw, sh)` into a single tile-sized `OffscreenCanvas`. Canvas *area* limits never bind because no canvas exceeds one tile; the ceiling is full-image decode memory.
-- **Streaming**, `wasm-vips` lazily loaded above that ceiling, single-threaded build (the threaded build needs COOP/COEP headers that GitHub Pages cannot set).
+- ~~**Streaming**, `wasm-vips` lazily loaded above that ceiling, single-threaded build (the threaded build needs COOP/COEP headers that GitHub Pages cannot set).~~ **Removed by [ADR-0027](../../docs/adr/0027-no-streaming-tiler-in-v1.md) (2026-08-07).** No published single-threaded build exists, so this path never ran on any deployment. There is one tiler, and an image above the measured decode ceiling of 528,006,700 pixels is refused by name.
 
 Tiles are **square**, and `getTileImageRequest(zoomLevel, column, row)` is used on both sides — it tells the tiler what to write and the image pane what to read, so the two cannot disagree.
 
@@ -316,7 +316,7 @@ Additive: `index.html` and a lean read-only viewer are written into the Workspac
 
 ### Application shape
 
-A minimal pnpm monorepo: one `core` package plus two apps, editor and viewer (ADR-0019). The viewer is a separate build so its leanness is enforced by the dependency graph rather than by tree-shaking — it must never depend on `terra-draw`, the tiler, or `wasm-vips`. Shared dependency versions use pnpm catalogs, which is also how the exact `@allmaps/*` pins are expressed once for both apps.
+A minimal pnpm monorepo: one `core` package plus two apps, editor and viewer (ADR-0019). The viewer is a separate build so its leanness is enforced by the dependency graph rather than by tree-shaking — it must never depend on `terra-draw` or the tiler (`wasm-vips` was the third name until [ADR-0027](../../docs/adr/0027-no-streaming-tiler-in-v1.md) removed the dependency). Shared dependency versions use pnpm catalogs, which is also how the exact `@allmaps/*` pins are expressed once for both apps.
 
 A PWA with a narrowly scoped service worker: app shell only. It must **never** cache Project data (a second source of truth that would diverge on the first offline edit), remote IIIF tiles, or Base Map tiles. No `skipWaiting`; an explicit update prompt, so version skew is visible rather than silent (ADR-0012).
 
@@ -364,7 +364,7 @@ The primary seam. An in-memory `ProjectStore` drives application logic; assertio
 Behaviour covered:
 
 - **Ingest** — a fixture image produces a valid level-0 `info.json` and a complete pyramid; the `id` is the `unset.invalid` placeholder; tiles are square; `getTileImageRequest` agrees with what was written for every zoom level, column, and row.
-- **Decode ceiling routing** — an oversized source selects the streaming tiler; the output contract is identical either way.
+- ~~**Decode ceiling routing** — an oversized source selects the streaming tiler; the output contract is identical either way.~~ **Superseded by [ADR-0027](../../docs/adr/0027-no-streaming-tiler-in-v1.md):** there is nothing to route to. An oversized source is refused, and what is covered instead is the cap on both sides — an image between the old threshold and the ceiling produces a correct pyramid from real pixels, one above the ceiling is refused by name.
 - **Alignment round-trip** — Control Points and Resource Mask survive serialise → deserialise through `@allmaps/annotation` unchanged. Run against **committed fixtures**, since every `@allmaps/*` package is pre-1.0 and this test is what stands between a beta bump and every Alignment in the field being subtly misplaced.
 - **Transformation types** — `straight` is never emitted; `polynomial` normalises to `polynomial1`; changing type preserves Control Points; a type is rejected below its minimum point count.
 - **Half-pairs** — a pending Control Point half is never written, and autosave skips rather than throws.
@@ -414,7 +414,7 @@ Per ADR-0014:
 - **Collaboration and multi-user editing.** Requires a backend; contradicts the local-first premise.
 - **Accounts and authentication.** There is no server to authenticate against.
 - **In-app git.** Publishing produces files; committing them is documented in prose.
-- **Server-side tiling.** A `sharp`-based CLI is described in the docs for images that defeat even the streaming tiler; it is not code we ship.
+- **Server-side tiling.** A `sharp`-based CLI is described in the docs for images that defeat the browser; it is not code we ship. Since [ADR-0027](../../docs/adr/0027-no-streaming-tiler-in-v1.md) it is the whole of the escape hatch rather than the last resort behind a streaming tiler, and the refusal above the cap names it.
 - **IIIF time-based media.**
 - **Aligning a IIIF `Choice`.** Choice can be viewed; alignment operates on one selected image.
 - **Cross-project search.**
@@ -433,7 +433,7 @@ Per ADR-0014:
 ### Build order is dictated by risk, not by feature order
 
 1. **The synthetic projection for the image pane.** The largest unknown, and its failure is silent — Control Points that drift as you zoom. Everything in the alignment experience sits on top of it, so it is built and numerically asserted first.
-2. **`createImageBitmap` crop-tiling against a real archival scan.** The measured decode ceiling is what sets the `wasm-vips` threshold, and that number cannot be guessed.
+2. **`createImageBitmap` crop-tiling against a real archival scan.** The measured decode ceiling is what sets the ingest threshold, and that number cannot be guessed. (It set the `wasm-vips` routing threshold at the time; since [ADR-0027](../../docs/adr/0027-no-streaming-tiler-in-v1.md) it *is* the cap, which made the measurement more load-bearing rather than less.)
 3. **A generated `info.json` validated against Allmaps end to end**, before anything is built on top of the pyramid format.
 4. **The `@allmaps/*` fixture round-trips**, established early since they guard every later upgrade.
 
@@ -464,7 +464,15 @@ streaming tiler, because `wasm-vips` cannot run on a static host: npm publishes 
 build, which needs `SharedArrayBuffer` and therefore COOP/COEP headers that GitHub Pages cannot send —
 the very reason [ADR-0003](../../docs/adr/0003-every-image-is-tiled-client-side.md) mandates the
 single-threaded build, of which no published artefact exists. See open question 3 in
-[TRACKER.md](./TRACKER.md). The refusal is deliberate and legible rather than a silent partial pyramid,
+[TRACKER.md](./TRACKER.md).
+
+**Resolved 2026-08-07 by [ADR-0027](../../docs/adr/0027-no-streaming-tiler-in-v1.md), and the story is
+*more* delivered than this paragraph says.** The streaming tiler is removed and the refusal threshold
+became a cap at the measured ceiling itself — 528,006,700 pixels rather than 268,435,456 — so what a
+scholar can ingest roughly doubled. A 300-megapixel scan both measured engines decode now produces a
+pyramid, asserted on real pixels in `decode-and-crop-tiler.browser.test.ts`. The story is still not met
+as literally written, because a scan larger than a browser will decode is refused rather than tiled;
+the escape hatch is the `sharp` CLI, and the refusal names it. The refusal is deliberate and legible rather than a silent partial pyramid,
 and everything at or below the ceiling works; but the story as written is not met, and the measured
 ceiling (528,006,700 px, threshold 2^28) is roughly half the range the story implies.
 

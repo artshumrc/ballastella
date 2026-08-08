@@ -10,8 +10,8 @@
 // WHY A COPY UNDER A DIRECTORY, AND NOT SOMETHING CLEVERER
 //
 // The viewer is a **separate, lean build** (ADR-0019), which rules out importing its modules into
-// the editor's graph — that is exactly how every published site comes to ship `terra-draw`, the
-// tiler, and five megabytes of `wasm-vips`. It cannot go at the editor's asset root either, because
+// the editor's graph — that is exactly how every published site comes to ship `terra-draw` and the
+// tiler. It cannot go at the editor's asset root either, because
 // its `index.html` would collide with the editor's own page. And it must be *staged*, not merely
 // present in `apps/viewer/build`, because Vite copies `static/` during the build and SvelteKit's
 // `vite preview` serves what the build produced — a path outside the editor's assets is not served

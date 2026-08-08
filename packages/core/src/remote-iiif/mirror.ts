@@ -48,7 +48,7 @@
 import type { Region } from '@allmaps/types';
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import { STREAMING_TILER_THRESHOLD_PIXELS } from '../tiler/decode-ceiling.js';
+import { MAX_INGEST_PIXELS } from '../tiler/decode-ceiling.js';
 import { readImageHeader } from '../tiler/image-header.js';
 import {
 	ingestImageFile,
@@ -148,8 +148,6 @@ export type MirrorPlan = {
 	 * a copy took five hundred requests needs the field name and the number.
 	 */
 	readonly cappedBy: string;
-	/** Whether tiling this routes to the streaming tiler (ADR-0003). */
-	readonly needsStreamingTiler: boolean;
 	/** Everything the user must be told before the copy starts, in the order to say it. */
 	readonly notes: readonly string[];
 	/** Why this cannot be copied at all, or `''`. */
@@ -157,10 +155,12 @@ export type MirrorPlan = {
 };
 
 export type PlanMirrorOptions = {
-	/** Overridable so a test can drive the streaming path without a 268-megapixel fixture. */
-	readonly streamingThresholdPixels?: number;
-	/** Largest source the `assembled` path will stitch. See {@link maxAssembledPixels}. */
-	readonly maxAssembledPixels?: number;
+	/**
+	 * Largest source a copy can be made of, in pixels. Defaults to the tiler's own `MAX_INGEST_PIXELS`.
+	 *
+	 * Overridable so a test can drive the refusal without a 528-megapixel fixture.
+	 */
+	readonly maxIngestPixels?: number;
 };
 
 /**
@@ -195,9 +195,16 @@ export function planMirror(
 ): MirrorPlan {
 	const { width, height, uri } = service;
 	const host = hostOf(uri);
-	const streamingThresholdPixels =
-		options.streamingThresholdPixels ?? STREAMING_TILER_THRESHOLD_PIXELS;
-	const maxAssembledPixels = options.maxAssembledPixels ?? maxAssembledPixelsDefault;
+	// The tiler's own cap, because a copy meets it twice: the `assembled` path has to hold the whole
+	// source at full resolution in one image in order to re-cut it, and the pyramid it then cuts is
+	// `ingestImageFile`'s work either way. Refused up front and named, rather than discovered as a
+	// dead tab after several thousand requests to somebody else's server.
+	//
+	// Note this is the *canvas* as well as the decode: ADR-0003 records that WebKit's canvas area
+	// limit can be as low as 5 242 880 pixels, which the decode-and-crop tiler avoids by never making
+	// a canvas larger than one tile. The `assembled` path cannot, so a large copy may fail on Safari
+	// well below this bound. That is recorded rather than guessed at, here and in ADR-0027.
+	const maxIngestPixels = options.maxIngestPixels ?? MAX_INGEST_PIXELS;
 
 	const cappedBy = declaredCap(service);
 	const wholeImageInOneRequest = service.pane.image.supportsAnyRegionAndSize && cappedBy === '';
@@ -208,7 +215,6 @@ export function planMirror(
 		path === 'full-max' ? [wholeImageUrl(service)] : pieces.map((piece) => piece.url);
 
 	const pixels = width * height;
-	const needsStreamingTiler = pixels > streamingThresholdPixels;
 	const notes: string[] = [];
 	let refusal = '';
 
@@ -226,24 +232,27 @@ export function planMirror(
 		);
 	}
 
-	if (needsStreamingTiler) {
-		notes.push(
-			`At ${megapixels(pixels)} megapixels this map is above the ` +
-				`${megapixels(streamingThresholdPixels)} megapixel limit of the tiler built into your ` +
-				`browser, so the copy needs the streaming tiler. That one needs a browser capability ` +
-				`(SharedArrayBuffer) which a plain static host cannot switch on, so on some deployments it ` +
-				`is unavailable and the copy will refuse rather than half-happen.`
-		);
-	}
-
-	if (path === 'assembled' && pixels > maxAssembledPixels) {
+	// **One refusal for both paths, and it is a refusal rather than the warning it used to be**
+	// (ADR-0027). An offline copy has to exist as one full-resolution image before it can be re-cut
+	// — `full-max` downloads one and decodes it, `assembled` stitches thousands of pieces into one —
+	// so both inherit the `createImageBitmap` decode ceiling and neither has anywhere to escape to.
+	// The `needsStreamingTiler` note that used to stand here promised that a copy this size "needs
+	// the streaming tiler", which is no longer true of any deployment and was never true of this
+	// one; it closes v1 ticket 15's `[~]` criterion by removing the route it was hedging about.
+	if (pixels > maxIngestPixels) {
+		// One word for the thing throughout (CONTEXT.md, *Historical Map*: avoid map, image, scan,
+		// source). This sentence used to say "this map … this Historical Map" in one breath.
 		refusal =
-			`${host} serves only pre-cut tiles${cappedBy === '' ? '' : ` and ${cappedBy}`}, so an ` +
-			`offline copy of it has to be reassembled at full resolution before it can be re-cut — and ` +
-			`at ${megapixels(pixels)} megapixels this map is past the ${megapixels(maxAssembledPixels)} ` +
-			`megapixels a browser will hold in one image. Nothing has been copied and this Historical Map ` +
-			`still works, read from ${host}. Ask whoever runs ${host} for the image file, and add it from ` +
-			`a file instead.`;
+			`At ${megapixels(pixels)} megapixels this Historical Map is past the ` +
+			`${megapixels(maxIngestPixels)} megapixels a browser will decode in one piece, and an ` +
+			`offline copy has to be held whole before it can be cut into tiles` +
+			(path === 'assembled'
+				? ` — ${host} serves only pre-cut tiles${cappedBy === '' ? '' : ` and ${cappedBy}`}, so ` +
+					`the copy would have to be reassembled at full resolution first`
+				: '') +
+			`. Nothing has been copied and this Historical Map still works, read from ${host}. To hold ` +
+			`it offline, ask whoever runs ${host} for the original file and prepare a IIIF pyramid from ` +
+			`it outside the browser.`;
 	}
 
 	return {
@@ -254,28 +263,10 @@ export function planMirror(
 		requests,
 		pieces,
 		cappedBy,
-		needsStreamingTiler,
 		notes,
 		refusal
 	};
 }
-
-/**
- * Largest source the `assembled` path will stitch, in pixels.
- *
- * The same number the tiler routes on, and for a related reason rather than the same one. That path
- * has to hold the whole source at full resolution in one image in order to re-cut it, so it inherits
- * the `createImageBitmap` decode ceiling instead of escaping it — the streaming tiler is no help
- * here, because there is no file to stream from until the pieces have been put together. Refused up
- * front and named, rather than discovered as a dead tab after several thousand requests to somebody
- * else's server.
- *
- * Note this is the *canvas* as well as the decode: ADR-0003 records that WebKit's canvas area limit
- * can be as low as 5 242 880 pixels, which the decode-and-crop tiler avoids by never making a canvas
- * larger than one tile. This path cannot, so a large `assembled` copy may fail on Safari well below
- * this bound. It is recorded on the ticket rather than guessed at here.
- */
-const maxAssembledPixelsDefault = STREAMING_TILER_THRESHOLD_PIXELS;
 
 /**
  * Which declared limit stops this service serving the whole image in one request, or `''`.
@@ -377,9 +368,7 @@ export type MirrorOptions = {
 	/** How fetched pieces become one image. See {@link AssembleImage}. */
 	readonly assemble: AssembleImage;
 	readonly openDecodeAndCrop: OpenTileSource;
-	readonly openStreaming?: OpenTileSource;
-	readonly streamingThresholdPixels?: number;
-	readonly maxAssembledPixels?: number;
+	readonly maxIngestPixels?: number;
 	/**
 	 * The plan the user was shown, so that what was agreed to is what runs.
 	 *
@@ -515,10 +504,7 @@ export async function mirrorRemoteImage(options: MirrorOptions): Promise<MirrorR
 		imageId: service.imageId,
 		...(options.label === undefined ? {} : { label: options.label }),
 		openDecodeAndCrop: options.openDecodeAndCrop,
-		...(options.openStreaming === undefined ? {} : { openStreaming: options.openStreaming }),
-		...(options.streamingThresholdPixels === undefined
-			? {}
-			: { streamingThresholdPixels: options.streamingThresholdPixels }),
+		...(options.maxIngestPixels === undefined ? {} : { maxIngestPixels: options.maxIngestPixels }),
 		...(signal === undefined ? {} : { signal }),
 		onProgress: (progress) => {
 			ingest = progress;

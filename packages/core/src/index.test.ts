@@ -47,24 +47,40 @@ it('exposes the image pane projection to both apps', () => {
 	);
 });
 
-// The tiler, reachable through the barrel and *without* dragging `wasm-vips` in with it. That
-// second half is the ADR-0019 boundary: `apps/viewer` imports this barrel, so an import of
-// `wasm-vips` anywhere under `src` would put a 5 MB WebAssembly module in the published reader's
-// dependency graph with nothing to make it loud.
-it('exposes the tiler, and takes libvips only as an injected loader', () => {
+// The tiler, reachable through the barrel and adding no dependency for `apps/viewer` to acquire.
+// That second half is the ADR-0019 boundary: `apps/viewer` imports this barrel, and it used to be
+// possible for an import of `wasm-vips` anywhere under `src` to put a 5 MB WebAssembly module in
+// the published reader's dependency graph with nothing to make it loud. ADR-0027 removed the
+// package; what is left is `createImageBitmap` and an `OffscreenCanvas`, injected by the app.
+it('exposes the tiler and its cap', () => {
 	expect(Object.keys(core)).toEqual(
 		expect.arrayContaining([
+			'MAX_INGEST_PIXELS',
 			'MEASURED_DECODE_CEILING_PIXELS',
-			'STREAMING_TILER_THRESHOLD_PIXELS',
+			'ImageTooLargeError',
 			'buildImageInfo',
 			'ingestImageFile',
 			'openDecodeAndCropSource',
-			'planPyramid',
-			'streamingTiler'
+			'planPyramid'
 		])
 	);
-	// Curried on the loader: calling it does not load anything.
-	expect(typeof core.streamingTiler(async () => ({}) as core.VipsModule)).toBe('function');
+	// The cap is 528,006,700 (ADR-0027) and not the 268,435,456 routing threshold it replaced, which
+	// is the whole of the widening: a 300-megapixel scan both measured engines decode is admitted.
+	//
+	// **The two constants are equal today and that is deliberately not asserted.** `decode-ceiling.ts`
+	// keeps them apart precisely so a later margin, or a Safari measurement, can move the cap without
+	// moving the record of what was measured. Pinning them equal would make the reason for the design
+	// a build failure the first time somebody acted on it.
+	expect(core.MAX_INGEST_PIXELS).toBe(528_006_700);
+
+	// The names that are gone, asserted as gone. `apps/editor` imported both from here, and an export
+	// that lingers is how a deleted path gets quietly rewired.
+	//
+	// Kept under the rule in CONTRIBUTING, worked through in `e2e/editor-pwa.e2e.ts` beside the other
+	// three assertions of this same shape: an absence assertion earns its place when a plausible
+	// one-line change would make the name appear again, and re-exporting a name is one line.
+	expect(Object.keys(core)).not.toContain('streamingTiler');
+	expect(Object.keys(core)).not.toContain('STREAMING_TILER_THRESHOLD_PIXELS');
 });
 
 // Mirroring (ticket 15) and the ADR-0008 hosting total, reachable through the same barrel. Mirroring

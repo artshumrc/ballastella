@@ -280,8 +280,8 @@ function tilesForBounds(
  * **It also weighs them, and that is not a by-product.** ADR-0025's per-tile byte estimate and the
  * refusal threshold both rest on a measurement of this archive, and the epic's tracker forbids a
  * ticket committing to that measurement unverified. A table in a comment is prose; this returns the
- * totals so a test can assert them, and `editor-base-map.e2e.ts` does — the same arrangement
- * `editor-pwa.e2e.ts` uses for the `wasm-vips` byte count, so the figure cannot rot unnoticed.
+ * totals so a test can assert them, and `editor-base-map.e2e.ts` does, so the figure cannot rot
+ * unnoticed.
  *
  * @param bounds the extent to cache, defaulting to the whole fixture archive's own extent
  * @param maxZoom the deepest zoom to include, defaulting to the archive's own maximum

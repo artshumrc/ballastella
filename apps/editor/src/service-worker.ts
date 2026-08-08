@@ -33,39 +33,26 @@
 //   4. **The rest of `static/` is never cached.** This is the ADR-0019 hole a precaching worker
 //      opens: the editor's `static/` also holds the staged read-only viewer (`viewer-bundle/`),
 //      which Publish writes into a Workspace, and this repository's test fixtures.
-//      `check-viewer-deps.mjs` and `check-tiler-lazy.mjs` police what the viewer *imports*; neither
-//      can see what a service worker *caches*. Naming the one directory that is wanted, rather than
+//      `check-viewer-deps.mjs` polices what the viewer *imports*; it cannot
+//      see what a service worker *caches*. Naming the one directory that is wanted, rather than
 //      taking `files` whole, is what closes it — and the offline suite asserts each cache's contents
 //      against its rule.
-//   5. **`wasm-vips` is not cached**, which is the same argument one layer up. ADR-0019 keeps the
-//      5 MB module behind a dynamic import so it does not land "in the initial bundle of every
-//      page load"; precaching it on install would reimpose that cost on every user who installs
-//      the app, most of whom will never ingest an image in this session. So the shell takes only
-//      code and styles from `build`. The cost is honest and narrow: preparing a *new* image needs
-//      the network on first use.
+//   5. **There is no `.wasm` in `build` to decide about, and that is ADR-0027's doing.** This slot
+//      held the longest of these five rules, because the shell's `.js`/`.css` filter existed partly
+//      to dodge a 5,084,535-byte `vips.wasm` that `vite build` emitted twice. Ticket 10 measured
+//      precaching it and reverted: it cost 23% more than the 4,137,622-byte pmtiles archive that
+//      ticket had just removed, and it bought criterion 7 — an installed app with no connection
+//      accepting a Historical Map file on first run — **nothing**, because the streaming tiler could
+//      not run in this deployment at all and every image a browser can decode went through the
+//      decode-and-crop tiler, which is browser-native and reaches nothing.
 //
-//      **Ticket 10 re-examined this and measured it, because criterion 7 asks that an installed
-//      app with no connection accept a Historical Map file on first run.** Precaching the built
-//      `.wasm` was tried and reverted. Two facts decided it:
-//
-//        - **The cost.** `vite build` emits the module twice, byte-identical at 5,084,535 bytes
-//          each: `_app/immutable/assets/vips._dmTUXFO.wasm` for the main-thread `vips-es6` chunk,
-//          and `_app/immutable/workers/assets/vips-_dmTUXFO.wasm` for the pthread worker. Only the
-//          first is in `$service-worker`'s `build` manifest, so a `.wasm` filter precaches
-//          **5,084,535 bytes** on install — 23% more than the 4,137,622-byte pmtiles archive this
-//          ticket removed, in exchange for removing it. (The second copy still ships as a file;
-//          this worker could not have cached it either way.)
-//        - It buys criterion 7 **nothing**. `libvipsUnavailableReason()` refuses libvips outright
-//          unless the document is cross-origin isolated, and this deployment sends no COOP/COEP
-//          (out of scope for this ticket, by name). Even if it did, `ingestImageFile` only opens
-//          the streaming tiler above `STREAMING_TILER_THRESHOLD_PIXELS` (268,435,456 px); every
-//          smaller image goes through the decode-and-crop tiler, which is browser-native and
-//          reaches nothing. So an offline first-run ingest already worked without these bytes,
-//          and the offline suite asserts exactly that with the network off.
-//
-//      Criterion 7 is therefore met by the decode-and-crop path, and the shell stays code and
-//      styles. The narrow cost stands and is now narrower than it reads: an image *above* the
-//      decode ceiling cannot be prepared at all in this deployment, offline or on.
+//      The tiler that could not run is now gone, and with it the module. The filter stays as it is:
+//      it states a rule ("code and styles") rather than a list of things to dodge, so it needs no
+//      edit when the thing it was dodging leaves — and the next heavy asset a bundler emits into
+//      `build` is excluded by it rather than by somebody remembering. Criterion 7 is still met by
+//      the decode-and-crop path, and the offline suite still asserts it with the network off. The
+//      residual cost is now honest and narrow in the other direction: an image above the measured
+//      decode ceiling cannot be prepared here at all, offline or on, and is refused by name.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // IT DOES NOT SERVE THE STORE
@@ -157,9 +144,13 @@ const ours = (name: string) => /^ballastella-(shell|base-map)-/.test(name) && na
 /**
  * The app shell: the entry HTML for every route, and the code and styles that run it.
  *
- * `build` filtered to `.js` and `.css` — see the header on `wasm-vips`. The filter is by extension
- * and not by name so that it states a rule ("code and styles") rather than a list of things to
- * dodge; the 5,084,535-byte `vips._dmTUXFO.wasm` is what it currently excludes.
+ * `build` filtered to `.js` and `.css` — see rule 5 in the header. The filter is by extension and
+ * not by name so that it states a rule ("code and styles") rather than a list of things to dodge.
+ * Since ADR-0027 removed `wasm-vips` there is no longer a 5 MB `.wasm` in `build` for it to
+ * exclude — `build` is code, styles, and SvelteKit's own `version.json` update marker, which the
+ * update check fetches from the network on purpose and which a cached copy would defeat. The filter
+ * is left exactly as it was, which is the value of having written it as a rule: the thing it was
+ * added to dodge has gone, and the rule has not had to change.
  */
 const SHELL: readonly string[] = [
 	...prerendered,

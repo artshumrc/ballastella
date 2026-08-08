@@ -69,8 +69,8 @@ catalog:
   # `packages/core/src/remote-iiif/community-alignments.ts`, which names the seam, and
   # `EditorSession.fetchCommunityAnnotations`, which is the only call site.
   #
-  # A dependency of `apps/editor` and **not** of `@ballastella/core`, for the same reason
-  # `wasm-vips` is: core names the seam and the app supplies the implementation. It pulls
+  # A dependency of `apps/editor` and **not** of `@ballastella/core`: core names the seam and the
+  # app supplies the implementation, the same shape ADR-0011 uses throughout. It pulls
   # `lodash-es`, `@turf/rewind`, and `svg-parser` behind it, and ADR-0019 is explicit that
   # tree-shaking is not a boundary — every published site ships the viewer bundle, and a reader
   # never asks Allmaps anything.
@@ -102,18 +102,6 @@ catalog:
   # A dependency of `@ballastella/core` as of ticket 17, not of either app: both draw the same warped
   # Historical Maps, and `core/src/render/` is where that stopped being two copies of the same rules.
   '@allmaps/maplibre': 1.0.0-beta.43
-
-  # The streaming tiler (ADR-0003), for images above the measured `createImageBitmap` decode
-  # ceiling. **Single-threaded build only**: the threaded one needs COOP/COEP cross-origin
-  # isolation headers, which GitHub Pages cannot set, and that would break "anyone can fork and
-  # host their own instance". It is a dependency of `apps/editor` and never of `@ballastella/core`
-  # or `apps/viewer` (ADR-0019) — core takes the module through an injected loader — and it is
-  # reached only by dynamic import, so it is fetched when the streaming path is taken and not
-  # before. The artefact is compiled libvips, **LGPLv3** — the package's own notices say so, via
-  # the "any later version" clause of LGPLv2.1 — plus twenty other bundled libraries with
-  # attribution obligations of their own, including aom's patent licence. Read
-  # THIRD-PARTY-NOTICES.md before bumping this pin: a new version can change that list.
-  'wasm-vips': 0.0.18
 
   # UI (ADR-0016: daisyUI is the only UI dependency)
   '@tailwindcss/vite': ^4.3.3

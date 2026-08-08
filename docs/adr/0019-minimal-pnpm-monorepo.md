@@ -1,5 +1,7 @@
 # A minimal pnpm monorepo: one core package, two apps
 
+> **Amended by [ADR-0027](./0027-no-streaming-tiler-in-v1.md):** the three forbidden names are two. `wasm-vips` is removed from the repository, so `scripts/check-tiler-lazy.mjs` and its `pnpm check:bundles` step are deleted rather than left inspecting an absence, and `scripts/check-viewer-deps.mjs` — which fails when an allowance matches nothing — lost its one allowance with it. The fence below is otherwise unchanged and still forbids `terra-draw` and the tiler, in the viewer's own manifest and in every workspace package it reaches.
+
 ```
 packages/core        domain model, ProjectStore + adapters, IIIF glue,
                      alignment serialisation, annotation styling

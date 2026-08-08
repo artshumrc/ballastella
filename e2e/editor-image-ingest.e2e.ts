@@ -19,11 +19,11 @@ test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
  * SPEC's Seam 2 for the tiler: a file picked in the running app, in a real browser, against real
  * OPFS (SPEC stories 21, 22, 23).
  *
- * The tile geometry is asserted in `@ballastella/core`, against both tilers and against the
- * committed fixture pyramid. What can only be asserted here is the rest of it: that a file picker
- * reaches the tiler at all, that progress is announced while it runs, that the pyramid lands in
- * the user's Workspace as files, and that `wasm-vips` is not fetched by an ingest that does not
- * need it — which is the ADR-0019 boundary, and the one thing tree-shaking cannot be trusted with.
+ * The tile geometry is asserted in `@ballastella/core`, against the committed fixture pyramid. What
+ * can only be asserted here is the rest of it: that a file picker reaches the tiler at all, that
+ * progress is announced while it runs, that the pyramid lands in the user's Workspace as files, and
+ * that the size cap ADR-0027 sets is the one the shipped app enforces — on both sides of it, since a
+ * cap that refuses everything would satisfy half of these tests.
  */
 
 const crcTable = (() => {
@@ -264,10 +264,10 @@ test.describe('adding a Historical Map from a file', () => {
 			].sort()
 		);
 
-		// ADR-0019: libvips is fetched when the streaming path is taken, and this ingest did not take
-		// it. Asserted on the network rather than on the bundle, because a `modulepreload` the entry
-		// chunk happens to carry would not show up in a grep for the package name.
-		expect(requested.filter((url) => /vips/i.test(url))).toEqual([]);
+		// One tiler, and it is the browser's own (ADR-0027): an ingest fetches no WebAssembly module,
+		// because there is none to fetch. Asserted on the network rather than on the bundle, because a
+		// `modulepreload` the entry chunk happens to carry would not show up in a grep for a name.
+		expect(requested.filter((url) => /\.wasm$/i.test(url))).toEqual([]);
 	});
 
 	test('says what is wrong, and adds nothing, when the file is not an image', async ({ page }) => {
@@ -322,20 +322,16 @@ test.describe('adding a Historical Map from a file', () => {
 		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
 	});
 
-	test('refuses a scan above the decode ceiling by naming the deployment, not the file', async ({
+	test('refuses a scan above the decode ceiling by naming its size and the remedy', async ({
 		page
 	}) => {
-		// **The refusal a scholar on GitHub Pages actually meets, asserted on the shipped path.**
+		// **The refusal a scholar actually meets, asserted on the shipped path** (ADR-0027).
 		//
-		// `apps/editor` always supplies a streaming tiler, so the "this build has no streaming tiler"
-		// refusal that `@ballastella/core` unit-tests is unreachable here. What happens instead is
-		// that the tiler exists and cannot run: npm publishes only the threaded `wasm-vips`, which
-		// needs a cross-origin isolated document, and no static host sends COOP/COEP — which is
-		// exactly the state this preview server is in, so no header stubbing is needed to reach it.
-		//
-		// It used to arrive wrapped in "This file could not be read as an image … a TIFF or JPEG 2000
-		// archival master needs to be converted first", about a perfectly valid PNG. SPEC's *On the
-		// audience* makes that a defect: the error must name what is wrong and what to do.
+		// It used to name `Cross-Origin-Embedder-Policy` and cross-origin isolation, because what was
+		// really in the way was a streaming tiler that could not start without COOP/COEP — accurate
+		// about the cause and actionable by nobody. Before that it was worse: it arrived as "This file
+		// could not be read as an image … a TIFF or JPEG 2000 archival master needs to be converted
+		// first", about a perfectly valid PNG. SPEC's *On the audience* makes both a defect.
 		const requested: string[] = [];
 		page.on('request', (request) => requested.push(request.url()));
 
@@ -343,7 +339,54 @@ test.describe('adding a Historical Map from a file', () => {
 		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
 		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
 
-		// 20000 × 15000 is 300 megapixels, above the 268 megapixel routing threshold.
+		// 30000 × 20000 is 600 megapixels, above the 528 megapixel cap in both measured engines.
+		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
+			name: 'archival-master.png',
+			mimeType: 'image/png',
+			buffer: pngHeaderOnly(30_000, 20_000)
+		});
+
+		const alert = page.getByRole('alert');
+		await expect(alert).toContainText('600 megapixels');
+		await expect(alert).toContainText('528 megapixel');
+		await expect(alert).toContainText('IIIF pyramid outside the browser');
+		await expect(alert, 'the refusal blames the file instead of its size').not.toContainText(
+			'could not be read as an image'
+		);
+		// SPEC's audience again: none of these words may reach a user. The deployment detail they
+		// described is not merely unhelpful now, it is false — nothing here needs those headers.
+		for (const word of ['COOP', 'COEP', 'Cross-Origin', 'cross-origin', 'SharedArrayBuffer']) {
+			await expect(alert, word).not.toContainText(word);
+		}
+
+		// Nothing added, and nothing fetched: the decision is made from the header, so no decoder is
+		// ever reached and no WebAssembly module is fetched to find out.
+		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
+		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
+		expect(requested.filter((url) => /\.wasm$/i.test(url))).toEqual([]);
+	});
+
+	test('does not refuse a 300 megapixel scan for its size, as it used to', async ({ page }) => {
+		// **The other side of the boundary, and the point of ADR-0027 raising it.** 20000 × 15000 is
+		// 300 megapixels: above the old 268-megapixel routing threshold that refused it outright,
+		// below the 528 both measured engines decode. A cap that refused everything would satisfy the
+		// test above; this is what says it does not.
+		//
+		// **The assertion is a format error, and that is deliberate — read this before "fixing" it.**
+		// The file sent is a PNG *header* with no pixel data, because 300 megapixels of real pixels is
+		// 900 MB in this process before it is even sent. So the ingest cannot succeed here whatever the
+		// cap says. What this test pins is **which** failure arrives: the size check has to let the
+		// file through to the decoder, and the decoder then objects to a truncated PNG. Lower the cap
+		// back to 2^28 and the message becomes "300 megapixels …", which is what makes this red — the
+		// mutation was run.
+		//
+		// The success case at this size, on real pixels and asserted on tile output, is
+		// `decode-and-crop-tiler.browser.test.ts` — it cannot live here, because a real 300-megapixel
+		// ingest is 6,270 tiles and minutes of work.
+		await createProject(page, 'Amsterdam 1625');
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByRole('heading', { name: 'Historical Maps' })).toBeVisible();
+
 		await page.getByLabel('Add a Historical Map from a file').setInputFiles({
 			name: 'archival-master.png',
 			mimeType: 'image/png',
@@ -351,18 +394,10 @@ test.describe('adding a Historical Map from a file', () => {
 		});
 
 		const alert = page.getByRole('alert');
-		await expect(alert).toContainText('300 megapixels');
-		await expect(alert).toContainText('Cross-Origin-Embedder-Policy');
-		await expect(alert).toContainText('convert it to a IIIF pyramid outside the browser');
-		await expect(alert, 'the refusal blames the file instead of the deployment').not.toContainText(
-			'could not be read as an image'
+		await expect(alert).toContainText('could not be read as an image');
+		await expect(alert, 'the size check refused a file the browser would decode').not.toContainText(
+			'megapixels'
 		);
-
-		// Nothing added, and nothing fetched: the decision is made from the header, so neither a
-		// decoder nor 5 MB of WebAssembly is ever reached.
-		await expect(page.getByText('This Project has no Historical Maps yet.')).toBeVisible();
-		expect(Object.keys(await filesIn(page, ''))).toEqual(['amsterdam-1625/project.json']);
-		expect(requested.filter((url) => /vips/i.test(url))).toEqual([]);
 	});
 
 	test('shows an image that was already in the Project when it is opened', async ({ page }) => {

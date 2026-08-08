@@ -762,9 +762,8 @@ async function makeAvailableOffline(page: Page): Promise<void> {
  * them unverified. Ticket 11 measured them — and then wrote them into a comment, a ticket, and the
  * tracker, where nothing could tell if they went stale. `grep` for the figures found only prose.
  *
- * So they are asserted here instead, against the real fixture, exactly as `editor-pwa.e2e.ts` asserts
- * the `wasm-vips` byte count it excludes: the point is not that the number is interesting, it is that
- * the decision resting on it cannot be quietly undone. Three decisions rest on this table — the
+ * So they are asserted here instead, against the real fixture: the point is not that the number is
+ * interesting, it is that the decision resting on it cannot be quietly undone. Three decisions rest on this table — the
  * 500-tile refusal threshold, the per-tile estimate, and the choice to store decompressed MVT — and
  * each is asserted against the measurement rather than beside it.
  *

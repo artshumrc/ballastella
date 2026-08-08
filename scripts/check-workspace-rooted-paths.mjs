@@ -37,7 +37,7 @@
 //
 // **The patterns are covered by a positive control** (`KNOWN_BAD` / `KNOWN_GOOD` below), which runs
 // before the scan and fails if the patterns no longer match the spellings they exist to catch, or if
-// they have grown to match a legitimate one. This is the rule `check-tiler-lazy.mjs` states: a fence
+// they have grown to match a legitimate one. The rule is that a fence
 // that passes whatever the code does is worse than no fence, because it is read as evidence — and a
 // regex fence's way of becoming vacuous is silent, since a pattern that matches nothing and a tree
 // with nothing to match print the same success line.
@@ -192,8 +192,8 @@ function violationIn(line) {
 // ── Positive control ──────────────────────────────────────────────────────────────────────────
 //
 // Runs before the scan, because a pattern that has stopped matching prints the same success line as
-// a tree with nothing to match (`check-tiler-lazy.mjs` on why a fence must fail when it is guarding
-// nothing). Every specimen here is a real spelling: the four `${…}` and `+` forms, and the bare
+// a tree with nothing to match, and a fence must fail when it turns out to be guarding
+// nothing. Every specimen here is a real spelling: the four `${…}` and `+` forms, and the bare
 // literal a test fixture writes.
 
 /** @type {{ line: string, expect: string }[]} */

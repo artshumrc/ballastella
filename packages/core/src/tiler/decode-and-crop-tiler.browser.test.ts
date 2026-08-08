@@ -33,8 +33,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { openDecodeAndCropSource } from './decode-and-crop-tiler.js';
+import { MAX_INGEST_PIXELS } from './decode-ceiling.js';
 import { ingestImageFile } from './ingest.js';
-import { buildImageInfo, planPyramid, type PlannedTile } from './pyramid.js';
+import { PYRAMID_TILE_SIZE, buildImageInfo, planPyramid, type PlannedTile } from './pyramid.js';
 
 // `import.meta.glob` is Vite's, and its types live in `vite/client`, which this package cannot
 // reach: `vite` is a transitive dependency of vitest here, not a declared one. Declaring the one
@@ -420,4 +421,175 @@ describe('the pyramid this tiler writes, against the committed fixture', () => {
 			).toBeLessThan(perScaleFactorError / 2);
 		}
 	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ABOVE THE OLD 268-MEGAPIXEL THRESHOLD, ON REAL PIXELS
+//
+// ADR-0027 raised the limit on ingest from 2^28 (268,435,456) — a number that decided *which of two
+// tilers ran* — to the measured `createImageBitmap` decode ceiling of 528,006,700. The whole of that
+// change is that images between the two are now accepted, so a scholar's 300-megapixel scan gets a
+// pyramid where it used to get a refusal.
+//
+// **Nothing else in the tree shows that happening to real pixels.** `ingest.test.ts` drives a 500 MP
+// image through a stub tiler that writes JSON descriptors and decodes nothing; the e2e at that size
+// asserts a *failure* string, because it sends a header-only PNG. Both are worth having and neither
+// is evidence that a browser will decode 300 megapixels or that the tiler will cut correct regions
+// out of one. This is.
+//
+// ## The fixture, and why it is built rather than committed
+//
+// 300 megapixels of real pixel data is 300 MB, which is why the e2e cannot send one and why nothing
+// here holds one in a buffer. Two properties make it cheap anyway:
+//
+// - **The image is constant within each 256x256 block**, so there are only 59 distinct scanlines in
+//   15,000 rows. They are built once and written repeatedly into a `CompressionStream`, which never
+//   sees more than one row at a time and compresses the repetition away: the PNG is about 2.3 MB.
+// - **Each block's value is a function of its tile row and column**, so a tile's centre pixel says
+//   which region of the source it was actually cut from. A tiler that cropped the wrong rectangle
+//   produces a valid JPEG of the wrong value, which is the failure this has to be able to see — an
+//   assertion on tile *dimensions* could not.
+//
+// Measured 2026-08-07 on this workstation: build 6.2 s and decode 3.2 s in Chromium 151, build 3.4 s
+// and decode 2.0 s in Firefox 153, and about 25 ms per tile. That is the whole cost, and it is why a
+// handful of tiles are checked rather than all 6,270.
+
+const WIDE = { width: 20_000, height: 15_000 };
+
+/**
+ * The value the block at this tile row and column carries.
+ *
+ * Adjacent columns differ by 11 and adjacent rows by 37, so reading a neighbouring block is not a
+ * near miss. `+ 2` keeps it clear of 0, where JPEG's undershoot would clip.
+ */
+const blockValue = (tileRow: number, tileColumn: number) =>
+	((tileRow * 37 + tileColumn * 11) % 251) + 2;
+
+/**
+ * A greyscale PNG of `WIDE`, in flat 256x256 blocks, without ever holding its pixels.
+ *
+ * Hand-assembled rather than drawn on a canvas because no canvas may be this large — Chromium caps
+ * canvas area far below 300 megapixels, and Safari's limit can be as low as 5,242,880 pixels
+ * (ADR-0003). PNG is the one format here that can be written a scanline at a time.
+ */
+async function blockedPng(): Promise<Blob> {
+	const crcTable = new Int32Array(256);
+	for (let n = 0; n < 256; n++) {
+		let c = n;
+		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+		crcTable[n] = c;
+	}
+	const crc32 = (bytes: Uint8Array): number => {
+		let c = -1;
+		for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]!) & 0xff]! ^ (c >>> 8);
+		return (c ^ -1) >>> 0;
+	};
+	const chunk = (type: string, data: Uint8Array): Uint8Array => {
+		const out = new Uint8Array(12 + data.length);
+		const view = new DataView(out.buffer);
+		view.setUint32(0, data.length);
+		for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+		out.set(data, 8);
+		view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+		return out;
+	};
+
+	// One scanline per tile row. The leading byte is PNG's filter type, 0 for "none".
+	//
+	// `Uint8Array<ArrayBuffer>` rather than a bare `Uint8Array`: the writer takes a `BufferSource`,
+	// and a view over a `SharedArrayBuffer` is not one — the same distinction `ProjectStore#Bytes`
+	// makes, and for the same reason.
+	const rows: Uint8Array<ArrayBuffer>[] = [];
+	for (let tileRow = 0; tileRow < Math.ceil(WIDE.height / PYRAMID_TILE_SIZE); tileRow++) {
+		const row = new Uint8Array(WIDE.width + 1);
+		for (let x = 0; x < WIDE.width; x++) {
+			row[x + 1] = blockValue(tileRow, Math.floor(x / PYRAMID_TILE_SIZE));
+		}
+		rows.push(row);
+	}
+
+	const stream = new CompressionStream('deflate');
+	const writer = stream.writable.getWriter();
+	const written = (async () => {
+		for (let y = 0; y < WIDE.height; y++) {
+			await writer.write(rows[Math.floor(y / PYRAMID_TILE_SIZE)]!);
+		}
+		await writer.close();
+	})();
+	const idat = new Uint8Array(await new Response(stream.readable).arrayBuffer());
+	await written;
+
+	const header = new Uint8Array(13);
+	const view = new DataView(header.buffer);
+	view.setUint32(0, WIDE.width);
+	view.setUint32(4, WIDE.height);
+	header[8] = 8; // bit depth
+	header[9] = 0; // greyscale
+	return new Blob(
+		[
+			new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) as BlobPart,
+			chunk('IHDR', header) as BlobPart,
+			chunk('IDAT', idat) as BlobPart,
+			chunk('IEND', new Uint8Array(0)) as BlobPart
+		],
+		{ type: 'image/png' }
+	);
+}
+
+describe('an image above the old 268-megapixel threshold (ADR-0027)', () => {
+	it(
+		'decodes, and cuts tiles whose pixels come from the right region',
+		{ timeout: 180_000 },
+		async () => {
+			expect(WIDE.width * WIDE.height).toBeGreaterThan(268_435_456);
+			expect(WIDE.width * WIDE.height).toBeLessThan(MAX_INGEST_PIXELS);
+
+			const source = await openDecodeAndCropSource(await blockedPng());
+			try {
+				// The decode itself. Before ADR-0027, ingest never got here for an image this size.
+				expect(source.dimensions).toEqual(WIDE);
+
+				const finest = planFor(WIDE).filter((tile) => tile.scaleFactor === 1);
+				expect(finest).toHaveLength(79 * 59);
+
+				// A spread across the source, including both ragged margins and the far corner — the
+				// corner is what a lazy or truncated decode gets wrong, which is why the ceiling
+				// measurement in `decode-ceiling.ts` sampled there too.
+				for (const [tileColumn, tileRow] of [
+					[0, 0],
+					[41, 23],
+					[78, 0],
+					[0, 58],
+					[78, 58]
+				] as const) {
+					const tile = finest.find(
+						(candidate) =>
+							candidate.region.x === tileColumn * PYRAMID_TILE_SIZE &&
+							candidate.region.y === tileRow * PYRAMID_TILE_SIZE
+					);
+					expect(
+						tile,
+						`no scale-factor-1 tile at column ${tileColumn}, row ${tileRow}`
+					).toBeDefined();
+
+					const decoded = await pixelsOf(await source.encodeTile(tile!));
+					expect({ width: decoded.width, height: decoded.height }, tile!.path).toEqual({
+						width: tile!.size.width,
+						height: tile!.size.height
+					});
+
+					// The centre, so JPEG's ringing at the block edges cannot reach it. A tolerance of 4
+					// covers the codec and comes nowhere near admitting a neighbouring block.
+					const expected = blockValue(tileRow, tileColumn);
+					const read = luma(decoded, Math.floor(decoded.width / 2), Math.floor(decoded.height / 2));
+					expect(
+						Math.abs(read - expected),
+						`${tile!.path} came from the wrong region: read ${read.toFixed(1)}, expected ${expected}`
+					).toBeLessThan(4);
+				}
+			} finally {
+				await source.close();
+			}
+		}
+	);
 });

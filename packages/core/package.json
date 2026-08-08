@@ -30,7 +30,6 @@
 		"@vitest/browser-playwright": "catalog:",
 		"playwright": "catalog:",
 		"typescript": "catalog:",
-		"vitest": "catalog:",
-		"wasm-vips": "catalog:"
+		"vitest": "catalog:"
 	}
 }

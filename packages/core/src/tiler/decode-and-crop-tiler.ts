@@ -59,8 +59,10 @@ const supportsBitmapResize = (): Promise<boolean> =>
 /**
  * Opens an image by decoding it whole.
  *
- * Rejects for an image above the browser's decode ceiling, which is the failure
- * {@link STREAMING_TILER_THRESHOLD_PIXELS} exists to keep a user from ever reaching.
+ * Rejects for an image above the browser's decode ceiling, which is the failure `MAX_INGEST_PIXELS`
+ * exists to keep a user from ever reaching — `ingestImageFile` refuses from the container's header
+ * before this is opened, so arriving here above the ceiling means a format whose header nothing
+ * read (ADR-0027).
  */
 export const openDecodeAndCropSource: OpenTileSource = async (file: Blob): Promise<TileSource> => {
 	const decoded = await createImageBitmap(file);
