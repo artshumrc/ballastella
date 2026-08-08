@@ -33,7 +33,12 @@ import { openDecodeAndCropSource } from '../tiler/decode-and-crop-tiler.js';
 import { ingestImageFile } from '../tiler/ingest.js';
 import { buildImageInfo, planPyramid, type PlannedTile } from '../tiler/pyramid.js';
 import { acceptRemoteImageService, type RemoteImageService } from './image-service.js';
-import { OfflineCopyRefusedError, assembleWithCanvas, makeOfflineCopy, planOfflineCopy } from './offline-copy.js';
+import {
+	OfflineCopyRefusedError,
+	assembleWithCanvas,
+	makeOfflineCopy,
+	planOfflineCopy
+} from './offline-copy.js';
 
 declare global {
 	interface ImportMeta {

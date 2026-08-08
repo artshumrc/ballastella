@@ -343,7 +343,10 @@ describe('a Historical Map that has been copied offline', () => {
 
 	it('keeps its record, so it can still be cited and traced back', () => {
 		// ADR-0007's whole reason for keeping `remote.json` where it is: making an offline copy must not orphan the copy.
-		const [copied] = partitionByOfflineCopy([record()], [{ imageId: 'a8eb9e9cf936cc3d' }]).offlineCopies;
+		const [copied] = partitionByOfflineCopy(
+			[record()],
+			[{ imageId: 'a8eb9e9cf936cc3d' }]
+		).offlineCopies;
 
 		expect(copied?.service).toBe(SERVICE);
 		expect(copied?.rights).toBe('http://rightsstatements.org/vocab/NoC-US/1.0/');

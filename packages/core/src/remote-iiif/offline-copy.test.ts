@@ -228,7 +228,9 @@ describe('planOfflineCopy: what the copy will cost the Workspace', () => {
 		const plan = planOfflineCopy(await levelTwo(1200, 851));
 
 		expect([plan.width, plan.height]).toEqual([1200, 851]);
-		expect(estimateOfflineCopyBytes(plan.width, plan.height)).toBe(estimateOfflineCopyBytes(1200, 851));
+		expect(estimateOfflineCopyBytes(plan.width, plan.height)).toBe(
+			estimateOfflineCopyBytes(1200, 851)
+		);
 	});
 
 	// **A refusal, where it used to be a warning** (ADR-0027). The note this replaces said a copy

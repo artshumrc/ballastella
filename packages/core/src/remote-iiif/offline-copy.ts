@@ -596,7 +596,12 @@ async function removePyramid(store: ProjectStore, directory: string): Promise<vo
  */
 async function fetchBounded(
 	url: string,
-	options: { fetch: FetchFn; host: string; limits: OfflineCopyLimits; signal: AbortSignal | undefined }
+	options: {
+		fetch: FetchFn;
+		host: string;
+		limits: OfflineCopyLimits;
+		signal: AbortSignal | undefined;
+	}
 ): Promise<Blob> {
 	const { host, limits } = options;
 	const abort = new AbortController();

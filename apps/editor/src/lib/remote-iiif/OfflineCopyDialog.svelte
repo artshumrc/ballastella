@@ -125,7 +125,10 @@
 				{/each}
 
 				{#if job.hostingWarning}
-					<div class="mt-4 alert max-w-prose alert-warning" data-testid="offline-copy-hosting-warning">
+					<div
+						class="mt-4 alert max-w-prose alert-warning"
+						data-testid="offline-copy-hosting-warning"
+					>
 						<p>{job.hostingWarning}</p>
 					</div>
 				{/if}

@@ -1667,9 +1667,7 @@
 				to the library it came from (ADR-0007), and a copy nobody can cite is a copy that has been
 				orphaned.
 			-->
-			<span class="text-xs" data-testid="offline-copy-label"
-				>{origin.label || origin.imageId}</span
-			>
+			<span class="text-xs" data-testid="offline-copy-label">{origin.label || origin.imageId}</span>
 			<code class="text-xs break-all opacity-70" data-testid="offline-copy-source"
 				>{origin.service}</code
 			>

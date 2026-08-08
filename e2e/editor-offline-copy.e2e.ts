@@ -806,9 +806,12 @@ test.describe('making an offline copy', () => {
 		await expect(page.getByTestId('offline-copy-note')).toHaveCount(0);
 		await page.getByTestId('offline-copy-start').click();
 
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 30_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 30_000
+			}
+		);
 
 		// **Exactly one image request to the library, and it is for the whole image.** This is what
 		// "the local-image path reused exactly" costs a level-2 host.
@@ -840,9 +843,12 @@ test.describe('making an offline copy', () => {
 		});
 
 		await page.getByTestId('offline-copy-start').click();
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 30_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 30_000
+			}
+		);
 
 		// Six requests, every one at full resolution — a 1:1 crop, which is the only geometry a
 		// stranger's server is trusted for.
@@ -871,9 +877,12 @@ test.describe('making an offline copy', () => {
 		await openMirrorDialog(page);
 		await expect(page.getByTestId('offline-copy-note')).toContainText('400');
 		await page.getByTestId('offline-copy-start').click();
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 30_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 30_000
+			}
+		);
 
 		expect(imageRequests).toHaveLength(6);
 		expect(imageRequests.some((url) => url.includes('/full/'))).toBe(false);
@@ -887,9 +896,12 @@ test.describe('making an offline copy', () => {
 		await addReferenced(page, 'images.test');
 		await openMirrorDialog(page);
 		await page.getByTestId('offline-copy-start').click();
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 30_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 30_000
+			}
+		);
 
 		// The image id is unchanged by the copy and is still `generateId(uri)`, computed here with
 		// `node:crypto`. Every Alignment in this Project names it, and it is the key
@@ -975,9 +987,12 @@ test.describe('making an offline copy', () => {
 
 		// It gets to tiling, and the sentence changes with it.
 		await expect(progress).toContainText(/tile \d+ of \d+/, { timeout: 60_000 });
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 60_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 60_000
+			}
+		);
 	});
 
 	test('leaves no partial pyramid when the copy is cancelled, and the Layer keeps working', async ({
@@ -1063,9 +1078,12 @@ test.describe('making an offline copy', () => {
 		await expect(page.getByTestId('offline-copy-start')).toBeEnabled();
 		await page.getByTestId('offline-copy-start').focus();
 		await page.keyboard.press('Enter');
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 30_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 30_000
+			}
+		);
 	});
 
 	test('moves the keyboard onto Cancel when the copy starts, and back when it ends', async ({
@@ -1154,9 +1172,12 @@ test.describe('a copied Historical Map, once it is copied', () => {
 
 		await openMirrorDialog(page);
 		await page.getByTestId('offline-copy-start').click();
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 60_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 60_000
+			}
+		);
 
 		// The Alignment now names the ADR-0004 placeholder. Left naming the library it would keep sending
 		// `@allmaps/maplibre` there for tiles that are in this folder — the copy would work, the map would
@@ -1216,9 +1237,12 @@ test.describe('a copied Historical Map, once it is copied', () => {
 
 		await openMirrorDialog(page);
 		await page.getByTestId('offline-copy-start').click();
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 30_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 30_000
+			}
+		);
 
 		// A worker does not claim the page that installed it, so control is waited for rather than assumed
 		// — `ready` is the promise that means the *next* navigation will be controlled, and without it the
@@ -1298,9 +1322,12 @@ test.describe('a copied Historical Map, once it is copied', () => {
 
 		await openMirrorDialog(page);
 		await page.getByTestId('offline-copy-start').click();
-		await expect(page.getByTestId('offline-copy-done')).toContainText('offline copy in this Project', {
-			timeout: 30_000
-		});
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{
+				timeout: 30_000
+			}
+		);
 
 		const imageId = generateId(service('images.test', 'florida'));
 
