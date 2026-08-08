@@ -28,16 +28,23 @@ export default defineConfig({
 				test: {
 					name: 'node',
 					environment: 'node',
-					include: ['src/**/*.test.ts'],
-					exclude: ['src/**/*.browser.test.ts'],
-					expect: { requireAssertions: true }
+					// `vitest-setup/` as well as `src/`, so the network fence's positive control sits
+					// beside the fence rather than in a directory of its own.
+					include: ['src/**/*.test.ts', 'vitest-setup/**/*.test.ts'],
+					exclude: ['src/**/*.browser.test.ts', 'vitest-setup/**/*.browser.test.ts'],
+					expect: { requireAssertions: true },
+					// No test may reach the network — see the file's own header. Named per project
+					// rather than once at the top, because a `setupFiles` on the root config is not
+					// inherited by `projects` and would have applied to nothing at all.
+					setupFiles: ['./vitest-setup/refuse-network.ts']
 				}
 			},
 			{
 				test: {
 					name: 'browser',
-					include: ['src/**/*.browser.test.ts'],
+					include: ['src/**/*.browser.test.ts', 'vitest-setup/**/*.browser.test.ts'],
 					expect: { requireAssertions: true },
+					setupFiles: ['./vitest-setup/refuse-network.ts'],
 					browser: {
 						enabled: true,
 						headless: true,

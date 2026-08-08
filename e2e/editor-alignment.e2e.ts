@@ -1,5 +1,6 @@
 import { parseAnnotation, validateAnnotation } from '@allmaps/annotation';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
+import { type Locator, type Page } from '@playwright/test';
 import zlib from 'node:zlib';
 
 import { expectWarpedDrawn } from './support/alignment-workspace';

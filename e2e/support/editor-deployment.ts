@@ -204,6 +204,32 @@ export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<
 }
 
 /**
+ * Refuse this deployment's network Base Map, deliberately and at the test's own request.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY A TEST WOULD ASK FOR THIS, AND WHY IT IS NOT A WAY ROUND THE FENCE
+ *
+ * `support/network-fence.ts` refuses every request to an external origin, so a spec whose *subject*
+ * is an unreachable Base Map — `editor-pwa.e2e.ts`'s "the app with the network off" — trips the
+ * fence merely by being what it is. Routing that archive to the fixture would answer it, which is
+ * the opposite of what those tests are about: one asserts the app explains an absent Base Map, and
+ * the other's central paragraph turns on the fact that with no archive MapLibre never even reaches
+ * the point of asking for a glyph range.
+ *
+ * So the archive is refused *here*, in the spec, rather than by the network being down. The
+ * behaviour under test is unchanged — the request fails either way — and what changes is that the
+ * absence is now stated by the test instead of inherited from the machine it runs on. Before this,
+ * "the Base Map does not load in these tests" was true because `demo-bucket.protomaps.com` was
+ * unreachable, which is a fact about someone else's server and not a decision anybody made.
+ *
+ * `blockedbyclient` rather than `failed`, matching the fence, so a page's console says a policy
+ * refused this rather than implying a host is down.
+ */
+export async function refuseBaseMapArchive(target: Pick<Page, 'route'>): Promise<void> {
+	await target.route(/\.pmtiles$/, (route) => route.abort('blockedbyclient'));
+}
+
+/**
  * `base-map/tiles/{z}/{x}/{y}.mvt`, and the tiles a box needs from zoom 0 up.
  *
  * Duplicated from `@ballastella/core`'s `base-map/tile-cache.ts` rather than imported, because the

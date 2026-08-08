@@ -20,6 +20,7 @@
 		BASE_MAP_CATALOG,
 		DEFAULT_DISTORTION_VIEW,
 		applyOpeningFit,
+		BASE_MAP_SOURCE_ID,
 		baseMapStyle,
 		resolveBaseMap,
 		type Alignment,
@@ -75,7 +76,8 @@
 		onfinishshape,
 		onpopupclose,
 		onwarped,
-		onstack
+		onstack,
+		onbasemapstatus
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
@@ -198,6 +200,27 @@
 		 * state that has to be sayable.
 		 */
 		onstack?: (outcomes: Readonly<Record<string, DrawnOutcome>>) => void;
+		/**
+		 * Whether the Base Map's own source is drawing, and why not when it is not (ticket 20).
+		 *
+		 * ─────────────────────────────────────────────────────────────────────────────────────
+		 * NOBODY LISTENED TO `map.on('error')`, AND THAT IS HOW AN OUTAGE READS AS A BROKEN TOOL
+		 *
+		 * MapLibre's response to a source it cannot load is an `error` event and an empty pane. With
+		 * nothing listening, the application had exactly one rendering of "the archive answered 404",
+		 * "the archive is not there at all" and "your Project failed to draw" — a grey rectangle. On
+		 * 2026-08-07 the first of those happened for real (ADR-0025 having predicted it), and there
+		 * was no way for a scholar to tell which they were looking at.
+		 *
+		 * Reported rather than rendered here, because *what to say* is the page's question: this pane
+		 * is used by the alignment route as well as the Project screen, and the screen already owns
+		 * the offline and fallback notices this has to sit beside without contradicting.
+		 *
+		 * `'drawing'` is sent when the source loads, so this is a state and not a one-way alarm — an
+		 * archive that recovers, or a switch to a Base Map that works, has to clear the notice rather
+		 * than leave a stale accusation on the screen.
+		 */
+		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -286,6 +309,26 @@
 			locale: { 'Map.Title': 'Base Map' }
 		});
 		created.addControl(new NavigationControl({}), 'top-right');
+
+		// ──────────────────────────────────────────────────────────────────────────────────────
+		// THE BASE MAP'S SOURCE, AND ONLY THAT SOURCE
+		//
+		// `error` carries everything MapLibre could not do — a warped Layer's tiles, a sprite, a
+		// glyph range. Reporting the lot as "no Base Map" would be a notice that appears for reasons
+		// it does not name, so this is filtered to the one source `baseMapStyle` declares. A missing
+		// glyph range is deliberately *not* included: it is a `warn`, the map still draws, and
+		// ADR-0025 keeps glyphs shipped precisely so that case cannot arise here.
+		created.on('error', (event) => {
+			if ((event as { sourceId?: string }).sourceId !== BASE_MAP_SOURCE_ID) return;
+			onbasemapstatus?.('unavailable');
+		});
+		// `sourcedata` rather than `load`: the map fires `load` once the *style* is in, which happens
+		// whether or not the archive answered. What has to be observed is the source itself becoming
+		// loaded, which is the event that does not fire when the archive refuses.
+		created.on('sourcedata', (event) => {
+			if (event.sourceId !== BASE_MAP_SOURCE_ID || !event.isSourceLoaded) return;
+			onbasemapstatus?.('drawing');
+		});
 
 		created.on('click', (event) => {
 			const at = { lng: event.lngLat.lng, lat: event.lngLat.lat };

@@ -64,6 +64,61 @@ export function baseMapFallbackNotice(resolution: BaseMapResolution): string | n
 	);
 }
 
+/**
+ * What to say when the Base Map's archive answered nothing, while the browser is online.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS NOT THE OFFLINE NOTICE, AND WHY IT IS NOT SILENCE
+ *
+ * On 2026-08-07 `demo-bucket.protomaps.com` began refusing the archive every entry in this
+ * deployment's catalog reads (ADR-0025, which predicted exactly this: "no published rate limit, no
+ * uptime promise, and no terms of use"). The application's whole response was a pane with nothing
+ * in it. A scholar cannot tell that from a broken tool, and there is a third possibility they also
+ * cannot rule out — that their own work failed to draw.
+ *
+ * So the message has to carry three things, in this order, because they are the order the questions
+ * arrive in: **it is not you**, **your work is safe**, and **here is what would fix it**. The offline
+ * notice cannot stand in for it: the connection is fine, and telling somebody with working wifi that
+ * they have none is a worse answer than saying nothing.
+ *
+ * `needsNetwork` decides the remedy. An entry reading a deployment-relative archive that does not
+ * answer is a broken deployment and the reader can do nothing about it; a remote one may be a host
+ * having a bad day, and making the Project available offline is a real action a scholar can take
+ * now. Visible text, never a tooltip (SPEC story 111, ADR-0016).
+ *
+ * @param host the archive's host, or `null` when the archive is served from this deployment
+ */
+export function baseMapUnavailableNotice(entry: BaseMapEntry, host: string | null): string {
+	const where = host === null ? 'this site' : host;
+	return (
+		`The Base Map “${entry.label}” could not be loaded from ${where}. ` +
+		'Nothing in your Workspace is affected — your Historical Maps, their Alignments and your ' +
+		'Annotations are all still here and still saving, and they will draw over the geography ' +
+		'again as soon as a Base Map does. ' +
+		(entry.needsNetwork
+			? 'This Base Map is fetched from another server, so this is usually that server rather ' +
+				'than your connection. Try another Base Map, or make this Project available offline ' +
+				'while one is working so it keeps drawing when none is.'
+			: 'This Base Map is served by this site, so the site is missing the file it needs. ' +
+				'Whoever published it has to restore it.')
+	);
+}
+
+/**
+ * The host an entry's archive is fetched from, or `null` when it is this deployment's own file.
+ *
+ * Split out so the notice above takes a host rather than a URL: naming a whole archive URL at a
+ * scholar is naming a path they cannot act on, and the host is the part that identifies who is
+ * having the bad afternoon.
+ */
+export function baseMapArchiveHost(entry: BaseMapEntry): string | null {
+	try {
+		return new URL(entry.archive).host;
+	} catch {
+		return null;
+	}
+}
+
 export type BaseMapOption = {
 	readonly id: string;
 	readonly label: string;

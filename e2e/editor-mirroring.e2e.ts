@@ -1,4 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
+import { type Page, type Route } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
 

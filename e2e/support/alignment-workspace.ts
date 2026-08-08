@@ -243,8 +243,88 @@ export const warpedStatus = (page: Page) => page.getByTestId('warped-status');
  *   this family as flakiness. If this assertion fails, check whether the archive request was
  *   *answered at all* before suspecting the warped path.
  */
-export const expectWarpedDrawn = (page: Page) =>
+export const expectWarpedDrawn = async (page: Page): Promise<void> => {
+	await expectWarpedLayerAdded(page);
+	await expectBaseMapDrawn(page);
+};
+
+/**
+ * The warped layer was added — and **that alone**, which is all `data-warped-status` ever meant.
+ *
+ * Split out of {@link expectWarpedDrawn} rather than left as its only content, because there is
+ * exactly one place where it is the honest claim: `editor-pwa.e2e.ts`'s offline session, where the
+ * Base Map archive is refused on purpose and the whole point is that the scholar's own work draws
+ * with nothing underneath it. Everywhere else, "the Historical Map is drawn over the geography"
+ * means the geography drew too, and that is what {@link expectWarpedDrawn} now says.
+ *
+ * Named for what it proves, so a call site cannot claim more than it is asking for. Ticket 17
+ * measured how far apart the two are: this passes with an archive of all zeros and with the route
+ * answering 404.
+ */
+export const expectWarpedLayerAdded = (page: Page) =>
 	expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+
+/**
+ * The Base Map underneath has geometry on screen — not merely a source that initialised.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THIS IS THE HALF `expectWarpedDrawn` DID NOT ASSERT, AND TICKET 17 MEASURED THE GAP.       │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * `data-warped-status="drawn"` passes with an archive of **all zeros** and with the route answering
+ * **404** — measured, both. What those specs need is for the archive request to be *answered* so
+ * MapLibre's source initialises and the warped layer is added; the Base Map's own content never came
+ * into it. So twenty assertions that read as "the Historical Map is drawn over the geography" were
+ * making no claim at all about the geography.
+ *
+ * `queryRenderedFeatures` filtered to the Base Map's **own source** is what makes the claim real,
+ * which is the pattern CONTRIBUTING already states: an offline test once proved the Base Map drew by
+ * querying the whole map, and the Project's own Annotation Layer satisfied it. Filtering by source
+ * rather than by layer id is deliberate — `@protomaps/basemaps` owns those ids and renames them
+ * across versions, while the source is `baseMapStyle`'s own and changing it is a change to this
+ * repository.
+ *
+ * ⚠ **It is a claim about tiles parsed and put on screen, not about pixels.** A style that painted
+ * every layer transparent would still satisfy it. That is the next weakness rather than this one,
+ * and no test currently depends on the difference.
+ */
+export const expectBaseMapDrawn = async (page: Page): Promise<void> => {
+	await expect
+		.poll(
+			() =>
+				page.evaluate(() => {
+					const map = (
+						window as unknown as {
+							ballastellaBaseMap?: {
+								queryRenderedFeatures(): { source?: string }[];
+							};
+						}
+					).ballastellaBaseMap;
+					if (map === undefined) return -1;
+					// `protomaps` is `BASE_MAP_SOURCE_ID` in `packages/core/src/base-map/style.ts`. Named
+					// literally because the workspace tsconfig covers only `e2e/`, the same boundary that
+					// makes `support/editor-deployment.ts` re-declare the cached-tile path.
+					return map.queryRenderedFeatures().filter((feature) => feature.source === 'protomaps')
+						.length;
+				}),
+			{
+				timeout: BASE_MAP_DRAWN_MS,
+				message:
+					'the Base Map rendered no geometry of its own — the archive was answered but nothing ' +
+					'was parsed out of it, or the map is looking somewhere the fixture has no tiles'
+			}
+		)
+		.toBeGreaterThan(0);
+};
+
+/**
+ * How long the Base Map may take to have geometry on screen.
+ *
+ * Longer than the default assertion budget for the same reason `openLayers` in
+ * `editor-layers.e2e.ts` is: what is being waited for is a PMTiles header, a directory, a tile
+ * fetch, a gzip decode and a WebGL paint, on a machine running four of these at once.
+ */
+const BASE_MAP_DRAWN_MS = 30_000;
 
 export const imagePoints = (page: Page) =>
 	historicalMap(page).locator('[data-testid="pane-overlay-point-control-point"]');

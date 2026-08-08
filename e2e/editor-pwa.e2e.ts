@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
+import { type Page } from '@playwright/test';
 
 import {
 	baseMapArchiveFixture,
@@ -6,6 +7,8 @@ import {
 	deployEditor,
 	deployEditors,
 	NEXT_VERSION_MARKER,
+	refuseBaseMapArchive,
+	routeBaseMapArchive,
 	type EditorDeployment
 } from './support/editor-deployment';
 import {
@@ -14,6 +17,7 @@ import {
 	gradientPng,
 	historicalMap,
 	baseMap,
+	expectWarpedLayerAdded,
 	imagePoints,
 	IMAGE_HEIGHT,
 	IMAGE_WIDTH,
@@ -22,8 +26,7 @@ import {
 	rows,
 	storedAlignment,
 	warpedTiles,
-	waitForStored,
-	expectWarpedDrawn
+	waitForStored
 } from './support/alignment-workspace';
 import {
 	annotationLayerId,
@@ -480,7 +483,17 @@ test.describe('two deployments of this app on one origin', () => {
 test.describe('the app with the network off', () => {
 	let site: EditorDeployment;
 
-	test.beforeEach(async () => {
+	// **Refused, not routed, and the difference is this describe's whole subject.** Every spec is
+	// behind the default-deny fence in `support/network-fence.ts`, so the catalog's remote archive
+	// has to be answered by something. Answering it with the fixture would break both tests below:
+	// one asserts the app *explains an absent Base Map*, and the other's central paragraph turns on
+	// the fact that with no archive MapLibre never reaches the point of asking for a glyph range.
+	//
+	// Until now their Base Map was absent because `demo-bucket.protomaps.com` happened to be
+	// unreachable from this machine — a fact about somebody else's server, not a decision. Now the
+	// spec says so itself.
+	test.beforeEach(async ({ context }) => {
+		await refuseBaseMapArchive(context);
 		site = await deployEditor();
 	});
 	test.afterEach(async () => {
@@ -614,7 +627,12 @@ test.describe('the app with the network off', () => {
 		// No archive ships now and the tile cache is ticket 11, so the Base Map really is unreachable
 		// here — and the scholar's own work still draws over it. Tiles that arrived *and decoded* are
 		// counted, because an error `@allmaps/render` logs and swallows renders a blank map.
-		await expectWarpedDrawn(page);
+		//
+		// **`expectWarpedLayerAdded` and not `expectWarpedDrawn`**, which is the one call site in the
+		// suite where the weaker claim is the true one: `expectWarpedDrawn` now also requires the Base
+		// Map to have geometry on screen, and here it deliberately has none. Asserting it would be
+		// asserting the opposite of this test's subject.
+		await expectWarpedLayerAdded(page);
 		expect(
 			await warpedTiles(page),
 			'the aligned Historical Map did not render over the Base Map offline'
@@ -878,7 +896,11 @@ test.describe('a working session that reaches other people’s servers', () => {
 test.describe('what offline cannot fix, and what it must not break', () => {
 	let site: EditorDeployment;
 
-	test.beforeEach(async () => {
+	// The catalog's remote archive, from the committed fixture. `context` and not `page`: these
+	// pages are under a service worker, and a request that has passed through one is not the
+	// page's own as far as Playwright is concerned — see the interception in the describe below.
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
 		site = await deployEditor();
 	});
 	test.afterEach(async () => {
@@ -1075,7 +1097,11 @@ test.describe('the offer to install', () => {
 test.describe('an update, and who decides when', () => {
 	let site: EditorDeployment;
 
-	test.beforeEach(async () => {
+	// The catalog's remote archive, from the committed fixture. `context` and not `page`: these
+	// pages are under a service worker, and a request that has passed through one is not the
+	// page's own as far as Playwright is concerned — see the interception in the describe below.
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
 		site = await deployEditor();
 	});
 	test.afterEach(async () => {

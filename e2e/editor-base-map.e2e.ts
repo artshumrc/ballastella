@@ -1,6 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
+import { type Page } from '@playwright/test';
 
-import { cachedBaseMapTiles, routeBaseMapArchive } from './support/editor-deployment';
+import {
+	cachedBaseMapTiles,
+	refuseBaseMapArchive,
+	routeBaseMapArchive
+} from './support/editor-deployment';
 
 // SPEC Seam 2: the running app in a real browser, with real MapLibre and real OPFS. There is
 // deliberately no map-abstraction layer to test against — inventing one purely to enable testing
@@ -328,6 +333,73 @@ test.describe('the Base Map pane', () => {
 		await switcher(page).selectOption('muted');
 		await expect(switcher(page)).toHaveValue('muted');
 		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// AN ARCHIVE THAT DOES NOT ANSWER, SAID OUT LOUD (ticket 20, SPEC stories 111–112)
+//
+// On 2026-08-07 `demo-bucket.protomaps.com` — the host every entry in this deployment's catalog
+// reads — began refusing the archive, and the application's entire response was a pane with
+// nothing in it. ADR-0025 had predicted the outage ("no published rate limit, no uptime promise")
+// and said nothing about what the scholar sees, which turned out to be the part that mattered: a
+// grey rectangle is also what a broken tool looks like, and what a Project that failed to draw
+// looks like, and there was no way to tell the three apart.
+//
+// **The refusal is the fixture here, not an accident of the network.** `refuseBaseMapArchive`
+// aborts the archive deliberately, so this test asserts the same thing on a machine with a working
+// connection and on one without, and on the day the bucket comes back.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+test.describe('a Base Map archive that does not answer', () => {
+	test('says so in visible text, names the host, and says the Workspace is unaffected', async ({
+		page,
+		context
+	}) => {
+		const crashes: Error[] = [];
+		page.on('pageerror', (error) => crashes.push(error));
+		await refuseBaseMapArchive(context);
+
+		await page.goto(HUB);
+		await emptyWorkspace(page);
+		await seedProject(page, projectJson());
+		await page.goto(paneUrl());
+
+		// **Not `waitForLoadedMap`.** `Map#loaded()` is about the style, and the style loads whether or
+		// not the archive answered — which is precisely why this failure was invisible. What is waited
+		// for is the notice itself.
+		const notice = page.getByTestId('base-map-unavailable');
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+
+		// Visible text and not a tooltip (SPEC story 111, ADR-0016: daisyUI renders tooltips through
+		// CSS `::before`, so they are neither announced nor dismissable).
+		await expect(notice).toContainText('could not be loaded');
+		// The host, because "the Base Map did not load" is unactionable and "that server did not
+		// answer" tells a scholar it is not their connection and not their Project.
+		await expect(notice).toContainText('demo-bucket.protomaps.com');
+		// The sentence that stops this reading as data loss, which is the fear a blank map produces.
+		await expect(notice).toContainText('Nothing in your Workspace is affected');
+		// A remedy a scholar can act on now, rather than one only the deployment's owner can.
+		await expect(notice).toContainText('available offline');
+
+		// Announced, not merely drawn. `role="alert"` rather than a live region, because this element
+		// is *inserted* when its text first exists and an `aria-live` region is announced on a text
+		// change — see the note at its site.
+		await expect(notice).toHaveAttribute('role', 'alert');
+
+		// And the rest of the screen still works: the failure is a notice, not a broken page.
+		await expect(switcher(page)).toBeVisible();
+		expect(crashes.map((error) => error.message)).toEqual([]);
+	});
+
+	test('is not shown when the archive answers', async ({ page, context }) => {
+		// The other direction, and the one that stops this notice becoming permanent furniture. A
+		// warning that is always on screen is a warning nobody reads, and it would be indistinguishable
+		// from a genuine outage on the day there is one.
+		await routeBaseMapArchive(context);
+		await openPane(page);
+
+		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
+		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
 	});
 });
 

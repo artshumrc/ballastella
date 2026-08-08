@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { BASE_MAP_CATALOG } from './catalog';
 import { CATALOG_WITH_STALE_DEFAULT, EMPTY_CATALOG, FORKED_CATALOG } from './fixture-catalogs';
-import { baseMapFallbackNotice, baseMapOptions, defaultEntry, resolveBaseMap } from './resolve';
+import {
+	baseMapArchiveHost,
+	baseMapFallbackNotice,
+	baseMapOptions,
+	baseMapUnavailableNotice,
+	defaultEntry,
+	resolveBaseMap
+} from './resolve';
 
 describe('resolveBaseMap', () => {
 	it('resolves a stable id against the catalog', () => {
@@ -119,5 +126,53 @@ describe('the deployment catalog', () => {
 		const ids = BASE_MAP_CATALOG.entries.map((entry) => entry.id);
 
 		expect(new Set(ids).size).toBe(ids.length);
+	});
+});
+
+describe('baseMapUnavailableNotice', () => {
+	// The archive answered nothing while the connection is fine — the state this deployment has been
+	// in since `demo-bucket.protomaps.com` began refusing on 2026-08-07, and whose entire rendering
+	// used to be an empty pane. A scholar cannot tell that from a broken tool, and cannot rule out
+	// that their own work failed to draw.
+	const remote = FORKED_CATALOG.entries[2]!;
+	const bundled = FORKED_CATALOG.entries[0]!;
+
+	it('names the Base Map and the host, for a remote archive', () => {
+		const notice = baseMapUnavailableNotice(remote, baseMapArchiveHost(remote));
+
+		expect(notice).toContain('Satellite');
+		expect(notice).toContain('tiles.example.invalid');
+	});
+
+	it('says the Workspace is unaffected, which is the question a blank map actually raises', () => {
+		const notice = baseMapUnavailableNotice(remote, baseMapArchiveHost(remote));
+
+		expect(notice).toContain('Nothing in your Workspace is affected');
+		expect(notice).toMatch(/Alignments/);
+		expect(notice).toMatch(/still saving/);
+	});
+
+	it('offers the reader a remedy for a remote archive, and the deployment one for its own', () => {
+		// The split is `needsNetwork`, and it is the whole reason this function branches: a scholar can
+		// switch Base Map or cache tiles while one works; nobody but the publisher can restore a file
+		// this site was supposed to serve. Telling a reader to try another Base Map when every entry
+		// reads the same missing local file would be advice that cannot work.
+		const fromNetwork = baseMapUnavailableNotice(remote, 'tiles.example.invalid');
+		expect(fromNetwork).toContain('available offline');
+		expect(fromNetwork).not.toContain('Whoever published it');
+
+		const fromSite = baseMapUnavailableNotice(bundled, null);
+		expect(fromSite).toContain('this site');
+		expect(fromSite).toContain('Whoever published it');
+		expect(fromSite).not.toContain('available offline');
+	});
+});
+
+describe('baseMapArchiveHost', () => {
+	it('is the host for an archive somewhere else, and null for this deployment’s own file', () => {
+		// A whole archive URL names a path a scholar cannot act on; the host is the part that says who
+		// is having the bad afternoon.
+		expect(baseMapArchiveHost(FORKED_CATALOG.entries[2]!)).toBe('tiles.example.invalid');
+		expect(baseMapArchiveHost(FORKED_CATALOG.entries[0]!)).toBeNull();
 	});
 });

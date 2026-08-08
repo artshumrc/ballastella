@@ -28,7 +28,9 @@
 	import { resolve } from '$app/paths';
 	import {
 		addAnnotation,
+		baseMapArchiveHost,
 		baseMapFallbackNotice,
+		baseMapUnavailableNotice,
 		canSolve,
 		findAnnotation,
 		insertAnnotationAt,
@@ -95,6 +97,22 @@
 		session.openProject ? resolveBaseMap(session.openProject.baseMap) : null
 	);
 	const notice = $derived(resolution === null ? null : baseMapFallbackNotice(resolution));
+
+	/**
+	 * Whether the Base Map's own source is drawing, as the pane reports it (ticket 20).
+	 *
+	 * `null` until the pane has said anything, so the notice below appears when the archive has
+	 * actually failed and not in the moment before it has been asked for. It is reset when the
+	 * chosen Base Map changes, because a stale "could not be loaded" attached to an entry the
+	 * scholar has since switched away from is a worse lie than saying nothing.
+	 */
+	let baseMapStatus = $state<'drawing' | 'unavailable' | null>(null);
+	$effect(() => {
+		void resolution?.entry.id;
+		untrack(() => {
+			baseMapStatus = null;
+		});
+	});
 
 	const layers = $derived<readonly Layer[]>(session.openProject?.layers ?? []);
 
@@ -970,6 +988,20 @@
 	const installedApp = useInstalledApp();
 
 	/**
+	 * What to say when the Base Map did not load and the connection is fine.
+	 *
+	 * ⚠ **Only while online**, and the ordering with the offline notice is the whole point. With no
+	 * connection the archive also fails, and two alerts — one saying the connection is out and one
+	 * saying the server is — would leave the scholar to work out which is true. `base-map-offline`
+	 * already owns that case and says something actionable about it.
+	 */
+	const unavailableNotice = $derived(
+		resolution !== null && baseMapStatus === 'unavailable' && installedApp.online
+			? baseMapUnavailableNotice(resolution.entry, baseMapArchiveHost(resolution.entry))
+			: null
+	);
+
+	/**
 	 * The remote-origin record for a map Layer's Historical Map, or `undefined`.
 	 *
 	 * **Keyed by Layer, which is what replaced the two sections `ProjectView` had.** "Referenced
@@ -1385,6 +1417,27 @@
 					{/if}
 				{/if}
 
+				{#if unavailableNotice}
+					<!--
+						The archive answered nothing while the connection is fine (ticket 20). `role="alert"`
+						for the reason the block above states at length: this element is *inserted* when its
+						text first exists, and an `aria-live` region is announced on a text change rather than
+						on insertion — so a live region here is a notice a screen-reader user never hears.
+
+						It is the same alert whether the Base Map is remote or this site's own; what differs
+						is the remedy, and that is `baseMapUnavailableNotice`'s to decide rather than the
+						template's, so the two deployments cannot drift into saying different things.
+					-->
+					<div
+						role="alert"
+						class="m-2 alert flex-col items-start alert-warning"
+						data-testid="base-map-unavailable"
+					>
+						<h2 class="font-semibold">The Base Map did not load</h2>
+						<p>{unavailableNotice}</p>
+					</div>
+				{/if}
+
 				<div class="min-h-0 grow overflow-hidden" data-testid="project-map">
 					<BaseMapPane
 						entryId={resolution.entry.id}
@@ -1395,6 +1448,9 @@
 						popupAnnotation={selectedAnnotation}
 						{popupAt}
 						{fetchTile}
+						onbasemapstatus={(status) => {
+							baseMapStatus = status;
+						}}
 						onclickpoint={(point) => void placePoint(point)}
 						onclickannotation={(hit) => {
 							// Only when nothing is being drawn: with a tool in hand the click places a vertex,

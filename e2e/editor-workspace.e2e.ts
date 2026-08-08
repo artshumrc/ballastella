@@ -1,8 +1,20 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
+import { type Page } from '@playwright/test';
 
 import { openProjectSettings, projectNameField } from './support/project-screen';
 import { recordSaveStates } from './support/saved';
 import { readStoredFile } from './support/stored-file';
+import { routeBaseMapArchive } from './support/editor-deployment.js';
+
+// Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
+// and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
+// So the archive is served from the committed fixture, in one place, for the whole file.
+//
+// **`context` rather than `page`**: a request that has passed through a service worker is not the
+// page's own as far as Playwright is concerned, and `page.route` never sees it (measured in
+// `editor-pwa.e2e.ts`, which says so at its own interception). Routing the context has no downside
+// for a spec with no worker, and is the spelling that keeps working when one appears.
+test.beforeEach(async ({ context }) => routeBaseMapArchive(context));
 
 /**
  * SPEC's Seam 2: the running app in a real browser against real OPFS.
@@ -745,6 +757,29 @@ test.describe('the save indicator (ADR-0017 rule 5)', () => {
 	});
 });
 
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// ⚠ WHAT THIS DESCRIBE PROVES, AND WHAT IT DOES NOT — MEASURED 2026-08-07, TICKET 20
+//
+// It proves the listener is installed on the real `window` and that `Autosave.flush` puts the
+// pending bytes on disk. It does **not** prove that a scholar's edit survives leaving the page,
+// and the difference is not a nuance: it is measured, and it is total.
+//
+//   a debounced Project rename, then `page.reload()` inside the window   →  LOST 8 of 8
+//   the same edit, `pagehide` dispatched with no navigation              →  written in 32 ms
+//   a synchronous `localStorage.setItem` in a `pagehide` listener        →  survived 5 of 5
+//
+// So `pagehide` **does** fire on a real navigation, and the flush is fast, and it is lost anyway:
+// the store write is asynchronous, and a document being unloaded does not run the continuation.
+// Rule 3 is not a race that is usually lost. For a real navigation it is never won.
+//
+// The third line is the one that matters for whoever fixes this: something synchronous inside the
+// same handler *does* survive, so a write-ahead journal is a real option rather than a hope. It is
+// also an ADR-0017 decision and an ADR-0001 one — it puts user bytes somewhere that is not the
+// ProjectStore — so it was reported rather than guessed at. See the ticket.
+//
+// Do not read the test below as covering the user's case. It is deliberately dispatched rather
+// than provoked, and it is the strongest claim this seam can make.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
 test.describe('flushing on hide (ADR-0017 rule 3)', () => {
 	/**
 	 * Hold back the app's own debounce, so that only a flush can put bytes on disk.

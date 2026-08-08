@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from './support/network-fence.js';
+import { type Page } from '@playwright/test';
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { readFile } from 'node:fs/promises';
 
