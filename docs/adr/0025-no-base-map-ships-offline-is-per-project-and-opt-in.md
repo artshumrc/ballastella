@@ -52,3 +52,16 @@ Storing tiles as files also means:
 - **`PublishedSite.baseMapBundled` changes meaning**, from "the deployment's extract was copied" to "this Workspace carries cached tiles". `ReaderMapPane` already has a check for whether the site carries the Base Map's own files.
 - **The cache is reclaimable from the hub**, listed with its size, like the Workspace's Historical Maps (ADR-0023).
 - **The opening view is computed from the Project's content, not from the catalog.** `BASE_MAP_CATALOG.initialView` survives only as the fallback for a Project with nothing placed on the earth yet — see ADR-0026.
+
+## Amendment, 2026-08-08: the demo archive stays, as a decision rather than an oversight
+
+`demo-bucket.protomaps.com` began refusing on 2026-08-07, and every entry in this deployment's catalog reads it. **The repository owner's decision is that it stays.** Ballastella is a proof of concept, the demo tiles are sufficient for that, and repointing the catalog at hosting nobody has provisioned would be inventing a requirement the project does not yet have.
+
+This is settled. It is not a known issue awaiting a fix, and it should not be re-raised as one.
+
+Two things follow, and both are already true:
+
+- **No test relies on the demo archive.** That is the standing rule (no test may depend on the network, 2026-08-07) and it is enforced rather than followed: `e2e/support/test.ts` is the one composed root fixture, `scripts/check-e2e-network-fence.mjs` fails any spec importing `test` from `@playwright/test`, and every Base Map assertion routes to the committed Amsterdam extract. The URL appears in tests only as the *example of a blocked host*, which is the opposite of depending on it.
+- **The failure is honest.** Ticket 22 gives the published viewer the unreachable-archive notice the editor already had, so a Reader is told it is not their fault, that their work is safe, and what would fix it. An outage renders as an explanation rather than a blank rectangle.
+
+**`pnpm check:deployment` is deliberately left as it is** — it still fails while the catalog reads an archive this deployment does not control, and it still blocks a *production* deployment. That is the correct relationship between a proof of concept and a production one, and nothing about this decision asks for the safeguard to be weakened. Changing what the catalog points at remains a one-file change by ADR-0020's design, for whenever a real deployment wants one.

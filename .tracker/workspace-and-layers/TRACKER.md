@@ -53,7 +53,11 @@ Last updated: 2026-08-08.
 
    **The fix is one line** — `lastTileSourceStr = '\0destroyed'` in the teardown — but it was deliberately not applied from a transfer ticket. It patches a third-party dist file, the repo's patch mechanism carries a fence obligation (`check-allmaps-patch.mjs` is the precedent), and triiiceratops is this project author's own package, so **upstream plus a version bump is the right end state**. Proving it in a test needs a delay injected into a dependency, which cannot be committed.
 
-3. **Triaged 2026-08-08: the notice is ticket 22; the catalog is a decision for the repository owner.** **The published viewer has no unreachable-archive notice.** The editor got one in ticket 20's session — `BaseMapPane` listens for MapLibre's source error, which nothing did, and that is how an outage rendered as a grey rectangle. A Reader on a published site still gets a silent blank map. Related: all four catalog entries read the same archive, so the editor's "try another Base Map" remedy is currently empty, and `demo-bucket.protomaps.com/v4.pmtiles` has answered 404 since 2026-08-07. ADR-0025 predicted this; `pnpm check:deployment` refuses that URL and runs inside `pnpm test`.
+3. **The published viewer has no unreachable-archive notice** — **now ticket 22**, the last open part of this lead. The editor got one in ticket 20's session (`BaseMapPane` listens for MapLibre's source error, which nothing did, and that is how an outage rendered as a grey rectangle). A Reader on a published site still gets a silent blank map.
+
+   **The catalog half of this lead is closed by decision, not by work** (repository owner, 2026-08-08): **the demo tiles stay.** Ballastella is a proof of concept and they are sufficient for it. `demo-bucket.protomaps.com` refusing since 2026-08-07 is therefore an accepted condition, not an open issue — **do not re-raise it.** Recorded as an amendment to [ADR-0025](../../docs/adr/0025-no-base-map-ships-offline-is-per-project-and-opt-in.md).
+
+   No test relies on the demo archive, and that is enforced rather than followed — every Base Map assertion routes to the committed Amsterdam extract, and the URL appears in tests only as the example of a *blocked* host. `pnpm check:deployment` is deliberately unchanged: it still refuses a **production** deployment reading an archive it does not control, which is the right relationship between a proof of concept and a real one.
 
 ## Standing constraints
 
