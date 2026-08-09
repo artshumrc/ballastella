@@ -8,11 +8,19 @@ Scope and testing approach are in [SPEC.md](./SPEC.md); decisions are in [docs/a
 
 ## Current status
 
-Overall: `In Progress`. Merged: 01–14, 16–22. **Remaining: 15, and nothing else.** In flight: 15.
+Overall: `In Progress`. Merged: 01–14, 16–22. **Remaining: 15, and nothing else.** Nothing in flight — a dispatch on 2026-08-09 died on a usage limit before writing anything, leaving no branch and no worktree.
 
 **07, 21 and 22 merged 2026-08-09.** The full gate on merged `main` is green: install / lint / check / build / test all exit 0, and `pnpm test:e2e` is **523 passed, 1 skipped, retry budget 0 of 524 (0.00%)**.
 
 Last updated: 2026-08-09.
+
+## 15 is the whole of what is left, and the trap in it is named
+
+Everything else is merged, pushed, and verified together: `pnpm test:e2e` on merged `main` is **523 passed, 1 skipped, 0 retries of 524**.
+
+**Ticket 15 removes triiiceratops from the *editor* only.** The published viewer keeps its unwarped view by contract (the ticket's Out of scope says so twice), and **open lead 2 — the `forceRedraw` throw — lives in the viewer's spec**, `viewer-reader.e2e.ts:1044`. So deleting the editor's view does not remove that defect, and a green suite afterwards must not be read as having fixed it. That lead is root-caused below with a one-line upstream fix identified.
+
+Two things the ticket asks for that are easy to skip: the **before/after bundle size** (`du -sh apps/editor/build/_app/immutable`), which is the one number showing the removal was worth doing; and a **decision recorded** on `storedPyramidTileSource`, which is tested and becomes unused once this lands — keep it with a comment naming the upstream gap it waits on, or delete it, but do not leave it silently orphaned.
 
 ## Open leads — unclosed, and not to be absorbed into the flake budget
 
@@ -136,7 +144,7 @@ These apply to every remaining ticket. They are not advice.
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Completed | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Completed | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Completed | 13 | 89–95 |
-| 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | In Progress | 07 | 101 |
+| 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Completed | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Completed | 02, 03, 09 | — |
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
