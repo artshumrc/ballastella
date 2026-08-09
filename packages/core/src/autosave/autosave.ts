@@ -291,7 +291,7 @@ export class Autosave {
 			file.pending = undefined;
 			file.error = undefined;
 			file.journalRefusal = undefined;
-			this.#journal?.forget(path);
+			this.#forget(path);
 			// A write already in flight owns this entry until it settles; `#drainLoop`'s `finally` is
 			// what removes it, and removing it here would let a second drain start for the same path.
 			if (file.draining) inFlight.push(file.draining);
@@ -407,6 +407,36 @@ export class Autosave {
 			file.journalRefusal = cause;
 		}
 		this.#publishJournalRefusal();
+	}
+
+	/**
+	 * Drop `path`'s journal entry, and **never throw for it**.
+	 *
+	 * ⚠ **A `forget` that threw was a third way a drain could stop, and it was the worst of the
+	 * three** (review 2). It is called from {@link #drainLoop} *after* `store.write` resolved and
+	 * outside the `try` that guards the write, so a journal that threw here made `commit` reject for
+	 * a write the store had actually taken: the caller reported failure for a success, `pending` was
+	 * already cleared so nothing was held, `lastError` stayed `undefined`, and the indicator read
+	 * **"Saved"** — a rejected save with no sentence anywhere, which is the exact shape this epic
+	 * exists to remove.
+	 *
+	 * Swallowed for the same reason {@link #writeAhead} swallows a refused `record`, and the
+	 * asymmetry between them was the bug: **a journal failure is not a save failure.** The bytes are
+	 * on disk either way. Throwing from here turns a lost bookkeeping guarantee into a lost edit.
+	 *
+	 * ⚠ **Stated exactly, because swallowing is the thing this epic distrusts.** What is lost is a
+	 * stale journal entry: the next startup replays bytes the store already has, which is a
+	 * redundant write of identical bytes and not a lost or resurrected edit. What is *not* done here
+	 * is telling anyone — there is no surface for "the journal is holding something it should not",
+	 * `journalRefusal` says the opposite thing, and `lastError` would be a lie because no write
+	 * failed. That is left open rather than invented here; see the ticket report.
+	 */
+	#forget(path: StorePath): void {
+		try {
+			this.#journal?.forget(path);
+		} catch {
+			// Deliberately silent here and reported nowhere yet — see above.
+		}
 	}
 
 	/**
@@ -537,7 +567,12 @@ export class Autosave {
 					// while the write was in flight. Forgetting unconditionally here would drop the
 					// journal copy of an edit typed during the write, whose own `record` happened before
 					// this line and would be undone by it.
-					this.#journal?.forget(path);
+					//
+					// ⚠ Through {@link #forget}, which swallows. This line is outside the `try` that guards
+					// `store.write`, so a journal that threw here rejected `commit` for a write that had
+					// succeeded — see `#forget` for the whole of it. That is what keeps the enumeration
+					// below at two endings rather than three.
+					this.#forget(path);
 				}
 				file.error = undefined;
 			}
@@ -550,20 +585,27 @@ export class Autosave {
 			// that really does cover its write. See {@link #drain} for what this replaced.
 			//
 			// **The stated exception to "if pending, a drain is running": a loop that stopped by
-			// throwing.** There are two ways that happens — the store refused the bytes, or a subscriber
-			// threw while the indicator was being published — and both leave `pending` set with nothing
-			// scheduled, on purpose. Restarting here would turn a full disk into a spin, and it would
-			// turn a subscriber that throws every time into an unkillable one. The contract is that the
-			// bytes are **held**, so the next `commit`, `queue` or `flush` still has them and the
-			// indicator still reads "Unsaved" rather than "Saved"; the path stays alive either way.
-			// Retrying them without being asked is a separate change and is not made here.
+			// throwing.** Two things above this can throw, and only two: `store.write`, and the
+			// `#publish('saving')` that runs subscribers. (`#forget` used to be a third and is not any
+			// more — that is what it exists for.) Both leave `pending` set with nothing scheduled, on
+			// purpose. Restarting here would turn a full disk into a spin and a subscriber that always
+			// throws into an unkillable loop. The contract is that the bytes are **held**, so the next
+			// `commit`, `queue` or `flush` still has them and the indicator reads "Unsaved" rather than
+			// "Saved". Retrying them without being asked is a separate change and is not made here.
 			//
 			// Ranged over rather than enumerated by the caller: `leaves the path alive when a drain
-			// stops because …` drives every ending, which is what the per-operation assertions missed.
+			// stops because …` drives both endings and the ordinary one, each through flush, the
+			// debounce and commit in turn.
 			//
-			// **Release first, publish last, and keep it that way.** The `#publish` below runs subscribers
-			// too, so it can throw for the same reason; releasing the memo before it means even that
-			// leaves the path usable rather than dead.
+			// **Release first, publish last.** Measured: publishing first leaves the indicator on
+			// "Saving" for a drain that has stopped, because `#derive` reads the memo this line is
+			// about to clear — see `releases the drain before it publishes`. The `#publish` below runs
+			// subscribers and so can throw as well, and releasing first means that cannot strand the
+			// memo either; that second consequence is reasoned, not measured, and is stated as such.
+			//
+			// ⚠ **Residual, pre-existing and not fixed here:** `#publish` has no per-listener guard, so
+			// the first subscriber that throws stops the rest being notified for that transition. This
+			// change is what makes a throwing subscriber a *supported* ending, so it is named here.
 			file.draining = undefined;
 			if (file.pending === undefined && file.timer === undefined) this.#files.delete(path);
 			this.#publish();

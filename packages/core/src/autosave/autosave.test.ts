@@ -165,8 +165,16 @@ describe('Autosave', () => {
 	 * The window is one microtask, and these tests build it deliberately.
 	 *
 	 * The invariant these assert, rather than the mechanism that keeps it: **if a file has pending
-	 * bytes, a drain is scheduled or running for it** — with one stated exception, bytes the store
-	 * refused, which are held rather than rescheduled and are asserted as such below.
+	 * bytes, a drain is scheduled or running for it.** The exception is a drain that stopped by
+	 * throwing, and there are exactly two ways it can — the store refused the bytes, or a subscriber
+	 * threw while the indicator was being published. Both hold the bytes rather than rescheduling
+	 * them, and `leaves the path alive when a drain stops because …` drives both, and the ordinary
+	 * ending, through each of the three routes to the store.
+	 *
+	 * ⚠ **That enumeration was wrong once and it is the kind of claim this epic exists to catch.** A
+	 * journal whose `forget` threw was a third ending, and the worst of them: `commit` rejected for a
+	 * write the store had taken, with the indicator reading Saved. See `does not fail a write the
+	 * store took because the journal would not forget it`.
 	 */
 	describe('a write that reports success has been written', () => {
 		/**
@@ -364,6 +372,29 @@ describe('Autosave', () => {
 		});
 
 		/**
+		 * The other `forget`, on the same rule. {@link Autosave.abandon} drops a deleted Project's
+		 * entries synchronously and is called from a Delete the user is watching, so a journal that
+		 * threw there would take the deletion down with it — the same asymmetry as in the drain loop,
+		 * one method along. Guarded through the same `#forget`.
+		 */
+		it('does not fail abandoning a Project because the journal would not forget it', async () => {
+			const journalling = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: () => undefined,
+					forget: () => {
+						throw new Error('forget blew up');
+					}
+				}
+			});
+			journalling.queue('amsterdam-1625/project.json', utf8.encode('a rename mid-debounce'));
+
+			await expect(journalling.abandon('amsterdam-1625/')).resolves.toBe(true);
+
+			expect(journalling.hasPendingWrite('amsterdam-1625/project.json')).toBe(false);
+		});
+
+		/**
 		 * ⚠ **A SUBSCRIBER THAT THREW KILLED THE PATH OUTRIGHT, AND THIS FIX INTRODUCED IT.**
 		 *
 		 * `#drainLoop`'s first act is `#publish('saving')`, and `#publish` runs subscribers
@@ -385,19 +416,106 @@ describe('Autosave', () => {
 				throw new Error('a listener that could not cope');
 			});
 
+			// ⚠ **One assertion over the three facts together, not three in a row.** Asserted
+			// separately, the first to fail hides the rest, and a mutation that moves two of them is
+			// then recorded as killing only one — which is how an assertion with no kill of its own
+			// survives a mutation check (review 2, finding C).
+			const outcome = await autosave
+				.commit('p/project.json', utf8.encode('first'))
+				.then(() => 'resolved' as const)
+				.catch(() => 'rejected' as const);
+
+			expect({
+				outcome,
+				state: autosave.state,
+				pending: autosave.hasPendingWrite('p/project.json')
+			}).toEqual({ outcome: 'rejected', state: 'unsaved', pending: true });
+
+			// And the path is still alive rather than merely stranded: the next commit *resolves*,
+			// which on the shape this replaced it could not — it was handed the first one's rejection.
+			await expect(
+				autosave.commit('p/project.json', utf8.encode('second'))
+			).resolves.toBeUndefined();
+		});
+
+		/**
+		 * ⚠ **The `finally` releases the memo BEFORE it publishes, and the order is load-bearing**
+		 * (review 2, finding F). `#derive` reads `file.draining`, so publishing first reports
+		 * `'saving'` for a drain that has already stopped and then never republishes — the indicator
+		 * sits on "Saving" for ever with nothing in flight.
+		 *
+		 * The subscriber here throws on *every* transition, including the one the `finally` publishes
+		 * on its way out, which is the case the ordering also protects: a throw from that publish
+		 * cannot skip a release that has already happened. **That second consequence is reasoning, not
+		 * what this measures** — what it measures is the indicator, above.
+		 */
+		it('releases the drain before it publishes, so the indicator does not stick on Saving', async () => {
+			let live = false;
+			// Subscribed first, then armed: `subscribe` calls its listener immediately, and a throw
+			// from that call would be a throw out of `subscribe` rather than out of a drain.
+			autosave.subscribe(() => {
+				if (live) throw new Error('a listener that could not cope, ever');
+			});
+			live = true;
+
 			await autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
 
-			// The drain stopped, so the indicator must not still claim it is running — and the bytes
-			// are held, which is what makes "Unsaved" the truth rather than a guess.
-			expect(autosave.state).toBe('unsaved');
-			expect(autosave.hasPendingWrite('p/project.json')).toBe(true);
+			expect({
+				state: autosave.state,
+				pending: autosave.hasPendingWrite('p/project.json')
+			}).toEqual({ state: 'unsaved', pending: true });
+		});
 
-			// And the path is still alive: a later commit reaches the store, which is the whole
-			// difference between stranded and dead.
-			await autosave.commit('p/project.json', utf8.encode('second'));
+		/**
+		 * ⚠ **A JOURNAL WHOSE `forget` THREW WAS A THIRD WAY A DRAIN COULD STOP, AND THE WORST OF
+		 * THEM** (review 2, finding A).
+		 *
+		 * `#drainLoop` forgets the journal entry *after* `store.write` resolved and outside the `try`
+		 * that guards the write. So a journal that threw there rejected `commit` for a write the store
+		 * had actually taken: measured on the commit before this one, `commit` rejected, the store had
+		 * the bytes, `pending` was already false so nothing was held, `lastError` was `undefined`, and
+		 * the indicator read **`saved`**. A failed save reported to its caller with the indicator
+		 * saying Saved and no sentence anywhere is the exact inversion this epic exists to remove.
+		 *
+		 * The behaviour is pre-existing; what was new was the *claim* — an explicit two-item
+		 * enumeration of how a drain can stop, and a ranged test whose docblock said it drove every
+		 * ending. Neither was true. `#forget` now swallows, for the same reason `#writeAhead` swallows
+		 * a refused `record`: **a journal failure is not a save failure**, and the asymmetry between
+		 * the two was itself the bug.
+		 */
+		it('does not fail a write the store took because the journal would not forget it', async () => {
+			const forgotten: string[] = [];
+			const journalling = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: () => undefined,
+					forget: (path) => {
+						forgotten.push(path);
+						throw new Error('forget blew up');
+					}
+				}
+			});
 
-			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
-			expect(autosave.state).toBe('saved');
+			const outcome = await journalling
+				.commit('p/project.json', utf8.encode('first'))
+				.then(() => 'resolved' as const)
+				.catch(() => 'rejected' as const);
+
+			expect({
+				outcome,
+				written: new TextDecoder().decode(await store.read('p/project.json')),
+				state: journalling.state,
+				pending: journalling.hasPendingWrite('p/project.json'),
+				lastError: journalling.lastError,
+				forgetWasTried: forgotten
+			}).toEqual({
+				outcome: 'resolved',
+				written: 'first',
+				state: 'saved',
+				pending: false,
+				lastError: undefined,
+				forgetWasTried: ['p/project.json']
+			});
 		});
 
 		/**
@@ -425,12 +543,17 @@ describe('Autosave', () => {
 			void autosave.commit('p/project.json', utf8.encode('A')).catch(() => undefined);
 			await leftAlone(land);
 
-			expect(reentered).toBe(true);
 			// One writer: 'A' was superseded before the store ever saw it, so the store is given the
-			// newer bytes once and nothing races them.
-			expect(given).toEqual([{ path: 'p/project.json', text: 'B' }]);
-			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('B');
-			expect(autosave.hasPendingWrite('p/project.json')).toBe(false);
+			// newer bytes once and nothing races them. `reentered` is here so that a change which
+			// stopped the subscriber being called at all reads as a failure rather than a pass.
+			//
+			// The two assertions this used to carry as well — that the store then holds 'B', and that
+			// nothing is pending — are gone: with two concurrent loops both writing 'B' they are true
+			// either way, so no edit could redden them (review 2, finding C).
+			expect({ reentered, given }).toEqual({
+				reentered: true,
+				given: [{ path: 'p/project.json', text: 'B' }]
+			});
 		});
 
 		/**
@@ -441,21 +564,28 @@ describe('Autosave', () => {
 		 * subscriber threw* went unnoticed: it is not an operation, it is a way any operation can end,
 		 * and no per-operation test ranges over those. So this one does.
 		 *
-		 * The property: however a drain stops, the drain has stopped (the indicator never claims
-		 * otherwise), the bytes are held exactly when the store did not take them, and **the path is
-		 * still usable by every route to the store** — flush, debounce and commit alike.
+		 * The property: however a drain stops, the drain has stopped and the indicator says so, the
+		 * bytes are held exactly when the store did not take them, and the path is still usable by
+		 * **each** of the three routes to the store.
+		 *
+		 * ⚠ **Each route is asserted where it happens** (review 2, finding B). The first cut ran a
+		 * flush, then a debounced queue, then a commit, and asserted only the final contents — so the
+		 * last write covered for the two before it, and both a no-op `flush` and a deleted debounce
+		 * drain left all three rows green. A route that is written down but not read is decoration.
 		 */
 		const waysADrainCanStop = [
 			{
 				ending: 'the store took the bytes',
 				arrange: () => undefined,
-				holdsTheBytes: false
+				holdsTheBytes: false,
+				indicator: 'saved'
 			},
 			{
 				ending: 'the store refused the bytes',
 				arrange: () =>
 					void vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('the disk is full')),
-				holdsTheBytes: true
+				holdsTheBytes: true,
+				indicator: 'unsaved'
 			},
 			{
 				ending: 'a subscriber threw while the indicator was being published',
@@ -467,7 +597,8 @@ describe('Autosave', () => {
 						throw new Error('a listener that could not cope');
 					});
 				},
-				holdsTheBytes: true
+				holdsTheBytes: true,
+				indicator: 'unsaved'
 			}
 		] as const;
 
@@ -477,18 +608,30 @@ describe('Autosave', () => {
 
 				await autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
 
-				// However it ended, it ended: nothing may still be reported as in flight.
-				expect(autosave.state).not.toBe('saving');
-				expect(autosave.hasPendingWrite('p/project.json')).toBe(way.holdsTheBytes);
+				// However it ended, it ended — and the indicator says which, rather than merely not
+				// saying "Saving".
+				expect({
+					state: autosave.state,
+					pending: autosave.hasPendingWrite('p/project.json')
+				}).toEqual({ state: way.indicator, pending: way.holdsTheBytes });
 
-				// And every route to the store still works afterwards.
+				// Route 1, flush: the closed-laptop path, and the one nobody would notice was dead.
+				// Given something of its own to carry, so this is an assertion in every row rather than
+				// only in the two that happen to have bytes left over.
+				autosave.queue('p/project.json', utf8.encode('by flush'));
 				await autosave.flush();
-				autosave.queue('p/project.json', utf8.encode('second'));
-				await vi.advanceTimersByTimeAsync(DEBOUNCE);
-				await autosave.commit('p/project.json', utf8.encode('third'));
+				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('by flush');
 
-				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('third');
-				expect(autosave.state).toBe('saved');
+				// Route 2, the debounce.
+				autosave.queue('p/project.json', utf8.encode('by debounce'));
+				await vi.advanceTimersByTimeAsync(DEBOUNCE);
+				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('by debounce');
+
+				// Route 3, a gesture-end commit — which must resolve as well as write.
+				await expect(
+					autosave.commit('p/project.json', utf8.encode('by commit'))
+				).resolves.toBeUndefined();
+				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('by commit');
 			});
 		}
 	});
