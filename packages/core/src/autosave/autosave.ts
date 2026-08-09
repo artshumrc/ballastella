@@ -292,8 +292,8 @@ export class Autosave {
 			file.error = undefined;
 			file.journalRefusal = undefined;
 			this.#journal?.forget(path);
-			// A write already in flight owns this entry until it settles; `#drain`'s `finally` is what
-			// removes it, and removing it here would let a second drain start for the same path.
+			// A write already in flight owns this entry until it settles; `#drainLoop`'s `finally` is
+			// what removes it, and removing it here would let a second drain start for the same path.
 			if (file.draining) inFlight.push(file.draining);
 			else this.#files.delete(path);
 		}
@@ -442,45 +442,100 @@ export class Autosave {
 		return file;
 	}
 
+	/**
+	 * Start draining `path`, or hand back the drain already running for it.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * A `commit` COULD RESOLVE SUCCESSFULLY WITH ITS BYTES STILL IN MEMORY
+	 *
+	 * ⚠ **The memo is claimed here, before {@link #drainLoop} runs a line, and released by the loop
+	 * itself at the instant it stops — never a microtask later.** It used to be released by a
+	 * `.finally` on the loop's promise, which runs *after* the loop has already exited its `while`
+	 * and resolved. A `commit` landing in that window saw `file.draining` still set, was handed the
+	 * settling promise, set `file.pending`, and **no loop ever restarted**. The caller's promise
+	 * then resolved — reporting a write that had not happened — and the bytes sat pending until the
+	 * next edit to that path overwrote them. The last write of a burst was lost permanently.
+	 *
+	 * (Reproduced deterministically here with a store that hands the test the promise the loop
+	 * awaits. **Whether real OPFS timing enters that window has not been shown and is not claimed.**)
+	 *
+	 * The invariant that forbids it, which is the thing to keep true rather than the mechanism:
+	 * **if a file has pending bytes, a drain is scheduled or running for it.** There is one stated
+	 * exception — bytes the store *refused* — see {@link #drainLoop}'s `finally`.
+	 *
+	 * The deferred is what makes the loop able to release a memo it was never handed: `file.draining`
+	 * has to be set *before* the loop's first line, and an `async` method cannot see its own promise.
+	 * Assigning the loop's promise on the way back would come too late for a loop that finished
+	 * without ever suspending — the `finally` would clear a slot that was then filled behind it,
+	 * leaving `draining` set for ever.
+	 *
+	 * ⚠ **Stated exactly, because this is a guard and not a fix: that stale memo has no reachable
+	 * symptom today, and removing the deferred leaves the whole suite green.** A loop finishes
+	 * without suspending only when `pending` is already undefined, and the `finally` below then
+	 * deletes the entry from `#files` — so the stale `draining` is left on an object nothing can
+	 * reach, and neither `#derive` nor a later `#drain` ever sees it. It is here because that
+	 * reasoning is a coincidence of two other decisions rather than a property of this method, and
+	 * the whole point of the invariant is not to rest on one.
+	 */
 	#drain(path: StorePath): Promise<void> {
 		const file = this.#file(path);
 		// One writer per path, so two edits to the same file can never race into the store out
 		// of order. Different paths are independent — that is the whole of rule 2.
-		file.draining ??= this.#drainLoop(path, file).finally(() => {
-			file.draining = undefined;
-			if (file.pending === undefined && file.timer === undefined) this.#files.delete(path);
-			this.#publish();
+		if (file.draining !== undefined) return file.draining;
+		let started!: (loop: Promise<void>) => void;
+		const draining = new Promise<void>((resolve) => {
+			started = resolve;
 		});
-		return file.draining;
+		file.draining = draining;
+		started(this.#drainLoop(path, file));
+		return draining;
 	}
 
 	async #drainLoop(path: StorePath, file: PendingFile): Promise<void> {
 		this.#publish('saving');
-		while (file.pending !== undefined) {
-			const bytes = file.pending;
-			try {
-				await this.#store.write(path, bytes);
-			} catch (cause) {
-				// The bytes stay pending, deliberately. Clearing them before the attempt and merely
-				// returning on failure lost the edit outright: there was nothing left for `flush` to
-				// find, nothing to retry, and nothing keeping the indicator off "Saved" — which is
-				// exactly what ADR-0017 rule 5 forbids. Rethrown so `commit`'s caller cannot report
-				// a mutation it did not get.
-				file.error = cause;
-				throw cause;
+		try {
+			while (file.pending !== undefined) {
+				const bytes = file.pending;
+				try {
+					await this.#store.write(path, bytes);
+				} catch (cause) {
+					// The bytes stay pending, deliberately. Clearing them before the attempt and merely
+					// returning on failure lost the edit outright: there was nothing left for `flush` to
+					// find, nothing to retry, and nothing keeping the indicator off "Saved" — which is
+					// exactly what ADR-0017 rule 5 forbids. Rethrown so `commit`'s caller cannot report
+					// a mutation it did not get.
+					file.error = cause;
+					throw cause;
+				}
+				// Only clear what the store actually took. An edit that arrived while it had these bytes
+				// is newer and has to survive to the next pass.
+				if (file.pending === bytes) {
+					file.pending = undefined;
+					// The journal's only job is to hold what the store does not, so the entry goes the
+					// moment the store has it — and **only** then, and only when nothing newer arrived
+					// while the write was in flight. Forgetting unconditionally here would drop the
+					// journal copy of an edit typed during the write, whose own `record` happened before
+					// this line and would be undone by it.
+					this.#journal?.forget(path);
+				}
+				file.error = undefined;
 			}
-			// Only clear what the store actually took. An edit that arrived while it had these bytes
-			// is newer and has to survive to the next pass.
-			if (file.pending === bytes) {
-				file.pending = undefined;
-				// The journal's only job is to hold what the store does not, so the entry goes the
-				// moment the store has it — and **only** then, and only when nothing newer arrived
-				// while the write was in flight. Forgetting unconditionally here would drop the
-				// journal copy of an edit typed during the write, whose own `record` happened before
-				// this line and would be undone by it.
-				this.#journal?.forget(path);
-			}
-			file.error = undefined;
+		} finally {
+			// ⚠ **Synchronous with the loop stopping, and that is the entire fix.** Nothing at all runs
+			// between the `while` condition reading `undefined` and this line, so there is no moment at
+			// which `pending` can be set against a `draining` that is about to be cleared. A `commit`
+			// arriving before this either finds the loop still going — and its bytes are picked up on
+			// the next pass — or finds the memo already gone and starts its own loop, which is a promise
+			// that really does cover its write. See {@link #drain} for what this replaced.
+			//
+			// **The one exception to "if pending, a drain is running": bytes the store refused.** The
+			// loop leaves via the `throw` above with `pending` still set and nothing scheduled, on
+			// purpose — restarting here would turn a full disk into a spin, and the contract is that the
+			// bytes are held for the next `commit`, `queue` or `flush`. Retrying them without being
+			// asked is a separate change and is not made here.
+			file.draining = undefined;
+			if (file.pending === undefined && file.timer === undefined) this.#files.delete(path);
+			this.#publish();
 		}
 	}
 

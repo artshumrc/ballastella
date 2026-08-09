@@ -12,15 +12,17 @@ describe('Autosave', () => {
 	let writes: string[];
 	let autosave: Autosave;
 	let states: SaveState[];
+	/** The unspied `store.write`, so a test can re-spy without recursing into its own mock. */
+	let writeThrough: MemoryProjectStore['write'];
 
 	beforeEach(() => {
 		vi.useFakeTimers();
 		store = new MemoryProjectStore();
 		writes = [];
-		const write = store.write.bind(store);
+		writeThrough = store.write.bind(store);
 		vi.spyOn(store, 'write').mockImplementation(async (path, bytes) => {
 			writes.push(path);
-			await write(path, bytes);
+			await writeThrough(path, bytes);
 		});
 		autosave = new Autosave(store, { debounceMs: DEBOUNCE });
 		states = [];
@@ -145,6 +147,220 @@ describe('Autosave', () => {
 			await autosave.flush();
 
 			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
+		});
+	});
+
+	/**
+	 * ⚠ **A `commit` COULD RESOLVE SUCCESSFULLY WITH ITS BYTES STILL IN MEMORY.**
+	 *
+	 * `#drain` memoised the running drain and released the memo from a `.finally` on the loop's
+	 * promise — one microtask *after* the loop had already exited its `while`. A `commit` landing in
+	 * that window was handed the settling promise, set `pending`, and no loop restarted. Its caller
+	 * was told the write succeeded; the bytes stayed in memory until the next edit to that path
+	 * overwrote them, so the last write of a burst was lost permanently and a superseded one
+	 * silently. The indicator did not read "Saved" — `#derive` still saw `pending` — it read
+	 * *Unsaved, for ever, for no reason*, which is a thing no scholar can act on.
+	 *
+	 * **Whether real OPFS timing enters that window has not been shown and is not claimed here.**
+	 * The window is one microtask, and these tests build it deliberately.
+	 *
+	 * The invariant these assert, rather than the mechanism that keeps it: **if a file has pending
+	 * bytes, a drain is scheduled or running for it** — with one stated exception, bytes the store
+	 * refused, which are held rather than rescheduled and are asserted as such below.
+	 */
+	describe('a write that reports success has been written', () => {
+		/**
+		 * A store whose writes land only when the test says so, **and which hands the test the very
+		 * promise the drain loop awaits**.
+		 *
+		 * That second half is the instrument and not a convenience. A continuation registered on that
+		 * promise *after* the drain loop registered its own runs in the microtask between the loop's
+		 * last pass and whatever the loop does on its way out — the only window in which a `commit`
+		 * could be handed a drain that had already stopped. Nothing else in this file can reach it,
+		 * which is why every test above stayed green while the defect was live.
+		 */
+		const writesThatLandOnCommand = () => {
+			const awaited: Promise<void>[] = [];
+			const given: { path: string; text: string }[] = [];
+			const outstanding: (() => void)[] = [];
+			vi.spyOn(store, 'write').mockImplementation((path, bytes) => {
+				writes.push(path);
+				given.push({ path, text: new TextDecoder().decode(bytes) });
+				let landed!: () => void;
+				const landing = new Promise<void>((resolve) => {
+					landed = resolve;
+				});
+				awaited.push(landing);
+				// The real write happens when the test lands it, so assertions can be on the store's own
+				// contents. `landing` is returned unchained, because it has to be the object the drain
+				// loop awaits for a test to be able to queue a continuation behind the loop's own.
+				outstanding.push(() => void writeThrough(path, bytes).then(landed, landed));
+				return landing;
+			});
+			/** Let the oldest write the store has been given complete. */
+			const land = () => outstanding.shift()?.();
+			return { awaited, given, land };
+		};
+
+		/**
+		 * Hand over to time and to the store, and **ask `Autosave` for nothing at all**.
+		 *
+		 * This is how "a drain is scheduled or running" is checked from outside: no further `commit`,
+		 * `queue` or `flush` happens here, so bytes that reach the store did so because something was
+		 * already coming for them. Several passes, because one drain can start the next.
+		 */
+		const leftAlone = async (land: () => void) => {
+			for (let pass = 0; pass < 10; pass += 1) {
+				await vi.advanceTimersByTimeAsync(DEBOUNCE);
+				land();
+				await vi.advanceTimersByTimeAsync(0);
+			}
+		};
+
+		it('writes bytes committed in the gap between a drain finishing and its bookkeeping', async () => {
+			const { awaited, land } = writesThatLandOnCommand();
+			autosave.queue('p/project.json', utf8.encode('one'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+			expect(writes).toEqual(['p/project.json']);
+
+			// The gap, entered the only way it can be entered.
+			let reported: 'waiting' | 'resolved' | 'rejected' = 'waiting';
+			void awaited[0]
+				?.then(() => autosave.commit('p/project.json', utf8.encode('two')))
+				.then(
+					() => (reported = 'resolved'),
+					() => (reported = 'rejected')
+				);
+			land();
+			// From here nothing further is asked of `autosave`: no second commit, no queue, no flush.
+			await vi.advanceTimersByTimeAsync(0);
+			land();
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('two');
+			expect(writes).toEqual(['p/project.json', 'p/project.json']);
+			// And the promise that said so was the truth: it resolved because the bytes are in the
+			// store, not because a drain that had already stopped happened to settle.
+			expect(reported).toBe('resolved');
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(false);
+			expect(autosave.state).toBe('saved');
+		});
+
+		it('has something coming for bytes left pending by a debounce', async () => {
+			const { land } = writesThatLandOnCommand();
+			autosave.queue('p/project.json', utf8.encode('debounced'));
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(true);
+
+			await leftAlone(land);
+
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('debounced');
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(false);
+		});
+
+		it('has something coming for bytes queued while a write is in flight', async () => {
+			const { land } = writesThatLandOnCommand();
+			void autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
+			// Behind a drain that is already running, so the running loop is what has to pick them up.
+			autosave.queue('p/project.json', utf8.encode('second'));
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(true);
+
+			await leftAlone(land);
+
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(false);
+		});
+
+		it('has something coming for bytes committed as a drain was stopping', async () => {
+			const { awaited, land } = writesThatLandOnCommand();
+			void autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
+			void awaited[0]?.then(
+				() => void autosave.commit('p/project.json', utf8.encode('last')).catch(() => undefined)
+			);
+
+			await leftAlone(land);
+
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('last');
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(false);
+			expect(autosave.state).toBe('saved');
+		});
+
+		/**
+		 * The bytes the invariant deliberately does **not** cover, stated so the exception cannot be
+		 * lost: a write the store refused keeps its bytes and schedules nothing. Rescheduling them
+		 * here would turn a full disk into a spin. They wait for the next `commit`, `queue` or
+		 * `flush`; retrying them unasked is a separate change and is not made here.
+		 */
+		it('holds bytes the store refused rather than spinning on them', async () => {
+			const write = vi.spyOn(store, 'write').mockRejectedValue(new Error('the disk is full'));
+			await autosave.commit('p/project.json', utf8.encode('a')).catch(() => undefined);
+
+			await vi.advanceTimersByTimeAsync(DEBOUNCE * 100);
+
+			expect(write).toHaveBeenCalledTimes(1);
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(true);
+		});
+
+		/**
+		 * Re-asserted rather than trusted. Closing the gap is a change to exactly the code that decides
+		 * what happens when a drain stops, and a drain that stops by throwing is the half a fix for the
+		 * other half could quietly take with it.
+		 */
+		it('still rejects to its caller when the store rejected, with the bytes still pending', async () => {
+			vi.spyOn(store, 'write').mockRejectedValue(new Error('quota exceeded'));
+
+			await expect(autosave.commit('p/project.json', utf8.encode('a'))).rejects.toThrow(
+				'quota exceeded'
+			);
+
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(true);
+			expect(autosave.state).toBe('unsaved');
+			expect(autosave.lastError).toBeInstanceOf(Error);
+		});
+
+		/** Rule 2's one-writer-per-path, re-asserted across the route the fix newly opens. */
+		it('still gives the store two edits to one path in the order they were made', async () => {
+			const { awaited, given, land } = writesThatLandOnCommand();
+			void autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
+			void awaited[0]?.then(
+				() => void autosave.commit('p/project.json', utf8.encode('second')).catch(() => undefined)
+			);
+
+			await leftAlone(land);
+
+			expect(given).toEqual([
+				{ path: 'p/project.json', text: 'first' },
+				{ path: 'p/project.json', text: 'second' }
+			]);
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
+		});
+
+		/**
+		 * The journal's forget rule, re-asserted: the entry goes only when the store took *those*
+		 * bytes. An edit typed while the write was in flight has already recorded itself, so a
+		 * `forget` for the older bytes would drop the only copy of the newer ones.
+		 */
+		it('still forgets a journal entry only for the exact bytes the store took', async () => {
+			const journalled = new Map<string, string>();
+			const journalling = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: (path, bytes) => void journalled.set(path, new TextDecoder().decode(bytes)),
+					forget: (path) => void journalled.delete(path)
+				}
+			});
+			const { land } = writesThatLandOnCommand();
+			void journalling.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
+			journalling.queue('p/project.json', utf8.encode('second'));
+
+			land();
+			await vi.advanceTimersByTimeAsync(0);
+			// The store took 'first'; 'second' is newer and is all that stands between the user and a
+			// navigation, so its entry has to survive.
+			expect(journalled.get('p/project.json')).toBe('second');
+
+			land();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(journalled.size).toBe(0);
 		});
 	});
 
