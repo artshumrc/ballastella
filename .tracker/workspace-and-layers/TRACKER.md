@@ -8,41 +8,11 @@ Scope and testing approach are in [SPEC.md](./SPEC.md); decisions are in [docs/a
 
 ## Current status
 
-Overall: `In Progress`. Merged: 01–06, 08–14, 16–20. **Remaining: 07, 15, 21, 22.** In flight: 07, 21 and 22, running in parallel.
+Overall: `In Progress`. Merged: 01–14, 16–22. **Remaining: 15, and nothing else.** In flight: 15.
 
-**21 is open lead 1, promoted to a ticket** (human decision, 2026-08-08): a deleted Project's `project.json` comes back at a measured ~20% rate, and the epic should not close carrying a known data-loss path. It is independent of 07 — autosave and deletion, not the align route — so the two run together. 15 waits on 07.
+**07, 21 and 22 merged 2026-08-09.** The full gate on merged `main` is green: install / lint / check / build / test all exit 0, and `pnpm test:e2e` is **523 passed, 1 skipped, retry budget 0 of 524 (0.00%)**.
 
-06 and 14 merged 2026-08-08. The full gate on merged `main` is green: install / build / lint / check / test all exit 0, and `pnpm test:e2e` is **487 passed, 1 skipped, retry budget 0 of 488 (0.00%)**.
-
-Last updated: 2026-08-08.
-
-## Where to pick up — session ended on a usage limit, 2026-08-08
-
-**Nothing below is merged.** Four branches exist, none on `main`. Two carry **unverified WIP** committed by the orchestrator to stop a dirty worktree losing it — they had no gate run and must not be read as green.
-
-| Branch | Head | State |
-| --- | --- | --- |
-| `ticket-07-align-referenced-map` | `d6738a8` | Implemented, **gate green** (495 passed, 0.20% budget). Two-axis review done; **fix round never started** — see below. |
-| `ticket-21-deleted-project-stays-deleted` | `b434e73` | Rounds 1–2 committed and green at `d55eb48`. Round 3 is **WIP, UNVERIFIED**. |
-| `ticket-22-reader-base-map-notice` | `be6092a` | Round 1 committed and green at `591989d`. Round 2 is **WIP, UNVERIFIED**, and its agent believed it was near done. |
-| — | — | **15** not started. Unblocked now that 07 exists. |
-
-Each WIP commit message lists exactly what that round was fixing. Read it before touching the branch.
-
-### 07's fix round — never dispatched, findings below
-
-Both reviews converged on one thing: **ADR-0023's mitigation is visibility, and the visibility is the only part with no test.** Delete `AlignmentWorkspace.svelte:759-812` (the whole changed-elsewhere alert), or `livePane = pane` at `:309`, or `livePane = undefined` at `:234`, or the `reload()` at `:791-795` — each keeps the entire suite green. The last is the fix for a real data-loss path (the screen keeps drawing Control Points the user gave up, and the next drag writes them back) and is claimed in a comment only. The only coverage asserts a **session field**, which SPEC's Testing Decisions rules out as a proxy.
-
-Also found, and not yet fixed:
-
-- **A false alarm from 07's own save path.** `save()` fires without awaiting (`AlignmentWorkspace.svelte:359`); `writeAlignment` reads its baseline at entry and updates it only after `commit` resolves. Two gestures inside one store write give the second a stale baseline, `changedSince` sees the *first call's own bytes*, and the user gets "written over a change" against their own document — the "frightening sentence about a colleague who does not exist" the code itself names as the worst outcome. The guarding test uses three sequentially awaited saves and cannot reach it.
-- **Story 56 is absent, not partial.** "Told which Projects use this Historical Map while I am aligning it." `usedBy` renders only on the hub.
-- **The fence's honesty statement is wrong.** `check-alignment-writers.mjs:30-36` and `alignment-file.ts:48-52` say "exactly **two**" runtime-computed paths, both tar readers. There are **three** — `replay.ts:165-172` says so itself. Routed correctly, so not an overwrite hazard; it is the honesty failure the fence's own header warns about, and 07 re-asserted the count without recounting.
-- An `aria-live` region created together with its content (`HistoricalMapPane.svelte:260-268`), which this repo has settled twice in writing; no focus management on buttons that remove themselves; two inert baseline moves whose comment describes an unreachable scenario; untested reactivity guards; a dead fixture whose message contradicts 07's new one.
-
-### The one thing that is not a ticket
-
-**`origin/main` is 105 commits behind local `main`** (`14f9c7f`, pre-epic). The entire epic — every merged ticket — exists only on this machine and has never been pushed. That is the largest risk here by a distance, it is a decision for the repository owner, and it also explains why every worktree arrives stale: they branch from `origin/main`.
+Last updated: 2026-08-09.
 
 ## Open leads — unclosed, and not to be absorbed into the flake budget
 
@@ -158,7 +128,7 @@ These apply to every remaining ticket. They are not advice.
 | 04 | [04-the-project-screen-replaces-the-project-page.md](./tickets/04-the-project-screen-replaces-the-project-page.md) | Completed | 03 | 1, 2, 3, 10–13, 109, 110 |
 | 05 | [05-the-layer-sidebar-opens-one-layer-at-a-time.md](./tickets/05-the-layer-sidebar-opens-one-layer-at-a-time.md) | Completed | 02, 04 | 14–17, 20 |
 | 06 | [06-add-a-historical-map-from-three-sources.md](./tickets/06-add-a-historical-map-from-three-sources.md) | Completed | 02, 05 | 21–30, 33, 36, 106 |
-| 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | In Progress | 06 | 31, 32, 39, 40, 56, 80, 81 |
+| 07 | [07-align-a-referenced-historical-map-in-place.md](./tickets/07-align-a-referenced-historical-map-in-place.md) | Completed | 06 | 31, 32, 39, 40, 56, 80, 81 |
 | 08 | [08-the-workspaces-historical-maps-on-the-hub.md](./tickets/08-the-workspaces-historical-maps-on-the-hub.md) | Completed | 01 | 23, 63, 64, 65, 98 |
 | 09 | [09-the-project-opens-on-its-own-content.md](./tickets/09-the-project-opens-on-its-own-content.md) | Completed | 01 | 4, 5, 7, 8, 9, 100 |
 | 10 | [10-no-base-map-ships.md](./tickets/10-no-base-map-ships.md) | Completed | 09 | 74, 102, 103 |
@@ -166,14 +136,14 @@ These apply to every remaining ticket. They are not advice.
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Completed | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Completed | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Completed | 13 | 89–95 |
-| 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
+| 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | In Progress | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Completed | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Completed | 02, 03, 09 | — |
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
 | 19 | [19-drop-libvips-for-v1.md](./tickets/19-drop-libvips-for-v1.md) | Completed | 11 | — |
 | 20 | [20-a-real-navigation-does-not-lose-an-edit.md](./tickets/20-a-real-navigation-does-not-lose-an-edit.md) | Completed | 12 | — |
-| 21 | [21-a-deleted-project-stays-deleted.md](./tickets/21-a-deleted-project-stays-deleted.md) | In Progress | — | — |
-| 22 | [22-a-reader-is-told-when-the-base-map-is-missing.md](./tickets/22-a-reader-is-told-when-the-base-map-is-missing.md) | In Progress | — | 111, 112 |
+| 21 | [21-a-deleted-project-stays-deleted.md](./tickets/21-a-deleted-project-stays-deleted.md) | Completed | — | — |
+| 22 | [22-a-reader-is-told-when-the-base-map-is-missing.md](./tickets/22-a-reader-is-told-when-the-base-map-is-missing.md) | Completed | — | 111, 112 |
 
 **22 was added after planning** — it promotes the first half of open lead 3. The Base Map archive every catalog entry reads has refused since 2026-08-07, so a blank map with no explanation is the *current* behaviour of every published site, not a hypothetical. The notice is a defect fix; **what the catalog should point at instead is a product decision and is deliberately not in it** (human decision, 2026-08-08).
 
