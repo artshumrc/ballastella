@@ -12,13 +12,31 @@ A scholar's confidence in Ballastella rests on one thing: that work they can see
 
 The common thread is not that these are rare. It is that **each one is invisible by construction**: a resolved promise, an uncaught rejection, an indicator stuck on a state with no accompanying sentence. A scholar cannot report a bug they cannot perceive, and a test suite that only asserts what the interface shows cannot see them either.
 
+## Change of direction, 2026-08-09
+
+**The durability half of this spec is being rebuilt around a cheaper guarantee.** Tickets 01 and 04 are delivered and merged. Ticket 02 is superseded by this change; ticket 03 shrinks to almost nothing.
+
+The original design answered "a write failed" with *retry it, then hold it in a named stranded state, then say a sentence about it*. Building that produced a bounded retry, a `strandedWrites` accessor, a `quiescing` flag, a `resume(prefix)` call that callers must pair in a `finally`, and a widened `#publish` — and every review round found a new defect in the machinery rather than in the thing it protects. Two of those defects were introduced *by* fixes for earlier ones.
+
+The cheaper guarantee is already most of the way built:
+
+1. every edit is written to the Write-Ahead Journal as it is made — **this already happens**;
+2. closing the tab with anything unwritten raises the browser's own warning — **new, small**;
+3. anything unwritten comes back on restart — **exists, and is wrong in a way we have measured**.
+
+Under that promise a stranded write costs nothing, because the bytes are in the journal and replay returns them. Retrying becomes a convenience rather than the thing that makes "Saved" true, and the apparatus built to name and narrate the stranded state can be deleted.
+
+**The prerequisite is real and is not optional.** `replayJournal` writes unconditionally and checks only that the owner still exists, so a stale entry can revert newer bytes — measured during ticket 01, currently latent because `Autosave` re-records on every edit. Under the new design it stops being latent. **Fixing replay is the load-bearing work; deleting the retry machinery is the payoff.**
+
+What does not change: the fetch half (ticket 04, delivered), and the rule that no state other than `saved`/`saving` may be shown without an accompanying sentence.
+
 ## Solution
 
-Every failure to write, and every failure to fetch, either succeeds, is retried, or is **said** — in words, on the screen, to the person who can act on it.
+Every failure to write, and every failure to fetch, either succeeds, is recoverable without the scholar knowing to act, or is **said** — in words, on the screen, to the person who can act on it.
 
 Concretely, from the scholar's and the Reader's side:
 
-- An edit that cannot be written is retried without being asked; if it still cannot be written, the interface says so, names what is affected, and says what is safe. "Unsaved" stops being a state the app can sit in silently.
+- An edit that cannot be written is held in the journal and comes back on restart, so no failure to write costs the scholar work. If they try to leave with something unwritten, the browser's own warning stops them. "Unsaved" stops being a state the app can sit in silently — but the answer is *durability*, not narration.
 - A save indicator that reads anything other than "Saved" is always accompanied by a reason. There is no state in which the app knows something is wrong and shows only a word.
 - A Historical Map whose tiles stop arriving is reported to the person looking at it — in both the editor and the published viewer, in the same words — rather than being left to the console. A Reader is told it is not their work that failed and that their Annotations are unaffected.
 - The one unexplained disagreement between screen and disk is either explained with evidence or recorded as still open with the search narrowed. It is not closed by attaching it to the nearest plausible cause.
@@ -74,13 +92,18 @@ Concretely, from the scholar's and the Reader's side:
 
 That invariant is the thing to state and test, not the mechanism: *if `pending` is set, a drain is scheduled or running.*
 
-**A stranded write is retried, not just held.** Today failed bytes stay pending and wait for the next commit, queue, or flush to carry them. That is correct as a floor and insufficient as a policy: it means recovery depends on the scholar making another edit, which they have no reason to do. Add a bounded retry, with the bound stated in code rather than implied.
+**A stranded write is held, and the journal is what makes that safe.** ~~Add a bounded retry~~ — *superseded 2026-08-09.* Failed bytes stay pending and the journal holds a copy; recovery is by replay at startup, not by the scholar making another edit. A bounded retry may still be wanted as a convenience, but it is no longer what makes the guarantee true, and it must not be the thing the guarantee rests on.
 
-**The save state gains a reason, not just a value.** `SaveState` today is `'saved' | 'saving' | 'unsaved'`. `'unsaved'` currently covers both "a debounce is pending, all is well" and "a write failed and nothing is coming" — two states a scholar must be able to tell apart. Either the state widens or a companion reason is published alongside it. The interface contract: **no state other than `saved`/`saving` may be shown without an accompanying sentence.**
+**The save state gains a reason, not just a value.** `SaveState` today is `'saved' | 'saving' | 'unsaved'`. `'unsaved'` currently covers both "a debounce is pending, all is well" and "a write failed and nothing is coming" — two states a scholar must be able to tell apart. The interface contract stands: **no state other than `saved`/`saving` may be shown without an accompanying sentence.** What shrinks is how much machinery stands behind it — with durability handled by the journal, the sentence has one job (tell the scholar their work is safe but not yet on disk) rather than narrating a retry policy.
 
 The existing `lastError` and `onJournalRefused` surfaces are the precedent for how a failure reaches the app; extend rather than duplicate them.
 
-**The Write-Ahead Journal is not redesigned.** Recording happens at the edit rather than at `pagehide`, for reasons already settled; that stays. Note the interaction found during the epic: the journal entry is forgotten only when the store took the bytes, so a stranded write keeps both a live journal entry *and* stale pending bytes. That is a second route to a symptom already investigated once, and it must be checked rather than assumed absent.
+**The Write-Ahead Journal is now load-bearing, and replay is where the work is.** Recording happens at the edit rather than at `pagehide`, for reasons already settled; that stays. Two things measured during ticket 01 become critical rather than latent under this design:
+
+1. **`replayJournal` can revert newer bytes.** It writes unconditionally and `missingOwner` checks only that the owner still exists — it never compares what the store holds to what the entry carries. Measured: store `v1` → something outside `Autosave` writes `v2` → replay puts `v1` back, and reports it as `restored`, which reads as good news. `Autosave` re-records on every edit so it cannot cause this itself, but `transfer/open-project-bundle.ts`, `transfer/restore-workspace-tar.ts`, `tiler/ingest.ts`, `base-map/offline-cache.ts` and `replay.ts` all write the store directly.
+2. **A stranded write keeps both a live journal entry and stale pending bytes**, because the entry is forgotten only when the store took the bytes. Under the old design that was a curiosity; under this one it is the normal case and must be correct.
+
+**The journal is on a different backend from the store**, which is why this works at all: an OPFS failure with a healthy journal is exactly the case being covered. Where both fail, the unload warning is the last line, and that is the honest limit of the guarantee.
 
 ### The render seam
 

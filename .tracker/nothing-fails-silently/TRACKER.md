@@ -8,9 +8,11 @@ Scope, user stories, and the testing approach are in [SPEC.md](./SPEC.md).
 
 ## Current status
 
-**Not Started.** Six tickets, sliced 2026-08-09.
+**01 and 04 are delivered and merged to `main`.** 02 is superseded — see the ledger. Re-sliced 2026-08-09 after a change of direction recorded in [SPEC.md](./SPEC.md); three new tickets (07, 08, 09) replace the durability half.
 
-**Ready now: 01 and 04.** They do not collide — 01 is the write path in the domain package, 04 is the render seam and the viewer — so they can run in parallel. `02 → 03` and `04 → 05` are the two chains; `06` waits on the write path settling under 01 and 02.
+**Ready now: 07 and 09.** They do not collide — 07 is `replay.ts`, 09 is `autosave.ts`'s internal state — and 09 has no dependency at all. `07 → 08`, `07 → 03`, `07 → 06`, and `04 → 05`.
+
+**What the two delivered tickets cost, for calibration.** 01 took four commits and three review rounds; 04 took five commits and four. Every round found something real, and several rounds found defects introduced by the previous round's fix. That is the argument for 09: the defects were not carelessness, they were a state machine held together by convention.
 
 The three seams are decided and are all existing ones (human decision, 2026-08-09): the domain package's **node** vitest project for the write path and the failure sentences; the Playwright **viewer** project for the Reader-facing half, whose existing "no uncaught page error on any navigation" assertion is what surfaced two of these; and the Playwright **editor** project for the author-facing half. **No new seam is to be introduced.**
 
@@ -60,11 +62,28 @@ These are carried from `workspace-and-layers`, where each was paid for.
 | Number | Filename | Status | Depends On | Fulfills |
 | --- | --- | --- | --- | --- |
 | 01 | [01-a-write-that-reports-success-has-been-written.md](./tickets/01-a-write-that-reports-success-has-been-written.md) | Completed | — | 6, 7, 8, 23, 24, 30 |
-| 02 | [02-a-failed-write-retries-itself.md](./tickets/02-a-failed-write-retries-itself.md) | In Progress | 01 | 1, 9, 29 |
-| 03 | [03-a-save-that-gave-up-says-so.md](./tickets/03-a-save-that-gave-up-says-so.md) | Not Started | 02 | 2, 3, 4, 5, 10, 27, 28, 31, 33–38 |
-| 04 | [04-a-reader-is-told-when-tiles-stop-arriving.md](./tickets/04-a-reader-is-told-when-tiles-stop-arriving.md) | In Progress | — | 14–21, 27, 28, 32, 33 |
+| 02 | [02-a-failed-write-retries-itself.md](./tickets/02-a-failed-write-retries-itself.md) | Out of Scope | 01 | — |
+| 03 | [03-a-save-that-gave-up-says-so.md](./tickets/03-a-save-that-gave-up-says-so.md) | Not Started | 07 | 2, 3, 4, 5, 10, 27, 28, 31, 33–38 |
+| 04 | [04-a-reader-is-told-when-tiles-stop-arriving.md](./tickets/04-a-reader-is-told-when-tiles-stop-arriving.md) | Completed | — | 14–21, 27, 28, 32, 33 |
 | 05 | [05-the-same-sentence-on-the-authors-side.md](./tickets/05-the-same-sentence-on-the-authors-side.md) | Not Started | 04 | 11, 12, 13, 19, 22, 32 |
-| 06 | [06-instrument-the-screen-ahead-of-disk-disagreement.md](./tickets/06-instrument-the-screen-ahead-of-disk-disagreement.md) | Not Started | 01, 02 | 25, 26 |
+| 06 | [06-instrument-the-screen-ahead-of-disk-disagreement.md](./tickets/06-instrument-the-screen-ahead-of-disk-disagreement.md) | Not Started | 07 | 25, 26 |
+| 07 | 07-replay-never-reverts-newer-bytes.md *(to write)* | Not Started | 01 | 1, 6, 9 |
+| 08 | 08-leaving-with-unwritten-work-is-refused.md *(to write)* | Not Started | 07 | 2, 5, 9 |
+| 09 | 09-one-state-per-path-instead-of-six-fields.md *(to write)* | Not Started | — | 23, 30 |
+
+### Why 02 is Out of Scope rather than Completed
+
+Its branch is at `d5bc878` (3 commits on `ticket/nfs-01`), reviewed on both axes plus a verification pass, 38 mutations / 36 red, unit gates green, e2e never run. **It is not merged and should not be.** Everything it built — the bounded retry, `strandedWrites`, `quiescing`, `resume(prefix)`, the widened `#publish` — is what the change of direction deletes. Merging it in order to remove it next week is churn.
+
+Two things in it are worth salvaging into 07 and 09 rather than losing: the measurement that `settled()` could answer `true` with a write still coming, and the `vi.getTimerCount()` discipline that caught three assertions which could not distinguish "nothing scheduled" from "scheduled for ever".
+
+### The three new tickets
+
+- **07 — replay never reverts newer bytes.** The prerequisite. Everything else waits on it. It is a correctness fix to `replayJournal`, not a feature: compare what the store holds against what the entry carries before writing, and stop reporting a revert as `restored`.
+- **08 — leaving with unwritten work is refused.** The `beforeunload` warning. Small, and only honest once 07 lands.
+- **09 — one state per path instead of six fields.** `Autosave` carries `pending`, `draining`, `timer`, `error`, `failedAttempts` and `quiescing` as independent fields whose legal combinations are held by convention across six methods. Roughly half of everything this epic found was two of those fields disagreeing, and two such defects were introduced *by fixes for earlier ones*. Replace them with `Idle | Debouncing | Writing | Retrying | GaveUp`, so the invariant "if bytes are pending, a drain is scheduled or running" stops being a thing we test and becomes a thing that cannot be spelled. Publish out-of-band at one seam while there, which retires the throwing-subscriber class the same way.
+
+  09 does not depend on 07 and can run alongside it. It is the highest ratio of deleted defect-classes to work in the epic.
 
 **Stories 39 and 40 are cross-cutting and deliberately absent from the ledger** — keep the uncaught-error assertions in the end-to-end suites, and make any deliberate exception to them narrow, measured, and stated. They belong inside tickets 04 and 05, and inside anything later that touches those suites.
 
