@@ -92,7 +92,6 @@ import {
 	type FetchTilesOptions,
 	type GeoBounds,
 	type HistoricalMapSource,
-	type HistoricalMapUser,
 	type IngestProgress,
 	type IngestedImage,
 	type JournalReplayReport,
@@ -122,6 +121,7 @@ import {
 } from '@ballastella/core';
 
 import { recordAlignmentWrite } from './alignment/browser-test-handle.js';
+import type { AlignmentUsers } from './alignment/used-by.js';
 import { recordAnnotationWrite } from './annotations/browser-test-handle.js';
 import { saveFile } from './save-file.js';
 
@@ -406,16 +406,33 @@ export class EditorSession {
 	 * Workspace two gigabytes?". This one reads each `project.json` and no pyramid at all. See
 	 * {@link refreshMapUsage} for what the two do share, which is one `list` of the Workspace.
 	 *
-	 * Keyed by image id so a stale answer cannot be shown against the wrong map: the align route can
-	 * change which Historical Map it is on without unmounting, and a reader that ignored the id would
-	 * name another map's Projects for as long as the new walk takes.
+	 * ⚠ **A map keyed by image id, and not one record carrying an id beside it.** The align route can
+	 * change which Historical Map it is on without unmounting, and the walk behind this is
+	 * asynchronous — so between choosing a map and its answer arriving there is a window in which the
+	 * *previous* map's Projects are the only answer in hand. Naming them against the map now on screen
+	 * is a claim about who loses work if this Alignment is refined, made about the wrong Alignment.
+	 *
+	 * That was first written as one record with an `imageId` field and a `=== imageId` comparison at
+	 * the reader. It was correct and it could not be defended: the two differ only during that window,
+	 * so deleting the comparison left every test green, and catching it needs a test that wins a race.
+	 * A lookup by id has no such window to get wrong — the id is the key rather than something a
+	 * caller is trusted to check — which is the same move {@link AlignmentWorkspace}'s `livePane`
+	 * makes for the same kind of hazard.
+	 *
+	 * Bounded by the number of Historical Maps opened in one session, which is a handful of names and
+	 * Project names each.
 	 */
-	mapUsage = $state<{
-		readonly imageId: string;
-		readonly usedBy: readonly HistoricalMapUser[];
-		/** Projects from a newer build, which might draw any map. See `WorkspaceHistoricalMap`. */
-		readonly mightBeUsedBy: readonly HistoricalMapUser[];
-	} | null>(null);
+	readonly #mapUsage = new SvelteMap<string, AlignmentUsers>();
+
+	/**
+	 * Which Projects draw one Historical Map, or `null` while nothing has been walked for it yet.
+	 *
+	 * `null` is "no answer yet" and renders as nothing at all — see `describeAlignmentUsers`, which
+	 * gives the same answer for an empty list, so a screen never shows a half-answer.
+	 */
+	mapUsageFor(imageId: string): AlignmentUsers | null {
+		return this.#mapUsage.get(imageId) ?? null;
+	}
 	/** Whether {@link historicalMaps} is still being walked, so the hub can say so rather than "none". */
 	historicalMapsLoading = $state(false);
 	/**
@@ -485,7 +502,12 @@ export class EditorSession {
 	 * rather than merely tolerable: **nothing reads this in a reactive context.** The only readers are
 	 * {@link writeAlignment} and {@link restoreAlignmentChangedElsewhere}, both called from event
 	 * handlers, so there is no `$derived` for a write to invalidate. What *is* rendered is
-	 * {@link alignmentChangedElsewhere}, which is ordinary `$state` and is set from the write's result.
+	 * {@link alignmentChangedElsewhere}, which is set from the write's result.
+	 *
+	 * That field is `$state.raw`, and since this ticket's second round that is load-bearing rather
+	 * than a performance choice: {@link restoreAlignmentChangedElsewhere} clears it only when it is
+	 * **identically** the record it was answering, so that an answer to one warning cannot blank a
+	 * newer one that arrived while it waited. A deeply reactive proxy would not compare that way.
 	 */
 	readonly #alignmentOnDisk = new SvelteMap<string, Bytes | null>();
 
@@ -1673,16 +1695,16 @@ export class EditorSession {
 	async refreshMapUsage(imageId: string): Promise<void> {
 		try {
 			const usage = await historicalMapUsage(this.#store);
-			// The id is carried rather than assumed: the user can open another Historical Map while this
-			// walk is in flight, and the reader compares it before showing anything. Naming the wrong
-			// map's Projects is worse than naming none.
-			this.mapUsage = {
-				imageId,
+			// Filed under the id it was asked about. A walk that resolves after the user has moved on
+			// therefore answers a question nobody is asking any more, rather than answering the wrong one.
+			this.#mapUsage.set(imageId, {
 				usedBy: usage.byMap.get(imageId) ?? [],
 				mightBeUsedBy: usage.fromANewerVersion
-			};
+			});
 		} catch {
-			this.mapUsage = null;
+			// Left with no entry rather than an empty one: "not walked" and "walked, nobody draws it" are
+			// different, and only the second is something to say out loud.
+			this.#mapUsage.delete(imageId);
 		}
 	}
 

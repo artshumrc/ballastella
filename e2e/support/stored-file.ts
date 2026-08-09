@@ -134,10 +134,20 @@ export const readStoredJsonOrNull = async <T>(page: Page, path: string): Promise
  * writer of `alignments/<id>.json` that the fence's own honesty statement does not count, and that
  * statement has already been wrong once.
  *
- * **Atomic, like the app's own write** (ADR-0017 rule 4). `createWritable()` truncates and then
- * fills, so a reader inside that window gets a short file rather than either version — the exact
- * torn read {@link readStoredFileOrNull}'s retry loop exists to forgive, reintroduced by the
- * fixtures. A temp file moved over the destination has no such window, and it is three lines.
+ * ⚠ **The temp file is not buying atomicity, and an earlier version of this note claimed it was.**
+ * That claim said `createWritable()` "truncates and then fills", so a reader could catch a short
+ * file. It is wrong twice over in this repository's own words: `store/directory-handle-store.ts`
+ * records as settled fact that `createWritable` "is still atomic by specification — it writes to a
+ * swap file the implementation only exchanges for the real one on `close`", and the retry loop at
+ * the top of this module forgives `NotFoundError`/`NotReadableError` from a *move* window, which a
+ * short successful read would not raise anyway. The app's ordinary write is a bare `createWritable`;
+ * only `renameTempFile` moves. So the temp-and-move here matches the tar path rather than the
+ * ordinary one, and buys nothing a plain `createWritable` did not already give.
+ *
+ * It is kept because it is harmless and already exercised, not because it is needed — and it is the
+ * second place in the repository assuming `FileSystemFileHandle.move`, with no Safari fallback of the
+ * kind `renameTempFile` carries. That is fine for a Chromium-only Playwright config and would not be
+ * fine anywhere else.
  */
 export async function seedFile(page: Page, path: string, contents: string): Promise<void> {
 	await page.evaluate(

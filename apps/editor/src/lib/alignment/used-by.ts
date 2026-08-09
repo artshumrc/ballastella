@@ -37,13 +37,19 @@ const namesOf = (users: readonly HistoricalMapUser[]): string =>
  *
  * ⚠ **An empty `usedBy` is `''` rather than "no Project uses this map", and that is a decision.**
  * The hub has a real answer for it — a Historical Map can sit in the Workspace's pool with nothing
- * drawing it, which is exactly what its reclaim list is for. This screen cannot be in that state:
- * `/align` is reached through a map Layer of an *open* Project, and the same walk that answers this
- * question reads that Project's `project.json`, so the open Project is always in the list. Reaching
- * here with an empty list would mean the open Project became unreadable between opening it and the
- * walk — in which case a sentence about Project usage is not the news. An earlier version had a
- * paragraph of prose for that case and for the newer-build variant of it; both were unreachable, and
- * unreachable prose about who might lose work is worse than silence, because nobody can check it.
+ * drawing it, which is exactly what its reclaim list is for. This screen effectively cannot: `/align`
+ * is reached through a map Layer of an *open* Project, and the walk behind this reads that Project's
+ * `project.json`, so ordinarily the open Project is in the list.
+ *
+ * "Ordinarily" and not "always, by construction", because the walk reads **disk**. A map added and
+ * immediately aligned can be walked before ADR-0017 rule 2's debounce has committed the Layer, and
+ * the walk runs once per Historical Map opened — so that visit gets an empty answer and keeps it.
+ * That is the honest reachable case, and silence is still the right response to it: the alternative
+ * is telling a scholar "no Project draws this map" about the Project they are standing in.
+ *
+ * An earlier version had a paragraph of prose for an empty list and another for its newer-build
+ * variant. Both described a Workspace nobody could produce, and unreachable prose about who might
+ * lose work is worse than silence, because nobody can check it.
  */
 export function describeAlignmentUsers(users: AlignmentUsers | null): string {
 	if (!users || users.usedBy.length === 0) return '';

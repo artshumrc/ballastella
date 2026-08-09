@@ -139,7 +139,9 @@
 		void session.refreshMapUsage(imageId);
 	});
 
-	const usedBy = $derived(session.mapUsage?.imageId === imageId ? session.mapUsage : null);
+	// A lookup by id rather than a record with the id beside it — see `EditorSession.#mapUsage` for
+	// why a comparison here was a guard nothing could fail.
+	const usedBy = $derived(session.mapUsageFor(imageId));
 
 	/**
 	 * Who this Alignment is shared with, in words, or `''` while the walk has not answered.
@@ -844,12 +846,23 @@
 						// whatever it says.
 						if (restoring) return;
 						restoring = true;
+						// **Which map this answer is about**, because the restore waits behind whatever is
+						// already writing this map's file and the user can navigate inside that wait. The
+						// re-read and the effect above both handle that correctly on their own; the
+						// *sentence* did not, and it is the half that speaks. Without this, a navigation
+						// landing inside one store write announced "their version is back — the list below
+						// is what is on disk now" over a different Historical Map's Control Points, and
+						// took focus to say it.
+						const answering = imageId;
 						try {
 							// **Branched on what actually happened**, never announced in advance. A failure
 							// leaves the alert standing and `saveError` set, and the sentence below is read out
 							// loud to the one user who cannot see that contradiction — so claiming success over
 							// it is the worst version of this control.
 							const restored = await session.restoreAlignmentChangedElsewhere();
+							// The right file was still written either way — that is the session's business and
+							// it is keyed by image id. What is dropped here is only the announcement.
+							if (destroyed || answering !== imageId) return;
 							if (restored) {
 								// Re-read, so the pane shows what is now on disk rather than the pairing that was
 								// just discarded. Without this the screen keeps drawing the Control Points the

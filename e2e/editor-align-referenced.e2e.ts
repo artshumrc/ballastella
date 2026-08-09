@@ -58,13 +58,43 @@ async function openNewProject(page: Page): Promise<void> {
 	await page.goto('/');
 	await emptyWorkspace(page);
 	await page.reload();
+	await createAndOpenProject(page, PROJECT_NAME);
+}
+
+/** A second Project in the same Workspace, from the hub. The Workspace is left as it is. */
+async function createAndOpenProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('button', { name: 'New Project' }).click();
 	const dialog = page.getByRole('dialog', { name: 'New Project' });
-	await dialog.getByLabel('Project name').fill(PROJECT_NAME);
+	await dialog.getByLabel('Project name').fill(name);
 	await dialog.getByRole('button', { name: 'Create' }).click();
-	await page.getByRole('link', { name: PROJECT_NAME }).click();
+	await page.getByRole('link', { name }).click();
 	await expect(page.getByTestId('project-screen')).toBeVisible();
 }
+
+/**
+ * How many of the Workspace's Projects have a Layer drawing `imageId`, read off disk.
+ *
+ * **The precondition for anything asserting the used-by sentence**, and it is a real race rather
+ * than a tidy-up: `refreshMapUsage` reads every `project.json` once per Historical Map opened, so a
+ * Layer still inside ADR-0017 rule 2's debounce is a Project the walk does not see — and because the
+ * walk does not run again, the sentence stays wrong for the whole visit. Waiting for the bytes is
+ * waiting for the thing the screen is about to read.
+ */
+const projectsDrawing = (page: Page, imageId: string): Promise<number> =>
+	page.evaluate(async (id) => {
+		const root = await workspaceRoot();
+		let count = 0;
+		for await (const [, handle] of root.entries()) {
+			if (handle.kind !== 'directory') continue;
+			try {
+				const file = await (handle as FileSystemDirectoryHandle).getFileHandle('project.json');
+				if ((await (await file.getFile()).text()).includes(id)) count += 1;
+			} catch {
+				// Not a Project directory, or its manifest is not there yet. Neither is a user of the map.
+			}
+		}
+		return count;
+	}, imageId);
 
 /**
  * Add a referenced Historical Map from a bare image-service URL.
@@ -684,6 +714,68 @@ test('names the Projects that draw this Historical Map while it is being aligned
 	// the user, and a version that kept the count and dropped the words would pass an attribute check.
 	await expect(usedBy).toContainText(PROJECT_NAME);
 	await expect(usedBy).toContainText('shared by every Project that draws this Historical Map');
+});
+
+/**
+ * Two Historical Maps with **different** answers, so the sentence has to be about the one on screen.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THE ID SCOPING WAS A COMMENT IN TWO PLACES AND AN ASSERTION IN NONE.                       │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * `mapUsage` carries the image id it was asked about and the screen compares it before showing
+ * anything, both so that one map's Projects are never named against another's. With one map in one
+ * Project, every version of that code says the same thing — including a version that keeps no id at
+ * all. So the second map is drawn by a *second* Project, and then the two sentences differ: one
+ * Project against two, singular against the plural that warns the edit moves all of them.
+ *
+ * This is also the only place the ≥2 branch is exercised on a real screen. `used-by.test.ts` pins
+ * every branch of the string; what this adds is that the string is built from the right map's answer.
+ */
+test('names a different set of Projects for a different map on the same screen', async ({
+	page
+}) => {
+	test.slow();
+	await installIiifHosts(page);
+	await openNewProject(page);
+	const florida = await addReferenced(page, 'images.test', 'florida');
+	const georgia = await addReferenced(page, 'images.test', 'georgia', 2);
+
+	// A second Project drawing only the second map. The image id is `generateId(uri)`, the same for
+	// everybody, so adding the same service here is the same Historical Map — which is the whole of
+	// ADR-0023 and the reason this sentence exists.
+	// `goto` rather than a link, and it is doing work: a real navigation runs `pagehide`, which is
+	// ADR-0017 rule 3's flush, so the Layer just added is on disk rather than inside its debounce.
+	await page.goto('/');
+	await createAndOpenProject(page, 'A Second Reading');
+	await addReferenced(page, 'images.test', 'georgia');
+
+	await page.goto('/');
+	// **Waited for on disk**, because that is what the align screen reads. See {@link projectsDrawing}.
+	await expect.poll(() => projectsDrawing(page, georgia), { timeout: 30_000 }).toBe(2);
+	await expect.poll(() => projectsDrawing(page, florida), { timeout: 30_000 }).toBe(1);
+
+	await page.getByRole('link', { name: PROJECT_NAME }).click();
+	await expect(page.getByTestId('project-screen')).toBeVisible();
+
+	const usedBy = page.getByTestId('alignment-used-by');
+
+	await alignFromLayer(page, layerFor(page, florida));
+	await waitForPane(page);
+	await expect(usedBy).toHaveAttribute('data-used-by-count', '1', { timeout: 30_000 });
+	await expect(usedBy).toContainText(PROJECT_NAME);
+	await expect(usedBy).not.toContainText('A Second Reading');
+
+	await page.getByTestId('back-to-project').click();
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+	await alignFromLayer(page, layerFor(page, georgia));
+	await waitForPane(page);
+
+	// The other map, the other answer — and the sentence that says what refining it here costs.
+	await expect(usedBy).toHaveAttribute('data-used-by-count', '2', { timeout: 30_000 });
+	await expect(usedBy).toContainText(PROJECT_NAME);
+	await expect(usedBy).toContainText('A Second Reading');
+	await expect(usedBy).toContainText('Refining it here moves all of them');
 });
 
 test('says what this screen is doing, in regions a screen reader is told about', async ({
