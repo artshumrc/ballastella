@@ -90,17 +90,24 @@ export interface AutosaveOptions {
  * ⚠ **Round 1's rule — "only a caller who was handed bytes may install bytes" — was itself false.**
  * `commit` *is* such a caller and still reverted a newer edit, because between being handed the bytes
  * and installing them it called `#writeAhead`, which reports a refusal through `onJournalRefused`.
- * The rule that survives is not about *who* holds a value but about *when*:
+ * So the rule became about *when* rather than *who*. ⚠ **And then it was too narrow.** Round 3 found
+ * the same inversion carrying a derived `SaveState` instead of bytes: `#publish` read `#derive()`
+ * once and handed that snapshot to each listener in turn, so a subscriber was told `saved` while
+ * `#states` held unwritten bytes. For ADR-0017 rule 5 that is not a lesser defect — the indicator is
+ * the user's only signal, and one *told* a stale state is as wrong as one holding stale bytes.
  *
- * > **A byte value may exist outside `#states` only across code that cannot reach application code.**
+ * **Bytes were the instance. Staleness is the class.** The rule is therefore about any value read
+ * out of `#states`, derived or raw:
  *
- * Every call that can reach application code must have the bytes already installed, and anything
- * after such a call must re-read `#states` rather than use what it read before. Every place control
- * leaves this class, and how each is held to that:
+ * > **No value read or derived from `#states` may be carried across a call that can reach
+ * > application code.**
+ *
+ * Anything on the far side of such a call must read `#states` again rather than use what it read
+ * before. Every place control leaves this class, and how each is held to that:
  *
  * | Reaches out | Where | Held by |
  * |---|---|---|
- * | listeners, via `#tell` | `#publish`, `subscribe` | **shape** — `#publish` takes no bytes and reads nothing but `#states` |
+ * | listeners, via `#tell` | `#publish`, `subscribe` | **shape** — both read `this.#state` at the moment each listener is called, never before the loop |
  * | `onJournalRefused`, via `#tell` | `#publishJournalRefusal` | **shape** — reached only from `#writeAhead`, which takes no bytes |
  * | `journal.record` | `#writeAhead` | **shape** — the bytes are read from `#states` on the line above and used for nothing else |
  * | `journal.forget` | `#forget`, from `#drainLoop` and `abandon` | **shape** — both re-read `#states` afterwards; `abandon` walks keys |
@@ -125,6 +132,22 @@ export interface AutosaveOptions {
  * expression and every property read on caller-supplied objects, and subtract `this.#…`, the
  * `Map`/`Set`/`Promise` builtins, and the module-level pure helpers (`bytesOf`, `drainOf`,
  * `unhandled`). What is left is this table.
+ *
+ * ⚠ **AND THE SWEEP IS NOT ENOUGH ON ITS OWN — CHECK EACH ROW'S CLASSIFICATION SEPARATELY.** Round
+ * 3's defect was in this table, in row 1, on a seam the sweep had enumerated correctly. The row said
+ * `#publish` "takes no bytes and reads nothing but `#states`" — both halves true, and the conclusion
+ * did not follow, because it read `#states` *once* and then called out *N* times. Finding it needed
+ * a different question from "where does control leave": **for each row, what value is alive across
+ * that call, and is it re-read after it?** Two rows were also classified **shape** when they were in
+ * fact held by argument (see the two ⚠ blocks below); one of those, row 1, was reachable and was a
+ * live defect. Enumerating the exits is the cheap half of this table. Classifying them is the half
+ * that has been wrong twice.
+ *
+ * ⚠ **Row 1 was argument-held and nothing said so.** It was reachable only because the editor
+ * registers exactly one listener and never re-registers it — but `subscribe` is public and returns
+ * an unsubscribe, and `does not tell a resubscribing listener the state it had before its own edit`
+ * needs no second subscriber at all: a `Set` revisits an element deleted and re-added mid-iteration.
+ * "There is only one listener today" is not a property of this class and must never be cited as one.
  *
  * ⚠ **One window is held by argument rather than by shape, and it is named rather than hidden.**
  * `#owe` is handed a byte value by its caller. That is safe because `#owe` reaches nothing on the
@@ -981,7 +1004,18 @@ export class Autosave {
 		const next = this.#derive();
 		if (next === this.#state) return;
 		this.#state = next;
-		for (const listener of this.#listeners) this.#tell(() => listener(next));
+		// ⚠ **`this.#state` at call time, never the `next` computed above** (ticket 09, review 3).
+		// Handing each listener the value derived before the loop began made this the sixth way out
+		// of this class, and the only one a sweep for *where control leaves* could not find, because
+		// nothing about the seam moved — a value did. A listener that reacts by editing runs a nested
+		// `#publish` that advances `#state` correctly; the outer loop then resumed and told every
+		// listener it had not yet reached the **pre-edit** state. The last thing such a subscriber
+		// heard was `saved`, with bytes pending.
+		//
+		// This is the shape {@link subscribe} has always used, eleven lines up. A listener may now be
+		// told the same state twice, which is right: saying a true thing again is not a defect, and
+		// saying a stale one is.
+		for (const listener of this.#listeners) this.#tell(() => listener(this.#state));
 	}
 
 	/** Call application code from inside this class, and rethrow its failure out of band. */

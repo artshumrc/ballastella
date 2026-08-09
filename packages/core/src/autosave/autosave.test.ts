@@ -1715,6 +1715,96 @@ describe('Autosave', () => {
 
 			expect(seen).toEqual(['saved']);
 		});
+
+		/**
+		 * ⚠ **A SUBSCRIBER WAS TOLD `saved` WHILE `#states` HELD UNWRITTEN BYTES** (ticket 09, review
+		 * 3 — the sixth way out, and the one a "where does control leave this class" sweep could not
+		 * find).
+		 *
+		 * `#publish` read `#derive()` **once**, into a local, and then handed that one value to
+		 * application code once per listener. A listener that reacts by editing runs a nested
+		 * `#publish` which correctly advances the state; when the stack unwinds, the outer loop
+		 * resumes and delivers its **pre-edit** snapshot to every listener it had not yet reached. The
+		 * last thing such a subscriber is told is `saved`, with bytes pending and `hasPendingWrite`
+		 * answering `true`.
+		 *
+		 * ⚠ **It is the same defect as the three rounds before it, and the rule as written did not
+		 * cover it.** Ticket 09's rule was about *byte* values; this is a derived `SaveState`. For
+		 * ADR-0017 rule 5 there is no difference — the indicator is the user's only signal, and an
+		 * indicator *told* a stale state is as wrong as one holding stale bytes. The rule in
+		 * `FileState`'s banner is now about any value read from `#states`, not only about bytes.
+		 *
+		 * ⚠ **This was held by argument and nothing said so.** Today's editor registers exactly one
+		 * listener and never re-registers it, which is why no shipped code reaches it — but
+		 * `subscribe` is public, returns an unsubscribe, and the second test below needs **no second
+		 * subscriber** at all.
+		 *
+		 * The fix is the shape `subscribe` has always used eleven lines away: read the state at the
+		 * moment the listener is called, never before.
+		 */
+		it('does not tell a later subscriber a state an earlier one has already superseded', async () => {
+			const seenByLate: SaveState[] = [];
+			let armed = false;
+			let edited = false;
+			// ⚠ **Subscribed first, then armed.** `subscribe` replays the current state immediately, so
+			// an unarmed listener would make its edit at registration time — before the publish this is
+			// about — and the test would pass against the defect. It did, on the first cut.
+			autosave.subscribe((state) => {
+				if (!armed || state !== 'saved' || edited) return;
+				edited = true;
+				autosave.queue('p/other.json', utf8.encode('typed while being told'));
+			});
+			// Registered behind it, so the publish still has this one to reach when the edit happens.
+			autosave.subscribe((state) => seenByLate.push(state));
+			armed = true;
+
+			await autosave.commit('p/project.json', utf8.encode('a'));
+
+			// ⚠ **One record over all four, because the failure is the disagreement between them.**
+			// The first three are what the class knows; the last is what it *said*. A test that read
+			// only what the class knows passes against the defect, which is how this survived three
+			// rounds — and `edited` is here so that a change which stops the subscriber being called
+			// reads as a failure rather than as a pass.
+			expect({
+				edited,
+				state: autosave.state,
+				pending: autosave.hasPendingWrite('p/other.json'),
+				lastTold: seenByLate.at(-1)
+			}).toEqual({ edited: true, state: 'unsaved', pending: true, lastTold: 'unsaved' });
+		});
+
+		/**
+		 * The same defect with **one** subscriber, which is what makes "there is only one listener
+		 * today" no defence at all.
+		 *
+		 * A `Set` visits an element again if it is deleted and re-added during iteration, so a
+		 * listener that unsubscribes and resubscribes inside its own callback is called a second time
+		 * by the very publish it is already inside — and that second call carried the snapshot.
+		 */
+		it('does not tell a resubscribing listener the state it had before its own edit', async () => {
+			const seen: SaveState[] = [];
+			let armed = false;
+			let churned = false;
+			let unsubscribe = (): void => undefined;
+			const listener = (state: SaveState) => {
+				seen.push(state);
+				if (!armed || state !== 'saved' || churned) return;
+				churned = true;
+				unsubscribe();
+				unsubscribe = autosave.subscribe(listener);
+				autosave.queue('p/other.json', utf8.encode('typed while being told'));
+			};
+			unsubscribe = autosave.subscribe(listener);
+			armed = true;
+
+			await autosave.commit('p/project.json', utf8.encode('a'));
+
+			expect({
+				churned,
+				state: autosave.state,
+				lastTold: seen.at(-1)
+			}).toEqual({ churned: true, state: 'unsaved', lastTold: 'unsaved' });
+		});
 	});
 });
 
