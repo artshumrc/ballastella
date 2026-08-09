@@ -362,6 +362,135 @@ describe('Autosave', () => {
 			await vi.advanceTimersByTimeAsync(0);
 			expect(journalled.size).toBe(0);
 		});
+
+		/**
+		 * ⚠ **A SUBSCRIBER THAT THREW KILLED THE PATH OUTRIGHT, AND THIS FIX INTRODUCED IT.**
+		 *
+		 * `#drainLoop`'s first act is `#publish('saving')`, and `#publish` runs subscribers
+		 * synchronously. Published from *above* the loop's `try`, a subscriber that threw made the loop
+		 * reject without the `finally` ever running — so `file.draining` held a rejected promise for
+		 * ever and every later `#drain` on that path handed it straight back. The indicator sat on
+		 * "Saving" and `commit`, the debounce and `flush` were all dead for that file, permanently.
+		 *
+		 * That is strictly worse than the defect this whole change closes: the parent's `.finally` on
+		 * the returned promise ran on rejection too, so the bytes stayed recoverable and the indicator
+		 * read "Unsaved". A recoverable stranding was traded for an unrecoverable one — stories 6 and
+		 * 30 inverted on the exact path this ticket owns.
+		 */
+		it('is not killed by a subscriber that throws while the indicator is published', async () => {
+			let willThrow = true;
+			autosave.subscribe((state) => {
+				if (state !== 'saving' || !willThrow) return;
+				willThrow = false;
+				throw new Error('a listener that could not cope');
+			});
+
+			await autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
+
+			// The drain stopped, so the indicator must not still claim it is running — and the bytes
+			// are held, which is what makes "Unsaved" the truth rather than a guess.
+			expect(autosave.state).toBe('unsaved');
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(true);
+
+			// And the path is still alive: a later commit reaches the store, which is the whole
+			// difference between stranded and dead.
+			await autosave.commit('p/project.json', utf8.encode('second'));
+
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
+			expect(autosave.state).toBe('saved');
+		});
+
+		/**
+		 * ⚠ **WHY THE DEFERRED IN `#drain` IS LOAD-BEARING RATHER THAN DEFENSIVE.**
+		 *
+		 * `#drainLoop` publishes `'saving'` before it does anything else, and subscribers run
+		 * synchronously. A subscriber is application code, so it can commit — and therefore re-enter
+		 * `#drain` — *before the loop that provoked it has run a second line*. The memo must already be
+		 * in `file.draining` by then, and an `async` method cannot see its own promise to put it there.
+		 *
+		 * Assigning the loop's promise after the call instead leaves the slot empty for that whole
+		 * synchronous cascade, so the re-entrant commit starts a **second concurrent loop on the same
+		 * path** — two writes racing into one file, which is exactly the out-of-order write into a
+		 * single path that rule 2 exists to forbid, and it is silent.
+		 */
+		it('keeps one writer per path when a subscriber commits back into it', async () => {
+			const { given, land } = writesThatLandOnCommand();
+			let reentered = false;
+			autosave.subscribe((state) => {
+				if (state !== 'saving' || reentered) return;
+				reentered = true;
+				void autosave.commit('p/project.json', utf8.encode('B')).catch(() => undefined);
+			});
+
+			void autosave.commit('p/project.json', utf8.encode('A')).catch(() => undefined);
+			await leftAlone(land);
+
+			expect(reentered).toBe(true);
+			// One writer: 'A' was superseded before the store ever saw it, so the store is given the
+			// newer bytes once and nothing races them.
+			expect(given).toEqual([{ path: 'p/project.json', text: 'B' }]);
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('B');
+			expect(autosave.hasPendingWrite('p/project.json')).toBe(false);
+		});
+
+		/**
+		 * ⚠ **The invariant as a property over how a drain can END, not over which method was called.**
+		 *
+		 * Every assertion above this point picks an operation — a debounce, a commit, a commit in the
+		 * settling gap — and checks the invariant for it. That is why a drain stopping *because a
+		 * subscriber threw* went unnoticed: it is not an operation, it is a way any operation can end,
+		 * and no per-operation test ranges over those. So this one does.
+		 *
+		 * The property: however a drain stops, the drain has stopped (the indicator never claims
+		 * otherwise), the bytes are held exactly when the store did not take them, and **the path is
+		 * still usable by every route to the store** — flush, debounce and commit alike.
+		 */
+		const waysADrainCanStop = [
+			{
+				ending: 'the store took the bytes',
+				arrange: () => undefined,
+				holdsTheBytes: false
+			},
+			{
+				ending: 'the store refused the bytes',
+				arrange: () =>
+					void vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('the disk is full')),
+				holdsTheBytes: true
+			},
+			{
+				ending: 'a subscriber threw while the indicator was being published',
+				arrange: () => {
+					let willThrow = true;
+					autosave.subscribe((state) => {
+						if (state !== 'saving' || !willThrow) return;
+						willThrow = false;
+						throw new Error('a listener that could not cope');
+					});
+				},
+				holdsTheBytes: true
+			}
+		] as const;
+
+		for (const way of waysADrainCanStop) {
+			it(`leaves the path alive when a drain stops because ${way.ending}`, async () => {
+				way.arrange();
+
+				await autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
+
+				// However it ended, it ended: nothing may still be reported as in flight.
+				expect(autosave.state).not.toBe('saving');
+				expect(autosave.hasPendingWrite('p/project.json')).toBe(way.holdsTheBytes);
+
+				// And every route to the store still works afterwards.
+				await autosave.flush();
+				autosave.queue('p/project.json', utf8.encode('second'));
+				await vi.advanceTimersByTimeAsync(DEBOUNCE);
+				await autosave.commit('p/project.json', utf8.encode('third'));
+
+				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('third');
+				expect(autosave.state).toBe('saved');
+			});
+		}
 	});
 
 	describe('what is waiting to be written', () => {

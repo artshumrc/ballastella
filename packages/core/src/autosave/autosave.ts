@@ -460,22 +460,36 @@ export class Autosave {
 	 * awaits. **Whether real OPFS timing enters that window has not been shown and is not claimed.**)
 	 *
 	 * The invariant that forbids it, which is the thing to keep true rather than the mechanism:
-	 * **if a file has pending bytes, a drain is scheduled or running for it.** There is one stated
-	 * exception — bytes the store *refused* — see {@link #drainLoop}'s `finally`.
+	 * **if a file has pending bytes, a drain is scheduled or running for it.** The stated exception
+	 * is a drain that stopped by *throwing* — see {@link #drainLoop}'s `finally`.
 	 *
-	 * The deferred is what makes the loop able to release a memo it was never handed: `file.draining`
-	 * has to be set *before* the loop's first line, and an `async` method cannot see its own promise.
-	 * Assigning the loop's promise on the way back would come too late for a loop that finished
-	 * without ever suspending — the `finally` would clear a slot that was then filled behind it,
-	 * leaving `draining` set for ever.
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE DEFERRED IS LOAD-BEARING. DO NOT REPLACE IT WITH AN ASSIGNMENT AFTER THE CALL.
 	 *
-	 * ⚠ **Stated exactly, because this is a guard and not a fix: that stale memo has no reachable
-	 * symptom today, and removing the deferred leaves the whole suite green.** A loop finishes
-	 * without suspending only when `pending` is already undefined, and the `finally` below then
-	 * deletes the entry from `#files` — so the stale `draining` is left on an object nothing can
-	 * reach, and neither `#derive` nor a later `#drain` ever sees it. It is here because that
-	 * reasoning is a coincidence of two other decisions rather than a property of this method, and
-	 * the whole point of the invariant is not to rest on one.
+	 * ⚠ **`#drainLoop`'s very first act is to publish `'saving'`, and `#publish` runs subscribers
+	 * synchronously.** A subscriber is application code: the editor's indicator, or anything that
+	 * reacts to it by writing. So a subscriber can re-enter `commit` — and therefore this method —
+	 * *before the loop that provoked it has run a second line*. The memo has to be in `file.draining`
+	 * by then, and an `async` method cannot see its own promise, so it cannot put it there itself.
+	 * `file.draining = this.#drainLoop(path, file)` assigns after that whole synchronous cascade has
+	 * already happened, and the re-entrant call therefore finds the slot empty and starts a
+	 * **second concurrent loop on the same path**: rule 2's one-writer invariant broken outright,
+	 * with two writes racing into one file and the store free to end up holding the older of them.
+	 * Measured, with a subscriber that commits once on `'saving'`: two loops instead of one.
+	 *
+	 * ⚠ **That hole predates this ticket**: the `??=` this replaced assigned just as late, so the
+	 * concurrent-loop measurement reproduces on the commit before it too. It is not a hazard this
+	 * change introduced, and closing it is not optional now that the loop releases its own memo.
+	 *
+	 * The same lateness has a second consequence, measured with the same probe: a loop that stops
+	 * *before its first suspension* — which is what a throwing subscriber does — has already run the
+	 * `finally` by the time the assignment happens, so the assignment writes a **settled** promise
+	 * into `file.draining` that nothing will ever clear. If it settled by rejecting, every later
+	 * `#drain` on that path hands the rejection straight back and the path is dead.
+	 *
+	 * Both are asserted: `keeps one writer per path when a subscriber commits back into it` and
+	 * `is not killed by a subscriber that throws while the indicator is published`. Removing the
+	 * deferred turns three tests red. This shape is not a stylistic choice.
 	 */
 	#drain(path: StorePath): Promise<void> {
 		const file = this.#file(path);
@@ -492,8 +506,15 @@ export class Autosave {
 	}
 
 	async #drainLoop(path: StorePath, file: PendingFile): Promise<void> {
-		this.#publish('saving');
 		try {
+			// ⚠ **Inside the `try`, and it is not tidiness.** `#publish` runs subscribers synchronously,
+			// and a subscriber is application code that can throw. Published from above the `try`, that
+			// throw left the loop rejecting *without the `finally` below ever running*, so
+			// `file.draining` kept a rejected promise for ever and every later `#drain` on that path
+			// handed it straight back — the indicator stuck on "Saving" and `commit`, the debounce and
+			// `flush` all dead for that file, permanently. That is strictly worse than the defect this
+			// method exists to fix: unrecoverable rather than merely stranded.
+			this.#publish('saving');
 			while (file.pending !== undefined) {
 				const bytes = file.pending;
 				try {
@@ -528,11 +549,21 @@ export class Autosave {
 			// the next pass — or finds the memo already gone and starts its own loop, which is a promise
 			// that really does cover its write. See {@link #drain} for what this replaced.
 			//
-			// **The one exception to "if pending, a drain is running": bytes the store refused.** The
-			// loop leaves via the `throw` above with `pending` still set and nothing scheduled, on
-			// purpose — restarting here would turn a full disk into a spin, and the contract is that the
-			// bytes are held for the next `commit`, `queue` or `flush`. Retrying them without being
-			// asked is a separate change and is not made here.
+			// **The stated exception to "if pending, a drain is running": a loop that stopped by
+			// throwing.** There are two ways that happens — the store refused the bytes, or a subscriber
+			// threw while the indicator was being published — and both leave `pending` set with nothing
+			// scheduled, on purpose. Restarting here would turn a full disk into a spin, and it would
+			// turn a subscriber that throws every time into an unkillable one. The contract is that the
+			// bytes are **held**, so the next `commit`, `queue` or `flush` still has them and the
+			// indicator still reads "Unsaved" rather than "Saved"; the path stays alive either way.
+			// Retrying them without being asked is a separate change and is not made here.
+			//
+			// Ranged over rather than enumerated by the caller: `leaves the path alive when a drain
+			// stops because …` drives every ending, which is what the per-operation assertions missed.
+			//
+			// **Release first, publish last, and keep it that way.** The `#publish` below runs subscribers
+			// too, so it can throw for the same reason; releasing the memo before it means even that
+			// leaves the path usable rather than dead.
 			file.draining = undefined;
 			if (file.pending === undefined && file.timer === undefined) this.#files.delete(path);
 			this.#publish();
