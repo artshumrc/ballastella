@@ -281,15 +281,6 @@ export const hostileManifest = {
 	items: [canvas(1, 'The chart', 'tiles-only.test', 'locked')]
 };
 
-/** A single-canvas Manifest on the level 0 host that publishes no tiles. */
-export const unalignableManifest = {
-	'@context': 'http://iiif.io/api/presentation/3/context.json',
-	id: 'https://library.test/iiif/sizes-only/manifest.json',
-	type: 'Manifest',
-	label: { en: ['A chart from a service with no tiles'] },
-	items: [canvas(1, 'The chart', 'sizes-only.test', 'plain')]
-};
-
 /**
  * A Georeference Annotation of the shape `annotations.allmaps.org` answers with: three Control
  * Points, which is what a first-order polynomial needs (ADR-0013), and a Resource Mask inside the
@@ -433,7 +424,6 @@ export async function installIiifHosts(
 		const url = route.request().url();
 		if (url.endsWith('/atlas/manifest.json')) return json(route, manifest);
 		if (url.endsWith('/locked/manifest.json')) return json(route, hostileManifest);
-		if (url.endsWith('/sizes-only/manifest.json')) return json(route, unalignableManifest);
 		if (url.endsWith('/iiif/collection')) return json(route, collection);
 		if (url.endsWith('/maps/1657')) {
 			// A viewer page answered with a 200, which is the most common single failure on this path.

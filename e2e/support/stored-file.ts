@@ -113,3 +113,49 @@ export const readStoredJsonOrNull = async <T>(page: Page, path: string): Promise
 		return null;
 	}
 };
+
+/**
+ * Write one file at any depth straight into the Workspace, bypassing the app entirely.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THE WRITE HALF OF THIS MODULE, AND IT IS HERE FOR THE SAME REASON THE READ HALF IS.        │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * A spec that needs a Workspace in a particular state — a Historical Map the hub can list and
+ * delete, a colleague's Alignment arriving through a sync — cannot always get there through the
+ * interface: an ingest takes a real image and a real tiler, which is minutes of work and a different
+ * test's subject, and *nothing at all* in this application produces another process's write.
+ *
+ * **Named `seedFile`, and that name is load-bearing.** `scripts/check-alignment-writers.mjs` knows
+ * this spelling: `seedFile(page, \`alignments/<id>.json\`, …)` is one of the four patterns it matches,
+ * so a fixture that seeds an Alignment through here is *seen* by the fence and has to carry an
+ * `alignment-write-is-the-fixture:` pragma saying why. A fixture that assembles the same path out of
+ * `getDirectoryHandle('alignments')` and a bare `` `${id}.json` `` is invisible to it — which is a
+ * writer of `alignments/<id>.json` that the fence's own honesty statement does not count, and that
+ * statement has already been wrong once.
+ *
+ * **Atomic, like the app's own write** (ADR-0017 rule 4). `createWritable()` truncates and then
+ * fills, so a reader inside that window gets a short file rather than either version — the exact
+ * torn read {@link readStoredFileOrNull}'s retry loop exists to forgive, reintroduced by the
+ * fixtures. A temp file moved over the destination has no such window, and it is three lines.
+ */
+export async function seedFile(page: Page, path: string, contents: string): Promise<void> {
+	await page.evaluate(
+		async ([path, contents]) => {
+			const segments = path.split('/');
+			let directory = await workspaceRoot();
+			for (const segment of segments.slice(0, -1)) {
+				directory = await directory.getDirectoryHandle(segment, { create: true });
+			}
+			const name = segments[segments.length - 1] as string;
+			const temporary = await directory.getFileHandle(`.${name}.seeding`, { create: true });
+			const writable = await temporary.createWritable();
+			await writable.write(contents);
+			await writable.close();
+			await (
+				temporary as FileSystemFileHandle & { move(to: unknown, as: string): Promise<void> }
+			).move(directory, name);
+		},
+		[path, contents] as const
+	);
+}

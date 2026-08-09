@@ -53,6 +53,7 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount, untrack } from 'svelte';
 
+	import { warpedAddressOf } from '$lib/alignment/map-source.svelte.js';
 	import { exposeLayerStackToBrowserTests } from '$lib/layers/browser-test-handle';
 	import { createOverlayPointLayer, type OverlayPointLayer } from '$lib/overlay/overlay-points';
 	import { theme } from '$lib/theme.svelte';
@@ -537,11 +538,15 @@
 	 * unrelated, would tear the warped layer off the map and build another. That is the rebuild
 	 * `hasAlignment` was carefully narrowed to avoid; a string and a boolean compare by value and
 	 * cannot reintroduce it.
+	 *
+	 * The pair lives in `alignment/map-source.svelte.ts` **so that it has a test**. Written inline here
+	 * the guard was a paragraph and nothing else: collapse it and the whole suite stays green, because
+	 * what goes wrong is a warped layer rebuilt mid-alignment, which flaps rather than fails.
+	 * `map-source.svelte.test.ts` counts the effect runs and is red for the collapsed form.
 	 */
-	const warpedReferenced = $derived(alignmentSource?.imageMode === 'referenced');
-	const warpedService = $derived(
-		alignmentSource?.imageMode === 'referenced' ? alignmentSource.service : ''
-	);
+	const warpedAddress = warpedAddressOf(() => alignmentSource);
+	const warpedReferenced = $derived(warpedAddress.referenced);
+	const warpedService = $derived(warpedAddress.service);
 
 	/**
 	 * The warped Historical Map (ADR-0011's `fetchFn` injection point).

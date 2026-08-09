@@ -17,6 +17,7 @@ import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { ensureAddHistoricalMapOpen } from './support/historical-maps.js';
 import { generateId, installIiifHosts, service } from './support/iiif-hosts.js';
 import { alignFromLayer, layerRows, openLayerRow } from './support/layers.js';
+import { seedFile } from './support/stored-file.js';
 
 /**
  * Ticket 07: a Historical Map whose tiles are on a Library's server is aligned **in place**.
@@ -70,15 +71,31 @@ async function openNewProject(page: Page): Promise<void> {
  *
  * @returns the image id, which is `generateId(uri)` and therefore the Alignment's file name
  */
-async function addReferenced(page: Page, host: string, name = 'florida'): Promise<string> {
+async function addReferenced(
+	page: Page,
+	host: string,
+	name = 'florida',
+	/** How many Layers the Project has once this one is in. */
+	layers = 1
+): Promise<string> {
 	await ensureAddHistoricalMapOpen(page);
 	await page.getByTestId('remote-url').fill(`${service(host, name)}/info.json`);
 	await page.getByTestId('remote-read').click();
 	await expect(page.getByTestId('remote-add')).toBeVisible({ timeout: 30_000 });
 	await page.getByTestId('remote-add').click();
-	await expect(layerRows(page)).toHaveCount(1, { timeout: 30_000 });
+	await expect(layerRows(page)).toHaveCount(layers, { timeout: 30_000 });
 	return generateId(service(host, name));
 }
+
+/**
+ * The Layer drawing one Historical Map, found by the image it draws rather than by its position.
+ *
+ * A new map Layer goes to the *top* of the stack, so index 0 names one row before a second map is
+ * added and another after it — `support/layers.ts` records two failures in eleven runs from exactly
+ * that. Every test below that has two maps on screen addresses them this way.
+ */
+const layerFor = (page: Page, imageId: string) =>
+	page.locator(`[data-testid="layer-row"][data-image-id="${imageId}"]`);
 
 /** Every file under `images/<imageId>/`, sorted. The exact-list shape ticket 06 established. */
 const imageFiles = (page: Page, imageId: string): Promise<string[]> =>
@@ -106,6 +123,19 @@ const imageFiles = (page: Page, imageId: string): Promise<string[]> =>
 			return [];
 		}
 	}, imageId);
+
+/**
+ * A tile the Library served **1:1** — the finest level of the pyramid, and the whole of "deep zoom".
+ *
+ * A IIIF tile request is `{x},{y},{w},{h}/{sw},{sh}/0/default.jpg`. When the output size equals the
+ * region size no reduction was asked for, which is scale factor 1 and no other. Matching on the
+ * output size alone does not say that: at scale factor 2 a 512-pixel region is *also* delivered as
+ * `256,256`, so a pane that never left its overview satisfies it.
+ */
+const atFullResolution = (url: string): boolean => {
+	const parts = /\/(\d+),(\d+),(\d+),(\d+)\/(\d+),(\d+)\/0\/default\.(jpg|png)$/.exec(url);
+	return parts !== null && parts[3] === parts[5] && parts[4] === parts[6];
+};
 
 /** Wait until the alignment route's pane is live and every tile of the first view has decoded. */
 async function waitForPane(page: Page): Promise<void> {
@@ -158,11 +188,16 @@ for (const [what, host] of [
 
 		// Deep zoom: the finest level exists and is asked for. Before this ticket every one of these
 		// requests went to `unset.invalid` and was answered out of a store with no such pyramid.
+		//
+		// **A tile served 1:1 is what "the finest level" means**, and that is what `atFullResolution`
+		// asks: region width equals output width. The first cut of this matched `/1,0/0/default` as an
+		// alternative, which cannot occur — a IIIF size is `{w},{h}` and a region is four numbers, so
+		// `1,0` is neither — and `/256,256/` alone, which a *coarser* level also produces the moment a
+		// 512-pixel region is asked for at scale factor 2. Both would have gone green over a pane that
+		// never left its overview.
 		await page.getByRole('button', { name: 'Zoom to full resolution' }).click();
 		await expect
-			.poll(() => tileRequests.filter((url) => /\/1,0\/0\/default|\/256,256\//.test(url)).length, {
-				timeout: 30_000
-			})
+			.poll(() => tileRequests.filter(atFullResolution).length, { timeout: 30_000 })
 			.toBeGreaterThan(0);
 		expect(placeholderRequests).toEqual([]);
 
@@ -187,11 +222,15 @@ for (const [what, host] of [
 		await expect
 			.poll(() => warpedTiles(page), { timeout: 120_000, intervals: [2000] })
 			.toBeGreaterThan(0);
-		// And they came from the Library, which is the other half: a count alone would also be
-		// satisfied by tiles served out of the Workspace, which is what an offline copy would be.
-		expect(tileRequests.length).toBeGreaterThan(0);
-
-		// **Nothing was copied.** An exact list rather than a count, so a stray tile is a named file.
+		// **And they came from the Library**, which is the other half: a tile count alone would also be
+		// satisfied by tiles served out of the Workspace, which is what an offline copy is.
+		//
+		// ⚠ **This is the assertion that earns that claim, and it is the file list.** A second
+		// `expect(tileRequests.length).toBeGreaterThan(0)` stood here and claimed it; it could not go
+		// red — the poll above had already asserted a *filtered subset* of the same array non-empty —
+		// and `tileRequests` cannot tell a warped tile from an unwarped one anyway, because both are
+		// requests to the same host. What distinguishes the two is that there is no pyramid here to
+		// have served them from: an exact list rather than a count, so a stray tile is a named file.
 		expect(await imageFiles(page, imageId)).toEqual(['remote.json']);
 	});
 }
@@ -452,4 +491,308 @@ test('an offline copy of a map aligned in place keeps every Control Point', asyn
 	expect(files).toContain('remote.json');
 	expect(files).toContain('info.json');
 	expect(files.filter((name) => name.endsWith('default.jpg')).length).toBeGreaterThan(0);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// AN ALIGNMENT THAT CHANGED SOMEWHERE ELSE
+//
+// ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+// │ ADR-0023's MITIGATION **IS** THE VISIBILITY, SO THE VISIBILITY IS WHAT HAS TO BE ASSERTED. │
+// └───────────────────────────────────────────────────────────────────────────────────────────┘
+//
+// ADR-0023 makes an Alignment the Workspace's, shared by every Project that draws the map, and
+// accepts that a Workspace kept in git or Dropbox can receive a colleague's edit between this
+// session's read and its write. It asks for **visibility, not prevention** — and visibility is a
+// screen, so nothing under `packages/core` and nothing on `EditorSession` can stand in for it.
+//
+// The first cut of this ticket asserted `opened.alignmentChangedElsewhere?.imageId` in a unit test:
+// a **session field**, which is precisely the proxy SPEC's Testing Decisions rule out — "assert on
+// file contents and on rendered UI, never on internal call sequences, private state". Every one of
+// the four deletions below left the whole suite green: the alert, both handlers, the assignment that
+// lets `reload()` find the pyramid, and the `reload()` call itself, which is a real data-loss path —
+// without it the screen keeps drawing the Control Points the user has just given up and the next
+// drag writes them back.
+//
+// The Workspace here holds a **referenced** map because this file's subject is a referenced map, and
+// the concurrent-edit path is the one place ticket 07's own writer runs with `basedOn` set.
+
+/**
+ * A colleague's Alignment, arriving through a synced Workspace while this session has it open.
+ *
+ * **Their document is this session's own with one Control Point taken out**, which makes it parse,
+ * differ in bytes, and be distinguishable on screen by a count rather than by a coordinate readout.
+ *
+ * Written straight into the Workspace, because that is what the situation *is*: another process's
+ * write. A gesture in this application cannot produce one, which is the whole reason this needs a
+ * fixture.
+ *
+ * **Through `support/stored-file.ts`'s `seedFile`, and the spelling matters twice.** The fence knows
+ * that name, so this write is *seen* by `check-alignment-writers.mjs` and has to say why it is a
+ * fixture — the first cut assembled the same path out of `getDirectoryHandle('alignments')` and a
+ * bare `` `${id}.json` ``, which no pattern matches, so it was a new unfenced writer of
+ * `alignments/<id>.json` added in the very change that recounts the fence's honesty statement. And
+ * `seedFile` writes atomically, so the next read cannot catch this half-written.
+ *
+ * @returns their document, byte for byte, so a restore can be compared against it
+ */
+async function aColleagueChanges(page: Page, imageId: string): Promise<string> {
+	const mine = JSON.parse((await storedAlignment(page, imageId)) as string);
+	const theirs = JSON.stringify({
+		...mine,
+		body: { ...mine.body, features: mine.body.features.slice(0, 2) }
+	});
+	// alignment-write-is-the-fixture: another process's Alignment landing through a synced Workspace, which is the situation under test and which no gesture in this app can produce
+	await seedFile(page, `alignments/${imageId}.json`, theirs);
+	return theirs;
+}
+
+/** Three pairs placed here, two of theirs on disk, and the fourth pair is what collides. */
+async function reachTheCollision(page: Page, imageId: string): Promise<string> {
+	await makePairs(page, 3);
+	await waitForStored(page, imageId, 3);
+	const theirs = await aColleagueChanges(page, imageId);
+
+	// The next gesture end is the write that goes over their version. **It is not blocked** — losing
+	// the edit in front of the user to protect one they cannot see is the worse trade and is not what
+	// ADR-0023 asks for — so the pair really lands, here and on disk.
+	await makePairs(page, 4);
+	await expect(rows(page)).toHaveCount(4);
+	await waitForStored(page, imageId, 4);
+	return theirs;
+}
+
+const changedElsewhere = (page: Page) => page.getByTestId('alignment-changed-elsewhere');
+
+test('says when somebody else changed this Alignment, and puts their version back', async ({
+	page
+}) => {
+	test.slow();
+	await installIiifHosts(page);
+	await openNewProject(page);
+	const imageId = await addReferenced(page, 'images.test');
+	await alignFromLayer(page);
+	await waitForPane(page);
+
+	const theirs = await reachTheCollision(page, imageId);
+
+	// **The alert is on the screen**, which is the deliverable. `role="alert"` because it is the one
+	// thing here the user cannot find out any other way: nothing moved, nothing failed, and the save
+	// indicator says "Saved" — and `alert` is the role that announces on insertion, which matters when
+	// the region and its first text arrive together.
+	await expect(changedElsewhere(page)).toBeVisible({ timeout: 30_000 });
+	await expect(changedElsewhere(page)).toHaveAttribute('role', 'alert');
+	await expect(changedElsewhere(page)).toContainText('Somebody else changed');
+	await expect(changedElsewhere(page)).toContainText('one Alignment');
+
+	await page.getByTestId('restore-changed-elsewhere').click();
+
+	// Their document is on disk, byte for byte — routed through `writeAlignmentBytes`, so it is not
+	// re-serialised through this build's model and does not lose whatever this build does not model.
+	await expect.poll(() => storedAlignment(page, imageId), { timeout: 30_000 }).toBe(theirs);
+
+	// ⚠ **And the screen re-read it.** This is the assertion the whole `livePane`/`reload()` path
+	// exists for: without it the pane keeps drawing the four Control Points the user has just chosen
+	// to give up, and the very next drag writes them back over the version they asked to restore.
+	await expect(rows(page)).toHaveCount(2);
+	await expect(changedElsewhere(page)).toHaveCount(0);
+
+	// Focus does not fall to `<body>` when the alert removes itself, and the line it lands on says
+	// which of the two answers was given — CONTRIBUTING's focus-management criterion, and WCAG 2.4.3.
+	const outcome = page.getByTestId('changed-elsewhere-outcome');
+	await expect(outcome).toBeFocused();
+	await expect(outcome).toContainText('Their version');
+
+	// The restore reset the baseline too, so the next ordinary save is not itself reported as a second
+	// concurrent change — a warning raised by the user's own act of accepting the first one.
+	await makePairs(page, 3);
+	await waitForStored(page, imageId, 3);
+	await expect(changedElsewhere(page)).toHaveCount(0);
+});
+
+test('keeps this session’s version when that is what the user chooses', async ({ page }) => {
+	test.slow();
+	await installIiifHosts(page);
+	await openNewProject(page);
+	const imageId = await addReferenced(page, 'images.test');
+	await alignFromLayer(page);
+	await waitForPane(page);
+	await reachTheCollision(page, imageId);
+	await expect(changedElsewhere(page)).toBeVisible({ timeout: 30_000 });
+
+	await page.getByTestId('dismiss-changed-elsewhere').click();
+
+	// **Dismiss reads nothing back**, which is the half that separates it from the button beside it:
+	// the four pairs are still on screen and still on disk, and only the warning has gone.
+	await expect(changedElsewhere(page)).toHaveCount(0);
+	await expect(rows(page)).toHaveCount(4);
+	const kept = JSON.parse((await storedAlignment(page, imageId)) as string);
+	expect(kept.body.features).toHaveLength(4);
+
+	const outcome = page.getByTestId('changed-elsewhere-outcome');
+	await expect(outcome).toBeFocused();
+	await expect(outcome).toContainText('Your version has been kept');
+});
+
+test('warns only on the Historical Map the warning is about', async ({ page }) => {
+	test.slow();
+	await installIiifHosts(page);
+	await openNewProject(page);
+	const florida = await addReferenced(page, 'images.test', 'florida');
+	await alignFromLayer(page, layerFor(page, florida));
+	await waitForPane(page);
+	await reachTheCollision(page, florida);
+	await expect(changedElsewhere(page)).toBeVisible({ timeout: 30_000 });
+
+	// A second Historical Map, aligned in the same session with the warning still standing. The button
+	// in that alert writes **one map's file**, so showing it over another map's Control Points would
+	// offer to put back a document that has nothing to do with what is on screen.
+	await page.getByTestId('back-to-project').click();
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+	const georgia = await addReferenced(page, 'images.test', 'georgia', 2);
+	await alignFromLayer(page, layerFor(page, georgia));
+	await waitForPane(page);
+	await expect(changedElsewhere(page)).toHaveCount(0);
+
+	// And it is still standing for the map it *is* about — so "scoped" is a claim about which map,
+	// rather than the warning happening to be cleared by any navigation at all.
+	await page.getByTestId('back-to-project').click();
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
+	await alignFromLayer(page, layerFor(page, florida));
+	await expect(changedElsewhere(page)).toBeVisible({ timeout: 30_000 });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// WHO ELSE THIS ALIGNMENT BELONGS TO, AND WHAT THE SCREEN SAYS OUT LOUD
+
+test('names the Projects that draw this Historical Map while it is being aligned', async ({
+	page
+}) => {
+	test.slow();
+	await installIiifHosts(page);
+	await openNewProject(page);
+	await addReferenced(page, 'images.test');
+	await alignFromLayer(page);
+	await waitForPane(page);
+
+	// SPEC story 56. ADR-0023 shares one Alignment between every Project that draws the map, so this
+	// is the scope of every gesture on this screen — and it belongs here rather than only on the hub,
+	// which is two navigations from the drag that moves all of them.
+	const usedBy = page.getByTestId('alignment-used-by');
+	await expect(usedBy).toBeVisible({ timeout: 30_000 });
+	await expect(usedBy).toHaveAttribute('data-used-by-count', '1');
+	// Read as text rather than off the attribute: the attribute is for tests and the sentence is for
+	// the user, and a version that kept the count and dropped the words would pass an attribute check.
+	await expect(usedBy).toContainText(PROJECT_NAME);
+	await expect(usedBy).toContainText('shared by every Project that draws this Historical Map');
+});
+
+test('says what this screen is doing, in regions a screen reader is told about', async ({
+	page
+}) => {
+	await installIiifHosts(page);
+	await openNewProject(page);
+	await addReferenced(page, 'images.test');
+	await alignFromLayer(page);
+	await waitForPane(page);
+
+	// SPEC story 112, and the reason it needs asserting *here*: both panes are WebGL canvases, which
+	// announce their accessible name and nothing about what happens in them. Every claim below is
+	// about the accessibility tree rather than about a `data-testid`, which is what the rest of this
+	// file reads.
+	await expect(page.getByTestId('pairing-status')).toHaveAttribute('aria-live', 'polite');
+	await expect(page.getByTestId('warped-status')).toHaveAttribute('aria-live', 'polite');
+	await expect(page.getByTestId('alignment-opening-view')).toHaveAttribute('aria-live', 'polite');
+	await expect(page.getByTestId('alignment-used-by')).toHaveAttribute('aria-live', 'polite');
+	await expect(page.getByTestId('changed-elsewhere-outcome')).toHaveAttribute(
+		'aria-live',
+		'polite'
+	);
+
+	// ⚠ **The offline region exists before there is anything offline about it**, and that is the
+	// point. A live region inserted at the same moment as its first text is not reliably announced —
+	// this repository has settled it twice, in `ReviewBanner.svelte` and `UpdatePrompt.svelte` — so
+	// the region has to be here, empty, while the connection is fine. Asserted with the network up,
+	// because that is the state in which the earlier version of this had no region at all.
+	const region = page.getByTestId('historical-map-offline-region');
+	await expect(region).toHaveAttribute('aria-live', 'polite');
+	await expect(region).toBeEmpty();
+	await expect(page.getByTestId('historical-map-offline')).toHaveCount(0);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// THE TWO GUARDS AROUND THE CONNECTION SIGNAL
+//
+// `HistoricalMapPane` reads the app's one online signal in two effects, and both are shaped by a
+// guard whose absence is invisible: the pane still works, it merely rebuilds itself when it should
+// not. The existing offline specs go offline and never come back, so neither guard was exercised at
+// all. These two do the returning half.
+
+test('a connection that blips does not discard the alignment in progress', async ({
+	page,
+	context
+}) => {
+	test.slow();
+	await installIiifHosts(page);
+	await openNewProject(page);
+	const imageId = await addReferenced(page, 'images.test');
+	await alignFromLayer(page);
+	await waitForPane(page);
+
+	// **A half-placed Control Point is the sharpest instrument there is for this.** A pending half is
+	// UI state only (ADR-0022 contract 2) — it is deliberately not written to disk — so it is the one
+	// thing on this screen that a rebuilt pane cannot restore. Two placed pairs would survive a
+	// rebuild, because they would be re-read from the file, and the test would go green over the very
+	// thing it is for.
+	await clickAt(historicalMap(page), 0.3, 0.35);
+	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
+
+	await context.setOffline(true);
+	await expect(page.getByTestId('historical-map-offline')).toBeVisible({ timeout: 30_000 });
+	await context.setOffline(false);
+	await expect(page.getByTestId('historical-map-offline')).toHaveCount(0, { timeout: 30_000 });
+
+	// ⚠ The pane must **not** have re-read its pyramid. It never stopped being valid: the coordinate
+	// space is the `info.json`'s, not the tiles', so nothing about it changed when the sheet stopped
+	// arriving. Re-reading it re-frames the Base Map and rebuilds the pairing from disk, which throws
+	// this half away under the user's hands — one flap of a hotel wifi, one lost gesture.
+	await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
+	await expect(page.getByTestId('image-pane')).toBeVisible();
+
+	// And the half is still live, not merely still labelled: its other half completes the pair.
+	await clickAt(baseMap(page), 0.3, 0.35);
+	await expect(rows(page)).toHaveCount(1);
+	await waitForStored(page, imageId, 1);
+});
+
+test('opening the alignment view reads the library’s info.json once', async ({ page }) => {
+	test.slow();
+	await installIiifHosts(page);
+	await openNewProject(page);
+	await addReferenced(page, 'images.test');
+
+	// Counted from here, so the add's own probe is not in the total: what is being measured is what
+	// opening the pane costs.
+	const infoReads: string[] = [];
+	page.on('request', (request) => {
+		if (/images\.test\/.*\/info\.json$/.test(request.url())) infoReads.push(request.url());
+	});
+
+	await alignFromLayer(page);
+	await waitForPane(page);
+
+	// The reopen effect watches the **transition** to online rather than the value. Acting on
+	// `online === true` alone fires on mount — when it is ordinarily true and no pane exists yet — and
+	// costs every referenced map in the application a second read of its `info.json`, from somebody
+	// else's server, before the first one has returned.
+	//
+	// ⚠ **This is a poll and it passes on its first qualifying sample; `intervals` sets retry delays,
+	// not a settle window.** It catches the regression it is for, and the reason is specific rather
+	// than lucky: a duplicate caused by the mount-time firing is already in flight before
+	// `waitForPane` returns, so the count is 2 at the first sample and a poll for 1 never goes green
+	// again. What it would *not* catch is a duplicate arriving later than the first sample, and there
+	// is no mechanism in this component that could produce one — the reopen effect fires on a
+	// connection transition, and there is none in this test.
+	await expect
+		.poll(() => infoReads.length, { timeout: 10_000, intervals: [1000, 1000, 1000] })
+		.toBe(1);
 });

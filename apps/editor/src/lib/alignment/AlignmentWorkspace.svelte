@@ -53,7 +53,6 @@
 		type DistortionView,
 		type FetchFn,
 		type GeoPoint,
-		type HistoricalMapSource,
 		type ImagePane,
 		type OpeningViewFit,
 		type ResourcePoint
@@ -69,7 +68,9 @@
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import DistortionControls from './DistortionControls.svelte';
+	import { historicalMapSourceOf } from './map-source.svelte.js';
 	import TransformationPicker from './TransformationPicker.svelte';
+	import { describeAlignmentUsers } from './used-by.js';
 
 	let {
 		session,
@@ -95,43 +96,81 @@
 	 * name different servers. A pane that resolved this for itself would be a second lookup, and the
 	 * two drifting is a Library map drawn correctly and written unresolvable.
 	 *
-	 * `$derived` rather than read once: `remoteOrigins` changes when a map is copied offline, and
-	 * from that moment the pane should read the Workspace's own pyramid rather than the Library's.
+	 * A live derivation rather than a value read once: `remoteOrigins` changes when a map is copied
+	 * offline, and from that moment the pane should read the Workspace's own pyramid rather than the
+	 * Library's.
 	 *
-	 * ⚠ **Two steps, and the first one is a primitive on purpose.**
-	 *
-	 * `session.historicalMapSource` builds a fresh object every call, and `remoteOrigins` behind it is
-	 * a getter recomputed from two `$state` arrays. A `$derived` holding that object therefore takes a
-	 * **new identity** whenever anything in those arrays changes — and identity is what Svelte compares
-	 * to decide whether a dependent effect re-runs. Handed straight to the panes, that meant an
-	 * unrelated Workspace refresh re-read the pyramid and rebuilt the warped layer underneath somebody
-	 * mid-alignment. `editor-alignment-refinement.e2e.ts:314` went red once and passed on retry on the
-	 * first full run with this in it, which is what a rebuild racing a reload looks like.
-	 *
-	 * Deriving the *service string* first fixes it at the root: a string compares by value, so
-	 * `mapSource` is recomputed only when the address or the image really changed — which is exactly
-	 * when both panes should be rebuilt, and never otherwise.
-	 *
-	 * `mapSource` and `paneSource` below are then stable for the same reason: a `$derived` recomputes
-	 * only when *its* dependencies change, and theirs are now a string and an id.
+	 * ⚠ **The two-step derive it is built from lives in `map-source.svelte.ts`, and it lives there so
+	 * that it can be tested.** Collapsing it back into a single object-valued `$derived` rebuilds both
+	 * panes on every unrelated Workspace read, and does it invisibly — the module and
+	 * `map-source.svelte.test.ts` between them carry the mechanism and the evidence.
 	 */
-	const mapService = $derived.by(() => {
-		const source = session.historicalMapSource(imageId);
-		return source.imageMode === 'referenced' ? source.service : '';
-	});
-
-	const mapSource = $derived<HistoricalMapSource>(
-		mapService === ''
-			? { imageMode: 'offline-copy', imageId }
-			: { imageMode: 'referenced', imageId, service: mapService }
+	const held = historicalMapSourceOf(
+		(wanted) => session.historicalMapSource(wanted),
+		() => imageId
 	);
+	const mapSource = $derived(held.current);
 
 	const paneSource = $derived(imagePaneSourceFor(mapSource));
+
+	/**
+	 * Which Projects draw the Historical Map being aligned (SPEC story 56).
+	 *
+	 * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+	 * │ THE SENTENCE BELONGS ON THIS SCREEN, NOT ONLY ON THE HUB.                                  │
+	 * └───────────────────────────────────────────────────────────────────────────────────────────┘
+	 *
+	 * ADR-0023 shares one Alignment between every Project that draws the map, so a Control Point
+	 * placed here moves all of them — published ones included. The hub says who they are, two
+	 * navigations away from the gesture. The only thing this screen said was inside the
+	 * concurrent-edit alert, which names no Project and appears only when somebody else happened to
+	 * be editing at the same moment: an account of what has already happened rather than a statement
+	 * of what a refinement is about to do.
+	 *
+	 * Where it is rendered — below the panes rather than above them — is a measurement, and the
+	 * markup says which.
+	 *
+	 * Asked for on the image rather than once for the route, because `imageId` is a prop and the route
+	 * can change it without unmounting. Compared against `mapUsage.imageId` at the read, so a walk that
+	 * resolves after the user has moved on names nothing rather than the previous map's Projects.
+	 */
+
+	$effect(() => {
+		void session.refreshMapUsage(imageId);
+	});
+
+	const usedBy = $derived(session.mapUsage?.imageId === imageId ? session.mapUsage : null);
+
+	/**
+	 * Who this Alignment is shared with, in words, or `''` while the walk has not answered.
+	 *
+	 * The sentence itself is `used-by.ts`, a pure function with a test naming every branch — written
+	 * here, only the one-Project case was ever exercised and the whole caveat expression could be
+	 * deleted with the suite green.
+	 */
+	const usedByMessage = $derived(describeAlignmentUsers(usedBy));
 
 	let pairing = $state.raw<AlignmentPairing | undefined>(undefined);
 	let failure = $state('');
 	/** Why the last undo declined, or `''`. Cleared by the next attempt — see {@link putBack}. */
 	let undoRefused = $state('');
+
+	/**
+	 * What the user's answer to a concurrent edit did, or `''` (ticket 07, ADR-0023).
+	 *
+	 * **Both buttons in that alert remove the alert**, so pressing either dropped focus to `<body>` and
+	 * left a keyboard user tabbing in from the top of the page to find out what they had just done —
+	 * WCAG 2.4.3, and CONTRIBUTING lists focus management as an acceptance criterion inside every UI
+	 * change. This is where focus goes instead, and the same line says what happened, because the two
+	 * answers are visually indistinguishable: either way the alert is gone and the Control Point list
+	 * is a list of Control Points.
+	 *
+	 * Same shape as `ProjectHub`'s cache status line, for the same reason and the same rule.
+	 */
+	let concurrentEditOutcome = $state('');
+	let concurrentEditOutcomeLine: HTMLElement | null = $state(null);
+	/** Whether "Put their version back instead" is mid-write, so a second press is not a second write. */
+	let restoring = $state(false);
 	let warped = $state<WarpedRender | null>(null);
 
 	/**
@@ -231,10 +270,9 @@
 		// deleted Layer or Annotation is about the Project rather than about one image, and survives.
 		session.forgetUndoOfOtherImages(imageId);
 		pairing = undefined;
-		// For the same reason: a pyramid held from the previous map would let `reload` rebuild an
-		// Alignment in the wrong image's pixel space.
-		livePane = undefined;
 		warped = null;
+		concurrentEditOutcome = '';
+		restoring = false;
 		failure = '';
 		maskStatus = null;
 		// The mask belongs to one image's pixel space, so its handles must not survive into another's.
@@ -277,19 +315,25 @@
 	let framedImage = '';
 
 	/**
-	 * The pyramid has been read, so the Alignment can be too.
+	 * The pyramid currently on screen **and which Historical Map it is of**.
 	 *
 	 * Driven by the pane rather than read here, because the image's pixel dimensions have to be
 	 * exactly the ones being drawn: the Resource Mask defaults to that rectangle, and a second
 	 * `createImagePane` on the same `info.json` would be a second answer that can disagree.
-	 */
-	/**
-	 * The pyramid currently on screen, so the Alignment can be re-read without it.
 	 *
 	 * A plain `let` and not `$state`: it is only ever read by {@link reload}, at the moment a button is
 	 * pressed, and making it reactive would put `loadAlignment` in a dependency graph it writes to.
+	 *
+	 * ⚠ **The image id travels with the pane, and that pairing is the guard rather than a line that
+	 * clears it.** A pyramid held from a previously opened map would let {@link reload} rebuild this
+	 * map's Alignment in the *other* image's pixel space — every Control Point coordinate a claim about
+	 * the wrong sheet, with nothing on screen saying so. That used to be prevented by assigning
+	 * `undefined` in the effect above, which is a guard no test can fail: delete the line and the whole
+	 * suite stays green, because the window it protects is the handful of frames between choosing a map
+	 * and its pane finishing loading. Carrying the id makes the mismatch *unrepresentable* at the point
+	 * of use instead of relying on a clear happening first.
 	 */
-	let livePane: ImagePane | undefined;
+	let livePane: { readonly imageId: string; readonly pane: ImagePane } | undefined;
 
 	/**
 	 * Read this Historical Map's Alignment again, discarding the pairing on screen.
@@ -298,15 +342,19 @@
 	 * from the displaced bytes, so the screen shows what is on disk — and so `readAlignment` resets
 	 * the session's baseline, without which the very next drag would be reported as displacing
 	 * something all over again.
+	 *
+	 * Does nothing when the pyramid on hand is another map's — see {@link livePane}. Nothing is the
+	 * right answer there: the pane for the map now on screen is still loading, and its own `onpane`
+	 * will read the Alignment from disk a moment later anyway.
 	 */
 	const reload = (): void => {
-		const pane = livePane;
-		if (pane) loadAlignment(imageId, pane);
+		const live = livePane;
+		if (live?.imageId === imageId) loadAlignment(imageId, live.pane);
 	};
 
 	const loadAlignment = (wanted: string, pane: ImagePane): void => {
 		if (destroyed) return;
-		livePane = pane;
+		livePane = { imageId: wanted, pane };
 		const mine = ++generation;
 		void (async () => {
 			try {
@@ -786,12 +834,38 @@
 				<button
 					class="btn btn-sm"
 					data-testid="restore-changed-elsewhere"
+					disabled={restoring}
 					onclick={async () => {
-						await session.restoreAlignmentChangedElsewhere();
-						// Re-read, so the pane shows what is now on disk rather than the pairing that was
-						// just discarded. Without this the screen keeps drawing the Control Points the user
-						// chose to give up, and the next drag writes them back.
-						reload();
+						// **Guarded against a second press, because the answer is a write.** The restore now
+						// waits behind whatever is already writing this map's file, so the alert — and this
+						// button — stay on screen for the whole wait, and a double-click queued two identical
+						// `replace` writes of the same bytes. Idempotent on disk, and still wrong in the one
+						// place ADR-0023 cares about: a Workspace kept in git or Dropbox syncs a rewrite
+						// whatever it says.
+						if (restoring) return;
+						restoring = true;
+						try {
+							// **Branched on what actually happened**, never announced in advance. A failure
+							// leaves the alert standing and `saveError` set, and the sentence below is read out
+							// loud to the one user who cannot see that contradiction — so claiming success over
+							// it is the worst version of this control.
+							const restored = await session.restoreAlignmentChangedElsewhere();
+							if (restored) {
+								// Re-read, so the pane shows what is now on disk rather than the pairing that was
+								// just discarded. Without this the screen keeps drawing the Control Points the
+								// user chose to give up, and the next drag writes them back.
+								reload();
+							}
+							concurrentEditOutcome = restored
+								? 'Their version of this Alignment is back, and the Control Points you placed over ' +
+									'it have been discarded. The list below is what is on disk now.'
+								: 'Their version could not be put back, so nothing has changed: your Control Points ' +
+									'are still on screen and still on disk. The warning above is still there, and ' +
+									'the reason is with the save indicator.';
+							concurrentEditOutcomeLine?.focus();
+						} finally {
+							restoring = false;
+						}
 					}}
 				>
 					Put their version back instead
@@ -799,13 +873,36 @@
 				<button
 					class="btn btn-ghost btn-sm"
 					data-testid="dismiss-changed-elsewhere"
-					onclick={() => session.dismissAlignmentChangedElsewhere()}
+					onclick={() => {
+						session.dismissAlignmentChangedElsewhere();
+						concurrentEditOutcome =
+							'Your version has been kept. Theirs is not on disk any more, and nothing on this ' +
+							'screen has changed.';
+						concurrentEditOutcomeLine?.focus();
+					}}
 				>
 					Keep mine
 				</button>
 			</div>
 		</div>
 	{/if}
+
+	<!--
+		What the answer above did, and where focus lands when the alert that asked removes itself.
+
+		Always rendered and empty when there is nothing to say — the rule every live region in this app
+		follows, and the one the offline notice in `HistoricalMapPane` had to be reshaped to obey: a
+		region inserted together with its first text is not reliably announced.
+	-->
+	<p
+		bind:this={concurrentEditOutcomeLine}
+		tabindex="-1"
+		aria-live="polite"
+		class="mt-2 max-w-prose text-sm opacity-80"
+		data-testid="changed-elsewhere-outcome"
+	>
+		{concurrentEditOutcome}
+	</p>
 
 	<!--
 		The fold warning (ADR-0013): "the single most useful piece of feedback a student can receive."
@@ -1057,6 +1154,35 @@
 			</p>
 		</section>
 	</div>
+
+	<!--
+		Which Projects this Alignment belongs to (SPEC story 56, ADR-0023).
+
+		One Alignment per Historical Map, shared by every Project that draws the map — so this is the
+		scope of every gesture on this screen, and a scholar refining a placement here is moving every
+		Project named in it, published ones included. Visible text and not a tooltip (ADR-0016), and
+		`aria-live="polite"` because it arrives after the screen does: the Workspace's `project.json`
+		files are read to answer it, and the panes are up first.
+
+		⚠ **Below the panes, and that is a measurement rather than a preference.** It reads as the scope
+		of what is about to happen, so it was written above the pairing prompt first — and prose above
+		the panes pushes the panes down. At the browser suite's window size that put the Historical
+		Map's Control Point handles below the fold, and `editor-alignment.e2e.ts`'s drag test went red
+		with zero writes: the pointer was moved to coordinates outside the viewport, so the gesture
+		never started. A scholar on a laptop feels the same thing as scrolling to reach the sheet. The
+		panes are the work; a sentence does not get to move them.
+
+		Rendered even while the answer is `''`, which is this app's rule for every live region: one
+		inserted at the same moment as its first text is not reliably announced.
+	-->
+	<p
+		class="mt-2 max-w-prose text-sm opacity-70"
+		aria-live="polite"
+		data-testid="alignment-used-by"
+		data-used-by-count={usedBy ? usedBy.usedBy.length : ''}
+	>
+		{usedByMessage}
+	</p>
 
 	<!--
 		What the warped renderer did. Said rather than left to look like an empty map, because the

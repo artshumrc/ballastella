@@ -257,21 +257,34 @@
 		rather than a mistake the user is making, and the fold warning above already owns `alert` on
 		this screen. It says outright that Control Points still work, because a pane that has gone
 		blank is the moment a user assumes it does not.
+
+		⚠ **The region is outside the `{#if}` and the notice is inside it, and that is the whole of the
+		announced half.** This app has settled the point twice in writing — `ReviewBanner.svelte` and
+		`UpdatePrompt.svelte` both say it — because a live region *inserted at the same moment as its
+		first text* is not reliably announced: there was no region for the change to be a change to.
+		The first version of this had `aria-live` on the alert itself, inside the branch, so the visible
+		half worked and the announced half never fired. The empty wrapper costs a `<div>` and is the
+		only thing that makes this reach a screen-reader user at all.
+
+		`role="alert"` would have avoided the problem, since `alert` announces on insertion — which is
+		exactly why the neighbouring `role="alert"` regions on this screen are correct as they stand.
+		It is the wrong role here: this is a change of circumstance, not a mistake being made.
 	-->
-	{#if offlineAfterOpening}
-		<div
-			class="mb-3 alert max-w-prose alert-warning"
-			aria-live="polite"
-			data-testid="historical-map-offline"
-			data-offline-host={remoteHost}
-		>
-			<p>
-				There is no connection, and this Historical Map’s sheet is served by {remoteHost}, so no
-				more of it will arrive until you are back online. You can carry on placing Control Points —
-				the pane still knows where every image pixel is, so they will be in the right place.
-			</p>
-		</div>
-	{/if}
+	<div aria-live="polite" data-testid="historical-map-offline-region">
+		{#if offlineAfterOpening}
+			<div
+				class="mb-3 alert max-w-prose alert-warning"
+				data-testid="historical-map-offline"
+				data-offline-host={remoteHost}
+			>
+				<p>
+					There is no connection, and this Historical Map’s sheet is served by {remoteHost}, so no
+					more of it will arrive until you are back online. You can carry on placing Control Points
+					— the pane still knows where every image pixel is, so they will be in the right place.
+				</p>
+			</div>
+		{/if}
+	</div>
 
 	<div class="flex flex-wrap items-center gap-2" role="group" aria-label="Historical Map view">
 		<button class="btn btn-sm" onclick={() => paneView?.fitImage()}>Fit whole map</button>

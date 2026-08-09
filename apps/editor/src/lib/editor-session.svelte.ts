@@ -38,6 +38,7 @@ import {
 	imageSizeFromInfo,
 	ingestImageFile,
 	fetchTilesIntoCache,
+	historicalMapUsage,
 	insertLayerAt,
 	installFlushOnHide,
 	listIngestedImages,
@@ -91,6 +92,7 @@ import {
 	type FetchTilesOptions,
 	type GeoBounds,
 	type HistoricalMapSource,
+	type HistoricalMapUser,
 	type IngestProgress,
 	type IngestedImage,
 	type JournalReplayReport,
@@ -384,6 +386,36 @@ export class EditorSession {
 	 * used-by and a size against it.
 	 */
 	historicalMaps = $state<WorkspaceHistoricalMap[]>([]);
+
+	/**
+	 * Which Projects draw the one Historical Map a screen is about (SPEC story 56).
+	 *
+	 * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+	 * │ "TOLD WHICH PROJECTS USE THIS HISTORICAL MAP **WHILE I AM ALIGNING IT**."                  │
+	 * └───────────────────────────────────────────────────────────────────────────────────────────┘
+	 *
+	 * ADR-0023 made the Alignment the Workspace's, shared by every Project that draws the map, and
+	 * that is the whole reason this sentence has to be on the alignment screen rather than only on
+	 * the hub. Refining an Alignment moves every one of those Projects — published ones included —
+	 * and the hub's copy of this list is two navigations away from the gesture that does it. Being
+	 * told *afterwards*, in the concurrent-edit alert, is being told once it has already happened and
+	 * only when somebody else was editing at the same moment.
+	 *
+	 * **A separate field from {@link historicalMaps}, and a much cheaper answer.** That one weighs
+	 * every file under `images/` — thousands of tiles — because the hub's question is "why is my
+	 * Workspace two gigabytes?". This one reads each `project.json` and no pyramid at all. See
+	 * {@link refreshMapUsage} for what the two do share, which is one `list` of the Workspace.
+	 *
+	 * Keyed by image id so a stale answer cannot be shown against the wrong map: the align route can
+	 * change which Historical Map it is on without unmounting, and a reader that ignored the id would
+	 * name another map's Projects for as long as the new walk takes.
+	 */
+	mapUsage = $state<{
+		readonly imageId: string;
+		readonly usedBy: readonly HistoricalMapUser[];
+		/** Projects from a newer build, which might draw any map. See `WorkspaceHistoricalMap`. */
+		readonly mightBeUsedBy: readonly HistoricalMapUser[];
+	} | null>(null);
 	/** Whether {@link historicalMaps} is still being walked, so the hub can say so rather than "none". */
 	historicalMapsLoading = $state(false);
 	/**
@@ -456,6 +488,40 @@ export class EditorSession {
 	 * {@link alignmentChangedElsewhere}, which is ordinary `$state` and is set from the write's result.
 	 */
 	readonly #alignmentOnDisk = new SvelteMap<string, Bytes | null>();
+
+	/**
+	 * The Alignment write currently in flight for each Historical Map, so the next one waits for it.
+	 *
+	 * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+	 * │ WITHOUT THIS, THIS SESSION REPORTS *ITSELF* AS THE COLLEAGUE WHO CHANGED THE FILE.         │
+	 * └───────────────────────────────────────────────────────────────────────────────────────────┘
+	 *
+	 * `AlignmentWorkspace.save()` fires and does not await — correctly, because a gesture end must not
+	 * wait on a store write. {@link writeAlignment} reads {@link #alignmentOnDisk} at entry and moves
+	 * it only once the commit has resolved. So **two gesture ends inside one store write** gave the
+	 * second call a baseline one version stale: `alignment-file.ts` re-read, found the *first call's
+	 * own bytes*, and reported "written over a change" with the user's own document as `displaced`.
+	 *
+	 * That is the exact false alarm {@link #rememberAlignmentOnDisk} exists to prevent, reachable from
+	 * this application's own save path rather than from a synced Workspace — and it is the likelier of
+	 * the two in practice, because it needs nothing but a fast hand. A warning about work you cannot
+	 * see, raised by your own previous keystroke, is one a scholar learns to dismiss; the next one is
+	 * real.
+	 *
+	 * **A queue and not a lock.** Nothing is refused and nothing is dropped: each write still happens,
+	 * in the order the gestures ended, which is the order the user made them. What it removes is the
+	 * overlap, and with it the only way this session can see its own bytes as somebody else's. It says
+	 * nothing about the residual `AlignmentWrite.update` states — a *real* colleague landing a change
+	 * between the re-read and the commit is still lost silently, and no per-session queue can help
+	 * with that.
+	 *
+	 * Keyed per Historical Map, because two different maps' Alignments are two different files and
+	 * serialising them against each other would be a debounce nobody asked for.
+	 *
+	 * A `SvelteMap` for `svelte/prefer-svelte-reactivity`; as with {@link #alignmentOnDisk}, nothing
+	 * reads it in a reactive context.
+	 */
+	readonly #alignmentWriteInFlight = new SvelteMap<string, Promise<void>>();
 
 	constructor(store: ProjectStore, options: EditorSessionOptions = {}) {
 		this.#store = store;
@@ -946,27 +1012,55 @@ export class EditorSession {
 	 *
 	 * The baseline is updated to the bytes just written, so the next ordinary save is not itself
 	 * reported as displacing something.
+	 *
+	 * @returns whether their version is now on disk. **Reported rather than left to be inferred**, and
+	 *   that is not tidiness: the caller announces the outcome in a sentence and moves focus to it, so
+	 *   a caller that could not tell success from failure said "their version is back, and the list
+	 *   below is what is on disk now" over a screen where nothing had changed and the warning was
+	 *   still standing — false in both halves, and read out loud to the one user who cannot see the
+	 *   contradiction. `saveError` is not the signal to use for this: it is Workspace-wide, so an
+	 *   unrelated `project.json` failure would report this restore as having failed.
 	 */
-	async restoreAlignmentChangedElsewhere(): Promise<void> {
+	async restoreAlignmentChangedElsewhere(): Promise<boolean> {
 		const pending = this.alignmentChangedElsewhere;
-		if (!pending || !this.openDirectory) return;
-		try {
-			await writeAlignmentBytes(this.#alignmentFile, {
-				imageId: pending.imageId,
-				bytes: pending.displaced,
-				write: {
-					intent: 'replace',
-					discarding:
-						'the Control Points this session wrote over the version that arrived from ' +
-						'elsewhere, at the user’s request'
-				}
-			});
-			this.#alignmentOnDisk.set(pending.imageId, pending.displaced);
-			this.alignmentChangedElsewhere = null;
-			this.saveError = '';
-		} catch (cause) {
-			this.saveError = cause instanceof Error ? cause.message : String(cause);
-		}
+		if (!pending || !this.openDirectory) return false;
+		let restored = false;
+		// **Behind whatever is already writing this map's file**, for the reason {@link
+		// #alignmentWriteInFlight} gives at length. A gesture end fires a save without awaiting it, so
+		// "place a pair, then press this" can have that save still in flight — and a restore that
+		// overtook it would put their version on disk and then have the user's own queued bytes land on
+		// top of it, warning about a concurrent change a second time. The user asked for their edit to
+		// go; it has to go after it has arrived.
+		await this.#behindAlignmentWritesFor(pending.imageId, async () => {
+			try {
+				await writeAlignmentBytes(this.#alignmentFile, {
+					imageId: pending.imageId,
+					bytes: pending.displaced,
+					write: {
+						intent: 'replace',
+						discarding:
+							'the Control Points this session wrote over the version that arrived from ' +
+							'elsewhere, at the user’s request'
+					}
+				});
+				this.#alignmentOnDisk.set(pending.imageId, pending.displaced);
+				// ⚠ **Only the warning the user answered**, and the queue above is what made this matter.
+				// Waiting behind an in-flight save means that save can raise a *newer*
+				// `alignmentChangedElsewhere` while this one waits — a second colleague write, or one on
+				// a different Historical Map, since the field is not keyed by image. Blanking it
+				// unconditionally throws away an alert nobody has seen, and that alert is the one thing on
+				// the screen a user cannot find out any other way. So it is cleared only if it is still
+				// the one this call is answering.
+				if (this.alignmentChangedElsewhere === pending) this.alignmentChangedElsewhere = null;
+				restored = true;
+				// **Not `saveError = ''`.** This call succeeded; that says nothing about a `project.json`
+				// write that failed a moment ago, and clearing it takes a failure off the screen without
+				// the failure having gone away. Only a failure *here* touches it — see the catch.
+			} catch (cause) {
+				this.saveError = cause instanceof Error ? cause.message : String(cause);
+			}
+		});
+		return restored;
 	}
 
 	/**
@@ -999,6 +1093,46 @@ export class EditorSession {
 		// Project; no Project open means no alignment workspace, and a write from nowhere is a bug
 		// rather than a case to serve.
 		if (!this.openDirectory) return;
+		// **Behind whatever is already writing this map's file** — see {@link #alignmentWriteInFlight}
+		// for what two overlapping gesture ends did to the baseline. The queue is here rather than
+		// inside `#writeAlignmentNow` so that the baseline read happens *after* the previous write has
+		// moved it, which is the whole of the fix.
+		await this.#behindAlignmentWritesFor(alignment.imageId, () =>
+			this.#writeAlignmentNow(alignment)
+		);
+	}
+
+	/**
+	 * Run `write` once every Alignment write already queued for this Historical Map has finished.
+	 *
+	 * The queue itself. See {@link #alignmentWriteInFlight} for what it is for and what it is not:
+	 * it removes this session's overlap with itself, and says nothing about a real colleague.
+	 *
+	 * `write` must not reject — both callers report a store failure through `saveError` — because the
+	 * chain is a plain `then` and a rejection would poison every later write for the same map.
+	 */
+	async #behindAlignmentWritesFor(imageId: string, write: () => Promise<void>): Promise<void> {
+		const queued = (this.#alignmentWriteInFlight.get(imageId) ?? Promise.resolve()).then(write);
+		this.#alignmentWriteInFlight.set(imageId, queued);
+		try {
+			await queued;
+		} finally {
+			// Only when this was the last one queued, or a write that arrived while this was in flight
+			// would lose its place in the line.
+			if (this.#alignmentWriteInFlight.get(imageId) === queued) {
+				this.#alignmentWriteInFlight.delete(imageId);
+			}
+		}
+	}
+
+	/**
+	 * One Alignment write, once it is this one's turn. See {@link writeAlignment}.
+	 *
+	 * **It never rejects**, which is what lets the queue above be a plain `then` chain: a store
+	 * failure is a sentence on `saveError`, exactly as it was before the queue existed, so one
+	 * refused write cannot poison every later one for the same map.
+	 */
+	async #writeAlignmentNow(alignment: Alignment): Promise<void> {
 		const path = alignmentPath(alignment.imageId);
 		const baseline = this.#alignmentOnDisk.get(alignment.imageId);
 		try {
@@ -1120,14 +1254,6 @@ export class EditorSession {
 	}
 
 	/**
-	 * Storage as `writeAlignmentFile` needs it: read from the store, commit through {@link Autosave}.
-	 *
-	 * Through `Autosave` and not straight to the store, which is the whole reason this is a port and
-	 * not a `ProjectStore`: an Alignment write that went round `Autosave` would bypass ADR-0017 rule
-	 * 2's per-file debounce and rule 5's save state, so the Saved indicator would stop describing the
-	 * file the user is actually editing.
-	 */
-	/**
 	 * Where one Historical Map's tiles are, as the union `tileBaseFor` and `imagePaneSourceFor` take.
 	 *
 	 * **The one lookup behind two answers that must never disagree** (ticket 07). The pane's tile base
@@ -1162,6 +1288,14 @@ export class EditorSession {
 			: {};
 	}
 
+	/**
+	 * Storage as `writeAlignmentFile` needs it: read from the store, commit through {@link Autosave}.
+	 *
+	 * Through `Autosave` and not straight to the store, which is the whole reason this is a port and
+	 * not a `ProjectStore`: an Alignment write that went round `Autosave` would bypass ADR-0017 rule
+	 * 2's per-file debounce and rule 5's save state, so the Saved indicator would stop describing the
+	 * file the user is actually editing.
+	 */
 	get #alignmentFile(): AlignmentFilePort {
 		return {
 			read: (path) => this.#store.read(path),
@@ -1516,6 +1650,42 @@ export class EditorSession {
 	 * it: it weighs every file under `images/`, so it is a walk tied to a change in what it reports and
 	 * never to a keystroke or a re-render.
 	 */
+	/**
+	 * Work out which Projects draw one Historical Map, for {@link mapUsage} (SPEC story 56).
+	 *
+	 * **A failure is silence rather than a sentence.** Every other reader of this walk is a screen
+	 * *about* the Workspace; this one is a scholar aligning a map, and "the Projects that use this map
+	 * could not be listed" is a message they can do nothing with, on a screen whose actual work is
+	 * unaffected. `null` renders as nothing at all, which is the same thing the answer "still walking"
+	 * renders as.
+	 *
+	 * Not routed through the unreachable verdict either, for the reason {@link refreshHistoricalMaps}
+	 * spells out about `refreshAddableHistoricalMaps`: a transient failure reading the Workspace must
+	 * not take a scholar's alignment off the screen.
+	 *
+	 * **`historicalMapUsage` and not `listWorkspaceHistoricalMaps`**, which is what the hub calls. Both
+	 * begin with one `list` of the Workspace — every path in it, tile files included, which is not free
+	 * and is why this is called once per Historical Map opened rather than per render — but the hub's
+	 * then `size`s every one of those files to answer "why is my Workspace two gigabytes?". This reads
+	 * only each `project.json` and no pyramid at all. A screen a scholar opens to place Control Points
+	 * must not pay for a size walk it does not show.
+	 */
+	async refreshMapUsage(imageId: string): Promise<void> {
+		try {
+			const usage = await historicalMapUsage(this.#store);
+			// The id is carried rather than assumed: the user can open another Historical Map while this
+			// walk is in flight, and the reader compares it before showing anything. Naming the wrong
+			// map's Projects is worse than naming none.
+			this.mapUsage = {
+				imageId,
+				usedBy: usage.byMap.get(imageId) ?? [],
+				mightBeUsedBy: usage.fromANewerVersion
+			};
+		} catch {
+			this.mapUsage = null;
+		}
+	}
+
 	async refreshHistoricalMaps(): Promise<void> {
 		this.historicalMapsLoading = true;
 		try {
@@ -1952,10 +2122,17 @@ export class EditorSession {
 				alignment: parseAlignment(await this.#store.read(path), { imageId }),
 				write: { intent: 'update' }
 			});
-			// **The baseline moves with it**, and this is the false alarm it prevents: the copy rewrites
-			// `target.source.id` from the Library's service to the placeholder, so an alignment view left
-			// open over this map would have been comparing its next save against bytes two versions old
-			// and telling the user a colleague had changed their Alignment.
+			// **The baseline moves with it — as insurance, and it is worth being exact that no reachable
+			// path needs it today.** The copy rewrites `target.source.id` from the Library's service to
+			// the placeholder, so a session holding a stale baseline over this map would report its next
+			// ordinary save as a concurrent edit. That session cannot currently exist: the offline-copy
+			// dialog is mounted only by `ProjectScreen.svelte`, the alignment view is the separate
+			// `/align` route, one session cannot have both on screen, and a second tab is a second
+			// `EditorSession` this line could not reach anyway. `writeAlignment`'s only callers are also
+			// both downstream of `loadAlignment` → `readAlignment`, which re-establishes the baseline
+			// from disk. So deleting this line leaves the whole gate green, and it is kept because the
+			// rule on {@link #rememberAlignmentOnDisk} is "every write moves the baseline" and a write
+			// that opted out would be the exception a future caller inherits.
 			this.#rememberAlignmentOnDisk(imageId, report.written);
 			this.saveError = '';
 		} catch (cause) {

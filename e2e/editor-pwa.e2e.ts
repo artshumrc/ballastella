@@ -792,12 +792,24 @@ test.describe('a working session that reaches other people’s servers', () => {
 		let remoteArchiveRequests = 0;
 
 		// ─────────────────────────────────────────────────────────────────────────────────────────
-		// `context.route`, NOT `page.route`
+		// `context.route`, NOT `page.route` — AND WHY THIS HOST IS NOT `support/iiif-hosts.ts`
 		//
 		// Every page in this file is under a service worker's control, and a request that has passed
-		// through a worker is not the page's own as far as Playwright is concerned — `page.route`,
-		// which is what every other fixture host in this repository uses, never sees it. This is the
-		// only interception in the suite that has to work from underneath a worker.
+		// through a worker is not the page's own as far as Playwright is concerned: `page.route` never
+		// sees it.
+		//
+		// **That is not why this handler is still here, and ticket 07's criterion 11 — "the fake remote
+		// IIIF service lives in `e2e/support/` and is used by every spec that needs one" — deserves the
+		// honest reason.** `installIiifHosts` takes `Pick<Page | BrowserContext, 'route'>` and documents
+		// the service-worker case in its own header, so passing it this `context` would work.
+		//
+		// What survives is smaller and duller: this one handler is *fused* — it serves the library and
+		// the `.pmtiles` byte ranges from one matcher — and it counts `libraryRequests` from inside
+		// itself, which is what the ADR-0012 fence-3 assertion below is made of. Both could be kept
+		// with `installIiifHosts(context)` plus a counting `context.route` in front that calls
+		// `route.fallback()`. It is **not worth the rework**, not impossible: this file's host is one
+		// service with one shape, nothing else routes `gallica.example.test`, and the fence already
+		// guarantees it reaches no real network.
 		await context.route(
 			(url) =>
 				url.origin !== here && (url.hostname === LIBRARY || url.pathname.endsWith('.pmtiles')),

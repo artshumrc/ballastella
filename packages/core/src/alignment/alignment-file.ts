@@ -49,10 +49,12 @@
 //      cannot see — the literal written out by hand, the path laundered through a local, a detached
 //      write method, and a second cast — and lists every opted-out fixture write on success.
 //
-// Neither can see a path computed at runtime from data. The two places that happen are the tar
-// readers — `transfer/restore-workspace-tar.ts` and `transfer/open-project-bundle.ts` — and both are
-// routed through {@link writeAlignmentBytes} rather than fenced. `scripts/check-alignment-writers.mjs`
-// keeps that list current, because a fence whose honesty statement names a deleted file is one
+// Neither can see a path computed at runtime from data. The **three** places that happen are the two
+// tar readers — `transfer/restore-workspace-tar.ts` and `transfer/open-project-bundle.ts` — and the
+// journal replay, `autosave/replay.ts`, whose own comment says so at the branch. All three are routed
+// through {@link writeAlignmentBytes} rather than fenced. `scripts/check-alignment-writers.mjs` keeps
+// that list current and says how to recount it, because a fence whose honesty statement names a
+// deleted file — or omits a live one, which is what this sentence did until it was recounted — is one
 // nobody can check the honesty of.
 //
 // The failure mode is why neither is a review comment. An overwrite does not throw, does not log,
@@ -139,6 +141,24 @@ export type AlignmentWrite =
 	 * landing *between* the re-read and the commit is still lost silently. The window is narrowed from
 	 * "however long the alignment view has been open", which is minutes, to the duration of one store
 	 * write. It is not closed, and no test here should be read as claiming it is.
+	 *
+	 * **A stale `basedOn` is a false alarm, and that is the caller's discipline rather than this
+	 * module's.** Nothing here can tell "the file changed" from "you did not tell me what you last
+	 * wrote": both arrive as bytes that do not match. So a caller that writes twice must move its
+	 * belief between the two writes, and a caller whose writes can *overlap* must stop them
+	 * overlapping — otherwise the second one asks about a version its own first one has already
+	 * replaced, and this returns `'written over a change'` with the user's own document as
+	 * `displaced`. `EditorSession` queues its Alignment writes per Historical Map for exactly that
+	 * reason; see `#alignmentWriteInFlight`, which is where the measurement is written down.
+	 *
+	 * **And the restore is a `replace` whose words are one step behind.** The caller that puts the
+	 * displaced version back — `EditorSession.restoreAlignmentChangedElsewhere` — says `replace`, whose
+	 * contract is that the user has been told in words what they are discarding. They were: their own
+	 * edit, named in the alert they pressed the button in. What they were *not* told about is a
+	 * **third** change that may have landed between the alert appearing and the button being pressed,
+	 * which the restore overwrites without a word. It is the same unlocked window as above, entered
+	 * from the other side, and it is left open for the same reason — but it is a residual, not a
+	 * silence.
 	 *
 	 * **`basedOn: null` is a caller that knows the file was absent**; `undefined` — the field omitted —
 	 * is a caller that is not making the claim at all, and gets ticket 18's behaviour unchanged. The

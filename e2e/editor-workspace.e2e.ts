@@ -3,7 +3,7 @@ import { type Page } from '@playwright/test';
 
 import { openProjectSettings, projectNameField } from './support/project-screen';
 import { recordSaveStates } from './support/saved';
-import { readStoredFile } from './support/stored-file';
+import { readStoredFile, seedFile } from './support/stored-file';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { createWorkspace, switchToWorkspace } from './support/workspace.js';
 
@@ -65,31 +65,6 @@ async function seedProject(page: Page, directory: string, json: string): Promise
 			await writable.close();
 		},
 		[directory, json]
-	);
-}
-
-/**
- * Write one file at any depth straight into OPFS, bypassing the app entirely.
- *
- * The Workspace's shared pool — `images/<id>/…` and `alignments/<id>.json` (ADR-0023) — is written
- * by an ingest that takes a real image and a real tiler, which is minutes of work and a different
- * test's subject. What the hub's list is about is what the *folder* holds, so the folder is what is
- * seeded.
- */
-async function seedFile(page: Page, path: string, contents: string): Promise<void> {
-	await page.evaluate(
-		async ([path, contents]) => {
-			const segments = (path as string).split('/');
-			let directory = await workspaceRoot();
-			for (const segment of segments.slice(0, -1)) {
-				directory = await directory.getDirectoryHandle(segment, { create: true });
-			}
-			const file = await directory.getFileHandle(segments[segments.length - 1]!, { create: true });
-			const writable = await file.createWritable();
-			await writable.write(contents as string);
-			await writable.close();
-		},
-		[path, contents]
 	);
 }
 
