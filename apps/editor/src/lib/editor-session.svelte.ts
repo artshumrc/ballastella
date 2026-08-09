@@ -735,13 +735,48 @@ export class EditorSession {
 		if (!journal || !storage) return;
 		try {
 			const report = await replayJournal(storage, this.#store, journal.workspace, {
-				...(this.#deleted ? { deleted: this.#deleted } : {})
+				...(this.#deleted ? { deleted: this.#deleted } : {}),
+				// This session's own journal rather than one the replay builds and throws away, so that
+				// what it read off the store outlives the call (ticket 07). A `'superseded'` skip keeps
+				// an entry whose baseline is provably stale, and this is what stops that one refusal
+				// becoming a standing refusal for every later edit to the same path.
+				journal
 			});
 			this.replayReport = replayIsNoteworthy(report) ? report : null;
 		} catch {
 			// A store that cannot even be listed. The entries stay where they are, and the listing
 			// beside this is what tells the user the Workspace is unreachable.
 		}
+	}
+
+	/**
+	 * Throw away a journal entry a replay refused, because the user said to (ticket 07).
+	 *
+	 * ⚠ **`'superseded'` is the first skip that keeps its entry, and a kept entry has no other
+	 * exit.** The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
+	 * byte-identical report and shows it again; nothing expires; and the only other remedy on offer
+	 * is discarding the whole Workspace's journal from Workspace settings, which takes every other
+	 * file's rescue copy with it. That is the same corner an unfinished deletion was left in, and
+	 * this is the same answer: an exit the user can take once they have read the sentence.
+	 *
+	 * Destructive, unlike {@link forgetDeletion}, and the wording beside it has to say so — these
+	 * bytes are the only copy of that edit. It is offered anyway because the alternative is a warning
+	 * at every visit about work the application has already declined to put back.
+	 *
+	 * `discard` and not `forget`: the store never took these bytes, and filing them as what it holds
+	 * would give the next edit to this path a baseline that was never on disk.
+	 */
+	forgetReplaySkip(path: string): void {
+		this.#journal?.discard(path);
+		const report = this.replayReport;
+		if (report === null) return;
+		const remaining = {
+			...report,
+			skipped: report.skipped.filter((entry) => entry.path !== path)
+		};
+		// Through the same predicate the report was published by, so a panel holding nothing but the
+		// skip just forgotten goes away rather than lingering empty.
+		this.replayReport = replayIsNoteworthy(remaining) ? remaining : null;
 	}
 
 	/**

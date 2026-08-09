@@ -10,7 +10,7 @@ import { restoreWorkspaceTar } from '../transfer/restore-workspace-tar.js';
 import { ingestImageFile } from '../tiler/ingest.js';
 import { DeletedProjects } from './deleted-projects.js';
 import { FakeJournalStorage } from './fake-journal-storage.js';
-import { WriteAheadJournal, readJournal } from './journal.js';
+import { WriteAheadJournal, fingerprintOf, readJournal } from './journal.js';
 import { alignmentImageId, replayIsNoteworthy, replayJournal } from './replay.js';
 
 const utf8 = new TextEncoder();
@@ -57,6 +57,19 @@ describe('replayJournal', () => {
 		journal = new WriteAheadJournal(storage, 'Marking 2026');
 	});
 
+	/**
+	 * Tell the journal what the store currently holds for `path`, the way a startup does.
+	 *
+	 * ⚠ **Without this an entry has no baseline, and since round 3 that is its own verdict** —
+	 * `'cannot-tell-which-is-newer'`, which keeps the entry and writes nothing. The tests below whose
+	 * subject is the *write* path therefore have to say what the edit was made against, or they stop
+	 * exercising the thing they are named for. `observe` is the shipped call `replayJournal` itself
+	 * makes; nothing here hand-writes an envelope.
+	 */
+	const baselineFromStore = async (path: StorePath): Promise<void> => {
+		journal.observe(path, await store.read(path));
+	};
+
 	const seedProject = async (directory: string, name = 'Amsterdam 1625') =>
 		store.write(
 			`${directory}/project.json`,
@@ -65,6 +78,7 @@ describe('replayJournal', () => {
 
 	it('puts a journalled edit back into the store and says so', async () => {
 		await seedProject('amsterdam-1625');
+		await baselineFromStore('amsterdam-1625/project.json');
 		journal.record('amsterdam-1625/project.json', utf8.encode('renamed'));
 
 		const report = await replayJournal(storage, store, 'Marking 2026');
@@ -76,6 +90,7 @@ describe('replayJournal', () => {
 
 	it('drops the entry once it has been put back, so it is not replayed again', async () => {
 		await seedProject('amsterdam-1625');
+		await baselineFromStore('amsterdam-1625/project.json');
 		journal.record('amsterdam-1625/project.json', utf8.encode('renamed'));
 
 		await replayJournal(storage, store, 'Marking 2026');
@@ -131,6 +146,22 @@ describe('replayJournal', () => {
 			expect(await store.list('')).toEqual([]);
 			// It can never be used, so it is dropped — after being reported, never instead of.
 			expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+		});
+
+		it('does not file the bytes it dropped as what the store holds', async () => {
+			// ⚠ **`discard`, not `forget`.** The two differ in one thing only: `forget` means "the store
+			// has these bytes" and is the sole writer of a baseline. These bytes reached no store and
+			// never will, so filing them would give the next edit to this path a baseline that was never
+			// on disk — and a wrong baseline refuses that edit's rescue. Reachable whenever a Project is
+			// recreated under a folder name a stale entry still names.
+			const path = 'amsterdam-1625/annotations/l.geojson';
+			journal.record(path, utf8.encode('for a Project that has gone'));
+
+			const report = await replayJournal(storage, store, 'Marking 2026', { journal });
+
+			expect(report.skipped.map((entry) => entry.reason)).toEqual(['no-such-project']);
+			journal.record(path, utf8.encode('typed in the Project of the same name'));
+			expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toBeNull();
 		});
 
 		it("still writes a Project's own manifest, because writing it is what creates the Project", async () => {
@@ -197,6 +228,7 @@ describe('replayJournal', () => {
 
 		it('leaves a Project deleted in another Workspace entirely alone', async () => {
 			await seedProject('amsterdam-1625');
+			await baselineFromStore('amsterdam-1625/project.json');
 			journal.record('amsterdam-1625/project.json', utf8.encode('a rename in Marking 2026'));
 			// The same folder name, deleted in a different Workspace. Nothing about that gesture may
 			// reach this one — the same hazard `WriteAheadJournal`'s Workspace binding exists for.
@@ -292,6 +324,7 @@ describe('replayJournal', () => {
 
 		it('does not abandon the entries after one whose precondition throws', async () => {
 			await seedProject('amsterdam-1625');
+			await baselineFromStore('amsterdam-1625/project.json');
 			journal.record('alignments/floride-1657.json', utf8.encode('{}'));
 			journal.record('amsterdam-1625/project.json', utf8.encode('renamed'));
 			vi.spyOn(store, 'size').mockRejectedValue(new Error('nope'));
@@ -306,7 +339,7 @@ describe('replayJournal', () => {
 			]);
 		});
 
-		it('treats a Workspace that cannot answer as one whose Project is still there', async () => {
+		it('treats a Workspace that cannot answer as one whose Project is still there, and reports rather than writes', async () => {
 			journal.record('amsterdam-1625/annotations/l.geojson', utf8.encode('{}'));
 			vi.spyOn(store, 'read').mockRejectedValue(new Error('the folder is not reachable'));
 
@@ -319,6 +352,11 @@ describe('replayJournal', () => {
 			// `read` also answers "what does the store hold now", and a Workspace that cannot answer
 			// that cannot license a write either. "Could not be put back yet", which is what `failed`
 			// means, is the honest one — and it is tried again at the next startup.
+			//
+			// The cost of that, stated: a path whose read fails *permanently* — a file the backend will
+			// never answer for again — is now reported at every startup for ever rather than being
+			// written over once. `failed` has always had that property; this branch adds a way to reach
+			// it that does not involve the write itself failing.
 			expect(report.restored).toEqual([]);
 			expect(report.failed).toEqual([
 				{
@@ -337,6 +375,7 @@ describe('replayJournal', () => {
 			await store.write('images/floride-1657/info.json', utf8.encode('{}'));
 			// alignment-write-is-the-fixture: the Alignment already on disk that the replay has to write over, seeded so the assertion below is about replacement and not creation
 			await store.write('alignments/floride-1657.json', utf8.encode('the old one'));
+			await baselineFromStore('alignments/floride-1657.json');
 			journal.record('alignments/floride-1657.json', utf8.encode('with the control points'));
 
 			const report = await replayJournal(storage, store, 'Marking 2026');
@@ -380,6 +419,7 @@ describe('replayJournal', () => {
 	describe('a write that fails', () => {
 		it('is reported and its entry is kept, so it can be tried again', async () => {
 			await seedProject('amsterdam-1625');
+			await baselineFromStore('amsterdam-1625/project.json');
 			journal.record('amsterdam-1625/project.json', utf8.encode('renamed'));
 			vi.spyOn(store, 'write').mockRejectedValue(new Error('the drive is not there'));
 
@@ -400,6 +440,8 @@ describe('replayJournal', () => {
 		it('does not stop the entries after it', async () => {
 			await seedProject('a');
 			await seedProject('b');
+			await baselineFromStore('a/project.json');
+			await baselineFromStore('b/project.json');
 			journal.record('a/project.json', utf8.encode('first'));
 			journal.record('b/project.json', utf8.encode('second'));
 			const real = store.write.bind(store);
@@ -433,17 +475,6 @@ describe('replayJournal', () => {
 		expect(replayIsNoteworthy(report)).toBe(true);
 	});
 
-	/**
-	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * REPLAY NEVER REVERTS NEWER BYTES (ticket 07)
-	 *
-	 * ⚠ **A broken harness here fails toward "no problem found", which is the same direction as the
-	 * defect.** Ticket 01's implementer probed this twice with wrong constructor signatures and both
-	 * attempts answered `restored: []` — the newer bytes apparently surviving, the defect apparently
-	 * absent. So the first test below is a **planted revert**: it drives the hazard with the one thing
-	 * that stops it removed, and asserts the revert *happens*. If this suite ever stops being able to
-	 * see a revert, that test goes red before any of the green ones can be believed.
-	 */
 	describe('what the store holds now', () => {
 		const PATH = 'amsterdam-1625/annotations/warehouses.geojson';
 
@@ -462,134 +493,306 @@ describe('replayJournal', () => {
 			journal.record(PATH, utf8.encode(edited));
 		};
 
-		it('reverts newer bytes when the entry has no baseline, which is the stated limit', async () => {
-			// ⚠ **THE PLANTED REVERT.** The entry is recorded with nothing behind it — the first edit to
-			// a path in a session, which `journal.ts` says has no baseline — so `compare` reaches the
-			// row the module header calls undecidable and writes anyway. That is the residual, stated
-			// in the header and pinned here, and it is also this suite's positive control: a harness
-			// that could not see a revert would fail this test rather than reassure with an empty
-			// `restored`.
-			await seedProject('amsterdam-1625');
-			await store.write(PATH, utf8.encode('v1'));
-			journal.record(PATH, utf8.encode('the edit that stranded'));
-			expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toBeNull();
-			await store.write(PATH, utf8.encode('v2-NEWER'));
+		/** That the entry really carries a baseline, which several tests below are meaningless without. */
+		const expectBaseline = (of: string): void => {
+			expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toBe(
+				fingerprintOf(utf8.encode(of))
+			);
+		};
 
-			const report = await replayJournal(storage, store, 'Marking 2026');
+		describe('the store holds nothing → write, without asking', () => {
+			it('writes, because there is nothing there to be reverted', async () => {
+				await seedProject('amsterdam-1625');
+				journal.record(PATH, utf8.encode('the only copy'));
 
-			expect(report.restored).toEqual([PATH]);
-			expect(text(await store.read(PATH))).toBe('the edit that stranded');
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.restored).toEqual([PATH]);
+				expect(text(await store.read(PATH))).toBe('the only copy');
+			});
+
+			it('writes even with a baseline, and that is the branch’s stated limit', async () => {
+				// ⚠ The half the row's prose covered and no test reached. "Nothing is there" is narrower
+				// than "nothing newer exists": a *deletion* is a newer state too, and this recreates the
+				// file over one. Not live today — no deletion path leaves a live entry behind to reach it
+				// — so it is pinned as the branch's known reach rather than as a defect.
+				await strandAnEdit('v1', 'the edit that stranded');
+				expectBaseline('v1');
+				await store.delete(PATH);
+
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.restored).toEqual([PATH]);
+				expect(text(await store.read(PATH))).toBe('the edit that stranded');
+			});
 		});
 
-		it('refuses to put an entry back over bytes written after it, and says so', async () => {
-			await strandAnEdit('v1', 'the edit that stranded');
-			// The harness's own precondition: the entry really does carry the baseline the refusal is
-			// decided from. Without this the test could pass because nothing was replayed at all.
-			expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toEqual(utf8.encode('v1'));
-			await store.write(PATH, utf8.encode('v2-NEWER'));
+		describe('the store holds the entry’s bytes → already-in-the-store', () => {
+			it('reports it as skipped rather than restored, and drops the entry', async () => {
+				// Nothing is written, so naming it under "the change has been written now" would be a
+				// claim about a write that did not happen.
+				await seedProject('amsterdam-1625');
+				await store.write(PATH, utf8.encode('v1'));
+				journal.record(PATH, utf8.encode('v1'));
 
-			const report = await replayJournal(storage, store, 'Marking 2026');
+				const report = await replayJournal(storage, store, 'Marking 2026');
 
-			expect(text(await store.read(PATH))).toBe('v2-NEWER');
-			expect(report.restored).toEqual([]);
-			expect(report.skipped).toEqual([
-				{
-					path: PATH,
-					reason: 'superseded',
-					kept: true,
-					detail: expect.stringContaining('has been changed since')
-				}
-			]);
-			// Kept: the entry is the only copy of that edit anywhere, so a refusal that dropped it
-			// would destroy the work it exists to protect.
-			expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
-				PATH
-			]);
-			expect(replayIsNoteworthy(report)).toBe(true);
+				expect(report.restored).toEqual([]);
+				expect(report.skipped).toEqual([
+					{
+						path: PATH,
+						reason: 'already-in-the-store',
+						kept: false,
+						detail: expect.stringContaining('did not need to be put back')
+					}
+				]);
+				expect(text(await store.read(PATH))).toBe('v1');
+				// Dropped: the store has the bytes, which is the one condition an entry goes on.
+				expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+			});
+
+			it('does not read a store holding a prefix of the entry as holding the entry', async () => {
+				// ⚠ **The named kill for `sameBytes`'s length guard, first position.** Without the guard
+				// `every` walks only the shorter run, so this reads as "already in the store": the
+				// unfinished edit is reported as needing nothing, its entry dropped, and the user's work
+				// destroyed with a reassuring sentence. Every other fixture here differs in length.
+				await seedProject('amsterdam-1625');
+				await store.write(PATH, utf8.encode('the edit'));
+				await baselineFromStore(PATH);
+				journal.record(PATH, utf8.encode('the edit that stranded'));
+
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.skipped).toEqual([]);
+				expect(report.restored).toEqual([PATH]);
+				expect(text(await store.read(PATH))).toBe('the edit that stranded');
+			});
 		});
 
-		it('still puts a genuinely stranded write back, which is the whole point', async () => {
-			// ⚠ The acceptance criterion that stops B being "fixed" by refusing everything: the store
-			// holds what the edit was made against, so nothing newer exists and the edit is the user's
-			// work waiting to be rescued.
-			await strandAnEdit('v1', 'the edit that stranded');
+		describe('a baseline the store still matches → write', () => {
+			it('puts a genuinely stranded write back, which is the whole point', async () => {
+				// ⚠ The acceptance criterion that stops B being "fixed" by refusing everything: the store
+				// holds what the edit was made against, so nothing newer exists and the edit is the
+				// user's work waiting to be rescued.
+				await strandAnEdit('v1', 'the edit that stranded');
+				expectBaseline('v1');
 
-			const report = await replayJournal(storage, store, 'Marking 2026');
+				const report = await replayJournal(storage, store, 'Marking 2026');
 
-			expect(report.restored).toEqual([PATH]);
-			expect(text(await store.read(PATH))).toBe('the edit that stranded');
-			expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+				expect(report.restored).toEqual([PATH]);
+				expect(text(await store.read(PATH))).toBe('the edit that stranded');
+				expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+			});
+
+			it('cannot tell “untouched” from “changed and changed back”, and writes', async () => {
+				// ⚠ The one channel in which a comparison this module makes costs an *edit* rather than a
+				// restore, driven rather than merely admitted. The user restores a backup whose content
+				// for this path is exactly what was there before; equality sees no change, and an edit
+				// that predates the restore is written over it and named in `restored`.
+				await strandAnEdit('v1', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v2-COLLEAGUE'));
+				await store.write(PATH, utf8.encode('v1'));
+
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.restored).toEqual([PATH]);
+				expect(text(await store.read(PATH))).toBe('the edit that stranded');
+			});
 		});
 
-		it('reports an entry the store already holds as skipped rather than restored', async () => {
-			// Nothing is written, so naming it under "the change has been written now" would be a claim
-			// about a write that did not happen.
-			await seedProject('amsterdam-1625');
-			await store.write(PATH, utf8.encode('v1'));
-			journal.record(PATH, utf8.encode('v1'));
-			const writes = vi.spyOn(store, 'write');
+		describe('a baseline the store no longer matches → superseded', () => {
+			it('refuses to put the entry back, keeps it, and says so', async () => {
+				await strandAnEdit('v1', 'the edit that stranded');
+				// The harness's own precondition: the entry really does carry the baseline the refusal is
+				// decided from. Without this the test could pass because nothing was replayed at all.
+				expectBaseline('v1');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
 
-			const report = await replayJournal(storage, store, 'Marking 2026');
+				const report = await replayJournal(storage, store, 'Marking 2026');
 
-			expect(report.restored).toEqual([]);
-			expect(report.skipped).toEqual([
-				{
-					path: PATH,
-					reason: 'already-in-the-store',
-					kept: false,
-					detail: expect.stringContaining('did not need to be put back')
-				}
-			]);
-			expect(writes).not.toHaveBeenCalled();
-			// Dropped: the store has the bytes, which is the one condition an entry goes on.
-			expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+				expect(text(await store.read(PATH))).toBe('v2-NEWER');
+				expect(report.restored).toEqual([]);
+				expect(report.skipped).toEqual([
+					{
+						path: PATH,
+						reason: 'superseded',
+						kept: true,
+						detail: expect.stringContaining('has been changed since')
+					}
+				]);
+				// Kept: the entry is the only copy of that edit anywhere, so a refusal that dropped it
+				// would destroy the work it exists to protect.
+				expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
+					PATH
+				]);
+				expect(replayIsNoteworthy(report)).toBe(true);
+			});
+
+			it('tells apart bytes that differ but are the same length', async () => {
+				// ⚠ Every other specimen here differs in length as well as in content, so a comparison
+				// that only measured `length` passed all of them — and would read a newer file of the
+				// same size as "already in the store", drop the entry, and destroy the edit it held.
+				await strandAnEdit('v1', 'v2');
+				await store.write(PATH, utf8.encode('v3'));
+
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+				expect(text(await store.read(PATH))).toBe('v3');
+				expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
+					PATH
+				]);
+			});
+
+			it('does not read a baseline the store has grown past as still matching', async () => {
+				// ⚠ **The named kill for `sameBytes`'s length guard, second position** — the baseline one,
+				// where losing the guard licenses the exact revert this module exists to prevent. The
+				// store's content is a strict prefix of the baseline, so without the guard the two
+				// compare equal, the file reads as untouched since the edit, and the newer bytes go.
+				await strandAnEdit('v1-long-baseline', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v1-long'));
+
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.restored).toEqual([]);
+				expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+				expect(text(await store.read(PATH))).toBe('v1-long');
+			});
+
+			it('refuses an Alignment over newer bytes too, not only a plain file', async () => {
+				// The Alignment path has its own writer and its own branch, so the refusal has to be
+				// above the routing rather than inside one leg of it.
+				await store.write('images/floride-1657/info.json', utf8.encode('{}'));
+				// alignment-write-is-the-fixture: the Alignment already on disk that the stranded edit was made against, seeded so the refusal below has something to compare
+				await store.write('alignments/floride-1657.json', utf8.encode('v1'));
+				journal.record('alignments/floride-1657.json', utf8.encode('v1'));
+				journal.forget('alignments/floride-1657.json');
+				journal.record('alignments/floride-1657.json', utf8.encode('the control points'));
+				// alignment-write-is-the-fixture: the colleague's newer Alignment this test exists to prove replay will not revert; it stands in for a synced Workspace, not for a write this app makes
+				await store.write('alignments/floride-1657.json', utf8.encode('a colleague’s'));
+
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.restored).toEqual([]);
+				expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+				expect(text(await store.read('alignments/floride-1657.json'))).toBe('a colleague’s');
+			});
+
+			/**
+			 * ⚠ **A refusal must not become a standing one** (round 2, finding H).
+			 *
+			 * `'superseded'` is the first skip reason that keeps its entry, and it keeps it *because*
+			 * something else wrote the path — so that entry's baseline is, by construction, what the
+			 * store no longer holds. Carried forward by `WriteAheadJournal.#baseline`, it refuses the
+			 * next edit to that path too, and the one after, until some save happens to succeed. The
+			 * second session below is the case the journal exists for: an edit made against what is
+			 * really on disk, whose write was interrupted.
+			 */
+			it('does not refuse the next edit to the same path as well', async () => {
+				await strandAnEdit('v1', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v2-COLLEAGUE'));
+
+				const first = await replayJournal(storage, store, 'Marking 2026', { journal });
+				expect(first.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+
+				// The scholar carries on working, on the colleague's version, and this write strands too.
+				journal.record(PATH, utf8.encode('typed on top of the colleague’s'));
+				const second = await replayJournal(storage, store, 'Marking 2026', { journal });
+
+				expect(second.restored).toEqual([PATH]);
+				expect(text(await store.read(PATH))).toBe('typed on top of the colleague’s');
+			});
 		});
 
-		it('tells apart bytes that differ but are the same length', async () => {
-			// ⚠ Every other specimen here differs in length as well as in content, so a comparison that
-			// only measured `length` passed all of them — and would read a newer file of the same size
-			// as "already in the store", drop the entry, and destroy the edit it was holding. A rename
-			// from one word to another of equal length is exactly that shape.
-			await strandAnEdit('v1', 'v2');
-			await store.write(PATH, utf8.encode('v3'));
+		/**
+		 * ⚠ **THE PLANTED REVERT, and this suite's positive control.**
+		 *
+		 * A broken harness here fails toward "no problem found", which is the same direction as the
+		 * defect: ticket 01's implementer probed this twice with wrong constructor signatures and both
+		 * attempts answered `restored: []` — the newer bytes apparently surviving, the defect apparently
+		 * absent. So the first test below plants a revert of exactly the shape the module used to
+		 * perform and asserts the harness **sees** it. If this fixture ever stops being able to observe
+		 * older bytes landing on newer ones, it goes red before any green result above can be believed.
+		 *
+		 * ⚠ **It is a control and not a claim about shipped behaviour**, and that distinction has to
+		 * stay: since round 3 no row of `compare` reverts. The revert is performed by the test itself,
+		 * standing in for the unconditional `store.write` this module did before ticket 07. The
+		 * standing proof that the *shipped* refusal is load-bearing is the mutation that neuters
+		 * `compare` to always answer `'write'`, which turns nine of these red.
+		 */
+		describe('the harness can see a revert', () => {
+			it('sees older bytes landing on newer ones, which is what the old code did here', async () => {
+				await strandAnEdit('v1', 'the edit that stranded');
+				const entry = readJournal(storage, 'Marking 2026').entries[0];
+				await store.write(PATH, utf8.encode('v2-NEWER'));
 
-			const report = await replayJournal(storage, store, 'Marking 2026');
+				// The pre-ticket-07 replay, in one line: write the entry, drop it, call it restored.
+				await store.write(PATH, entry?.bytes ?? new Uint8Array());
+				journal.forget(PATH);
 
-			expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
-			expect(text(await store.read(PATH))).toBe('v3');
-			expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
-				PATH
-			]);
+				expect(text(await store.read(PATH))).toBe('the edit that stranded');
+				expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+			});
 		});
 
-		it('writes when the store holds nothing at all, baseline or no baseline', async () => {
-			// There is nothing to revert, so the undecidable row never arises.
-			await seedProject('amsterdam-1625');
-			journal.record(PATH, utf8.encode('the only copy'));
+		/**
+		 * The row that used to be that revert, and is now a question (round 3).
+		 *
+		 * Writing silently can destroy a colleague's newer work; refusing and dropping can destroy a
+		 * real strand. Neither is defensible without evidence, and there is none — so the entry is kept
+		 * and the scholar is told what both versions are.
+		 */
+		describe('no baseline → cannot tell which is newer', () => {
+			it('writes nothing, keeps the entry, and describes both versions', async () => {
+				await seedProject('amsterdam-1625');
+				await store.write(PATH, utf8.encode('v1'));
+				journal.record(PATH, utf8.encode('the edit that stranded'));
+				expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toBeNull();
+				await store.write(PATH, utf8.encode('v2-NEWER'));
 
-			const report = await replayJournal(storage, store, 'Marking 2026');
+				const report = await replayJournal(storage, store, 'Marking 2026');
 
-			expect(report.restored).toEqual([PATH]);
-			expect(text(await store.read(PATH))).toBe('the only copy');
-		});
+				// The newer bytes are untouched, which is the whole point…
+				expect(text(await store.read(PATH))).toBe('v2-NEWER');
+				expect(report.restored).toEqual([]);
+				// …and so is the scholar's copy, which nothing else holds.
+				expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
+					PATH
+				]);
+				expect(report.skipped).toEqual([
+					{
+						path: PATH,
+						reason: 'cannot-tell-which-is-newer',
+						kept: true,
+						detail: expect.stringContaining('cannot tell whether it is newer')
+					}
+				]);
+			});
 
-		it('refuses an Alignment over newer bytes too, not only a plain file', async () => {
-			// The Alignment path has its own writer and its own branch, so the refusal has to be above
-			// the routing rather than inside one leg of it.
-			await store.write('images/floride-1657/info.json', utf8.encode('{}'));
-			// alignment-write-is-the-fixture: the Alignment already on disk that the stranded edit was made against, seeded so the refusal below has something to compare
-			await store.write('alignments/floride-1657.json', utf8.encode('v1'));
-			journal.record('alignments/floride-1657.json', utf8.encode('v1'));
-			journal.forget('alignments/floride-1657.json');
-			journal.record('alignments/floride-1657.json', utf8.encode('the control points'));
-			// alignment-write-is-the-fixture: the colleague's newer Alignment this test exists to prove replay will not revert; it stands in for a synced Workspace, not for a write this app makes
-			await store.write('alignments/floride-1657.json', utf8.encode('a colleague’s'));
+			it('says how big each version is, so the sentence is one somebody can choose from', async () => {
+				// The two sizes are the whole of what distinguishes the versions in the report; a chooser
+				// reads the bytes themselves from `readJournal` and `store.read`, which is where they are.
+				await seedProject('amsterdam-1625');
+				await store.write(PATH, new Uint8Array(2048));
+				journal.record(PATH, utf8.encode('short'));
 
-			const report = await replayJournal(storage, store, 'Marking 2026');
+				const report = await replayJournal(storage, store, 'Marking 2026');
 
-			expect(report.restored).toEqual([]);
-			expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
-			expect(text(await store.read('alignments/floride-1657.json'))).toBe('a colleague’s');
+				expect(report.skipped[0]?.detail).toContain('5 bytes');
+				expect(report.skipped[0]?.detail).toContain('2 KB');
+			});
+
+			it('is not reached when the store holds nothing, because that is decidable', async () => {
+				// Guards the branch order: absence is answered before the question is asked, so a first
+				// save that stranded is still put back without anybody being consulted.
+				await seedProject('amsterdam-1625');
+				journal.record(PATH, utf8.encode('the only copy'));
+
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.restored).toEqual([PATH]);
+				expect(report.skipped).toEqual([]);
+			});
 		});
 	});
 
@@ -601,14 +804,23 @@ describe('replayJournal', () => {
 	 * holds an entry for and three of them cannot, so "the five are covered" is not a claim any single
 	 * test can make. Each is driven through its **own real entry point** here.
 	 *
-	 * The out-of-reach argument rests on which paths this application ever hands to `Autosave`, and
-	 * therefore ever journals. There are four call sites and they write four shapes:
-	 * `<project>/project.json` (`Workspace.writeProject`), `<project>/annotations/<layer>.geojson`
-	 * (`EditorSession.writeAnnotations`, `addAnnotationLayer`, layer-delete undo),
-	 * `alignments/<image-id>.json` (`alignment-file.ts` through the session's port) and
-	 * `images/<image-id>/remote.json` (`EditorSession.addReferencedMap`). That enumeration is read
-	 * from the editor app and cannot be fenced from here — what *is* executable is the other half,
-	 * asserted below: the paths each route actually writes.
+	 * The out-of-reach argument rests on which paths this application hands to `Autosave`, and
+	 * therefore journals. **Six call sites, in two packages** — `Workspace.writeProject` and its
+	 * `queue` twin here in `@ballastella/core`, and `EditorSession`'s `writeAnnotations`,
+	 * `addAnnotationLayer`, `addReferencedMap` and layer-delete undo in the editor app — writing four
+	 * shapes: `<project>/project.json`, `<project>/annotations/<layer>.geojson`,
+	 * `alignments/<image-id>.json` and `images/<image-id>/remote.json`.
+	 *
+	 * ⚠ **Those are the shapes the app *intends* to journal, and that is weaker than the shapes it
+	 * *can*.** The layer-delete undo commits `${directory}/${record.path}`, where `record.path` comes
+	 * from `layer.geojsonRef` — parsed as `readString(geojsonRef, '')`, an unvalidated string that can
+	 * arrive inside a colleague's bundle. So the predicate below is a description, not a proof of
+	 * exhaustiveness. What holds regardless, and is why the conclusion still stands, is the prefix: a
+	 * journalled path always begins with a Project directory, while both out-of-reach routes write at
+	 * the Workspace root under `images/` or `base-map/`. Whether a `..` inside `geojsonRef` could
+	 * escape that prefix is not evaluated here and is not this ticket's to answer.
+	 *
+	 * What *is* executable is the other half, asserted below: the paths each route actually writes.
 	 */
 	describe('the routes that write the store without recording', () => {
 		/** The four shapes above, as a predicate over a path. */

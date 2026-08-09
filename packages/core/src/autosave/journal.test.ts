@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MemoryProjectStore } from '../store/memory-project-store.js';
+import type { Bytes } from '../store/project-store.js';
 import type { Annotation } from '../annotation/annotation.js';
 import { UndoSlot } from '../undo/undo.js';
 import { Autosave } from './autosave.js';
@@ -11,6 +12,7 @@ import {
 	JournalUnavailableError,
 	WriteAheadJournal,
 	discardJournal,
+	fingerprintOf,
 	journalledWorkspaces,
 	readJournal,
 	type JournalStorage
@@ -134,8 +136,8 @@ describe('WriteAheadJournal', () => {
 	 * The baseline an entry is recorded against (ticket 07).
 	 *
 	 * It is what lets `replayJournal` tell a stranded write from a revert, and it is derived here
-	 * rather than read from the store, because `record` is synchronous by contract. The four tests
-	 * are the four things that derivation has to get right; `replay.test.ts` drives what it is for.
+	 * rather than read from the store, because `record` is synchronous by contract. These pin what the
+	 * derivation must get right and what it costs; `replay.test.ts` drives what it is for.
 	 */
 	describe('what the store held when the entry was made', () => {
 		it('takes the bytes a forget said the store had', () => {
@@ -146,7 +148,7 @@ describe('WriteAheadJournal', () => {
 
 			journal.record('a/project.json', utf8.encode('v2'));
 
-			expect(readJournal(storage, 'W').entries[0]?.held).toEqual(utf8.encode('v1'));
+			expect(readJournal(storage, 'W').entries[0]?.held).toBe(fingerprintOf(utf8.encode('v1')));
 		});
 
 		it('does not move it to bytes the store has not taken', () => {
@@ -159,7 +161,7 @@ describe('WriteAheadJournal', () => {
 			journal.record('a/project.json', utf8.encode('v2'));
 			journal.record('a/project.json', utf8.encode('v3'));
 
-			expect(readJournal(storage, 'W').entries[0]?.held).toEqual(utf8.encode('v1'));
+			expect(readJournal(storage, 'W').entries[0]?.held).toBe(fingerprintOf(utf8.encode('v1')));
 		});
 
 		it('survives a restart, because it is carried by the entry rather than by the object', () => {
@@ -171,22 +173,81 @@ describe('WriteAheadJournal', () => {
 			// A new session, with nothing in memory: the entry that is already there is the source.
 			new WriteAheadJournal(storage, 'W').record('a/project.json', utf8.encode('v3'));
 
-			expect(readJournal(storage, 'W').entries[0]?.held).toEqual(utf8.encode('v1'));
+			expect(readJournal(storage, 'W').entries[0]?.held).toBe(fingerprintOf(utf8.encode('v1')));
 		});
 
-		it('reads an undecodable one as no baseline rather than as a damaged entry', () => {
+		it('reads an unusable one as no baseline rather than as a damaged entry', () => {
 			// The entry's own bytes are intact, and refusing it over its baseline would cost the user
 			// an edit to save a check. `replay.ts` then behaves as it did before the field existed.
 			storage.items.set(
 				'ballastella.journal.W/a%2Fproject.json',
-				JSON.stringify({ formatVersion: 1, at: '', bytes: 'AAA=', held: '!! not base64 !!' })
+				JSON.stringify({ formatVersion: 1, at: '', bytes: 'AAA=', held: '' })
+			);
+			storage.items.set(
+				'ballastella.journal.W/b%2Fproject.json',
+				JSON.stringify({ formatVersion: 1, at: '', bytes: 'AAA=', held: 17 })
 			);
 
 			const { entries, problems } = readJournal(storage, 'W');
 
 			expect(problems).toEqual([]);
-			expect(entries[0]?.held).toBeNull();
+			expect(entries.map((entry) => entry.held)).toEqual([null, null]);
 			expect(entries[0]?.bytes).toEqual(new Uint8Array([0, 0]));
+		});
+
+		/**
+		 * ⚠ **The scope of "no baseline", pinned, because prose about it was wrong twice.**
+		 *
+		 * It is not "the first edit to a path". `forget` is the only writer of a baseline and
+		 * `Autosave` calls it only after a store write has **succeeded**, so a path whose writes are
+		 * failing — the case the journal exists for — never gets one, however many edits are made and
+		 * however many times the tab is reopened.
+		 */
+		it('has none at all until a write to that path has succeeded, restarts included', () => {
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('e1'));
+			journal.record('a/project.json', utf8.encode('e2'));
+			journal.record('a/project.json', utf8.encode('e3'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBeNull();
+
+			// A new tab, meeting the entry the last one left behind.
+			new WriteAheadJournal(storage, 'W').record('a/project.json', utf8.encode('e4'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBeNull();
+		});
+
+		it('goes when a deletion sweeps the path, rather than outliving it in memory', () => {
+			// ⚠ The memo is consulted *before* the stored entry, so `forgetUnder` removing the entry and
+			// leaving the memo would make the memo the only surviving source — describing a Project the
+			// user has just deleted. `project.json` is a fixed path, so a new Project of the same folder
+			// name lands on it and would have its first rescue refused.
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('the deleted Project'));
+			journal.forget('a/project.json');
+			journal.forgetUnder('a/');
+
+			journal.record('a/project.json', utf8.encode('the new Project of the same name'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBeNull();
+		});
+
+		it('costs a fingerprint rather than a second copy of the bytes', () => {
+			// ⚠ An earlier draft stored the base64 of the store's content, which doubled every entry's
+			// `localStorage` footprint — and ADR-0017 already says an Annotation collection can exceed
+			// the origin budget on its own, where a refusal is a user-visible loss of protection. The
+			// envelope must grow by a constant, not by the payload.
+			const journal = new WriteAheadJournal(storage, 'W');
+			const payload = new Uint8Array(30_000).fill(7) as Bytes;
+			journal.record('a/project.json', payload);
+			const withoutBaseline = storage.items.get('ballastella.journal.W/a%2Fproject.json')?.length;
+			journal.forget('a/project.json');
+
+			journal.record('a/project.json', payload);
+
+			const withBaseline = storage.items.get('ballastella.journal.W/a%2Fproject.json')?.length;
+			expect(readJournal(storage, 'W').entries[0]?.held).not.toBeNull();
+			expect((withBaseline ?? 0) - (withoutBaseline ?? 0)).toBeLessThan(64);
 		});
 	});
 

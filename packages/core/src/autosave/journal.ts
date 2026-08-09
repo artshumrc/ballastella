@@ -48,11 +48,18 @@
 // rather than the only chance, and a quota refusal happens while the user is still looking at the
 // app and can be told about it in words (SPEC stories 111 and 112).
 //
-// The cost is one synchronous `setItem` per keystroke on a debounced field, plus at most one
-// `getItem` per path per session for the baseline `WriteAheadJournal.#baseline` derives. That is the
-// same order as the `JSON.stringify` of the whole collection which that keystroke already performs
-// before reaching `Autosave` at all, so it is a proportionate cost rather than a new category of one
-// — but it is a real cost and this is where it is written down.
+// The cost, in full, because this is the paragraph whose job is to hold it:
+//
+//   * one synchronous `setItem` per keystroke on a debounced field. That is the same order as the
+//     `JSON.stringify` of the whole collection which that keystroke already performs before reaching
+//     `Autosave` at all, so it is a proportionate cost rather than a new category of one;
+//   * one `getItem` on the first `record` for a path in a `WriteAheadJournal`'s life, to derive the
+//     baseline (`#baseline`). Per instance, not per session — `replayJournal` builds one per call
+//     unless it is handed the session's;
+//   * one `getItem` **on every `forget`**, which is to say on every successful store write, to read
+//     the bytes the store just took before the entry naming them goes;
+//   * roughly 24 characters per entry for `JournalEntry.held`. A fingerprint rather than a second
+//     copy of the bytes, deliberately — see that field for the measurement that decided it.
 
 import type { Bytes, StorePath } from '../store/project-store.js';
 import {
@@ -75,6 +82,10 @@ import {
  * an older entry as one with no baseline. Bumping would make every entry written here
  * `from-a-newer-version` to any earlier build — refused, kept, and reported at every startup — which
  * is a worse outcome than the one the field improves.
+ *
+ * The residual that choice accepts: an older build that **re-records** a path writes an envelope with
+ * no `held`, so downgrading and coming back loses the baseline silently. It costs a restore, which is
+ * the same direction every other imprecision in this field takes.
  */
 export const JOURNAL_FORMAT_VERSION = 1;
 
@@ -223,7 +234,14 @@ function describeFile(path: StorePath, size: number): string {
 	return `“${name}”${inside} (${describeSize(size)})`;
 }
 
-function describeSize(bytes: number): string {
+/**
+ * A byte count in the units a person reading a sentence would use.
+ *
+ * Exported for `replay.ts`, which describes two versions of a file to somebody choosing between
+ * them: two spellings of "how big is it" in two sentences about the same journal would be one more
+ * thing that can drift.
+ */
+export function describeSize(bytes: number): string {
 	if (bytes >= 1024 * 1024) return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
 	if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
 	return `${bytes} bytes`;
@@ -251,6 +269,39 @@ function storedField(storage: JournalStorage, key: string, field: string): strin
 	}
 }
 
+/**
+ * Sixteen hex digits of FNV-1a over the bytes, run twice from different offset bases, with the byte
+ * length in front of them.
+ *
+ * The same construction — and the same reasoning — as `base-map/tile-cache.ts`'s `fingerprint`:
+ * nothing here is a security boundary, and `crypto.subtle` is asynchronous, which would make
+ * {@link WriteAheadJournal.record} into a promise and break the one contract that module has. Two
+ * independent 32-bit rounds because one is four billion buckets, and the length in front because the
+ * cheapest disagreement to detect is a file that grew.
+ *
+ * ⚠ **What a collision would cost, stated rather than waved at.** {@link JournalEntry.held} is
+ * compared for equality against the store's current content; two different files that fingerprint
+ * alike would be read as "unchanged since the edit" and `replay.ts` would write over the newer one.
+ * That is the defect this field exists to prevent, arriving by a much narrower door: it needs a
+ * 64-bit collision *and* an equal byte length *and* the collision to be with the one earlier version
+ * of that same file. The inputs are a scholar's own documents rather than an attacker's, and this
+ * design does not defend against a chosen-collision attack — that is the honest limit, and full
+ * bytes is what it would cost to remove it. See {@link JournalEntry.held} for why that price was
+ * judged too high.
+ */
+export function fingerprintOf(bytes: Bytes): string {
+	const round = (basis: number): string => {
+		let hash = basis;
+		for (const byte of bytes) {
+			hash ^= byte;
+			// `Math.imul` keeps the multiply in 32 bits; `>>> 0` keeps the result unsigned.
+			hash = Math.imul(hash, 0x01000193) >>> 0;
+		}
+		return hash.toString(16).padStart(8, '0');
+	};
+	return `${bytes.length.toString(36)}-${round(0x811c9dc5)}${round(0x9dc5811c)}`;
+}
+
 /** One file's bytes, waiting for a store write that has not landed. */
 export interface JournalEntry {
 	readonly workspace: string;
@@ -269,12 +320,32 @@ export interface JournalEntry {
 	 * reported as a restoration. With this, replay can ask whether the store still holds what this
 	 * entry was written against. See `replay.ts` for the decision it drives.
 	 *
-	 * ⚠ **`null` is a real and common answer, not a corner.** The journal is synchronous by contract
-	 * and the store is not, so nothing here can read the store; the value is derived from what the
-	 * journal itself has seen — see {@link WriteAheadJournal.record}. The first edit to a path in a
-	 * session, with no entry left over from the last one, has no baseline at all.
+	 * ⚠ **`null` is the answer in the case the journal exists for, and the scope of that has to be
+	 * read exactly.** The journal is synchronous by contract and the store is not, so nothing here
+	 * can read the store; the value is derived from what the journal itself has seen — see
+	 * {@link WriteAheadJournal.#baseline}. The only thing that writes a baseline is {@link forget},
+	 * and `Autosave` calls that **only after a store write has succeeded**. So it is `null`:
+	 *
+	 *   - for *every* edit to a path until some write to that path has succeeded in this session —
+	 *     not merely for the first one; and
+	 *   - onward from there for ever, because a `null` baseline is what the entry then carries and
+	 *     what the next record carries forward, across a restart included.
+	 *
+	 * Which means the case this whole design is for — **a store whose writes are failing, with a
+	 * healthy journal** — is the case with no baseline, and `replay.ts` gives it the behaviour it had
+	 * before this field existed. The fix covers a stranded write **only when an earlier write to the
+	 * same path succeeded in the same session.** That is a narrow guarantee and it is stated narrowly
+	 * on purpose; `replay.test.ts` pins the shape and `journal.test.ts` pins the scope.
+	 *
+	 * ⚠ **A {@link fingerprintOf} of those bytes, never the bytes.** An earlier draft stored the
+	 * base64, which **doubled every entry's `localStorage` footprint** — measured at 40 062 characters
+	 * against 80 072 for a 30 kB payload. ADR-0017 already says an Annotation collection can exceed
+	 * the ~5 MB origin budget on its own, and a refusal there is a user-visible loss of protection, so
+	 * halving the headroom to hold a second copy of bytes nothing ever reads back is the wrong trade.
+	 * Every row of `replay.ts`'s decision needs only *equality* against what the store holds now, and
+	 * a fingerprint answers that at a fixed ~24 characters.
 	 */
-	readonly held: Bytes | null;
+	readonly held: string | null;
 }
 
 /**
@@ -395,24 +466,42 @@ export class WriteAheadJournal {
 	/**
 	 * The {@link JournalEntry.held} to write for the next entry at `key`, or `null` for none.
 	 *
-	 * Two sources, in order, and neither of them reads the store — this method is on the synchronous
-	 * path of every keystroke:
+	 * Two sources, and neither reads the store — this is on the synchronous path of every keystroke:
 	 *
-	 *   1. **The entry already at `key`.** An entry only exists while the store has *not* taken its
-	 *      bytes, so whatever that entry was recorded against is still what the store holds, and
-	 *      re-recording carries it forward unchanged. This is also what survives a restart.
-	 *   2. **What {@link forget} last saw the store take**, when there is no entry — because that is
-	 *      exactly what "the entry went because the store has it" means.
+	 *   1. **{@link #held}, the memo**, seeded by {@link forget} with what the store took. It is
+	 *      consulted *first* and therefore **shadows** the stored entry rather than merely filling in
+	 *      for it, which is the half a "two sources, in order" reading misses: after
+	 *      {@link forgetUnder} removes an entry, the memo is the only source left, which is why that
+	 *      method prunes it.
+	 *   2. **The entry already at `key`**, on a memo miss, so a baseline survives a restart.
 	 *
-	 * ⚠ **This is derived, so it can be wrong, and where it is wrong matters.** `forget` is not only
-	 * called on success: `Autosave.abandon` calls it for bytes the store never took, when the user
-	 * deletes the Project or Historical Map they belong to. A later edit to the same path is then
-	 * recorded against a baseline that was never on disk.
+	 * ⚠ **Source 2 rests on an inference that `superseded` broke, which is why {@link observe}
+	 * exists.** The inference is: an entry exists only while the store has *not* taken its bytes, so
+	 * what it was recorded against is still what the store holds. Every skip reason used to drop its
+	 * entry, so that held. `'superseded'` keeps one — and keeps it *precisely because something else
+	 * wrote the path*, which makes that entry's baseline, by construction, what the store no longer
+	 * holds. Carried forward, it refuses the next edit to that path, and the next, until some write
+	 * finally succeeds: one refusal turning into a standing one. `replayJournal` closes it by calling
+	 * {@link observe} with what it actually read, which lands in the memo and shadows source 2.
 	 *
-	 * What bounds that is the single place `replay.ts` reads the field: the `superseded` line of
-	 * `compare`, which uses it to decide whether to *refuse* a write. There is no line that uses it
-	 * to decide to write, so a baseline that is stale or wrong costs an entry its automatic restore
-	 * — the entry is kept and named — rather than costing the user an edit.
+	 * The memo is per instance and pruned only by {@link forgetUnder}, so it holds one short string
+	 * per path touched in this instance's life. `replayJournal` takes the session's instance where it
+	 * is given one, precisely so that what it observed outlives the call.
+	 *
+	 * ⚠ **This is derived, so it can be wrong.** `forget` is not only called on success:
+	 * `Autosave.abandon` calls it for bytes the store never took, when the user deletes the Project
+	 * or Historical Map they belong to. A later edit to the same path is then recorded against a
+	 * baseline that was never on disk.
+	 *
+	 * ⚠ **What a wrong baseline costs, per event and in aggregate.** `replay.ts` reads this field on
+	 * exactly one line — the `superseded` line of `compare` — and only to *refuse* a write, so
+	 * nothing here can turn a refusal into a write. Per event that costs a restore rather than an
+	 * edit. In aggregate it can cost *every* restore for that path, because a refusal keeps the entry
+	 * that carries the wrong baseline; that is the loop `observe` breaks, and `replay.test.ts` drives
+	 * two sessions to prove it. **"Never an edit" is still false in one channel**, and it is the
+	 * other operand: equality cannot tell "untouched since the edit" from "changed and changed back",
+	 * so a path restored from a backup to exactly its old content is written over. `replay.ts` states
+	 * that beside the row it belongs to.
 	 */
 	#baseline(key: string, path: StorePath): string | null {
 		const remembered = this.#held.get(path);
@@ -422,14 +511,39 @@ export class WriteAheadJournal {
 		return carried;
 	}
 
-	/** Drop `path`'s entry. Called the moment the store has the bytes; idempotent. */
+	/**
+	 * Drop `path`'s entry **because the store has taken its bytes**. Idempotent.
+	 *
+	 * The bytes are read before the removal and remembered as the baseline, because the entry is the
+	 * only record of what the store just took. That is what makes this different from
+	 * {@link discard}, and callers have to mean one or the other.
+	 */
 	forget(path: StorePath): void {
 		const key = journalKey(this.#workspace, path);
-		// Read before the removal, because the entry is the only record of what the store just took —
-		// and it is the baseline every later entry for this path is written against. See
-		// {@link #baseline} for why getting this wrong costs a restore rather than an edit.
 		const taken = storedBytes(this.#storage, key);
-		if (taken !== null) this.#held.set(path, taken);
+		if (taken !== null) this.#held.set(path, fingerprintOf(decodeBytes(taken) ?? new Uint8Array()));
+		this.#remove(key);
+	}
+
+	/**
+	 * Drop `path`'s entry **without concluding anything about the store**. Idempotent.
+	 *
+	 * ⚠ **The distinction is not bookkeeping.** {@link forget} means "the store has these bytes", and
+	 * it is the only thing that ever writes a baseline. A replay dropping an entry whose owner has
+	 * gone has learned the opposite — those bytes reached no store and never will — and using
+	 * `forget` there would file them as what the store holds, poisoning the baseline of any later
+	 * edit to that path.
+	 */
+	discard(path: StorePath): void {
+		this.#remove(journalKey(this.#workspace, path));
+	}
+
+	/** Tell this journal what the store holds for `path`, from somebody who has just read it. */
+	observe(path: StorePath, bytes: Bytes): void {
+		this.#held.set(path, fingerprintOf(bytes));
+	}
+
+	#remove(key: string): void {
 		try {
 			this.#storage.removeItem(key);
 		} catch {
@@ -447,9 +561,19 @@ export class WriteAheadJournal {
 	 * cannot catch a *new* Project created under the same directory name afterwards, which would
 	 * look exactly like the old one still being there. So the deletion says so at the time.
 	 *
+	 * ⚠ **The memo goes with the entries, and it has to go first.** {@link #baseline} consults
+	 * {@link #held} *before* the stored entry, so removing the entry and leaving the memo would make
+	 * the memo the only surviving source — and it would be describing a Project the user has just
+	 * deleted. A new Project created under the same directory name writes the same fixed
+	 * `project.json` path, so its first edit would be recorded against the deleted Project's bytes
+	 * and its rescue refused. Safe direction, and still wrong.
+	 *
 	 * @returns how many entries were dropped
 	 */
 	forgetUnder(prefix: string): number {
+		for (const path of [...this.#held.keys()]) {
+			if (path.startsWith(prefix)) this.#held.delete(path);
+		}
 		let dropped = 0;
 		for (const key of keysWithPrefix(this.#storage, JOURNAL_KEY_PREFIX)) {
 			const named = parseJournalKey(key);
@@ -576,7 +700,7 @@ export function readJournal(storage: JournalStorage, workspace: string): Journal
 			// no precondition. It is deliberately **not** a `JournalProblem` — the entry's own bytes are
 			// intact and replaying them is what this build did before the field existed, so refusing the
 			// entry over its baseline would cost the user an edit to save a check.
-			held: typeof record.held === 'string' ? decodeBytes(record.held) : null
+			held: typeof record.held === 'string' && record.held !== '' ? record.held : null
 		});
 	}
 

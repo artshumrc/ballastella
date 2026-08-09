@@ -27,25 +27,51 @@
 // that stops being a latent hazard.
 //
 // **The journal and the store are different backends with no shared clock, so "newer" is decided by
-// content and never by time.** An entry carries `held` — what the store held when the edit was made
-// (`journal.ts`) — and this module compares it against what the store holds now:
+// content and never by time.** An entry carries `held` — a fingerprint of what the store held when
+// the edit was made (`journal.ts`) — and {@link compare} weighs it against what the store holds now.
 //
-//   store holds nothing              → nothing can be reverted                       → write
-//   store holds the entry's bytes    → they are already there                        → `already-in-the-store`
-//   entry has `held`, store matches  → untouched since the edit; this is the strand   → write
-//   entry has `held`, store differs  → something wrote after the edit                → `superseded`
-//   entry has no `held`              → **undecidable**, and it writes                 → write
+// ⚠ **The rows of that decision are deliberately not transcribed here.** An earlier draft of this
+// header held them as a table; review found that the table had become the module's second interface,
+// that one of its rows was untested, and that its summary sentence stated the mechanism backwards —
+// three drifts in one commit, in prose describing six lines of code directly below it. The rows are
+// drivable, so they are driven: `replay.test.ts` has one `describe` per row, each named for what the
+// row claims — plus the absent-file case, which the loop answers before `compare` is asked.
+// **Change `compare`, read those.**
 //
-// ⚠ **The last row is the honest limit of the guarantee, and it is not rare.** `held` is derived
-// from what the journal itself has seen, because `record` is synchronous and the store is not, so
-// the first edit to a path in a session — with no entry left over from the last one — has none. What
-// is claimed is therefore narrow and exact: **an entry that carries a baseline is never replayed
-// over bytes that baseline does not match.** Closing the last row needs `Autosave` to tell the
-// journal what the store held, which is a seam in `autosave.ts` and belongs to another ticket.
+// What belongs here is what no single row says.
 //
-// The direction of every error is the same one: `held` is consulted only to *permit* a write that
-// would otherwise be refused, so a baseline that is stale or wrong costs a restore and never an
-// edit.
+// **Where there is no baseline, nothing is decided silently — the scholar is asked.** `held` is
+// written only by `WriteAheadJournal.forget`, and `Autosave` calls that only after a store write has
+// **succeeded**, so a path has no baseline until some write to it has landed in that session, and a
+// `null` baseline is carried forward for ever, restart included. **The case this whole design exists
+// for — a store whose writes are failing, with a healthy journal — is therefore the case with no
+// baseline**, and it is not a sliver. Both silent answers there are indefensible: writing can revert
+// somebody's newer work, refusing and dropping can lose a real strand. So the entry is kept and
+// named, with both versions described — `'cannot-tell-which-is-newer'`, below.
+//
+// ⚠ **That is the domain half. Applying the held copy is a chooser that does not exist yet**, and is
+// ticket 03's; the panel today shows the sentence and offers to throw the copy away. Until the
+// chooser ships, a stranded edit on a path with no baseline is **reported and held rather than put
+// back**, which is a real interim cost of choosing the safe answer over the convenient one.
+//
+// A note on why the obvious fix is not one: `Autosave` learns what the store holds only when the
+// store *acknowledges* a write, so a seam there could supply a baseline only for paths that have
+// already been written successfully — which is exactly the set that already works. It would have
+// looked like it closed this and would not have.
+//
+// **Direction of error.** `held` is read on one line, and only to *refuse* a write — absent, the
+// write does not happen either, so nothing here turns a wrong baseline into an overwrite. What can
+// is the store's side of the comparison: equality cannot tell "untouched since the edit" from
+// "changed and changed back", so a file restored from a backup to exactly its former content is
+// written over by an edit that predates the restore, and named in `restored`. That is a hole in what
+// the comparison can see, and the one channel in which this module can still cost an edit.
+//
+// **What this delivers for "recovery without knowing to act" (story 9): the ground for it, not it.**
+// The only thing that triggers a recovery is a startup replay. Nothing re-attempts within a session,
+// and the retry machinery is being deleted, so the scholar is relieved of knowing to make another
+// *edit* and left needing to know to *restart* — which nothing tells them to do. The undecidable row
+// above asks them to act as well, deliberately. Story 9 is **unblocked** by this and not fulfilled;
+// ticket 08 is what would close it.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AN ALIGNMENT IS WRITTEN THROUGH `alignment-file.ts`, AND THE FENCE CANNOT SEE THIS (ticket 18)
@@ -64,9 +90,9 @@
 // `create` would decline whenever a file exists, which is every case that matters here, and this
 // fix would not fix Alignments at all. `update`'s documented gap is **narrowed and not closed** by
 // ticket 07: a colleague's edit arriving through a synced Workspace between the interrupted write
-// and this replay is refused when the entry carries a baseline, and is still overwritten when it
-// does not. ADR-0023 accepts that gap and offers visibility rather than prevention — which is what
-// the report below is.
+// and this replay is refused when the entry carries a baseline, and reported rather than overwritten
+// when it does not. ADR-0023 accepts that gap and offers visibility rather than prevention — which
+// is what the report below is.
 
 import {
 	writeAlignmentBytes,
@@ -88,6 +114,8 @@ import {
 import type { DeletedProjects } from './deleted-projects.js';
 import {
 	WriteAheadJournal,
+	describeSize,
+	fingerprintOf,
 	readJournal,
 	type JournalEntry,
 	type JournalProblem,
@@ -122,6 +150,29 @@ export type ReplaySkipReason =
 	 */
 	| 'already-in-the-store'
 	/**
+	 * There is an edit here, and nothing can tell whether the file on disk is newer than it or older
+	 * (ticket 07, round 3).
+	 *
+	 * The entry carries no baseline — see `journal.ts`, and note that this is the *normal* state for a
+	 * path whose writes have never succeeded, which is the case the journal exists for. So the two
+	 * readings are equally consistent with the evidence: the store may hold the last version this
+	 * application managed to save, in which case the entry is a rescue; or a Workspace restore, a
+	 * bundle, or another tab may have written it since, in which case putting the entry back is a
+	 * revert.
+	 *
+	 * ⚠ **Both silent answers are indefensible, so neither is taken.** Writing can destroy somebody's
+	 * newer work; refusing and dropping can destroy a real strand. What is left is to say so: the
+	 * entry is **kept**, the sentence names both versions and their sizes, and the scholar decides.
+	 * An earlier round wrote silently here and described it as a narrow residual in three places.
+	 *
+	 * ⚠ **The domain half only.** The panel renders the sentence and offers to throw the copy away;
+	 * *applying* it is a chooser that does not exist yet and is ticket 03's. Until it does, a stranded
+	 * edit on a path with no baseline is reported and held rather than put back — which is a real
+	 * interim cost and is written down as one. Everything a chooser needs is reachable: the kept bytes
+	 * from `readJournal`, the bytes on disk from `store.read`.
+	 */
+	| 'cannot-tell-which-is-newer'
+	/**
 	 * Something wrote this file after the edit was journalled, so putting it back would be a revert
 	 * (ticket 07).
 	 *
@@ -140,9 +191,18 @@ export interface ReplaySkipped {
 	/**
 	 * Whether the entry is still in the journal. `false` means this report is the only trace of it.
 	 *
-	 * The same field {@link JournalProblem} carries, for the same reason: every skip used to be a
-	 * drop, and `'superseded'` is not one, so "deliberately not put back" stopped being a single
-	 * thing to say about what happens next.
+	 * Every skip used to be a drop. `'superseded'` and `'cannot-tell-which-is-newer'` are not, so
+	 * "deliberately not put back" stopped being a single thing to say about what happens next — and
+	 * the two are kept for different reasons. A superseded entry can never be applied and is held only
+	 * so that a refusal does not destroy an edit; an undecidable one is held because it is *waiting on
+	 * the scholar*, which is a state it is supposed to persist in.
+	 *
+	 * ⚠ **Rendered, not merely recorded.** A kept entry is the one thing in this report that comes
+	 * back at the *next* startup, byte-identically — `RecoveredEdits.svelte` keys its dismissal on
+	 * the report's contents, so a notice about a kept entry is one the user cannot clear by reading
+	 * it. So this field is what puts an exit beside exactly those rows and nothing else, the same
+	 * remedy an unfinished deletion already offers, and for the same reason: the alternative is a
+	 * warning at every visit whose only other exit is destroying a Workspace's whole journal.
 	 */
 	readonly kept: boolean;
 }
@@ -187,6 +247,16 @@ export interface ReplayOptions {
 	 * storage itself has.
 	 */
 	readonly deleted?: DeletedProjects;
+	/**
+	 * The journal this Workspace's session already holds, if it has one (ticket 07).
+	 *
+	 * Without it a replay builds its own and throws it away, and everything it learned about the
+	 * store goes with it. That matters for one case in particular: a `'superseded'` skip keeps an
+	 * entry whose baseline is provably stale, and the only thing that stops that refusal repeating
+	 * for every later edit to the path is `WriteAheadJournal.observe` — called here, on the instance
+	 * the rest of the session will record through.
+	 */
+	readonly journal?: WriteAheadJournal;
 }
 
 /**
@@ -206,7 +276,9 @@ export async function replayJournal(
 	workspace: string,
 	options: ReplayOptions = {}
 ): Promise<JournalReplayReport> {
-	const journal = new WriteAheadJournal(storage, workspace);
+	// The session's own journal where there is one, so that what this run *observes* about the store
+	// outlives the call. See {@link ReplayOptions.journal}.
+	const journal = options.journal ?? new WriteAheadJournal(storage, workspace);
 	const { entries, problems } = readJournal(storage, workspace);
 
 	const restored: StorePath[] = [];
@@ -224,15 +296,24 @@ export async function replayJournal(
 				// The thing it belonged to is gone, so the entry can never be used and would otherwise
 				// be reported at every startup for ever. Dropped *after* being named in the report, and
 				// only on the unambiguous evidence `missingOwner` insists on.
-				journal.forget(entry.path);
+				//
+				// `discard` and not `forget`: these bytes reached no store and never will, and `forget`
+				// would file them as what the store holds for that path.
+				journal.discard(entry.path);
 				continue;
 			}
 
 			// After `missingOwner`, so a deleted Project's entry is refused by name rather than by
 			// whatever its files happen to say, and before the write, because this is the question
 			// that decides whether there is a write at all.
-			const verdict = compare(entry, await currentBytes(store, entry.path));
-			if (verdict === 'already-in-the-store') {
+			//
+			// **An absent file is the one case that needs no question**: nothing is there, so nothing can
+			// be reverted, and the write at the bottom is reached with no verdict asked for. That is
+			// narrower than "nothing newer exists" — a deletion is a newer state too, and this recreates
+			// the file over one — but no deletion path leaves a live entry behind to reach it.
+			const current = await currentBytes(store, entry.path);
+			const verdict = current === null ? null : compare(entry, current);
+			if (current !== null && verdict === 'already-in-the-store') {
 				skipped.push({
 					path: entry.path,
 					reason: verdict,
@@ -246,7 +327,31 @@ export async function replayJournal(
 				journal.forget(entry.path);
 				continue;
 			}
-			if (verdict === 'superseded') {
+			if (current !== null && verdict === 'cannot-tell-which-is-newer') {
+				// Kept, and the sentence carries what a person needs to choose between the two: how big
+				// each is, and when the held one was made. The bytes themselves are not copied into the
+				// report — a chooser reads them from `readJournal` and `store.read`, which is where they
+				// already are, and a report is not a place to hold two copies of a file.
+				skipped.push({
+					path: entry.path,
+					reason: verdict,
+					kept: true,
+					detail:
+						`An unsaved change to “${entry.path}” was found, and Ballastella cannot tell ` +
+						`whether it is newer than the file in your Workspace. The unsaved copy is ` +
+						`${describeSize(entry.bytes.length)}${entry.at === '' ? '' : `, from ${entry.at}`}; ` +
+						`the file in your Workspace is ${describeSize(current.length)}. It has been kept ` +
+						`rather than put back, so nothing has been overwritten.`
+				});
+				continue;
+			}
+			if (current !== null && verdict === 'superseded') {
+				// ⚠ **Tell the journal what is actually there, or this refusal becomes a standing one.**
+				// The entry is kept, and `WriteAheadJournal.#baseline` would otherwise carry its now
+				// provably-stale `held` into the *next* edit to this path — refusing that one too, and
+				// the one after, until some save finally succeeds. The store has just been read; this is
+				// the one moment anything in this application knows the truth for certain.
+				if (current !== null) journal.observe(entry.path, current);
 				// Kept, and not written. See {@link ReplaySkipReason}: the entry is the only copy of an
 				// edit that is on disk nowhere, so the answer is to say so rather than to drop it.
 				skipped.push({
@@ -281,7 +386,7 @@ export async function replayJournal(
 }
 
 /** What replay decided to do with one entry, once its owner had been checked. */
-type ReplayVerdict = 'write' | 'already-in-the-store' | 'superseded';
+type ReplayVerdict = 'write' | 'already-in-the-store' | 'cannot-tell-which-is-newer' | 'superseded';
 
 /**
  * What the store holds at `path` now, or `null` when it holds nothing.
@@ -303,19 +408,28 @@ async function currentBytes(store: ProjectStore, path: StorePath): Promise<Bytes
 /**
  * Whether this entry may be written over what the store holds now (ticket 07).
  *
- * The whole of "replay never reverts newer bytes", and the module header is where the reasoning
- * lives — including which case this deliberately cannot decide. Kept separate from the loop so the
- * table there is one function a reader can hold in their head, and so each row is drivable.
+ * The whole of "replay never reverts newer bytes". Every branch is named for the answer it gives and
+ * driven by a `describe` of the same name in `replay.test.ts`; the module header carries what no
+ * single branch says. Kept out of the loop so it is one function a reader can hold in their head.
  */
-function compare(entry: JournalEntry, current: Bytes | null): ReplayVerdict {
-	if (current === null) return 'write';
+function compare(entry: JournalEntry, current: Bytes): ReplayVerdict {
 	if (sameBytes(current, entry.bytes)) return 'already-in-the-store';
-	// The baseline permits a write; it never forces one. An entry with no baseline therefore keeps
-	// the behaviour this module had before the field existed, which is the stated limit.
-	if (entry.held !== null && !sameBytes(current, entry.held)) return 'superseded';
+	// No baseline, and something different on disk: the evidence is equally consistent with a rescue
+	// and with a revert. Neither silent answer is defensible, so the question is asked instead.
+	if (entry.held === null) return 'cannot-tell-which-is-newer';
+	if (fingerprintOf(current) !== entry.held) return 'superseded';
 	return 'write';
 }
 
+/**
+ * ⚠ **The length guard is load-bearing and easy to lose.** Without it, `every` walks only the
+ * shorter run, so any byte string that is a strict *prefix* of the other compares equal — and both
+ * of this function's callers then answer wrongly in a destructive direction: an entry whose store
+ * content is a prefix of it is reported "already in the store" and dropped, destroying the edit, and
+ * a growing file's baseline compares equal, licensing the exact revert this module exists to
+ * prevent. Fixtures that differ in length hide it, which is why `replay.test.ts` drives a
+ * prefix pair in both positions.
+ */
 const sameBytes = (left: Bytes, right: Bytes): boolean =>
 	left.length === right.length && left.every((byte, at) => byte === right[at]);
 

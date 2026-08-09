@@ -13,6 +13,7 @@ import {
 	WriteAheadJournal,
 	alignmentPath,
 	acceptRemoteImageService,
+	fingerprintOf,
 	imageInfoPath,
 	newAlignment,
 	newProjectFile,
@@ -286,6 +287,84 @@ describe('deleting a Project, at the unit seam', () => {
 		expect(session.deletionReport).toBeNull();
 		// And it is a note that went, never a file: the Project is exactly where it was.
 		expect(await session.store.list('')).toEqual([projectFilePath(DIRECTORY)]);
+	});
+
+	/**
+	 * ⚠ **The same corner, reached by a different route** (ticket 07, round 2).
+	 *
+	 * `'superseded'` is the first replay skip that *keeps* its journal entry — deliberately, because
+	 * those bytes are the only copy of an edit that reached no store. The panel's dismiss is keyed on
+	 * report contents, so a kept entry means a byte-identical warning at every startup for ever, and
+	 * the only other exit is discarding the whole Workspace's journal. So the row carries its own.
+	 */
+	it('throws away one refused entry’s kept copy, and takes the panel with the last one', async () => {
+		const { session, storage, store } = await sessionWithJournal();
+		const path = `${DIRECTORY}/annotations/one.geojson` as StorePath;
+		const journal = new WriteAheadJournal(storage, WORKSPACE);
+		// A stranded edit that knows what was on disk, then something else writing that path — which
+		// is what makes the replay refuse rather than restore.
+		await store.write(path, new TextEncoder().encode('v1') as Bytes);
+		journal.record(path, new TextEncoder().encode('v1') as Bytes);
+		journal.forget(path);
+		journal.record(path, new TextEncoder().encode('the edit that stranded') as Bytes);
+		await store.write(path, new TextEncoder().encode('v2-NEWER') as Bytes);
+
+		await session.replayJournalledEdits();
+		expect(session.replayReport?.skipped.map((entry) => [entry.reason, entry.kept])).toEqual([
+			['superseded', true]
+		]);
+
+		session.forgetReplaySkip(path);
+
+		// The copy is gone, so the next startup says nothing…
+		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
+		// …and the panel goes with it rather than lingering with an empty list.
+		expect(session.replayReport).toBeNull();
+		// And what it refused to overwrite is exactly where it was.
+		expect(new TextDecoder().decode(await store.read(path))).toBe('v2-NEWER');
+	});
+
+	/**
+	 * ⚠ **A replay that throws away what it read leaves the refusal standing** (ticket 07, round 2).
+	 *
+	 * `replayJournal` builds its own `WriteAheadJournal` unless it is handed one, and a `'superseded'`
+	 * skip keeps an entry whose baseline is by construction stale. If the observation lands in a
+	 * throwaway, the *next* edit to that path is recorded against the stale baseline and refused too.
+	 * So the session has to hand over its own journal, and this is what says it did: the rename below
+	 * records through `Autosave` into that same instance.
+	 */
+	it('hands the replay its own journal, so a refusal does not outlive the run', async () => {
+		const { session, storage, store } = await sessionWithJournal();
+		const path = projectFilePath(DIRECTORY);
+		const journal = new WriteAheadJournal(storage, WORKSPACE);
+		journal.record(path, new TextEncoder().encode('an interrupted rename') as Bytes);
+		// Something outside `Autosave` writing the same path, which is what makes replay refuse. A real
+		// manifest, because the rename below has to be able to read it.
+		const colleague = serialiseProjectFile(
+			newProjectFile('The colleague’s name', new Date('2026-08-09T00:00:00Z'))
+		);
+		await store.write(path, colleague);
+		// A baseline for that entry, so the refusal is reached rather than the undecidable row.
+		storage.items.set(
+			[...storage.items.keys()].find((key) => key.includes('project.json')) ?? '',
+			JSON.stringify({
+				formatVersion: 1,
+				at: '',
+				held: fingerprintOf(new TextEncoder().encode('v1') as Bytes),
+				bytes: btoa('an interrupted rename')
+			})
+		);
+
+		await session.replayJournalledEdits();
+		expect(session.replayReport?.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+
+		// The scholar carries on, on the version that is really on disk, and this write strands too —
+		// which is what leaves an entry to read the baseline off. It records through the session's
+		// journal: the one the replay was handed, and told what the store holds.
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session.renameProject(DIRECTORY, 'A name typed after the refusal').catch(() => undefined);
+
+		expect(readJournal(storage, WORKSPACE).entries[0]?.held).toBe(fingerprintOf(colleague));
 	});
 
 	/** And the record carries what the hub was showing, which is what a startup checks before removing. */

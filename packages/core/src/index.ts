@@ -20,6 +20,7 @@ export {
 	WriteAheadJournal,
 	browserJournalStorage,
 	discardJournal,
+	fingerprintOf,
 	journalledWorkspaces,
 	readJournal,
 	type JournalContents,
