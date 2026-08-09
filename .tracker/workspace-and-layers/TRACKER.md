@@ -8,19 +8,27 @@ Scope and testing approach are in [SPEC.md](./SPEC.md); decisions are in [docs/a
 
 ## Current status
 
-Overall: `In Progress`. Merged: 01–14, 16–22. **Remaining: 15, and nothing else.** Nothing in flight — a dispatch on 2026-08-09 died on a usage limit before writing anything, leaving no branch and no worktree.
+Overall: **`Completed`**. All 22 tickets merged, 2026-08-09.
 
-**07, 21 and 22 merged 2026-08-09.** The full gate on merged `main` is green: install / lint / check / build / test all exit 0, and `pnpm test:e2e` is **523 passed, 1 skipped, retry budget 0 of 524 (0.00%)**.
+The full gate on merged `main`: install / lint / check / build / test all exit 0, and `pnpm test:e2e` is **522 passed, 1 skipped, retry budget 0 of 523 (0.00%)**. The editor's bundle finished at **2.4M**, down from 3.2M.
+
+**What is not done is in "Open leads" below, and none of it is in the ledger.** Seven leads, every one carrying evidence rather than suspicion — a root cause, a measured rate, a deterministic reproduction, or an explicit statement that reachability is unproven. One (lead 6) is a vacuous assertion in merged code, found by the ticket after the one that shipped it. One (lead 7) is a decision left unguarded by a removal. **Lead 3's `editor-alignment.e2e.ts:678` is deliberately left unexplained** rather than attached to the nearest plausible cause — which is how lead 1 stayed mis-diagnosed for months.
+
+## What this epic cost, for whoever plans the next one
+
+Every ticket reviewed on two axes — Standards and Spec — **found real defects after its implementer reported a green gate. Sixteen of sixteen.** Tickets 21 and 22 each needed five rounds; 07 needed four.
+
+The failure mode was almost never bad code. It was **a comment or a commit message claiming more than the code delivered**, and a suite that passed either way:
+
+- a unit test seam that compiled for the *server*, so every reactivity assertion passed whether the runes worked or not — in the seam added to stop vacuous passes;
+- a race reported "closed" that was only narrowed, its honest predecessor sentence replaced by a false one;
+- a fence whose honesty statement said "exactly two" when there were three;
+- a bundle assertion that twice could not fail, and then could not fail *on two of three routes*;
+- a "flake" at 20% that was a data-loss defect, whose recorded diagnosis had been confidently wrong for months.
+
+The reviews that worked **measured rather than read**: a probe of the Vite transform proving which Svelte runtime was emitted; `--repeat-each` at two worker counts separating "load causes it" from "load widens the window"; a mutation to a `data-testid` that does not exist. The reviews that merely read produced one confidently wrong finding, which the implementer refuted the same way — see lead 7's correction.
 
 Last updated: 2026-08-09.
-
-## 15 is the whole of what is left, and the trap in it is named
-
-Everything else is merged, pushed, and verified together: `pnpm test:e2e` on merged `main` is **523 passed, 1 skipped, 0 retries of 524**.
-
-**Ticket 15 removes triiiceratops from the *editor* only.** The published viewer keeps its unwarped view by contract (the ticket's Out of scope says so twice), and **open lead 2 — the `forceRedraw` throw — lives in the viewer's spec**, `viewer-reader.e2e.ts:1044`. So deleting the editor's view does not remove that defect, and a green suite afterwards must not be read as having fixed it. That lead is root-caused below with a one-line upstream fix identified.
-
-Two things the ticket asks for that are easy to skip: the **before/after bundle size** (`du -sh apps/editor/build/_app/immutable`), which is the one number showing the removal was worth doing; and a **decision recorded** on `storedPyramidTileSource`, which is tested and becomes unused once this lands — keep it with a comment naming the upstream gap it waits on, or delete it, but do not leave it silently orphaned.
 
 ## Open leads — unclosed, and not to be absorbed into the flake budget
 
@@ -158,7 +166,7 @@ These apply to every remaining ticket. They are not advice.
 | 12 | [12-the-opfs-root-holds-several-named-workspaces.md](./tickets/12-the-opfs-root-holds-several-named-workspaces.md) | Completed | 04 | 88, 105, 107, 108 |
 | 13 | [13-back-up-and-restore-a-workspace-as-a-tar.md](./tickets/13-back-up-and-restore-a-workspace-as-a-tar.md) | Completed | 01, 12 | 82–87 |
 | 14 | [14-hand-off-a-project-and-review-one.md](./tickets/14-hand-off-a-project-and-review-one.md) | Completed | 13 | 89–95 |
-| 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Not Started | 07 | 101 |
+| 15 | [15-remove-the-editors-unwarped-view.md](./tickets/15-remove-the-editors-unwarped-view.md) | Completed | 07 | 101 |
 | 16 | [16-the-offline-copy-has-one-name.md](./tickets/16-the-offline-copy-has-one-name.md) | Completed | 02, 03, 09 | — |
 | 17 | [17-the-e2e-suite-tells-the-truth.md](./tickets/17-the-e2e-suite-tells-the-truth.md) | Completed | 02, 03, 09 | — |
 | 18 | [18-a-shared-alignment-is-not-overwritten-by-accident.md](./tickets/18-a-shared-alignment-is-not-overwritten-by-accident.md) | Completed | 02, 03 | 60 |
