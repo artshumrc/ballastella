@@ -40,24 +40,22 @@
 //
 // What belongs here is what no single row says.
 //
-// **Where there is no baseline, nothing is decided silently — the scholar is asked.** `held` is
-// written only by `WriteAheadJournal.forget`, and `Autosave` calls that only after a store write has
-// **succeeded**, so a path has no baseline until some write to it has landed in that session, and a
-// `null` baseline is carried forward for ever, restart included. **The case this whole design exists
-// for — a store whose writes are failing, with a healthy journal — is therefore the case with no
-// baseline**, and it is not a sliver. Both silent answers there are indefensible: writing can revert
-// somebody's newer work, refusing and dropping can lose a real strand. So the entry is kept and
-// named, with both versions described — `'cannot-tell-which-is-newer'`, below.
+// **A baseline comes from the read, and that is the whole of why this works.** Nothing on the write
+// side can supply one: `WriteAheadJournal.record` is synchronous by contract, and `Autosave` learns
+// what the store holds only when a write is *acknowledged* — which is exactly the set of paths that
+// already had a baseline, so a seam there would have looked like a fix and closed nothing. What does
+// work is the read the application has already done: a file cannot be edited before it has been
+// shown, so `EditorSession` reports every `project.json`, Annotation collection and Alignment it
+// reads, at no extra I/O. An edit therefore has a baseline whenever the file it edits was opened.
 //
-// ⚠ **That is the domain half. Applying the held copy is a chooser that does not exist yet**, and is
-// ticket 03's; the panel today shows the sentence and offers to throw the copy away. Until the
-// chooser ships, a stranded edit on a path with no baseline is **reported and held rather than put
-// back**, which is a real interim cost of choosing the safe answer over the convenient one.
+// **Where there is still no baseline, nothing is decided silently — the scholar is asked.** That is
+// now a narrow case (a path nothing read), but narrow is not impossible, and a rare undecidable case
+// must not resolve silently either: both answers are indefensible without evidence, because writing
+// can revert somebody's newer work and refusing-and-dropping can lose a real strand. So the entry is
+// kept and named, with both versions described — `'cannot-tell-which-is-newer'`, below.
 //
-// A note on why the obvious fix is not one: `Autosave` learns what the store holds only when the
-// store *acknowledges* a write, so a seam there could supply a baseline only for paths that have
-// already been written successfully — which is exactly the set that already works. It would have
-// looked like it closed this and would not have.
+// ⚠ **That row is the domain half. Applying the held copy is a chooser that does not exist yet**, and
+// is ticket 03's; the panel today shows the sentence and offers to throw the copy away.
 //
 // **Direction of error.** `held` is read on one line, and only to *refuse* a write — absent, the
 // write does not happen either, so nothing here turns a wrong baseline into an overwrite. What can
@@ -153,12 +151,13 @@ export type ReplaySkipReason =
 	 * There is an edit here, and nothing can tell whether the file on disk is newer than it or older
 	 * (ticket 07, round 3).
 	 *
-	 * The entry carries no baseline — see `journal.ts`, and note that this is the *normal* state for a
-	 * path whose writes have never succeeded, which is the case the journal exists for. So the two
-	 * readings are equally consistent with the evidence: the store may hold the last version this
-	 * application managed to save, in which case the entry is a rescue; or a Workspace restore, a
-	 * bundle, or another tab may have written it since, in which case putting the entry back is a
-	 * revert.
+	 * The entry carries no baseline — see `journal.ts`. Since the read-path seam that is a narrow case
+	 * rather than the normal one: a file has to have been read to be edited, and every read reports.
+	 * What is left is a path nothing read — an entry from an older build, or one whose file was never
+	 * opened in the session that wrote it. There the two readings are equally consistent with the
+	 * evidence: the store may hold the last version this application managed to save, in which case
+	 * the entry is a rescue; or a Workspace restore, a bundle, or another tab may have written it
+	 * since, in which case putting the entry back is a revert.
 	 *
 	 * ⚠ **Both silent answers are indefensible, so neither is taken.** Writing can destroy somebody's
 	 * newer work; refusing and dropping can destroy a real strand. What is left is to say so: the
@@ -166,10 +165,8 @@ export type ReplaySkipReason =
 	 * An earlier round wrote silently here and described it as a narrow residual in three places.
 	 *
 	 * ⚠ **The domain half only.** The panel renders the sentence and offers to throw the copy away;
-	 * *applying* it is a chooser that does not exist yet and is ticket 03's. Until it does, a stranded
-	 * edit on a path with no baseline is reported and held rather than put back — which is a real
-	 * interim cost and is written down as one. Everything a chooser needs is reachable: the kept bytes
-	 * from `readJournal`, the bytes on disk from `store.read`.
+	 * *applying* it is a chooser that does not exist yet and is ticket 03's. Everything one needs is
+	 * reachable: the kept bytes from `readJournal`, the bytes on disk from `store.read`.
 	 */
 	| 'cannot-tell-which-is-newer'
 	/**

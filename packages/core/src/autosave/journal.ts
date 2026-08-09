@@ -320,22 +320,19 @@ export interface JournalEntry {
 	 * reported as a restoration. With this, replay can ask whether the store still holds what this
 	 * entry was written against. See `replay.ts` for the decision it drives.
 	 *
-	 * ⚠ **`null` is the answer in the case the journal exists for, and the scope of that has to be
-	 * read exactly.** The journal is synchronous by contract and the store is not, so nothing here
-	 * can read the store; the value is derived from what the journal itself has seen — see
-	 * {@link WriteAheadJournal.#baseline}. The only thing that writes a baseline is {@link forget},
-	 * and `Autosave` calls that **only after a store write has succeeded**. So it is `null`:
+	 * ⚠ **Two sources, and only one of them used to exist.** The journal is synchronous by contract
+	 * and the store is not, so nothing here can read the store; the value is what the journal has been
+	 * *told* — see {@link WriteAheadJournal.#baseline}. {@link forget} is one teller, and on its own a
+	 * poor one: `Autosave` calls it only after a store write has **succeeded**, so a path had no
+	 * baseline until some write to it had landed, which left the case this whole design exists for —
+	 * a store whose writes are failing, with a healthy journal — as the case with none.
 	 *
-	 *   - for *every* edit to a path until some write to that path has succeeded in this session —
-	 *     not merely for the first one; and
-	 *   - onward from there for ever, because a `null` baseline is what the entry then carries and
-	 *     what the next record carries forward, across a restart included.
-	 *
-	 * Which means the case this whole design is for — **a store whose writes are failing, with a
-	 * healthy journal** — is the case with no baseline, and `replay.ts` gives it the behaviour it had
-	 * before this field existed. The fix covers a stranded write **only when an earlier write to the
-	 * same path succeeded in the same session.** That is a narrow guarantee and it is stated narrowly
-	 * on purpose; `replay.test.ts` pins the shape and `journal.test.ts` pins the scope.
+	 * {@link observe} is the other, and it is what makes the guarantee useful: `EditorSession` reports
+	 * every file it reads, and a file cannot be edited before it has been shown. So `null` now means
+	 * *nothing has read this path* — an entry from an older build, or a file never opened in the
+	 * session that wrote it — and `replay.ts` answers it by asking the scholar rather than guessing.
+	 * `replay.test.ts` pins the shape, `journal.test.ts` pins the derivation, and
+	 * `editor-session.test.ts` drives the read that supplies it.
 	 *
 	 * ⚠ **A {@link fingerprintOf} of those bytes, never the bytes.** An earlier draft stored the
 	 * base64, which **doubled every entry's `localStorage` footprint** — measured at 40 062 characters

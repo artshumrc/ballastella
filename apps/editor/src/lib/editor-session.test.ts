@@ -13,13 +13,18 @@ import {
 	WriteAheadJournal,
 	alignmentPath,
 	acceptRemoteImageService,
+	emptyAnnotationCollection,
 	fingerprintOf,
+	newAnnotationLayer,
+	newMapLayer,
 	imageInfoPath,
 	newAlignment,
 	newProjectFile,
 	projectFilePath,
+	serialiseAlignment,
 	readJournal,
 	serialiseProjectFile,
+	type AnnotationLayer,
 	type Bytes,
 	type StorePath
 } from '@ballastella/core';
@@ -325,46 +330,176 @@ describe('deleting a Project, at the unit seam', () => {
 	});
 
 	/**
-	 * ⚠ **A replay that throws away what it read leaves the refusal standing** (ticket 07, round 2).
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * A STRANDED EDIT IS PUT BACK, RATHER THAN REPORTED AND HELD (ticket 07, round 4)
 	 *
-	 * `replayJournal` builds its own `WriteAheadJournal` unless it is handed one, and a `'superseded'`
-	 * skip keeps an entry whose baseline is by construction stale. If the observation lands in a
-	 * throwaway, the *next* edit to that path is recorded against the stale baseline and refused too.
-	 * So the session has to hand over its own journal, and this is what says it did: the rename below
-	 * records through `Autosave` into that same instance.
+	 * This is the whole value of the read-path seam, driven end to end: **the same sequence answered
+	 * `'cannot-tell-which-is-newer'` before it existed.**
+	 *
+	 * A journal entry has to say what its edit was made against, and nothing on the *write* side can
+	 * tell it — `record` is synchronous and `Autosave` only learns what the store holds when a write
+	 * is acknowledged, which is the case that already worked. Opening the Project is the read that
+	 * makes it knowable, and it is a read the application was doing anyway.
 	 */
-	it('hands the replay its own journal, so a refusal does not outlive the run', async () => {
+	it('puts a stranded edit back at the next startup, because opening the Project said what was on disk', async () => {
 		const { session, storage, store } = await sessionWithJournal();
 		const path = projectFilePath(DIRECTORY);
-		const journal = new WriteAheadJournal(storage, WORKSPACE);
-		journal.record(path, new TextEncoder().encode('an interrupted rename') as Bytes);
-		// Something outside `Autosave` writing the same path, which is what makes replay refuse. A real
-		// manifest, because the rename below has to be able to read it.
+		const onDisk = await store.read(path);
+
+		// The read that already happens. Nothing is written by it (ADR-0010).
+		await session.open(DIRECTORY);
+
+		// The scholar renames, and the store refuses the write: the edit is stranded, and its journal
+		// entry is now the only copy of it.
+		const write = store.write.bind(store);
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session
+			.renameProject(DIRECTORY, 'A name that did not reach the disk')
+			.catch(() => undefined);
+		expect(readJournal(storage, WORKSPACE).entries[0]?.held).toBe(fingerprintOf(onDisk));
+
+		// A new tab, with the drive back.
+		store.write = write;
+		await session.replayJournalledEdits();
+
+		expect(session.replayReport?.restored).toEqual([path]);
+		expect(session.replayReport?.skipped).toEqual([]);
+		expect(new TextDecoder().decode(await store.read(path))).toContain(
+			'A name that did not reach the disk'
+		);
+	});
+
+	/**
+	 * The same seam on the file a scholar actually edits all day.
+	 *
+	 * Deliberately a collection **already on disk that this session never wrote**: a Layer added in
+	 * this session has its baseline from the `forget` of its own first write, which is the case that
+	 * worked before ticket 07. Last week's Annotations, opened today, are the case that did not.
+	 */
+	it.each([
+		['readAnnotations', (s: EditorSession, l: AnnotationLayer) => s.readAnnotations(l)],
+		['readLayerFeatures', (s: EditorSession, l: AnnotationLayer) => s.readLayerFeatures(l)]
+	])('says what an Annotation collection held, from %s', async (_name, read) => {
+		// ⚠ **Both readers, because they are two methods over one file.** The Layer stack draws through
+		// `readLayerFeatures` and the editing surface through `readAnnotations`, and a scholar can reach
+		// an edit through either — so a baseline that only one of them supplied would be missing on
+		// whichever route they happened to take.
+		const { session, storage, store } = await sessionWithJournal();
+		const layer = newAnnotationLayer({ id: 'one', name: 'Warehouses' });
+		const path = `${DIRECTORY}/${layer.geojsonRef}` as StorePath;
+		const onDisk = new TextEncoder().encode(
+			'{"type":"FeatureCollection","features":[],"note":"last week"}'
+		) as Bytes;
+		await store.write(path, onDisk);
+		await store.write(
+			projectFilePath(DIRECTORY),
+			serialiseProjectFile({
+				...newProjectFile('Amsterdam 1625', new Date('2026-08-08T00:00:00Z')),
+				layers: [layer]
+			})
+		);
+		await session.open(DIRECTORY);
+
+		await read(session, layer);
+
+		// The scholar edits, and the write strands.
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session
+			.writeAnnotations(layer, { ...emptyAnnotationCollection(), annotations: [] })
+			.catch(() => undefined);
+
+		expect(readJournal(storage, WORKSPACE).entries.find((entry) => entry.path === path)?.held).toBe(
+			fingerprintOf(onDisk)
+		);
+	});
+
+	/**
+	 * And the third read, the one whose file is shared by every Project that draws the map.
+	 *
+	 * Worth its own test rather than folded into the two above: an Alignment is written through
+	 * `alignment-file.ts` and read through a different method from either of them, so "the read paths
+	 * report" is three call sites and not one.
+	 */
+	it.each([
+		[
+			'readAlignment',
+			(sn: EditorSession, image: { width: number; height: number }) =>
+				sn.readAlignment('floride-1657', image)
+		],
+		[
+			'readLayerAlignment',
+			(sn: EditorSession) =>
+				sn.readLayerAlignment(newMapLayer({ id: 'l', name: 'La Floride', imageId: 'floride-1657' }))
+		]
+	])('says what an Alignment held, from %s', async (_name, read) => {
+		// ⚠ **Both readers, one per test row.** The alignment editor reads through the first and the
+		// Project screen draws through the second; a scholar reaches an edit by either route. Driving
+		// them in one test would let each one cover for the other's deletion, which is the coincidence
+		// that has hidden two defects in this ticket already.
+		const { session, storage, store } = await sessionWithJournal();
+		const image = { width: 400, height: 300 };
+		const onDisk = serialiseAlignment({
+			...newAlignment('floride-1657', image),
+			controlPoints: [
+				{ id: 'p0', ordinal: 1, resource: { x: 10, y: 20 }, geo: { lng: 4.9, lat: 52.3 } }
+			]
+		});
+		// alignment-write-is-the-fixture: last week's Alignment, on disk before this session started; the point of the test is that reading it is what tells the journal what the edit is made against
+		await store.write(alignmentPath('floride-1657') as StorePath, onDisk);
+		await session.open(DIRECTORY);
+
+		const alignment = await read(session, image);
+		if (alignment === null) throw new Error('the fixture Alignment did not read back');
+
+		// Another Control Point, and the store refuses the write.
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session
+			.writeAlignment({
+				...alignment,
+				controlPoints: [
+					...alignment.controlPoints,
+					{ id: 'p1', ordinal: 2, resource: { x: 30, y: 40 }, geo: { lng: 5.0, lat: 52.4 } }
+				]
+			})
+			.catch(() => undefined);
+
+		expect(
+			readJournal(storage, WORKSPACE).entries.find(
+				(entry) => entry.path === alignmentPath('floride-1657')
+			)?.held
+		).toBe(fingerprintOf(onDisk));
+	});
+
+	/**
+	 * ⚠ **The one thing the seam must not buy back.** Reading fixes what the edit was made against; it
+	 * does not license writing over whatever turns up later. A Workspace restore between the read and
+	 * the startup still has to be refused.
+	 */
+	it('still refuses to put that edit back over something written after it', async () => {
+		const { session, storage, store } = await sessionWithJournal();
+		const path = projectFilePath(DIRECTORY);
+
+		await session.open(DIRECTORY);
+
+		const write = store.write.bind(store);
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session
+			.renameProject(DIRECTORY, 'A name that did not reach the disk')
+			.catch(() => undefined);
+		store.write = write;
+		// Something outside `Autosave` — a tar restored into this Workspace — writing the same path.
 		const colleague = serialiseProjectFile(
 			newProjectFile('The colleague’s name', new Date('2026-08-09T00:00:00Z'))
 		);
 		await store.write(path, colleague);
-		// A baseline for that entry, so the refusal is reached rather than the undecidable row.
-		storage.items.set(
-			[...storage.items.keys()].find((key) => key.includes('project.json')) ?? '',
-			JSON.stringify({
-				formatVersion: 1,
-				at: '',
-				held: fingerprintOf(new TextEncoder().encode('v1') as Bytes),
-				bytes: btoa('an interrupted rename')
-			})
-		);
 
 		await session.replayJournalledEdits();
+
+		expect(session.replayReport?.restored).toEqual([]);
 		expect(session.replayReport?.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
-
-		// The scholar carries on, on the version that is really on disk, and this write strands too —
-		// which is what leaves an entry to read the baseline off. It records through the session's
-		// journal: the one the replay was handed, and told what the store holds.
-		store.write = () => Promise.reject(new Error('the drive is not there'));
-		await session.renameProject(DIRECTORY, 'A name typed after the refusal').catch(() => undefined);
-
-		expect(readJournal(storage, WORKSPACE).entries[0]?.held).toBe(fingerprintOf(colleague));
+		expect(await store.read(path)).toEqual(colleague);
+		// And the scholar's copy is still held, which is what makes the refusal safe to make.
+		expect(readJournal(storage, WORKSPACE).entries.map((entry) => entry.path)).toEqual([path]);
 	});
 
 	/** And the record carries what the hub was showing, which is what a startup checks before removing. */

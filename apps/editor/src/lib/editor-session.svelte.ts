@@ -89,6 +89,7 @@ import {
 	type AnnotationLayer,
 	type BaseMapCacheSize,
 	type Bytes,
+	type StorePath,
 	type CachedTileSource,
 	type FetchFn,
 	type FetchTilesOptions,
@@ -635,6 +636,9 @@ export class EditorSession {
 			// `'a-name-anywhere'`, which is the direction that destroys nothing, rather than leaving
 			// the safe answer to a ternary a reader has to check.
 			identity: workspaceIdentityOf(options.workspaceKey ?? ''),
+			// What a `project.json` held when it was read, handed to the journal (ticket 07). See
+			// {@link #observeStoreContent} for why the read path is where this has to come from.
+			onStoreContent: (path, bytes) => this.#observeStoreContent(path, bytes),
 			onDeletionNotRecorded: () => {
 				this.deletionWarning =
 					'This browser would not let Ballastella write the deletion down, so it is only as ' +
@@ -740,6 +744,15 @@ export class EditorSession {
 				// what it read off the store outlives the call (ticket 07). A `'superseded'` skip keeps
 				// an entry whose baseline is provably stale, and this is what stops that one refusal
 				// becoming a standing refusal for every later edit to the same path.
+				//
+				// ⚠ **Reachability is not claimed, and the measurement is why** — the same standard
+				// `Autosave.#forget` sets for its own guard. Round 4 added the read-path seam
+				// ({@link #observeStoreContent}), and this replay runs at startup, *before* any Project
+				// can be opened; every write path in this class reads before it writes. So in this
+				// application the later read always overwrites what the replay observed, and deleting
+				// this word turns no test in this file red. It stays because `replayJournal` is not
+				// this class's alone — `replay.test.ts` drives a caller with no read path, where it is
+				// load-bearing, and the two-session test there goes red without it.
 				journal
 			});
 			this.replayReport = replayIsNoteworthy(report) ? report : null;
@@ -747,6 +760,42 @@ export class EditorSession {
 			// A store that cannot even be listed. The entries stay where they are, and the listing
 			// beside this is what tells the user the Workspace is unreachable.
 		}
+	}
+
+	/**
+	 * Tell the write-ahead journal what the store held for a path, from a read that has just resolved.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHY THE READ PATH IS WHERE THIS COMES FROM, AND WHY NOWHERE ELSE WOULD DO
+	 *
+	 * A journal entry has to record what the edit was made *against*, or a replay at the next startup
+	 * cannot tell a stranded write from a revert and has to ask the scholar instead
+	 * (`ReplaySkipReason: 'cannot-tell-which-is-newer'`). Two other places were tried on paper and
+	 * neither works:
+	 *
+	 *   - **`WriteAheadJournal.record` reading the store.** It is synchronous by contract — that is the
+	 *     whole of why the journal exists, because a document being unloaded does not run a
+	 *     continuation — and `ProjectStore.read` is not.
+	 *   - **`Autosave` supplying it.** `Autosave` learns what the store holds only when a write is
+	 *     *acknowledged*, so it could supply a baseline only for paths whose writes have already
+	 *     succeeded — which is exactly the set that already had one. It would have looked like a fix
+	 *     and closed nothing.
+	 *
+	 * What is left is the read this application has already done. **A file cannot be edited before it
+	 * has been shown**, so by the time an edit exists its bytes have been in hand, at no extra I/O and
+	 * with no race: the read has resolved, the edit has not happened yet, and the journal's record is
+	 * synchronous.
+	 *
+	 * ⚠ **A stale observation refuses; it never overwrites.** If something writes the path between the
+	 * read and the edit, the baseline is wrong — and `replay.ts` reads a baseline only to *refuse* a
+	 * write, so the cost is a rescue the scholar is asked about rather than a colleague's work lost.
+	 * That is the same direction every other imprecision in this field takes.
+	 *
+	 * Called only for reads that **succeeded**. An absent or unreadable file says nothing about what
+	 * the store holds, and guessing is what this exists to avoid.
+	 */
+	#observeStoreContent(path: StorePath, bytes: Bytes): void {
+		this.#journal?.observe(path, bytes);
 	}
 
 	/**
@@ -1196,6 +1245,9 @@ export class EditorSession {
 			// `Alignment.unmodelled` means a re-serialisation of the same document can differ. Held
 			// here because this is the moment the user's view of the file is fixed (ticket 07).
 			this.#alignmentOnDisk.set(imageId, bytes);
+			// And the same fact, to the journal, for the same reason one line up — the two baselines
+			// answer different questions (a concurrent edit, and a revert at startup) off one read.
+			this.#observeStoreContent(alignmentPath(imageId), bytes);
 			return parseAlignment(bytes, { imageId });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) {
@@ -2763,7 +2815,9 @@ export class EditorSession {
 		const { imageId } = layer;
 		if (imageId === '') return null;
 		try {
-			return parseAlignment(await this.#store.read(alignmentPath(imageId)), { imageId });
+			const bytes = await this.#store.read(alignmentPath(imageId));
+			this.#observeStoreContent(alignmentPath(imageId), bytes);
+			return parseAlignment(bytes, { imageId });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return null;
 			throw cause;
@@ -2781,7 +2835,9 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || layer.geojsonRef === '') return null;
 		try {
-			const bytes = await this.#store.read(`${directory}/${layer.geojsonRef}`);
+			const path = `${directory}/${layer.geojsonRef}`;
+			const bytes = await this.#store.read(path);
+			this.#observeStoreContent(path, bytes);
 			return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return null;
@@ -2804,9 +2860,10 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || layer.geojsonRef === '') return emptyCollection();
 		try {
-			return parseAnnotations(await this.#store.read(`${directory}/${layer.geojsonRef}`), {
-				path: layer.geojsonRef
-			});
+			const path = `${directory}/${layer.geojsonRef}`;
+			const bytes = await this.#store.read(path);
+			this.#observeStoreContent(path, bytes);
+			return parseAnnotations(bytes, { path: layer.geojsonRef });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return emptyCollection();
 			// A file that is there and unreadable must say so, for the same reason `readAlignment`

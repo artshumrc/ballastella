@@ -15,7 +15,13 @@ import {
 	serialiseProjectFile,
 	type ProjectFile
 } from './project-file.js';
-import { PathNotFoundError, topLevelSegment, type ProjectStore } from '../store/project-store.js';
+import {
+	PathNotFoundError,
+	topLevelSegment,
+	type Bytes,
+	type ProjectStore,
+	type StorePath
+} from '../store/project-store.js';
 
 /**
  * The Workspace directories that are not Projects and never can be (ADR-0023).
@@ -167,6 +173,26 @@ export interface WorkspaceOptions {
 	 * asks for two refusals rather than one.
 	 */
 	readonly onDeletionNotRecorded?: (directory: string) => void;
+	/**
+	 * Told what the store held for a path, at the moment this Workspace read it (ticket 07).
+	 *
+	 * ⚠ **This is what makes a stranded write recoverable rather than merely reported.** The
+	 * write-ahead journal has to record, synchronously, what an edit was made *against*, and it
+	 * cannot read the store to find out — `WriteAheadJournal.record` is synchronous by contract, and
+	 * `Autosave` only ever learns what the store holds when a write is acknowledged, which is the one
+	 * case that already worked. What is left is the read the application has already done: a Project
+	 * is read before it can be edited, so the bytes are in hand at exactly the right moment.
+	 *
+	 * A callback rather than the journal itself, because a `Workspace` has no business holding one:
+	 * this is a fact it happens to know and somebody else needs, and nothing here reads it back.
+	 *
+	 * Called for every read that **arrived**, including one whose bytes this build then refuses to
+	 * parse: a failed read and a failed parse are different events, and the second one still knows
+	 * exactly what the store holds. Nothing is reported when the read itself rejected — an absent or
+	 * unreachable file tells nobody anything, and a guess in either direction is worse than the
+	 * `'cannot-tell-which-is-newer'` this exists to avoid.
+	 */
+	readonly onStoreContent?: (path: StorePath, bytes: Bytes) => void;
 }
 
 /** Why an unfinished deletion was not carried out, in one sentence written for the user. */
@@ -251,6 +277,7 @@ export class Workspace {
 	readonly #now: () => Date;
 	readonly #deleted: DeletedProjects | undefined;
 	readonly #onDeletionNotRecorded: (directory: string) => void;
+	readonly #onStoreContent: (path: StorePath, bytes: Bytes) => void;
 	readonly #identity: WorkspaceIdentity;
 
 	constructor(store: ProjectStore, options: WorkspaceOptions = {}) {
@@ -259,6 +286,7 @@ export class Workspace {
 		this.#now = options.now ?? (() => new Date());
 		this.#deleted = options.deleted;
 		this.#onDeletionNotRecorded = options.onDeletionNotRecorded ?? (() => undefined);
+		this.#onStoreContent = options.onStoreContent ?? (() => undefined);
 		// The safe answer by default. See {@link WorkspaceIdentity}: a caller that has not said which
 		// it is has not established identity, and unattended destruction is what that licenses.
 		this.#identity = options.identity ?? 'a-name-anywhere';
@@ -300,7 +328,16 @@ export class Workspace {
 	 * @throws ProjectFormatTooNewError for a Project from a newer version of the app
 	 */
 	async readProject(directory: string): Promise<ProjectFile> {
-		return parseProjectFile(await this.#store.read(projectFilePath(directory)));
+		const path = projectFilePath(directory);
+		const bytes = await this.#store.read(path);
+		// ⚠ **Before the parse, and of the bytes rather than the model** (ticket 07). This is the
+		// moment the user's view of the file is fixed, and what a later edit will have been made
+		// against is these bytes exactly — a re-serialisation of the parsed model is merely
+		// equivalent, and `serialiseProjectFile` stamps `updatedAt`, so a round trip would report
+		// content the store has never held. Before the parse rather than after, because bytes that
+		// arrived and did not parse are still bytes the store demonstrably holds.
+		this.#onStoreContent(path, bytes);
+		return parseProjectFile(bytes);
 	}
 
 	/**
