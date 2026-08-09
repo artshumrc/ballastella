@@ -118,107 +118,79 @@ if (!source.includes('this.fetchFn')) {
 // all use.
 
 /**
- * `source` with its **comments blanked out**, character for character, so that a comment can never
- * satisfy a code check and every offset stays where it was.
+ * `source` with its **full-line `//` comments blanked**, and nothing else touched.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
- * WHY THIS IS A SCANNER AND NOT A LINE FILTER
+ * WHY THIS IS FOUR LINES NOW, AFTER THREE CLEVERER VERSIONS EACH SHIPPED A FALSE GREEN
  *
- * ⚠ **The line filter this replaced deleted real code, two ways, and each produced a FALSE GREEN**
- * against this guard's own stated threat model — a second call site arriving with a version move:
+ * The history is the argument, so it is written down rather than summarised:
  *
- *   - it dropped any line whose first non-space character was `*`, meant for a JSDoc continuation,
- *     which also swallows `*g() { this.loadMissingImagesInViewport(); }` — a generator method, valid
- *     in a class body;
- *   - it dropped the whole line that *closes* a block comment, so `more (star-slash)
- *     this.loadMissingImagesInViewport();` vanished — and a closing delimiter with code after it on
- *     the same line is a shape bundlers emit around licence banners.
+ *   1. `includes('Promise.allSettled(this.loadMissingImagesInViewport())')` — satisfied by the
+ *      patch's own comment. Deleting the line of code left the check green.
+ *   2. A line filter. It dropped any line starting with `*`, which swallows a generator method, and
+ *      dropped the whole line that *closes* a block comment, which swallows code after a closing delimiter.
+ *   3. A hand-rolled scanner that tracked strings and block comments. It was not regex-aware, so the
+ *      `/` in an everyday `url.replace(/\/*$/, '')` opened a phantom block comment that never
+ *      closed — and it blanked **the rest of the file**, hiding two unhandled call sites. Its
+ *      docblock's central claim was "blanking too much hides real code and passes silently", which
+ *      is precisely what it then did.
  *
- * Both are `KNOWN_BAD` specimens now. The lesson is the one this file already records twice: a check
- * that deletes text in order to decide something has to be able to say exactly what it deleted.
+ * Each attempt was more code defending a narrower claim, and each was wrong in a new way. Lexing a
+ * third-party bundle by hand is a losing game; the fourth version stops playing it.
  *
- * **The direction of every remaining approximation is deliberate.** Blanking too little makes a
- * comment look like code, which fails LOUDLY and a human reads it. Blanking too much hides real code
- * and passes silently. So:
+ * **What is left is the one deletion that can be proved safe.** A line whose first non-whitespace
+ * characters are `//` cannot be executable JavaScript: either it is a comment, or it is inside a
+ * template literal or a multi-line string — in which case it is data, and data is not a call the
+ * renderer makes. No other text is removed, so no other text can be hidden.
  *
- *   - a `//` comment is recognised only at the **start of a line**. A trailing `// ...` is left in
- *     place, because deciding whether a mid-line `//` opens a comment, closes a regular expression,
- *     or sits inside a URL in a string is exactly the ambiguity that produced the last two bugs.
- *   - a block comment is matched as a span, with string literals skipped first so that a delimiter
- *     inside one cannot open a phantom comment.
- *   - string **contents** are kept. A call spelled inside a string would be read as code and
- *     refused — noisy, and in a `dist` bundle inconceivable, but wrong in the safe direction.
+ * Blanked rather than deleted so the output lines up with the input line for line, which matters
+ * only when reading it: the check that follows tolerates `\s*` between its tokens, so the two are
+ * equivalent to it. Said here rather than left as a claim the code does not need.
+ *
+ * ⚠ **The cost, stated rather than engineered around: a block comment or a string that spells the
+ * identifier unhandled produces a false RED.** That is the direction this check is now allowed to be
+ * wrong in — loudly, with a human reading the message — and `REFUSED_BUT_HARMLESS` below carries the
+ * specimens so the trade is encoded and not merely described. The one such comment in the scanned
+ * file today is the patch's own, and it is written on `//` lines for exactly this reason.
  */
-const codeOf = (source) => {
-	const out = [...source];
-	const blank = (from, to) => {
-		for (let at = from; at < to; at += 1) if (out[at] !== '\n') out[at] = ' ';
-	};
-	let at = 0;
-	let lineStart = true;
-	while (at < source.length) {
-		const here = source[at];
-		if (here === '\n') {
-			lineStart = true;
-			at += 1;
-			continue;
-		}
-		if (lineStart && (here === ' ' || here === '\t')) {
-			at += 1;
-			continue;
-		}
-		// A line comment, only where a line begins with one.
-		if (lineStart && here === '/' && source[at + 1] === '/') {
-			const end = source.indexOf('\n', at);
-			const stop = end === -1 ? source.length : end;
-			blank(at, stop);
-			at = stop;
-			continue;
-		}
-		lineStart = false;
-		// A block comment, wherever it starts, blanked up to and including its close.
-		if (here === '/' && source[at + 1] === '*') {
-			const close = source.indexOf('*/', at + 2);
-			const end = close === -1 ? source.length : close + 2;
-			blank(at, end);
-			at = end;
-			continue;
-		}
-		// A string literal: stepped over whole, contents kept, so its delimiters cannot open a
-		// comment and a `//` in a URL cannot swallow the rest of the line.
-		if (here === "'" || here === '"' || here === '`') {
-			at += 1;
-			while (at < source.length && source[at] !== here) {
-				at += source[at] === '\\' ? 2 : 1;
-			}
-			at += 1;
-			continue;
-		}
-		at += 1;
-	}
-	return out.join('');
-};
+const codeOf = (source) =>
+	source
+		.split('\n')
+		.map((line) => (line.trimStart().startsWith('//') ? ' '.repeat(line.length) : line))
+		.join('\n');
 
-/** Where the array of promises has to be going, immediately before the call that produces it. */
-const HANDED_TO_ALLSETTLED = /Promise\s*\.\s*allSettled\(\s*$/;
+/** Where the call has to be going, immediately before it. */
+const HANDED_TO_ALLSETTLED = /Promise\s*\.\s*allSettled\(\s*this\s*\.\s*$/;
 
-const CALL = 'this.loadMissingImagesInViewport()';
+/**
+ * The method, by name rather than by call text.
+ *
+ * Matching `'this.loadMissingImagesInViewport()'` literally missed a second call site spelled with a
+ * newline between its parentheses — invisible, and green, because a good call site existed elsewhere.
+ * The name cannot be spelled two ways.
+ */
+const METHOD = 'loadMissingImagesInViewport';
 
 /**
  * Why `source` is not patched, or `null` when it is.
  *
- * ⚠ **Every call site is checked, not "is there a good one somewhere".** The check is that each
- * occurrence of the call is handed straight to `Promise.allSettled` — so a second call site added by
- * a version move, beside a first one the patch still applies to perfectly, is caught. pnpm applying
- * a patch says nothing whatever about a call site that did not exist when the patch was written.
+ * ⚠ **Every occurrence is checked, not "is there a good one somewhere".** A second call site added
+ * by a version move, beside a first the patch still applies to perfectly, is the failure this exists
+ * for: pnpm applying a patch says nothing whatever about code that did not exist when it was written.
+ *
+ * ⚠ **What this does and does not catch, plainly.** It catches: the hunk reverted or removed, the
+ * call handed to something other than `Promise.allSettled`, and any further occurrence of the method
+ * name not immediately preceded by that call. It does **not** distinguish code from a block comment
+ * or a string — an occurrence in either is treated as code and refused. It cannot pass a file
+ * containing an unhandled call, and that is the only property it claims.
  */
 const dropsTheImagePromises = (source) => {
 	const code = codeOf(source);
 	let found = 0;
-	for (let at = code.indexOf(CALL); at !== -1; at = code.indexOf(CALL, at + CALL.length)) {
+	for (let at = code.indexOf(METHOD); at !== -1; at = code.indexOf(METHOD, at + METHOD.length)) {
 		found += 1;
 		if (!HANDED_TO_ALLSETTLED.test(code.slice(0, at))) {
-			return `a call to \`loadMissingImagesInViewport()\` drops the promises it returns`;
+			return 'a call to `loadMissingImagesInViewport()` drops the promises it returns';
 		}
 	}
 	if (found === 0) return '`loadMissingImagesInViewport()` is not called at all any more';
@@ -289,18 +261,91 @@ const KNOWN_GOOD = [
 	`${PATCH_COMMENT}\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());`,
 	'\t\tawait Promise.allSettled(this.loadMissingImagesInViewport());',
 	'\t\tawait Promise.allSettled( this.loadMissingImagesInViewport() );',
-	// A comment that *mentions* an unhandled call is not one. This is what `codeOf` exists for, and
-	// the patch's own comment is an instance of it.
+	// A full-line `//` comment mentioning the method unhandled: blanked, so it does not count. This
+	// is the one deletion this check makes, and the patch's own comment is an instance of it.
 	'\t\t// this.loadMissingImagesInViewport();\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());',
-	'\t\t/* this.loadMissingImagesInViewport(); */\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());',
-	// A trailing comment after real code: left in place rather than risking the line, and nothing
-	// here needs it gone.
+	// A trailing comment after real code, mentioning nothing.
 	'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport()); // settled, not awaited'
+];
+
+/**
+ * Spellings this check **refuses even though they are harmless**, listed so the trade is encoded.
+ *
+ * Every one is a mention of the method somewhere that is not executable code, in a position this
+ * version deliberately declines to reason about. The failure is a red build with a message a human
+ * reads, which is the cheap direction; the expensive direction — passing a file that really does
+ * drop the promises — is the one three earlier versions took, each in a different way.
+ *
+ * If one of these ever appears in the scanned file, the fix is to reword it, not to make the check
+ * cleverer.
+ */
+const REFUSED_BUT_HARMLESS = [
+	{
+		source:
+			'\t\t/* this.loadMissingImagesInViewport(); */\n' +
+			'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());',
+		expect: 'a block comment mentioning the method unhandled'
+	},
+	{
+		source:
+			'\t\tconst what = "this.loadMissingImagesInViewport()";\n' +
+			'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());',
+		expect: 'the method named inside a string literal'
+	}
+];
+
+/**
+ * Sources that broke an earlier version of this check by making it delete text it should not have.
+ *
+ * ⚠ **This is the regression list for the whole class**, and the third false green is in it: a
+ * trailing-slash-stripping regular expression, `url.replace(/\/*$/, '')`, left a bare `/*` that the
+ * scanner read as an unterminated block comment and blanked the rest of the file with. Every entry
+ * carries an unhandled call *after* the awkward construct, so a version that hides text hides the
+ * call and passes.
+ */
+const MUST_STILL_SEE_THE_CALL = [
+	{
+		source:
+			'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());\n' +
+			"\t\tconst base = url.replace(/\\/*$/, '');\n" +
+			'\t\tthis.loadMissingImagesInViewport();',
+		expect: 'an unhandled call after a regular expression containing an escaped slash'
+	},
+	{
+		source:
+			'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());\n' +
+			'\t\t/* never closed\n' +
+			'\t\tthis.loadMissingImagesInViewport();',
+		expect: 'an unhandled call after an unterminated block comment'
+	},
+	{
+		source:
+			'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());\n' +
+			'\t\tconst s = "a // b";\n' +
+			'\t\tthis.loadMissingImagesInViewport();',
+		expect: 'an unhandled call after a string containing a comment opener'
+	},
+	{
+		source:
+			'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());\n' +
+			'\t\tthis.loadMissingImagesInViewport(\n\t\t);',
+		expect: 'a second call spelled with a newline between its parentheses'
+	}
 ];
 
 const controlFailures = [];
 for (const { source, expect } of KNOWN_BAD) {
 	if (dropsTheImagePromises(source) === null) controlFailures.push(`${expect} is no longer caught`);
+}
+for (const { source, expect } of MUST_STILL_SEE_THE_CALL) {
+	if (dropsTheImagePromises(source) === null) controlFailures.push(`${expect} is no longer caught`);
+}
+for (const { source, expect } of REFUSED_BUT_HARMLESS) {
+	// Asserted as refused, so that a future version quietly starting to allow one of these is a
+	// change somebody has to come here and make deliberately.
+	if (dropsTheImagePromises(source) === null) {
+		controlFailures.push(`${expect} is now allowed — that is a change, make it on purpose`);
+	}
 }
 for (const source of KNOWN_GOOD) {
 	const why = dropsTheImagePromises(source);

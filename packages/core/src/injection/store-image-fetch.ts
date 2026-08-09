@@ -305,10 +305,14 @@ function refusal(failure: TileSourceFailure): Response {
  * messages are full of typographic dashes and curly quotes. A first version of this folded only
  * `< 0x20` and would have thrown on the shim's own wording.
  *
- * So the filter is the grammar rather than a list of things noticed: `HTAB`, `SP`, and `VCHAR`
- * (0x21–0x7E) survive, everything else becomes a space. Then collapsed, trimmed, and cut short,
- * because a reason-phrase is a label and not a log. Iterated by code point, so an astral character
- * becomes one space rather than two.
+ * So the filter is the grammar rather than a list of things noticed: `SP` and `VCHAR` (0x20–0x7E)
+ * survive, everything else becomes a space. Then collapsed, trimmed, and cut short, because a
+ * reason-phrase is a label and not a log.
+ *
+ * Two small corrections to what this used to say about itself. `HTAB` was named as a third survivor;
+ * it is legal in a reason-phrase, but the collapse turns it into a space either way, so the branch
+ * was dead and is gone. And the code-point iteration was credited with turning an astral character
+ * into one space rather than two — the collapse does that, whatever the iteration produces.
  *
  * ⚠ **Those characters are FOLDED, not carried.** This is the transport that cannot take them, so
  * `“abc123” could not be opened` reaches the editor's sentence as `abc123 could not be opened` —
@@ -320,7 +324,7 @@ const reasonPhrase = (detail: string): string =>
 	[...detail]
 		.map((character) => {
 			const code = character.codePointAt(0) ?? 0;
-			return code === 0x09 || (code >= 0x20 && code <= 0x7e) ? character : ' ';
+			return code >= 0x20 && code <= 0x7e ? character : ' ';
 		})
 		.join('')
 		.replace(/\s+/g, ' ')
@@ -436,12 +440,43 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 	// them rather than promising the map will heal on its own. See `tile-failure.ts`, and the two
 	// end-to-end tests that measure which failures self-heal and which do not.
 	//
-	// Both collections are keyed by URL and so are bounded by the pyramid, which is the same bound
-	// the renderer's own tile cache carries.
+	// ⚠ **What each collection holds, because an earlier comment here got the bound wrong twice in
+	// one sentence.** `outstanding` holds URLs that were refused and have not come back; it deletes on
+	// arrival, so it is as large as the map's current shortfall. `arrivedAt` is bookkeeping for the
+	// race above and is needed only while a request for that URL is still in flight, so it is dropped
+	// when the last one settles — a handful of entries, not one per URL of the session. The comment
+	// this replaces claimed both were "bounded by the pyramid, which is the same bound the renderer's
+	// own tile cache carries": `arrivedAt` had no delete at all and grew monotonically, and the
+	// renderer's cache is bounded by the viewport neighbourhood and *shrinks* (`TileCache.prune`).
+	// Neither half was true.
+	//
+	// ⚠ **What the tests do and do not hold here, measured rather than assumed.** Forgetting a URL's
+	// timestamp *too early* is caught — `does not report a refusal for bytes an overlapping request
+	// already brought back` goes red the moment `closed` stops waiting for the last request. Never
+	// forgetting at all is **not** caught, and cannot be: keeping an entry longer than necessary is
+	// behaviourally identical to keeping it for ever, so deleting `arrivedAt.delete(url)` leaves the
+	// suite green. So the half that can be wrong is pinned and the half that can only waste memory is
+	// not, and that is written here so the next reader does not have to rediscover which is which.
 	const outstanding = new Set<string>();
 	const arrivedAt = new Map<string, number>();
+	const inFlight = new Map<string, number>();
 	let clock = 0;
 	const tick = (): number => (clock += 1);
+
+	const opened = (url: string): void => {
+		inFlight.set(url, (inFlight.get(url) ?? 0) + 1);
+	};
+	const closed = (url: string): void => {
+		const left = (inFlight.get(url) ?? 1) - 1;
+		if (left > 0) {
+			inFlight.set(url, left);
+			return;
+		}
+		// Nothing is asking for this URL any more, so no refusal can still be in flight against an
+		// arrival of it. The timestamp has nothing left to decide.
+		inFlight.delete(url);
+		arrivedAt.delete(url);
+	};
 
 	/**
 	 * Hand an outcome to the app, and never let the app's own failure destroy this request.
@@ -484,7 +519,7 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 		tell({ ok: false, failure, imageId });
 	};
 
-	return async (input, init) => {
+	const answer: FetchFn = async (input, init) => {
 		const url = urlOf(input);
 		const issuedAt = tick();
 
@@ -586,6 +621,19 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 		return method === 'HEAD'
 			? new Response(null, { status: 200, headers })
 			: new Response(bytes, { status: 200, headers });
+	};
+
+	// The in-flight bookkeeping wraps every path, including the ones that answer without a read — a
+	// 405 or a malformed path opened a request too, and one that never closed would pin `arrivedAt`
+	// for ever. It calls no subscriber, so a throwing `onOutcome` cannot reach it.
+	return async (input, init) => {
+		const url = urlOf(input);
+		opened(url);
+		try {
+			return await answer(input, init);
+		} finally {
+			closed(url);
+		}
 	};
 }
 

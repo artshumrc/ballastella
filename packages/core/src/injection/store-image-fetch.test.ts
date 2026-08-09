@@ -564,6 +564,43 @@ describe('createStoreImageFetch', () => {
 		]);
 	});
 
+	it('reports a refusal issued after the bytes arrived, even with an older request still in flight', async () => {
+		// ⚠ **Three overlapping requests, which is the shape that tells the rule from a near-miss.**
+		// Bounding `arrivedAt` — forgetting a URL once nothing is asking for it — made the simple
+		// serial case indistinguishable from `if (arrivedAt.has(url)) return`, because by then the
+		// entry is gone either way. It takes a *third* request, keeping the entry alive, to show that
+		// the comparison is against **when this request was issued** and not merely "has this URL ever
+		// arrived": a refusal issued after the bytes were seen is news, and must be said.
+		const url = placeholderTile;
+		let releaseFirst: (() => void) | undefined;
+		let call = 0;
+		const store: ReadOnlyProjectStore = {
+			read: async (path) => {
+				call += 1;
+				if (call === 1) {
+					// The long-running request that keeps the bookkeeping alive; its own answer is bytes.
+					await new Promise<void>((resolve) => (releaseFirst = resolve));
+					return new TextEncoder().encode('bytes');
+				}
+				if (call === 2) return new TextEncoder().encode('bytes');
+				throw new SiteFileUnreachableError(path, path, 0, 'gone after that');
+			}
+		};
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({ store, onOutcome: (o) => outcomes.push(o) });
+
+		const first = fetchImage(url); // in flight throughout
+		await fetchImage(url); // arrives, stamping the URL
+		await fetchImage(url); // issued after that arrival, and refused — this is news
+
+		expect(outcomes).toEqual([
+			{ ok: false, failure: { kind: 'no-answer', host: null }, imageId: 'abc123' }
+		]);
+
+		releaseFirst!();
+		await first;
+	});
+
 	it('does not take a notice down because a refused URL later answered with an error', async () => {
 		// ⚠ **The `response.ok` gate on the pass-through half.** Without it, a URL that was refused and
 		// then answers **500** counts as arrived — a notice withdrawn over a map that is still broken,
@@ -609,14 +646,28 @@ describe('createStoreImageFetch', () => {
 				}
 			}
 		]) {
-			const { fetchImage } = outcomesOf(
+			const { fetchImage, outcomes } = outcomesOf(
 				refusingStore(() => {
 					throw cause;
 				})
 			);
 
 			const response = await fetchImage(placeholderTile);
+
+			// It did not throw…
 			expect(response.status).toBe(500);
+			// …and it **described** it, which is the first half of this test's own title and was for
+			// one commit the half it did not assert. The fallback is human-facing text that reaches
+			// `statusText` verbatim and from there the editor's sentence, so replacing it with `''` —
+			// or with "the tiles are fine" — has to turn something red.
+			expect(response.statusText).toContain('the reason could not be read');
+			expect(outcomes).toEqual([
+				{
+					ok: false,
+					failure: { kind: 'unreadable', host: null, detail: 'the reason could not be read' },
+					imageId: 'abc123'
+				}
+			]);
 		}
 	});
 
