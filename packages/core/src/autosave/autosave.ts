@@ -291,9 +291,9 @@ export class Autosave {
 			file.pending = undefined;
 			file.error = undefined;
 			file.journalRefusal = undefined;
-			this.#journal?.forget(path);
-			// A write already in flight owns this entry until it settles; `#drain`'s `finally` is what
-			// removes it, and removing it here would let a second drain start for the same path.
+			this.#forget(path);
+			// A write already in flight owns this entry until it settles; `#drainLoop`'s `finally` is
+			// what removes it, and removing it here would let a second drain start for the same path.
 			if (file.draining) inFlight.push(file.draining);
 			else this.#files.delete(path);
 		}
@@ -410,6 +410,68 @@ export class Autosave {
 	}
 
 	/**
+	 * Drop `path`'s journal entry, and **never throw for it**.
+	 *
+	 * Two callers: {@link #drainLoop}, on the success path *after* `store.write` resolved and outside
+	 * the `try` that guards the write, and {@link abandon}, synchronously while sweeping a deleted
+	 * Project. The first is where the damage was.
+	 *
+	 * ⚠ **A `forget` that threw was a third way a drain could stop, and it was the worst of the
+	 * three** (review 2). A journal that threw in `#drainLoop` made `commit` reject for a write the
+	 * store had actually taken: the caller reported failure for a success, `pending` was already
+	 * cleared so nothing was held, `lastError` stayed `undefined`, and the indicator read **"Saved"**
+	 * — a rejected save with no sentence anywhere, which is the exact shape this epic exists to
+	 * remove. In `abandon` it would have taken down a Delete the user was watching.
+	 *
+	 * Swallowed because **a journal failure is not a save failure**: the bytes are on disk either
+	 * way, so throwing turns a lost bookkeeping guarantee into a lost edit. {@link #writeAhead} makes
+	 * the same call for a refused `record` — but only half the same, and the difference is the point
+	 * below: it swallows the *throw* and still reports the cause, through `file.journalRefusal` and
+	 * `onJournalRefused`. This swallows both.
+	 *
+	 * ⚠ **NOBODY IS TOLD, AND THAT IS THE COST.** There is no surface for "the journal is holding
+	 * something it should not": `journalRefusal` says the opposite thing, and `lastError` would be a
+	 * lie because no write failed. Inventing one belongs to ticket 03, not here.
+	 *
+	 * What the stale entry then does at the next startup, stated to the limit of what is measured:
+	 * `replayJournal` writes it back, which is a **redundant write of identical bytes so long as
+	 * nothing outside `Autosave` has written that path in between**. It is not harmless in general.
+	 * `replay.ts` gates only on the owner still existing (`missingOwner`) and never compares the
+	 * store's bytes against the entry's, so a newer write that arrived by a route which does not call
+	 * `journal.record` is reverted — and reported as `restored`, which reads as good news.
+	 *
+	 * Measured against a real `WriteAheadJournal` and `replayJournal`:
+	 *
+	 * ```
+	 * store v1        → entry v1 → replay → v1          restored: ["p/project.json"]
+	 * store v1, v2    → entry v1 → replay → v1  ← lost  restored: ["q/project.json"]
+	 * ```
+	 *
+	 * Every mutator inside this class re-records, so `Autosave` is not such a route;
+	 * `transfer/open-project-bundle.ts`, `transfer/restore-workspace-tar.ts`, `tiler/ingest.ts`,
+	 * `base-map/offline-cache.ts` and `replay.ts` itself are.
+	 *
+	 * ⚠ **That hazard is pre-existing and untouched here** — it does not depend on this method
+	 * swallowing, and it is a candidate for ticket 06, which is already looking at journal-versus-store
+	 * disagreement. Named rather than fixed.
+	 *
+	 * ⚠ **Reachability is not claimed, on the same standard as {@link #drain}'s.** `WriteAheadJournal`
+	 * is the only production implementation and its own `forget` already swallows a refused
+	 * `removeItem`, and `EditorSession` is the only place that injects it. So **no shipped journal can
+	 * reach this guard**; it is driven in tests by an `AutosaveJournal` stub that throws. It is here
+	 * because the interface permits it and the enumeration of drain endings has to be true of the
+	 * interface, not of today's one implementation.
+	 */
+	#forget(path: StorePath): void {
+		try {
+			this.#journal?.forget(path);
+		} catch {
+			// Deliberately silent, and reported nowhere at all — see above for what that costs and for
+			// why no existing surface can carry it.
+		}
+	}
+
+	/**
 	 * Report the refusal, or its end.
 	 *
 	 * **Per file rather than one flag**, for the reason {@link lastError} is: a single field was
@@ -442,45 +504,143 @@ export class Autosave {
 		return file;
 	}
 
+	/**
+	 * Start draining `path`, or hand back the drain already running for it.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * A `commit` COULD RESOLVE SUCCESSFULLY WITH ITS BYTES STILL IN MEMORY
+	 *
+	 * ⚠ **The memo is claimed here, before {@link #drainLoop} runs a line, and released by the loop
+	 * itself at the instant it stops — never a microtask later.** It used to be released by a
+	 * `.finally` on the loop's promise, which runs *after* the loop has already exited its `while`
+	 * and resolved. A `commit` landing in that window saw `file.draining` still set, was handed the
+	 * settling promise, set `file.pending`, and **no loop ever restarted**. The caller's promise
+	 * then resolved — reporting a write that had not happened — and the bytes sat pending until the
+	 * next edit to that path overwrote them. The last write of a burst was lost permanently.
+	 *
+	 * (Reproduced deterministically here with a store that hands the test the promise the loop
+	 * awaits. **Whether real OPFS timing enters that window has not been shown and is not claimed.**)
+	 *
+	 * The invariant that forbids it, which is the thing to keep true rather than the mechanism:
+	 * **if a file has pending bytes, a drain is scheduled or running for it.** The stated exception
+	 * is a drain that stopped by *throwing* — see {@link #drainLoop}'s `finally`.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE DEFERRED IS LOAD-BEARING. DO NOT REPLACE IT WITH AN ASSIGNMENT AFTER THE CALL.
+	 *
+	 * ⚠ **`#drainLoop`'s very first act is to publish `'saving'`, and `#publish` runs subscribers
+	 * synchronously.** A subscriber is application code: the editor's indicator, or anything that
+	 * reacts to it by writing. So a subscriber can re-enter `commit` — and therefore this method —
+	 * *before the loop that provoked it has run a second line*. The memo has to be in `file.draining`
+	 * by then, and an `async` method cannot see its own promise, so it cannot put it there itself.
+	 * `file.draining = this.#drainLoop(path, file)` assigns after that whole synchronous cascade has
+	 * already happened, and the re-entrant call therefore finds the slot empty and starts a
+	 * **second concurrent loop on the same path**: rule 2's one-writer invariant broken outright,
+	 * with two writes racing into one file and the store free to end up holding the older of them.
+	 * Measured, with a subscriber that commits once on `'saving'`: two loops instead of one.
+	 *
+	 * ⚠ **That hole predates this ticket**: the `??=` this replaced assigned just as late, so the
+	 * concurrent-loop measurement reproduces on the commit before it too. It is not a hazard this
+	 * change introduced, and closing it is not optional now that the loop releases its own memo.
+	 *
+	 * The same lateness has a second consequence, measured with the same probe: a loop that stops
+	 * *before its first suspension* — which is what a throwing subscriber does — has already run the
+	 * `finally` by the time the assignment happens, so the assignment writes a **settled** promise
+	 * into `file.draining` that nothing will ever clear. If it settled by rejecting, every later
+	 * `#drain` on that path hands the rejection straight back and the path is dead.
+	 *
+	 * Both are asserted: `keeps one writer per path when a subscriber commits back into it` and
+	 * `is not killed by a subscriber that throws while the indicator is published`. Removing the
+	 * deferred turns three tests red. This shape is not a stylistic choice.
+	 */
 	#drain(path: StorePath): Promise<void> {
 		const file = this.#file(path);
 		// One writer per path, so two edits to the same file can never race into the store out
 		// of order. Different paths are independent — that is the whole of rule 2.
-		file.draining ??= this.#drainLoop(path, file).finally(() => {
-			file.draining = undefined;
-			if (file.pending === undefined && file.timer === undefined) this.#files.delete(path);
-			this.#publish();
+		if (file.draining !== undefined) return file.draining;
+		let started!: (loop: Promise<void>) => void;
+		const draining = new Promise<void>((resolve) => {
+			started = resolve;
 		});
-		return file.draining;
+		file.draining = draining;
+		started(this.#drainLoop(path, file));
+		return draining;
 	}
 
 	async #drainLoop(path: StorePath, file: PendingFile): Promise<void> {
-		this.#publish('saving');
-		while (file.pending !== undefined) {
-			const bytes = file.pending;
-			try {
-				await this.#store.write(path, bytes);
-			} catch (cause) {
-				// The bytes stay pending, deliberately. Clearing them before the attempt and merely
-				// returning on failure lost the edit outright: there was nothing left for `flush` to
-				// find, nothing to retry, and nothing keeping the indicator off "Saved" — which is
-				// exactly what ADR-0017 rule 5 forbids. Rethrown so `commit`'s caller cannot report
-				// a mutation it did not get.
-				file.error = cause;
-				throw cause;
+		try {
+			// ⚠ **Inside the `try`, and it is not tidiness.** `#publish` runs subscribers synchronously,
+			// and a subscriber is application code that can throw. Published from above the `try`, that
+			// throw left the loop rejecting *without the `finally` below ever running*, so
+			// `file.draining` kept a rejected promise for ever and every later `#drain` on that path
+			// handed it straight back — the indicator stuck on "Saving" and `commit`, the debounce and
+			// `flush` all dead for that file, permanently. That is strictly worse than the defect this
+			// method exists to fix: unrecoverable rather than merely stranded.
+			this.#publish('saving');
+			while (file.pending !== undefined) {
+				const bytes = file.pending;
+				try {
+					await this.#store.write(path, bytes);
+				} catch (cause) {
+					// The bytes stay pending, deliberately. Clearing them before the attempt and merely
+					// returning on failure lost the edit outright: there was nothing left for `flush` to
+					// find, nothing to retry, and nothing keeping the indicator off "Saved" — which is
+					// exactly what ADR-0017 rule 5 forbids. Rethrown so `commit`'s caller cannot report
+					// a mutation it did not get.
+					file.error = cause;
+					throw cause;
+				}
+				// Only clear what the store actually took. An edit that arrived while it had these bytes
+				// is newer and has to survive to the next pass.
+				if (file.pending === bytes) {
+					file.pending = undefined;
+					// The journal's only job is to hold what the store does not, so the entry goes the
+					// moment the store has it — and **only** then, and only when nothing newer arrived
+					// while the write was in flight. Forgetting unconditionally here would drop the
+					// journal copy of an edit typed during the write, whose own `record` happened before
+					// this line and would be undone by it.
+					//
+					// ⚠ Through {@link #forget}, which swallows. This line is outside the `try` that guards
+					// `store.write`, so a journal that threw here rejected `commit` for a write that had
+					// succeeded — see `#forget` for the whole of it. That is what keeps the enumeration
+					// below at two endings rather than three.
+					this.#forget(path);
+				}
+				file.error = undefined;
 			}
-			// Only clear what the store actually took. An edit that arrived while it had these bytes
-			// is newer and has to survive to the next pass.
-			if (file.pending === bytes) {
-				file.pending = undefined;
-				// The journal's only job is to hold what the store does not, so the entry goes the
-				// moment the store has it — and **only** then, and only when nothing newer arrived
-				// while the write was in flight. Forgetting unconditionally here would drop the
-				// journal copy of an edit typed during the write, whose own `record` happened before
-				// this line and would be undone by it.
-				this.#journal?.forget(path);
-			}
-			file.error = undefined;
+		} finally {
+			// ⚠ **Synchronous with the loop stopping, and that is the entire fix.** Nothing at all runs
+			// between the `while` condition reading `undefined` and this line, so there is no moment at
+			// which `pending` can be set against a `draining` that is about to be cleared. A `commit`
+			// arriving before this either finds the loop still going — and its bytes are picked up on
+			// the next pass — or finds the memo already gone and starts its own loop, which is a promise
+			// that really does cover its write. See {@link #drain} for what this replaced.
+			//
+			// **The stated exception to "if pending, a drain is running": a loop that stopped by
+			// throwing.** Two things above this can throw, and only two: `store.write`, and the
+			// `#publish('saving')` that runs subscribers. (`#forget` used to be a third and is not any
+			// more — that is what it exists for.) Both leave `pending` set with nothing scheduled, on
+			// purpose. Restarting here would turn a full disk into a spin and a subscriber that always
+			// throws into an unkillable loop. The contract is that the bytes are **held**, so the next
+			// `commit`, `queue` or `flush` still has them and the indicator reads "Unsaved" rather than
+			// "Saved". Retrying them without being asked is a separate change and is not made here.
+			//
+			// Ranged over rather than enumerated by the caller: `leaves the path alive when a drain
+			// stops because …` drives both endings and the ordinary one, each through flush, the
+			// debounce and commit in turn.
+			//
+			// **Release first, publish last.** Measured: publishing first leaves the indicator on
+			// "Saving" for a drain that has stopped, because `#derive` reads the memo this line is
+			// about to clear — see `releases the drain before it publishes`. The `#publish` below runs
+			// subscribers and so can throw as well, and releasing first means that cannot strand the
+			// memo either; that second consequence is reasoned, not measured, and is stated as such.
+			//
+			// ⚠ **Residual, pre-existing and not fixed here:** `#publish` has no per-listener guard, so
+			// the first subscriber that throws stops the rest being notified for that transition. This
+			// change is what makes a throwing subscriber a *supported* ending, so it is named here.
+			file.draining = undefined;
+			if (file.pending === undefined && file.timer === undefined) this.#files.delete(path);
+			this.#publish();
 		}
 	}
 
