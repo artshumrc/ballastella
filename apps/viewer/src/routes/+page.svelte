@@ -43,12 +43,12 @@
 		SiteFileUnreachableError,
 		baseMapArchiveHost,
 		baseMapFallbackNotice,
+		baseMapNotPublishedNotice,
 		baseMapUnavailableNotice,
 		cachedTilePath,
 		legacyCachedTilePath,
 		createStoreImageFetch,
 		imageInfoPath,
-		isAbsoluteUrl,
 		otherTheme,
 		parseProjectFile,
 		parsePublishedSite,
@@ -647,41 +647,20 @@
 	/**
 	 * What the Reader is missing from the modern reference map, or `''`.
 	 *
-	 * Said rather than left unexplained, and there are **two** ways a site can be short of the Base Map's
-	 * files — they differ in what the Reader sees, so they cannot share one sentence:
+	 * ⚠ **The sentence is core's, and the branch is core's**, for the reason the function's own header
+	 * gives at length: two of its four rows cannot be reached from a published site in this deployment,
+	 * and the shipped ternary was false in both of them. Choosing between two sentences using two
+	 * booleans is exactly the work that belongs one seam down, where `resolve.test.ts` drives every row
+	 * in milliseconds instead of in a browser that cannot produce two of them at all.
 	 *
-	 *   - **No files and a site-relative archive**: nothing draws. An empty rectangle under the work.
-	 *   - **No files and a `needsNetwork` archive**: since ticket 10 every catalog entry reads a remote
-	 *     archive, so `ReaderMapPane` drops `glyphs`, `sprite`, and every `symbol` layer rather than
-	 *     firing 404s at files the site does not carry. The result is a reference map with roads,
-	 *     coastlines, and **no place names at all**. That is a startling thing to be handed with no
-	 *     account of itself, and it is the case a Reader now actually meets: silently losing every
-	 *     label is exactly the failure ADR-0025 says those 820 KB exist to prevent.
-	 *
-	 * ⚠ **This sentence deliberately depends on nothing but the site's own files**, and that is the
-	 * whole of the fix. It used to add "the geography, the Historical Maps, and the Annotations are all
-	 * here", which is a claim about a state this notice cannot see, and it was false in three ways at
-	 * once: with the archive refusing there is no geography, and an alert saying so sat directly under
-	 * it; with the connection gone the same is true and that alert is deliberately withheld, so the
-	 * falsehood stood alone; and with the site's own cached tiles present the geography does not come
-	 * "from the network" at all. Making it conditional would have fixed the first and left the rest,
-	 * and would have made an `aria-live` region announce one sentence at load and a different one a
-	 * beat later, when the archive's `error` arrived. So it says the one thing that is true in every
-	 * row: this site has no labels, whatever else happens to the map. What is *not* here is
-	 * {@link archiveUnavailable}'s to say, once and in one place.
-	 *
-	 * The entries that *would* be complete are already marked in the switcher, so each sentence points at
-	 * the way out rather than merely apologising.
+	 * `cachedBaseMap !== null` rather than any flag on the site record: it is the same value the pane
+	 * is handed, so the notice and the style cannot disagree about whether this site has tiles.
 	 */
 	const baseMapNotPublished = $derived(
-		bundledBaseMapAvailable
-			? ''
-			: !isAbsoluteUrl(baseMap.entry.archive)
-				? 'This site was published without its own copy of the modern reference map, so only the ' +
-					'Historical Maps and Annotations are drawn. The Base Maps marked “needs network” still work.'
-				: 'This site was published without the Base Map’s labels and symbols, so the modern ' +
-					'reference map here carries no place names at all. The Historical Maps and the ' +
-					'Annotations are not affected.'
+		baseMapNotPublishedNotice(baseMap.entry, {
+			bundledAssets: bundledBaseMapAvailable,
+			cachedTiles: cachedBaseMap !== null
+		})
 	);
 
 	/** Remember the Reader's choice for this site, and for no other (ADR-0020). Never Project data. */

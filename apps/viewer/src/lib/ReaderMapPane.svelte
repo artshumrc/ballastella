@@ -175,9 +175,9 @@
 		 * notice that this has to sit beside without contradicting.
 		 *
 		 * `'drawing'` is sent when the source loads, so this is a state rather than a one-way alarm. The
-		 * failure it is for is the archive that answers its header and then refuses tile ranges — a
-		 * bucket rate-limiting mid-session — because those ranges are not cached and do come back. The
-		 * note on the `error` handler below has which failure recovers and which cannot.
+		 * failure it is for is the archive that answers its header and then refuses tile **data** ranges
+		 * — a bucket rate-limiting mid-session — because those go through an uncached read and do come
+		 * back. The note on the `error` handler below has which failures recover and which cannot.
 		 */
 		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
 	} = $props();
@@ -358,22 +358,29 @@
 		//     a theme change, a Base Map switch, and all four of this deployment's entries — they share
 		//     one archive — re-reject from cache without a request. Nothing can make a failed **header**
 		//     draw again, and the Base Map switch is covered by the page's own reset anyway.
-		//   - **Tile ranges are not cached at all.** Only headers and directories are; every
-		//     `getBytes` for tile data goes to the network afresh. So the bucket that rate-limits
-		//     mid-session — the shape `viewer-reader.e2e.ts`'s partial-refusal fixture models — recovers
-		//     the moment the limit lifts and the Reader pans: tiles arrive, geography draws, and
-		//     without this handler the alert would still be sitting over a working map.
+		//   - **Tile *data* ranges are not cached.** `getBytes` for tile data goes to the network
+		//     afresh every time, so the bucket that rate-limits mid-session — the shape
+		//     `routePartialBaseMapArchive` models — recovers the moment the limit lifts and the Reader
+		//     pans: tiles arrive, geography draws, and without this handler the alert would still be
+		//     sitting over a working map.
 		//
-		// That second case is the whole of what `'drawing'` is for, and `viewer-reader.e2e.ts` drives
-		// it. The one measurement worth keeping from the round that deleted this: while the source is
-		// *persistently* failing, `sourcedata` fires only with `isSourceLoaded: false` (`visibility`,
-		// `metadata`, `content`), so the handler cannot withdraw a notice that is still true — which is
-		// asserted, and is why the partial-refusal notice is also asserted to stay up.
+		// ⚠ **A leaf directory is neither.** `getDirectory` shares the header's promise cache, so a
+		// refused leaf directory is a cached rejection exactly like a refused header — which means an
+		// archive big enough to have leaf directories, such as the planet-scale one this deployment
+		// points at, does not necessarily recover even when its tile data would. The committed test
+		// fixture is one city and has none, so what is driven is the pure tile-data case: real, and
+		// not the whole of it.
+		//
+		// That case is the whole of what `'drawing'` is for. The one measurement worth keeping from the
+		// round that deleted this: while the source is *persistently* failing, `sourcedata` fires only
+		// with `isSourceLoaded: false` (`visibility`, `metadata`, `content`), so the handler cannot
+		// withdraw a notice that is still true — which is asserted, and is why the partial-refusal
+		// notice is also asserted to stay up.
 		//
 		// Identical to `BaseMapPane`'s pair in the editor, deliberately: same source id, same shared
-		// sentence, and in the editor recovery is reached by a different route again — a scholar who
-		// follows the notice's own advice and makes the Project available offline restyles onto site
-		// tiles, and `'drawing'` is what takes the alert down.
+		// sentence, and now the same recovery driven against both — `editor-base-map.e2e.ts`'s "is
+		// taken down when the archive starts answering again" is this test on the authoring side, and
+		// was added because deleting the editor's half left the whole repository green.
 		created.on('error', (event) => {
 			if ((event as { sourceId?: string }).sourceId !== BASE_MAP_SOURCE_ID) return;
 			onbasemapstatus?.('unavailable');

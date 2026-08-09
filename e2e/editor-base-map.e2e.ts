@@ -7,7 +7,8 @@ import {
 	baseMapTileSourcePath,
 	cachedBaseMapTiles,
 	refuseBaseMapArchive,
-	routeBaseMapArchive
+	routeBaseMapArchive,
+	routePartialBaseMapArchive
 } from './support/editor-deployment';
 
 // SPEC Seam 2: the running app in a real browser, with real MapLibre and real OPFS. There is
@@ -418,6 +419,49 @@ test.describe('a Base Map archive that does not answer', () => {
 		// And the rest of the screen still works: the failure is a notice, not a broken page.
 		await expect(switcher(page)).toBeVisible();
 		expect(crashes.map((error) => error.message)).toEqual([]);
+	});
+
+	test('is taken down when the archive starts answering again', async ({ page, context }) => {
+		// **The other half of the pane's report, which had no test at all on this side.** `BaseMapPane`
+		// sends `'drawing'` as well as `'unavailable'`, and deleting that handler outright left the
+		// whole repository green: the two tests around this one are a notice raised and never
+		// withdrawn, and a notice never raised.
+		//
+		// The failure it is for is the archive that answers its header and then refuses tile ranges — a
+		// bucket rate-limiting mid-session. Tile data goes through an uncached `getBytes`, so when the
+		// limit lifts and the map moves, tiles arrive and the Base Map draws. Without `'drawing'` the
+		// alert would sit over a plainly working map for the rest of the session, which is a worse lie
+		// than the silence ticket 20 was written to end. `routePartialBaseMapArchive`'s header says
+		// which archive failures can come back this way and which cannot.
+		//
+		// The pan is inside the poll deliberately: MapLibre has no reason to re-ask for a tile it has
+		// already given up on, so one nudge is a bet on a single round of requests landing. Its twin in
+		// `viewer-reader.e2e.ts` measured that bet losing about one run in six.
+		const archive = await routePartialBaseMapArchive(context);
+		await openPane(page);
+
+		const notice = page.getByTestId('base-map-unavailable');
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+		expect(archive.tileRangesAsked()).toBeGreaterThan(0);
+
+		archive.serve();
+		let step = 0;
+		await expect
+			.poll(
+				async () => {
+					await page.evaluate(
+						(zoom: number) =>
+							window.ballastellaBaseMap?.jumpTo({ center: [4.9041, 52.3676], zoom }),
+						12 + (step++ % 2)
+					);
+					await page.waitForTimeout(500);
+					return baseMapIsDrawn(page);
+				},
+				{ timeout: 60_000 }
+			)
+			.toBe(true);
+
+		await expect(notice).toHaveCount(0, { timeout: 30_000 });
 	});
 
 	test('is not shown when the archive answers', async ({ page, context }) => {

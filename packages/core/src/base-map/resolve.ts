@@ -1,5 +1,6 @@
 import { BASE_MAP_CATALOG } from './catalog';
 import type { BaseMapCatalog, BaseMapEntry } from './entry';
+import { isAbsoluteUrl } from './style';
 
 export type BaseMapResolution = {
 	readonly entry: BaseMapEntry;
@@ -144,4 +145,64 @@ export function baseMapOptions(
 		needsNetwork: entry.needsNetwork,
 		text: entry.needsNetwork ? `${entry.label} — needs network` : entry.label
 	}));
+}
+
+/**
+ * What to say to a Reader about a Published Site that does not carry the Base Map's own files.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS HERE RATHER THAN IN THE VIEWER'S PAGE, AND WHY IT TAKES THE SITE'S STATE
+ *
+ * Including the Base Map's glyphs, sprites, and tiles is a choice a scholar makes at publish time
+ * (ADR-0020's opt-in, SPEC stories 88 and 89), so a great many sites will be short of them and every
+ * one of those Readers meets whatever this returns. It lived in `+page.svelte` as a nested ternary
+ * and was **false in a reachable row twice over** — first claiming "the geography, the Historical
+ * Maps, and the Annotations are all here" while the archive was refusing, then, once that was fixed,
+ * still claiming "only the Historical Maps and Annotations are drawn" for a site that carries its own
+ * cached tiles and draws geography from them.
+ *
+ * Both were the same mistake: a sentence about what is *drawn*, chosen without the state that decides
+ * it. Neither row was reachable from the browser suite — the second needs a catalog entry with a
+ * relative archive, which this deployment has none of, and the fourth needs cached tiles alongside
+ * absent assets, which no published fixture builds — so nothing could have caught either. Here they
+ * are four rows of a table, and `resolve.test.ts` drives all four in milliseconds.
+ *
+ * **The condition is `ReaderMapPane.styleFor`'s own precedence, restated.** That function tries the
+ * site's cached tiles *first*, and only then falls back to the bare background for an entry whose
+ * archive is site-relative. So the question is not "is this archive remote" but "will anything at all
+ * be drawn under the work" — which is cached tiles, or an archive somewhere else to fetch.
+ *
+ * @param entry the Base Map being shown
+ * @param site whether this site carries the Base Map's display assets, and its own cached tiles
+ */
+export function baseMapNotPublishedNotice(
+	entry: BaseMapEntry,
+	site: { readonly bundledAssets: boolean; readonly cachedTiles: boolean }
+): string {
+	if (site.bundledAssets) return '';
+	// Nothing to draw the reference map from: no local tiles, and an archive that is this site's own
+	// missing file rather than another server's. The pane paints the page's background colour and the
+	// Reader's own Layers draw over it.
+	if (!site.cachedTiles && !isAbsoluteUrl(entry.archive)) {
+		return (
+			'This site was published without its own copy of the modern reference map, so only the ' +
+			'Historical Maps and Annotations are drawn. The Base Maps marked “needs network” still work.'
+		);
+	}
+	// A reference map does draw — from the network, or from this site's own cached tiles — and what it
+	// has lost is every label on it, because `styleFor` drops `glyphs`, `sprite`, and every `symbol`
+	// layer rather than firing 404s at files the site does not carry. Silently losing every place name
+	// is exactly the failure ADR-0025 says those 820 KB exist to prevent, so it is said out loud.
+	//
+	// ⚠ **This says nothing about whether the map is drawing right now**, deliberately. The archive may
+	// also be refusing, in which case `baseMapUnavailableNotice` is on screen beside it — and it may be
+	// refusing with no connection, in which case that notice is withheld and this one stands alone. A
+	// sentence that claimed the geography was here would be false in both, and conditioning it on the
+	// other notice would fix the first and leave the second, while making an `aria-live` region
+	// announce one claim on load and another a beat later when the archive's error arrived.
+	return (
+		'This site was published without the Base Map’s labels and symbols, so the modern reference ' +
+		'map here carries no place names at all. The Historical Maps and the Annotations are not ' +
+		'affected.'
+	);
 }

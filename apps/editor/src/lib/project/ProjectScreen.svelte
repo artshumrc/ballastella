@@ -103,9 +103,7 @@
 	let baseMapStatus = $state<'drawing' | 'unavailable' | null>(null);
 	$effect(() => {
 		void resolution?.entry.id;
-		untrack(() => {
-			baseMapStatus = null;
-		});
+		baseMapStatus = null;
 	});
 
 	const layers = $derived<readonly Layer[]>(session.openProject?.layers ?? []);
