@@ -94,6 +94,12 @@ Two things the ticket asks for that are easy to skip: the **before/after bundle 
 
    The consequence: **ticket 15's acceptance criterion "the alignment view still deep-zooms both a Workspace-held and a referenced Historical Map" is only half-covered.** The Workspace-held half is real (mutation-checked red); the referenced half is not. Closing it needs a fixture large enough to have more than one full-resolution tile.
 
+7. **ADR-0018's decision is now unguarded in the only app that still uses triiiceratops.** Ticket 15 removed the editor's unwarped view, and with it the assertion that `<triiiceratops-viewer>` stays unregistered — the check that ADR-0018's "embedded as a Svelte component, never as a custom element" decision was being kept. The editor's replacement registry check guards the *removal* and says nothing about the viewer.
+
+   Ticket 15 recorded this in ADR-0018's amendment rather than smuggling it into `viewer-reader.e2e.ts`, whose assertions it was forbidden to touch. That was the right call for that ticket, but **an ADR is a note, not a check**: the decision now has no test in its only remaining consumer. A one-assertion follow-up in the viewer's spec closes it.
+
+   Also worth folding into the same follow-up: two **floating assertions** found on 2026-08-09 — `e2e/editor-stored-image-pane.e2e.ts:275` and `e2e/editor-image-pane.e2e.ts:87` call web-first assertions with **no `await`**, so a failure becomes an unhandled rejection and the test stays green. The deletion that keeps each green is the whole call. Both sit in the deep-zoom area lead 6 concerns. Worth a grep for the same shape across the suite rather than fixing only these two.
+
 ## Standing constraints
 
 These apply to every remaining ticket. They are not advice.
