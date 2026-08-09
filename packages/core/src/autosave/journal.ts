@@ -104,10 +104,33 @@ const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
  * an earlier state of what the scholar is now editing — it is a *divergent* one, made against
  * something the store no longer holds, and the edit that replaces it is on a different branch.
  *
- * Keyed by path **and fingerprint**, so two divergent copies of one file can both be held and so
+ * Keyed by path **and fingerprint**, so divergent copies of one file can both be held — up to
+ * {@link HELD_COPIES_PER_PATH}, which is where the room this costs is reasoned about — and so
  * {@link forgetHeldCopy} destroys the one a notice names rather than whatever is at that path now.
  */
 const HELD_KEY_PREFIX = 'ballastella.held.';
+
+/**
+ * How many declined copies of **one file** may be held at once.
+ *
+ * ⚠ **Because these are the one thing here that keeps whole bytes indefinitely.** A journal entry is
+ * transient by construction — it goes the moment the store takes it — and {@link JournalEntry.held}
+ * is a fingerprint precisely so that nothing doubles the footprint of the live journal. A declined
+ * copy is neither: it is a full copy of a file, and it stays until a scholar answers a question. The
+ * trade is worth making, because it is the only copy of a divergent edit that reached no store; it is
+ * not worth making without end.
+ *
+ * Three, and the reasoning rather than the number is the point: a scholar who has been asked three
+ * times about one file and answered none of them is not using the remedy, and taking further room
+ * from the origin would spend the live journal's protection — which covers every file they are
+ * *currently* editing — on unanswered questions about one. Past this, {@link WriteAheadJournal.hold}
+ * refuses and says so, exactly as it does when the origin is full; nothing already held is discarded
+ * to make room.
+ *
+ * The total is therefore bounded by three per path, and by nothing else: a Workspace with many files
+ * can hold many copies. That is the honest statement of the bound.
+ */
+export const HELD_COPIES_PER_PATH = 3;
 
 /**
  * The two axes an entry is keyed by: **which Workspace** and **which file**.
@@ -664,13 +687,27 @@ export class WriteAheadJournal {
 	 * See {@link HELD_KEY_PREFIX} for why this is a second namespace rather than "leave the entry
 	 * where it is": an entry is addressed by path, so the next edit to that file overwrote it.
 	 *
-	 * @returns the copy's {@link HeldCopy.fingerprint}, which is how it is addressed from here on
+	 * ⚠ **`null` means nothing was set aside, and the caller must say so.** Two things refuse: the
+	 * origin being out of room, and {@link HELD_COPIES_PER_PATH} already being reached. An earlier
+	 * draft returned the fingerprint either way, so a report said *"It has been kept"* beside a
+	 * **Throw this copy away** button when nothing had been kept and there was nothing to throw —
+	 * the exact shape of failure this epic exists to end, inside the fix for it.
+	 *
+	 * On a refusal the journal entry is left exactly where it is, which is the same direction
+	 * `record` takes for the same reason: a refusal must never be the thing that destroys the bytes
+	 * it failed to protect. It is offered again at the next startup.
+	 *
+	 * @returns the copy's {@link HeldCopy.fingerprint}, or `null` if nothing was set aside
 	 */
-	hold(path: StorePath, bytes: Bytes, at: string, reason: string): string {
+	hold(path: StorePath, bytes: Bytes, at: string, reason: string): string | null {
 		const fingerprint = fingerprintOf(bytes);
+		const key = heldKey(this.#workspace, path, fingerprint);
+		// Re-holding a copy that is already there is not a new one, so it does not count against the
+		// cap — that is the ordinary case of a startup meeting a decline it has already made.
+		if (this.#storage.getItem(key) === null && this.#atCapacity(path)) return null;
 		try {
 			this.#storage.setItem(
-				heldKey(this.#workspace, path, fingerprint),
+				key,
 				JSON.stringify({
 					formatVersion: JOURNAL_FORMAT_VERSION,
 					at,
@@ -679,13 +716,20 @@ export class WriteAheadJournal {
 				})
 			);
 		} catch {
-			// No room for the copy. The entry below is left exactly where it is, which is the same
-			// direction `record` takes for the same reason: a refusal must never be the thing that
-			// destroys the bytes it failed to protect. It will be offered again at the next startup.
-			return fingerprint;
+			return null;
 		}
 		this.#remove(journalKey(this.#workspace, path));
 		return fingerprint;
+	}
+
+	/** Whether `path` already holds as many declined copies as it is allowed. */
+	#atCapacity(path: StorePath): boolean {
+		let held = 0;
+		for (const key of keysWithPrefix(this.#storage, HELD_KEY_PREFIX)) {
+			const named = parseHeldKey(key);
+			if (named && named.workspace === this.#workspace && named.path === path) held += 1;
+		}
+		return held >= HELD_COPIES_PER_PATH;
 	}
 
 	#remember(path: StorePath, fingerprint: string, at?: number): void {
@@ -880,6 +924,12 @@ export function readJournal(storage: JournalStorage, workspace: string): Journal
 	return { entries, problems };
 }
 
+/** What the held namespace holds for one Workspace, and everything in it that cannot be used. */
+export interface HeldContents {
+	readonly copies: readonly HeldCopy[];
+	readonly problems: readonly JournalProblem[];
+}
+
 /**
  * Every copy a replay declined to apply, for one Workspace, sorted for a stable report.
  *
@@ -887,21 +937,47 @@ export function readJournal(storage: JournalStorage, workspace: string): Journal
  * waiting to put them in the store, and a startup that treated them as entries would apply the very
  * bytes a previous startup refused.
  */
-export function readHeldCopies(storage: JournalStorage, workspace: string): HeldCopy[] {
+export function readHeldCopies(storage: JournalStorage, workspace: string): HeldContents {
 	const copies: HeldCopy[] = [];
+	const problems: JournalProblem[] = [];
 	for (const key of keysWithPrefix(storage, HELD_KEY_PREFIX)) {
 		const named = parseHeldKey(key);
 		if (named === null || named.workspace !== workspace) continue;
 		const raw = storage.getItem(key);
 		if (raw === null) continue;
+		// ⚠ **Reported and discarded, not skipped past** — the same treatment `readJournal` gives an
+		// unreadable entry, and for a sharper reason. A copy that will not parse still occupies the
+		// origin's quota and still counts against {@link HELD_COPIES_PER_PATH}, so swallowing it left
+		// room spent on bytes nobody could ever recover, invisibly, with no exit short of discarding
+		// the whole Workspace's journal.
 		let envelope: { bytes?: unknown; at?: unknown; reason?: unknown };
 		try {
 			envelope = JSON.parse(raw) as typeof envelope;
 		} catch {
+			problems.push(
+				discard(
+					storage,
+					key,
+					'unreadable',
+					`A kept copy of “${named.path}” is damaged and has been discarded. Nothing in your ` +
+						`Workspace has been changed.`
+				)
+			);
 			continue;
 		}
 		const bytes = typeof envelope.bytes === 'string' ? decodeBytes(envelope.bytes) : null;
-		if (bytes === null) continue;
+		if (bytes === null) {
+			problems.push(
+				discard(
+					storage,
+					key,
+					'unreadable',
+					`A kept copy of “${named.path}” could not be decoded and has been discarded. ` +
+						`Nothing in your Workspace has been changed.`
+				)
+			);
+			continue;
+		}
 		copies.push({
 			workspace,
 			path: named.path,
@@ -912,7 +988,8 @@ export function readHeldCopies(storage: JournalStorage, workspace: string): Held
 		});
 	}
 	copies.sort((a, b) => a.path.localeCompare(b.path) || a.fingerprint.localeCompare(b.fingerprint));
-	return copies;
+	problems.sort((a, b) => a.key.localeCompare(b.key));
+	return { copies, problems };
 }
 
 /**

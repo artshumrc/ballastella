@@ -202,7 +202,8 @@ export interface ReplaySkipped {
 	 * beside the button described a different, older version and said the copy had been kept. The
 	 * identity travels with the row so the remedy reaches the bytes the sentence is about.
 	 *
-	 * `WriteAheadJournal.forgetHeldCopy` is what it is handed to.
+	 * `forgetHeldCopy(storage, workspace, path, copy)` — a module-level function in `journal.ts`,
+	 * not a method — is what it is handed to, along with the row's `path`.
 	 */
 	readonly copy: string | null;
 }
@@ -279,11 +280,14 @@ export async function replayJournal(
 	// The session's own journal where there is one, so that what this run *observes* about the store
 	// outlives the call. See {@link ReplayOptions.journal}.
 	const journal = options.journal ?? new WriteAheadJournal(storage, workspace);
-	const { entries, problems } = readJournal(storage, workspace);
+	const { entries, problems: journalProblems } = readJournal(storage, workspace);
 	// ⚠ **Snapshotted before the loop, because the loop adds to it.** A copy this run declines is held
 	// during the walk below, and re-reading afterwards would report it twice — once as the decision
 	// just taken and once as an older copy still waiting.
-	const alreadyHeld = readHeldCopies(storage, workspace);
+	const { copies: alreadyHeld, problems: heldProblems } = readHeldCopies(storage, workspace);
+	// One list, because to a reader they are one thing: work this build will not put back and cannot
+	// recover. Which storage namespace the damage was in is not a distinction they can act on.
+	const problems = [...journalProblems, ...heldProblems];
 
 	const restored: StorePath[] = [];
 	const skipped: ReplaySkipped[] = [];
@@ -341,16 +345,17 @@ export async function replayJournal(
 				// each is, and when the held one was made. The bytes themselves are not copied into the
 				// report — a chooser reads them from `readHeldCopies` and `store.read`, which is where
 				// they already are, and a report is not a place to hold two copies of a file.
+				const setAside = journal.hold(entry.path, entry.bytes, entry.at, verdict);
 				skipped.push({
 					path: entry.path,
 					reason: verdict,
-					copy: journal.hold(entry.path, entry.bytes, entry.at, verdict),
+					copy: setAside,
 					detail:
 						`An unsaved change to “${entry.path}” was found, and Ballastella cannot tell ` +
 						`whether it is newer than the file in your Workspace. The unsaved copy is ` +
 						`${describeSize(entry.bytes.length)}${describeWhen(entry.at)}; ` +
-						`the file in your Workspace is ${describeSize(current.length)}. It has been kept ` +
-						`rather than put back, so nothing has been overwritten.`
+						`the file in your Workspace is ${describeSize(current.length)}. Nothing has been ` +
+						`overwritten. ${describeWhereItWent(setAside)}`
 				});
 				continue;
 			}
@@ -363,14 +368,15 @@ export async function replayJournal(
 				journal.observe(entry.path, current, journal.mark());
 				// Kept, and not written. See {@link ReplaySkipReason}: this is the only copy of an edit
 				// that is on disk nowhere, so the answer is to say so rather than to drop it.
+				const setAside = journal.hold(entry.path, entry.bytes, entry.at, verdict);
 				skipped.push({
 					path: entry.path,
 					reason: verdict,
-					copy: journal.hold(entry.path, entry.bytes, entry.at, verdict),
+					copy: setAside,
 					detail:
 						`An unsaved change to “${entry.path}” was not put back, because that file has been ` +
 						`changed since the change was made — putting it back would undo the newer one. ` +
-						`Your copy has been kept.`
+						`${describeWhereItWent(setAside)}`
 				});
 				continue;
 			}
@@ -432,6 +438,23 @@ export async function replayJournal(
  * raw it reads `from 2026-08-09T12:34:56.789Z`, which is a timestamp a scholar has to decode to use.
  * An empty `at` — an entry from a build that did not record one — says nothing rather than guessing.
  */
+/**
+ * What became of the copy, in the sentence the scholar reads.
+ *
+ * ⚠ **A refusal to set the copy aside used to be indistinguishable from success.** `hold` answered
+ * with the same fingerprint either way, so a full origin produced *"It has been kept"* beside a
+ * **Throw this copy away** button, for a copy that did not exist — and pressing it reported success
+ * for a removal that removed nothing. Two outcomes, two sentences, and the `null` is what stops the
+ * button rendering at all.
+ */
+function describeWhereItWent(copy: string | null): string {
+	return copy === null
+		? `Ballastella could not set your copy aside — there is no room left in this browser's ` +
+				`storage for it. It is still in the journal, where the next change to this file will ` +
+				`replace it, so save or copy anything you need from it now.`
+		: `Your copy has been kept.`;
+}
+
 function describeWhen(at: string): string {
 	if (at === '') return '';
 	const when = new Date(at);

@@ -827,6 +827,12 @@ export class EditorSession {
 	 * waiting to be written nor a file in the Workspace — only the copy the sentence names.
 	 */
 	forgetReplaySkip(path: string, copy: string): void {
+		// ⚠ **Both fields, because a fingerprint is not unique across paths.** Two files whose declined
+		// bytes are identical — an empty Annotation collection in two Projects is the ordinary case —
+		// share one, so filtering on the fingerprint alone removed both rows while only one copy was
+		// destroyed, and the survivor came back at the next startup with no explanation. The `{#each}`
+		// key in `RecoveredEdits.svelte` is already `path:copy` for the same reason.
+
 		const storage = this.#journalStorage;
 		if (!storage || !this.#journal) return;
 		// ⚠ **By fingerprint, never by path alone** (round 5, finding A). This notice is built at
@@ -839,7 +845,7 @@ export class EditorSession {
 		if (report === null) return;
 		const remaining = {
 			...report,
-			skipped: report.skipped.filter((entry) => entry.copy !== copy)
+			skipped: report.skipped.filter((entry) => entry.path !== path || entry.copy !== copy)
 		};
 		// Through the same predicate the report was published by, so a panel holding nothing but the
 		// skip just forgotten goes away rather than lingering empty.
@@ -2118,7 +2124,13 @@ export class EditorSession {
 		void this.#autosave.abandon(`${imageDirectory(imageId)}/`);
 		void this.#autosave.abandon(alignmentPath(imageId));
 		this.#journal?.forgetUnder(`${imageDirectory(imageId)}/`);
-		this.#journal?.forget(alignmentPath(imageId));
+		// ⚠ **`forgetUnder`, not `forget`, and the exact path is a legal prefix of itself.** Two things
+		// turn on it. `forget` means "the store has taken these bytes" and is the only thing that
+		// writes a baseline, so using it for a *deletion* files bytes the store never took. And
+		// `forgetUnder` is what sweeps the held namespace: a copy a replay declined for this map's
+		// Alignment would otherwise outlive the map, and be reported at every startup for ever with a
+		// remedy about a file that no longer exists — precisely what that sweep exists to prevent.
+		this.#journal?.forgetUnder(alignmentPath(imageId));
 	}
 
 	/**

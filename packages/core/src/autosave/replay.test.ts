@@ -640,7 +640,10 @@ describe('replayJournal', () => {
 				// to this file rather than being overwritten by it (round 5, finding B).
 				expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
 				expect(
-					readHeldCopies(storage, 'Marking 2026').map((held) => [held.path, text(held.bytes)])
+					readHeldCopies(storage, 'Marking 2026').copies.map((held) => [
+						held.path,
+						text(held.bytes)
+					])
 				).toEqual([[PATH, 'the edit that stranded']]);
 				expect(replayIsNoteworthy(report)).toBe(true);
 			});
@@ -656,7 +659,9 @@ describe('replayJournal', () => {
 
 				expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
 				expect(text(await store.read(PATH))).toBe('v3');
-				expect(readHeldCopies(storage, 'Marking 2026').map((held) => held.path)).toEqual([PATH]);
+				expect(readHeldCopies(storage, 'Marking 2026').copies.map((held) => held.path)).toEqual([
+					PATH
+				]);
 			});
 
 			it('does not read a baseline the store has grown past as still matching', async () => {
@@ -739,9 +744,9 @@ describe('replayJournal', () => {
 
 				journal.record(PATH, utf8.encode('WORK DONE AFTER THE REPORT'));
 
-				expect(readHeldCopies(storage, 'Marking 2026').map((held) => text(held.bytes))).toEqual([
-					'the edit that stranded'
-				]);
+				expect(
+					readHeldCopies(storage, 'Marking 2026').copies.map((held) => text(held.bytes))
+				).toEqual(['the edit that stranded']);
 				// And the later edit is journalled as usual, in its own right.
 				expect(
 					readJournal(storage, 'Marking 2026').entries.map((entry) => text(entry.bytes))
@@ -758,7 +763,7 @@ describe('replayJournal', () => {
 
 				expect(forgetHeldCopy(storage, 'Marking 2026', PATH, copy)).toBe(true);
 
-				expect(readHeldCopies(storage, 'Marking 2026')).toEqual([]);
+				expect(readHeldCopies(storage, 'Marking 2026').copies).toEqual([]);
 				// ⚠ The measured defect: this used to be `[]`, the later edit destroyed by a button whose
 				// sentence described a different, older version and said that one had been kept.
 				expect(
@@ -778,16 +783,47 @@ describe('replayJournal', () => {
 				await store.write(PATH, utf8.encode('v3-NEWER-STILL'));
 				await replayJournal(storage, store, 'Marking 2026', { journal });
 
-				expect(readHeldCopies(storage, 'Marking 2026').map((held) => text(held.bytes))).toEqual([
-					'the first divergent edit',
-					'the second divergent edit'
-				]);
+				expect(
+					readHeldCopies(storage, 'Marking 2026').copies.map((held) => text(held.bytes))
+				).toEqual(['the first divergent edit', 'the second divergent edit']);
 
 				// And throwing one away leaves the other exactly where it was.
 				forgetHeldCopy(storage, 'Marking 2026', PATH, first.skipped[0]?.copy ?? '');
-				expect(readHeldCopies(storage, 'Marking 2026').map((held) => text(held.bytes))).toEqual([
-					'the second divergent edit'
-				]);
+				expect(
+					readHeldCopies(storage, 'Marking 2026').copies.map((held) => text(held.bytes))
+				).toEqual(['the second divergent edit']);
+			});
+
+			it('says it could not be set aside when there is no room, and offers no remedy', async () => {
+				// ⚠ **The sentence and the button both used to lie** (round 6, finding A). `hold` answered
+				// with the same fingerprint whether it stored anything or not, so a full origin produced
+				// "It has been kept" beside a Throw this copy away — for a copy that did not exist.
+				await strandAnEdit('v1', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
+				const room = vi.spyOn(storage, 'setItem').mockImplementation(() => {
+					throw new DOMException('full', 'QuotaExceededError');
+				});
+
+				const report = await replayJournal(storage, store, 'Marking 2026', { journal });
+				room.mockRestore();
+
+				expect(report.skipped[0]?.copy).toBeNull();
+				expect(report.skipped[0]?.detail).toContain('could not set your copy aside');
+				expect(report.skipped[0]?.detail).not.toContain('has been kept');
+				// Nothing was set aside, and the entry it failed to protect is exactly where it was.
+				expect(readHeldCopies(storage, 'Marking 2026').copies).toEqual([]);
+				expect(
+					readJournal(storage, 'Marking 2026').entries.map((entry) => text(entry.bytes))
+				).toEqual(['the edit that stranded']);
+			});
+
+			it('carries a damaged copy through as a problem rather than losing it in silence', async () => {
+				storage.items.set('ballastella.held.Marking%202026/abc%2Fa%2Fx.json', 'not json');
+
+				const report = await replayJournal(storage, store, 'Marking 2026');
+
+				expect(report.problems.map((problem) => problem.reason)).toEqual(['unreadable']);
+				expect(replayIsNoteworthy(report)).toBe(true);
 			});
 
 			it('is offered again at the next startup, so it is not held invisibly', async () => {
@@ -841,7 +877,7 @@ describe('replayJournal', () => {
 
 				expect(journal.forgetUnder('amsterdam-1625/')).toBe(1);
 
-				expect(readHeldCopies(storage, 'Marking 2026')).toEqual([]);
+				expect(readHeldCopies(storage, 'Marking 2026').copies).toEqual([]);
 			});
 		});
 
@@ -897,7 +933,9 @@ describe('replayJournal', () => {
 				expect(text(await store.read(PATH))).toBe('v2-NEWER');
 				expect(report.restored).toEqual([]);
 				// …and so is the scholar's copy, which nothing else holds.
-				expect(readHeldCopies(storage, 'Marking 2026').map((held) => held.path)).toEqual([PATH]);
+				expect(readHeldCopies(storage, 'Marking 2026').copies.map((held) => held.path)).toEqual([
+					PATH
+				]);
 				expect(report.skipped).toEqual([
 					{
 						path: PATH,

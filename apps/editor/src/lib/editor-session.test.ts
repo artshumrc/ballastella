@@ -319,12 +319,28 @@ describe('deleting a Project, at the unit seam', () => {
 		const skip = session.replayReport?.skipped[0];
 		expect([skip?.reason, skip?.copy]).toEqual(['superseded', expect.any(String)]);
 
+		// ⚠ **A second row whose declined bytes are byte-identical, so it shares a fingerprint** (round
+		// 6, finding D). An empty Annotation collection in two Projects is the ordinary way to get one.
+		// Filtered on the fingerprint alone, dismissing this row removed both — while only one copy was
+		// destroyed, so the survivor came back at the next startup with no explanation.
+		const twin = `${DIRECTORY}/annotations/twin.geojson` as StorePath;
+		new WriteAheadJournal(storage, WORKSPACE).hold(
+			twin,
+			new TextEncoder().encode('the edit that stranded') as Bytes,
+			'',
+			'superseded'
+		);
+		await session.replayJournalledEdits();
+		expect(session.replayReport?.skipped).toHaveLength(2);
+		const rows = session.replayReport?.skipped ?? [];
+		expect(new Set(rows.map((row) => row.copy)).size).toBe(1);
+
 		session.forgetReplaySkip(path, skip?.copy ?? '');
 
-		// The copy is gone, so the next startup says nothing…
-		expect(readHeldCopies(storage, WORKSPACE)).toEqual([]);
-		// …and the panel goes with it rather than lingering with an empty list.
-		expect(session.replayReport).toBeNull();
+		// The twin is still there, named and offered, because it is a different file.
+		expect(session.replayReport?.skipped.map((row) => row.path)).toEqual([twin]);
+		expect(readHeldCopies(storage, WORKSPACE).copies.map((copy) => copy.path)).toEqual([twin]);
+
 		// And what it refused to overwrite is exactly where it was.
 		expect(new TextDecoder().decode(await store.read(path))).toBe('v2-NEWER');
 	});
@@ -501,7 +517,36 @@ describe('deleting a Project, at the unit seam', () => {
 		// And the scholar's copy is still held — out of the live journal, so the next edit to this file
 		// overwrites an entry rather than the copy the notice is about (round 5, finding B).
 		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
-		expect(readHeldCopies(storage, WORKSPACE).map((held) => held.path)).toEqual([path]);
+		expect(readHeldCopies(storage, WORKSPACE).copies.map((held) => held.path)).toEqual([path]);
+	});
+
+	/**
+	 * ⚠ **A held copy has to go with the Historical Map it belongs to** (round 6, finding B).
+	 *
+	 * `alignments/<id>.json` is a *sibling* of `images/<id>/`, which is why `#forgetJournalled` needs a
+	 * second call at all — and that second call was `forget`, which sweeps no held copy and, worse,
+	 * means "the store has taken these bytes". A copy declined for a deleted map's Alignment outlived
+	 * the map and was reported at every startup for ever, with a remedy about a file that is gone.
+	 */
+	it('takes a declined Alignment copy with the Historical Map it belonged to', async () => {
+		const { session, storage, store } = await sessionWithJournal();
+		const image = { width: 400, height: 300 };
+		const onDisk = serialiseAlignment(newAlignment('floride-1657', image));
+		// alignment-write-is-the-fixture: the Alignment on disk that the declined copy diverged from; nothing here writes one through the app
+		await store.write(alignmentPath('floride-1657') as StorePath, onDisk);
+		await store.write(imageInfoPath('floride-1657'), new TextEncoder().encode('{}') as Bytes);
+		const journal = new WriteAheadJournal(storage, WORKSPACE);
+		journal.hold(
+			alignmentPath('floride-1657') as StorePath,
+			new TextEncoder().encode('the control points that stranded') as Bytes,
+			'',
+			'cannot-tell-which-is-newer'
+		);
+		expect(readHeldCopies(storage, WORKSPACE).copies).toHaveLength(1);
+
+		await session.deleteHistoricalMap('floride-1657');
+
+		expect(readHeldCopies(storage, WORKSPACE).copies).toEqual([]);
 	});
 
 	/** And the record carries what the hub was showing, which is what a startup checks before removing. */
