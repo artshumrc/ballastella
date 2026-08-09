@@ -3,6 +3,7 @@ import { SvelteSet } from 'svelte/reactivity';
 
 import {
 	Autosave,
+	DeletedProjects,
 	HistoricalMapInUseError,
 	HistoricalMapPartlyDeletedError,
 	OpfsProjectStore,
@@ -18,6 +19,7 @@ import {
 	annotationStorePath,
 	assembleWithCanvas,
 	browserJournalStorage,
+	deletionsAreNoteworthy,
 	replayIsNoteworthy,
 	replayJournal,
 	// Aliased for the same reason `stampCanonicalUrl` is: the session has methods of these names, and
@@ -90,6 +92,8 @@ import {
 	type GeoBounds,
 	type IngestProgress,
 	type IngestedImage,
+	type FinishedDeletions,
+	type WorkspaceIdentity,
 	type JournalReplayReport,
 	type JournalStorage,
 	type Layer,
@@ -137,6 +141,19 @@ export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
  */
 export const opfsWorkspaceKey = (name: string): string => `opfs:${name}`;
 export const folderWorkspaceKey = (folderName: string): string => `folder:${folderName}`;
+
+/**
+ * Whether a Workspace key names **one place** or only a name a user can reproduce anywhere.
+ *
+ * Beside the two constructors above and derived from the same prefixes, so that no call site can
+ * hold a key and a contradicting opinion about it — which is the one way `Workspace`'s option could
+ * be got wrong. See {@link WorkspaceIdentity} for why this, and not any comparison of what is inside
+ * the directory, is what licenses finishing a deletion unattended.
+ *
+ * A prefix this build does not know answers `'a-name-anywhere'`, which destroys nothing.
+ */
+export const workspaceIdentityOf = (key: string): WorkspaceIdentity =>
+	key.startsWith('opfs:') ? 'this-browser' : 'a-name-anywhere';
 
 /**
  * A journal key as a **Workspace the user recognises**, never as the key itself.
@@ -269,6 +286,23 @@ export class EditorSession {
 	/** The write-ahead journal for **this** Workspace, or `undefined` where there can be none. */
 	readonly #journal: WriteAheadJournal | undefined;
 	readonly #journalStorage: JournalStorage | undefined;
+	/**
+	 * Which Projects the user deleted from **this** Workspace (ticket 21).
+	 *
+	 * `undefined` on a browser that will not give the page `localStorage`, exactly as {@link #journal}
+	 * is, and for the same reason: the protection is genuinely unavailable there and a stand-in would
+	 * make the app claim it anyway. That case — no storage at all — is what `WorkspaceStorage`'s
+	 * `unprotected` sentence covers.
+	 *
+	 * ⚠ **The case where there *is* a storage and it refuses the write is a different one, and it
+	 * used to be silent.** This comment claimed `protectionWarning`'s sibling "already says so in
+	 * words"; it does not. That sentence is about an edit on its way to being saved and offers
+	 * "wait for the indicator to read Saved", which is a remedy a deletion does not have — and it is
+	 * not shown at all in the read-only-`localStorage` case, which is precisely where `record`
+	 * fails. ADR-0017 asks for **two refusals, not one**, so there is now
+	 * {@link deletionWarning}.
+	 */
+	readonly #deleted: DeletedProjects | undefined;
 	/** Held for the tiler, which writes tens of thousands of files that are not `project.json`. */
 	readonly #store: ProjectStore;
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
@@ -303,6 +337,33 @@ export class EditorSession {
 	 * happened is one they cannot check.
 	 */
 	replayReport = $state<JournalReplayReport | null>(null);
+	/**
+	 * What the last startup's *deletions* did, if anything (ticket 21, review 2).
+	 *
+	 * ⚠ **The destructive half of the same recovery chain, and it reported nothing in either
+	 * direction.** `Workspace.finishInterruptedDeletions` answered with three lists and
+	 * `EditorSession` discarded all three. ADR-0017's standard for this chain is explicit and
+	 * repeated — *"every replay is named to the user, so an older state coming back is visible rather
+	 * than silent"*, *"Nothing is reported as restored that was not written"* — and the replay half
+	 * honoured it while the half that **removes files from a scholar's folder during startup** said
+	 * nothing at all. SPEC stories 111 and 112 apply to it exactly as they apply to a replay, and the
+	 * silence is also what made a wrong-folder deletion undetectable before the manifest precondition
+	 * existed to refuse one.
+	 *
+	 * `null` when a startup found nothing to do, which is the ordinary case.
+	 */
+	deletionReport = $state<FinishedDeletions | null>(null);
+	/**
+	 * Why this deletion is **not** protected against the tab closing before it finishes, or `''`.
+	 *
+	 * The sibling {@link protectionWarning} is not (ticket 21, review 2). That one is about an edit
+	 * on its way to storage and its remedy is "wait for the indicator to read Saved"; a deletion has
+	 * no indicator and no such wait, and the browsers that reach this are ones where reads answer and
+	 * writes reject — a full `localStorage` (ADR-0017 documents a single Annotation collection
+	 * filling the 5 MB the deletion record shares), and Safari with cookies blocked, where the
+	 * read-only probe accepts the storage and every write throws.
+	 */
+	deletionWarning = $state('');
 	/**
 	 * Why the last edit did not reach storage, if it did not. Shown beside the save indicator.
 	 *
@@ -434,7 +495,26 @@ export class EditorSession {
 					problem === null ? '' : problem instanceof Error ? problem.message : String(problem);
 			}
 		});
-		this.#workspace = new Workspace(store, { autosave: this.#autosave });
+		this.#deleted =
+			options.journalStorage && options.workspaceKey
+				? new DeletedProjects(options.journalStorage, options.workspaceKey)
+				: undefined;
+		this.#workspace = new Workspace(store, {
+			autosave: this.#autosave,
+			...(this.#deleted ? { deleted: this.#deleted } : {}),
+			// Out of the key the records are filed under, and out of nothing else. A session with no
+			// key has no `#deleted` either, so nothing ever consults this — but `''` answers
+			// `'a-name-anywhere'`, which is the direction that destroys nothing, rather than leaving
+			// the safe answer to a ternary a reader has to check.
+			identity: workspaceIdentityOf(options.workspaceKey ?? ''),
+			onDeletionNotRecorded: () => {
+				this.deletionWarning =
+					'This browser would not let Ballastella write the deletion down, so it is only as ' +
+					'safe as this tab: if the page closes before it finishes, the Project can come back. ' +
+					'Wait for it to disappear from the list before closing this tab. Site data may be ' +
+					'blocked for this site, or browser storage may be full.';
+			}
+		});
 		this.#autosave.subscribe((state) => {
 			this.saveState = state;
 		});
@@ -455,6 +535,62 @@ export class EditorSession {
 	}
 
 	/**
+	 * Carry out any deletion the user asked for that the page did not live long enough to finish
+	 * (ticket 21).
+	 *
+	 * **Before {@link replayJournalledEdits}, not after**, and the order is load-bearing in one
+	 * direction only: with the record still in place, a replay that ran first would refuse the
+	 * deleted Project's entries by name rather than by inference, which is what
+	 * `ReplaySkipReason: 'project-deleted'` is for — so either order is *safe*. This order is the one
+	 * that leaves nothing on disk for a listing to find, which is what the hub renders.
+	 *
+	 * Resolves rather than rejects, for the same reason the replay does: a Workspace too broken to
+	 * finish a deletion in is one the listing beside this is about to describe properly (ADR-0008).
+	 */
+	async finishInterruptedDeletions(): Promise<void> {
+		try {
+			const report = await this.#workspace.finishInterruptedDeletions();
+			// Named to the user, in both directions, for the reason `replayReport` is — and with more
+			// reason: this one took files away. See {@link deletionReport}.
+			this.deletionReport = deletionsAreNoteworthy(report) ? report : null;
+		} catch {
+			// A store that cannot even be listed. Every record stays where it is and is tried again at
+			// the next startup; the listing beside this is what tells the user the Workspace is
+			// unreachable.
+		}
+	}
+
+	/**
+	 * Throw away the note behind one refused deletion, because the user said to (ticket 21, round 4).
+	 *
+	 * ⚠ **The only exit a refusal had was the destructive one.** Since round 3 a folder Workspace
+	 * finishes no deletion unattended, so a refusal is the *whole* of what a startup there ever
+	 * reports — and nothing ended one. No record expires; `Workspace.#claim` drops one only when a
+	 * Project is created or duplicated under that name; and Workspace settings' discard is by
+	 * construction unable to reach the Workspace that is open, which is always the one showing the
+	 * refusal. The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
+	 * byte-identical report and shows it again. What the user was left with was a warning at every
+	 * visit, for ever, whose one offered remedy — "delete it again" — destroys a Project that may
+	 * belong to the colleague whose folder they opened.
+	 *
+	 * Non-destructive by construction: it removes a note about a deletion, never a file. Its cost is
+	 * the one the user has just accepted in words — if the deletion really was theirs and really was
+	 * unfinished, the Project stays, listed, and Delete is right there.
+	 */
+	forgetDeletion(directory: string): void {
+		this.#deleted?.forget(directory);
+		const report = this.deletionReport;
+		if (report === null) return;
+		const remaining = {
+			...report,
+			refused: report.refused.filter((entry) => entry.directory !== directory)
+		};
+		// Through the same predicate the report was published by, so a panel holding nothing but the
+		// refusal just forgotten goes away rather than lingering empty.
+		this.deletionReport = deletionsAreNoteworthy(remaining) ? remaining : null;
+	}
+
+	/**
 	 * Put back whatever the journal is still holding for this Workspace (ticket 20).
 	 *
 	 * Called once, as the Workspace is adopted, and never twice for the same session: replay drops
@@ -470,7 +606,9 @@ export class EditorSession {
 		const storage = this.#journalStorage;
 		if (!journal || !storage) return;
 		try {
-			const report = await replayJournal(storage, this.#store, journal.workspace);
+			const report = await replayJournal(storage, this.#store, journal.workspace, {
+				...(this.#deleted ? { deleted: this.#deleted } : {})
+			});
 			this.replayReport = replayIsNoteworthy(report) ? report : null;
 		} catch {
 			// A store that cannot even be listed. The entries stay where they are, and the listing
@@ -551,10 +689,33 @@ export class EditorSession {
 	 *
 	 * Before the deletion rather than after, so a deletion that fails part way through does not leave
 	 * journalled bytes for files that have gone.
+	 *
+	 * ⚠ **`Autosave` is swept too, and it is swept by `Workspace.deleteProject`** (ticket 21, reviews
+	 * 2 and 3). The journal is written *from* Autosave's pending bytes, so a sweep that left those in
+	 * place was undone within milliseconds by rule 3's own two halves: `capture()` re-journals
+	 * `<project>/project.json` at `pagehide`, after the sweep, and `flush()` writes it into the store
+	 * outright. That call lives in core now, beside the record it has to be ordered against — it has
+	 * to run before the removal *and* be waited on after the record, which only the method holding
+	 * both can do. See {@link Autosave.abandon}.
+	 *
+	 * **The Project's summary goes into the record**, out of the list the hub was rendering, so that a
+	 * startup which finishes this deletion can see whether the Project has been changed since. It is
+	 * not what says the Workspace is the right one — a copy reproduces it exactly; see
+	 * `WorkspaceIdentity`.
 	 */
 	async deleteProject(directory: string): Promise<void> {
+		// Cleared here rather than left standing: the callback below re-raises it synchronously if this
+		// browser still will not hold the note, so what the user reads is about the deletion in front
+		// of them and not about one they made ten minutes ago.
+		this.deletionWarning = '';
+		const was = this.projects.find((project) => project.directory === directory) ?? null;
 		this.#journal?.forgetUnder(`${directory}/`);
-		await this.#mutate(directory, () => this.#workspace.deleteProject(directory));
+		await this.#mutate(directory, () =>
+			this.#workspace.deleteProject(
+				directory,
+				was ? { name: was.name, updatedAt: was.updatedAt } : null
+			)
+		);
 	}
 
 	/**
@@ -1448,14 +1609,25 @@ export class EditorSession {
 	async deleteHistoricalMap(imageId: string): Promise<boolean> {
 		this.historicalMapError = '';
 		const label = this.historicalMaps.find((map) => map.imageId === imageId)?.label ?? '';
-		// The same reason `deleteProject` does it (ticket 20): the pyramid and the Alignment are both
-		// removed straight from the store, so anything journalled for them would be put back at the
-		// next startup — an Alignment file for a Historical Map that is no longer in the Workspace.
-		this.#journal?.forgetUnder(`${imageDirectory(imageId)}/`);
-		this.#journal?.forget(alignmentPath(imageId));
+		await this.#quietBeforeDeleting(imageId);
 		try {
 			await deleteHistoricalMap(this.#store, imageId, { label });
 		} catch (cause) {
+			// ⚠ **The sweep is here and below, and never before the `await`** (ticket 21, review 2).
+			// It used to be the first thing this method did, which made it the one remaining
+			// "destroy synchronously, justify asynchronously" pair in the application — the exact
+			// inversion `Workspace.deleteProject` had and ticket 21 fixed. The synchronous half threw
+			// away the user's unsaved Alignment edit; the asynchronous half is the one a reload cuts.
+			// A reload in between therefore lost the edit **and** left the map in place: data loss
+			// with no deletion to justify it, through a window that is wider than `deleteProject`'s
+			// ever was, because the first `await` here is `historicalMapUsage` — a walk of every
+			// Project in the Workspace.
+			//
+			// Swept only when something was actually removed, which `HistoricalMapPartlyDeletedError`
+			// is the only failure that says. `HistoricalMapInUseError` is a refusal taken *before*
+			// anything is deleted, and sweeping on it would throw away an unsaved Alignment for a map
+			// that is still right there — the same loss by the opposite mistake.
+			if (cause instanceof HistoricalMapPartlyDeletedError) this.#forgetJournalled(imageId);
 			// Two of these are sentences core has already written for the user, and they are used as
 			// written. "Could not be deleted" is the fallback and is only true when nothing was: a
 			// half-finished deletion says so itself, because telling a user nothing happened when the
@@ -1471,10 +1643,83 @@ export class EditorSession {
 			await this.refreshHistoricalMaps();
 			return false;
 		}
+		// The files are gone, so now the journalled copies of them may go (ticket 20's reason, in
+		// ticket 21's order): anything still journalled for the pyramid or the Alignment would be put
+		// back at the next startup, describing a Historical Map that is no longer in the Workspace.
+		this.#forgetJournalled(imageId);
 		this.images = this.images.filter((image) => image.imageId !== imageId);
 		this.referencedImages = this.referencedImages.filter((image) => image.imageId !== imageId);
 		await this.refreshHistoricalMaps();
 		return true;
+	}
+
+	/**
+	 * Drop every pending and journalled byte belonging to one Historical Map: its pyramid **and its
+	 * Alignment**.
+	 *
+	 * ⚠ **The Alignment is not under `images/<id>/`, and `abandon` was only given that prefix**
+	 * (ticket 21, review 3). `alignmentPath(id)` is `alignments/<id>.json` — a sibling, which is why
+	 * the journal below needs a second call and why one `abandon` was not enough. So on the very path
+	 * this method exists for, the unsaved specimen *is* the Alignment: its journal entry was
+	 * forgotten and the pending bytes it is written from were not, leaving `capture()` to re-journal
+	 * it at `pagehide` and `flush()` to write it outright — recreating `alignments/<id>.json` for a
+	 * Historical Map that is gone, which is the orphan `deleteHistoricalMap` exists to prevent.
+	 *
+	 * ⚠ **The promise `abandon` answers with is dropped here, and that is now merely true rather than
+	 * load-bearing** (round 4). This runs *after* `deleteHistoricalMap` has removed the files, so a
+	 * write still in flight has already either landed or not and waiting on it would re-delete
+	 * nothing. The window it used to leave open is closed by {@link #quietBeforeDeleting}, at the top
+	 * of {@link deleteHistoricalMap} and **before** the deletion, where waiting can still change the
+	 * outcome.
+	 */
+	#forgetJournalled(imageId: string): void {
+		void this.#autosave.abandon(`${imageDirectory(imageId)}/`);
+		void this.#autosave.abandon(alignmentPath(imageId));
+		this.#journal?.forgetUnder(`${imageDirectory(imageId)}/`);
+		this.#journal?.forget(alignmentPath(imageId));
+	}
+
+	/**
+	 * Let the store finish with a Historical Map's files before asking for them to be deleted
+	 * (ticket 21, rounds 4 and 5).
+	 *
+	 * `Autosave.abandon` cannot call back a write the store already has, and `#forgetJournalled` runs
+	 * *after* the deletion, so a write still in flight when Delete is pressed lands on top of a map
+	 * that has gone — an orphaned `alignments/<id>.json` that a later import would deduplicate a
+	 * colleague's copy against, or an `images/<id>/image-info.json` for a pyramid that is not there.
+	 *
+	 * ⚠ **Both prefixes, exactly as {@link #forgetJournalled} sweeps both** (round 5). The first cut
+	 * waited on the Alignment alone, which left the pyramid's own files — `image-info.json`,
+	 * `remote.json`, the tiles — with the identical window and no sentence saying why they were
+	 * different. They are not different; the argument covers both or neither. Each is pinned by its
+	 * own test holding one write open, because written as one test the two waits sit in the same
+	 * `Promise.all` and either alone parks the deletion until both are released — so a pair would
+	 * have asserted nothing about either.
+	 *
+	 * ⚠ **What this closes is the *in-flight* case, and saying more than that is what round 4 got
+	 * wrong.** `Autosave.settled` also brings a merely-pending file to rest, but on these two
+	 * prefixes nothing debounced is ever queued and a pending file is swept by
+	 * {@link #forgetJournalled} before anything restarts it. The wait earns its place on writes the
+	 * store already has, which are the ones nothing downstream can call back.
+	 *
+	 * ⚠ **This is not the inversion review 2 removed from this method.** What made the old ordering
+	 * an inversion was not that something happened before the deletion but that it *destroyed the
+	 * user's only copy* — the journal entry holding an unsaved Alignment — before anything justified
+	 * destroying it, so a reload in between lost the edit **and** left the map in place.
+	 * `Autosave.settled` discards nothing: it starts the writes that were already queued and waits
+	 * for the store to take them. An edit that survives this is on disk, so the refusal below can
+	 * still refuse and the user still has their work. `Workspace.deleteProject` does the same thing
+	 * with `abandon`, two files away, for the same reason.
+	 *
+	 * Bounded, so a write that never settles costs a pause and not the gesture; if the wait expires
+	 * the deletion goes ahead anyway, and `deleteHistoricalMap`'s partial-failure design leaves a map
+	 * that is still listed and can be finished by hand.
+	 */
+	async #quietBeforeDeleting(imageId: string): Promise<void> {
+		await Promise.all([
+			this.#autosave.settled(`${imageDirectory(imageId)}/`),
+			this.#autosave.settled(alignmentPath(imageId))
+		]);
 	}
 
 	/**

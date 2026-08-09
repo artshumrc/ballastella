@@ -28,11 +28,24 @@ export {
 	type JournalProblemReason,
 	type JournalStorage
 } from './autosave/journal.js';
+// The plain `localStorage` stand-in the journal suites drive. Exported because the editor's own unit
+// seam needs the identical one: a fourth hand-written copy in `apps/editor` is a fourth thing that can
+// drift from the `JournalStorage` they all claim to satisfy, which is the drift
+// `fake-journal-storage.ts` exists to prevent.
+export { FakeJournalStorage } from './autosave/fake-journal-storage.js';
+export {
+	DeletedProjects,
+	discardDeletions,
+	workspacesWithDeletions,
+	type DeletionRecord,
+	type ProjectIdentity
+} from './autosave/deleted-projects.js';
 export {
 	replayIsNoteworthy,
 	replayJournal,
 	type JournalReplayReport,
 	type ReplayFailure,
+	type ReplayOptions,
 	type ReplaySkipReason,
 	type ReplaySkipped
 } from './autosave/replay.js';
@@ -131,8 +144,12 @@ export {
 	Workspace,
 	hoistedImageId,
 	isReservedDirectoryName,
+	deletionsAreNoteworthy,
 	toDirectoryName,
+	type FinishedDeletions,
+	type RefusedDeletion,
 	type ProjectSummary,
+	type WorkspaceIdentity,
 	type WorkspaceOptions
 } from './project/workspace.js';
 // What makes a Workspace a throwaway Review Workspace (ticket 14, ADR-0024).

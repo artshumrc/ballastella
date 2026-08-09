@@ -54,6 +54,7 @@ import {
 	type ProjectStore,
 	type StorePath
 } from '../store/project-store.js';
+import type { DeletedProjects } from './deleted-projects.js';
 import {
 	WriteAheadJournal,
 	readJournal,
@@ -65,6 +66,17 @@ import {
 export type ReplaySkipReason =
 	/** The Project it belongs to is no longer in this Workspace. */
 	| 'no-such-project'
+	/**
+	 * The user deleted the Project it belongs to (ticket 21).
+	 *
+	 * Distinct from `no-such-project`, and the distinction is the point. That one is an *inference*
+	 * from files not being there, which is why it has to err toward keeping the entry — "unreadable
+	 * is not absent". This one is the gesture itself, recorded at the moment the user made it, and it
+	 * is the only evidence strong enough to refuse to put back a `<project>/project.json`, which
+	 * {@link missingOwner} otherwise exempts from every check because writing it is what makes a
+	 * Project exist.
+	 */
+	| 'project-deleted'
 	/** The Historical Map it belongs to is no longer in this Workspace. */
 	| 'no-such-historical-map';
 
@@ -105,6 +117,18 @@ export const replayIsNoteworthy = (report: JournalReplayReport): boolean =>
 	report.failed.length > 0 ||
 	report.problems.length > 0;
 
+/** What a replay may be told beyond the store it is writing into. */
+export interface ReplayOptions {
+	/**
+	 * Which Projects the user deleted (ticket 21).
+	 *
+	 * Without it the replay behaves exactly as it did before, which is the honest default for a
+	 * browser that cannot store the record at all — the same absence-is-a-state shape the journal
+	 * storage itself has.
+	 */
+	readonly deleted?: DeletedProjects;
+}
+
 /**
  * Put one Workspace's journalled edits back into its store.
  *
@@ -119,7 +143,8 @@ export const replayIsNoteworthy = (report: JournalReplayReport): boolean =>
 export async function replayJournal(
 	storage: JournalStorage,
 	store: ProjectStore,
-	workspace: string
+	workspace: string,
+	options: ReplayOptions = {}
 ): Promise<JournalReplayReport> {
 	const journal = new WriteAheadJournal(storage, workspace);
 	const { entries, problems } = readJournal(storage, workspace);
@@ -133,7 +158,7 @@ export async function replayJournal(
 		// mid-walk — is one reported failure with its entry kept, rather than a rejection that
 		// abandons every remaining entry unexamined.
 		try {
-			const blocked = await missingOwner(store, entry.path);
+			const blocked = await missingOwner(store, entry.path, options.deleted);
 			if (blocked !== null) {
 				skipped.push(blocked);
 				// The thing it belonged to is gone, so the entry can never be used and would otherwise
@@ -328,8 +353,41 @@ export function alignmentImageId(path: StorePath): string | null {
  * writing that file is *what makes the Project exist*, so an interrupted `createProject` has no
  * directory to point at yet, and requiring one would discard the only copy of a Project the user has
  * just made.
+ *
+ * **A third layer arrived with ticket 21, and it is the only one that can see inside that
+ * exemption**: `DeletedProjects`, the user's deletion written down synchronously at the moment they
+ * asked for it. Layers 1 and 2 both reason from *files* — an entry swept at deletion time, or a
+ * manifest that is no longer readable — and neither can say anything about `project.json` itself,
+ * because its absence is equally the signature of a Project being born. Layer 3 reasons from the
+ * gesture, which has an answer for it. It goes first, below.
  */
-async function missingOwner(store: ProjectStore, path: StorePath): Promise<ReplaySkipped | null> {
+async function missingOwner(
+	store: ProjectStore,
+	path: StorePath,
+	deleted: DeletedProjects | undefined
+): Promise<ReplaySkipped | null> {
+	// ⚠ **First, and above the `project.json` exemption below, which is the only reason it works**
+	// (ticket 21). Every other check here asks the store whether something is still there, and none
+	// of them can be asked about `<project>/project.json`: writing that file is *what makes the
+	// Project exist*, so an interrupted `createProject` has no directory to point at and requiring
+	// one would discard the only copy of a Project the user has just made. This asks a different
+	// question, of a different source — did the user delete this Project? — and that one has an
+	// answer for `project.json` too.
+	//
+	// A reserved directory (`images/`, `alignments/`, `base-map/`) can never be created as a Project
+	// and therefore never recorded here, so asking before the branches below costs nothing and cannot
+	// misfire.
+	const owner = topLevelSegment(path);
+	if (owner !== path && deleted?.has(owner) === true) {
+		return {
+			path,
+			reason: 'project-deleted',
+			detail:
+				`An unsaved change to “${path}” was not put back, because you deleted the ` +
+				`Project it belongs to.`
+		};
+	}
+
 	const imageId = alignmentImageId(path) ?? imageIdUnder(path);
 	if (imageId !== null) {
 		// A Historical Map's *own* evidence files are exempt, for exactly the reason
@@ -352,17 +410,16 @@ async function missingOwner(store: ProjectStore, path: StorePath): Promise<Repla
 				};
 	}
 
-	const directory = topLevelSegment(path);
 	// The Workspace's own directories are not Projects and never can be, so there is no manifest to
 	// look for. From the shared list rather than spelled again, so a fourth reserved directory
 	// arrives here without anybody having to remember this line exists.
-	if (RESERVED_DIRECTORY_NAMES.includes(directory)) return null;
+	if (RESERVED_DIRECTORY_NAMES.includes(owner)) return null;
 	// Anything else at the Workspace root is not a Project's and has no owner to check.
-	if (directory === path) return null;
-	if (path === projectFilePath(directory)) return null;
+	if (owner === path) return null;
+	if (path === projectFilePath(owner)) return null;
 
 	try {
-		await store.read(projectFilePath(directory));
+		await store.read(projectFilePath(owner));
 		return null;
 	} catch (cause) {
 		if (!(cause instanceof PathNotFoundError)) {

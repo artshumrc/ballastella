@@ -22,8 +22,10 @@ import {
 	workspaceSize,
 	requestPersistentStorage,
 	browserJournalStorage,
+	discardDeletions,
 	discardJournal,
 	journalledWorkspaces,
+	workspacesWithDeletions,
 	type JournalStorage,
 	type OpenedBundle,
 	type ProjectStore,
@@ -605,7 +607,16 @@ export class WorkspaceStorage {
 		// Its journalled edits go with it (ticket 20). Without this they survive the Workspace, become
 		// orphans nothing will ever replay, and — if a Workspace of the same name is made later — are
 		// put back into somebody else's work under a name they happened to reuse.
-		if (this.#journalStorage) discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
+		//
+		// **And its unfinished deletions, for the same reason and with more force** (ticket 21, review
+		// 2). The records have the same key shape and the same reuse hazard, and their effect is
+		// *destructive* rather than additive: a record left behind by a Workspace called "Marking
+		// 2026" is a standing instruction to delete a folder name inside whatever "Marking 2026" is
+		// made next. They were swept by nothing.
+		if (this.#journalStorage) {
+			discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
+			discardDeletions(this.#journalStorage, opfsWorkspaceKey(name));
+		}
 	}
 
 	/** What a Workspace weighs, so the confirmation can say what is about to go. `list` + `size`. */
@@ -998,6 +1009,13 @@ export class WorkspaceStorage {
 	 */
 	async #replayAndReport(): Promise<void> {
 		const session = this.session;
+		// **Before the replay, and before anything reads the Workspace** (ticket 21). A deletion is as
+		// asynchronous as an edit and had none of ticket 20's protection, so a Project the user deleted
+		// on the way out of the page was still on disk — and back on the hub — at the next startup.
+		// Here rather than beside the replay because it is finishing something the user already asked
+		// for, which has to have happened before the listing that follows can be true. `Workspace`
+		// records the gesture synchronously; this is the half that could not run at the time.
+		await session.finishInterruptedDeletions();
 		await session.replayJournalledEdits();
 		// Guarded against a switch that happened while the replay was running: refreshing a session
 		// the user has already left would list a Workspace that is no longer on screen.
@@ -1016,6 +1034,12 @@ export class WorkspaceStorage {
 	 * appears in `listOpfsWorkspaces` at all, so every folder key is an orphan by this test; so is a
 	 * browser Workspace on a listing that failed. The report therefore names them and offers
 	 * {@link discardOrphanedJournal}, and nothing here deletes anybody's unsaved edit on a guess.
+	 *
+	 * **Both kinds of record, not only the journal** (ticket 21, review 2). An unfinished deletion
+	 * lives in the same 5 MB, under a key of the same shape, and was invisible here — so a record
+	 * naming a Workspace this browser will never open again could never be seen or discarded, while
+	 * the journal keys beside it could. It is also the one kind whose standing instruction is
+	 * destructive, which makes it the one a user is likeliest to want to be rid of.
 	 */
 	refreshOrphanedJournals(): void {
 		if (this.#journalStorage === null) return;
@@ -1027,15 +1051,35 @@ export class WorkspaceStorage {
 			opfsWorkspaceKey(this.workspaceName),
 			...(this.folderName ? [folderWorkspaceKey(this.folderName)] : [])
 		];
-		this.orphanedJournals = journalledWorkspaces(this.#journalStorage).filter(
-			(key) => !known.includes(key)
-		);
+		// Deduplicated by hand for the reason `known` is an array: a plain `Set` is ruled out by
+		// `svelte/prefer-svelte-reactivity`, and a `SvelteSet` for a handful of names nothing reads
+		// reactively would be the wrong answer to a rule about reactive state.
+		const held = [
+			...journalledWorkspaces(this.#journalStorage),
+			...workspacesWithDeletions(this.#journalStorage)
+		];
+		this.orphanedJournals = held
+			.filter((key, index) => held.indexOf(key) === index && !known.includes(key))
+			.sort((a, b) => a.localeCompare(b));
 	}
 
-	/** Throw away one orphaned Workspace's journalled edits, because the user said so. */
-	discardOrphanedJournal(key: string): number {
-		if (this.#journalStorage === null) return 0;
-		const dropped = discardJournal(this.#journalStorage, key);
+	/**
+	 * Throw away one orphaned Workspace's journalled edits and unfinished deletions, because the user
+	 * said so.
+	 *
+	 * ⚠ **Two counts, not their sum** (ticket 21, round 4). Round 2 added the deletion records to
+	 * this and added their count to the journal's, so the one sentence rendered from the answer —
+	 * *"Threw away N unsaved changes"* — was false in both nouns for a Workspace holding only a
+	 * deletion note: nothing was unsaved and nothing was a change. They are two different kinds of
+	 * thing with two different consequences, which is the whole reason `discardDeletions` exists
+	 * beside `discardJournal` rather than inside it, and a sum is exactly what cannot say so.
+	 */
+	discardOrphanedJournal(key: string): { edits: number; deletions: number } {
+		if (this.#journalStorage === null) return { edits: 0, deletions: 0 };
+		const dropped = {
+			edits: discardJournal(this.#journalStorage, key),
+			deletions: discardDeletions(this.#journalStorage, key)
+		};
 		this.refreshOrphanedJournals();
 		return dropped;
 	}

@@ -382,6 +382,152 @@ test.describe('choosing a folder as the Workspace', () => {
 		await expect(page.getByRole('link', { name: 'In Browser' })).toHaveCount(0);
 	});
 
+	/**
+	 * ⚠ **THE WHOLE OF ROUND 3's DESIGN DECISION, IN THE PLACE IT APPLIES.**
+	 *
+	 * A folder Workspace's key is `folder:<folder name>` — a name the user can put on any folder on
+	 * any drive — because the browser offers a page no stable identifier for a picked directory
+	 * (ADR-0017), and ADR-0023 explicitly invites synced folders, colleagues' copies and second
+	 * checkouts. Two rounds of this ticket tried to make an unattended recursive delete safe *there*
+	 * by comparing what is inside the directory against what the record captured, and it cannot be
+	 * done: Dropbox, Drive, rsync and `cp -a` reproduce `project.json` byte for byte, and ADR-0010
+	 * guarantees that opening a Project writes nothing, so a **backup of the very Project the user
+	 * deleted** matches every field of the record perfectly. Every comparison says "remove".
+	 *
+	 * So the folder case does not delete unattended at all. The Project is listed, the user is told
+	 * plainly that its deletion did not finish, and deleting it again is one gesture — visible and
+	 * non-destructive, which is what ADR-0017 asks of the rest of the recovery chain. The record is
+	 * seeded here exactly as `DeletedProjects.record` writes it, evidence included, so this is the
+	 * *matching* record — the one every content check would have carried out.
+	 */
+	test('will not finish a deletion on its own in a folder, and says so', async ({ page }) => {
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'Amsterdam 1625');
+		// Exactly the state the ~20% teardown window leaves: the record written, nothing removed.
+		const manifest = await readInFolder(page, 'amsterdam-1625/project.json');
+		await page.evaluate(
+			([folder, text]) => {
+				const was = JSON.parse(text as string);
+				localStorage.setItem(
+					`ballastella.deleted.${encodeURIComponent(`folder:${folder as string}`)}/${encodeURIComponent('amsterdam-1625')}`,
+					JSON.stringify({
+						formatVersion: 1,
+						at: new Date().toISOString(),
+						was: { name: was.name, updatedAt: was.updatedAt }
+					})
+				);
+			},
+			[PICKED_FOLDER, manifest]
+		);
+
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await inFolder(page);
+
+		await expect(page.getByTestId('deletion-refused')).toContainText(
+			'will not remove it on its own'
+		);
+		// Not one byte, and the Project is still there to be deleted deliberately.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		expect(await everyPathInFolder(page)).toEqual(['amsterdam-1625/project.json']);
+
+		// And the gesture that ends it is the ordinary one, right there in the list.
+		await page.getByRole('button', { name: /^Delete/ }).click();
+		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
+		await expect.poll(() => everyPathInFolder(page)).toEqual([]);
+	});
+
+	/**
+	 * ⚠ **THE REFUSAL WAS PERMANENT, AND ITS ONE OFFERED EXIT DESTROYED SOMEBODY ELSE'S PROJECT.**
+	 *
+	 * This is the case the refusal above exists for, played out: the user opens a **colleague's**
+	 * `maps` folder, which happens to hold its own `amsterdam-1625`. The manifest is readable so the
+	 * record is not cleared, the identity rule refuses, and the note is kept — and nothing ends it.
+	 * No record expires, `Workspace.#claim` fires only when a Project is created or duplicated under
+	 * that name, Workspace settings' discard is by construction unable to reach the Workspace that is
+	 * *open*, and the panel's "Got it" is keyed on the report's contents, so the next startup builds a
+	 * byte-identical report and shows the same warning again. Since round 3 made a refusal the only
+	 * thing a folder Workspace ever reports, that is a warning at every visit for ever — whose one
+	 * offered remedy, "delete it again", destroys the colleague's work.
+	 *
+	 * Asserted across a reload, because "it stops" is a claim about the *next* startup and the
+	 * dismissal that does not survive one is precisely what was wrong.
+	 */
+	test('forgets a refused deletion’s note, and it stays forgotten across a reload', async ({
+		page
+	}) => {
+		await chooseFolder(page);
+		await inFolder(page);
+		// Somebody else's Project, of the same name, in a folder of the same name. Nothing this build
+		// can read tells it apart from the one the user deleted on their own machine.
+		await createProject(page, 'Amsterdam 1625');
+		// ⚠ **Two, and that is the point** (round 5). One refusal made three things unfalsifiable: the
+		// "still showing" arm of the focus move, `bind:this={dismissButton}`, and the accessible names
+		// — two buttons both reading "Forget this note", told apart only by prose in a `<p>` that is
+		// associated with neither. A screen-reader user meets two identical controls and has to guess
+		// which note each one throws away, for the one gesture here that is supposed to be safe.
+		await createProject(page, 'Boston 1775');
+		await page.evaluate((folder) => {
+			for (const directory of ['amsterdam-1625', 'boston-1775']) {
+				localStorage.setItem(
+					`ballastella.deleted.${encodeURIComponent(`folder:${folder}`)}/${encodeURIComponent(directory)}`,
+					JSON.stringify({
+						formatVersion: 1,
+						at: new Date().toISOString(),
+						was: { name: 'Whatever it was called', updatedAt: '2026-08-08T09:00:00.000Z' }
+					})
+				);
+			}
+		}, PICKED_FOLDER);
+
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await inFolder(page);
+		await expect(page.getByTestId('deletion-refused')).toHaveCount(2);
+
+		// Named by the folder each one is about, so they are distinguishable to somebody who cannot
+		// see which paragraph the button sits in.
+		await page
+			.getByRole('button', { name: 'Forget the unfinished deletion of “boston-1775”' })
+			.click();
+
+		// The panel is still saying something, so focus stays inside it rather than falling to <body>.
+		await expect(page.getByTestId('deletion-refused')).toHaveCount(1);
+		expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe(
+			'recovered-dismiss'
+		);
+
+		await page
+			.getByRole('button', { name: 'Forget the unfinished deletion of “amsterdam-1625”' })
+			.click();
+
+		// The panel goes, because that refusal was the last of what it had to say — and focus lands
+		// where a dismissal's does rather than on the element that has just been removed.
+		await expect(page.getByTestId('recovered-edits')).toHaveCount(0);
+		expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('MAIN');
+		// Notes went and files did not: both Projects are untouched.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Boston 1775' })).toBeVisible();
+		expect(await everyPathInFolder(page)).toEqual([
+			'amsterdam-1625/project.json',
+			'boston-1775/project.json'
+		]);
+
+		// And it stays gone, which is the half a content-keyed dismissal could never deliver.
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await inFolder(page);
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		await expect(page.getByTestId('deletion-refused')).toHaveCount(0);
+		expect(
+			await page.evaluate(() =>
+				Object.keys(localStorage).filter((key) => key.startsWith('ballastella.deleted.'))
+			)
+		).toEqual([]);
+	});
+
 	test('sweeps abandoned writes out of the folder when it is adopted', async ({ page }) => {
 		// A laptop that died mid-autosave leaves a `.ballastella-tmp` — or Chromium's
 		// `.ballastella-tmp.crswap` — inside the Project directory. `list` hides it, `delete` refuses
@@ -457,6 +603,13 @@ test.describe('choosing a folder as the Workspace', () => {
 		await inBrowserStorage(page);
 		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
 		await page.reload();
+		// ⚠ **The gate, and it is the only thing that makes the line below an assertion.** This is the
+		// sole check on the *persistence* half — line above covers the in-memory clear — and an
+		// unhydrated page has no Reopen button either, so `toHaveCount(0)` resolved on the first poll
+		// against a page that had not rendered anything yet. The deletion that kept it green: make
+		// "forget the folder" clear the reactive state and skip the `localStorage` write. Waiting for
+		// the hub to say which Workspace it is in is what the reload has to survive.
+		await inBrowserStorage(page);
 		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
 	});
 

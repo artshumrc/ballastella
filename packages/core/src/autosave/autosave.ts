@@ -31,6 +31,14 @@ export interface AutosaveOptions {
 	 */
 	readonly debounceMs?: number;
 	/**
+	 * How long {@link Autosave.abandon} and {@link Autosave.settled} will wait for a write the store
+	 * already has, before answering `false` and letting the caller get on with it.
+	 *
+	 * Injectable so the bound itself is testable — a wait nothing can expire is a wait nothing can
+	 * prove expires. See `Autosave.#quietUnder` for why there is a bound at all.
+	 */
+	readonly inFlightWaitMs?: number;
+	/**
 	 * Where pending bytes are written ahead of the store (ADR-0017 rule 3, as amended by ticket 20).
 	 *
 	 * Optional because it is a browser capability and not a guarantee: `localStorage` can be absent
@@ -66,6 +74,7 @@ export interface AutosaveOptions {
 export class Autosave {
 	readonly #store: ProjectStore;
 	readonly #debounceMs: number;
+	readonly #inFlightWaitMs: number;
 	readonly #files = new Map<StorePath, PendingFile>();
 	readonly #listeners = new Set<(state: SaveState) => void>();
 	readonly #journal: AutosaveJournal | undefined;
@@ -77,6 +86,10 @@ export class Autosave {
 	constructor(store: ProjectStore, options: AutosaveOptions = {}) {
 		this.#store = store;
 		this.#debounceMs = options.debounceMs ?? 400;
+		// Long enough that an OPFS write which is merely slow is waited for rather than given up on,
+		// and short enough that a write which is never going to settle costs the user a pause and not
+		// a Delete button that does nothing. See `#quietUnder`.
+		this.#inFlightWaitMs = options.inFlightWaitMs ?? 2000;
 		this.#journal = options.journal;
 		this.#onJournalRefused = options.onJournalRefused ?? (() => undefined);
 	}
@@ -223,6 +236,150 @@ export class Autosave {
 		if (!this.#journal) return;
 		for (const [path, file] of this.#files) {
 			if (file.pending !== undefined) this.#writeAhead(path, file.pending);
+		}
+	}
+
+	/**
+	 * Give up on everything still pending under `prefix`, because it is being deleted (ticket 21).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE JOURNAL WAS SWEPT AND THE BYTES THAT FILL IT WERE NOT
+	 *
+	 * `EditorSession.deleteProject` emptied the *journal* of the Project it was deleting and left
+	 * `Autosave`'s own pending bytes exactly where they were. Those bytes are the source the journal
+	 * is written from, so both of this class's rule-3 halves put the Project straight back:
+	 * {@link capture} re-records `<project>/project.json` at `pagehide`, **after** the sweep, and
+	 * {@link flush} writes it into the store outright. Either one resurrects a Project the user
+	 * watched disappear — the exact defect ticket 21 closes, arriving by a route the sweep could not
+	 * see.
+	 *
+	 * Swept here rather than by ordering the two more carefully, because there is no ordering that
+	 * works: `pagehide` can fire at any point after the click, including between the sweep and the
+	 * deletion resolving.
+	 *
+	 * Timers are cleared and the save state republished, so a Project deleted mid-debounce does not
+	 * leave the indicator reading "Unsaved" for a file that no longer exists.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE SYNCHRONOUS HALF IS ALL OF THE SWEEP AND NONE OF THE GUARANTEE
+	 *
+	 * ⚠ **A write already handed to the store cannot be called back.** {@link #drainLoop} captures
+	 * its `bytes` and then awaits `store.write`; clearing `pending` here does not reach into that.
+	 * So a `<project>/project.json` write in flight at the moment the user presses Delete can resolve
+	 * **after** the deletion has listed the directory, recreating the manifest behind it — and the
+	 * deletion then drops its own record, leaving nothing for the next startup to catch.
+	 *
+	 * Which is why this answers with a promise: everything it *could* stop is stopped before it
+	 * returns, and the promise is for the writes it could not. `Workspace.deleteProject` waits on it
+	 * **after** writing the deletion down and before removing a byte, so the synchronous guarantee
+	 * that whole ticket rests on is untouched.
+	 *
+	 * Never rejects: a write that failed is a write the store does not have, which is the outcome the
+	 * caller wanted anyway.
+	 *
+	 * @returns whether everything under `prefix` is now quiet. `false` means a write is **still out
+	 *   there** and the wait gave up on it — see {@link #quietUnder}.
+	 */
+	abandon(prefix: string): Promise<boolean> {
+		const inFlight: Promise<unknown>[] = [];
+		for (const [path, file] of [...this.#files]) {
+			if (!path.startsWith(prefix)) continue;
+			if (file.timer !== undefined) {
+				clearTimeout(file.timer);
+				file.timer = undefined;
+			}
+			file.pending = undefined;
+			file.error = undefined;
+			file.journalRefusal = undefined;
+			this.#journal?.forget(path);
+			// A write already in flight owns this entry until it settles; `#drain`'s `finally` is what
+			// removes it, and removing it here would let a second drain start for the same path.
+			if (file.draining) inFlight.push(file.draining);
+			else this.#files.delete(path);
+		}
+		this.#publishJournalRefusal();
+		this.#publish();
+		return this.#quietUnder(inFlight);
+	}
+
+	/**
+	 * Bring everything under `prefix` to rest, **losing nothing** (ticket 21, rounds 4 and 5).
+	 *
+	 * {@link abandon}'s sibling, and the difference is the whole reason it exists: `abandon` is for a
+	 * path whose bytes are about to be *removed*, so it throws them away; this is for a path that is
+	 * about to be removed **by somebody else** — `deleteHistoricalMap`, which decides for itself
+	 * whether the deletion may happen at all and must not have the user's unsaved Alignment thrown
+	 * away before it does. Nothing here is discarded: an edit that survives this is on disk, and if
+	 * the deletion is then refused the user still has it.
+	 *
+	 * ⚠ **"Rest" is not "nothing in flight", and the first cut of this waited only for
+	 * `file.draining`** (round 5). A file inside its debounce has `pending` set and `draining`
+	 * undefined, so that version answered `true` for a path whose bytes had not left this object —
+	 * and its timer would then fire during whatever the caller went on to do. A pending file is
+	 * **drained** instead: the timer is cleared and the write started now rather than in a few
+	 * hundred milliseconds, which costs nothing because it is a write the store was about to be given
+	 * anyway, and is the only reading of "settled" that is true of bytes still held here.
+	 *
+	 * ⚠ **What that is worth, stated exactly, because the round before this one over-claimed a
+	 * narrower version of it.** Today's caller — `EditorSession.#quietBeforeDeleting` — sees only
+	 * `commit`, which drains at once, so its reachable hazard is the in-flight case and the first cut
+	 * did cover that. On those two prefixes a merely-pending file is also swept by
+	 * `#forgetJournalled`'s `abandon` before anything restarts it. So this widening fixes **no
+	 * currently reachable orphan**: it makes the method's name true, and it removes the landmine
+	 * waiting for the first caller who queues a debounced write under a prefix they then delete. The
+	 * unit test for it drives this class directly, and the editor-seam tests — which can only build
+	 * the in-flight state — are honest about covering the other half.
+	 *
+	 * @returns whether everything under `prefix` is quiet — `false` when the wait gave up.
+	 */
+	settled(prefix: string): Promise<boolean> {
+		const quiet: Promise<unknown>[] = [];
+		for (const [path, file] of [...this.#files]) {
+			// ⚠ **Prefix-scoped, and it has to be.** Without this every call would wait on every write
+			// in the Workspace, so one stuck write in a Project nobody is looking at would put the
+			// whole bound on every Historical Map deletion — a pause with no cause the user could see.
+			if (!path.startsWith(prefix)) continue;
+			if (file.timer !== undefined) {
+				clearTimeout(file.timer);
+				file.timer = undefined;
+			}
+			// `#drain` is one-writer-per-path: handed a file that is already draining it returns that
+			// same promise, and `#drainLoop` picks the newer bytes up on its next pass. So this is the
+			// pending case and the in-flight case in one line, with no second drain.
+			if (file.pending !== undefined) quiet.push(this.#drain(path).catch(() => undefined));
+			else if (file.draining) quiet.push(file.draining);
+		}
+		this.#publish();
+		return this.#quietUnder(quiet);
+	}
+
+	/**
+	 * Wait for `inFlight`, but **not for ever**.
+	 *
+	 * ⚠ **A store write is not guaranteed to settle, and both callers of this are on a gesture the
+	 * user is watching** (ticket 21, round 4). A folder whose grant was revoked mid-write, or an OPFS
+	 * handle a second tab tore down, can leave `store.write` pending with nothing to reject it — and
+	 * before this class answered with a promise at all, `abandon` was synchronous and a deletion ran
+	 * regardless. An unbounded wait would turn that into a Delete button that does nothing, for ever,
+	 * with the Project still on screen.
+	 *
+	 * So the wait is a **courtesy to a write that is going to land**, not a guarantee, and the answer
+	 * says which of the two happened. `Workspace.deleteProject` removes the files either way — the
+	 * user asked — and keeps its deletion record when the answer is `false`, so the next startup
+	 * finishes what a write landing late may have put back. Nothing is reported done that was not
+	 * done, which is this chain's rule and the reason the boolean exists rather than a silent
+	 * timeout.
+	 */
+	async #quietUnder(inFlight: readonly Promise<unknown>[]): Promise<boolean> {
+		if (inFlight.length === 0) return true;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const expiry = new Promise<false>((resolve) => {
+			timer = setTimeout(() => resolve(false), this.#inFlightWaitMs);
+		});
+		try {
+			return await Promise.race([Promise.allSettled(inFlight).then(() => true), expiry]);
+		} finally {
+			clearTimeout(timer);
 		}
 	}
 

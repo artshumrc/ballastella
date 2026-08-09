@@ -293,7 +293,31 @@
 						data-testid="discard-orphaned-journal"
 						onclick={() => {
 							const dropped = storage.discardOrphanedJournal(key);
-							outcome = `Threw away ${dropped} unsaved ${dropped === 1 ? 'change' : 'changes'} held for “${workspaceKeyLabel(key)}”. Nothing in any Workspace was touched.`;
+							// Named separately because they are separate things: an unsaved edit waiting to be
+							// put back, and a standing instruction to *delete* a Project. Summed, a Workspace
+							// holding only the second was reported as "1 unsaved change", which is false in
+							// both nouns — and hid the one of the two a user would most want to know had gone.
+							const parts = [
+								...(dropped.edits > 0
+									? [`${dropped.edits} unsaved ${dropped.edits === 1 ? 'change' : 'changes'}`]
+									: []),
+								...(dropped.deletions > 0
+									? [
+											`${dropped.deletions} unfinished ${dropped.deletions === 1 ? 'deletion' : 'deletions'}`
+										]
+									: [])
+							];
+							// ⚠ **The empty arm is not decoration and is not dead.** The button renders only for
+							// a key in `orphanedJournals`, which is built as the union of the Workspaces holding
+							// journal entries and those holding deletion notes — so a count of zero takes a
+							// second tab having cleared them between this list being built and this click. Rare,
+							// reachable, and the one wording that must not come out of it is "Threw away 0
+							// unsaved changes", which reads as a failure of the button rather than as somebody
+							// else having got there first.
+							outcome =
+								parts.length > 0
+									? `Threw away ${parts.join(' and ')} held for “${workspaceKeyLabel(key)}”. Nothing in any Workspace was touched.`
+									: `There was nothing left to throw away for “${workspaceKeyLabel(key)}” — something else had already cleared it. Nothing in any Workspace was touched.`;
 						}}
 					>
 						Throw away the changes for {workspaceKeyLabel(key)}

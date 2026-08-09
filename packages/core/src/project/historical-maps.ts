@@ -534,6 +534,22 @@ export async function deleteHistoricalMap(
 	}
 
 	const directory = `${imageDirectory(imageId)}/`;
+	// ⚠ **Before the deletions, not after** (ticket 21, review 3). The half-finished writes `list`
+	// cannot report and `delete` cannot be handed: without this sweep a "deleted" map's directory
+	// survives on disk holding bytes that are also missing from the totals the size list exists to
+	// explain. Scoped to this map's own directory, so it cannot reach the temporary file of an ingest
+	// running beside it.
+	//
+	// It ran *last*, and that was an uncovered exit: it runs after every file has been deleted, so a
+	// rejection from it left the map entirely gone and threw something that is neither
+	// {@link HistoricalMapInUseError} nor {@link HistoricalMapPartlyDeletedError} — falsifying the
+	// rule the caller sweeps its journal by, that `PartlyDeleted` is the only failure meaning bytes
+	// are gone. Wrapping it in a `PartlyDeleted` would have been a lie in the other direction: that
+	// error tells the user the map "is still listed and deleting it again will finish the job", and
+	// by then it is not listed and there is nothing left to delete. First, it has nothing to
+	// contradict — nothing has been removed yet, so a rejection is the plain failure it looks like,
+	// and no deletion below it can create a new temporary file for it to have missed.
+	await store.reclaimAbandonedWrites(directory);
 	const listed = await store.list(directory);
 	const classifiers = [referencedImagePath(imageId), imageInfoPath(imageId)];
 	// Asked for rather than assumed, so that `removed` below counts files that were really there: a
@@ -560,12 +576,6 @@ export async function deleteHistoricalMap(
 		}
 		removed++;
 	}
-
-	// The half-finished writes `list` cannot report and `delete` cannot be handed, exactly as
-	// `deleteProject` sweeps them: without this, a "deleted" map's directory survives on disk holding
-	// bytes that are also missing from the totals this list exists to explain. Scoped to this map's own
-	// directory, so it cannot reach the temporary file of an ingest running beside it.
-	await store.reclaimAbandonedWrites(directory);
 }
 
 /**

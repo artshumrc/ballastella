@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	import { workspaceKeyLabel } from '$lib/editor-session.svelte.js';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
@@ -30,23 +32,87 @@
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
 	const report = $derived(storage?.session.replayReport ?? null);
+	/**
+	 * And what the startup's **deletions** did (ticket 21, review 2).
+	 *
+	 * ⚠ **The only step of the recovery chain that removes files, and it was the only one that said
+	 * nothing.** `finishInterruptedDeletions` runs before the replay, against the same Workspace,
+	 * from a record written when the user pressed Delete — and it deleted files out of a scholar's
+	 * own folder during startup with no notice in either direction. ADR-0017's standard for this
+	 * chain is that every recovery is *named* to the user; the same three bullets above apply
+	 * unchanged, and the same panel carries it so a startup speaks once rather than twice.
+	 *
+	 * Three lists rather than a count, for the reason the replay has four: "carried out", "refused,
+	 * and here is why" and "could not be done yet" are three different things to do next — and the
+	 * middle one is how a user finds out that a second folder of the same name has an unfinished
+	 * deletion pointed at it.
+	 */
+	const deletions = $derived(storage?.session.deletionReport ?? null);
 
 	let dismissed = $state<string | null>(null);
 	// Keyed on the report object, so a *second* replay — switching Workspace, say — is shown even
 	// though the last one was dismissed. Dismissing by a boolean hid every later recovery too.
-	const showing = $derived(report !== null && dismissed !== reportKey(report));
+	const showing = $derived((report !== null || deletions !== null) && dismissed !== reportKey());
 
-	function reportKey(value: NonNullable<typeof report>): string {
+	function reportKey(): string {
 		return JSON.stringify([
-			value.workspace,
-			value.restored,
-			value.skipped.map((entry) => entry.path),
-			value.failed.map((entry) => entry.path),
-			value.problems.map((entry) => entry.key)
+			report?.workspace ?? '',
+			report?.restored ?? [],
+			report?.skipped.map((entry) => entry.path) ?? [],
+			report?.failed.map((entry) => entry.path) ?? [],
+			report?.problems.map((entry) => entry.key) ?? [],
+			deletions?.finished ?? [],
+			deletions?.refused.map((entry) => entry.directory) ?? [],
+			deletions?.unfinished ?? []
 		]);
 	}
 
 	const headingId = $props.id();
+
+	/** The panel's own last control, so focus has somewhere to land that is still in the document. */
+	let dismissButton = $state<HTMLButtonElement | null>(null);
+
+	/**
+	 * ⚠ **Dismissing this dropped focus on the floor** (ticket 21, round 4; the defect is ticket 20's).
+	 *
+	 * "Got it" removes the `<section>` that contains it, so a keyboard or screen-reader user who
+	 * activates it has the focused element deleted from under them and lands on `<body>` — at the top
+	 * of the document, with no announcement, and with the next Tab starting from the beginning of the
+	 * page. It was always wrong; round 3 made it load-bearing, because this panel is now the *only*
+	 * user-facing surface for every deletion a folder Workspace reports.
+	 *
+	 * Focus goes to `<main>`, which is where the user's attention should be once the news is
+	 * dismissed — the Project list they came here for. `tabIndex = -1` is what makes a landmark
+	 * focusable without putting it in the tab order, which is the settled pattern for exactly this.
+	 */
+	function dismiss(): void {
+		dismissed = reportKey();
+		const main = document.querySelector('main');
+		if (!(main instanceof HTMLElement)) return;
+		main.tabIndex = -1;
+		main.focus();
+	}
+
+	/**
+	 * Forget one refusal's note, and put focus somewhere that still exists.
+	 *
+	 * The paragraph holding the button goes with the note. If the panel is still saying something
+	 * else, focus its "Got it", which is present whenever the panel is; if the panel has gone
+	 * because that refusal was the whole of it, this is a dismissal and lands where one does.
+	 */
+	function forgetDeletion(directory: string): void {
+		storage?.session.forgetDeletion(directory);
+		void tick().then(() => {
+			if (showing && dismissButton) dismissButton.focus();
+			else {
+				const main = document.querySelector('main');
+				if (main instanceof HTMLElement) {
+					main.tabIndex = -1;
+					main.focus();
+				}
+			}
+		});
+	}
 </script>
 
 <div
@@ -55,7 +121,7 @@
 	aria-atomic="true"
 	data-testid="recovered-region"
 >
-	{#if showing && report !== null}
+	{#if showing}
 		<section
 			class="pointer-events-auto card max-w-md border border-base-300 bg-base-200 shadow-lg"
 			aria-labelledby={headingId}
@@ -63,11 +129,76 @@
 		>
 			<div class="card-body gap-2 p-4">
 				<h2 id={headingId} class="card-title text-base">
-					{report.restored.length > 0
-						? 'An unsaved change was put back'
-						: 'An unsaved change was found'}
+					{report !== null
+						? report.restored.length > 0
+							? 'An unsaved change was put back'
+							: 'An unsaved change was found'
+						: (deletions?.finished.length ?? 0) > 0
+							? 'A deletion was finished'
+							: 'A deletion was not finished'}
 				</h2>
-				{#if report.restored.length > 0}
+				{#if deletions !== null && deletions.finished.length > 0}
+					<p class="text-sm" data-testid="deletion-finished">
+						Ballastella closed before {deletions.finished.length === 1
+							? 'a Project you deleted was'
+							: 'some Projects you deleted were'} finished being removed, so {deletions.finished
+							.length === 1
+							? 'it has'
+							: 'they have'} been removed now: {deletions.finished.join(', ')}.
+					</p>
+				{/if}
+				<!--
+					⚠ **A refusal needs an exit that costs nobody a file** (ticket 21, round 4).
+
+					Since round 3 a folder Workspace finishes no deletion unattended, so a refusal is the
+					whole of what a startup there ever reports — and nothing ended one. No record expires,
+					`Workspace.#claim` drops one only when a Project is created or duplicated under that
+					name, Workspace settings' discard cannot by construction reach the Workspace that is
+					open, and "Got it" below is keyed on the report's *contents*, so the next startup
+					builds a byte-identical report and shows it again. The one remedy the sentence used to
+					offer was "delete it again", which — in the case the sentence exists for, a
+					colleague's folder holding their own Project of that name — destroys their work.
+
+					So: forget the note. It removes a note about a deletion and never a file, which makes
+					it the one gesture here that is safe to offer for a state the user cannot otherwise
+					leave. If the deletion really was theirs, the Project is still listed and Delete is
+					right there.
+				-->
+				{#each deletions?.refused ?? [] as entry (entry.directory)}
+					<p class="text-sm text-warning" data-testid="deletion-refused">
+						{entry.detail}
+						<!--
+							⚠ **The accessible name carries the folder, and the visible label cannot** (round 5).
+							Two refusals render two buttons reading "Forget this note", and the only thing telling
+							them apart is the prose beside them in a `<p>` that is not programmatically associated
+							with either. A screen-reader user tabbing the panel would meet two identical buttons
+							and have to guess which note each one throws away — for a control whose whole purpose
+							is to be the safe choice. It also makes `getByTestId('forget-deletion')` a strict-mode
+							violation the moment a test constructs two, which is the test that had to exist.
+						-->
+						<button
+							type="button"
+							class="btn ml-1 align-baseline btn-xs"
+							data-testid="forget-deletion"
+							aria-label="Forget the unfinished deletion of “{entry.directory}”"
+							onclick={() => forgetDeletion(entry.directory)}
+						>
+							Forget this note
+						</button>
+					</p>
+				{/each}
+				{#if deletions !== null && deletions.unfinished.length > 0}
+					<p class="text-sm text-warning" data-testid="deletion-unfinished">
+						{deletions.unfinished.length === 1 ? 'A Project you deleted' : 'Projects you deleted'} could
+						not be removed and {deletions.unfinished.length === 1 ? 'is' : 'are'} still here: {deletions.unfinished.join(
+							', '
+						)}. Ballastella will try again the next time this Workspace is opened. Deleting {deletions
+							.unfinished.length === 1
+							? 'it'
+							: 'them'} again from the list is the way to be sure.
+					</p>
+				{/if}
+				{#if report !== null && report.restored.length > 0}
 					<p class="text-sm">
 						Ballastella closed before {report.restored.length === 1
 							? 'this file was'
@@ -81,13 +212,13 @@
 						{/each}
 					</ul>
 				{/if}
-				{#each report.skipped as entry (entry.path)}
+				{#each report?.skipped ?? [] as entry (entry.path)}
 					<p class="text-sm text-warning" data-testid="recovered-skipped">{entry.detail}</p>
 				{/each}
-				{#each report.failed as entry (entry.path)}
+				{#each report?.failed ?? [] as entry (entry.path)}
 					<p class="text-sm text-warning" data-testid="recovered-failed">{entry.detail}</p>
 				{/each}
-				{#each report.problems as problem (problem.key)}
+				{#each report?.problems ?? [] as problem (problem.key)}
 					<p class="text-sm text-warning" data-testid="recovered-problem">{problem.detail}</p>
 				{/each}
 				<div class="card-actions justify-end">
@@ -95,7 +226,8 @@
 						type="button"
 						class="btn btn-sm"
 						data-testid="recovered-dismiss"
-						onclick={() => (dismissed = reportKey(report))}
+						bind:this={dismissButton}
+						onclick={dismiss}
 					>
 						Got it
 					</button>
