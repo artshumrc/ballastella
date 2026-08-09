@@ -1877,13 +1877,20 @@ test.describe('a Published Site that is not entirely well', () => {
 
 	test('takes the notice down when the archive starts answering again', async ({ page }) => {
 		// **The recovery the `'drawing'` half of the pane's report exists for**, and the reason it is
-		// not dead code. `pmtiles` caches the archive *header* promise per URL and never evicts a
-		// rejected one, so a header that refuses is sticky for the life of the page — but tile ranges
-		// are not cached at all, and every `getBytes` for tile data goes to the network afresh. A
-		// bucket that rate-limits mid-session therefore comes back: the limit lifts, the Reader pans,
-		// tiles arrive, and geography draws. Without `'drawing'` the alert would sit over a working
-		// Base Map for as long as the Reader stayed on the page, which is a worse lie than the silence
-		// this ticket was written to end.
+		// not dead code. `pmtiles` caches the archive *header* promise per URL, and nothing evicts it
+		// on rejection — only `prune()` does, dropping the least recently used once the cache reaches
+		// its hundred entries — so a header that refuses is sticky for the life of a page that reads
+		// one archive. A tile **data** range is not cached at any level, so it is asked again every
+		// time, and a bucket that rate-limits mid-session therefore comes back: the limit lifts, the
+		// Reader pans, tiles arrive, and geography draws. Without `'drawing'` the alert would sit over
+		// a working Base Map for as long as the Reader stayed on the page, which is a worse lie than
+		// the silence this ticket was written to end.
+		//
+		// ⚠ A **leaf directory** read is neither of those: it is a non-header range that `getDirectory`
+		// caches in the same promise cache, keyed `${key}|${etag}|${offset}|${length}`. So it refuses
+		// once and is refused from cache thereafter, and an archive large enough to have leaf
+		// directories does not recover this way. `routePartialBaseMapArchive`'s header has the whole
+		// of it; the committed fixture is one city and has none.
 		//
 		// The pan is what makes it a recovery rather than a wait. MapLibre has no reason to re-ask for
 		// a tile it has already given up on, so a fixture that merely starts answering changes nothing
@@ -1929,7 +1936,30 @@ test.describe('a Published Site that is not entirely well', () => {
 			)
 			.toBe(true);
 		// …and the accusation goes with it, rather than being left over a map that is plainly drawing.
-		await expect(notice).toHaveCount(0, { timeout: 30_000 });
+		//
+		// **Panned here too, and that is a fact about the mechanism rather than about the harness.**
+		// `'drawing'` is `sourcedata` with `isSourceLoaded`, and MapLibre reports a source loaded only
+		// when *every* tile it holds for the viewport has settled — so geography can be on screen from
+		// the tiles that arrived while one that was refused earlier is still sitting in the cache as
+		// errored, and the notice correctly stays up. What takes it down is the Reader carrying on
+		// moving, which is what a Reader does. On a quiet machine the first settle is usually enough;
+		// under two other suites this assertion is what went red, once in three, with the geography
+		// already drawn. So the nudging continues until the claim is withdrawn.
+		await expect
+			.poll(
+				async () => {
+					await page.evaluate(
+						async (zoom: number) => {
+							window.ballastellaReaderMap!.map.jumpTo({ center: [4.9041, 52.3676], zoom });
+							await new Promise((resolve) => setTimeout(resolve, 500));
+						},
+						12 + (step++ % 2)
+					);
+					return notice.count();
+				},
+				{ timeout: 60_000 }
+			)
+			.toBe(0);
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 		expect(seen.failures).toEqual([]);
 	});

@@ -301,10 +301,15 @@ export async function routePartialBaseMapArchive(
 		// Counted before anything is decided, and counting only ranges that are **not** the header: a
 		// counter incremented inside the branch below would go on counting the header request if that
 		// branch were deleted, and would report a partial refusal for an outright one — precisely the
-		// mutation it exists to catch, which it did not catch until this line moved out here. A request
-		// carrying no `Range` at all is not a tile range either, and is not counted; `pmtiles` does not
-		// make one, so this is the shape of the check rather than a case that arises.
-		const header = range === undefined || range.startsWith('bytes=0-');
+		// mutation it exists to catch, which it did not catch until this line moved out here.
+		//
+		// ⚠ **Only a `bytes=0-…` request is the header.** A request carrying no `Range` at all is
+		// counted and refused with everything else, which is deliberate: `byteRange` answers an absent
+		// range with `200` and the **whole four-megabyte archive**, so treating one as the header would
+		// hand a test the entire archive under a fixture whose subject is an archive that will not
+		// answer. `FetchSource.getBytes` always sets a range, so nothing reaches this either way —
+		// which is exactly why the safer of the two spellings is the one to keep.
+		const header = range?.startsWith('bytes=0-') ?? false;
 		if (!header) asked += 1;
 		if (header) return answer(route, range);
 		if (tiles === 'hang') return new Promise<void>(() => undefined);

@@ -461,7 +461,57 @@ test.describe('a Base Map archive that does not answer', () => {
 			)
 			.toBe(true);
 
-		await expect(notice).toHaveCount(0, { timeout: 30_000 });
+		// Panned here too, for the reason its twin in `viewer-reader.e2e.ts` sets out: `'drawing'` is
+		// `sourcedata` with `isSourceLoaded`, and a source counts as loaded only once every tile it
+		// holds has settled — so geography can be on screen while a tile refused earlier still sits in
+		// the cache as errored, and the notice correctly stays up until the map moves again.
+		await expect
+			.poll(
+				async () => {
+					await page.evaluate(
+						(zoom: number) =>
+							window.ballastellaBaseMap?.jumpTo({ center: [4.9041, 52.3676], zoom }),
+						12 + (step++ % 2)
+					);
+					await page.waitForTimeout(500);
+					return notice.count();
+				},
+				{ timeout: 60_000 }
+			)
+			.toBe(0);
+	});
+
+	test('is withdrawn when the author switches to a Base Map it has not asked yet', async ({
+		page,
+		context
+	}) => {
+		// The other half of the pair, and the half the viewer already drove: `ProjectScreen` clears what
+		// it knows when the chosen entry changes, because a switch asks a fresh question and the answer
+		// to the old one is not an answer to it. The notice carries the **new** entry's label —
+		// `unavailableNotice` composes it from whichever entry is resolved — so an unreset flag does not
+		// merely linger, it accuses a Base Map that has not failed. Deleting that effect left the whole
+		// repository green until this test.
+		//
+		// `hang()` is what makes it decidable: after the switch the tile ranges are neither answered nor
+		// refused, so nothing but the reset can clear the flag. A fixture that answered would clear it
+		// by drawing, and one that refused would replace the notice with a true one — green either way,
+		// which is why it went untested.
+		const archive = await routePartialBaseMapArchive(context);
+		await openPane(page);
+
+		const notice = page.getByTestId('base-map-unavailable');
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+		await expect(notice).toContainText('Streets');
+
+		archive.hang();
+		await switcher(page).selectOption('muted');
+
+		// Nothing is said about “Muted, high contrast” until it has answered for itself.
+		await expect(notice).toHaveCount(0);
+		await page.waitForTimeout(3_000);
+		await expect(notice).toHaveCount(0);
+		await expect(switcher(page)).toHaveValue('muted');
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	});
 
 	test('is not shown when the archive answers', async ({ page, context }) => {

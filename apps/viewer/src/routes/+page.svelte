@@ -655,6 +655,14 @@
 	 *
 	 * `cachedBaseMap !== null` rather than any flag on the site record: it is the same value the pane
 	 * is handed, so the notice and the style cannot disagree about whether this site has tiles.
+	 *
+	 * ⚠ **This argument is unobservable in this deployment, and no test can close it.** The two
+	 * sentences differ only when the entry's archive is site-relative, and every entry in this
+	 * catalog is absolute — so passing a constant `true` or `false` here produces identical text in
+	 * every row a Published Site can reach, and a browser test asserting on rendered text cannot tell
+	 * the difference by construction. It is not that the wiring is untested for want of effort: there
+	 * is nothing here to observe until a fork repoints the catalog at its own tiles, which is the case
+	 * the function's own tests cover. Said rather than left as a gap someone else has to rediscover.
 	 */
 	const baseMapNotPublished = $derived(
 		baseMapNotPublishedNotice(baseMap.entry, {
