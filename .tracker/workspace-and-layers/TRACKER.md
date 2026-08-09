@@ -84,6 +84,18 @@ Also found, and not yet fixed:
 
    No test relies on the demo archive, and that is enforced rather than followed — every Base Map assertion routes to the committed Amsterdam extract, and the URL appears in tests only as the example of a *blocked* host. `pnpm check:deployment` is deliberately unchanged: it still refuses a **production** deployment reading an archive it does not control, which is the right relationship between a proof of concept and a real one.
 
+4. **A `commit` that reports success and never writes the bytes — `autosave.ts:292`.** Found 2026-08-09 while reviewing ticket 07, by a reviewer looking for the cause of a once-seen "DOM shows 3 Control Points, disk holds 2, no error". **Not yet confirmed by instrumentation** — it is a traced mechanism, and the next person should measure it before trusting this write-up.
+
+   ```js
+   file.draining ??= this.#drainLoop(path, file).finally(() => { file.draining = undefined; … });
+   ```
+
+   `#drainLoop` clears `file.pending` and exits its `while` synchronously, then resolves; the `.finally` callback runs **one microtask later**. A `commit` landing in that gap sees `file.draining` still set, so `#drain` hands back the *old* promise, sets `file.pending = bytes2`, and nothing drains again. The caller's `commit` resolves successfully, the bytes are never written, and if it was the last write of a burst it is lost permanently. One microtask wide, and it self-heals on the next commit to the same path — so it presents as a flake and would be absorbed by any budget above zero.
+
+   **Ticket 07's per-map Alignment write queue closes it for `alignments/<id>.json`**, because `port.commit` only resolves after the `finally` has run, so write *n+1* cannot enter the gap. **It is still live for `project.json`** — the manifest. That is where it should be fixed, and it wants its own ticket and its own mutation check rather than being folded into a ticket that happens to be open.
+
+   Note the shape, because this epic keeps meeting it: the reviewer's brief was to test the implementer's own hypothesis (their new write queue), and the honest answer was that the queue is clean and the cause is somewhere nobody had been looking.
+
 ## Standing constraints
 
 These apply to every remaining ticket. They are not advice.
