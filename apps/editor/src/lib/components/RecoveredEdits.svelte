@@ -123,8 +123,8 @@
 	 * The same shape as {@link forgetDeletion} directly above, and for the same reason: the paragraph
 	 * holding the button goes with the entry.
 	 */
-	function forgetReplaySkip(path: string): void {
-		storage?.session.forgetReplaySkip(path);
+	function forgetReplaySkip(path: string, copy: string): void {
+		storage?.session.forgetReplaySkip(path, copy);
 		void tick().then(() => {
 			if (showing && dismissButton) dismissButton.focus();
 			else {
@@ -248,21 +248,26 @@
 					Unlike the deletion's note, this one **is** destructive, so the label says which file it
 					throws away and the sentence beside it has already said the copy is the only one.
 
+					⚠ **The identity travels with the row, not just the path.** This notice never expires, so
+					the button can be pressed after arbitrary later work; keyed on the path alone it destroyed
+					whatever was at that path *then* — including a stranded edit made an hour later.
+
 					⚠ **This is the only action offered, and it is the discarding one.** Applying a held copy
 					is a chooser that does not exist yet — ticket 03's — so a scholar meeting
 					`cannot-tell-which-is-newer` can read both versions' sizes and keep waiting, or throw the
 					copy away. Everything a chooser needs is already reachable; what is missing is the UI.
 				-->
-				{#each report?.skipped ?? [] as entry (entry.path)}
+				{#each report?.skipped ?? [] as entry (`${entry.path}:${entry.copy ?? ''}`)}
+					{@const copy = entry.copy}
 					<p class="text-sm text-warning" data-testid="recovered-skipped">
 						{entry.detail}
-						{#if entry.kept}
+						{#if copy !== null}
 							<button
 								type="button"
 								class="btn ml-1 align-baseline btn-xs"
 								data-testid="forget-replay-skip"
 								aria-label="Throw away the kept copy of “{entry.path}”"
-								onclick={() => forgetReplaySkip(entry.path)}
+								onclick={() => forgetReplaySkip(entry.path, copy)}
 							>
 								Throw this copy away
 							</button>

@@ -22,6 +22,7 @@ import {
 	newProjectFile,
 	projectFilePath,
 	serialiseAlignment,
+	readHeldCopies,
 	readJournal,
 	serialiseProjectFile,
 	type AnnotationLayer,
@@ -315,14 +316,13 @@ describe('deleting a Project, at the unit seam', () => {
 		await store.write(path, new TextEncoder().encode('v2-NEWER') as Bytes);
 
 		await session.replayJournalledEdits();
-		expect(session.replayReport?.skipped.map((entry) => [entry.reason, entry.kept])).toEqual([
-			['superseded', true]
-		]);
+		const skip = session.replayReport?.skipped[0];
+		expect([skip?.reason, skip?.copy]).toEqual(['superseded', expect.any(String)]);
 
-		session.forgetReplaySkip(path);
+		session.forgetReplaySkip(path, skip?.copy ?? '');
 
 		// The copy is gone, so the next startup says nothing…
-		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
+		expect(readHeldCopies(storage, WORKSPACE)).toEqual([]);
 		// …and the panel goes with it rather than lingering with an empty list.
 		expect(session.replayReport).toBeNull();
 		// And what it refused to overwrite is exactly where it was.
@@ -498,8 +498,10 @@ describe('deleting a Project, at the unit seam', () => {
 		expect(session.replayReport?.restored).toEqual([]);
 		expect(session.replayReport?.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
 		expect(await store.read(path)).toEqual(colleague);
-		// And the scholar's copy is still held, which is what makes the refusal safe to make.
-		expect(readJournal(storage, WORKSPACE).entries.map((entry) => entry.path)).toEqual([path]);
+		// And the scholar's copy is still held — out of the live journal, so the next edit to this file
+		// overwrites an entry rather than the copy the notice is about (round 5, finding B).
+		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
+		expect(readHeldCopies(storage, WORKSPACE).map((held) => held.path)).toEqual([path]);
 	});
 
 	/** And the record carries what the hub was showing, which is what a startup checks before removing. */

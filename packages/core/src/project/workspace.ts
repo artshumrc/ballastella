@@ -1,5 +1,6 @@
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import type { Autosave } from '../autosave/autosave.js';
+import type { StoreContentObserver } from '../autosave/journal.js';
 import type {
 	DeletedProjects,
 	DeletionRecord,
@@ -15,13 +16,7 @@ import {
 	serialiseProjectFile,
 	type ProjectFile
 } from './project-file.js';
-import {
-	PathNotFoundError,
-	topLevelSegment,
-	type Bytes,
-	type ProjectStore,
-	type StorePath
-} from '../store/project-store.js';
+import { PathNotFoundError, topLevelSegment, type ProjectStore } from '../store/project-store.js';
 
 /**
  * The Workspace directories that are not Projects and never can be (ADR-0023).
@@ -192,7 +187,7 @@ export interface WorkspaceOptions {
 	 * unreachable file tells nobody anything, and a guess in either direction is worse than the
 	 * `'cannot-tell-which-is-newer'` this exists to avoid.
 	 */
-	readonly onStoreContent?: (path: StorePath, bytes: Bytes) => void;
+	readonly observer?: StoreContentObserver;
 }
 
 /** Why an unfinished deletion was not carried out, in one sentence written for the user. */
@@ -277,7 +272,7 @@ export class Workspace {
 	readonly #now: () => Date;
 	readonly #deleted: DeletedProjects | undefined;
 	readonly #onDeletionNotRecorded: (directory: string) => void;
-	readonly #onStoreContent: (path: StorePath, bytes: Bytes) => void;
+	readonly #observer: StoreContentObserver | undefined;
 	readonly #identity: WorkspaceIdentity;
 
 	constructor(store: ProjectStore, options: WorkspaceOptions = {}) {
@@ -286,7 +281,7 @@ export class Workspace {
 		this.#now = options.now ?? (() => new Date());
 		this.#deleted = options.deleted;
 		this.#onDeletionNotRecorded = options.onDeletionNotRecorded ?? (() => undefined);
-		this.#onStoreContent = options.onStoreContent ?? (() => undefined);
+		this.#observer = options.observer;
 		// The safe answer by default. See {@link WorkspaceIdentity}: a caller that has not said which
 		// it is has not established identity, and unattended destruction is what that licenses.
 		this.#identity = options.identity ?? 'a-name-anywhere';
@@ -329,6 +324,10 @@ export class Workspace {
 	 */
 	async readProject(directory: string): Promise<ProjectFile> {
 		const path = projectFilePath(directory);
+		// Before the read, not after it: what this read sees is evidence about the moment it *began*,
+		// and a save landing while it is in flight must not be undone by it. See
+		// {@link StoreContentObserver}.
+		const at = this.#observer?.mark() ?? 0;
 		const bytes = await this.#store.read(path);
 		// ⚠ **Before the parse, and of the bytes rather than the model** (ticket 07). This is the
 		// moment the user's view of the file is fixed, and what a later edit will have been made
@@ -336,7 +335,7 @@ export class Workspace {
 		// equivalent, and `serialiseProjectFile` stamps `updatedAt`, so a round trip would report
 		// content the store has never held. Before the parse rather than after, because bytes that
 		// arrived and did not parse are still bytes the store demonstrably holds.
-		this.#onStoreContent(path, bytes);
+		this.#observer?.observe(path, bytes, at);
 		return parseProjectFile(bytes);
 	}
 

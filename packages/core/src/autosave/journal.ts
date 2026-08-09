@@ -93,6 +93,23 @@ export const JOURNAL_FORMAT_VERSION = 1;
 const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
 
 /**
+ * Where a copy a replay **declined to apply** is kept, out of reach of the live journal.
+ *
+ * ⚠ **A second namespace, because "kept" was not kept.** `replayJournal` used to keep such a copy by
+ * leaving the ordinary entry in place, and an ordinary entry is addressed by path alone: the very
+ * next edit to that file overwrote it, silently, which is SPEC story 6 — *"my next keystroke does not
+ * silently destroy it"* — verbatim. That is not the same as an ordinary supersede, and the difference
+ * is the whole reason this exists: journal entries hold whole-file snapshots, so entry `v2` replacing
+ * entry `v1` loses nothing, `v2` being the later state of the same document. A declined copy is not
+ * an earlier state of what the scholar is now editing — it is a *divergent* one, made against
+ * something the store no longer holds, and the edit that replaces it is on a different branch.
+ *
+ * Keyed by path **and fingerprint**, so two divergent copies of one file can both be held and so
+ * {@link forgetHeldCopy} destroys the one a notice names rather than whatever is at that path now.
+ */
+const HELD_KEY_PREFIX = 'ballastella.held.';
+
+/**
  * The two axes an entry is keyed by: **which Workspace** and **which file**.
  *
  * The Workspace half is not decoration. Since ticket 12 the OPFS root holds several named
@@ -107,6 +124,30 @@ const JOURNAL_KEY_PREFIX = 'ballastella.journal.';
  */
 const journalKey = (workspace: string, path: StorePath): string =>
 	workspaceScopedKey(JOURNAL_KEY_PREFIX, workspace, path);
+
+/**
+ * The key one held copy lives at.
+ *
+ * The fingerprint goes **first** in the subject so the split below is unambiguous: it is drawn from
+ * `[0-9a-z-]` and contains no `/`, while a store path contains several.
+ */
+const heldKey = (workspace: string, path: StorePath, fingerprint: string): string =>
+	workspaceScopedKey(HELD_KEY_PREFIX, workspace, `${fingerprint}/${path}`);
+
+/** The `{ workspace, path, fingerprint }` a held key names, or `null` if it is not one of ours. */
+function parseHeldKey(
+	key: string
+): { workspace: string; path: StorePath; fingerprint: string } | null {
+	const named = parseWorkspaceScopedKey(HELD_KEY_PREFIX, key);
+	if (named === null) return null;
+	const cut = named.subject.indexOf('/');
+	if (cut === -1) return null;
+	return {
+		workspace: named.workspace,
+		fingerprint: named.subject.slice(0, cut),
+		path: named.subject.slice(cut + 1)
+	};
+}
 
 /** The `{ workspace, path }` a key names, or `null` if it is not one this module wrote. */
 function parseJournalKey(key: string): { workspace: string; path: StorePath } | null {
@@ -126,6 +167,42 @@ export interface JournalStorage {
 	getItem(key: string): string | null;
 	setItem(key: string, value: string): void;
 	removeItem(key: string): void;
+}
+
+/**
+ * Whoever can be told what the store held for a path, and when the telling was learned.
+ *
+ * A structural port rather than the class, on the precedent `AutosaveJournal` sets: `Workspace` needs
+ * to *report* a read and has no business holding a journal. {@link WriteAheadJournal} satisfies it.
+ *
+ * ⚠ **Two calls, because one would be unordered.** A read is asynchronous and a store write can land
+ * while it is in flight, so "what this read saw" is evidence about the moment the read *began*, not
+ * about the moment it resolved. {@link mark} is taken before the read and handed back to
+ * {@link observe}, which is what lets a stale read lose to a newer fact instead of overwriting it.
+ */
+export interface StoreContentObserver {
+	/** A token for "now", to be handed to {@link observe} with what the read that follows returns. */
+	mark(): number;
+	/** What the store held at `path`, as of the moment `at` was taken. */
+	observe(path: StorePath, bytes: Bytes, at: number): void;
+}
+
+/**
+ * A journalled edit a replay declined to apply, kept until the scholar says what to do with it.
+ *
+ * Out of the live journal (see {@link HELD_KEY_PREFIX}) and addressed by {@link fingerprint}, so
+ * neither a later edit nor a later notice can reach the wrong bytes.
+ */
+export interface HeldCopy {
+	readonly workspace: string;
+	readonly path: StorePath;
+	readonly bytes: Bytes;
+	/** When the edit was recorded, ISO 8601, carried over from the entry it was held from. */
+	readonly at: string;
+	/** Why the replay declined it, as `replay.ts` spells its skip reasons. */
+	readonly reason: string;
+	/** `fingerprintOf(bytes)`. Its identity, and what {@link forgetHeldCopy} matches on. */
+	readonly fingerprint: string;
 }
 
 /**
@@ -276,18 +353,24 @@ function storedField(storage: JournalStorage, key: string, field: string): strin
  * The same construction — and the same reasoning — as `base-map/tile-cache.ts`'s `fingerprint`:
  * nothing here is a security boundary, and `crypto.subtle` is asynchronous, which would make
  * {@link WriteAheadJournal.record} into a promise and break the one contract that module has. Two
- * independent 32-bit rounds because one is four billion buckets, and the length in front because the
- * cheapest disagreement to detect is a file that grew.
+ * rounds because one is four billion buckets, and the length in front because the cheapest
+ * disagreement to detect is a file that grew.
  *
- * ⚠ **What a collision would cost, stated rather than waved at.** {@link JournalEntry.held} is
- * compared for equality against the store's current content; two different files that fingerprint
- * alike would be read as "unchanged since the edit" and `replay.ts` would write over the newer one.
- * That is the defect this field exists to prevent, arriving by a much narrower door: it needs a
- * 64-bit collision *and* an equal byte length *and* the collision to be with the one earlier version
- * of that same file. The inputs are a scholar's own documents rather than an attacker's, and this
- * design does not defend against a chosen-collision attack — that is the honest limit, and full
- * bytes is what it would cost to remove it. See {@link JournalEntry.held} for why that price was
- * judged too high.
+ * ⚠ **Two rounds, and they are *not* independent — measured, not assumed.** Both are FNV-1a with the
+ * same prime over the same bytes, differing only in their basis, so the difference between the two
+ * running values is not free: the low bits of that difference are forced to agree at every length
+ * tried. A collision in the first round therefore leaves about 30 free bits in the second rather than
+ * 32 — call it 2^62 for an accidental pair of equal length, not 2^64. Still far past what a scholar's
+ * Workspace can reach by accident, and stated at its real strength rather than at its nominal one.
+ *
+ * ⚠ **What a collision would cost.** {@link JournalEntry.held} is compared for equality against the
+ * store's current content; two different files that fingerprint alike are read as "unchanged since
+ * the edit" and `replay.ts` writes over the newer one. That is the defect this field exists to
+ * prevent, arriving by a much narrower door: it needs a collision *and* an equal byte length *and*
+ * the collision to be with the one earlier version of that same file. The inputs are a scholar's own
+ * documents rather than an attacker's, and this design does not defend against a chosen-collision
+ * attack — that is the honest limit, and full bytes is what it would cost to remove it. See
+ * {@link JournalEntry.held} for why that price was judged too high.
  */
 export function fingerprintOf(bytes: Bytes): string {
 	const round = (basis: number): string => {
@@ -340,7 +423,8 @@ export interface JournalEntry {
 	 * the ~5 MB origin budget on its own, and a refusal there is a user-visible loss of protection, so
 	 * halving the headroom to hold a second copy of bytes nothing ever reads back is the wrong trade.
 	 * Every row of `replay.ts`'s decision needs only *equality* against what the store holds now, and
-	 * a fingerprint answers that at a fixed ~24 characters.
+	 * a fingerprint answers that in 18 characters for an empty file, 20 at 30 kB and 22 at 5 MB — it
+	 * grows with the *digits* of the length and nothing else.
 	 */
 	readonly held: string | null;
 }
@@ -391,6 +475,19 @@ export class WriteAheadJournal {
 	 * its own — see {@link #baseline}.
 	 */
 	readonly #held = new Map<StorePath, string | null>();
+	/**
+	 * When each memo entry's evidence was obtained, against {@link #clock}.
+	 *
+	 * ⚠ **Without this a read that started before a write could undo it.** `observe` is fed by reads
+	 * that are already in flight when an edit is saved: `readLayerFeatures` and `readAnnotations` name
+	 * the same file, so a redraw overlapping a debounced `writeAnnotations` is the ordinary shape, not
+	 * a corner. The stale read then filed the *previous* content as the baseline, and the next
+	 * stranded edit was refused with "that file has been changed since" — false, and in exactly the
+	 * case the journal exists for.
+	 */
+	readonly #heldAt = new Map<StorePath, number>();
+	/** Monotonic, and only ever compared with itself. Not a time. */
+	#clock = 0;
 
 	constructor(storage: JournalStorage, workspace: string) {
 		this.#storage = storage;
@@ -517,8 +614,16 @@ export class WriteAheadJournal {
 	 */
 	forget(path: StorePath): void {
 		const key = journalKey(this.#workspace, path);
+		// ⚠ **The entry is the only record of what the store just took — *given a guard in another
+		// module*.** `Autosave.#drainLoop` forgets only inside `if (file.pending === bytes)`, so the
+		// entry still holds the bytes that landed; without that guard an edit typed during the write
+		// would already have replaced them and this would file the wrong content. Stated because it is
+		// a cross-module dependency this class cannot see, and `autosave.ts` is where it lives.
 		const taken = storedBytes(this.#storage, key);
-		if (taken !== null) this.#held.set(path, fingerprintOf(decodeBytes(taken) ?? new Uint8Array()));
+		const bytes = taken === null ? null : decodeBytes(taken);
+		// A payload that will not decode says nothing about what the store holds. Filing a fingerprint
+		// of zero bytes would say the store holds an empty file, which is a fact nobody established.
+		if (bytes !== null) this.#remember(path, fingerprintOf(bytes));
 		this.#remove(key);
 	}
 
@@ -535,9 +640,57 @@ export class WriteAheadJournal {
 		this.#remove(journalKey(this.#workspace, path));
 	}
 
-	/** Tell this journal what the store holds for `path`, from somebody who has just read it. */
-	observe(path: StorePath, bytes: Bytes): void {
-		this.#held.set(path, fingerprintOf(bytes));
+	/** A token for "now", to be handed back to {@link observe}. See {@link StoreContentObserver}. */
+	mark(): number {
+		this.#clock += 1;
+		return this.#clock;
+	}
+
+	/**
+	 * Tell this journal what the store held for `path`, from a read that began at `at`.
+	 *
+	 * **Older evidence loses.** A read resolving after a write has landed — or after another read that
+	 * started later — is describing a store that has moved on, and filing it would refuse the next
+	 * stranded edit with a sentence that is not true.
+	 */
+	observe(path: StorePath, bytes: Bytes, at: number): void {
+		if (at <= (this.#heldAt.get(path) ?? 0)) return;
+		this.#remember(path, fingerprintOf(bytes), at);
+	}
+
+	/**
+	 * Put a copy a replay declined to apply out of the live journal's reach, and drop the entry.
+	 *
+	 * See {@link HELD_KEY_PREFIX} for why this is a second namespace rather than "leave the entry
+	 * where it is": an entry is addressed by path, so the next edit to that file overwrote it.
+	 *
+	 * @returns the copy's {@link HeldCopy.fingerprint}, which is how it is addressed from here on
+	 */
+	hold(path: StorePath, bytes: Bytes, at: string, reason: string): string {
+		const fingerprint = fingerprintOf(bytes);
+		try {
+			this.#storage.setItem(
+				heldKey(this.#workspace, path, fingerprint),
+				JSON.stringify({
+					formatVersion: JOURNAL_FORMAT_VERSION,
+					at,
+					reason,
+					bytes: encodeBytes(bytes)
+				})
+			);
+		} catch {
+			// No room for the copy. The entry below is left exactly where it is, which is the same
+			// direction `record` takes for the same reason: a refusal must never be the thing that
+			// destroys the bytes it failed to protect. It will be offered again at the next startup.
+			return fingerprint;
+		}
+		this.#remove(journalKey(this.#workspace, path));
+		return fingerprint;
+	}
+
+	#remember(path: StorePath, fingerprint: string, at?: number): void {
+		this.#held.set(path, fingerprint);
+		this.#heldAt.set(path, at ?? this.mark());
 	}
 
 	#remove(key: string): void {
@@ -569,7 +722,9 @@ export class WriteAheadJournal {
 	 */
 	forgetUnder(prefix: string): number {
 		for (const path of [...this.#held.keys()]) {
-			if (path.startsWith(prefix)) this.#held.delete(path);
+			if (!path.startsWith(prefix)) continue;
+			this.#held.delete(path);
+			this.#heldAt.delete(path);
 		}
 		let dropped = 0;
 		for (const key of keysWithPrefix(this.#storage, JOURNAL_KEY_PREFIX)) {
@@ -581,6 +736,22 @@ export class WriteAheadJournal {
 				dropped += 1;
 			} catch {
 				// Best effort. Replay's preconditions are the second line for exactly this.
+			}
+		}
+		// ⚠ **And the held copies, or a deletion leaves the loudest thing behind.** A copy a replay
+		// declined is reported at every startup until somebody acts on it; one belonging to a Project
+		// the user has just deleted would be a recurring notice about a file that no longer exists,
+		// with an offered remedy that does nothing they care about. Counted with the entries because
+		// what the caller wants to know is "how much of this Project's unsaved work went".
+		for (const key of keysWithPrefix(this.#storage, HELD_KEY_PREFIX)) {
+			const named = parseHeldKey(key);
+			if (!named || named.workspace !== this.#workspace) continue;
+			if (!named.path.startsWith(prefix)) continue;
+			try {
+				this.#storage.removeItem(key);
+				dropped += 1;
+			} catch {
+				// Best effort, as above.
 			}
 		}
 		return dropped;
@@ -709,6 +880,67 @@ export function readJournal(storage: JournalStorage, workspace: string): Journal
 	return { entries, problems };
 }
 
+/**
+ * Every copy a replay declined to apply, for one Workspace, sorted for a stable report.
+ *
+ * Read separately from {@link readJournal} because these are **not** pending writes: nothing is
+ * waiting to put them in the store, and a startup that treated them as entries would apply the very
+ * bytes a previous startup refused.
+ */
+export function readHeldCopies(storage: JournalStorage, workspace: string): HeldCopy[] {
+	const copies: HeldCopy[] = [];
+	for (const key of keysWithPrefix(storage, HELD_KEY_PREFIX)) {
+		const named = parseHeldKey(key);
+		if (named === null || named.workspace !== workspace) continue;
+		const raw = storage.getItem(key);
+		if (raw === null) continue;
+		let envelope: { bytes?: unknown; at?: unknown; reason?: unknown };
+		try {
+			envelope = JSON.parse(raw) as typeof envelope;
+		} catch {
+			continue;
+		}
+		const bytes = typeof envelope.bytes === 'string' ? decodeBytes(envelope.bytes) : null;
+		if (bytes === null) continue;
+		copies.push({
+			workspace,
+			path: named.path,
+			bytes,
+			at: typeof envelope.at === 'string' ? envelope.at : '',
+			reason: typeof envelope.reason === 'string' ? envelope.reason : '',
+			fingerprint: named.fingerprint
+		});
+	}
+	copies.sort((a, b) => a.path.localeCompare(b.path) || a.fingerprint.localeCompare(b.fingerprint));
+	return copies;
+}
+
+/**
+ * Throw away one held copy, **named by its fingerprint as well as its path**.
+ *
+ * ⚠ **The fingerprint is the whole point of this signature.** The notice offering this is built at
+ * startup and never expires, so it can be acted on after arbitrary later work; keyed on the path
+ * alone it destroyed whatever was at that path *then*, while the sentence beside the button
+ * described a different, older version and said the copy had been kept.
+ *
+ * @returns whether there was one to throw away
+ */
+export function forgetHeldCopy(
+	storage: JournalStorage,
+	workspace: string,
+	path: StorePath,
+	fingerprint: string
+): boolean {
+	const key = heldKey(workspace, path, fingerprint);
+	if (storage.getItem(key) === null) return false;
+	try {
+		storage.removeItem(key);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE TWO FUNCTIONS BELOW SEE EVERY WORKSPACE, AND THE CLASS ABOVE DELIBERATELY SEES ONE
 //
@@ -740,6 +972,12 @@ export function journalledWorkspaces(storage: JournalStorage): string[] {
 		const named = parseJournalKey(key);
 		if (named) names.add(named.workspace);
 	}
+	// Held copies count: a Workspace nobody reopens can hold nothing *but* those, and one invisible
+	// to this list is one whose storage the user is never offered a way to reclaim.
+	for (const key of keysWithPrefix(storage, HELD_KEY_PREFIX)) {
+		const named = parseHeldKey(key);
+		if (named) names.add(named.workspace);
+	}
 	return [...names].sort((a, b) => a.localeCompare(b));
 }
 
@@ -761,6 +999,18 @@ export function discardJournal(storage: JournalStorage, workspace: string): numb
 			dropped += 1;
 		} catch {
 			// Best effort; the count reports what actually went.
+		}
+	}
+	// The held copies with them: this is the user asking for a Workspace's unsaved remains to be
+	// thrown away, and a copy left behind would go on being reported with nothing left to act on.
+	for (const key of keysWithPrefix(storage, HELD_KEY_PREFIX)) {
+		const named = parseHeldKey(key);
+		if (!named || named.workspace !== workspace) continue;
+		try {
+			storage.removeItem(key);
+			dropped += 1;
+		} catch {
+			// Best effort, as above.
 		}
 	}
 	return dropped;

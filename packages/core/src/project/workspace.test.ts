@@ -162,13 +162,51 @@ describe('Workspace', () => {
 		 * a Project is the moment the bytes are in hand for nothing.
 		 */
 		describe('what the store held, told to whoever is listening', () => {
+			const RAW_MANIFEST = '{"formatVersion":1,"name":"Amsterdam 1625","layers":[],"baseMap":null}';
+
+			it('takes its token before the read, so a save in flight is not undone by it', async () => {
+				// ⚠ **The ordering that a "no race" claim in three docblocks asserted and nothing checked**
+				// (round 5, finding C). What a read carries is evidence about the moment it *began*; a
+				// store write landing while it is in flight leaves that evidence stale, and filing it as
+				// current refuses the next stranded edit with a sentence that is not true.
+				//
+				// Driven rather than asserted as an ordering of calls: the counter is advanced *during*
+				// the read, standing in for the save that lands mid-flight, so a token taken afterwards
+				// comes back later than the fact it is supposed to predate. Asserting "mark, then
+				// observe" would pass either way, which is the shape this whole ticket keeps meeting.
+				await store.write('amsterdam-1625/project.json', new TextEncoder().encode(RAW_MANIFEST));
+				let counter = 0;
+				const tokens: number[] = [];
+				const read = store.read.bind(store);
+				store.read = async (path) => {
+					const bytes = await read(path);
+					counter += 10;
+					return bytes;
+				};
+				const watched = new Workspace(store, {
+					now: () => clock,
+					observer: {
+						mark: () => {
+							counter += 1;
+							return counter;
+						},
+						observe: (_path, _bytes, at) => tokens.push(at)
+					}
+				});
+
+				await watched.readProject('amsterdam-1625');
+
+				// 1, taken before the read. Taken afterwards it would be 12, and would outrank the save.
+				expect(tokens).toEqual([1]);
+			});
+
 			it('reports the bytes it read, before parsing them', async () => {
-				const raw = '{"formatVersion":1,"name":"Amsterdam 1625","layers":[],"baseMap":null}';
+				const raw = RAW_MANIFEST;
 				await store.write('amsterdam-1625/project.json', new TextEncoder().encode(raw));
 				const seen: [string, string][] = [];
 				const watched = new Workspace(store, {
 					now: () => clock,
-					onStoreContent: (path, bytes) => seen.push([path, decode(bytes)])
+					observer: { mark: () => 1, observe: (path, bytes) => seen.push([path, decode(bytes)]) }
 				});
 
 				await watched.readProject('amsterdam-1625');
@@ -186,7 +224,7 @@ describe('Workspace', () => {
 				const seen: string[] = [];
 				const watched = new Workspace(store, {
 					now: () => clock,
-					onStoreContent: (path) => seen.push(path)
+					observer: { mark: () => 1, observe: (path) => seen.push(path) }
 				});
 
 				await watched.readProject('never-existed').catch(() => undefined);
@@ -207,7 +245,7 @@ describe('Workspace', () => {
 				const seen: string[] = [];
 				const watched = new Workspace(store, {
 					now: () => clock,
-					onStoreContent: (path) => seen.push(path)
+					observer: { mark: () => 1, observe: (path) => seen.push(path) }
 				});
 
 				await watched.readProject('from-the-future').catch(() => undefined);

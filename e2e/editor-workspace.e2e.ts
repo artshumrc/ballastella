@@ -1248,6 +1248,47 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		await expect(page.getByTestId('forget-replay-skip')).toHaveCount(0);
 	});
 
+	/**
+	 * ⚠ **The presence half, and it is what makes the absence half mean anything** (round 5, finding
+	 * F; the discipline is main's own `5f03e86`, "Ask the WebGL2 patch check a presence question, not
+	 * an absence one"). Without this, renaming the `data-testid` satisfies the test above.
+	 *
+	 * The specimen is `cannot-tell-which-is-newer`: an entry with no baseline over a file that holds
+	 * something else. Nothing is written, the copy is kept out of the live journal, and it is the one
+	 * row a scholar still has a decision to make about — so it is the one row that carries an exit.
+	 */
+	test('offers a way to throw away a copy it is still holding', async ({ page }) => {
+		await createProject(page, 'Amsterdam 1625');
+		const path = 'amsterdam-1625/project.json';
+		await page.evaluate((at) => {
+			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
+			localStorage.setItem(
+				`ballastella.journal.${encodeURIComponent(workspace)}/${encodeURIComponent(at)}`,
+				JSON.stringify({
+					formatVersion: 1,
+					at: new Date().toISOString(),
+					// No `held`: the undecidable row, which is what keeps a copy the scholar must resolve.
+					bytes: btoa('{"formatVersion":1,"name":"A rename that never reached the disk"}')
+				})
+			);
+		}, path);
+
+		await page.reload();
+
+		const notice = page.getByTestId('recovered-edits');
+		await expect(notice).toBeVisible();
+		await expect(notice).toContainText('cannot tell whether it is newer');
+		// The exit is there, it names the file it would destroy, and pressing it ends the notice.
+		const exit = page.getByTestId('forget-replay-skip');
+		await expect(exit).toHaveCount(1);
+		await expect(exit).toHaveAccessibleName(`Throw away the kept copy of “${path}”`);
+		await exit.click();
+		await expect(page.getByTestId('recovered-skipped')).toHaveCount(0);
+
+		// And it was a copy that went, never a file: the Project is exactly where it was.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+	});
+
 	test('does not put an edit into a different named Workspace (ticket 12)', async ({ page }) => {
 		await openAndRename(page, 'Typed in the first Workspace');
 

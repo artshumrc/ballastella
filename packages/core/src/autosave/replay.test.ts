@@ -10,7 +10,13 @@ import { restoreWorkspaceTar } from '../transfer/restore-workspace-tar.js';
 import { ingestImageFile } from '../tiler/ingest.js';
 import { DeletedProjects } from './deleted-projects.js';
 import { FakeJournalStorage } from './fake-journal-storage.js';
-import { WriteAheadJournal, fingerprintOf, readJournal } from './journal.js';
+import {
+	WriteAheadJournal,
+	fingerprintOf,
+	forgetHeldCopy,
+	readHeldCopies,
+	readJournal
+} from './journal.js';
 import { alignmentImageId, replayIsNoteworthy, replayJournal } from './replay.js';
 
 const utf8 = new TextEncoder();
@@ -67,7 +73,8 @@ describe('replayJournal', () => {
 	 * makes; nothing here hand-writes an envelope.
 	 */
 	const baselineFromStore = async (path: StorePath): Promise<void> => {
-		journal.observe(path, await store.read(path));
+		const at = journal.mark();
+		journal.observe(path, await store.read(path), at);
 	};
 
 	const seedProject = async (directory: string, name = 'Amsterdam 1625') =>
@@ -139,7 +146,7 @@ describe('replayJournal', () => {
 				{
 					path: 'amsterdam-1625/annotations/l.geojson',
 					reason: 'no-such-project',
-					kept: false,
+					copy: null,
 					detail: expect.stringContaining('no longer in this Workspace')
 				}
 			]);
@@ -200,7 +207,7 @@ describe('replayJournal', () => {
 				{
 					path: 'amsterdam-1625/project.json',
 					reason: 'project-deleted',
-					kept: false,
+					copy: null,
 					detail: expect.stringContaining('you deleted the Project')
 				}
 			]);
@@ -254,7 +261,7 @@ describe('replayJournal', () => {
 				{
 					path: 'alignments/floride-1657.json',
 					reason: 'no-such-historical-map',
-					kept: false,
+					copy: null,
 					detail: expect.stringContaining('Historical Map')
 				}
 			]);
@@ -268,7 +275,7 @@ describe('replayJournal', () => {
 				{
 					path: 'images/floride-1657/8/0_0.jpg',
 					reason: 'no-such-historical-map',
-					kept: false,
+					copy: null,
 					detail: expect.stringContaining('Historical Map')
 				}
 			]);
@@ -535,20 +542,29 @@ describe('replayJournal', () => {
 				await store.write(PATH, utf8.encode('v1'));
 				journal.record(PATH, utf8.encode('v1'));
 
-				const report = await replayJournal(storage, store, 'Marking 2026');
+				const report = await replayJournal(storage, store, 'Marking 2026', { journal });
 
 				expect(report.restored).toEqual([]);
 				expect(report.skipped).toEqual([
 					{
 						path: PATH,
 						reason: 'already-in-the-store',
-						kept: false,
+						copy: null,
 						detail: expect.stringContaining('did not need to be put back')
 					}
 				]);
 				expect(text(await store.read(PATH))).toBe('v1');
-				// Dropped: the store has the bytes, which is the one condition an entry goes on.
-				expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+				// ⚠ **Dropped through `forget`, not `discard`** — the store demonstrably has these bytes,
+				// so this is the `forget` that did not happen when it should have, and it is the one
+				// event allowed to write a baseline. Through `discard` the next edit to this file would
+				// be recorded against nothing and the scholar asked about it for no reason.
+				journal.record(PATH, utf8.encode('the next edit'));
+				expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toBe(
+					fingerprintOf(utf8.encode('v1'))
+				);
+				// Dropped: the store has the bytes, which is the one condition an entry goes on. Asserted
+				// before the record above, on the report itself.
+				expect(report.skipped[0]?.copy).toBeNull();
 			});
 
 			it('does not read a store holding a prefix of the entry as holding the entry', async () => {
@@ -616,15 +632,16 @@ describe('replayJournal', () => {
 					{
 						path: PATH,
 						reason: 'superseded',
-						kept: true,
+						copy: expect.any(String),
 						detail: expect.stringContaining('has been changed since')
 					}
 				]);
-				// Kept: the entry is the only copy of that edit anywhere, so a refusal that dropped it
-				// would destroy the work it exists to protect.
-				expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
-					PATH
-				]);
+				// Kept — and kept *out of the live journal*, which is what makes it survive the next edit
+				// to this file rather than being overwritten by it (round 5, finding B).
+				expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+				expect(
+					readHeldCopies(storage, 'Marking 2026').map((held) => [held.path, text(held.bytes)])
+				).toEqual([[PATH, 'the edit that stranded']]);
 				expect(replayIsNoteworthy(report)).toBe(true);
 			});
 
@@ -639,9 +656,7 @@ describe('replayJournal', () => {
 
 				expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
 				expect(text(await store.read(PATH))).toBe('v3');
-				expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
-					PATH
-				]);
+				expect(readHeldCopies(storage, 'Marking 2026').map((held) => held.path)).toEqual([PATH]);
 			});
 
 			it('does not read a baseline the store has grown past as still matching', async () => {
@@ -705,6 +720,132 @@ describe('replayJournal', () => {
 		});
 
 		/**
+		 * ─────────────────────────────────────────────────────────────────────────────────────
+		 * A KEPT COPY IS KEPT (round 5, findings A and B)
+		 *
+		 * Both were the same sentence being false. A declined copy used to be "kept" by leaving the
+		 * ordinary journal entry in place — and an entry is addressed by path alone, so the next edit
+		 * to that file overwrote it, which is SPEC story 6 verbatim; and the notice's remedy was keyed
+		 * on the path too, so pressing it destroyed whatever was there by then rather than the copy the
+		 * sentence named.
+		 */
+		describe('a copy the replay declined', () => {
+			it('survives the next edit to the same file', async () => {
+				// ⚠ The probe that was red: the scholar carries on working on the file after reading the
+				// notice, that write strands too, and the copy the notice is about is gone.
+				await strandAnEdit('v1', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
+				await replayJournal(storage, store, 'Marking 2026', { journal });
+
+				journal.record(PATH, utf8.encode('WORK DONE AFTER THE REPORT'));
+
+				expect(readHeldCopies(storage, 'Marking 2026').map((held) => text(held.bytes))).toEqual([
+					'the edit that stranded'
+				]);
+				// And the later edit is journalled as usual, in its own right.
+				expect(
+					readJournal(storage, 'Marking 2026').entries.map((entry) => text(entry.bytes))
+				).toEqual(['WORK DONE AFTER THE REPORT']);
+			});
+
+			it('is thrown away by identity, never by whatever is at that path now', async () => {
+				await strandAnEdit('v1', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
+				const report = await replayJournal(storage, store, 'Marking 2026', { journal });
+				const copy = report.skipped[0]?.copy ?? '';
+				// An hour of work later, with its own stranded write at the same path.
+				journal.record(PATH, utf8.encode('WORK DONE AFTER THE REPORT'));
+
+				expect(forgetHeldCopy(storage, 'Marking 2026', PATH, copy)).toBe(true);
+
+				expect(readHeldCopies(storage, 'Marking 2026')).toEqual([]);
+				// ⚠ The measured defect: this used to be `[]`, the later edit destroyed by a button whose
+				// sentence described a different, older version and said that one had been kept.
+				expect(
+					readJournal(storage, 'Marking 2026').entries.map((entry) => text(entry.bytes))
+				).toEqual(['WORK DONE AFTER THE REPORT']);
+			});
+
+			it('holds two divergent copies of one file rather than letting the second erase the first', async () => {
+				// ⚠ **Why the fingerprint is in the key and not only in the report.** A scholar can strand
+				// a second, different edit to the same file and have that declined too; keyed by path,
+				// the second copy would overwrite the first — the same destruction this whole section
+				// exists to stop, arriving from the other side.
+				await strandAnEdit('v1', 'the first divergent edit');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
+				const first = await replayJournal(storage, store, 'Marking 2026', { journal });
+				journal.record(PATH, utf8.encode('the second divergent edit'));
+				await store.write(PATH, utf8.encode('v3-NEWER-STILL'));
+				await replayJournal(storage, store, 'Marking 2026', { journal });
+
+				expect(readHeldCopies(storage, 'Marking 2026').map((held) => text(held.bytes))).toEqual([
+					'the first divergent edit',
+					'the second divergent edit'
+				]);
+
+				// And throwing one away leaves the other exactly where it was.
+				forgetHeldCopy(storage, 'Marking 2026', PATH, first.skipped[0]?.copy ?? '');
+				expect(readHeldCopies(storage, 'Marking 2026').map((held) => text(held.bytes))).toEqual([
+					'the second divergent edit'
+				]);
+			});
+
+			it('is offered again at the next startup, so it is not held invisibly', async () => {
+				await strandAnEdit('v1', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
+				await replayJournal(storage, store, 'Marking 2026', { journal });
+
+				const later = await replayJournal(storage, store, 'Marking 2026', { journal });
+
+				expect(later.skipped.map((entry) => [entry.reason, entry.copy !== null])).toEqual([
+					['superseded', true]
+				]);
+				expect(later.restored).toEqual([]);
+				expect(later.skipped[0]?.detail).toContain('still being kept');
+			});
+
+			it('does not leave the next edit undecidable as well', async () => {
+				// ⚠ The same self-perpetuation the `superseded` branch was fixed for. Without the
+				// observation, the scholar answers a question about this file and is then asked about it
+				// again at the next startup, having seen the very version they were asked about.
+				await seedProject('amsterdam-1625');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
+				journal.record(PATH, utf8.encode('the edit that stranded'));
+				const first = await replayJournal(storage, store, 'Marking 2026', { journal });
+				expect(first.skipped.map((entry) => entry.reason)).toEqual(['cannot-tell-which-is-newer']);
+
+				journal.record(PATH, utf8.encode('typed after answering'));
+
+				expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toBe(
+					fingerprintOf(utf8.encode('v2-NEWER'))
+				);
+			});
+
+			it('is not reported twice in the run that held it', async () => {
+				// The held copies are snapshotted before the walk, or the decision just taken would be
+				// reported once as itself and once as an older copy still waiting.
+				await strandAnEdit('v1', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
+
+				const report = await replayJournal(storage, store, 'Marking 2026', { journal });
+
+				expect(report.skipped).toHaveLength(1);
+			});
+
+			it('goes when the Project it belongs to is deleted', async () => {
+				// Otherwise a deletion leaves the loudest thing behind: a notice at every startup about a
+				// file that no longer exists, whose offered remedy is about nothing the user cares about.
+				await strandAnEdit('v1', 'the edit that stranded');
+				await store.write(PATH, utf8.encode('v2-NEWER'));
+				await replayJournal(storage, store, 'Marking 2026', { journal });
+
+				expect(journal.forgetUnder('amsterdam-1625/')).toBe(1);
+
+				expect(readHeldCopies(storage, 'Marking 2026')).toEqual([]);
+			});
+		});
+
+		/**
 		 * ⚠ **THE PLANTED REVERT, and this suite's positive control.**
 		 *
 		 * A broken harness here fails toward "no problem found", which is the same direction as the
@@ -756,14 +897,12 @@ describe('replayJournal', () => {
 				expect(text(await store.read(PATH))).toBe('v2-NEWER');
 				expect(report.restored).toEqual([]);
 				// …and so is the scholar's copy, which nothing else holds.
-				expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
-					PATH
-				]);
+				expect(readHeldCopies(storage, 'Marking 2026').map((held) => held.path)).toEqual([PATH]);
 				expect(report.skipped).toEqual([
 					{
 						path: PATH,
 						reason: 'cannot-tell-which-is-newer',
-						kept: true,
+						copy: expect.any(String),
 						detail: expect.stringContaining('cannot tell whether it is newer')
 					}
 				]);
@@ -817,8 +956,15 @@ describe('replayJournal', () => {
 	 * arrive inside a colleague's bundle. So the predicate below is a description, not a proof of
 	 * exhaustiveness. What holds regardless, and is why the conclusion still stands, is the prefix: a
 	 * journalled path always begins with a Project directory, while both out-of-reach routes write at
-	 * the Workspace root under `images/` or `base-map/`. Whether a `..` inside `geojsonRef` could
-	 * escape that prefix is not evaluated here and is not this ticket's to answer.
+	 * the Workspace root under `images/` or `base-map/`.
+	 *
+	 * Two questions about that string are left named and unanswered, both wider than this ticket:
+	 * whether a `..` inside it could escape the Project prefix, and that `writeAnnotations` writes
+	 * `annotationStorePath(directory, layer.id)` while the readers read
+	 * `${directory}/${layer.geojsonRef}` — so a non-canonical `geojsonRef` from a colleague's bundle
+	 * reads one file and writes another. The second is a display-and-edit divergence rather than a
+	 * replay hazard, but it does mean "a file cannot be edited before it has been shown" is true of
+	 * the file *shown*, not of the file written.
 	 *
 	 * What *is* executable is the other half, asserted below: the paths each route actually writes.
 	 */

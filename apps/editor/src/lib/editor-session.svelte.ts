@@ -19,6 +19,7 @@ import {
 	annotationStorePath,
 	assembleWithCanvas,
 	browserJournalStorage,
+	forgetHeldCopy,
 	deletionsAreNoteworthy,
 	replayIsNoteworthy,
 	replayJournal,
@@ -636,9 +637,10 @@ export class EditorSession {
 			// `'a-name-anywhere'`, which is the direction that destroys nothing, rather than leaving
 			// the safe answer to a ternary a reader has to check.
 			identity: workspaceIdentityOf(options.workspaceKey ?? ''),
-			// What a `project.json` held when it was read, handed to the journal (ticket 07). See
-			// {@link #observeStoreContent} for why the read path is where this has to come from.
-			onStoreContent: (path, bytes) => this.#observeStoreContent(path, bytes),
+			// What a `project.json` held when it was read, told to the journal (ticket 07). See
+			// {@link #readObserved} for why the read path is where this has to come from, and why the
+			// port has two calls rather than one.
+			...(this.#journal ? { observer: this.#journal } : {}),
 			onDeletionNotRecorded: () => {
 				this.deletionWarning =
 					'This browser would not let Ballastella write the deletion down, so it is only as ' +
@@ -763,7 +765,7 @@ export class EditorSession {
 	}
 
 	/**
-	 * Tell the write-ahead journal what the store held for a path, from a read that has just resolved.
+	 * Read a file, and tell the write-ahead journal what the store held for it.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHY THE READ PATH IS WHERE THIS COMES FROM, AND WHY NOWHERE ELSE WOULD DO
@@ -794,8 +796,17 @@ export class EditorSession {
 	 * Called only for reads that **succeeded**. An absent or unreadable file says nothing about what
 	 * the store holds, and guessing is what this exists to avoid.
 	 */
-	#observeStoreContent(path: StorePath, bytes: Bytes): void {
-		this.#journal?.observe(path, bytes);
+	async #readObserved(path: StorePath): Promise<Bytes> {
+		// ⚠ **The token is taken before the read, and that ordering is the whole of it.** A read is
+		// asynchronous and a save can land while it is in flight — `readLayerFeatures` and
+		// `readAnnotations` name the same file, so a redraw overlapping a debounced `writeAnnotations`
+		// is the ordinary shape. Reported without it, the stale read filed the *previous* content as
+		// the baseline and the next stranded edit was refused with "that file has been changed since",
+		// which was false and in exactly the case the journal exists for.
+		const at = this.#journal?.mark() ?? 0;
+		const bytes = await this.#store.read(path);
+		this.#journal?.observe(path, bytes, at);
+		return bytes;
 	}
 
 	/**
@@ -812,16 +823,23 @@ export class EditorSession {
 	 * bytes are the only copy of that edit. It is offered anyway because the alternative is a warning
 	 * at every visit about work the application has already declined to put back.
 	 *
-	 * `discard` and not `forget`: the store never took these bytes, and filing them as what it holds
-	 * would give the next edit to this path a baseline that was never on disk.
+	 * Held copies live outside the live journal (`journal.ts`), so this reaches neither an entry
+	 * waiting to be written nor a file in the Workspace — only the copy the sentence names.
 	 */
-	forgetReplaySkip(path: string): void {
-		this.#journal?.discard(path);
+	forgetReplaySkip(path: string, copy: string): void {
+		const storage = this.#journalStorage;
+		if (!storage || !this.#journal) return;
+		// ⚠ **By fingerprint, never by path alone** (round 5, finding A). This notice is built at
+		// startup and never expires, so it can be pressed after arbitrary later work — and keyed on the
+		// path it destroyed whatever was at that path *then*, which could be a stranded edit made an
+		// hour later, while the sentence beside the button described a different, older version and
+		// said the copy had been kept.
+		forgetHeldCopy(storage, this.#journal.workspace, path, copy);
 		const report = this.replayReport;
 		if (report === null) return;
 		const remaining = {
 			...report,
-			skipped: report.skipped.filter((entry) => entry.path !== path)
+			skipped: report.skipped.filter((entry) => entry.copy !== copy)
 		};
 		// Through the same predicate the report was published by, so a panel holding nothing but the
 		// skip just forgotten goes away rather than lingering empty.
@@ -1240,14 +1258,13 @@ export class EditorSession {
 	): Promise<Alignment> {
 		this.alignmentError = '';
 		try {
-			const bytes = await this.#store.read(alignmentPath(imageId));
 			// The bytes, not the model: this is the baseline a later write compares against, and
 			// `Alignment.unmodelled` means a re-serialisation of the same document can differ. Held
-			// here because this is the moment the user's view of the file is fixed (ticket 07).
+			// here because this is the moment the user's view of the file is fixed (ticket 07). The
+			// journal is told the same fact by the read itself, for a different question — a revert at
+			// startup rather than a concurrent edit — off the one read.
+			const bytes = await this.#readObserved(alignmentPath(imageId));
 			this.#alignmentOnDisk.set(imageId, bytes);
-			// And the same fact, to the journal, for the same reason one line up — the two baselines
-			// answer different questions (a concurrent edit, and a revert at startup) off one read.
-			this.#observeStoreContent(alignmentPath(imageId), bytes);
 			return parseAlignment(bytes, { imageId });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) {
@@ -2815,9 +2832,7 @@ export class EditorSession {
 		const { imageId } = layer;
 		if (imageId === '') return null;
 		try {
-			const bytes = await this.#store.read(alignmentPath(imageId));
-			this.#observeStoreContent(alignmentPath(imageId), bytes);
-			return parseAlignment(bytes, { imageId });
+			return parseAlignment(await this.#readObserved(alignmentPath(imageId)), { imageId });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return null;
 			throw cause;
@@ -2835,9 +2850,7 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || layer.geojsonRef === '') return null;
 		try {
-			const path = `${directory}/${layer.geojsonRef}`;
-			const bytes = await this.#store.read(path);
-			this.#observeStoreContent(path, bytes);
+			const bytes = await this.#readObserved(`${directory}/${layer.geojsonRef}`);
 			return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return null;
@@ -2860,9 +2873,7 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || layer.geojsonRef === '') return emptyCollection();
 		try {
-			const path = `${directory}/${layer.geojsonRef}`;
-			const bytes = await this.#store.read(path);
-			this.#observeStoreContent(path, bytes);
+			const bytes = await this.#readObserved(`${directory}/${layer.geojsonRef}`);
 			return parseAnnotations(bytes, { path: layer.geojsonRef });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return emptyCollection();

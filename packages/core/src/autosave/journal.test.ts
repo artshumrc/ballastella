@@ -139,6 +139,47 @@ describe('WriteAheadJournal', () => {
 	 * rather than read from the store, because `record` is synchronous by contract. These pin what the
 	 * derivation must get right and what it costs; `replay.test.ts` drives what it is for.
 	 */
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE FINGERPRINT ITSELF (round 5, finding D)
+	 *
+	 * ⚠ **Every other reference to it in this repository compares it against itself** —
+	 * `expect(held).toBe(fingerprintOf(x))` — which is satisfied by any pure function, including one
+	 * that ignores its input. `replay.ts` decides whether to write a scholar's file on an equality
+	 * between two of these, so the properties the docblock claims are the guarantee, and they are
+	 * driven here against literals rather than against the function.
+	 */
+	describe('fingerprintOf', () => {
+		const of = (text: string) => fingerprintOf(utf8.encode(text) as Bytes);
+
+		it('is stable for the same bytes and differs for different ones', () => {
+			expect(of('the edit that stranded')).toBe(of('the edit that stranded'));
+			expect(of('v1')).not.toBe(of('v2'));
+		});
+
+		it('separates a string from one it is a prefix of, by length as well as by hash', () => {
+			// The length is in front for this: the cheapest disagreement to detect is a file that grew,
+			// and a hash whose rounds happened to agree would otherwise let it through.
+			expect(of('v1-long')).not.toBe(of('v1-long-baseline'));
+			expect(of('v1-long').split('-')[0]).not.toBe(of('v1-long-baseline').split('-')[0]);
+		});
+
+		it('runs two rounds from different bases rather than one twice', () => {
+			// A second round identical to the first is 32 bits pretending to be 64. Read off the shape
+			// rather than the value: the two halves of the hash must not be the same eight hex digits.
+			const [, hash = ''] = of('a scholar’s Annotations').split('-');
+			expect(hash).toHaveLength(16);
+			expect(hash.slice(0, 8)).not.toBe(hash.slice(8));
+		});
+
+		it('is a short constant beside the payload, not a copy of it', () => {
+			// Why it is a fingerprint at all. It grows with the *digits* of the length and nothing else.
+			expect(of('').length).toBe(18);
+			expect(fingerprintOf(new Uint8Array(30_000) as Bytes).length).toBe(20);
+			expect(fingerprintOf(new Uint8Array(5_000_000) as Bytes).length).toBe(22);
+		});
+	});
+
 	describe('what the store held when the entry was made', () => {
 		it('takes the bytes a forget said the store had', () => {
 			const journal = new WriteAheadJournal(storage, 'W');
@@ -215,6 +256,24 @@ describe('WriteAheadJournal', () => {
 			new WriteAheadJournal(storage, 'W').record('a/project.json', utf8.encode('e4'));
 
 			expect(readJournal(storage, 'W').entries[0]?.held).toBeNull();
+		});
+
+		it('loses to a fact learned while the read that carries it was in flight', () => {
+			// ⚠ **The race three docblocks claimed did not exist** (round 5, finding C). `observe` is fed
+			// by reads already in flight when a save lands — `readLayerFeatures` and `readAnnotations`
+			// name the same file, so a redraw overlapping a debounced `writeAnnotations` is the ordinary
+			// shape. Without the token the stale read filed the *previous* content as the baseline, and
+			// the next stranded edit was refused with "that file has been changed since": false, and in
+			// exactly the case the journal exists for.
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('v1'));
+			const at = journal.mark(); // a read begins
+			journal.forget('a/project.json'); // the store takes v1 while it is in flight
+			journal.observe('a/project.json', utf8.encode('what the read saw, before'), at);
+
+			journal.record('a/project.json', utf8.encode('v2'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBe(fingerprintOf(utf8.encode('v1')));
 		});
 
 		it('goes when a deletion sweeps the path, rather than outliving it in memory', () => {
