@@ -1,22 +1,31 @@
-// The parser boundary (ADR-0018): triiiceratops selects, and **only an image service URI
-// crosses**.
+// The parser boundary (ADR-0018): browsing selects, and **only an image service URI crosses**.
 //
-// The bundle carries two independent IIIF parsers. triiiceratops navigates Manifests and
-// Collections with `manifesto.js`; the alignment path reads tile geometry with
-// `@allmaps/iiif-parser`. That is accepted — they do genuinely different jobs — on one condition:
-// neither may ever consume the other's interpretation. If it did, the two parsers' readings of the
-// same Manifest could disagree, and the disagreement would be invisible, because each half would
-// look internally consistent.
+// ADR-0018 stated this as a rule about two IIIF parsers meeting — `manifesto.js` inside
+// triiiceratops for navigation, `@allmaps/iiif-parser` for tile geometry — because that is how the
+// editor was expected to browse. **It is not how the editor browses, and since ticket 15 the editor
+// does not carry triiiceratops at all**: navigation is the editor's own canvas list in
+// `AddRemoteMap.svelte`, over `@allmaps/iiif-parser`, and triiiceratops now lives only in
+// `apps/viewer` (see ADR-0018's amendment note).
 //
-// So the contract is a *string*. A user browses in triiiceratops, picks a canvas, and what comes
-// back is the canvas's image service URI. `@allmaps/iiif-parser` then re-parses from that URI
-// independently, from its own fetch of its own `info.json`. Nothing structured is shared, so any
-// disagreement about anything else in the document has nowhere to land.
+// **The rule survives its original reason, and this is the part worth reading.** What the boundary
+// really forbids is a *parsed structure* crossing from the browsing step to the alignment step. Both
+// steps use the same parser today, so a disagreement is not the hazard it was; the hazard that
+// remains is a canvas object carried across and read as authoritative, so alignment inherits
+// browsing's interpretation of the document instead of fetching and re-reading the image service
+// itself. That difference is visible the moment the two views of a Manifest are not the same — a
+// library edits it, a canvas paints a choice of layers, a service is behind a redirect.
+//
+// So the contract is a *string*. A user picks a canvas, and what comes back is that canvas's image
+// service URI. The alignment path re-parses from that URI independently, from its own fetch of its
+// own `info.json`. Nothing structured is shared, so any reading of anything else in the document has
+// nowhere to land. If a triiiceratops-driven browsing UI ever returns to the editor, the boundary is
+// already where it needs to be.
 //
 // **A contract this easy to break by accident needs to be a function.** Handing a parsed canvas
-// across would compile perfectly well — `imageService` is a property on both parsers' canvas
-// objects — and it would work, right up to the manifest where the two disagree. So the crossing is
-// this one call, it refuses anything that is not a URI string, and the refusal names the rule.
+// across would compile perfectly well — `imageService` is right there on the object the browsing
+// step already holds — and it would work, right up to the document the two readings disagree
+// about. So the crossing is this one call, it refuses anything that is not a URI string, and the
+// refusal names the rule.
 
 import { RemoteIiifRejectedError, remoteIiifUrl } from './remote-resource.js';
 import { canonicalServiceUri } from './service-uri.js';
@@ -31,12 +40,11 @@ import { canonicalServiceUri } from './service-uri.js';
 export class ParserBoundaryError extends Error {
 	constructor(received: unknown) {
 		super(
-			`Only an image service URI may cross from triiiceratops to the alignment path ` +
-				`(ADR-0018), and this is a ${describe(received)}. The two IIIF parsers in this bundle — ` +
-				`manifesto.js inside triiiceratops, @allmaps/iiif-parser in the alignment path — must ` +
-				`never consume each other's interpretation, because a disagreement between them would ` +
-				`be invisible rather than loud. Pass the canvas's image service URI as a string and let ` +
-				`the alignment path re-parse it from there.`
+			`Only an image service URI may cross from browsing to the alignment path (ADR-0018), and ` +
+				`this is a ${describe(received)}. The alignment path must never inherit browsing's ` +
+				`reading of a document — it fetches and re-parses the image service itself, so that a ` +
+				`disagreement about the document is loud rather than invisible. Pass the canvas's image ` +
+				`service URI as a string and let the alignment path re-parse it from there.`
 		);
 		this.name = 'ParserBoundaryError';
 	}

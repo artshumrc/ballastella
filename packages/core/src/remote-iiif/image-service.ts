@@ -113,7 +113,7 @@ export type ReadRemoteImageServiceOptions = {
  * Read the image service at `uri` and decide whether it can be used.
  *
  * `uri` is an image service base — no `/info.json`, no region and size. That is what crosses the
- * parser boundary from triiiceratops (ADR-0018) and what a user pastes for a bare service. A
+ * parser boundary from browsing (ADR-0018) and what a user pastes for a bare service. A
  * URL ending in `/info.json` is accepted too, because it is what a user copies out of a browser
  * address bar, and trimming it here is better than a refusal that reads as pedantry.
  */

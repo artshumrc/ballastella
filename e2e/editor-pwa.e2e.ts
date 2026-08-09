@@ -849,7 +849,17 @@ test.describe('a working session that reaches other people’s servers', () => {
 							profile: 'level2',
 							width: REFERENCED_WIDTH,
 							height: REFERENCED_HEIGHT,
-							tiles: [{ width: 256, height: 256, scaleFactors: [1, 2] }]
+							// **`4` is load-bearing, and ticket 15 is why it is here.** The coarsest scale
+							// factor has to reduce the whole sheet to a single tile: 700 × 500 at factor 2
+							// is 350 × 250, which spans two 256px tiles across, and the alignment pane
+							// refuses that in words — "the grid alignment the projection depends on would
+							// not hold". At factor 4 it is 175 × 125, one tile, and the pane opens.
+							//
+							// It was `[1, 2]` while the only thing that read this map was the unwarped
+							// viewer, which is OpenSeadragon and does not care. Now that fence 3's bytes
+							// come from the *alignment* pane instead, the fake library has to describe a
+							// pyramid a real one would.
+							tiles: [{ width: 256, height: 256, scaleFactors: [1, 2, 4] }]
 						})
 					});
 				}
@@ -896,24 +906,41 @@ test.describe('a working session that reaches other people’s servers', () => {
 		await seedMapLayer(page, 'btv1b8592433v', 'Carte de la Floride', project!);
 		await page.reload();
 		// Where its tiles come from is inside the Layer that fetches them (ticket 05), so the row is
-		// opened to reach it — and to reach the button below, which is the thing that actually asks the
-		// library for bytes.
+		// opened to reach it.
 		const referencedRow = await openLayerRow(
 			page,
 			page.locator('[data-testid="layer-row"][data-image-id="btv1b8592433v"]')
 		);
 		await expect(referencedRow.getByTestId('referenced-image-host')).toHaveText(LIBRARY);
 
-		// Reading it as a document is what actually pulls tiles off the library's server (SPEC story
-		// 48) — the pane alone would leave fence 3 asserted against a map nobody had loaded.
-		await referencedRow.getByTestId('view-unwarped').click();
-		await expect(page.getByTestId('unwarped-view')).toBeVisible();
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// **FENCE 3'S BYTES: OPENING THE *REFERENCED* MAP'S OWN ALIGNMENT PANE.**
+		//
+		// This used to click "View unwarped" on the row above, because reading the sheet as a document
+		// was the only thing in the editor that fetched a referenced map's tiles from the library's own
+		// server. Ticket 15 deleted that control with triiiceratops, and the replacement had to be the
+		// *referenced* Layer's alignment pane specifically — since ticket 07 that pane deep-zooms a
+		// referenced map straight from the library.
+		//
+		// **Aligning `imageId` instead would have looked right and asserted nothing.** `imageId` is the
+		// locally ingested map `startProjectWithMap` made; its pyramid is in the Workspace and it asks
+		// the library for nothing. Measured, not reasoned about: with this block pointed at `imageId`,
+		// `libraryRequests` sat at **0** — not one `info.json` — and the poll below timed out. Zero
+		// rather than "fewer than two" is what said the map was the wrong one.
+		await alignLayerFor(page, 'btv1b8592433v');
+		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
+			'data-tiles-loaded',
+			'true',
+			{ timeout: TILES_READY_MS }
+		);
+		// `> 1`: at least one tile beyond the `info.json`, which is what makes this the library's bytes
+		// and not merely its description.
 		await expect.poll(() => libraryRequests, { timeout: TILES_READY_MS }).toBeGreaterThan(1);
-		await page.getByTestId('unwarped-close').click();
 
 		// A Control Point pair, so that this is a working session and not a tour. On `/align/` since
 		// ticket 03, and reached from **this Project's own** Layer — Align is per Layer since ticket 04,
-		// and the referenced map seeded above has one of its own.
+		// and the local map has one of its own.
+		await page.goto(`${site.url}?p=${project}`);
 		await alignLayerFor(page, imageId);
 		await expect(page.getByTestId('historical-map-tiles')).toHaveAttribute(
 			'data-tiles-loaded',

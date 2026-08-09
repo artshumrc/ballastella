@@ -68,7 +68,6 @@
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';
-	import UnwarpedView from '$lib/remote-iiif/UnwarpedView.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -734,17 +733,6 @@
 				return `Added ${label}`;
 		}
 	});
-
-	/**
-	 * Which referenced Historical Map is being read unwarped, by image id. `''` for none.
-	 *
-	 * Only one at a time: each `TriiiceratopsViewer` is an OpenSeadragon instance with its own WebGL
-	 * or canvas drawer, and this screen already carries a MapLibre context.
-	 */
-	let unwarpedImageId = $state('');
-	const unwarped = $derived(
-		session.referencedImages.find((image) => image.imageId === unwarpedImageId) ?? null
-	);
 </script>
 
 <!--
@@ -1049,7 +1037,13 @@
 				{/if}
 			</div>
 
-			<div class="relative flex min-h-0 grow flex-col">
+			<!--
+				No `relative` here since ticket 15. It established the containing block for the unwarped
+				view's `absolute inset-0` overlay, which was this subtree's only absolutely positioned
+				child; nothing else here positions itself against it, and MapLibre's own container carries
+				`position: relative` from `maplibre-gl.css`.
+			-->
+			<div class="flex min-h-0 grow flex-col">
 				{#if !installedApp.online}
 					<!--
 						**`role="alert"`, and specifically not `role="status"`.** Two reasons, and the second is
@@ -1220,18 +1214,6 @@
 						{offline.completed}
 					</p>
 				</div>
-
-				<!--
-					Reading a referenced Historical Map as a document. Over the map rather than beside it,
-					because it is a whole viewer and the sidebar is a column: it covers the map while it is
-					open and gives it back when it is closed. Ticket 15 removes this from the editor
-					altogether; until then it stays reachable from the Layer it belongs to.
-				-->
-				{#if unwarped}
-					<div class="absolute inset-0 z-10 overflow-y-auto bg-base-100 p-4">
-						<UnwarpedView image={unwarped} onclose={() => (unwarpedImageId = '')} />
-					</div>
-				{/if}
 			</div>
 		</div>
 	</div>
@@ -1447,15 +1429,6 @@
 				<code class="text-xs opacity-70" data-testid="referenced-image-host"
 					>{new URL(origin.service).hostname}</code
 				>
-				<button
-					class="btn btn-xs"
-					type="button"
-					data-testid="view-unwarped"
-					aria-pressed={unwarpedImageId === layer.imageId}
-					onclick={() => (unwarpedImageId = unwarpedImageId === layer.imageId ? '' : layer.imageId)}
-				>
-					View unwarped
-				</button>
 				<OfflineCopyDialog image={origin} job={offlineCopy} />
 			{:else if origin}
 				<!--

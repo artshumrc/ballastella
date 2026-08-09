@@ -7,14 +7,43 @@
 // is what makes triiiceratops able to open local IIIF for everyone rather than only here.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
+// KEPT DELIBERATELY, WITH NO CALLER — TICKET 15, 2026-08-09
+//
+// **This module has no consumer in this repository, and that is a recorded decision rather than an
+// oversight.** It never had one: the editor's `UnwarpedView` named it in a comment as the object it
+// would pass if it could, and ticket 15 deleted that component, so the only thing left pointing here
+// was a file that no longer exists. Saying that out loud is the whole point of this block — the
+// alternative was an exported, tested function nobody could explain.
+//
+// **The upstream gap it waits on**, precisely: `triiiceratops` 1.0.0-rc.35 has no prop, plugin hook,
+// or config path that accepts an OpenSeadragon `TileSource`. `TriiiceratopsViewer` takes
+// `manifestId`, `manifestJson`, `canvasId`, `plugins`, `config` and `viewerState`; its `tileSources`
+// are derived internally from the canvases by `getViewerTileSources` and are always a URL string or
+// `{ type: 'image', url }`. `config.openSeadragonConfig` reaches OpenSeadragon's own options, but the
+// internal `$effect` on `tileSources` calls `viewer.open()` and replaces whatever was constructed.
+// The plugin API is for panels and flyouts.
+//
+// **What one upstream prop would unlock, in both apps**: the editor could show a locally ingested
+// pyramid unwarped (it never could — a stored pyramid has no URL), and the published viewer could
+// show one whose `info.json` still carries the ADR-0004 `unset.invalid` placeholder, which today it
+// refuses by design rather than draw a blank (see `apps/viewer/src/lib/unwarped-manifest.ts`). One
+// change closes both, which is why this is kept rather than deleted and rewritten later: it is
+// measured against a real viewer's tile geometry and its tests encode that.
+//
+// It is exported from `@ballastella/core`'s index and costs a published site nothing: the export is
+// duck-typed and value-imports no OpenSeadragon, so `apps/viewer` gains no dependency from it
+// (ADR-0019). If the upstream prop is declined rather than shipped, delete this module and its test
+// — a kept-for-later that nobody is waiting on is just an orphan with a longer comment.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY IT IS DUCK-TYPED AND IMPORTS NOTHING FROM OPENSEADRAGON
 //
 // OpenSeadragon accepts a plain object as a tile source when it carries the members below; it does
 // not have to be an instance of `OpenSeadragon.TileSource`. Building one that way keeps
 // `openseadragon` out of `@ballastella/core`'s dependency tree, which matters for ADR-0019: the
-// published viewer depends on core, and every published site ships that bundle. `apps/editor`
-// owns the viewer component and therefore owns OpenSeadragon; core owns the *rule* about where
-// bytes come from.
+// published viewer depends on core, and every published site ships that bundle. Since ticket 15
+// `apps/viewer` is the only app that owns a triiiceratops component and therefore OpenSeadragon;
+// core owns the *rule* about where bytes come from.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHY `downloadTileStart` AND NOT `getTileUrl`

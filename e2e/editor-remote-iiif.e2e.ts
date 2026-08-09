@@ -934,43 +934,28 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	});
 });
 
-test.describe('reading a referenced Historical Map as a document', () => {
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * THE EDITOR NO LONGER READS A HISTORICAL MAP AS A DOCUMENT — TICKET 15
+ *
+ * Two tests used to live at the top of this block: one that opened a referenced map unwarped in
+ * triiiceratops and asserted tiles were requested from the library (SPEC story 48), and one that
+ * asserted ADR-0018's Svelte-component import by the absence of `<triiiceratops-viewer>` from the
+ * custom-element registry. Both went with the affordance.
+ *
+ * **Story 101 is rescoped, not dropped**: the published viewer keeps the unwarped view, and
+ * `viewer-reader.e2e.ts`'s "a Historical Map read unwarped" block is where it is asserted now.
+ * That block does **not** carry an equivalent of the custom-element assertion — see the amendment
+ * note on ADR-0018, which records the gap rather than implying it was moved.
+ *
+ * What this block still holds is the *warped* half: a referenced Layer drawn from the remote host's
+ * tiles, by both routes in.
+ */
+test.describe('a referenced Historical Map, drawn from the library that holds it', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 		await emptyWorkspace(page);
 		await page.reload();
-	});
-
-	test('opens it unwarped in triiiceratops, which draws tiles from the remote host', async ({
-		page
-	}) => {
-		// SPEC story 48. Asserted on tiles having been requested from the library rather than on the
-		// viewer having mounted: a mounted OpenSeadragon that fetched nothing is exactly the blank
-		// panel this ticket's CORS gate exists to prevent, and it looks identical to a working one.
-		await installIiifHosts(page);
-		await openNewProject(page);
-
-		await lookUp(page, `${service('images.test', 'florida')}/info.json`);
-		await page.getByTestId('remote-add').click();
-		const referencedRow = await expectReferencedMap(page);
-		await expect(referencedRow.getByTestId('view-unwarped')).toBeVisible();
-
-		const tileRequests: string[] = [];
-		page.on('request', (request) => {
-			if (/images\.test.*default\.(jpg|png)$/.test(request.url())) tileRequests.push(request.url());
-		});
-
-		await referencedRow.getByTestId('view-unwarped').click();
-		await expect(page.getByTestId('unwarped-view')).toBeVisible();
-		// OpenSeadragon draws into a canvas of its own, inside triiiceratops' viewer.
-		await expect(page.getByTestId('unwarped-view').locator('canvas').first()).toBeVisible({
-			timeout: 20_000
-		});
-		await expect.poll(() => tileRequests.length, { timeout: 20_000 }).toBeGreaterThan(0);
-
-		// Closing it takes the viewer away, so a second one is never on the page.
-		await page.getByTestId('unwarped-close').click();
-		await expect(page.getByTestId('unwarped-view')).toHaveCount(0);
 	});
 
 	/**
@@ -1136,29 +1121,92 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		await expect(alert).toContainText('nowhere to fetch its tiles from');
 	});
 
-	test('uses triiiceratops as a Svelte component, never its web-component export', async ({
-		page
+	test('offers no unwarped view, and loads no OpenSeadragon to give one', async ({
+		page,
+		baseURL
 	}) => {
-		// ADR-0018. The web-component export registers `<triiiceratops-viewer>` as a custom element, so
-		// its absence from the registry after the viewer has rendered is the observable difference —
-		// and it is the one that would change if somebody swapped the import.
+		// Ticket 15, and it replaces the two tests named in this block's header rather than merely
+		// deleting them. A criterion of the form "X is gone" is the easiest kind to pass vacuously —
+		// "no control named X" is true of a page that failed to render at all — so this asserts the
+		// *absence* only on a page where the affordance's own preconditions are met: a referenced
+		// Historical Map, added from a library, with its Layer row open and naming its host. That row
+		// is exactly where "View unwarped" used to be.
+		//
+		// The bundle half is what catches a regression no `data-testid` could: an import that comes
+		// back without a control to click.
+		//
+		// **It reads the bytes, not the URLs.** The first cut of this test collected request URLs and
+		// matched `/triiiceratops|openseadragon/` on them, which passes whatever the code does — these
+		// specs run against `vite preview` over a production build, where every chunk is named by a
+		// content hash and no package name survives into a URL. That is exactly the vacuous shape this
+		// epic keeps shipping, so what is asserted instead is the *content* of this route's assets.
+		//
+		// **Where the list comes from matters, and response events alone were not good enough.** The
+		// second cut collected `page.on('response')` URLs. Measured against a probe that put
+		// triiiceratops back in the bundle: it failed on the first attempt and **passed on the retry**,
+		// because a chunk served from the browser's cache on the second run raised no response event
+		// this test saw. A check that reports the truth once and then reports green is worse than no
+		// check. So the list is taken from what the document *declares* — SvelteKit's static build
+		// emits a `modulepreload` link for every chunk of the route, and a `stylesheet` link for every
+		// sheet — and the observed responses are unioned in on top to catch anything imported later.
+		// The declared half cannot be cached away, because it is read out of the live DOM.
+		//
+		// `openseadragon` is a **known-good positive**: before this ticket it matched
+		// `_app/immutable/chunks/BjdhZAMi.js`, which the Project route loaded. A marker absent from
+		// every build would make this check unfalsifiable; this one was present until the commit that
+		// removed it.
+		const origin = new URL(baseURL ?? 'http://localhost').origin;
+		const responded: string[] = [];
+		page.on('response', (response) => {
+			const url = response.url();
+			if (url.startsWith(origin) && /\.(js|css)(\?|$)/.test(url)) responded.push(url);
+		});
+
 		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, `${service('images.test', 'florida')}/info.json`);
 		await page.getByTestId('remote-add').click();
-		await (await expectReferencedMap(page)).getByTestId('view-unwarped').click();
-		await expect(page.getByTestId('unwarped-view').locator('canvas').first()).toBeVisible({
-			timeout: 20_000
-		});
+		const referencedRow = await expectReferencedMap(page);
+		// The precondition: this is the row that used to carry the control, and it is populated.
+		await expect(referencedRow.getByTestId('referenced-image-host')).toHaveText('images.test');
 
+		await expect(referencedRow.getByTestId('view-unwarped')).toHaveCount(0);
+		await expect(page.getByTestId('view-unwarped')).toHaveCount(0);
+		await expect(page.getByTestId('unwarped-view')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: /unwarped/i })).toHaveCount(0);
+
+		// ADR-0018's decision now scopes to the viewer, so neither triiiceratops export is in this app.
 		const registered = await page.evaluate(() =>
 			['triiiceratops-viewer', 'triiiceratops-element'].map(
 				(name) => customElements.get(name) !== undefined
 			)
 		);
 		expect(registered).toEqual([false, false]);
-		await expect(page.locator('triiiceratops-viewer')).toHaveCount(0);
+
+		const declared = await page.evaluate(() =>
+			[
+				...document.querySelectorAll<HTMLLinkElement | HTMLScriptElement>(
+					'link[rel="modulepreload"][href], link[rel="stylesheet"][href], script[type="module"][src]'
+				)
+			].map((element) => (element instanceof HTMLLinkElement ? element.href : element.src))
+		);
+
+		// Nothing was inspected is a failure, not a pass: a page that loaded no scripts would satisfy
+		// every assertion above by having rendered nothing at all. Asserted on the *declared* half
+		// specifically — that is the half the cache cannot empty.
+		expect(declared.length, 'assets the document declares').toBeGreaterThan(0);
+		const inspected = [...new Set([...declared, ...responded])].filter((url) =>
+			url.startsWith(origin)
+		);
+
+		const carrying: string[] = [];
+		for (const url of inspected) {
+			const body = await page.request.get(url);
+			expect(body.ok(), `re-fetching ${url}`).toBe(true);
+			if (/triiiceratops|openseadragon/i.test(await body.text())) carrying.push(url);
+		}
+		expect(carrying, 'editor assets carrying triiiceratops or OpenSeadragon').toEqual([]);
 	});
 });
 
