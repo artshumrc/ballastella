@@ -1,9 +1,15 @@
 // The `@allmaps/render` patch is applied, and applied to the version we think it is.
 //
-// `patches/@allmaps__render@1.0.0-beta.83.patch` works around an upstream defect that makes warped
-// rendering silently blank: `fetchFn` is passed into a Comlink worker unproxied, every tile fails
-// with DataCloneError, and upstream logs and swallows it. Ticket 06 recorded the diagnosis; the
-// patch header records the fix.
+// `patches/@allmaps__render@1.0.0-beta.83.patch` works around **two** upstream defects, and both of
+// them fail silently, which is why they are guarded here rather than trusted.
+//
+//   1. Warped rendering goes blank: `fetchFn` is passed into a Comlink worker unproxied, every tile
+//      fails with DataCloneError, and upstream logs and swallows it. Ticket 06 recorded the
+//      diagnosis; the patch header records the fix.
+//   2. A refused `info.json` becomes an uncaught page error: `WebGL2Renderer.render` called
+//      `loadMissingImagesInViewport()` and dropped the returned promises, while upstream's three
+//      other renderers all wrap the same call in `Promise.allSettled`. Ticket 04 of the
+//      `nothing-fails-silently` epic; measured at three failures in eight runs before the fix.
 //
 // This check exists because of HOW that fails if it stops applying. `@allmaps/render` is not a
 // direct dependency — it arrives through `@allmaps/maplibre` — so bumping *maplibre* can move
@@ -90,6 +96,35 @@ if (!source.includes('this.fetchFn')) {
 	);
 }
 
+// The second hunk, checked separately because it is in a different file and fails differently: its
+// absence is not a blank map but an uncaught page error on a refused `info.json`, which reaches
+// nobody at all on a published site. `viewer-reader.e2e.ts` asserts the *consequence*; this asserts
+// that the mechanism is still there, because pnpm applying a patch says nothing about which of its
+// hunks survived a version move.
+const rendererFile = join(renderDir, 'dist/renderers/WebGL2Renderer.js');
+let renderer;
+try {
+	renderer = readFileSync(rendererFile, 'utf8');
+} catch (cause) {
+	fail(`could not read ${rendererFile}: ${cause.message}`);
+}
+//
+// ⚠ **Asked as "is the unhandled call gone?", not only as "is the handled one present?"** The first
+// spelling of this check looked for `Promise.allSettled(this.loadMissingImagesInViewport())` and
+// **could not fail**: that exact string also appears in the patch's own explanatory comment, so
+// deleting the line of code left the check green. Found by mutation, which is the only way it would
+// have been. Both halves are asserted now, and the negative one is the load-bearing half.
+const UNHANDLED_CALL = /^\s*this\.loadMissingImagesInViewport\(\);\s*$/m;
+if (UNHANDLED_CALL.test(renderer) || !renderer.includes('void Promise.allSettled(')) {
+	fail(
+		`@allmaps/render ${resolvedVersion}'s WebGL2Renderer is NOT patched to handle the promises ` +
+			'`loadMissingImagesInViewport()` returns. A Historical Map whose tiles are refused will ' +
+			'throw an uncaught page error again, with nothing on screen changing. If upstream has ' +
+			'fixed it — the other three renderers already had — drop this check with the hunk.'
+	);
+}
+
 console.log(
-	`@allmaps/render ${resolvedVersion}: patched for the unproxied fetchFn (ticket 06, warped rendering).`
+	`@allmaps/render ${resolvedVersion}: patched for the unproxied fetchFn (ticket 06, warped ` +
+		'rendering) and for the dropped loadMissingImagesInViewport promises (ticket 04).'
 );

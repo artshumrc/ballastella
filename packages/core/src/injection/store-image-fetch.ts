@@ -30,8 +30,10 @@ import {
 	type ReadOnlyProjectStore,
 	type StorePath
 } from '../store/project-store.js';
-import { imageDirectory } from '../project/image-files.js';
+import { SiteFileUnreachableError } from '../store/http-project-store.js';
+import { imageDirectory, imageInfoPath } from '../project/image-files.js';
 import { IMAGE_SERVICE_PLACEHOLDER_ORIGIN } from '../tiler/pyramid.js';
+import type { TileSourceFailure } from './tile-failure.js';
 
 // **The placeholder resolves at the Workspace root, and takes no Project directory** (ADR-0023).
 // A Historical Map's pyramid is shared by every Project that references it, so there is one answer to
@@ -114,7 +116,90 @@ export type StoreImageFetchOptions = {
 	 * `fetch`, and is injected so that the pass-through half of the rule can be asserted.
 	 */
 	readonly fetch?: FetchFn;
+	/**
+	 * Told what became of each request, so the app can say when a Historical Map stops drawing.
+	 *
+	 * ⚠ **Optional, and a caller that omits it makes the failure silent.** The published viewer
+	 * passes one (ticket 04) and the editor gets one in ticket 05; until then the editor's shim
+	 * answers a refusal with a `Response` and tells nobody, which is a *quieter* failure than the
+	 * uncaught error it used to throw. That is a deliberate, temporary trade recorded here rather
+	 * than left to be discovered: an uncaught error in a renderer reaches nobody either, and it took
+	 * the whole page's error handling with it.
+	 *
+	 * See {@link TileFetchOutcome} for which requests are reported and which are deliberately not.
+	 */
+	readonly onOutcome?: (outcome: TileFetchOutcome) => void;
 };
+
+/**
+ * What became of one request for a Historical Map's bytes.
+ *
+ * ⚠ **Not every request produces one.** A **404 for a tile cell is not reported at all**, and that
+ * is a measured decision rather than an omission: `@allmaps/iiif-parser` derives its own tile grid
+ * from the `info.json` and asks for cells the tiler never planned, so a complete, healthy pyramid
+ * answers 404 to some of the requests made against it on every load. `e2e/viewer-reader.e2e.ts`
+ * records the same fact from the other side — its "no 404 for anything the page asked for"
+ * assertion has to exclude `/default.jpg` for exactly this reason. Reporting those would put a
+ * permanent "this map stopped drawing" over a map that is drawing perfectly, which is the failure
+ * mode a notice can least afford.
+ *
+ * A 404 for the pyramid's own `info.json` **is** reported, because without it there is no map at
+ * all: that is a site that was published incomplete, and it is the `file-missing` remedy.
+ */
+export type TileFetchOutcome =
+	/** Bytes arrived. The app takes any notice it is showing down. */
+	| { readonly ok: true }
+	/** Bytes did not arrive, for a reason a person can be told. */
+	| {
+			readonly ok: false;
+			readonly failure: TileSourceFailure;
+			/**
+			 * The Historical Map whose bytes these were, or `null` for a request that named no image.
+			 *
+			 * The app resolves it to a Layer's name, because "a Historical Map stopped drawing" sends a
+			 * Reader looking through a stack and "*this* one stopped drawing" does not. `null` for the
+			 * pass-through half, which carries a URL and no image id — a sentence that named the wrong
+			 * map would be worse than one that named none.
+			 */
+			readonly imageId: string | null;
+	  };
+
+/** `SiteFileUnreachableError` uses `''` for "no host in the URL"; the notice layer uses `null`. */
+const hostOrHere = (host: string): string | null => (host === '' ? null : host);
+
+/**
+ * A refusal, in the terms the sentence branches on.
+ *
+ * **Branching on the facts the error carries, never on which app is asking** — the same store error
+ * means the same thing to a Reader on a published site and to a scholar whose Library stopped
+ * answering, and the two deployments must be incapable of describing it differently.
+ */
+export function classifyTileFailure(cause: unknown, host: string | null = null): TileSourceFailure {
+	if (cause instanceof SiteFileUnreachableError) {
+		// The two message forms `SiteFileUnreachableError` already distinguishes, kept distinct: a
+		// status means a server answered and is failing, and its absence means nothing answered at
+		// all. The remedies are opposites — one is worth waiting out, the other may be your own wifi.
+		// Its own host wins over the caller's, because it is the URL the read actually went to.
+		const named = hostOrHere(cause.host);
+		return cause.status === 0
+			? { kind: 'no-answer', host: named }
+			: { kind: 'server-error', host: named, status: cause.status };
+	}
+	if (cause instanceof PathNotFoundError) {
+		return { kind: 'file-missing', host };
+	}
+	if (cause instanceof TypeError) {
+		// What `fetch` rejects with when the request never got an answer — a dropped connection, a
+		// refused socket, a CORS refusal. The pass-through half meets this rather than a store error,
+		// and it is the same fact `SiteFileUnreachableError`'s `status === 0` records.
+		return { kind: 'no-answer', host };
+	}
+	return {
+		kind: 'unreadable',
+		host,
+		detail: cause instanceof Error ? cause.message : String(cause)
+	};
+}
 
 /** Media types by file extension. Tiles are always JPEG (ADR-0003); `info.json` is not. */
 const MEDIA_TYPES: Record<string, string> = {
@@ -134,6 +219,48 @@ const notFound = (detail: string) =>
 	new Response(detail, { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
 /**
+ * Whether a rejection is the caller cancelling rather than a failure.
+ *
+ * By `name` and not by class: `AbortError` is a `DOMException` in a browser and something else again
+ * under `undici`, and the one thing every runtime agrees on is the name. Upstream recognises it the
+ * same way — `CacheableWorkerImageDataTile.fetch` catches `err.name === 'AbortError'` and does
+ * nothing — so an abort is rethrown untouched rather than reported.
+ */
+const isAbort = (cause: unknown): boolean => cause instanceof Error && cause.name === 'AbortError';
+
+/**
+ * The `Response` a refusal becomes.
+ *
+ * The status is the refusal's own where there is one, so a caller reading `response.status` reads
+ * what the server said. The body is the sentence's *facts*, not the sentence: a renderer's log is
+ * not where a person is told anything, and {@link historicalMapTilesUnavailableNotice} owns the
+ * wording so that the two deployments cannot drift.
+ */
+function refusal(failure: TileSourceFailure): Response {
+	const status =
+		failure.kind === 'server-error' ? failure.status : failure.kind === 'no-answer' ? 504 : 500;
+	return new Response(JSON.stringify({ error: describeFailure(failure) }), {
+		status,
+		headers: { 'content-type': 'application/json' }
+	});
+}
+
+/** The facts, for a log or a `Response` body. Never shown to a person — see the note above. */
+const describeFailure = (failure: TileSourceFailure): string => {
+	const where = failure.host ?? 'this site';
+	switch (failure.kind) {
+		case 'no-answer':
+			return `${where} could not be reached.`;
+		case 'file-missing':
+			return `${where} does not hold that file.`;
+		case 'server-error':
+			return `${where} answered ${failure.status}.`;
+		case 'unreadable':
+			return `${where} could not be read: ${failure.detail}`;
+	}
+};
+
+/**
  * A `fetch` that answers the placeholder host from the Workspace's Historical Maps, and leaves every
  * other host alone.
  *
@@ -146,21 +273,106 @@ const notFound = (detail: string) =>
  * original `input` and `init` are handed on **unmodified** rather than rebuilt from a parsed
  * URL — a remote IIIF service is entitled to the request its caller made, headers included.
  *
- * Answers with a `Response` for anything addressed to the placeholder, including failures, and
- * never throws for one: this function is installed inside other people's renderers, where a
- * rejection for a stray tile is an unhandled rejection rather than a missing tile. A store that
- * cannot be reached at all is the exception — that is ADR-0008's unreachable Workspace, and it
- * is the caller's to render.
+ * **Answers with a `Response` for every request, including every failure, and never rejects.**
+ *
+ * ⚠ That last clause used to have an exception — "a store that cannot be reached at all is the
+ * caller's to render" — and the exception was the defect. This function is installed inside other
+ * people's renderers, and the caller never sees the promise: `@allmaps/render`'s `WarpedMap.loadImage`
+ * rethrows whatever `fetchFn` rejected with, and `WebGL2Renderer` calls it without awaiting or
+ * catching, so the rejection arrived as an uncaught `pageerror` and reached nobody at all. On a
+ * published site there is no console anyone is watching, so an error that only reaches the console
+ * reaches nobody — which is the whole of this ticket.
+ *
+ * So the refusal is caught **here**, at the boundary that supplied the fetch, and turned into two
+ * things: a `Response` the renderer can do what it likes with, and a {@link TileFetchOutcome} the app
+ * can turn into a sentence. The render layer is never asked what to say.
+ *
+ * ⚠ **This is necessary and it is not sufficient, and saying otherwise here would be the mistake this
+ * epic exists to prevent.** `@allmaps/stdlib`'s `fetchUrl` throws for any non-ok `Response` — so a
+ * refusal answered politely still becomes an upstream `Error`, raised *after* this function has
+ * returned, and still lands in the promise `WebGL2Renderer` drops. That half is fixed in
+ * `patches/@allmaps__render@1.0.0-beta.83.patch`, which makes that one renderer settle those promises
+ * the way upstream's other three already do, and `scripts/check-allmaps-patch.mjs` fails the build if
+ * it stops applying. Measured: with the patch reverted, the page error comes straight back.
  */
 export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn {
-	const { store } = options;
+	const { store, onOutcome } = options;
 	const passThrough = options.fetch ?? ((input, init) => fetch(input, init));
 
-	return async (input, init) => {
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// WHEN A NOTICE GOES BACK UP, AND WHEN IT COMES DOWN: THE BURST RULE
+	//
+	// ⚠ **A refusal is reported the moment it happens; an arrival is reported only at the end of a
+	// burst that had no refusals in it.** The two halves are deliberately asymmetric, and the
+	// asymmetry is what stops an alert flickering over a map that is still broken.
+	//
+	// Tiles are fetched dozens at a time. Inside one such burst the successes and the failures
+	// interleave in whatever order the network settles them, so "the most recent outcome wins" makes
+	// the notice depend on which request happened to finish last — and a *partial* outage, where half
+	// the cells are refused every time, would take its own notice down. The previous epic's warning is
+	// the mirror image of the same defect: a one-way flag leaves an alert sitting over a working map.
+	//
+	// So: a burst is the stretch from the first request going out to the last one settling. Raising is
+	// immediate, because a person should not wait on a burst to be told something failed. Withdrawing
+	// waits for a whole burst to complete cleanly, which is the only evidence that the source is
+	// answering again rather than answering sometimes.
+	//
+	// Counters and not clocks, so the rule is deterministic and the tests are not timing tests.
+	let inFlight = 0;
+	let refusedInBurst = false;
+	let arrivedInBurst = false;
+
+	const arrived = (): void => {
+		arrivedInBurst = true;
+	};
+	const refused = (failure: TileSourceFailure, imageId: string | null): void => {
+		refusedInBurst = true;
+		onOutcome?.({ ok: false, failure, imageId });
+	};
+	const burstEnded = (): void => {
+		const clean = arrivedInBurst && !refusedInBurst;
+		refusedInBurst = false;
+		arrivedInBurst = false;
+		if (clean) onOutcome?.({ ok: true });
+	};
+
+	const answer: FetchFn = async (input, init) => {
 		const url = urlOf(input);
 
 		if (!isImageServicePlaceholderUrl(url)) {
-			return passThrough(input, init);
+			// The pass-through half fails too — a referenced image on a Library's server (ADR-0023) is
+			// fetched over the ordinary network path — so its failures are **reported**, which is what
+			// makes "a Library's server is failing" a row somebody can meet rather than a row that only
+			// exists in a test.
+			//
+			// ⚠ **Reported and then RETHROWN, unlike the store half, and that asymmetry was paid for.**
+			// The first version answered a pass-through rejection with a `Response` the way the store
+			// half does, and it broke `editor-remote-iiif.e2e.ts`'s cross-origin probe: that probe tells
+			// a host whose tiles cannot be read cross-origin ("completely blank") from a host that is
+			// merely busy, and it tells them apart *by the rejection*. Handed a synthetic 504 instead, it
+			// reported the wrong one of two sentences a scholar acts on. Measured, on both attempts.
+			//
+			// The general rule behind it: this shim owns what happens to a request **it** answers, and a
+			// pass-through request is somebody else's — the caller made it, the caller is entitled to its
+			// answer, rejection included. Nothing is lost by rethrowing: the renderer's own tile path
+			// already catches a rejected tile (`CacheableWorkerImageDataTile.fetch`), and the one place
+			// that dropped one — `WebGL2Renderer`'s `loadMissingImagesInViewport` — is patched.
+			//
+			// `input` and `init` are handed on **unmodified**: a remote IIIF service is entitled to the
+			// request its caller made, headers included, and to answer it however it likes.
+			try {
+				const response = await passThrough(input, init);
+				if (response.ok) arrived();
+				return response;
+			} catch (cause) {
+				// An abort is the caller changing its mind, not a failure: the viewport moved and the
+				// tile is no longer wanted. Reporting one would put "the tiles stopped arriving" on
+				// screen every time a Reader panned the map.
+				if (!isAbort(cause)) {
+					refused(classifyTileFailure(cause, parseUrl(url)?.hostname ?? null), null);
+				}
+				throw cause;
+			}
 		}
 
 		const method = (
@@ -199,11 +411,23 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 		try {
 			bytes = await store.read(path);
 		} catch (cause) {
-			if (cause instanceof PathNotFoundError) {
+			if (isAbort(cause)) throw cause;
+			const failure = classifyTileFailure(cause);
+			// **A missing tile is not reported; a missing `info.json` is.** `@allmaps/iiif-parser`
+			// derives its own grid from the `info.json` and asks for cells the tiler never planned, so
+			// a complete pyramid answers 404 to some requests on every single load — see
+			// {@link TileFetchOutcome}. Without the `info.json` there is no map at all, and that is a
+			// site published incomplete.
+			if (failure.kind !== 'file-missing' || path === imageInfoPath(imageId)) {
+				refused(failure, imageId);
+			}
+			if (failure.kind === 'file-missing') {
 				return notFound(`Nothing is stored at ${path}, which is where ${url} resolves to.`);
 			}
-			throw cause;
+			return refusal(failure);
 		}
+
+		arrived();
 
 		const headers = {
 			'content-type': mediaType(path),
@@ -213,6 +437,19 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 		return method === 'HEAD'
 			? new Response(null, { status: 200, headers })
 			: new Response(bytes, { status: 200, headers });
+	};
+
+	// The burst bookkeeping wraps every path, including the ones that answer without a read — a 405
+	// or a malformed path still opened and closed a request, and a burst that forgot one would never
+	// reach zero and never withdraw a notice.
+	return async (input, init) => {
+		inFlight += 1;
+		try {
+			return await answer(input, init);
+		} finally {
+			inFlight -= 1;
+			if (inFlight === 0) burstEnded();
+		}
 	};
 }
 

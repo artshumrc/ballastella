@@ -31,6 +31,7 @@ import {
 	type ProjectFixture
 } from './support/reader-project.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
+import { tilesServerErrorNotice, tilesUnavailableNotice } from './support/tile-failure-notice.js';
 
 // Every catalog entry reads a remote archive since ticket 10, so a Reader test that wants a map to
 // actually draw has to serve real pmtiles bytes from somewhere. The fixture, not the real host: an
@@ -1554,26 +1555,22 @@ test.describe('a Published Site that is not entirely well', () => {
 		await context.setOffline(false);
 		await expect(page.getByTestId('base-map-unavailable')).toBeVisible();
 
-		// ── One named exception, and every other page error still fails this ────────────────────────
-		// Cutting the connection while a warped Layer is on screen makes `@allmaps/render`'s
-		// `loadImage` ask this site for the Historical Map's `info.json`, and the store's rejection —
-		// `SiteFileUnreachableError` — escapes it uncaught, arriving as a `pageerror`. Measured at
-		// three runs in eight, here and at the previous commit alike, so it is neither this change nor
+		// ── No exception, and that is ticket 04's proof ─────────────────────────────────────────────
+		// This assertion used to carry a named exception for one message. Cutting the connection while a
+		// warped Layer is on screen makes `@allmaps/render`'s `loadImage` ask this site for the
+		// Historical Map's `info.json`, and the store's rejection — `SiteFileUnreachableError` —
+		// escaped it uncaught, arriving as a `pageerror`. It was measured at three runs in eight, here
+		// and at the commit before the work that found it, so it was neither that change nor
 		// contention.
 		//
-		// **Out of scope, and deliberately not hidden.** Nothing a Reader sees changes: the tiles
-		// already drawn stay drawn, the count stays at two, and the notice behaviour this test is about
-		// is unaffected. What to *do* about tiles that can no longer be fetched mid-session is a
-		// question about the render seam and about ADR-0023's referenced images, not about a Base Map
-		// notice — and the answer is either another patch to `@allmaps/render` or a decision that the
-		// Layer should say something, neither of which belongs in this ticket.
-		//
-		// So it is named rather than filtered by shape: any other `pageerror`, including a second kind
-		// from the same path, still turns this red. The idiom is this file's own — see the
-		// `/default.jpg` exception in the cached-tiles test above.
-		expect(
-			seen.failures.filter((failure) => !failure.includes('images/aaa/info.json could not be read'))
-		).toEqual([]);
+		// **What this line defends, stated from the mutation rather than from the intention.** Restoring
+		// the `throw cause` that `createStoreImageFetch` used to do leaves this line GREEN — measured —
+		// because the patch to `@allmaps/render`'s `WebGL2Renderer` now settles the promise that
+		// carried the rejection. Reverting *that* hunk turns this red with
+		// `pageerror: … could not be reached`, also measured. So this assertion is the guard on the
+		// patch, and "the Reader is told" is guarded by the two tests at the end of this describe.
+		// Both halves are needed and neither subsumes the other.
+		expect(seen.failures).toEqual([]);
 	});
 
 	test('makes no claim about the Base Map when the page is opened with no connection', async ({
@@ -2069,6 +2066,217 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect(
 			page.locator(`[data-layer-id="${MAP_LAYER_ID}"]`).getByTestId('reader-layer-image-mode')
 		).toContainText('needs the network');
+		expect(seen.failures).toEqual([]);
+	});
+
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+	// A HISTORICAL MAP WHOSE TILES STOP ARRIVING, SAID OUT LOUD (ticket 04, SPEC stories 14–21)
+	//
+	// The failure this section exists for was invisible by construction: the store's refusal escaped
+	// `@allmaps/render`'s `loadImage` as an uncaught `pageerror` — measured at three runs in eight —
+	// and **nothing a Reader saw changed at all**. A published site has no console anyone is watching,
+	// so that error reached nobody. The suite's own "no uncaught page error" assertion is the only
+	// reason anyone knew.
+	//
+	// **The refusal is a route, never the network.** `route.abort()` is what a dropped connection
+	// looks like to `fetch`, and it holds on a machine with working wifi and inside the default-deny
+	// fence.
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+	/** Tiles this Layer's renderer holds — the Historical Map's equivalent of a rendered feature. */
+	const cachedTiles = (page: Page): Promise<number> =>
+		page.evaluate(
+			(id) =>
+				(window.ballastellaReaderMap?.warped[id]?.renderer?.tileCache?.getCachedTiles?.() ?? [])
+					.length,
+			MAP_LAYER_ID
+		);
+
+	const mapLayerVisible = (page: Page): Locator =>
+		page.locator(`[data-layer-id="${MAP_LAYER_ID}"]`).getByTestId('reader-layer-visible');
+
+	/**
+	 * Hide the Historical Map and show it again — the gesture that makes its tiles be fetched afresh.
+	 *
+	 * ⚠ **A viewport change is not a lever here, and that is measured rather than assumed.** The first
+	 * attempt at this test zoomed a level and counted the requests the route intercepted: **zero**.
+	 * This fixture pyramid is nine tiles over a 700 × 500 sheet, so the first load fetches every cell
+	 * of every scale factor and nothing later needs anything. `@allmaps/render` fetches strictly on
+	 * demand, so a page left alone after a refusal starts asks for nothing at all.
+	 *
+	 * Hiding a Layer and showing it again rebuilds the stack (`ReaderMapPane`'s `stackStructure`
+	 * effect), which builds a new `WarpedMapLayer` with a new renderer and an empty tile cache — so
+	 * the tiles are genuinely fetched again, over the same page, with no navigation. It is also a
+	 * gesture a Reader actually makes, and it is the shape SPEC story 22 describes.
+	 */
+	const redrawMapLayer = async (page: Page): Promise<void> => {
+		await mapLayerVisible(page).uncheck();
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
+		await mapLayerVisible(page).check();
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
+			timeout: 60_000
+		});
+	};
+
+	/**
+	 * Refuse every other request for this Historical Map's bytes, leaving its `info.json` alone.
+	 *
+	 * **Every other one, deliberately.** Refusing them all would leave the renderer's cache empty, and
+	 * "the tiles that arrived are still drawn" would then be a claim with no subject — the assertion
+	 * would pass over a blank map. Alternating produces the state the contract is actually about: some
+	 * cells on screen, some refused, and one sentence over the top of it. It also drives the harder
+	 * half of the withdrawal rule, since successes and failures interleave inside one burst.
+	 *
+	 * The `info.json` is answered because without it there is no map at all — that is the
+	 * `file-missing` row, which belongs to the unit seam where a status can be invented.
+	 */
+	const refuseEveryOtherTile = async (page: Page): Promise<void> => {
+		let seen = 0;
+		await page.route(TILE_ROUTE, (route) => {
+			if (route.request().url().endsWith('.json')) return route.continue();
+			seen += 1;
+			return seen % 2 === 0 ? route.continue() : route.abort();
+		});
+	};
+
+	const TILE_ROUTE = `**/images/${IMAGE_ID}/**`;
+
+	test('tells a Reader when a Historical Map’s tiles stop arriving, and takes it back', async ({
+		page
+	}) => {
+		site = await published(oneProject());
+		const served = site.sites[0]!;
+		const seen = watch(page);
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await mapReady(page);
+
+		// ── The map is drawing before anything is taken away ────────────────────────────────────────
+		// Load-bearing rather than tidy. Every assertion below is about a failure met **mid-session**,
+		// with the page already up — the case a Reader meets when their train enters a tunnel — and one
+		// driven before anything had drawn would be a different failure making a different claim.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
+			timeout: 60_000
+		});
+		await expect.poll(() => cachedTiles(page), { timeout: 60_000 }).toBeGreaterThan(0);
+		// **The notice is asserted absent first**, so that its appearance below is this signal acting
+		// rather than a page that renders it always. A warning that is always on is unreadable.
+		await expect(page.getByTestId('historical-map-tiles-unavailable')).toHaveCount(0);
+
+		// ── The tiles stop arriving ─────────────────────────────────────────────────────────────────
+		await refuseEveryOtherTile(page);
+		await redrawMapLayer(page);
+
+		const notice = page.getByTestId('historical-map-tiles-unavailable');
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+
+		// Announced, and by the mechanism this repository settled on: `role="alert"` rather than a live
+		// region, because the element is *inserted* when its text first exists and an `aria-live` region
+		// is announced on a text **change** rather than on insertion — a live region here is a notice a
+		// screen-reader user never hears.
+		await expect(notice).toHaveAttribute('role', 'alert');
+
+		// Visible text and not a tooltip (SPEC story 33, ADR-0016), and **the whole sentence**, built in
+		// `support/tile-failure-notice.ts` rather than written out here: that is what makes "the editor
+		// and the viewer say the same thing about the same failure" (SPEC story 19) a contract instead
+		// of an intention, and what makes a reword in core turn this red. One assertion, because any
+		// fragment of it would be a substring of the string already pinned exactly and so could never
+		// fail on its own.
+		//
+		// ⚠ **The host is the site's own, and it is named rather than called "this site".** The store's
+		// `resolve` builds an absolute URL, so `SiteFileUnreachableError` carries a real host even for
+		// the site the Reader is already on — and naming it is the honest sentence: it is the server
+		// that holds the tiles, and it is the one that stopped answering. The `this site` wording is
+		// what the other rows use when there is no host to name (a missing file, or a Workspace in the
+		// browser's own storage), and `tile-failure.test.ts` drives both.
+		await expect(notice.locator('p')).toHaveText(
+			tilesUnavailableNotice('Blaeu’s plan of 1625', new URL(served.url).host)
+		);
+
+		// ── What arrived is still drawn ─────────────────────────────────────────────────────────────
+		// A fix that blanked the map on error would satisfy every assertion above. So the tiles that did
+		// arrive are asserted **in the renderer's cache** — the Historical Map's equivalent of a
+		// rendered feature, since `queryRenderedFeatures()` returns nothing for a custom WebGL layer —
+		// rather than by `data-drawn`, which is the page's own count of itself.
+		// Polled rather than read once: the notice goes up on the *first* refusal, and the cells that do
+		// arrive in the same burst are still decoding at that moment. Reading the cache immediately
+		// gives zero and says nothing about whether they survive.
+		await expect.poll(() => cachedTiles(page), { timeout: 60_000 }).toBeGreaterThan(0);
+		// **And the notice is still up over them**, which is the actual claim — tiles that arrived are
+		// drawn *while the message is on screen*, rather than the message having quietly gone.
+		await expect(notice).toBeVisible();
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		// And the page still works: one unreachable image does not take the Project screen down.
+		await expect(page.getByTestId('fit-to-project')).toBeVisible();
+		// The Reader's Annotations are drawn too, which is what the sentence promises them.
+		expect(
+			await page.evaluate(
+				() =>
+					(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).filter((feature) =>
+						feature.layer.id.startsWith('ballastella-layer-')
+					).length
+			)
+		).toBeGreaterThan(0);
+
+		// ── It withdraws itself ─────────────────────────────────────────────────────────────────────
+		// SPEC story 17, and the shape the previous epic warned about: a one-way flag leaves an alert
+		// sitting over a working map. Driven as error → recovery, with the notice asserted visible
+		// above, so this cannot pass by never having raised it.
+		await page.unroute(TILE_ROUTE);
+		await redrawMapLayer(page);
+		await expect(notice).toHaveCount(0, { timeout: 45_000 });
+		await expect.poll(() => cachedTiles(page), { timeout: 60_000 }).toBeGreaterThan(0);
+
+		// ── And nothing was thrown, on any of it ────────────────────────────────────────────────────
+		// The whole point of the ticket. This is the assertion the escaping rejection used to fail, and
+		// it now covers a refusal driven deliberately rather than one that happened to race.
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('tells a server that is failing apart from a connection that is gone', async ({ page }) => {
+		// **The other remedy, and the path the original defect was actually on.** A refused `info.json`
+		// is what `@allmaps/render`'s `loadImage` asks for, and its rejection is what used to arrive as
+		// an uncaught `pageerror`. Here it is driven deliberately — a status rather than a race — and
+		// the Reader is told something *different* from the aborted case above, because the remedies
+		// are opposites: a server that answered proves the connection works, and sending that Reader to
+		// check their wifi is sending them to fix a thing that is not broken.
+		site = await published(oneProject());
+		const served = site.sites[0]!;
+		const seen = watch(page);
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await mapReady(page);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
+			timeout: 60_000
+		});
+		await expect(page.getByTestId('historical-map-tiles-unavailable')).toHaveCount(0);
+
+		await page.route(`**/images/${IMAGE_ID}/info.json`, (route) =>
+			route.fulfill({ status: 503, body: 'the site is having a bad afternoon' })
+		);
+		await redrawMapLayer(page);
+
+		const notice = page.getByTestId('historical-map-tiles-unavailable');
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+		await expect(notice.locator('p')).toHaveText(
+			tilesServerErrorNotice('Blaeu’s plan of 1625', new URL(served.url).host, 503)
+		);
+		// The rest of the site is unharmed, which is what the sentence promises: the Annotation Layer is
+		// listed, drawn, and clickable, and the controls still work.
+		await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
+		expect(
+			await page.evaluate(
+				() =>
+					(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).filter((feature) =>
+						feature.layer.id.startsWith('ballastella-layer-')
+					).length
+			)
+		).toBeGreaterThan(0);
+
+		// And nothing was thrown. **This is the assertion the patch to `@allmaps/render` exists for**:
+		// core's shim answers the refusal with a `Response`, `@allmaps/stdlib`'s `fetchUrl` throws its
+		// own error for any non-ok answer, and `WebGL2Renderer.render` used to drop the promise that
+		// carried it. Revert either half and this goes red.
 		expect(seen.failures).toEqual([]);
 	});
 });

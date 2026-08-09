@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest';
 import { createImagePane } from '../image-pane/iiif-image-pane.js';
 import { ROUND_TRIP_TOLERANCE_PX } from '../image-pane/synthetic-projection.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
+import { SiteFileUnreachableError } from '../store/http-project-store.js';
+import type { ReadOnlyProjectStore } from '../store/project-store.js';
 import { ingestImageFile, type OpenTileSource, type TileSource } from '../tiler/ingest.js';
 import {
 	buildImageInfo,
@@ -23,7 +25,8 @@ import {
 	createStoreImageFetch,
 	isImageServicePlaceholderUrl,
 	refuseUnroutedImageServiceRequests,
-	type FetchFn
+	type FetchFn,
+	type TileFetchOutcome
 } from './store-image-fetch.js';
 
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -226,6 +229,233 @@ describe('createStoreImageFetch', () => {
 		expect(await (await mine(placeholderTile)).text()).toBe(
 			await (await theirs(placeholderTile)).text()
 		);
+	});
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// A REFUSAL IS CAUGHT HERE, AND SAID (ticket 04, SPEC stories 14–21)
+	//
+	// This shim used to rethrow anything that was not "there is nothing there". The caller never sees
+	// that promise: `@allmaps/render`'s `WarpedMap.loadImage` rethrows whatever `fetchFn` rejected
+	// with, and `WebGL2Renderer.loadMissingImagesInViewport()` is called without `await` and without a
+	// `.catch`, so it arrived as an uncaught `pageerror` — measured at three runs in eight — and on a
+	// published site nobody is watching a console. So: never reject, and report.
+
+	/** A store whose `read` fails the way `createHttpProjectStore` fails, on command. */
+	const refusingStore = (fail: () => never): ReadOnlyProjectStore => ({
+		read: async () => fail()
+	});
+
+	const outcomesOf = (store: ReadOnlyProjectStore) => {
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({
+			store,
+			onOutcome: (outcome) => outcomes.push(outcome)
+		});
+		return { fetchImage, outcomes };
+	};
+
+	it('answers a store that cannot be reached with a Response rather than a rejection', async () => {
+		const { fetchImage, outcomes } = outcomesOf(
+			refusingStore(() => {
+				throw new SiteFileUnreachableError(
+					'images/abc123/info.json',
+					'images/abc123/info.json',
+					0,
+					'Failed to fetch'
+				);
+			})
+		);
+
+		const response = await fetchImage(`${imageServiceId('abc123')}/info.json`);
+
+		// A Response, and one whose body upstream can read: `@allmaps/stdlib`'s `fetchUrl` calls
+		// `response.json()` on any non-ok answer, so a plain-text body would turn a named refusal into
+		// a `SyntaxError` naming nothing.
+		expect(response.ok).toBe(false);
+		expect(await response.json()).toEqual({ error: 'this site could not be reached.' });
+		expect(outcomes).toEqual([
+			{ ok: false, failure: { kind: 'no-answer', host: null }, imageId: 'abc123' }
+		]);
+	});
+
+	it('tells a server that answered apart from one that answered nothing', async () => {
+		// The two message forms `SiteFileUnreachableError` carries, whose remedies are opposites.
+		const { fetchImage, outcomes } = outcomesOf(
+			refusingStore(() => {
+				throw new SiteFileUnreachableError(
+					'images/abc123/info.json',
+					'https://maps.library.example/images/abc123/info.json',
+					503,
+					''
+				);
+			})
+		);
+
+		const response = await fetchImage(`${imageServiceId('abc123')}/info.json`);
+
+		expect(response.status).toBe(503);
+		expect(outcomes).toEqual([
+			{
+				ok: false,
+				failure: { kind: 'server-error', host: 'maps.library.example', status: 503 },
+				imageId: 'abc123'
+			}
+		]);
+	});
+
+	it('reports a missing info.json and stays silent about a missing tile', async () => {
+		// **The distinction this whole reporting seam turns on.** `@allmaps/iiif-parser` derives its
+		// own grid from the `info.json` and asks for cells the tiler never planned, so a complete,
+		// healthy pyramid answers 404 to some requests on every load — `viewer-reader.e2e.ts` has to
+		// exclude `/default.jpg` from its "no 404 for anything the page asked for" assertion for
+		// exactly that reason. Reporting those would leave "this map stopped drawing" permanently on
+		// screen over a map that is drawing.
+		const { fetchImage, outcomes } = outcomesOf(await storeWithTile());
+
+		expect((await fetchImage(`${imageServiceId('abc123')}/9,9,1,1/1,1/0/default.jpg`)).status).toBe(
+			404
+		);
+		expect(outcomes).toEqual([]);
+
+		expect((await fetchImage(`${imageServiceId('not-here')}/info.json`)).status).toBe(404);
+		expect(outcomes).toEqual([
+			{ ok: false, failure: { kind: 'file-missing', host: null }, imageId: 'not-here' }
+		]);
+	});
+
+	it('classifies a refusal it has no name for without borrowing another row’s remedy', async () => {
+		const { fetchImage, outcomes } = outcomesOf(
+			refusingStore(() => {
+				throw new Error('the quota was exceeded');
+			})
+		);
+
+		const response = await fetchImage(placeholderTile);
+
+		expect(response.status).toBe(500);
+		expect(outcomes).toEqual([
+			{
+				ok: false,
+				failure: { kind: 'unreadable', host: null, detail: 'the quota was exceeded' },
+				imageId: 'abc123'
+			}
+		]);
+	});
+
+	it('rethrows an abort untouched, because that is the renderer changing its mind', async () => {
+		// Every viewport change aborts the tiles it no longer wants. Reporting those would raise the
+		// notice on every pan; upstream already recognises `AbortError` by name and does nothing.
+		const abort = new Error('The operation was aborted.');
+		abort.name = 'AbortError';
+		const { fetchImage, outcomes } = outcomesOf(
+			refusingStore(() => {
+				throw abort;
+			})
+		);
+
+		await expect(fetchImage(placeholderTile)).rejects.toBe(abort);
+		expect(outcomes).toEqual([]);
+	});
+
+	it('reports the pass-through half and rethrows it, because that answer is not this shim’s', async () => {
+		// A referenced image on a Library's server (ADR-0023) is fetched over the ordinary network
+		// path, and its failure is the "a Library's server is failing" row.
+		//
+		// ⚠ **Rethrown, unlike the store half.** Answering a pass-through rejection with a `Response`
+		// the way the store half does broke `editor-remote-iiif.e2e.ts`'s cross-origin probe, which
+		// tells a host whose tiles cannot be read cross-origin from a host that is merely busy **by
+		// the rejection** — handed a synthetic 504 it reported the wrong one of two sentences a
+		// scholar acts on. This shim owns what happens to a request it answers itself; a pass-through
+		// request is the caller's, and so is its answer.
+		const refusal = new TypeError('Failed to fetch');
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({
+			store: await storeWithTile(),
+			fetch: () => Promise.reject(refusal),
+			onOutcome: (outcome) => outcomes.push(outcome)
+		});
+
+		await expect(fetchImage('https://maps.library.example/iiif/x/info.json')).rejects.toBe(refusal);
+		expect(outcomes).toEqual([
+			{ ok: false, failure: { kind: 'no-answer', host: 'maps.library.example' }, imageId: null }
+		]);
+	});
+
+	it('reports bytes arriving, which is what takes a notice back down', async () => {
+		const { fetchImage, outcomes } = outcomesOf(await storeWithTile());
+
+		expect((await fetchImage(placeholderTile)).status).toBe(200);
+
+		expect(outcomes).toEqual([{ ok: true }]);
+	});
+
+	it('withdraws nothing until a whole burst has completed without a refusal', async () => {
+		// ⚠ **The rule that stops an alert flickering over a map that is still broken.** Tiles are
+		// fetched dozens at a time, and inside one burst the successes and the failures interleave in
+		// whatever order the network settles them. "The most recent outcome wins" would make the notice
+		// depend on which request finished last — and a *partial* outage, where half the cells are
+		// refused on every attempt, would take its own notice down. So an arrival is only reported when
+		// a burst ends with no refusal in it, while a refusal is reported the moment it happens.
+		let hold: (() => void) | undefined;
+		const store: ReadOnlyProjectStore = {
+			read: async (path) => {
+				if (path.endsWith('default.jpg')) {
+					await new Promise<void>((resolve) => (hold = resolve));
+					return new TextEncoder().encode('late bytes');
+				}
+				throw new SiteFileUnreachableError(path, path, 0, 'Failed to fetch');
+			}
+		};
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({
+			store,
+			onOutcome: (outcome) => outcomes.push(outcome)
+		});
+
+		// One burst: a tile that arrives late and an `info.json` that is refused. The arrival settles
+		// last, and must not be read as the outage being over.
+		const arriving = fetchImage(placeholderTile);
+		await fetchImage(`${imageServiceId('abc123')}/info.json`);
+		hold!();
+		await arriving;
+
+		expect(outcomes).toEqual([
+			{ ok: false, failure: { kind: 'no-answer', host: null }, imageId: 'abc123' }
+		]);
+
+		// A second burst, this one clean: that is the evidence the source is answering again.
+		const after = fetchImage(placeholderTile);
+		hold!();
+		await after;
+		expect(outcomes.at(-1)).toEqual({ ok: true });
+	});
+
+	it('keeps a partial outage’s notice up, burst after burst', async () => {
+		// The row the rule above exists for, driven rather than argued: half the cells refused every
+		// time is a map that is half drawn, and the sentence stays true until that stops.
+		const store: ReadOnlyProjectStore = {
+			read: async (path) => {
+				if (path.includes('256,0,')) throw new SiteFileUnreachableError(path, path, 0, 'no');
+				return new TextEncoder().encode('bytes');
+			}
+		};
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({
+			store,
+			onOutcome: (outcome) => outcomes.push(outcome)
+		});
+
+		for (let burst = 0; burst < 3; burst += 1) {
+			await Promise.all([
+				fetchImage(placeholderTile),
+				fetchImage(`${imageServiceId('abc123')}/256,0,256,256/256,256/0/default.jpg`)
+			]);
+		}
+
+		// Three bursts, three refusals, and not one withdrawal — even though every burst also carried a
+		// tile that arrived, and in two of the three it arrived last.
+		expect(outcomes.filter((outcome) => outcome.ok)).toEqual([]);
+		expect(outcomes).toHaveLength(3);
 	});
 });
 

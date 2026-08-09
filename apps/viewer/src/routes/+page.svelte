@@ -48,6 +48,7 @@
 		cachedTilePath,
 		legacyCachedTilePath,
 		createStoreImageFetch,
+		historicalMapTilesUnavailableNotice,
 		imageInfoPath,
 		otherTheme,
 		parseProjectFile,
@@ -69,7 +70,8 @@
 		type OpeningViewFit,
 		type OpeningViewOutcome,
 		type ProjectFile,
-		type PublishedSite
+		type PublishedSite,
+		type TileSourceFailure
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
 	import { onMount, untrack } from 'svelte';
@@ -343,6 +345,23 @@
 	}
 
 	/**
+	 * The most recent refusal of a Historical Map's tiles, or `null` while they are arriving.
+	 *
+	 * ⚠ **Not a one-way flag**, and that shape is the failure this ticket was told to avoid: the
+	 * previous epic left an alert sitting over a working map because nothing ever took it down.
+	 *
+	 * **When it goes back to `null` is not this component's decision.** `createStoreImageFetch` reports
+	 * an arrival only at the end of a burst of requests that had no refusal in it — so a straggler that
+	 * was already in flight when the outage began cannot be mistaken for a recovery, and a *partial*
+	 * outage, where half the cells are refused on every attempt, keeps its notice. Its header sets that
+	 * rule out at length. Here it is one assignment, which is the point of having put it there.
+	 */
+	let tileFailure = $state.raw<{
+		failure: TileSourceFailure;
+		imageId: string | null;
+	} | null>(null);
+
+	/**
 	 * Where an aligned Historical Map's tiles are read from (ADR-0011).
 	 *
 	 * The same shim the editor gives MapLibre, over the HTTP store rather than over OPFS — which is
@@ -354,7 +373,44 @@
 	 * No longer per-Project, because the pyramids are not: one shim serves every Project of the site, and
 	 * two Projects drawing the same Historical Map draw the same bytes.
 	 */
-	const fetchTile = $derived(createStoreImageFetch({ store: siteStore() }));
+	const fetchTile = $derived(
+		createStoreImageFetch({
+			store: siteStore(),
+			// Ticket 04: a refusal is caught at this boundary and becomes something a Reader reads,
+			// rather than escaping into `@allmaps/render` as an uncaught page error nobody sees.
+			onOutcome: (outcome) => {
+				tileFailure = outcome.ok ? null : { failure: outcome.failure, imageId: outcome.imageId };
+			}
+		})
+	);
+
+	/**
+	 * What to say when a Historical Map's tiles stopped arriving, or `null`.
+	 *
+	 * ⚠ **The sentence is `historicalMapTilesUnavailableNotice`'s, not this template's**, and that is
+	 * the contract rather than a convenience: the editor renders the same function's output for the
+	 * same failure (ticket 05), so the two deployments cannot drift into describing one outage two
+	 * ways at the same person. The same arrangement as {@link archiveUnavailable} above, for the same
+	 * reason.
+	 *
+	 * The Layer's name is resolved here rather than in core, because which Layer an `imageId` belongs
+	 * to is a fact about *this* Project and core has no Project in hand. `null` when the failure named
+	 * no image, or named one no visible Layer draws — a sentence naming the wrong map would send a
+	 * Reader looking at an Alignment that is fine.
+	 *
+	 * ⚠ **Deliberately not gated on `online.current`**, unlike the Base Map's notice, and the
+	 * difference is the sentence rather than an oversight: `baseMapUnavailableNotice` claims the
+	 * failing server is at fault, which is a falsehood to hand somebody whose wifi is off, while the
+	 * `no-answer` row here says explicitly that it cannot tell the two apart. There is nothing to
+	 * withhold.
+	 */
+	const tilesUnavailable = $derived.by((): string | null => {
+		if (!tileFailure) return null;
+		const named = layers.find(
+			(layer): layer is MapLayer => layer.kind === 'map' && layer.imageId === tileFailure?.imageId
+		);
+		return historicalMapTilesUnavailableNotice(tileFailure.failure, named?.name ?? null);
+	});
 
 	/** The stack as the map takes it: top first, each Layer with its documents in hand. */
 	const drawn = $derived<readonly DrawnLayer[]>(
@@ -1010,6 +1066,38 @@
 							>
 								<h2 class="font-semibold">The Base Map did not load</h2>
 								<p>{archiveUnavailable}</p>
+							</div>
+						{/if}
+
+						{#if tilesUnavailable}
+							<!--
+								A Historical Map's tiles stopped arriving (ticket 04, SPEC stories 14–18).
+
+								`role="alert"` rather than an `aria-live` region, for the reason the outage notice
+								above states and this one inherits: the element is *inserted* when its text first
+								exists, and a live region is announced on a text **change** rather than on insertion,
+								so a live region here is a notice a screen-reader user never hears. It is the same
+								deliberate deviation from ADR-0016's `aria-live="polite"` mandate, recorded there.
+
+								⚠ **`{#if}` and not a permanently-mounted region, and the two are not
+								interchangeable.** A permanently-mounted live region is the right mechanism for text
+								that *changes* between two things worth hearing; this text appears and disappears,
+								and an empty region announces nothing on the way in. The heading is a `<h2>` for the
+								same reason the outage notice's is: the alert is a landmark a Reader can be sent to.
+
+								Beside the Base Map notices and above the map, because the account of why part of
+								the rectangle is missing should be read before the rectangle rather than found
+								underneath it. Distinct from `base-map-unavailable` deliberately — that is the
+								modern reference map underneath the work, this is the work itself, and the remedies
+								differ. The two are not mutually exclusive and both can be up at once.
+							-->
+							<div
+								role="alert"
+								class="alert flex-col items-start alert-warning"
+								data-testid="historical-map-tiles-unavailable"
+							>
+								<h2 class="font-semibold">A Historical Map stopped drawing</h2>
+								<p>{tilesUnavailable}</p>
 							</div>
 						{/if}
 
