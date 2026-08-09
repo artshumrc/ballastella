@@ -88,6 +88,12 @@ Two things the ticket asks for that are easy to skip: the **before/after bundle 
 
    **What to do about it is a render-seam question, not a Base Map one**: what should happen when a Historical Map's tiles stop being fetchable mid-session? ADR-0023 has an opinion about the Workspace's shared material; nothing yet says what the render layer owes a Reader whose connection goes while a map is drawn.
 
+6. **A deep-zoom assertion that is vacuous for a referenced map — in merged code.** Found 2026-08-09 by ticket 15, in **ticket 07's** `e2e/editor-align-referenced.e2e.ts`, and reported rather than quietly worked around.
+
+   With the zoom control made a no-op the assertion stayed green, and a probe printed `full-res tiles: 1` *before* the click, on both service levels. The 700×500 fixture is already served 1:1 at overview, so "zooms to full resolution" cannot fail on it. Pre-existing and identical on `main` — ticket 15 did not introduce it.
+
+   The consequence: **ticket 15's acceptance criterion "the alignment view still deep-zooms both a Workspace-held and a referenced Historical Map" is only half-covered.** The Workspace-held half is real (mutation-checked red); the referenced half is not. Closing it needs a fixture large enough to have more than one full-resolution tile.
+
 ## Standing constraints
 
 These apply to every remaining ticket. They are not advice.
