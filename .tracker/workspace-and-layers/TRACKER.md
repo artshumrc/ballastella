@@ -16,24 +16,49 @@ Overall: `In Progress`. Merged: 01–06, 08–14, 16–20. **Remaining: 07, 15, 
 
 Last updated: 2026-08-08.
 
+## Where to pick up — session ended on a usage limit, 2026-08-08
+
+**Nothing below is merged.** Four branches exist, none on `main`. Two carry **unverified WIP** committed by the orchestrator to stop a dirty worktree losing it — they had no gate run and must not be read as green.
+
+| Branch | Head | State |
+| --- | --- | --- |
+| `ticket-07-align-referenced-map` | `d6738a8` | Implemented, **gate green** (495 passed, 0.20% budget). Two-axis review done; **fix round never started** — see below. |
+| `ticket-21-deleted-project-stays-deleted` | `b434e73` | Rounds 1–2 committed and green at `d55eb48`. Round 3 is **WIP, UNVERIFIED**. |
+| `ticket-22-reader-base-map-notice` | `be6092a` | Round 1 committed and green at `591989d`. Round 2 is **WIP, UNVERIFIED**, and its agent believed it was near done. |
+| — | — | **15** not started. Unblocked now that 07 exists. |
+
+Each WIP commit message lists exactly what that round was fixing. Read it before touching the branch.
+
+### 07's fix round — never dispatched, findings below
+
+Both reviews converged on one thing: **ADR-0023's mitigation is visibility, and the visibility is the only part with no test.** Delete `AlignmentWorkspace.svelte:759-812` (the whole changed-elsewhere alert), or `livePane = pane` at `:309`, or `livePane = undefined` at `:234`, or the `reload()` at `:791-795` — each keeps the entire suite green. The last is the fix for a real data-loss path (the screen keeps drawing Control Points the user gave up, and the next drag writes them back) and is claimed in a comment only. The only coverage asserts a **session field**, which SPEC's Testing Decisions rules out as a proxy.
+
+Also found, and not yet fixed:
+
+- **A false alarm from 07's own save path.** `save()` fires without awaiting (`AlignmentWorkspace.svelte:359`); `writeAlignment` reads its baseline at entry and updates it only after `commit` resolves. Two gestures inside one store write give the second a stale baseline, `changedSince` sees the *first call's own bytes*, and the user gets "written over a change" against their own document — the "frightening sentence about a colleague who does not exist" the code itself names as the worst outcome. The guarding test uses three sequentially awaited saves and cannot reach it.
+- **Story 56 is absent, not partial.** "Told which Projects use this Historical Map while I am aligning it." `usedBy` renders only on the hub.
+- **The fence's honesty statement is wrong.** `check-alignment-writers.mjs:30-36` and `alignment-file.ts:48-52` say "exactly **two**" runtime-computed paths, both tar readers. There are **three** — `replay.ts:165-172` says so itself. Routed correctly, so not an overwrite hazard; it is the honesty failure the fence's own header warns about, and 07 re-asserted the count without recounting.
+- An `aria-live` region created together with its content (`HistoricalMapPane.svelte:260-268`), which this repo has settled twice in writing; no focus management on buttons that remove themselves; two inert baseline moves whose comment describes an unreachable scenario; untested reactivity guards; a dead fixture whose message contradicts 07's new one.
+
+### The one thing that is not a ticket
+
+**`origin/main` is 105 commits behind local `main`** (`14f9c7f`, pre-epic). The entire epic — every merged ticket — exists only on this machine and has never been pushed. That is the largest risk here by a distance, it is a decision for the repository owner, and it also explains why every worktree arrives stale: they branch from `origin/main`.
+
 ## Open leads — unclosed, and not to be absorbed into the flake budget
 
-1. **`editor-workspace.e2e.ts:1006`, "does not put an edit back into a Project the user deleted".** Measured at **2 retries in 10 runs in isolation on a quiet machine**, then 8 clean. Forty times the 0.5% budget. **The failure text is now captured (2026-08-08, ticket 06's first full run), and it is the data-loss shape, not a timing artefact:**
+1. **CLOSED by ticket 21 (2026-08-08) — and the diagnosis this lead carried all epic was wrong.** Kept here because the mistake is instructive.
 
-   ```
-   Error: expect(received).toEqual(expected)
-   - Array []
-   + Array [ "amsterdam-1625/project.json" ]
-     at e2e/editor-workspace.e2e.ts:1020  →  expect(await everyPath(page)).toEqual([])
-   ```
+   The lead said a Write-Ahead Journal replay put the deleted Project's `project.json` back, and the captured evidence seemed to support it: the two `toHaveCount(0)` assertions passed, then the file was on disk. Every reader of this lead, including the ticket written from it, started from that hypothesis.
 
-   **A deleted Project's `project.json` was back on disk.** That is the question the test guards — whether a replayed edit can return to a Project the user deleted — answered in the affirmative, intermittently.
+   **The replay was never involved.** Instrumented with durable `localStorage` markers — console messages in the last ~80 ms before a navigation are dropped, which cost one wrong reading first — the failing runs show: the startup replay restores the rename and forgets the entry correctly (ticket 20 working), `deleteProject`'s sweep then finds **zero** journal entries, and `Workspace.deleteProject`'s own first `await` — the `store.list` — **never resolves before the reload**. The deletion never removed anything. *The file that came back is the file that never went.*
 
-   **Reproduced three times on 2026-08-08, and now has a rate: `--repeat-each=5` gave 1 flaky / 4 passed, ~20%.** At that rate it is not a tail event and it does not need a hunt to reproduce — it needs someone to sit down with the replay path.
+   That is **ticket 20's own measurement in a mirror**: ADR-0017 rule 3 as amended says an unloading document does not run an async continuation. Ticket 20 read that as being about *edits*; a deletion is the same shape with none of the protection. Weakening the journal would have fixed nothing and cost ticket 20's subject.
 
-   **The sequencing is pinned.** The page snapshot at failure shows the deleted Project back in the hub: `link "Gone before it was saved"` → `/?p=amsterdam-1625`, "Last saved Aug 8, 2026, 6:09 PM". Critically, **the two `toHaveCount(0)` assertions on lines 1018–1019 had already passed** — so the journal replay recreated the file *after* the reloaded list had rendered empty. The replay wins the race and puts the edit back into a Project the user deleted. That is a racy app, not a slow test.
+   **The fix**: `DeletedProjects` records the gesture synchronously before the first `await`, `finishInterruptedDeletions()` runs in the startup recovery chain ahead of the replay, and `replay.ts` gains `ReplaySkipReason: 'project-deleted'` — the only evidence that reaches inside the `<project>/project.json` exemption, because no question asked *of the store* separates an interrupted `createProject` from an edit to a just-deleted Project. "Unreadable is not absent" is untouched; this adds a fact it could never derive. Measured `--repeat-each=20`: **before 4 flaky / 16 passed (20.00%), after 0 flaky / 20 passed (0.00%)**.
 
-   **The honest outcome here is an app fix, not a steadier test.** Start from the Write-Ahead Journal replay path added in ticket 20, and from that ticket's surviving rule: *unreadable is not absent*. Artefacts (`error-context.md`, `test-failed-1.png`) were preserved out of `test-results/` before the next run overwrote them, at `/tmp/claude-1000/-home-dflood-repos-ballastella/b40f150d-1741-47dd-9e6b-ba3be7affc73/scratchpad/flake-1006-artifacts/` — copy them somewhere durable if that tmp tree is still alive.
+   **The lesson worth keeping: captured evidence told us *what* happened and we inferred *why*, and the inference was wrong for months.** "The file is present after a delete" is consistent with "something rewrote it" and with "nothing ever removed it", and only instrumentation separated them.
+
+   **Still open, from this work:** `deleteHistoricalMap` has the identical shape and is presumably identically exposed. Not measured, not claimed fixed. And `FinishedDeletions.unfinished` is returned but not rendered — a notice beside `RecoveredEdits` (stories 111, 112) is the honest end state.
 
 2. **`Cannot set properties of undefined (setting 'forceRedraw')`** — OpenSeadragon by way of triiiceratops, on the unwarped→map navigation the spec's own comment records as a hazard. `pnpm flake:check --against main` returned **SUSPECT**, not "consistent with flake". Ticket 20 ruled itself out with evidence (`git diff main -- apps/viewer` empty; the built viewer bundle carries none of its code). **It reproduces — verified 2026-08-08** on ticket 14's branch, which touches no viewer code. `viewer-reader.e2e.ts:1044` "opens over HTTP by link, and the navigation throws nothing" failed on the first attempt and passed on retry, and the failure text is now captured rather than inferred:
 
