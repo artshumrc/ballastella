@@ -95,8 +95,8 @@ export interface AutosaveOptions {
  * > **A byte value may exist outside `#states` only across code that cannot reach application code.**
  *
  * Every call that can reach application code must have the bytes already installed, and anything
- * after such a call must re-read `#states` rather than use what it read before. The complete list of
- * places control leaves this class, and how each is held to that:
+ * after such a call must re-read `#states` rather than use what it read before. Every place control
+ * leaves this class, and how each is held to that:
  *
  * | Reaches out | Where | Held by |
  * |---|---|---|
@@ -105,13 +105,33 @@ export interface AutosaveOptions {
  * | `journal.record` | `#writeAhead` | **shape** — the bytes are read from `#states` on the line above and used for nothing else |
  * | `journal.forget` | `#forget`, from `#drainLoop` and `abandon` | **shape** — both re-read `#states` afterwards; `abandon` walks keys |
  * | `store.write` | `#drainLoop` | **shape** — the loop re-reads `#states` after every await and compares by identity |
+ * | a caller's **thenable**, via `await` | `#drainLoop`'s `await this.#store.write(…)` | **shape** — the same after-every-await re-read; see below |
+ * | `AutosaveOptions` **property getters** | the constructor | **shape** — nothing is installed yet, so there is no value to make stale |
+ *
+ * ⚠ **The last two are not call sites, and that is why they were missed.** The `await` on
+ * `store.write` reads `.then` off whatever the store returned, so a caller-supplied thenable runs
+ * application code at a seam whose row above names only the call; and `options.debounceMs`,
+ * `options.journal` and the rest are property reads that a `Proxy` or a getter turns into
+ * application code. Neither can hold a byte value stale — the first is covered by the re-read that
+ * already protects its row, the second runs before any state exists — so neither is a defect. They
+ * are listed because a row that is true of the call and silent about the mechanism beside it is how
+ * an enumeration stays wrong.
+ *
+ * ⚠ **THIS LIST WAS DERIVED BY GREP, AND MUST BE RE-DERIVED RATHER THAN RE-READ.** An earlier
+ * version called itself complete on the strength of a careful reading, and was not: the two rows
+ * above were missing, and a mechanical sweep of every call expression in this file is what found
+ * them. A read-derived enumeration published as complete is exactly the claim-outrunning-code shape
+ * this epic exists to catch. When this class changes, run the sweep again — grep every call
+ * expression and every property read on caller-supplied objects, and subtract `this.#…`, the
+ * `Map`/`Set`/`Promise` builtins, and the module-level pure helpers (`bytesOf`, `drainOf`,
+ * `unhandled`). What is left is this table.
  *
  * ⚠ **One window is held by argument rather than by shape, and it is named rather than hidden.**
  * `#owe` is handed a byte value by its caller. That is safe because `#owe` reaches nothing on the
  * list above — it touches `#states`, `drainOf` and `clearTimeout` and constructs a promise — so no
  * application code can run while the value is in flight. **Nothing enforces that it stays that way**:
  * a future edit adding a `#publish` to `#owe` would reopen the whole class of defect and no test
- * would say so. If that method grows, this table is what has to be re-read.
+ * would say so. If that method grows, this table is what has to be re-derived.
  *
  * ⚠ **`journal.record` re-entering is a second argument, not a proof.** If a `record` implementation
  * synchronously wrote to the same path, the outer `record` would finish last and the journal would
