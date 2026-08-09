@@ -8,11 +8,11 @@ Scope, user stories, and the testing approach are in [SPEC.md](./SPEC.md).
 
 ## Current status
 
-**01 and 04 are delivered and merged to `main`.** 02 is superseded — see the ledger. Re-sliced 2026-08-09 after a change of direction recorded in [SPEC.md](./SPEC.md); three new tickets (07, 08, 09) replace the durability half.
+**The durability half is done and merged.** 01, 04, 07 and 09 are on `main`; 02 is superseded. Gate on the final merge: **527 passed, exit 0, retry budget 0 of 528 (0.00%)**.
 
-**Ready now: 07 and 09.** They do not collide — 07 is `replay.ts`, 09 is `autosave.ts`'s internal state — and 09 has no dependency at all. `07 → 08`, `07 → 03`, `07 → 06`, and `04 → 05`.
+**Ready now: 08** (the unload warning — only honest now that replay is correct), and **03** (much smaller than originally specced: it renders a chooser for a declined copy rather than narrating a retry policy). `04 → 05` and `07 → 06` are the other two chains.
 
-**What the two delivered tickets cost, for calibration.** 01 took four commits and three review rounds; 04 took five commits and four. Every round found something real, and several rounds found defects introduced by the previous round's fix. That is the argument for 09: the defects were not carelessness, they were a state machine held together by convention.
+**What it cost, for calibration.** 01: four commits, three review rounds. 04: five commits, four rounds. 09: six commits, three rounds. 07: six commits, three rounds. Every round found something real, and several found defects introduced by the previous round's fix — including two that reintroduced the epic's original defect by a new route. That is not carelessness; it is what a state machine held together by convention costs, and it is why 09 exists.
 
 The three seams are decided and are all existing ones (human decision, 2026-08-09): the domain package's **node** vitest project for the write path and the failure sentences; the Playwright **viewer** project for the Reader-facing half, whose existing "no uncaught page error on any navigation" assertion is what surfaced two of these; and the Playwright **editor** project for the author-facing half. **No new seam is to be introduced.**
 
@@ -72,7 +72,7 @@ These are carried from `workspace-and-layers`, where each was paid for.
 | 04 | [04-a-reader-is-told-when-tiles-stop-arriving.md](./tickets/04-a-reader-is-told-when-tiles-stop-arriving.md) | Completed | — | 14–21, 27, 28, 32, 33 |
 | 05 | [05-the-same-sentence-on-the-authors-side.md](./tickets/05-the-same-sentence-on-the-authors-side.md) | Not Started | 04 | 11, 12, 13, 19, 22, 32 |
 | 06 | [06-instrument-the-screen-ahead-of-disk-disagreement.md](./tickets/06-instrument-the-screen-ahead-of-disk-disagreement.md) | Not Started | 07 | 25, 26 |
-| 07 | [07-replay-never-reverts-newer-bytes.md](./tickets/07-replay-never-reverts-newer-bytes.md) | In Progress | 01 | 1, 6, 9 |
+| 07 | [07-replay-never-reverts-newer-bytes.md](./tickets/07-replay-never-reverts-newer-bytes.md) | Completed | 01 | 1, 6, 9 |
 | 08 | 08-leaving-with-unwritten-work-is-refused.md *(to write)* | Not Started | 07 | 2, 5, 9 |
 | 09 | [09-one-state-per-path-instead-of-six-fields.md](./tickets/09-one-state-per-path-instead-of-six-fields.md) | Completed | — | 23, 30 |
 
