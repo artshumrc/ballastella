@@ -48,10 +48,11 @@
 // rather than the only chance, and a quota refusal happens while the user is still looking at the
 // app and can be told about it in words (SPEC stories 111 and 112).
 //
-// The cost is one synchronous `setItem` per keystroke on a debounced field. That is the same order
-// as the `JSON.stringify` of the whole collection which that keystroke already performs before
-// reaching `Autosave` at all, so it is a proportionate cost rather than a new category of one — but
-// it is a real cost and this is where it is written down.
+// The cost is one synchronous `setItem` per keystroke on a debounced field, plus at most one
+// `getItem` per path per session for the baseline `WriteAheadJournal.#baseline` derives. That is the
+// same order as the `JSON.stringify` of the whole collection which that keystroke already performs
+// before reaching `Autosave` at all, so it is a proportionate cost rather than a new category of one
+// — but it is a real cost and this is where it is written down.
 
 import type { Bytes, StorePath } from '../store/project-store.js';
 import {
@@ -68,6 +69,12 @@ import {
  * never partially read and never discarded — see {@link readJournal}. That is only possible because
  * the version lives in the value rather than in the key: a key a newer build had versioned would be
  * invisible to this one, and invisible is exactly what "silently damaged" looks like.
+ *
+ * **Not bumped for {@link JournalEntry.held} (ticket 07)**, which is additive and optional: a build
+ * that does not know the field reads the entry exactly as it always did, and a build that does reads
+ * an older entry as one with no baseline. Bumping would make every entry written here
+ * `from-a-newer-version` to any earlier build — refused, kept, and reported at every startup — which
+ * is a worse outcome than the one the field improves.
  */
 export const JOURNAL_FORMAT_VERSION = 1;
 
@@ -224,11 +231,21 @@ function describeSize(bytes: number): string {
 
 /** The base64 payload stored at `key`, or `null` when there is nothing usable there. */
 function storedBytes(storage: JournalStorage, key: string): string | null {
+	return storedField(storage, key, 'bytes');
+}
+
+/** The base64 {@link JournalEntry.held} stored at `key`, or `null` when there is none. */
+function storedHeld(storage: JournalStorage, key: string): string | null {
+	return storedField(storage, key, 'held');
+}
+
+function storedField(storage: JournalStorage, key: string, field: string): string | null {
 	try {
 		const raw = storage.getItem(key);
 		if (raw === null) return null;
-		const held = JSON.parse(raw) as { bytes?: unknown };
-		return typeof held.bytes === 'string' ? held.bytes : null;
+		const envelope = JSON.parse(raw) as Record<string, unknown>;
+		const value = envelope[field];
+		return typeof value === 'string' ? value : null;
 	} catch {
 		return null;
 	}
@@ -241,6 +258,23 @@ export interface JournalEntry {
 	readonly bytes: Bytes;
 	/** When it was recorded, ISO 8601. Reported to the user; nothing branches on it. */
 	readonly at: string;
+	/**
+	 * What the store held at the moment this entry was recorded, or `null` when the journal had no
+	 * way to know (ticket 07).
+	 *
+	 * **This is the entry's precondition, and it is what stops a replay reverting newer bytes.** An
+	 * entry means "the store has not taken these bytes"; it does not say what the store *has* taken
+	 * since, and `replayJournal` used to write regardless — so a Workspace tar restored, a bundle
+	 * opened or a pyramid ingested after the edit was put back to the older bytes and the revert was
+	 * reported as a restoration. With this, replay can ask whether the store still holds what this
+	 * entry was written against. See `replay.ts` for the decision it drives.
+	 *
+	 * ⚠ **`null` is a real and common answer, not a corner.** The journal is synchronous by contract
+	 * and the store is not, so nothing here can read the store; the value is derived from what the
+	 * journal itself has seen — see {@link WriteAheadJournal.record}. The first edit to a path in a
+	 * session, with no entry left over from the last one, has no baseline at all.
+	 */
+	readonly held: Bytes | null;
 }
 
 /**
@@ -279,6 +313,16 @@ export type JournalProblemReason =
 export class WriteAheadJournal {
 	readonly #storage: JournalStorage;
 	readonly #workspace: string;
+	/**
+	 * The base64 this journal believes the store holds for a path, which is the baseline the next
+	 * {@link record} writes as {@link JournalEntry.held}. `null` is a cached "asked, and there is
+	 * none", so a path with no baseline does not re-read storage on every keystroke.
+	 *
+	 * In memory rather than on disk because the *entry* carries it across a restart: a baseline is
+	 * only ever needed at the moment an entry is written, and an entry that already exists carries
+	 * its own — see {@link #baseline}.
+	 */
+	readonly #held = new Map<StorePath, string | null>();
 
 	constructor(storage: JournalStorage, workspace: string) {
 		this.#storage = storage;
@@ -314,15 +358,21 @@ export class WriteAheadJournal {
 	 * user*, so an older state coming back is visible rather than silent. Nothing is truncated to
 	 * make room and nothing is dropped quietly.
 	 *
+	 * The entry also carries {@link JournalEntry.held} when {@link #baseline} can derive one — the
+	 * store content this edit was made against, which is what lets replay tell a stranded write from
+	 * a revert (ticket 07).
+	 *
 	 * @throws JournalFullError when the browser is out of room for this file
 	 * @throws JournalUnavailableError when the browser refuses to store anything at all
 	 */
 	record(path: StorePath, bytes: Bytes): void {
 		const key = journalKey(this.#workspace, path);
 		const encoded = encodeBytes(bytes);
+		const held = this.#baseline(key, path);
 		const value = JSON.stringify({
 			formatVersion: JOURNAL_FORMAT_VERSION,
 			at: new Date().toISOString(),
+			...(held === null ? {} : { held }),
 			bytes: encoded
 		});
 		try {
@@ -342,10 +392,46 @@ export class WriteAheadJournal {
 		}
 	}
 
+	/**
+	 * The {@link JournalEntry.held} to write for the next entry at `key`, or `null` for none.
+	 *
+	 * Two sources, in order, and neither of them reads the store — this method is on the synchronous
+	 * path of every keystroke:
+	 *
+	 *   1. **The entry already at `key`.** An entry only exists while the store has *not* taken its
+	 *      bytes, so whatever that entry was recorded against is still what the store holds, and
+	 *      re-recording carries it forward unchanged. This is also what survives a restart.
+	 *   2. **What {@link forget} last saw the store take**, when there is no entry — because that is
+	 *      exactly what "the entry went because the store has it" means.
+	 *
+	 * ⚠ **This is derived, so it can be wrong, and where it is wrong matters.** `forget` is not only
+	 * called on success: `Autosave.abandon` calls it for bytes the store never took, when the user
+	 * deletes the Project or Historical Map they belong to. A later edit to the same path is then
+	 * recorded against a baseline that was never on disk.
+	 *
+	 * What bounds that is the single place `replay.ts` reads the field: the `superseded` line of
+	 * `compare`, which uses it to decide whether to *refuse* a write. There is no line that uses it
+	 * to decide to write, so a baseline that is stale or wrong costs an entry its automatic restore
+	 * — the entry is kept and named — rather than costing the user an edit.
+	 */
+	#baseline(key: string, path: StorePath): string | null {
+		const remembered = this.#held.get(path);
+		if (remembered !== undefined) return remembered;
+		const carried = storedHeld(this.#storage, key);
+		this.#held.set(path, carried);
+		return carried;
+	}
+
 	/** Drop `path`'s entry. Called the moment the store has the bytes; idempotent. */
 	forget(path: StorePath): void {
+		const key = journalKey(this.#workspace, path);
+		// Read before the removal, because the entry is the only record of what the store just took —
+		// and it is the baseline every later entry for this path is written against. See
+		// {@link #baseline} for why getting this wrong costs a restore rather than an edit.
+		const taken = storedBytes(this.#storage, key);
+		if (taken !== null) this.#held.set(path, taken);
 		try {
-			this.#storage.removeItem(journalKey(this.#workspace, path));
+			this.#storage.removeItem(key);
 		} catch {
 			// Nothing a caller can do about a storage that refuses a delete, and the caller is the
 			// success path of a write. A stale entry is caught at replay by the preconditions there.
@@ -433,7 +519,12 @@ export function readJournal(storage: JournalStorage, workspace: string): Journal
 			continue;
 		}
 
-		const record = envelope as { formatVersion?: unknown; at?: unknown; bytes?: unknown };
+		const record = envelope as {
+			formatVersion?: unknown;
+			at?: unknown;
+			bytes?: unknown;
+			held?: unknown;
+		};
 		if (typeof record.formatVersion !== 'number' || !Number.isInteger(record.formatVersion)) {
 			problems.push(
 				discard(
@@ -480,7 +571,12 @@ export function readJournal(storage: JournalStorage, workspace: string): Journal
 			workspace: named.workspace,
 			path: named.path,
 			bytes,
-			at: typeof record.at === 'string' ? record.at : ''
+			at: typeof record.at === 'string' ? record.at : '',
+			// A baseline that is absent, or present and not decodable, is the same thing to the caller:
+			// no precondition. It is deliberately **not** a `JournalProblem` — the entry's own bytes are
+			// intact and replaying them is what this build did before the field existed, so refusing the
+			// entry over its baseline would cost the user an edit to save a check.
+			held: typeof record.held === 'string' ? decodeBytes(record.held) : null
 		});
 	}
 

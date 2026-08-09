@@ -85,7 +85,10 @@ describe('WriteAheadJournal', () => {
 				workspace: 'Marking 2026',
 				path: 'a/project.json',
 				bytes: utf8.encode('one'),
-				at: expect.any(String)
+				at: expect.any(String),
+				// No baseline: nothing has told this journal what the store holds for the path, which is
+				// what the first edit to it in a session looks like (ticket 07).
+				held: null
 			}
 		]);
 	});
@@ -125,6 +128,66 @@ describe('WriteAheadJournal', () => {
 		expect(readJournal(storage, 'W').entries.map((entry) => entry.path)).toEqual([
 			'b/project.json'
 		]);
+	});
+
+	/**
+	 * The baseline an entry is recorded against (ticket 07).
+	 *
+	 * It is what lets `replayJournal` tell a stranded write from a revert, and it is derived here
+	 * rather than read from the store, because `record` is synchronous by contract. The four tests
+	 * are the four things that derivation has to get right; `replay.test.ts` drives what it is for.
+	 */
+	describe('what the store held when the entry was made', () => {
+		it('takes the bytes a forget said the store had', () => {
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('v1'));
+			// The store took them, which is the one thing `forget` means.
+			journal.forget('a/project.json');
+
+			journal.record('a/project.json', utf8.encode('v2'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toEqual(utf8.encode('v1'));
+		});
+
+		it('does not move it to bytes the store has not taken', () => {
+			// Two edits inside one debounce window: the store still holds what it held before either
+			// of them, so the baseline must be neither of their bytes.
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('v1'));
+			journal.forget('a/project.json');
+
+			journal.record('a/project.json', utf8.encode('v2'));
+			journal.record('a/project.json', utf8.encode('v3'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toEqual(utf8.encode('v1'));
+		});
+
+		it('survives a restart, because it is carried by the entry rather than by the object', () => {
+			const before = new WriteAheadJournal(storage, 'W');
+			before.record('a/project.json', utf8.encode('v1'));
+			before.forget('a/project.json');
+			before.record('a/project.json', utf8.encode('v2'));
+
+			// A new session, with nothing in memory: the entry that is already there is the source.
+			new WriteAheadJournal(storage, 'W').record('a/project.json', utf8.encode('v3'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toEqual(utf8.encode('v1'));
+		});
+
+		it('reads an undecodable one as no baseline rather than as a damaged entry', () => {
+			// The entry's own bytes are intact, and refusing it over its baseline would cost the user
+			// an edit to save a check. `replay.ts` then behaves as it did before the field existed.
+			storage.items.set(
+				'ballastella.journal.W/a%2Fproject.json',
+				JSON.stringify({ formatVersion: 1, at: '', bytes: 'AAA=', held: '!! not base64 !!' })
+			);
+
+			const { entries, problems } = readJournal(storage, 'W');
+
+			expect(problems).toEqual([]);
+			expect(entries[0]?.held).toBeNull();
+			expect(entries[0]?.bytes).toEqual(new Uint8Array([0, 0]));
+		});
 	});
 
 	it('forgets everything under a prefix, which is what a deletion needs', () => {

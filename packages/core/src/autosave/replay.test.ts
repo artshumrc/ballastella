@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { baseMapTileSourcePath, writeCachedTileSource } from '../base-map/offline-cache.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
+import type { Bytes, StorePath } from '../store/project-store.js';
+import { exportProjectBundle } from '../transfer/export-project-bundle.js';
+import { exportWorkspaceTar } from '../transfer/export-workspace-tar.js';
+import { openProjectBundle } from '../transfer/open-project-bundle.js';
+import { restoreWorkspaceTar } from '../transfer/restore-workspace-tar.js';
+import { ingestImageFile } from '../tiler/ingest.js';
 import { DeletedProjects } from './deleted-projects.js';
 import { FakeJournalStorage } from './fake-journal-storage.js';
 import { WriteAheadJournal, readJournal } from './journal.js';
@@ -117,6 +124,7 @@ describe('replayJournal', () => {
 				{
 					path: 'amsterdam-1625/annotations/l.geojson',
 					reason: 'no-such-project',
+					kept: false,
 					detail: expect.stringContaining('no longer in this Workspace')
 				}
 			]);
@@ -161,6 +169,7 @@ describe('replayJournal', () => {
 				{
 					path: 'amsterdam-1625/project.json',
 					reason: 'project-deleted',
+					kept: false,
 					detail: expect.stringContaining('you deleted the Project')
 				}
 			]);
@@ -213,6 +222,7 @@ describe('replayJournal', () => {
 				{
 					path: 'alignments/floride-1657.json',
 					reason: 'no-such-historical-map',
+					kept: false,
 					detail: expect.stringContaining('Historical Map')
 				}
 			]);
@@ -226,6 +236,7 @@ describe('replayJournal', () => {
 				{
 					path: 'images/floride-1657/8/0_0.jpg',
 					reason: 'no-such-historical-map',
+					kept: false,
 					detail: expect.stringContaining('Historical Map')
 				}
 			]);
@@ -302,9 +313,22 @@ describe('replayJournal', () => {
 			const report = await replayJournal(storage, store, 'Marking 2026');
 
 			// Unreadable is not absent — the direction `alignment-file.ts` takes for the same reason.
-			// It is attempted, and the *write* is what fails or succeeds.
+			// So it is not *skipped*: nothing here concluded the Project had gone.
 			expect(report.skipped).toEqual([]);
-			expect(report.restored).toEqual(['amsterdam-1625/annotations/l.geojson']);
+			// It is reported as a failure and its entry is kept, because since ticket 07 the same
+			// `read` also answers "what does the store hold now", and a Workspace that cannot answer
+			// that cannot license a write either. "Could not be put back yet", which is what `failed`
+			// means, is the honest one — and it is tried again at the next startup.
+			expect(report.restored).toEqual([]);
+			expect(report.failed).toEqual([
+				{
+					path: 'amsterdam-1625/annotations/l.geojson',
+					detail: expect.stringContaining('the folder is not reachable')
+				}
+			]);
+			expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
+				'amsterdam-1625/annotations/l.geojson'
+			]);
 		});
 	});
 
@@ -407,5 +431,343 @@ describe('replayJournal', () => {
 			'from-a-newer-version'
 		]);
 		expect(replayIsNoteworthy(report)).toBe(true);
+	});
+
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * REPLAY NEVER REVERTS NEWER BYTES (ticket 07)
+	 *
+	 * ⚠ **A broken harness here fails toward "no problem found", which is the same direction as the
+	 * defect.** Ticket 01's implementer probed this twice with wrong constructor signatures and both
+	 * attempts answered `restored: []` — the newer bytes apparently surviving, the defect apparently
+	 * absent. So the first test below is a **planted revert**: it drives the hazard with the one thing
+	 * that stops it removed, and asserts the revert *happens*. If this suite ever stops being able to
+	 * see a revert, that test goes red before any of the green ones can be believed.
+	 */
+	describe('what the store holds now', () => {
+		const PATH = 'amsterdam-1625/annotations/warehouses.geojson';
+
+		/**
+		 * A stranded edit whose entry knows what was on disk when it was made.
+		 *
+		 * Built the only way the journal can build it — record, and forget when the store takes the
+		 * bytes, which is exactly what `Autosave` does on every save — rather than by writing an
+		 * envelope by hand, so the baseline under test is one the shipped code produces.
+		 */
+		const strandAnEdit = async (onDisk: string, edited: string): Promise<void> => {
+			await seedProject('amsterdam-1625');
+			await store.write(PATH, utf8.encode(onDisk));
+			journal.record(PATH, utf8.encode(onDisk));
+			journal.forget(PATH);
+			journal.record(PATH, utf8.encode(edited));
+		};
+
+		it('reverts newer bytes when the entry has no baseline, which is the stated limit', async () => {
+			// ⚠ **THE PLANTED REVERT.** The entry is recorded with nothing behind it — the first edit to
+			// a path in a session, which `journal.ts` says has no baseline — so `compare` reaches the
+			// row the module header calls undecidable and writes anyway. That is the residual, stated
+			// in the header and pinned here, and it is also this suite's positive control: a harness
+			// that could not see a revert would fail this test rather than reassure with an empty
+			// `restored`.
+			await seedProject('amsterdam-1625');
+			await store.write(PATH, utf8.encode('v1'));
+			journal.record(PATH, utf8.encode('the edit that stranded'));
+			expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toBeNull();
+			await store.write(PATH, utf8.encode('v2-NEWER'));
+
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(report.restored).toEqual([PATH]);
+			expect(text(await store.read(PATH))).toBe('the edit that stranded');
+		});
+
+		it('refuses to put an entry back over bytes written after it, and says so', async () => {
+			await strandAnEdit('v1', 'the edit that stranded');
+			// The harness's own precondition: the entry really does carry the baseline the refusal is
+			// decided from. Without this the test could pass because nothing was replayed at all.
+			expect(readJournal(storage, 'Marking 2026').entries[0]?.held).toEqual(utf8.encode('v1'));
+			await store.write(PATH, utf8.encode('v2-NEWER'));
+
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(text(await store.read(PATH))).toBe('v2-NEWER');
+			expect(report.restored).toEqual([]);
+			expect(report.skipped).toEqual([
+				{
+					path: PATH,
+					reason: 'superseded',
+					kept: true,
+					detail: expect.stringContaining('has been changed since')
+				}
+			]);
+			// Kept: the entry is the only copy of that edit anywhere, so a refusal that dropped it
+			// would destroy the work it exists to protect.
+			expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
+				PATH
+			]);
+			expect(replayIsNoteworthy(report)).toBe(true);
+		});
+
+		it('still puts a genuinely stranded write back, which is the whole point', async () => {
+			// ⚠ The acceptance criterion that stops B being "fixed" by refusing everything: the store
+			// holds what the edit was made against, so nothing newer exists and the edit is the user's
+			// work waiting to be rescued.
+			await strandAnEdit('v1', 'the edit that stranded');
+
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(report.restored).toEqual([PATH]);
+			expect(text(await store.read(PATH))).toBe('the edit that stranded');
+			expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+		});
+
+		it('reports an entry the store already holds as skipped rather than restored', async () => {
+			// Nothing is written, so naming it under "the change has been written now" would be a claim
+			// about a write that did not happen.
+			await seedProject('amsterdam-1625');
+			await store.write(PATH, utf8.encode('v1'));
+			journal.record(PATH, utf8.encode('v1'));
+			const writes = vi.spyOn(store, 'write');
+
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(report.restored).toEqual([]);
+			expect(report.skipped).toEqual([
+				{
+					path: PATH,
+					reason: 'already-in-the-store',
+					kept: false,
+					detail: expect.stringContaining('did not need to be put back')
+				}
+			]);
+			expect(writes).not.toHaveBeenCalled();
+			// Dropped: the store has the bytes, which is the one condition an entry goes on.
+			expect(readJournal(storage, 'Marking 2026').entries).toEqual([]);
+		});
+
+		it('tells apart bytes that differ but are the same length', async () => {
+			// ⚠ Every other specimen here differs in length as well as in content, so a comparison that
+			// only measured `length` passed all of them — and would read a newer file of the same size
+			// as "already in the store", drop the entry, and destroy the edit it was holding. A rename
+			// from one word to another of equal length is exactly that shape.
+			await strandAnEdit('v1', 'v2');
+			await store.write(PATH, utf8.encode('v3'));
+
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+			expect(text(await store.read(PATH))).toBe('v3');
+			expect(readJournal(storage, 'Marking 2026').entries.map((entry) => entry.path)).toEqual([
+				PATH
+			]);
+		});
+
+		it('writes when the store holds nothing at all, baseline or no baseline', async () => {
+			// There is nothing to revert, so the undecidable row never arises.
+			await seedProject('amsterdam-1625');
+			journal.record(PATH, utf8.encode('the only copy'));
+
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(report.restored).toEqual([PATH]);
+			expect(text(await store.read(PATH))).toBe('the only copy');
+		});
+
+		it('refuses an Alignment over newer bytes too, not only a plain file', async () => {
+			// The Alignment path has its own writer and its own branch, so the refusal has to be above
+			// the routing rather than inside one leg of it.
+			await store.write('images/floride-1657/info.json', utf8.encode('{}'));
+			// alignment-write-is-the-fixture: the Alignment already on disk that the stranded edit was made against, seeded so the refusal below has something to compare
+			await store.write('alignments/floride-1657.json', utf8.encode('v1'));
+			journal.record('alignments/floride-1657.json', utf8.encode('v1'));
+			journal.forget('alignments/floride-1657.json');
+			journal.record('alignments/floride-1657.json', utf8.encode('the control points'));
+			// alignment-write-is-the-fixture: the colleague's newer Alignment this test exists to prove replay will not revert; it stands in for a synced Workspace, not for a write this app makes
+			await store.write('alignments/floride-1657.json', utf8.encode('a colleague’s'));
+
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(report.restored).toEqual([]);
+			expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+			expect(text(await store.read('alignments/floride-1657.json'))).toBe('a colleague’s');
+		});
+	});
+
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE FIVE ROUTES THAT WRITE THE STORE WITHOUT RECORDING, ONE AT A TIME (ticket 07)
+	 *
+	 * The SPEC names five, and they are not one thing: two of them can land on a path the journal
+	 * holds an entry for and three of them cannot, so "the five are covered" is not a claim any single
+	 * test can make. Each is driven through its **own real entry point** here.
+	 *
+	 * The out-of-reach argument rests on which paths this application ever hands to `Autosave`, and
+	 * therefore ever journals. There are four call sites and they write four shapes:
+	 * `<project>/project.json` (`Workspace.writeProject`), `<project>/annotations/<layer>.geojson`
+	 * (`EditorSession.writeAnnotations`, `addAnnotationLayer`, layer-delete undo),
+	 * `alignments/<image-id>.json` (`alignment-file.ts` through the session's port) and
+	 * `images/<image-id>/remote.json` (`EditorSession.addReferencedMap`). That enumeration is read
+	 * from the editor app and cannot be fenced from here — what *is* executable is the other half,
+	 * asserted below: the paths each route actually writes.
+	 */
+	describe('the routes that write the store without recording', () => {
+		/** The four shapes above, as a predicate over a path. */
+		const couldBeJournalled = (path: string): boolean =>
+			/^[^/]+\/project\.json$/.test(path) ||
+			/^[^/]+\/annotations\/[^/]+\.geojson$/.test(path) ||
+			/^alignments\/[^/]+\.json$/.test(path) ||
+			/^images\/[^/]+\/remote\.json$/.test(path);
+
+		const streamOf = (bytes: Uint8Array<ArrayBuffer>): ReadableStream<Uint8Array> =>
+			new Blob([bytes]).stream();
+
+		const collect = async (
+			stream: ReadableStream<Uint8Array>
+		): Promise<Uint8Array<ArrayBuffer>> => {
+			const chunks: Uint8Array[] = [];
+			const reader = stream.getReader();
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				chunks.push(value);
+			}
+			let size = 0;
+			for (const chunk of chunks) size += chunk.length;
+			const out = new Uint8Array(size);
+			let at = 0;
+			for (const chunk of chunks) {
+				out.set(chunk, at);
+				at += chunk.length;
+			}
+			return out;
+		};
+
+		/** A destination that hands the route the store the journal belongs to. */
+		const into = (name: string) => async () => ({
+			name,
+			store: store as MemoryProjectStore,
+			discard: async () => undefined
+		});
+
+		/** A Workspace holding one Project whose Annotation file says `content`. */
+		const sourceWith = async (content: string): Promise<MemoryProjectStore> => {
+			const other = new MemoryProjectStore();
+			other.plant(
+				'amsterdam-1625/project.json' as StorePath,
+				utf8.encode(
+					JSON.stringify({ formatVersion: 1, name: 'Amsterdam 1625', layers: [], baseMap: null })
+				) as Bytes
+			);
+			other.plant(
+				'amsterdam-1625/annotations/warehouses.geojson' as StorePath,
+				utf8.encode(content) as Bytes
+			);
+			return other;
+		};
+
+		/** A stranded entry for the Annotation file, with the baseline that makes it decidable. */
+		const strandTheAnnotation = async (): Promise<void> => {
+			await seedProject('amsterdam-1625');
+			await store.write('amsterdam-1625/annotations/warehouses.geojson', utf8.encode('v1'));
+			journal.record('amsterdam-1625/annotations/warehouses.geojson', utf8.encode('v1'));
+			journal.forget('amsterdam-1625/annotations/warehouses.geojson');
+			journal.record(
+				'amsterdam-1625/annotations/warehouses.geojson',
+				utf8.encode('the edit that stranded')
+			);
+		};
+
+		it('restoring a Workspace tar over the open Workspace is not undone by the replay', async () => {
+			await strandTheAnnotation();
+			const archive = await collect(
+				(await exportWorkspaceTar(await sourceWith('v2-NEWER'), 'W')).body
+			);
+
+			await restoreWorkspaceTar(streamOf(archive), into('Marking 2026'));
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(text(await store.read('amsterdam-1625/annotations/warehouses.geojson'))).toBe(
+				'v2-NEWER'
+			);
+			expect(report.restored).toEqual([]);
+			expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+		});
+
+		it('opening a Project bundle into the open Workspace is not undone by the replay', async () => {
+			await strandTheAnnotation();
+			const bundle = await collect(
+				(await exportProjectBundle(await sourceWith('v2-NEWER'), 'amsterdam-1625')).body
+			);
+
+			await openProjectBundle(streamOf(bundle), into('Marking 2026'), {
+				fileName: 'amsterdam-1625.project.tar'
+			});
+			const report = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(text(await store.read('amsterdam-1625/annotations/warehouses.geojson'))).toBe(
+				'v2-NEWER'
+			);
+			expect(report.restored).toEqual([]);
+			expect(report.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+		});
+
+		it('replaying twice does not report the second run as a restore', async () => {
+			// `replay.ts` is the fifth route, and the one that writes the store from inside this
+			// module. A run interrupted between its write and its `forget` leaves an entry whose bytes
+			// are already on disk, and the next startup must not call putting them there again a
+			// restoration.
+			await strandTheAnnotation();
+			const entry = readJournal(storage, 'Marking 2026').entries[0];
+			await replayJournal(storage, store, 'Marking 2026');
+			// The entry as it stood before the first run, put back — which is what an interrupted
+			// `forget` leaves behind.
+			journal.record(
+				'amsterdam-1625/annotations/warehouses.geojson',
+				entry?.bytes ?? new Uint8Array()
+			);
+
+			const second = await replayJournal(storage, store, 'Marking 2026');
+
+			expect(second.restored).toEqual([]);
+			expect(second.skipped.map((skip) => skip.reason)).toEqual(['already-in-the-store']);
+		});
+
+		it('an ingest writes nothing the journal can hold an entry for', async () => {
+			// Out of reach, measured rather than asserted in prose: a real ingest — including one
+			// re-run over an existing map's directory, which is the only way it can meet a path that
+			// was there before — writes tiles, `manifest.json` and `info.json`, and none of those is a
+			// shape this application journals. If it ever writes one, this goes red.
+			await ingestImageFile({
+				store,
+				imageId: 'floride-1657',
+				file: new File([new Uint8Array([0xff, 0xd8]).buffer], 'scan.jpg', {
+					type: 'image/jpeg'
+				}),
+				openDecodeAndCrop: async () => ({
+					dimensions: { width: 600, height: 400 },
+					encodeTile: async () => utf8.encode('tile') as Bytes,
+					close: async () => undefined
+				})
+			});
+
+			const written = [...store.snapshot().keys()];
+			// The pyramid, the manifest and `info.json` — so the check below is over a real ingest's
+			// whole output rather than over an empty list.
+			expect(written).toContain('images/floride-1657/info.json');
+			expect(written.filter(couldBeJournalled)).toEqual([]);
+		});
+
+		it('the Base Map offline cache writes nothing the journal can hold an entry for', async () => {
+			// Out of reach for the same reason and by the same measure: every path it writes is under
+			// `base-map/`, which no `Autosave` call site names.
+			await writeCachedTileSource(store, {
+				archive: 'demo',
+				maxZoom: 6
+			});
+
+			const written = [...store.snapshot().keys()];
+			expect(written).toEqual([baseMapTileSourcePath('demo')]);
+			expect(written.filter(couldBeJournalled)).toEqual([]);
+		});
 	});
 });
