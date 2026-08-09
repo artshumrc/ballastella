@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MemoryProjectStore } from '../store/memory-project-store.js';
+import type { Bytes } from '../store/project-store.js';
 import type { Annotation } from '../annotation/annotation.js';
 import { UndoSlot } from '../undo/undo.js';
 import { Autosave } from './autosave.js';
@@ -11,6 +12,9 @@ import {
 	JournalUnavailableError,
 	WriteAheadJournal,
 	discardJournal,
+	fingerprintOf,
+	forgetHeldCopy,
+	readHeldCopies,
 	journalledWorkspaces,
 	readJournal,
 	type JournalStorage
@@ -85,7 +89,10 @@ describe('WriteAheadJournal', () => {
 				workspace: 'Marking 2026',
 				path: 'a/project.json',
 				bytes: utf8.encode('one'),
-				at: expect.any(String)
+				at: expect.any(String),
+				// No baseline: nothing has told this journal what the store holds for the path, which is
+				// what the first edit to it in a session looks like (ticket 07).
+				held: null
 			}
 		]);
 	});
@@ -125,6 +132,320 @@ describe('WriteAheadJournal', () => {
 		expect(readJournal(storage, 'W').entries.map((entry) => entry.path)).toEqual([
 			'b/project.json'
 		]);
+	});
+
+	/**
+	 * The baseline an entry is recorded against (ticket 07).
+	 *
+	 * It is what lets `replayJournal` tell a stranded write from a revert, and it is derived here
+	 * rather than read from the store, because `record` is synchronous by contract. These pin what the
+	 * derivation must get right and what it costs; `replay.test.ts` drives what it is for.
+	 */
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE FINGERPRINT ITSELF (round 5, finding D)
+	 *
+	 * ⚠ **Every other reference to it in this repository compares it against itself** —
+	 * `expect(held).toBe(fingerprintOf(x))` — which is satisfied by any pure function, including one
+	 * that ignores its input. `replay.ts` decides whether to write a scholar's file on an equality
+	 * between two of these, so the properties the docblock claims are the guarantee, and they are
+	 * driven here against literals rather than against the function.
+	 */
+	describe('fingerprintOf', () => {
+		const of = (text: string) => fingerprintOf(utf8.encode(text) as Bytes);
+
+		it('is stable for the same bytes and differs for different ones', () => {
+			expect(of('the edit that stranded')).toBe(of('the edit that stranded'));
+			expect(of('v1')).not.toBe(of('v2'));
+		});
+
+		it('separates a string from one it is a prefix of, by length as well as by hash', () => {
+			// The length is in front for this: the cheapest disagreement to detect is a file that grew,
+			// and a hash whose rounds happened to agree would otherwise let it through.
+			expect(of('v1-long')).not.toBe(of('v1-long-baseline'));
+			expect(of('v1-long').split('-')[0]).not.toBe(of('v1-long-baseline').split('-')[0]);
+		});
+
+		it('runs two rounds from different bases rather than one twice', () => {
+			// A second round identical to the first is 32 bits pretending to be 64. Read off the shape
+			// rather than the value: the two halves of the hash must not be the same eight hex digits.
+			const [, hash = ''] = of('a scholar’s Annotations').split('-');
+			expect(hash).toHaveLength(16);
+			expect(hash.slice(0, 8)).not.toBe(hash.slice(8));
+		});
+
+		it('is a short constant beside the payload, not a copy of it', () => {
+			// Why it is a fingerprint at all. It grows with the *digits* of the length and nothing else.
+			expect(of('').length).toBe(18);
+			expect(fingerprintOf(new Uint8Array(30_000) as Bytes).length).toBe(20);
+			expect(fingerprintOf(new Uint8Array(5_000_000) as Bytes).length).toBe(22);
+		});
+	});
+
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE HELD NAMESPACE'S LIFECYCLE (round 6)
+	 *
+	 * The store of copies a replay declined. Five pieces of it shipped with no named kill, which is
+	 * how a namespace that nothing prunes and nothing reports becomes a leak nobody can see.
+	 */
+	describe('copies a replay declined', () => {
+		const HELD = 'ballastella.held.';
+		const heldKeys = () => [...storage.items.keys()].filter((key) => key.startsWith(HELD));
+
+		it('says nothing was set aside when the browser has no room for it', () => {
+			// ⚠ **The refusal that reported success** (round 6, finding A). `hold` answered with the same
+			// fingerprint whether it stored anything or not, so a full origin produced "It has been
+			// kept" beside a button to throw away a copy that did not exist.
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('the edit that stranded'));
+			vi.spyOn(storage, 'setItem').mockImplementation(() => {
+				throw new DOMException('full', 'QuotaExceededError');
+			});
+
+			const copy = journal.hold('a/project.json', utf8.encode('the edit that stranded'), '', 'x');
+
+			expect(copy).toBeNull();
+			expect(heldKeys()).toEqual([]);
+			// And the entry it failed to protect is exactly where it was: a refusal must never be the
+			// thing that destroys the bytes it could not keep.
+			vi.restoreAllMocks();
+			expect(readJournal(storage, 'W').entries.map((entry) => text(entry.bytes))).toEqual([
+				'the edit that stranded'
+			]);
+		});
+
+		it('refuses past the cap rather than taking more room, and does not discard what it holds', () => {
+			const journal = new WriteAheadJournal(storage, 'W');
+			const held = ['one', 'two', 'three'].map((text) =>
+				journal.hold('a/project.json', utf8.encode(text), '', 'x')
+			);
+
+			const beyond = journal.hold('a/project.json', utf8.encode('four'), '', 'x');
+
+			expect(held.every((copy) => copy !== null)).toBe(true);
+			expect(beyond).toBeNull();
+			// Nothing already held was dropped to make room for it.
+			expect(
+				readHeldCopies(storage, 'W')
+					.copies.map((copy) => text(copy.bytes))
+					.sort()
+			).toEqual(['one', 'three', 'two']);
+		});
+
+		it('does not count re-holding a copy it already has against the cap', () => {
+			// The ordinary case of a startup meeting a decline it has already made.
+			const journal = new WriteAheadJournal(storage, 'W');
+			for (const text of ['one', 'two', 'three']) {
+				journal.hold('a/project.json', utf8.encode(text), '', 'x');
+			}
+
+			expect(journal.hold('a/project.json', utf8.encode('two'), '', 'x')).not.toBeNull();
+		});
+
+		it('reports a damaged copy and discards it, rather than leaving it holding room', () => {
+			// Unlike an entry, a copy nobody can read still counts against the cap and still occupies
+			// the quota, so swallowing it spent room on bytes nobody could ever recover.
+			storage.items.set(`${HELD}W/abc%2Fa%2Fproject.json`, 'not json at all');
+
+			const { copies, problems } = readHeldCopies(storage, 'W');
+
+			expect(copies).toEqual([]);
+			expect(problems.map((problem) => [problem.reason, problem.kept])).toEqual([
+				['unreadable', false]
+			]);
+			expect(problems[0]?.detail).toContain('a/project.json');
+			expect(heldKeys()).toEqual([]);
+		});
+
+		it('is thrown away only by the fingerprint it is named with', () => {
+			// ⚠ The kill the headline of the last round did not have: a wrong identity must destroy
+			// nothing, which no test using a *correct* fingerprint can discriminate against.
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.hold('a/project.json', utf8.encode('the edit that stranded'), '', 'x');
+
+			expect(forgetHeldCopy(storage, 'W', 'a/project.json', 'not-its-fingerprint')).toBe(false);
+
+			expect(readHeldCopies(storage, 'W').copies).toHaveLength(1);
+		});
+
+		it("is never read out of another Workspace's", () => {
+			// The same binding the class has, on the free function that ranges over the prefix.
+			new WriteAheadJournal(storage, 'Teaching').hold(
+				'a/project.json',
+				utf8.encode('typed in Teaching'),
+				'',
+				'x'
+			);
+
+			expect(readHeldCopies(storage, 'Marking 2026').copies).toEqual([]);
+			expect(readHeldCopies(storage, 'Teaching').copies).toHaveLength(1);
+		});
+
+		it('makes its Workspace findable, so its room can be reclaimed', () => {
+			// A Workspace nobody reopens can hold nothing *but* these, and one missing from this list is
+			// one the user is never offered a way to reclaim.
+			new WriteAheadJournal(storage, 'Abandoned').hold('a/x.json', utf8.encode('x'), '', 'x');
+
+			expect(journalledWorkspaces(storage)).toEqual(['Abandoned']);
+		});
+
+		it('goes when the user discards its Workspace’s journal', () => {
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('pending'));
+			journal.hold('a/other.json', utf8.encode('declined'), '', 'x');
+
+			expect(discardJournal(storage, 'W')).toBe(2);
+
+			expect(readHeldCopies(storage, 'W').copies).toEqual([]);
+			expect(readJournal(storage, 'W').entries).toEqual([]);
+		});
+	});
+
+	describe('what the store held when the entry was made', () => {
+		it('takes the bytes a forget said the store had', () => {
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('v1'));
+			// The store took them, which is the one thing `forget` means.
+			journal.forget('a/project.json');
+
+			journal.record('a/project.json', utf8.encode('v2'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBe(fingerprintOf(utf8.encode('v1')));
+		});
+
+		it('does not move it to bytes the store has not taken', () => {
+			// Two edits inside one debounce window: the store still holds what it held before either
+			// of them, so the baseline must be neither of their bytes.
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('v1'));
+			journal.forget('a/project.json');
+
+			journal.record('a/project.json', utf8.encode('v2'));
+			journal.record('a/project.json', utf8.encode('v3'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBe(fingerprintOf(utf8.encode('v1')));
+		});
+
+		it('survives a restart, because it is carried by the entry rather than by the object', () => {
+			const before = new WriteAheadJournal(storage, 'W');
+			before.record('a/project.json', utf8.encode('v1'));
+			before.forget('a/project.json');
+			before.record('a/project.json', utf8.encode('v2'));
+
+			// A new session, with nothing in memory: the entry that is already there is the source.
+			new WriteAheadJournal(storage, 'W').record('a/project.json', utf8.encode('v3'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBe(fingerprintOf(utf8.encode('v1')));
+		});
+
+		it('reads an unusable one as no baseline rather than as a damaged entry', () => {
+			// The entry's own bytes are intact, and refusing it over its baseline would cost the user
+			// an edit to save a check. `replay.ts` then behaves as it did before the field existed.
+			storage.items.set(
+				'ballastella.journal.W/a%2Fproject.json',
+				JSON.stringify({ formatVersion: 1, at: '', bytes: 'AAA=', held: '' })
+			);
+			storage.items.set(
+				'ballastella.journal.W/b%2Fproject.json',
+				JSON.stringify({ formatVersion: 1, at: '', bytes: 'AAA=', held: 17 })
+			);
+
+			const { entries, problems } = readJournal(storage, 'W');
+
+			expect(problems).toEqual([]);
+			expect(entries.map((entry) => entry.held)).toEqual([null, null]);
+			expect(entries[0]?.bytes).toEqual(new Uint8Array([0, 0]));
+		});
+
+		/**
+		 * ⚠ **The scope of "no baseline", pinned, because prose about it was wrong twice.**
+		 *
+		 * It is not "the first edit to a path". `forget` is the only writer of a baseline and
+		 * `Autosave` calls it only after a store write has **succeeded**, so a path whose writes are
+		 * failing — the case the journal exists for — never gets one, however many edits are made and
+		 * however many times the tab is reopened.
+		 */
+		it('has none at all until a write to that path has succeeded, restarts included', () => {
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('e1'));
+			journal.record('a/project.json', utf8.encode('e2'));
+			journal.record('a/project.json', utf8.encode('e3'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBeNull();
+
+			// A new tab, meeting the entry the last one left behind.
+			new WriteAheadJournal(storage, 'W').record('a/project.json', utf8.encode('e4'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBeNull();
+		});
+
+		it('files nothing when the entry it is dropping will not decode', () => {
+			// ⚠ A payload that cannot be read says nothing about what the store holds. Filing a
+			// fingerprint of zero bytes would assert that the store holds an empty file — a fact nobody
+			// established — and `replay.ts` would then refuse the next stranded edit against it.
+			storage.items.set(
+				'ballastella.journal.W/a%2Fproject.json',
+				JSON.stringify({ formatVersion: 1, at: '', bytes: '!! not base64 !!' })
+			);
+			const journal = new WriteAheadJournal(storage, 'W');
+
+			journal.forget('a/project.json');
+			journal.record('a/project.json', utf8.encode('the next edit'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBeNull();
+		});
+
+		it('loses to a fact learned while the read that carries it was in flight', () => {
+			// ⚠ **The race three docblocks claimed did not exist** (round 5, finding C). `observe` is fed
+			// by reads already in flight when a save lands — `readLayerFeatures` and `readAnnotations`
+			// name the same file, so a redraw overlapping a debounced `writeAnnotations` is the ordinary
+			// shape. Without the token the stale read filed the *previous* content as the baseline, and
+			// the next stranded edit was refused with "that file has been changed since": false, and in
+			// exactly the case the journal exists for.
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('v1'));
+			const at = journal.mark(); // a read begins
+			journal.forget('a/project.json'); // the store takes v1 while it is in flight
+			journal.observe('a/project.json', utf8.encode('what the read saw, before'), at);
+
+			journal.record('a/project.json', utf8.encode('v2'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBe(fingerprintOf(utf8.encode('v1')));
+		});
+
+		it('goes when a deletion sweeps the path, rather than outliving it in memory', () => {
+			// ⚠ The memo is consulted *before* the stored entry, so `forgetUnder` removing the entry and
+			// leaving the memo would make the memo the only surviving source — describing a Project the
+			// user has just deleted. `project.json` is a fixed path, so a new Project of the same folder
+			// name lands on it and would have its first rescue refused.
+			const journal = new WriteAheadJournal(storage, 'W');
+			journal.record('a/project.json', utf8.encode('the deleted Project'));
+			journal.forget('a/project.json');
+			journal.forgetUnder('a/');
+
+			journal.record('a/project.json', utf8.encode('the new Project of the same name'));
+
+			expect(readJournal(storage, 'W').entries[0]?.held).toBeNull();
+		});
+
+		it('costs a fingerprint rather than a second copy of the bytes', () => {
+			// ⚠ An earlier draft stored the base64 of the store's content, which doubled every entry's
+			// `localStorage` footprint — and ADR-0017 already says an Annotation collection can exceed
+			// the origin budget on its own, where a refusal is a user-visible loss of protection. The
+			// envelope must grow by a constant, not by the payload.
+			const journal = new WriteAheadJournal(storage, 'W');
+			const payload = new Uint8Array(30_000).fill(7) as Bytes;
+			journal.record('a/project.json', payload);
+			const withoutBaseline = storage.items.get('ballastella.journal.W/a%2Fproject.json')?.length;
+			journal.forget('a/project.json');
+
+			journal.record('a/project.json', payload);
+
+			const withBaseline = storage.items.get('ballastella.journal.W/a%2Fproject.json')?.length;
+			expect(readJournal(storage, 'W').entries[0]?.held).not.toBeNull();
+			expect((withBaseline ?? 0) - (withoutBaseline ?? 0)).toBeLessThan(64);
+		});
 	});
 
 	it('forgets everything under a prefix, which is what a deletion needs', () => {

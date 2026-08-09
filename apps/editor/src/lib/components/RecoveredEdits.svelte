@@ -28,6 +28,9 @@
 	 *   * **Dismissed by the user and by nothing else.** It does not time out. Four separate lists
 	 *     are shown rather than a count, because "put back", "deliberately not put back", "could not
 	 *     be put back yet" and "this version will not read it" are four different things to do next.
+	 *   * **A row whose entry is *kept* carries its own exit** (ticket 07). Dismissal is keyed on the
+	 *     report's contents, so news about something still in the journal comes back at every startup
+	 *     until the thing itself goes.
 	 */
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
@@ -102,6 +105,26 @@
 	 */
 	function forgetDeletion(directory: string): void {
 		storage?.session.forgetDeletion(directory);
+		void tick().then(() => {
+			if (showing && dismissButton) dismissButton.focus();
+			else {
+				const main = document.querySelector('main');
+				if (main instanceof HTMLElement) {
+					main.tabIndex = -1;
+					main.focus();
+				}
+			}
+		});
+	}
+
+	/**
+	 * Throw away one refused entry's kept copy, and put focus somewhere that still exists.
+	 *
+	 * The same shape as {@link forgetDeletion} directly above, and for the same reason: the paragraph
+	 * holding the button goes with the entry.
+	 */
+	function forgetReplaySkip(path: string, copy: string): void {
+		storage?.session.forgetReplaySkip(path, copy);
 		void tick().then(() => {
 			if (showing && dismissButton) dismissButton.focus();
 			else {
@@ -212,8 +235,44 @@
 						{/each}
 					</ul>
 				{/if}
-				{#each report?.skipped ?? [] as entry (entry.path)}
-					<p class="text-sm text-warning" data-testid="recovered-skipped">{entry.detail}</p>
+				<!--
+					⚠ **A kept entry needs an exit, for the reason an unfinished deletion does** (ticket 07).
+
+					Every skip used to drop its entry, so every skip was news that could only be told once. Two
+					reasons now keep one — a refusal that would otherwise destroy an edit, and an entry
+					waiting on the scholar to say which version wins — and "Got it" below is keyed on the
+					report's *contents*, so the next startup builds a byte-identical report and shows the
+					same warning again, for ever. Nothing else ends it: no record expires, and Workspace
+					settings' discard would take every other file's rescue copy with it.
+
+					Unlike the deletion's note, this one **is** destructive, so the label says which file it
+					throws away and the sentence beside it has already said the copy is the only one.
+
+					⚠ **The identity travels with the row, not just the path.** This notice never expires, so
+					the button can be pressed after arbitrary later work; keyed on the path alone it destroyed
+					whatever was at that path *then* — including a stranded edit made an hour later.
+
+					⚠ **This is the only action offered, and it is the discarding one.** Applying a held copy
+					is a chooser that does not exist yet — ticket 03's — so a scholar meeting
+					`cannot-tell-which-is-newer` can read both versions' sizes and keep waiting, or throw the
+					copy away. Everything a chooser needs is already reachable; what is missing is the UI.
+				-->
+				{#each report?.skipped ?? [] as entry (`${entry.path}:${entry.copy ?? ''}`)}
+					{@const copy = entry.copy}
+					<p class="text-sm text-warning" data-testid="recovered-skipped">
+						{entry.detail}
+						{#if copy !== null}
+							<button
+								type="button"
+								class="btn ml-1 align-baseline btn-xs"
+								data-testid="forget-replay-skip"
+								aria-label="Throw away the kept copy of “{entry.path}”"
+								onclick={() => forgetReplaySkip(entry.path, copy)}
+							>
+								Throw this copy away
+							</button>
+						{/if}
+					</p>
 				{/each}
 				{#each report?.failed ?? [] as entry (entry.path)}
 					<p class="text-sm text-warning" data-testid="recovered-failed">{entry.detail}</p>

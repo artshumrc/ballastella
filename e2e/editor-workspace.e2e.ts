@@ -1198,6 +1198,97 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		expect(await everyPath(page)).toEqual(['amsterdam-1625/project.json']);
 	});
 
+	/**
+	 * ⚠ **The one assertion in ticket 07 that no unit seam can make** (round 3, mutation M16).
+	 *
+	 * `RecoveredEdits.svelte` puts a "Throw this copy away" beside a skipped row **only when its entry
+	 * was kept** — `'superseded'` and `'cannot-tell-which-is-newer'`, the two the scholar still has a
+	 * decision to make about. Rendering it on every row would offer to destroy a copy that is already
+	 * safely in the Workspace, and would do it in the one row whose whole message is "nothing needed
+	 * to be put back".
+	 *
+	 * That branch is markup, and the editor's Node project has no component seam to drive it; adding
+	 * one would be a new test seam, which this epic forbids. So it is asserted here, where the panel
+	 * really renders. The specimen is `already-in-the-store`: an entry whose bytes the Workspace
+	 * already holds, seeded at exactly the key `WriteAheadJournal` writes — which is the state a
+	 * `forget` the browser refused leaves behind.
+	 */
+	test('offers no way to throw away a copy the Workspace already has', async ({ page }) => {
+		await createProject(page, 'Amsterdam 1625');
+		// Byte-identical to what `createProject` has just written, read back rather than guessed, so the
+		// replay's verdict is `already-in-the-store` and not something that merely looks like it.
+		const path = 'amsterdam-1625/project.json';
+		await page.evaluate(async (at) => {
+			const root = await navigator.storage.getDirectory();
+			const workspaceName = localStorage.getItem('ballastella.workspace') || 'My Workspace';
+			const workspace = `opfs:${workspaceName}`;
+			let directory = await root.getDirectoryHandle(workspaceName);
+			const segments = at.split('/');
+			for (const segment of segments.slice(0, -1)) {
+				directory = await directory.getDirectoryHandle(segment);
+			}
+			const file = await directory.getFileHandle(segments[segments.length - 1] as string);
+			const bytes = new Uint8Array(await (await file.getFile()).arrayBuffer());
+			let binary = '';
+			for (const byte of bytes) binary += String.fromCharCode(byte);
+			localStorage.setItem(
+				`ballastella.journal.${encodeURIComponent(workspace)}/${encodeURIComponent(at)}`,
+				JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), bytes: btoa(binary) })
+			);
+		}, path);
+
+		await page.reload();
+
+		const notice = page.getByTestId('recovered-edits');
+		await expect(notice).toBeVisible();
+		await expect(notice).toContainText('did not need to be put back');
+		// Nothing was written, so it is not announced as a restoration either.
+		await expect(page.getByTestId('recovered-restored')).toHaveCount(0);
+		// And the destructive exit is absent, because there is nothing left to decide about.
+		await expect(page.getByTestId('forget-replay-skip')).toHaveCount(0);
+	});
+
+	/**
+	 * ⚠ **The presence half, and it is what makes the absence half mean anything** (round 5, finding
+	 * F; the discipline is main's own `5f03e86`, "Ask the WebGL2 patch check a presence question, not
+	 * an absence one"). Without this, renaming the `data-testid` satisfies the test above.
+	 *
+	 * The specimen is `cannot-tell-which-is-newer`: an entry with no baseline over a file that holds
+	 * something else. Nothing is written, the copy is kept out of the live journal, and it is the one
+	 * row a scholar still has a decision to make about — so it is the one row that carries an exit.
+	 */
+	test('offers a way to throw away a copy it is still holding', async ({ page }) => {
+		await createProject(page, 'Amsterdam 1625');
+		const path = 'amsterdam-1625/project.json';
+		await page.evaluate((at) => {
+			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
+			localStorage.setItem(
+				`ballastella.journal.${encodeURIComponent(workspace)}/${encodeURIComponent(at)}`,
+				JSON.stringify({
+					formatVersion: 1,
+					at: new Date().toISOString(),
+					// No `held`: the undecidable row, which is what keeps a copy the scholar must resolve.
+					bytes: btoa('{"formatVersion":1,"name":"A rename that never reached the disk"}')
+				})
+			);
+		}, path);
+
+		await page.reload();
+
+		const notice = page.getByTestId('recovered-edits');
+		await expect(notice).toBeVisible();
+		await expect(notice).toContainText('cannot tell whether it is newer');
+		// The exit is there, it names the file it would destroy, and pressing it ends the notice.
+		const exit = page.getByTestId('forget-replay-skip');
+		await expect(exit).toHaveCount(1);
+		await expect(exit).toHaveAccessibleName(`Throw away the kept copy of “${path}”`);
+		await exit.click();
+		await expect(page.getByTestId('recovered-skipped')).toHaveCount(0);
+
+		// And it was a copy that went, never a file: the Project is exactly where it was.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+	});
+
 	test('does not put an edit into a different named Workspace (ticket 12)', async ({ page }) => {
 		await openAndRename(page, 'Typed in the first Workspace');
 

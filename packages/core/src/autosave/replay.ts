@@ -17,6 +17,61 @@
 // put back yet" and "this build will not read it" are four different things to tell somebody.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// WHAT "NEWER" MEANS HERE, AND WHICH CASES ARE DECIDABLE (ticket 07)
+//
+// This module used to write every entry unconditionally, checking only that the thing the file
+// belongs to still existed. So a Workspace tar restored, a Project bundle opened, or a pyramid
+// ingested *after* an edit was journalled put the older bytes back over the newer ones — and named
+// the path in `restored`, which reads to the user as good news. Under the epic's change of direction
+// the journal is what makes a failed write safe, so an entry deliberately outlives a restart and
+// that stops being a latent hazard.
+//
+// **The journal and the store are different backends with no shared clock, so "newer" is decided by
+// content and never by time.** An entry carries `held` — a fingerprint of what the store held when
+// the edit was made (`journal.ts`) — and {@link compare} weighs it against what the store holds now.
+//
+// ⚠ **The rows of that decision are deliberately not transcribed here.** An earlier draft of this
+// header held them as a table; review found that the table had become the module's second interface,
+// that one of its rows was untested, and that its summary sentence stated the mechanism backwards —
+// three drifts in one commit, in prose describing six lines of code directly below it. The rows are
+// drivable, so they are driven: `replay.test.ts` has one `describe` per row, each named for what the
+// row claims — plus the absent-file case, which the loop answers before `compare` is asked.
+// **Change `compare`, read those.**
+//
+// What belongs here is what no single row says.
+//
+// **A baseline comes from the read, and that is the whole of why this works.** Nothing on the write
+// side can supply one: `WriteAheadJournal.record` is synchronous by contract, and `Autosave` learns
+// what the store holds only when a write is *acknowledged* — which is exactly the set of paths that
+// already had a baseline, so a seam there would have looked like a fix and closed nothing. What does
+// work is the read the application has already done: a file cannot be edited before it has been
+// shown, so `EditorSession` reports every `project.json`, Annotation collection and Alignment it
+// reads, at no extra I/O. An edit therefore has a baseline whenever the file it edits was opened.
+//
+// **Where there is still no baseline, nothing is decided silently — the scholar is asked.** That is
+// now a narrow case (a path nothing read), but narrow is not impossible, and a rare undecidable case
+// must not resolve silently either: both answers are indefensible without evidence, because writing
+// can revert somebody's newer work and refusing-and-dropping can lose a real strand. So the entry is
+// kept and named, with both versions described — `'cannot-tell-which-is-newer'`, below.
+//
+// ⚠ **That row is the domain half. Applying the held copy is a chooser that does not exist yet**, and
+// is ticket 03's; the panel today shows the sentence and offers to throw the copy away.
+//
+// **Direction of error.** `held` is read on one line, and only to *refuse* a write — absent, the
+// write does not happen either, so nothing here turns a wrong baseline into an overwrite. What can
+// is the store's side of the comparison: equality cannot tell "untouched since the edit" from
+// "changed and changed back", so a file restored from a backup to exactly its former content is
+// written over by an edit that predates the restore, and named in `restored`. That is a hole in what
+// the comparison can see, and the one channel in which this module can still cost an edit.
+//
+// **What this delivers for "recovery without knowing to act" (story 9): the ground for it, not it.**
+// The only thing that triggers a recovery is a startup replay. Nothing re-attempts within a session,
+// and the retry machinery is being deleted, so the scholar is relieved of knowing to make another
+// *edit* and left needing to know to *restart* — which nothing tells them to do. The undecidable row
+// above asks them to act as well, deliberately. Story 9 is **unblocked** by this and not fulfilled;
+// ticket 08 is what would close it.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 // AN ALIGNMENT IS WRITTEN THROUGH `alignment-file.ts`, AND THE FENCE CANNOT SEE THIS (ticket 18)
 //
 // Saying that plainly rather than relying on it: the path here comes out of a journal key, which is
@@ -31,11 +86,11 @@
 // The intent is `update`, and that is the honest one. The journalled bytes are the user's own
 // interrupted edit of an Alignment they had open, which is precisely what `update` means; a
 // `create` would decline whenever a file exists, which is every case that matters here, and this
-// fix would not fix Alignments at all. `update`'s documented gap comes with it unchanged: a
-// colleague's edit arriving through a synced Workspace between the interrupted write and this
-// replay is overwritten, exactly as it would have been had the original write completed. ADR-0023
-// accepts that gap in the same words and offers visibility rather than prevention — which is what
-// the report below is.
+// fix would not fix Alignments at all. `update`'s documented gap is **narrowed and not closed** by
+// ticket 07: a colleague's edit arriving through a synced Workspace between the interrupted write
+// and this replay is refused when the entry carries a baseline, and reported rather than overwritten
+// when it does not. ADR-0023 accepts that gap and offers visibility rather than prevention — which
+// is what the report below is.
 
 import {
 	writeAlignmentBytes,
@@ -57,7 +112,11 @@ import {
 import type { DeletedProjects } from './deleted-projects.js';
 import {
 	WriteAheadJournal,
+	describeSize,
+	fingerprintOf,
+	readHeldCopies,
 	readJournal,
+	type JournalEntry,
 	type JournalProblem,
 	type JournalStorage
 } from './journal.js';
@@ -78,13 +137,75 @@ export type ReplaySkipReason =
 	 */
 	| 'project-deleted'
 	/** The Historical Map it belongs to is no longer in this Workspace. */
-	| 'no-such-historical-map';
+	| 'no-such-historical-map'
+	/**
+	 * The store already holds exactly these bytes, so there is nothing to put back (ticket 07).
+	 *
+	 * Not `restored`, and the distinction is the whole of one acceptance criterion: nothing was
+	 * written, so naming the path under "the change has been written now" would be a claim about a
+	 * write that did not happen. It reaches here when the store took the bytes and the entry
+	 * outlived them anyway — a `forget` the browser refused, or a page closed between this module's
+	 * write and its own `forget`.
+	 */
+	| 'already-in-the-store'
+	/**
+	 * There is an edit here, and nothing can tell whether the file on disk is newer than it or older
+	 * (ticket 07, round 3).
+	 *
+	 * The entry carries no baseline — see `journal.ts`. Since the read-path seam that is a narrow case
+	 * rather than the normal one: a file has to have been read to be edited, and every read reports.
+	 * What is left is a path nothing read — an entry from an older build, or one whose file was never
+	 * opened in the session that wrote it. There the two readings are equally consistent with the
+	 * evidence: the store may hold the last version this application managed to save, in which case
+	 * the entry is a rescue; or a Workspace restore, a bundle, or another tab may have written it
+	 * since, in which case putting the entry back is a revert.
+	 *
+	 * ⚠ **Both silent answers are indefensible, so neither is taken.** Writing can destroy somebody's
+	 * newer work; refusing and dropping can destroy a real strand. What is left is to say so: the
+	 * entry is **kept**, the sentence names both versions and their sizes, and the scholar decides.
+	 * An earlier round wrote silently here and described it as a narrow residual in three places.
+	 *
+	 * ⚠ **The domain half only.** The panel renders the sentence and offers to throw the copy away;
+	 * *applying* it is a chooser that does not exist yet and is ticket 03's. Everything one needs is
+	 * reachable: the kept bytes from `readJournal`, the bytes on disk from `store.read`.
+	 */
+	| 'cannot-tell-which-is-newer'
+	/**
+	 * Something wrote this file after the edit was journalled, so putting it back would be a revert
+	 * (ticket 07).
+	 *
+	 * See the module header for how that is decided and for the case it cannot decide. This is the
+	 * one skip reason whose entry is **kept**: its bytes are a real edit of the user's that is on
+	 * disk nowhere, and the routes that overwrite a journalled path — a Workspace tar, a Project
+	 * bundle, an ingest — are ones where the user may well want it back.
+	 */
+	| 'superseded';
 
 export interface ReplaySkipped {
 	readonly path: StorePath;
 	readonly reason: ReplaySkipReason;
 	/** One sentence, written for the user. */
 	readonly detail: string;
+	/**
+	 * The identity of the copy kept for this row, or `null` when nothing was kept.
+	 *
+	 * Every skip used to be a drop. `'superseded'` and `'cannot-tell-which-is-newer'` are not, so
+	 * "deliberately not put back" stopped being a single thing to say about what happens next — and
+	 * the two are kept for different reasons. A superseded copy can never be applied and is held only
+	 * so that a refusal does not destroy an edit; an undecidable one is held because it is *waiting on
+	 * the scholar*, which is a state it has to persist in until they act.
+	 *
+	 * ⚠ **A fingerprint rather than a boolean, and that is a fix rather than a decoration.** This
+	 * report is built at startup and the panel that renders it never expires, so its "throw this copy
+	 * away" can be pressed after arbitrary later work. Keyed on the path alone it destroyed whatever
+	 * was at that path *then* — a stranded edit made an hour later, irreversibly — while the sentence
+	 * beside the button described a different, older version and said the copy had been kept. The
+	 * identity travels with the row so the remedy reaches the bytes the sentence is about.
+	 *
+	 * `forgetHeldCopy(storage, workspace, path, copy)` — a module-level function in `journal.ts`,
+	 * not a method — is what it is handed to, along with the row's `path`.
+	 */
+	readonly copy: string | null;
 }
 
 export interface ReplayFailure {
@@ -127,6 +248,16 @@ export interface ReplayOptions {
 	 * storage itself has.
 	 */
 	readonly deleted?: DeletedProjects;
+	/**
+	 * The journal this Workspace's session already holds, if it has one (ticket 07).
+	 *
+	 * Without it a replay builds its own and throws it away, and everything it learned about the
+	 * store goes with it. That matters for one case in particular: a `'superseded'` skip keeps an
+	 * entry whose baseline is provably stale, and the only thing that stops that refusal repeating
+	 * for every later edit to the path is `WriteAheadJournal.observe` — called here, on the instance
+	 * the rest of the session will record through.
+	 */
+	readonly journal?: WriteAheadJournal;
 }
 
 /**
@@ -146,8 +277,17 @@ export async function replayJournal(
 	workspace: string,
 	options: ReplayOptions = {}
 ): Promise<JournalReplayReport> {
-	const journal = new WriteAheadJournal(storage, workspace);
-	const { entries, problems } = readJournal(storage, workspace);
+	// The session's own journal where there is one, so that what this run *observes* about the store
+	// outlives the call. See {@link ReplayOptions.journal}.
+	const journal = options.journal ?? new WriteAheadJournal(storage, workspace);
+	const { entries, problems: journalProblems } = readJournal(storage, workspace);
+	// ⚠ **Snapshotted before the loop, because the loop adds to it.** A copy this run declines is held
+	// during the walk below, and re-reading afterwards would report it twice — once as the decision
+	// just taken and once as an older copy still waiting.
+	const { copies: alreadyHeld, problems: heldProblems } = readHeldCopies(storage, workspace);
+	// One list, because to a reader they are one thing: work this build will not put back and cannot
+	// recover. Which storage namespace the damage was in is not a distinction they can act on.
+	const problems = [...journalProblems, ...heldProblems];
 
 	const restored: StorePath[] = [];
 	const skipped: ReplaySkipped[] = [];
@@ -164,7 +304,80 @@ export async function replayJournal(
 				// The thing it belonged to is gone, so the entry can never be used and would otherwise
 				// be reported at every startup for ever. Dropped *after* being named in the report, and
 				// only on the unambiguous evidence `missingOwner` insists on.
+				//
+				// `discard` and not `forget`: these bytes reached no store and never will, and `forget`
+				// would file them as what the store holds for that path.
+				journal.discard(entry.path);
+				continue;
+			}
+
+			// After `missingOwner`, so a deleted Project's entry is refused by name rather than by
+			// whatever its files happen to say, and before the write, because this is the question
+			// that decides whether there is a write at all.
+			//
+			// **An absent file is the one case that needs no question**: nothing is there, so nothing can
+			// be reverted, and the write at the bottom is reached with no verdict asked for. That is
+			// narrower than "nothing newer exists" — a deletion is a newer state too, and this recreates
+			// the file over one — but no deletion path leaves a live entry behind to reach it.
+			const current = await currentBytes(store, entry.path);
+			const verdict = current === null ? null : compare(entry, current);
+			if (current !== null && verdict === 'already-in-the-store') {
+				skipped.push({
+					path: entry.path,
+					reason: verdict,
+					copy: null,
+					detail:
+						`An unsaved change to “${entry.path}” did not need to be put back — your ` +
+						`Workspace already had it.`
+				});
+				// The store has these bytes, which is the one condition under which an entry is meant to
+				// go; this is exactly the `forget` that did not happen when it should have.
 				journal.forget(entry.path);
+				continue;
+			}
+			if (current !== null && verdict === 'cannot-tell-which-is-newer') {
+				// The same observation the `superseded` branch makes, for the same reason and not only
+				// for symmetry: this entry has no baseline, so without it the *next* edit to this path
+				// would be undecidable too and the scholar would be asked again about a file they have
+				// since seen. The store has just been read; this is the moment it is known for certain.
+				journal.observe(entry.path, current, journal.mark());
+				// Kept, and the sentence carries what a person needs to choose between the two: how big
+				// each is, and when the held one was made. The bytes themselves are not copied into the
+				// report — a chooser reads them from `readHeldCopies` and `store.read`, which is where
+				// they already are, and a report is not a place to hold two copies of a file.
+				const setAside = journal.hold(entry.path, entry.bytes, entry.at, verdict);
+				skipped.push({
+					path: entry.path,
+					reason: verdict,
+					copy: setAside,
+					detail:
+						`An unsaved change to “${entry.path}” was found, and Ballastella cannot tell ` +
+						`whether it is newer than the file in your Workspace. The unsaved copy is ` +
+						`${describeSize(entry.bytes.length)}${describeWhen(entry.at)}; ` +
+						`the file in your Workspace is ${describeSize(current.length)}. Nothing has been ` +
+						`overwritten. ${describeWhereItWent(setAside)}`
+				});
+				continue;
+			}
+			if (current !== null && verdict === 'superseded') {
+				// ⚠ **Tell the journal what is actually there, or this refusal becomes a standing one.**
+				// `WriteAheadJournal.#baseline` would otherwise carry this copy's now provably-stale
+				// baseline into the *next* edit to this path — refusing that one too, and the one after,
+				// until some save finally succeeds. The store has just been read; this is the one moment
+				// anything in this application knows the truth for certain.
+				journal.observe(entry.path, current, journal.mark());
+				// Kept, and not written. See {@link ReplaySkipReason}: this is the only copy of an edit
+				// that is on disk nowhere, so the answer is to say so rather than to drop it.
+				const setAside = journal.hold(entry.path, entry.bytes, entry.at, verdict);
+				skipped.push({
+					path: entry.path,
+					reason: verdict,
+					copy: setAside,
+					detail:
+						`An unsaved change to “${entry.path}” was not put back, because that file has been ` +
+						`changed since the change was made — putting it back would undo the newer one. ` +
+						`${describeWhereItWent(setAside)}`
+				});
 				continue;
 			}
 
@@ -184,8 +397,118 @@ export async function replayJournal(
 		}
 	}
 
+	// ⚠ **The copies earlier startups declined, offered again.** Not entries: nothing is waiting to put
+	// them in the store, and treating them as entries would apply the very bytes a previous startup
+	// refused. They are reported until somebody acts on them, because a copy nobody is told about is a
+	// copy the scholar can neither use nor reclaim the room from.
+	for (const copy of alreadyHeld) {
+		try {
+			const current = await currentBytes(store, copy.path);
+			skipped.push({
+				path: copy.path,
+				reason: copy.reason === 'superseded' ? 'superseded' : 'cannot-tell-which-is-newer',
+				copy: copy.fingerprint,
+				detail:
+					`An unsaved change to “${copy.path}”${describeWhen(copy.at)} is still being kept: ` +
+					`it was not put back, and nothing has been overwritten. The kept copy is ` +
+					`${describeSize(copy.bytes.length)}; ` +
+					`${
+						current === null
+							? 'there is no such file in your Workspace now'
+							: `the file in your Workspace is ${describeSize(current.length)}`
+					}.`
+			});
+		} catch (cause) {
+			failed.push({
+				path: copy.path,
+				detail:
+					`A kept copy of “${copy.path}” could not be described: ` +
+					`${cause instanceof Error ? cause.message : String(cause)}. It is still being kept.`
+			});
+		}
+	}
+
 	return { workspace, restored, skipped, failed, problems };
 }
+
+/**
+ * When an edit was made, for a person rather than for a log.
+ *
+ * `JournalEntry.at` is ISO 8601 because that is what round-trips through storage; put in a sentence
+ * raw it reads `from 2026-08-09T12:34:56.789Z`, which is a timestamp a scholar has to decode to use.
+ * An empty `at` — an entry from a build that did not record one — says nothing rather than guessing.
+ */
+/**
+ * What became of the copy, in the sentence the scholar reads.
+ *
+ * ⚠ **A refusal to set the copy aside used to be indistinguishable from success.** `hold` answered
+ * with the same fingerprint either way, so a full origin produced *"It has been kept"* beside a
+ * **Throw this copy away** button, for a copy that did not exist — and pressing it reported success
+ * for a removal that removed nothing. Two outcomes, two sentences, and the `null` is what stops the
+ * button rendering at all.
+ */
+function describeWhereItWent(copy: string | null): string {
+	return copy === null
+		? `Ballastella could not set your copy aside — there is no room left in this browser's ` +
+				`storage for it. It is still in the journal, where the next change to this file will ` +
+				`replace it, so save or copy anything you need from it now.`
+		: `Your copy has been kept.`;
+}
+
+function describeWhen(at: string): string {
+	if (at === '') return '';
+	const when = new Date(at);
+	if (Number.isNaN(when.getTime())) return '';
+	return `, from ${when.toLocaleString()}`;
+}
+
+/** What replay decided to do with one entry, once its owner had been checked. */
+type ReplayVerdict = 'write' | 'already-in-the-store' | 'cannot-tell-which-is-newer' | 'superseded';
+
+/**
+ * What the store holds at `path` now, or `null` when it holds nothing.
+ *
+ * ⚠ **Only `PathNotFoundError` is read as "nothing".** Anything else is a Workspace that could not
+ * answer — an unplugged drive, a permission that lapsed — and it is rethrown so the entry becomes a
+ * reported `failed` that is kept and tried again, rather than an absence that licenses a write. That
+ * is the direction `hasHistoricalMap` and `missingOwner` both take, for the same reason.
+ */
+async function currentBytes(store: ProjectStore, path: StorePath): Promise<Bytes | null> {
+	try {
+		return await store.read(path);
+	} catch (cause) {
+		if (cause instanceof PathNotFoundError) return null;
+		throw cause;
+	}
+}
+
+/**
+ * Whether this entry may be written over what the store holds now (ticket 07).
+ *
+ * The whole of "replay never reverts newer bytes". Every branch is named for the answer it gives and
+ * driven by a `describe` of the same name in `replay.test.ts`; the module header carries what no
+ * single branch says. Kept out of the loop so it is one function a reader can hold in their head.
+ */
+function compare(entry: JournalEntry, current: Bytes): ReplayVerdict {
+	if (sameBytes(current, entry.bytes)) return 'already-in-the-store';
+	// No baseline, and something different on disk: the evidence is equally consistent with a rescue
+	// and with a revert. Neither silent answer is defensible, so the question is asked instead.
+	if (entry.held === null) return 'cannot-tell-which-is-newer';
+	if (fingerprintOf(current) !== entry.held) return 'superseded';
+	return 'write';
+}
+
+/**
+ * ⚠ **The length guard is load-bearing and easy to lose.** Without it, `every` walks only the
+ * shorter run, so any byte string that is a strict *prefix* of the other compares equal — and both
+ * of this function's callers then answer wrongly in a destructive direction: an entry whose store
+ * content is a prefix of it is reported "already in the store" and dropped, destroying the edit, and
+ * a growing file's baseline compares equal, licensing the exact revert this module exists to
+ * prevent. Fixtures that differ in length hide it, which is why `replay.test.ts` drives a
+ * prefix pair in both positions.
+ */
+const sameBytes = (left: Bytes, right: Bytes): boolean =>
+	left.length === right.length && left.every((byte, at) => byte === right[at]);
 
 /**
  * Write one journalled entry, choosing the route by what the path names.
@@ -382,6 +705,7 @@ async function missingOwner(
 		return {
 			path,
 			reason: 'project-deleted',
+			copy: null,
 			detail:
 				`An unsaved change to “${path}” was not put back, because you deleted the ` +
 				`Project it belongs to.`
@@ -404,6 +728,7 @@ async function missingOwner(
 			: {
 					path,
 					reason: 'no-such-historical-map',
+					copy: null,
 					detail:
 						`An unsaved change to “${path}” was not put back, because the Historical Map it ` +
 						`belongs to is no longer in this Workspace.`
@@ -430,6 +755,7 @@ async function missingOwner(
 		return {
 			path,
 			reason: 'no-such-project',
+			copy: null,
 			detail:
 				`An unsaved change to “${path}” was not put back, because the Project it belongs to is ` +
 				`no longer in this Workspace.`

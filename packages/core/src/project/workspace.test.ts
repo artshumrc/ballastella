@@ -152,6 +152,108 @@ describe('Workspace', () => {
 			expect(decode(await store.read('from-the-future/project.json'))).toBe(original);
 		});
 
+		/**
+		 * ─────────────────────────────────────────────────────────────────────────────────────
+		 * WHAT THE STORE HELD, REPORTED FROM THE READ THAT ALREADY HAPPENS (ticket 07)
+		 *
+		 * The write-ahead journal has to record what an edit was made *against*, and it cannot ask the
+		 * store: `WriteAheadJournal.record` is synchronous by contract, and `Autosave` learns what the
+		 * store holds only from an acknowledged write, which is the case that already worked. Opening
+		 * a Project is the moment the bytes are in hand for nothing.
+		 */
+		describe('what the store held, told to whoever is listening', () => {
+			const RAW_MANIFEST = '{"formatVersion":1,"name":"Amsterdam 1625","layers":[],"baseMap":null}';
+
+			it('takes its token before the read, so a save in flight is not undone by it', async () => {
+				// ⚠ **The ordering that a "no race" claim in three docblocks asserted and nothing checked**
+				// (round 5, finding C). What a read carries is evidence about the moment it *began*; a
+				// store write landing while it is in flight leaves that evidence stale, and filing it as
+				// current refuses the next stranded edit with a sentence that is not true.
+				//
+				// Driven rather than asserted as an ordering of calls: the counter is advanced *during*
+				// the read, standing in for the save that lands mid-flight, so a token taken afterwards
+				// comes back later than the fact it is supposed to predate. Asserting "mark, then
+				// observe" would pass either way, which is the shape this whole ticket keeps meeting.
+				await store.write('amsterdam-1625/project.json', new TextEncoder().encode(RAW_MANIFEST));
+				let counter = 0;
+				const tokens: number[] = [];
+				const read = store.read.bind(store);
+				store.read = async (path) => {
+					const bytes = await read(path);
+					counter += 10;
+					return bytes;
+				};
+				const watched = new Workspace(store, {
+					now: () => clock,
+					observer: {
+						mark: () => {
+							counter += 1;
+							return counter;
+						},
+						observe: (_path, _bytes, at) => tokens.push(at)
+					}
+				});
+
+				await watched.readProject('amsterdam-1625');
+
+				// 1, taken before the read. Taken afterwards it would be 12, and would outrank the save.
+				expect(tokens).toEqual([1]);
+			});
+
+			it('reports the bytes it read, before parsing them', async () => {
+				const raw = RAW_MANIFEST;
+				await store.write('amsterdam-1625/project.json', new TextEncoder().encode(raw));
+				const seen: [string, string][] = [];
+				const watched = new Workspace(store, {
+					now: () => clock,
+					observer: { mark: () => 1, observe: (path, bytes) => seen.push([path, decode(bytes)]) }
+				});
+
+				await watched.readProject('amsterdam-1625');
+
+				// ⚠ The bytes, not a re-serialisation of the parsed model. A journal baseline is a
+				// fingerprint of what is on disk, and `serialiseProjectFile` stamps `updatedAt` — so a
+				// model round trip would report content the store has never held and refuse the rescue
+				// it exists to permit.
+				expect(seen).toEqual([['amsterdam-1625/project.json', raw]]);
+			});
+
+			it('says nothing when there was nothing to read', async () => {
+				// An absent or unreadable file tells nobody what the store holds, and a guess in either
+				// direction is worse than the "cannot tell which is newer" this exists to avoid.
+				const seen: string[] = [];
+				const watched = new Workspace(store, {
+					now: () => clock,
+					observer: { mark: () => 1, observe: (path) => seen.push(path) }
+				});
+
+				await watched.readProject('never-existed').catch(() => undefined);
+
+				expect(seen).toEqual([]);
+			});
+
+			it('reports a manifest this build refuses to parse, because the store does hold it', async () => {
+				// ⚠ **A failed *read* and a failed *parse* are not the same event**, and the difference
+				// decides this. Nothing can be said about bytes that never arrived; these arrived
+				// perfectly and are exactly what the store holds. A Project from a newer version cannot
+				// be opened, so no edit of it can strand — but `annotations/` beside it can, and the
+				// report costs nothing either way.
+				await store.write(
+					'from-the-future/project.json',
+					new TextEncoder().encode('{"formatVersion":2,"name":"Tomorrow"}')
+				);
+				const seen: string[] = [];
+				const watched = new Workspace(store, {
+					now: () => clock,
+					observer: { mark: () => 1, observe: (path) => seen.push(path) }
+				});
+
+				await watched.readProject('from-the-future').catch(() => undefined);
+
+				expect(seen).toEqual(['from-the-future/project.json']);
+			});
+		});
+
 		it('writes nothing at all when a Project is opened and closed without an edit', async () => {
 			// ADR-0010: merely looking at last year's work must not produce a diff in a git
 			// working tree or sync a rewrite to another machine.

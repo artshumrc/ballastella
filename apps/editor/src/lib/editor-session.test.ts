@@ -13,12 +13,19 @@ import {
 	WriteAheadJournal,
 	alignmentPath,
 	acceptRemoteImageService,
+	emptyAnnotationCollection,
+	fingerprintOf,
+	newAnnotationLayer,
+	newMapLayer,
 	imageInfoPath,
 	newAlignment,
 	newProjectFile,
 	projectFilePath,
+	serialiseAlignment,
+	readHeldCopies,
 	readJournal,
 	serialiseProjectFile,
+	type AnnotationLayer,
 	type Bytes,
 	type StorePath
 } from '@ballastella/core';
@@ -286,6 +293,260 @@ describe('deleting a Project, at the unit seam', () => {
 		expect(session.deletionReport).toBeNull();
 		// And it is a note that went, never a file: the Project is exactly where it was.
 		expect(await session.store.list('')).toEqual([projectFilePath(DIRECTORY)]);
+	});
+
+	/**
+	 * ⚠ **The same corner, reached by a different route** (ticket 07, round 2).
+	 *
+	 * `'superseded'` is the first replay skip that *keeps* its journal entry — deliberately, because
+	 * those bytes are the only copy of an edit that reached no store. The panel's dismiss is keyed on
+	 * report contents, so a kept entry means a byte-identical warning at every startup for ever, and
+	 * the only other exit is discarding the whole Workspace's journal. So the row carries its own.
+	 */
+	it('throws away one refused entry’s kept copy, and takes the panel with the last one', async () => {
+		const { session, storage, store } = await sessionWithJournal();
+		const path = `${DIRECTORY}/annotations/one.geojson` as StorePath;
+		const journal = new WriteAheadJournal(storage, WORKSPACE);
+		// A stranded edit that knows what was on disk, then something else writing that path — which
+		// is what makes the replay refuse rather than restore.
+		await store.write(path, new TextEncoder().encode('v1') as Bytes);
+		journal.record(path, new TextEncoder().encode('v1') as Bytes);
+		journal.forget(path);
+		journal.record(path, new TextEncoder().encode('the edit that stranded') as Bytes);
+		await store.write(path, new TextEncoder().encode('v2-NEWER') as Bytes);
+
+		await session.replayJournalledEdits();
+		const skip = session.replayReport?.skipped[0];
+		expect([skip?.reason, skip?.copy]).toEqual(['superseded', expect.any(String)]);
+
+		// ⚠ **A second row whose declined bytes are byte-identical, so it shares a fingerprint** (round
+		// 6, finding D). An empty Annotation collection in two Projects is the ordinary way to get one.
+		// Filtered on the fingerprint alone, dismissing this row removed both — while only one copy was
+		// destroyed, so the survivor came back at the next startup with no explanation.
+		const twin = `${DIRECTORY}/annotations/twin.geojson` as StorePath;
+		new WriteAheadJournal(storage, WORKSPACE).hold(
+			twin,
+			new TextEncoder().encode('the edit that stranded') as Bytes,
+			'',
+			'superseded'
+		);
+		await session.replayJournalledEdits();
+		expect(session.replayReport?.skipped).toHaveLength(2);
+		const rows = session.replayReport?.skipped ?? [];
+		expect(new Set(rows.map((row) => row.copy)).size).toBe(1);
+
+		session.forgetReplaySkip(path, skip?.copy ?? '');
+
+		// The twin is still there, named and offered, because it is a different file.
+		expect(session.replayReport?.skipped.map((row) => row.path)).toEqual([twin]);
+		expect(readHeldCopies(storage, WORKSPACE).copies.map((copy) => copy.path)).toEqual([twin]);
+
+		// And what it refused to overwrite is exactly where it was.
+		expect(new TextDecoder().decode(await store.read(path))).toBe('v2-NEWER');
+	});
+
+	/**
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * A STRANDED EDIT IS PUT BACK, RATHER THAN REPORTED AND HELD (ticket 07, round 4)
+	 *
+	 * This is the whole value of the read-path seam, driven end to end: **the same sequence answered
+	 * `'cannot-tell-which-is-newer'` before it existed.**
+	 *
+	 * A journal entry has to say what its edit was made against, and nothing on the *write* side can
+	 * tell it — `record` is synchronous and `Autosave` only learns what the store holds when a write
+	 * is acknowledged, which is the case that already worked. Opening the Project is the read that
+	 * makes it knowable, and it is a read the application was doing anyway.
+	 */
+	it('puts a stranded edit back at the next startup, because opening the Project said what was on disk', async () => {
+		const { session, storage, store } = await sessionWithJournal();
+		const path = projectFilePath(DIRECTORY);
+		const onDisk = await store.read(path);
+
+		// The read that already happens. Nothing is written by it (ADR-0010).
+		await session.open(DIRECTORY);
+
+		// The scholar renames, and the store refuses the write: the edit is stranded, and its journal
+		// entry is now the only copy of it.
+		const write = store.write.bind(store);
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session
+			.renameProject(DIRECTORY, 'A name that did not reach the disk')
+			.catch(() => undefined);
+		expect(readJournal(storage, WORKSPACE).entries[0]?.held).toBe(fingerprintOf(onDisk));
+
+		// A new tab, with the drive back.
+		store.write = write;
+		await session.replayJournalledEdits();
+
+		expect(session.replayReport?.restored).toEqual([path]);
+		expect(session.replayReport?.skipped).toEqual([]);
+		expect(new TextDecoder().decode(await store.read(path))).toContain(
+			'A name that did not reach the disk'
+		);
+	});
+
+	/**
+	 * The same seam on the file a scholar actually edits all day.
+	 *
+	 * Deliberately a collection **already on disk that this session never wrote**: a Layer added in
+	 * this session has its baseline from the `forget` of its own first write, which is the case that
+	 * worked before ticket 07. Last week's Annotations, opened today, are the case that did not.
+	 */
+	it.each([
+		['readAnnotations', (s: EditorSession, l: AnnotationLayer) => s.readAnnotations(l)],
+		['readLayerFeatures', (s: EditorSession, l: AnnotationLayer) => s.readLayerFeatures(l)]
+	])('says what an Annotation collection held, from %s', async (_name, read) => {
+		// ⚠ **Both readers, because they are two methods over one file.** The Layer stack draws through
+		// `readLayerFeatures` and the editing surface through `readAnnotations`, and a scholar can reach
+		// an edit through either — so a baseline that only one of them supplied would be missing on
+		// whichever route they happened to take.
+		const { session, storage, store } = await sessionWithJournal();
+		const layer = newAnnotationLayer({ id: 'one', name: 'Warehouses' });
+		const path = `${DIRECTORY}/${layer.geojsonRef}` as StorePath;
+		const onDisk = new TextEncoder().encode(
+			'{"type":"FeatureCollection","features":[],"note":"last week"}'
+		) as Bytes;
+		await store.write(path, onDisk);
+		await store.write(
+			projectFilePath(DIRECTORY),
+			serialiseProjectFile({
+				...newProjectFile('Amsterdam 1625', new Date('2026-08-08T00:00:00Z')),
+				layers: [layer]
+			})
+		);
+		await session.open(DIRECTORY);
+
+		await read(session, layer);
+
+		// The scholar edits, and the write strands.
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session
+			.writeAnnotations(layer, { ...emptyAnnotationCollection(), annotations: [] })
+			.catch(() => undefined);
+
+		expect(readJournal(storage, WORKSPACE).entries.find((entry) => entry.path === path)?.held).toBe(
+			fingerprintOf(onDisk)
+		);
+	});
+
+	/**
+	 * And the third read, the one whose file is shared by every Project that draws the map.
+	 *
+	 * Worth its own test rather than folded into the two above: an Alignment is written through
+	 * `alignment-file.ts` and read through a different method from either of them, so "the read paths
+	 * report" is three call sites and not one.
+	 */
+	it.each([
+		[
+			'readAlignment',
+			(sn: EditorSession, image: { width: number; height: number }) =>
+				sn.readAlignment('floride-1657', image)
+		],
+		[
+			'readLayerAlignment',
+			(sn: EditorSession) =>
+				sn.readLayerAlignment(newMapLayer({ id: 'l', name: 'La Floride', imageId: 'floride-1657' }))
+		]
+	])('says what an Alignment held, from %s', async (_name, read) => {
+		// ⚠ **Both readers, one per test row.** The alignment editor reads through the first and the
+		// Project screen draws through the second; a scholar reaches an edit by either route. Driving
+		// them in one test would let each one cover for the other's deletion, which is the coincidence
+		// that has hidden two defects in this ticket already.
+		const { session, storage, store } = await sessionWithJournal();
+		const image = { width: 400, height: 300 };
+		const onDisk = serialiseAlignment({
+			...newAlignment('floride-1657', image),
+			controlPoints: [
+				{ id: 'p0', ordinal: 1, resource: { x: 10, y: 20 }, geo: { lng: 4.9, lat: 52.3 } }
+			]
+		});
+		// alignment-write-is-the-fixture: last week's Alignment, on disk before this session started; the point of the test is that reading it is what tells the journal what the edit is made against
+		await store.write(alignmentPath('floride-1657') as StorePath, onDisk);
+		await session.open(DIRECTORY);
+
+		const alignment = await read(session, image);
+		if (alignment === null) throw new Error('the fixture Alignment did not read back');
+
+		// Another Control Point, and the store refuses the write.
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session
+			.writeAlignment({
+				...alignment,
+				controlPoints: [
+					...alignment.controlPoints,
+					{ id: 'p1', ordinal: 2, resource: { x: 30, y: 40 }, geo: { lng: 5.0, lat: 52.4 } }
+				]
+			})
+			.catch(() => undefined);
+
+		expect(
+			readJournal(storage, WORKSPACE).entries.find(
+				(entry) => entry.path === alignmentPath('floride-1657')
+			)?.held
+		).toBe(fingerprintOf(onDisk));
+	});
+
+	/**
+	 * ⚠ **The one thing the seam must not buy back.** Reading fixes what the edit was made against; it
+	 * does not license writing over whatever turns up later. A Workspace restore between the read and
+	 * the startup still has to be refused.
+	 */
+	it('still refuses to put that edit back over something written after it', async () => {
+		const { session, storage, store } = await sessionWithJournal();
+		const path = projectFilePath(DIRECTORY);
+
+		await session.open(DIRECTORY);
+
+		const write = store.write.bind(store);
+		store.write = () => Promise.reject(new Error('the drive is not there'));
+		await session
+			.renameProject(DIRECTORY, 'A name that did not reach the disk')
+			.catch(() => undefined);
+		store.write = write;
+		// Something outside `Autosave` — a tar restored into this Workspace — writing the same path.
+		const colleague = serialiseProjectFile(
+			newProjectFile('The colleague’s name', new Date('2026-08-09T00:00:00Z'))
+		);
+		await store.write(path, colleague);
+
+		await session.replayJournalledEdits();
+
+		expect(session.replayReport?.restored).toEqual([]);
+		expect(session.replayReport?.skipped.map((entry) => entry.reason)).toEqual(['superseded']);
+		expect(await store.read(path)).toEqual(colleague);
+		// And the scholar's copy is still held — out of the live journal, so the next edit to this file
+		// overwrites an entry rather than the copy the notice is about (round 5, finding B).
+		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
+		expect(readHeldCopies(storage, WORKSPACE).copies.map((held) => held.path)).toEqual([path]);
+	});
+
+	/**
+	 * ⚠ **A held copy has to go with the Historical Map it belongs to** (round 6, finding B).
+	 *
+	 * `alignments/<id>.json` is a *sibling* of `images/<id>/`, which is why `#forgetJournalled` needs a
+	 * second call at all — and that second call was `forget`, which sweeps no held copy and, worse,
+	 * means "the store has taken these bytes". A copy declined for a deleted map's Alignment outlived
+	 * the map and was reported at every startup for ever, with a remedy about a file that is gone.
+	 */
+	it('takes a declined Alignment copy with the Historical Map it belonged to', async () => {
+		const { session, storage, store } = await sessionWithJournal();
+		const image = { width: 400, height: 300 };
+		const onDisk = serialiseAlignment(newAlignment('floride-1657', image));
+		// alignment-write-is-the-fixture: the Alignment on disk that the declined copy diverged from; nothing here writes one through the app
+		await store.write(alignmentPath('floride-1657') as StorePath, onDisk);
+		await store.write(imageInfoPath('floride-1657'), new TextEncoder().encode('{}') as Bytes);
+		const journal = new WriteAheadJournal(storage, WORKSPACE);
+		journal.hold(
+			alignmentPath('floride-1657') as StorePath,
+			new TextEncoder().encode('the control points that stranded') as Bytes,
+			'',
+			'cannot-tell-which-is-newer'
+		);
+		expect(readHeldCopies(storage, WORKSPACE).copies).toHaveLength(1);
+
+		await session.deleteHistoricalMap('floride-1657');
+
+		expect(readHeldCopies(storage, WORKSPACE).copies).toEqual([]);
 	});
 
 	/** And the record carries what the hub was showing, which is what a startup checks before removing. */

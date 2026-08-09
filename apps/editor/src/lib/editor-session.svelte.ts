@@ -19,6 +19,7 @@ import {
 	annotationStorePath,
 	assembleWithCanvas,
 	browserJournalStorage,
+	forgetHeldCopy,
 	deletionsAreNoteworthy,
 	replayIsNoteworthy,
 	replayJournal,
@@ -89,6 +90,7 @@ import {
 	type AnnotationLayer,
 	type BaseMapCacheSize,
 	type Bytes,
+	type StorePath,
 	type CachedTileSource,
 	type FetchFn,
 	type FetchTilesOptions,
@@ -635,6 +637,10 @@ export class EditorSession {
 			// `'a-name-anywhere'`, which is the direction that destroys nothing, rather than leaving
 			// the safe answer to a ternary a reader has to check.
 			identity: workspaceIdentityOf(options.workspaceKey ?? ''),
+			// What a `project.json` held when it was read, told to the journal (ticket 07). See
+			// {@link #readObserved} for why the read path is where this has to come from, and why the
+			// port has two calls rather than one.
+			...(this.#journal ? { observer: this.#journal } : {}),
 			onDeletionNotRecorded: () => {
 				this.deletionWarning =
 					'This browser would not let Ballastella write the deletion down, so it is only as ' +
@@ -735,13 +741,115 @@ export class EditorSession {
 		if (!journal || !storage) return;
 		try {
 			const report = await replayJournal(storage, this.#store, journal.workspace, {
-				...(this.#deleted ? { deleted: this.#deleted } : {})
+				...(this.#deleted ? { deleted: this.#deleted } : {}),
+				// This session's own journal rather than one the replay builds and throws away, so that
+				// what it read off the store outlives the call (ticket 07). A `'superseded'` skip keeps
+				// an entry whose baseline is provably stale, and this is what stops that one refusal
+				// becoming a standing refusal for every later edit to the same path.
+				//
+				// ⚠ **Reachability is not claimed, and the measurement is why** — the same standard
+				// `Autosave.#forget` sets for its own guard. Round 4 added the read-path seam
+				// ({@link #observeStoreContent}), and this replay runs at startup, *before* any Project
+				// can be opened; every write path in this class reads before it writes. So in this
+				// application the later read always overwrites what the replay observed, and deleting
+				// this word turns no test in this file red. It stays because `replayJournal` is not
+				// this class's alone — `replay.test.ts` drives a caller with no read path, where it is
+				// load-bearing, and the two-session test there goes red without it.
+				journal
 			});
 			this.replayReport = replayIsNoteworthy(report) ? report : null;
 		} catch {
 			// A store that cannot even be listed. The entries stay where they are, and the listing
 			// beside this is what tells the user the Workspace is unreachable.
 		}
+	}
+
+	/**
+	 * Read a file, and tell the write-ahead journal what the store held for it.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHY THE READ PATH IS WHERE THIS COMES FROM, AND WHY NOWHERE ELSE WOULD DO
+	 *
+	 * A journal entry has to record what the edit was made *against*, or a replay at the next startup
+	 * cannot tell a stranded write from a revert and has to ask the scholar instead
+	 * (`ReplaySkipReason: 'cannot-tell-which-is-newer'`). Two other places were tried on paper and
+	 * neither works:
+	 *
+	 *   - **`WriteAheadJournal.record` reading the store.** It is synchronous by contract — that is the
+	 *     whole of why the journal exists, because a document being unloaded does not run a
+	 *     continuation — and `ProjectStore.read` is not.
+	 *   - **`Autosave` supplying it.** `Autosave` learns what the store holds only when a write is
+	 *     *acknowledged*, so it could supply a baseline only for paths whose writes have already
+	 *     succeeded — which is exactly the set that already had one. It would have looked like a fix
+	 *     and closed nothing.
+	 *
+	 * What is left is the read this application has already done. **A file cannot be edited before it
+	 * has been shown**, so by the time an edit exists its bytes have been in hand, at no extra I/O and
+	 * with no race: the read has resolved, the edit has not happened yet, and the journal's record is
+	 * synchronous.
+	 *
+	 * ⚠ **A stale observation refuses; it never overwrites.** If something writes the path between the
+	 * read and the edit, the baseline is wrong — and `replay.ts` reads a baseline only to *refuse* a
+	 * write, so the cost is a rescue the scholar is asked about rather than a colleague's work lost.
+	 * That is the same direction every other imprecision in this field takes.
+	 *
+	 * Called only for reads that **succeeded**. An absent or unreadable file says nothing about what
+	 * the store holds, and guessing is what this exists to avoid.
+	 */
+	async #readObserved(path: StorePath): Promise<Bytes> {
+		// ⚠ **The token is taken before the read, and that ordering is the whole of it.** A read is
+		// asynchronous and a save can land while it is in flight — `readLayerFeatures` and
+		// `readAnnotations` name the same file, so a redraw overlapping a debounced `writeAnnotations`
+		// is the ordinary shape. Reported without it, the stale read filed the *previous* content as
+		// the baseline and the next stranded edit was refused with "that file has been changed since",
+		// which was false and in exactly the case the journal exists for.
+		const at = this.#journal?.mark() ?? 0;
+		const bytes = await this.#store.read(path);
+		this.#journal?.observe(path, bytes, at);
+		return bytes;
+	}
+
+	/**
+	 * Throw away a journal entry a replay refused, because the user said to (ticket 07).
+	 *
+	 * ⚠ **`'superseded'` is the first skip that keeps its entry, and a kept entry has no other
+	 * exit.** The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
+	 * byte-identical report and shows it again; nothing expires; and the only other remedy on offer
+	 * is discarding the whole Workspace's journal from Workspace settings, which takes every other
+	 * file's rescue copy with it. That is the same corner an unfinished deletion was left in, and
+	 * this is the same answer: an exit the user can take once they have read the sentence.
+	 *
+	 * Destructive, unlike {@link forgetDeletion}, and the wording beside it has to say so — these
+	 * bytes are the only copy of that edit. It is offered anyway because the alternative is a warning
+	 * at every visit about work the application has already declined to put back.
+	 *
+	 * Held copies live outside the live journal (`journal.ts`), so this reaches neither an entry
+	 * waiting to be written nor a file in the Workspace — only the copy the sentence names.
+	 */
+	forgetReplaySkip(path: string, copy: string): void {
+		// ⚠ **Both fields, because a fingerprint is not unique across paths.** Two files whose declined
+		// bytes are identical — an empty Annotation collection in two Projects is the ordinary case —
+		// share one, so filtering on the fingerprint alone removed both rows while only one copy was
+		// destroyed, and the survivor came back at the next startup with no explanation. The `{#each}`
+		// key in `RecoveredEdits.svelte` is already `path:copy` for the same reason.
+
+		const storage = this.#journalStorage;
+		if (!storage || !this.#journal) return;
+		// ⚠ **By fingerprint, never by path alone** (round 5, finding A). This notice is built at
+		// startup and never expires, so it can be pressed after arbitrary later work — and keyed on the
+		// path it destroyed whatever was at that path *then*, which could be a stranded edit made an
+		// hour later, while the sentence beside the button described a different, older version and
+		// said the copy had been kept.
+		forgetHeldCopy(storage, this.#journal.workspace, path, copy);
+		const report = this.replayReport;
+		if (report === null) return;
+		const remaining = {
+			...report,
+			skipped: report.skipped.filter((entry) => entry.path !== path || entry.copy !== copy)
+		};
+		// Through the same predicate the report was published by, so a panel holding nothing but the
+		// skip just forgotten goes away rather than lingering empty.
+		this.replayReport = replayIsNoteworthy(remaining) ? remaining : null;
 	}
 
 	/**
@@ -1156,10 +1264,12 @@ export class EditorSession {
 	): Promise<Alignment> {
 		this.alignmentError = '';
 		try {
-			const bytes = await this.#store.read(alignmentPath(imageId));
 			// The bytes, not the model: this is the baseline a later write compares against, and
 			// `Alignment.unmodelled` means a re-serialisation of the same document can differ. Held
-			// here because this is the moment the user's view of the file is fixed (ticket 07).
+			// here because this is the moment the user's view of the file is fixed (ticket 07). The
+			// journal is told the same fact by the read itself, for a different question — a revert at
+			// startup rather than a concurrent edit — off the one read.
+			const bytes = await this.#readObserved(alignmentPath(imageId));
 			this.#alignmentOnDisk.set(imageId, bytes);
 			return parseAlignment(bytes, { imageId });
 		} catch (cause) {
@@ -2014,7 +2124,13 @@ export class EditorSession {
 		void this.#autosave.abandon(`${imageDirectory(imageId)}/`);
 		void this.#autosave.abandon(alignmentPath(imageId));
 		this.#journal?.forgetUnder(`${imageDirectory(imageId)}/`);
-		this.#journal?.forget(alignmentPath(imageId));
+		// ⚠ **`forgetUnder`, not `forget`, and the exact path is a legal prefix of itself.** Two things
+		// turn on it. `forget` means "the store has taken these bytes" and is the only thing that
+		// writes a baseline, so using it for a *deletion* files bytes the store never took. And
+		// `forgetUnder` is what sweeps the held namespace: a copy a replay declined for this map's
+		// Alignment would otherwise outlive the map, and be reported at every startup for ever with a
+		// remedy about a file that no longer exists — precisely what that sweep exists to prevent.
+		this.#journal?.forgetUnder(alignmentPath(imageId));
 	}
 
 	/**
@@ -2728,7 +2844,7 @@ export class EditorSession {
 		const { imageId } = layer;
 		if (imageId === '') return null;
 		try {
-			return parseAlignment(await this.#store.read(alignmentPath(imageId)), { imageId });
+			return parseAlignment(await this.#readObserved(alignmentPath(imageId)), { imageId });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return null;
 			throw cause;
@@ -2746,7 +2862,7 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || layer.geojsonRef === '') return null;
 		try {
-			const bytes = await this.#store.read(`${directory}/${layer.geojsonRef}`);
+			const bytes = await this.#readObserved(`${directory}/${layer.geojsonRef}`);
 			return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return null;
@@ -2769,9 +2885,8 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory || layer.geojsonRef === '') return emptyCollection();
 		try {
-			return parseAnnotations(await this.#store.read(`${directory}/${layer.geojsonRef}`), {
-				path: layer.geojsonRef
-			});
+			const bytes = await this.#readObserved(`${directory}/${layer.geojsonRef}`);
+			return parseAnnotations(bytes, { path: layer.geojsonRef });
 		} catch (cause) {
 			if (cause instanceof PathNotFoundError) return emptyCollection();
 			// A file that is there and unreadable must say so, for the same reason `readAlignment`
