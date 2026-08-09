@@ -217,12 +217,26 @@ function classifyTileFailure(cause: unknown, host: string | null = null): TileSo
 		// and it is the same fact `SiteFileUnreachableError`'s `status === 0` records.
 		return { kind: 'no-answer', host };
 	}
-	return {
-		kind: 'unreadable',
-		host,
-		detail: cause instanceof Error ? cause.message : String(cause)
-	};
+	return { kind: 'unreadable', host, detail: describeCause(cause) };
 }
+
+/**
+ * A cause as text, from something that need not be an `Error` and need not be describable at all.
+ *
+ * ⚠ **`String(cause)` is a third way this module could reject**, in a docblock that says there are
+ * exactly two. `String(Object.create(null))` throws `TypeError: Cannot convert object to primitive
+ * value`, and a cause whose own `toString` throws throws that instead — and either escapes as an
+ * unhandled rejection into the renderer, which is the one class this whole boundary exists to stop.
+ * A store can reject with anything; `throw` takes any value.
+ */
+const describeCause = (cause: unknown): string => {
+	if (cause instanceof Error && typeof cause.message === 'string') return cause.message;
+	try {
+		return String(cause);
+	} catch {
+		return 'the reason could not be read';
+	}
+};
 
 /** Media types by file extension. Tiles are always JPEG (ADR-0003); `info.json` is not. */
 const MEDIA_TYPES: Record<string, string> = {
@@ -295,6 +309,12 @@ function refusal(failure: TileSourceFailure): Response {
  * (0x21–0x7E) survive, everything else becomes a space. Then collapsed, trimmed, and cut short,
  * because a reason-phrase is a label and not a log. Iterated by code point, so an astral character
  * becomes one space rather than two.
+ *
+ * ⚠ **Those characters are FOLDED, not carried.** This is the transport that cannot take them, so
+ * `“abc123” could not be opened` reaches the editor's sentence as `abc123 could not be opened` —
+ * curly quotes and dashes become spaces and the spaces collapse. That is the intended trade (the
+ * cause survives, its typography does not) and it is written here because the paragraph above is
+ * *about* those characters and would otherwise read as though they come through.
  */
 const reasonPhrase = (detail: string): string =>
 	[...detail]
@@ -381,21 +401,47 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 	// the first rule's stated guarantee was false.** That rule withdrew the notice when a burst of
 	// in-flight requests completed with no refusal in it, which is sound while requests overlap and
 	// nonsense when they do not: requests issued one at a time each formed their own "burst", so three
-	// serial refusals interleaved with three serial successes produced three withdrawals. Measured.
+	// serial refusals interleaved with three serial successes produced three withdrawals.
 	// `@allmaps/render` mostly fetches concurrently, but the tail of a burst and a re-fetched
 	// `info.json` are serial, so the hole was reachable.
 	//
-	// Naming the URLs removes the question rather than answering it better. There is no burst, no
-	// ordering assumption, and no difference between the serial and the concurrent case: the notice is
-	// up exactly while some tile the map asked for has not arrived. A *partial* outage keeps its
-	// notice, because the cells it refuses stay outstanding however many others succeed.
+	// ⚠ **That is measured by `keeps a partial outage's notice up, concurrently and serially alike`,
+	// and for one commit it was not.** That test built both promises in a single array literal and
+	// chose only whether to *collect* them together — so both fetches were already in flight and its
+	// "serial" pass drove the concurrent shape a second time. It passed against the rule it named as
+	// broken, while three separate comments said "Measured" about a measurement nothing performed. It
+	// issues the second request after the first has settled now, and against the old rule it reports
+	// `serial: expected [{ok:true},{ok:true},{ok:true}] to deeply equal []`.
+	//
+	// Naming the URLs removes the question rather than answering it better. There is no burst and no
+	// difference between the serial and the concurrent case: the notice is up exactly while some URL
+	// the map asked for has not come back. A *partial* outage keeps its notice, because the cells it
+	// refuses stay outstanding however many others succeed.
+	//
+	// ⚠ **Two requests for the SAME URL are the one place order could still have decided it, and it
+	// does not.** Nothing stops two of them overlapping — `WarpedMap.loadImage` fills
+	// `imagesById` only after its fetch resolves, so two Layers on one `imageId` (which ADR-0023
+	// exists to make legal, and the viewer supports) both fetch that `info.json` at once. Mid-outage
+	// one can fail while the other succeeds, and if the failure settled last a set keyed on URL alone
+	// recorded a refusal for bytes the page was holding — a notice that never came down over a map
+	// with nothing wrong with it. So a refusal is dropped when a request for the same URL, issued
+	// before it settled, has already come back: the bytes are in hand, whoever fetched them.
+	//
+	// A clock and not a timer — a counter ticked on each issue and each arrival, so the rule is
+	// decided by program order and the tests are not timing tests.
 	//
 	// ⚠ **The consequence, stated because it is the thing a reader will want to know:** a refused URL
 	// that is never asked for again keeps the notice up. That is deliberate — those bytes really are
 	// missing from the map — and it is why the sentence's remedy has to name the gesture that fetches
 	// them rather than promising the map will heal on its own. See `tile-failure.ts`, and the two
 	// end-to-end tests that measure which failures self-heal and which do not.
+	//
+	// Both collections are keyed by URL and so are bounded by the pyramid, which is the same bound
+	// the renderer's own tile cache carries.
 	const outstanding = new Set<string>();
+	const arrivedAt = new Map<string, number>();
+	let clock = 0;
+	const tick = (): number => (clock += 1);
 
 	/**
 	 * Hand an outcome to the app, and never let the app's own failure destroy this request.
@@ -422,15 +468,25 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 	};
 
 	const arrived = (url: string): void => {
+		arrivedAt.set(url, tick());
 		if (outstanding.delete(url) && outstanding.size === 0) tell({ ok: true });
 	};
-	const refused = (url: string, failure: TileSourceFailure, imageId: string | null): void => {
+	const refused = (
+		url: string,
+		issuedAt: number,
+		failure: TileSourceFailure,
+		imageId: string | null
+	): void => {
+		// Another request for these very bytes, overlapping this one, already brought them back. The
+		// map has them; saying they are missing would be false and the notice would never come down.
+		if ((arrivedAt.get(url) ?? 0) > issuedAt) return;
 		outstanding.add(url);
 		tell({ ok: false, failure, imageId });
 	};
 
 	return async (input, init) => {
 		const url = urlOf(input);
+		const issuedAt = tick();
 
 		if (!isImageServicePlaceholderUrl(url)) {
 			// The pass-through half fails too — a referenced image on a Library's server (ADR-0023) is
@@ -462,7 +518,7 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 				// tile is no longer wanted. Reporting one would put "the tiles stopped arriving" on
 				// screen every time a Reader panned the map.
 				if (!isAbort(cause)) {
-					refused(url, classifyTileFailure(cause, parseUrl(url)?.hostname ?? null), null);
+					refused(url, issuedAt, classifyTileFailure(cause, parseUrl(url)?.hostname ?? null), null);
 				}
 				throw cause;
 			}
@@ -512,7 +568,7 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 			// {@link TileFetchOutcome}. Without the `info.json` there is no map at all, and that is a
 			// site published incomplete.
 			if (failure.kind !== 'file-missing' || path === imageInfoPath(imageId)) {
-				refused(url, failure, imageId);
+				refused(url, issuedAt, failure, imageId);
 			}
 			if (failure.kind === 'file-missing') {
 				return notFound(`Nothing is stored at ${path}, which is where ${url} resolves to.`);

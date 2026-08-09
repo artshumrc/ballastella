@@ -453,12 +453,17 @@ describe('createStoreImageFetch', () => {
 	it('keeps a partial outage’s notice up, concurrently and serially alike', async () => {
 		// ⚠ **The row that killed the rule this replaced.** That rule withdrew the notice when a burst
 		// of in-flight requests completed with no refusal in it, which is sound while requests overlap
-		// and nonsense when they do not — serial requests each formed their own burst, so this loop
-		// produced three withdrawals instead of none. `@allmaps/render` mostly fetches concurrently,
-		// but the tail of a burst and a re-fetched `info.json` are serial, so the hole was reachable.
+		// and nonsense when they do not — requests issued one at a time each formed their own burst,
+		// so the serial pass below produced three withdrawals instead of none. `@allmaps/render`
+		// mostly fetches concurrently, but the tail of a burst and a re-fetched `info.json` are
+		// serial, so the hole was reachable.
 		//
-		// Driven **both ways from one body**, deliberately: the previous version of this test used
-		// `Promise.all` only, and that is exactly the shape the defect hid behind.
+		// ⚠ **The serial pass has to ISSUE the second request after the first has settled, not merely
+		// collect it later.** The version of this test that shipped with the fix wrote
+		// `const requests = [fetchImage(a), fetchImage(b)]` and then chose between `Promise.all` and a
+		// `for … await` loop — but both promises are constructed by the array literal, so both fetches
+		// were already in flight and the "serial" pass drove the concurrent shape a second time. It
+		// passed against the old rule it claimed to have killed. Hence `issue`, which takes thunks.
 		const refused = `${imageServiceId('abc123')}/256,0,256,256/256,256/0/default.jpg`;
 		const store: ReadOnlyProjectStore = {
 			read: async (path) => {
@@ -467,23 +472,151 @@ describe('createStoreImageFetch', () => {
 			}
 		};
 
+		/** Overlapping, or strictly one after the other — the distinction the whole test rests on. */
+		const issue = async (
+			concurrently: boolean,
+			calls: readonly (() => Promise<unknown>)[]
+		): Promise<void> => {
+			if (concurrently) {
+				await Promise.all(calls.map((call) => call()));
+				return;
+			}
+			for (const call of calls) await call();
+		};
+
 		for (const concurrently of [true, false]) {
+			const shape = concurrently ? 'concurrent' : 'serial';
 			const outcomes: TileFetchOutcome[] = [];
 			const fetchImage = createStoreImageFetch({ store, onOutcome: (o) => outcomes.push(o) });
 
 			for (let round = 0; round < 3; round += 1) {
-				const requests = [fetchImage(placeholderTile), fetchImage(refused)];
-				if (concurrently) await Promise.all(requests);
-				else for (const request of requests) await request;
+				await issue(concurrently, [() => fetchImage(placeholderTile), () => fetchImage(refused)]);
 			}
 
 			// Three rounds, three refusals, and not one withdrawal — even though every round also
-			// carried a tile that arrived, and in the serial case it arrived first every time.
+			// carried a tile that arrived, and in the serial pass it arrived, alone and complete,
+			// before the refusal was even issued.
 			expect(
 				outcomes.filter((outcome) => outcome.ok),
-				String(concurrently)
+				shape
 			).toEqual([]);
-			expect(outcomes, String(concurrently)).toHaveLength(3);
+			expect(outcomes, shape).toHaveLength(3);
+		}
+	});
+
+	it('does not report a refusal for bytes an overlapping request already brought back', async () => {
+		// ⚠ **Reachable in the viewer today, and not only through ticket 05's probe.**
+		// `BaseRenderer.loadMissingImagesInViewport` filters on `!warpedMap.fetchingImageInfo`, so one
+		// `WarpedMap` never double-fetches — but `WarpedMap.loadImage` fills `imagesById` only AFTER
+		// its fetch resolves, so **two Layers on the same `imageId`** (which ADR-0023 exists to make
+		// legal, and the viewer supports) both fetch that one `info.json` at once. Mid-outage one can
+		// fail while the other succeeds.
+		//
+		// With the failure settling LAST, a rule keyed on URL alone recorded a refusal for bytes the
+		// page was already holding: a notice that never came down, over a map with nothing wrong with
+		// it. Order decides nothing now.
+		const url = `${imageServiceId('abc123')}/info.json`;
+		let releaseRefusal: (() => void) | undefined;
+		let firstRequest = true;
+		const store: ReadOnlyProjectStore = {
+			read: async (path) => {
+				if (firstRequest) {
+					firstRequest = false;
+					await new Promise<void>((resolve) => (releaseRefusal = resolve));
+					throw new SiteFileUnreachableError(path, path, 0, 'slow refusal');
+				}
+				return new TextEncoder().encode('{"id":"x"}');
+			}
+		};
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({ store, onOutcome: (o) => outcomes.push(o) });
+
+		// Both are issued before either settles, which is the whole shape.
+		const slowRefusal = fetchImage(url);
+		const quickArrival = await fetchImage(url);
+		expect(quickArrival.status).toBe(200);
+		releaseRefusal!();
+		await slowRefusal;
+
+		// Nothing was said, because nothing is missing: the page has those bytes.
+		expect(outcomes).toEqual([]);
+	});
+
+	it('still reports a refusal that comes after the bytes it asked for arrived', async () => {
+		// The other side of the rule above, so it cannot be satisfied by never reporting at all: a
+		// request ISSUED after an arrival is about a later state of the world, and its failure is real.
+		let refusing = false;
+		const store: ReadOnlyProjectStore = {
+			read: async (path) => {
+				if (refusing) throw new SiteFileUnreachableError(path, path, 0, 'gone again');
+				return new TextEncoder().encode('bytes');
+			}
+		};
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({ store, onOutcome: (o) => outcomes.push(o) });
+
+		await fetchImage(placeholderTile);
+		refusing = true;
+		await fetchImage(placeholderTile);
+
+		expect(outcomes).toEqual([
+			{ ok: false, failure: { kind: 'no-answer', host: null }, imageId: 'abc123' }
+		]);
+	});
+
+	it('does not take a notice down because a refused URL later answered with an error', async () => {
+		// ⚠ **The `response.ok` gate on the pass-through half.** Without it, a URL that was refused and
+		// then answers **500** counts as arrived — a notice withdrawn over a map that is still broken,
+		// which is the exact failure this reporting rule was redesigned to prevent.
+		let answer: 'reject' | 'error' | 'ok' = 'reject';
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({
+			store: await storeWithTile(),
+			fetch: async () => {
+				if (answer === 'reject') throw new TypeError('Failed to fetch');
+				return answer === 'error'
+					? new Response('the library is unwell', { status: 500 })
+					: new Response('tile bytes');
+			},
+			onOutcome: (outcome) => outcomes.push(outcome)
+		});
+		const remote = 'https://maps.library.example/iiif/x/info.json';
+
+		await expect(fetchImage(remote)).rejects.toThrow();
+		expect(outcomes.filter((outcome) => !outcome.ok)).toHaveLength(1);
+
+		// A 500 is an answer, and it is not the bytes. The notice stays.
+		answer = 'error';
+		expect((await fetchImage(remote)).status).toBe(500);
+		expect(outcomes.filter((outcome) => outcome.ok)).toEqual([]);
+
+		// Bytes are the bytes.
+		answer = 'ok';
+		expect((await fetchImage(remote)).ok).toBe(true);
+		expect(outcomes.at(-1)).toEqual({ ok: true });
+	});
+
+	it('describes a cause that cannot be turned into a string, rather than throwing over it', async () => {
+		// ⚠ **A third way this module could reject, under a docblock saying there are exactly two.**
+		// `throw` takes any value, and `String(Object.create(null))` throws `TypeError: Cannot convert
+		// object to primitive value`. Escaping here means an unhandled rejection inside the renderer,
+		// which is the one class this boundary exists to stop.
+		for (const cause of [
+			Object.create(null),
+			{
+				toString() {
+					throw new Error('boom');
+				}
+			}
+		]) {
+			const { fetchImage } = outcomesOf(
+				refusingStore(() => {
+					throw cause;
+				})
+			);
+
+			const response = await fetchImage(placeholderTile);
+			expect(response.status).toBe(500);
 		}
 	});
 
@@ -556,6 +689,16 @@ describe('createStoreImageFetch', () => {
 		expect(response.statusText).toContain('the quota was exceeded');
 	});
 
+	it('cuts a very long cause short, because a reason-phrase is a label and not a log', async () => {
+		const { fetchImage } = outcomesOf(
+			refusingStore(() => {
+				throw new Error('x'.repeat(20_000));
+			})
+		);
+
+		expect((await fetchImage(placeholderTile)).statusText.length).toBe(200);
+	});
+
 	it('clamps a status a Response constructor would refuse', async () => {
 		// `SiteFileUnreachableError.status` is a plain `number` on an exported class, and
 		// `new Response(…, { status: 999 })` throws `RangeError` — out of the function that promises
@@ -593,6 +736,11 @@ describe('createStoreImageFetch', () => {
 
 		expect(response.statusText).toContain('the quota');
 		expect(response.statusText).toContain('was exceeded');
+		// The three clauses the docblock claims, which `Response` itself would tolerate the absence of
+		// — so nothing but this would notice them going. Collapsed, trimmed, and bounded.
+		expect(response.statusText).not.toMatch(/ {2}/);
+		expect(response.statusText).toBe(response.statusText.trim());
+		expect(response.statusText.length).toBeLessThanOrEqual(200);
 		// Every surviving character is one a reason-phrase may hold.
 		for (const character of response.statusText) {
 			const code = character.codePointAt(0) ?? 0;

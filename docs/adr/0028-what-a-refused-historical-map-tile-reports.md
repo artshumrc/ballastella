@@ -45,14 +45,30 @@ A refusal is reported the moment it happens. An arrival is reported when the **l
 refused** has come back — not when some other URL succeeds.
 
 An earlier rule counted concurrent requests and withdrew the notice when a burst completed with no
-refusal in it. That is sound while requests overlap and nonsense when they do not: serial requests
-each formed their own burst, so three serial refusals interleaved with three serial successes
-produced three withdrawals. Measured. `@allmaps/render` mostly fetches concurrently, but the tail of
+refusal in it. That is sound while requests overlap and nonsense when they do not: requests issued
+one at a time each formed their own burst, so three serial refusals interleaved with three serial
+successes produced three withdrawals. `@allmaps/render` mostly fetches concurrently, but the tail of
 a burst and a re-fetched `info.json` are serial, so the hole was reachable.
 
-Naming the URLs removes the question rather than answering it better. There is no ordering
-assumption and no difference between the serial and concurrent cases, and a *partial* outage keeps
-its notice because the cells it refuses stay outstanding however many others succeed.
+**That is measured by the suite** — `keeps a partial outage's notice up, concurrently and serially
+alike`, driven against the old rule, reports `serial: expected [{ok:true},{ok:true},{ok:true}] to
+deeply equal []`. ⚠ It was not, at first: the test built both promises in one array literal and chose
+only when to *collect* them, so its "serial" pass drove the concurrent shape twice and passed against
+the very rule it named. Three places said "Measured" about a measurement nothing performed. The test
+issues the second request after the first has settled now.
+
+Naming the URLs removes the question rather than answering it better. There is no burst and no
+difference between the serial and concurrent cases, and a *partial* outage keeps its notice because
+the cells it refuses stay outstanding however many others succeed.
+
+**Two requests for the same URL are the one place order could still have decided it, and they are
+handled explicitly.** `WarpedMap.loadImage` fills `imagesById` only after its fetch resolves, so two
+Layers on one `imageId` — legal under [ADR-0023](./0023-historical-maps-and-alignments-live-in-the-workspace.md),
+and supported by the viewer — both fetch that `info.json` at once. Mid-outage one can fail while the
+other succeeds, and with the failure settling last a set keyed on URL alone recorded a refusal for
+bytes the page was already holding: a notice that never came down over a map with nothing wrong with
+it. A refusal is therefore dropped when a request for the same URL, issued before it settled, has
+already come back.
 
 **The consequence, which is the part worth knowing:** a refused URL that is never asked for again
 keeps the notice up. That is deliberate — those bytes really are missing from the map — and it is why

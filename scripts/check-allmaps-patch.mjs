@@ -118,30 +118,85 @@ if (!source.includes('this.fetchFn')) {
 // all use.
 
 /**
- * `source` with its comment lines removed, so that a comment can never satisfy a code check.
+ * `source` with its **comments blanked out**, character for character, so that a comment can never
+ * satisfy a code check and every offset stays where it was.
  *
- * Whole lines only — a line whose first non-space characters are `//`, and every line inside a
- * `/* … *\/` block. That is exactly what the patch adds, and it is the conservative choice: a
- * trailing `//` stripped mid-line could delete real code and turn a failing check green, which is
- * the failure mode this whole comment is about.
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS A SCANNER AND NOT A LINE FILTER
+ *
+ * ⚠ **The line filter this replaced deleted real code, two ways, and each produced a FALSE GREEN**
+ * against this guard's own stated threat model — a second call site arriving with a version move:
+ *
+ *   - it dropped any line whose first non-space character was `*`, meant for a JSDoc continuation,
+ *     which also swallows `*g() { this.loadMissingImagesInViewport(); }` — a generator method, valid
+ *     in a class body;
+ *   - it dropped the whole line that *closes* a block comment, so `more (star-slash)
+ *     this.loadMissingImagesInViewport();` vanished — and a closing delimiter with code after it on
+ *     the same line is a shape bundlers emit around licence banners.
+ *
+ * Both are `KNOWN_BAD` specimens now. The lesson is the one this file already records twice: a check
+ * that deletes text in order to decide something has to be able to say exactly what it deleted.
+ *
+ * **The direction of every remaining approximation is deliberate.** Blanking too little makes a
+ * comment look like code, which fails LOUDLY and a human reads it. Blanking too much hides real code
+ * and passes silently. So:
+ *
+ *   - a `//` comment is recognised only at the **start of a line**. A trailing `// ...` is left in
+ *     place, because deciding whether a mid-line `//` opens a comment, closes a regular expression,
+ *     or sits inside a URL in a string is exactly the ambiguity that produced the last two bugs.
+ *   - a block comment is matched as a span, with string literals skipped first so that a delimiter
+ *     inside one cannot open a phantom comment.
+ *   - string **contents** are kept. A call spelled inside a string would be read as code and
+ *     refused — noisy, and in a `dist` bundle inconceivable, but wrong in the safe direction.
  */
 const codeOf = (source) => {
-	const kept = [];
-	let inBlock = false;
-	for (const line of source.split('\n')) {
-		const trimmed = line.trim();
-		if (inBlock) {
-			if (trimmed.includes('*/')) inBlock = false;
+	const out = [...source];
+	const blank = (from, to) => {
+		for (let at = from; at < to; at += 1) if (out[at] !== '\n') out[at] = ' ';
+	};
+	let at = 0;
+	let lineStart = true;
+	while (at < source.length) {
+		const here = source[at];
+		if (here === '\n') {
+			lineStart = true;
+			at += 1;
 			continue;
 		}
-		if (trimmed.startsWith('/*')) {
-			if (!trimmed.includes('*/')) inBlock = true;
+		if (lineStart && (here === ' ' || here === '\t')) {
+			at += 1;
 			continue;
 		}
-		if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
-		kept.push(line);
+		// A line comment, only where a line begins with one.
+		if (lineStart && here === '/' && source[at + 1] === '/') {
+			const end = source.indexOf('\n', at);
+			const stop = end === -1 ? source.length : end;
+			blank(at, stop);
+			at = stop;
+			continue;
+		}
+		lineStart = false;
+		// A block comment, wherever it starts, blanked up to and including its close.
+		if (here === '/' && source[at + 1] === '*') {
+			const close = source.indexOf('*/', at + 2);
+			const end = close === -1 ? source.length : close + 2;
+			blank(at, end);
+			at = end;
+			continue;
+		}
+		// A string literal: stepped over whole, contents kept, so its delimiters cannot open a
+		// comment and a `//` in a URL cannot swallow the rest of the line.
+		if (here === "'" || here === '"' || here === '`') {
+			at += 1;
+			while (at < source.length && source[at] !== here) {
+				at += source[at] === '\\' ? 2 : 1;
+			}
+			at += 1;
+			continue;
+		}
+		at += 1;
 	}
-	return kept.join('\n');
+	return out.join('');
 };
 
 /** Where the array of promises has to be going, immediately before the call that produces it. */
@@ -203,14 +258,29 @@ const KNOWN_BAD = [
 		expect: 'the unpatched upstream line, with no comment at all'
 	},
 	{
-		// ⚠ **The only entry the negative half catches on its own**, and it is here because the check
-		// was measured without it: with `DROPPED` deleted, every other row above was still caught by
-		// `HANDLED`, so the negative half was decoration. This is the shape that makes it load-bearing
-		// — the hunk applies perfectly to the call site it names while a *second* call site, added by
-		// a version move, drops its promises exactly as the first one used to. pnpm applying a patch
-		// says nothing whatever about that.
+		// ⚠ **The entry that forced the "every call site" rule.** An earlier spelling asked "is there a
+		// good call somewhere", which this specimen passes: the hunk applies perfectly to the call
+		// site it names while a *second* call site, added by a version move, drops its promises
+		// exactly as the first one used to. pnpm applying a patch says nothing whatever about a call
+		// site that did not exist when the patch was written.
 		source: `${PATCH_COMMENT}\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());\n\t\tif (x) this.loadMissingImagesInViewport();`,
 		expect: 'a second, unhandled call site beside the patched one'
+	},
+	{
+		// ⚠ The next two were each measured GREEN against the line filter this file used to have, and
+		// neither was in this list — which is the argument for keeping the list honest rather than
+		// long. A generator method's line begins with `*`, so a filter that drops JSDoc continuation
+		// lines drops it too.
+		source: `${PATCH_COMMENT}\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());\n\t*g() { this.loadMissingImagesInViewport(); }`,
+		expect: 'a second, unhandled call in a method whose line starts with `*`'
+	},
+	{
+		// A block comment closing mid-line with code after it — what a bundler emits around a licence
+		// banner.
+		source:
+			'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());\n' +
+			'\t\t/* banner\n\t\tmore */ this.loadMissingImagesInViewport();',
+		expect: 'a second, unhandled call after a block comment closes mid-line'
 	}
 ];
 
@@ -218,7 +288,14 @@ const KNOWN_BAD = [
 const KNOWN_GOOD = [
 	`${PATCH_COMMENT}\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());`,
 	'\t\tawait Promise.allSettled(this.loadMissingImagesInViewport());',
-	'\t\tawait Promise.allSettled( this.loadMissingImagesInViewport() );'
+	'\t\tawait Promise.allSettled( this.loadMissingImagesInViewport() );',
+	// A comment that *mentions* an unhandled call is not one. This is what `codeOf` exists for, and
+	// the patch's own comment is an instance of it.
+	'\t\t// this.loadMissingImagesInViewport();\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());',
+	'\t\t/* this.loadMissingImagesInViewport(); */\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());',
+	// A trailing comment after real code: left in place rather than risking the line, and nothing
+	// here needs it gone.
+	'\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport()); // settled, not awaited'
 ];
 
 const controlFailures = [];
