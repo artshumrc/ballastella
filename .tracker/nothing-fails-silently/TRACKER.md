@@ -54,6 +54,11 @@ These are carried from `workspace-and-layers`, where each was paid for.
 - **Before attributing anything to load, find the number that rules it out.** This repository has been wrong about that repeatedly, and each time the real cause was a defect.
 - **No test may depend on the network.** Enforced by a composed root fixture and a check that fails any spec importing the raw test function, plus setup fences on the unit projects.
 - **Never pass a reporter override on the command line.** It replaces the reporter list and silently disables the retry budget — the instrument that surfaced two of the three problems here. Do not filter gate output through a pattern; read exit codes.
+- **Verify the instrument before you trust a green.** Six separate times in this epic a measurement was taken on a tree that was not what the measurer believed it was, and **every one of those failures pointed toward "no problem found"** — the same direction as the defects being hunted. Two probes returned a reassuring empty `restored` from a harness with wrong constructor signatures; `cp -a` of a worktree silently yielded stale file contents four times; a `tar` copy that included `.git` reverted a linked worktree to its base commit mid-battery, test files included; and one mutation was recorded GREEN because it had been built wrong (an inserted publish rather than a moved one). The rules that follow are cheap and each of them caught something:
+  - Copy a worktree with `tar --exclude=./.git`. A linked worktree's `.git` is a pointer into the shared gitdir, so copying it re-links the copy to the original.
+  - **md5-verify every file you are measuring against `git show <commit>:<path>` before AND after the battery**, not just at the start. Several contaminations appeared mid-run.
+  - Before reporting any mutation as *surviving*, plant a defect you know the suite catches and confirm it goes red. A survivor from a dead harness is indistinguishable from a survivor from equivalent code.
+  - Re-run earlier rounds' mutations after any refactor. Three times here a refactor silently disarmed a mutation that had killed before — a stray timer that began firing harmlessly, a bounded map that cost a test its discrimination, and a debounce whose replacement re-read state.
 
 ## Ledger
 
