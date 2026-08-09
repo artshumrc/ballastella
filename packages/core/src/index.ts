@@ -489,8 +489,16 @@ export {
 	isImageServicePlaceholderUrl,
 	refuseUnroutedImageServiceRequests,
 	type FetchFn,
-	type StoreImageFetchOptions
+	type StoreImageFetchOptions,
+	type TileFetchOutcome
 } from './injection/store-image-fetch.js';
+// The sentence a person is shown when a Historical Map's tiles stop arriving. One function, rendered
+// by the published viewer (ticket 04) and by the editor (ticket 05), so that one outage cannot be
+// described two ways at the same scholar.
+export {
+	historicalMapTilesUnavailableNotice,
+	type TileSourceFailure
+} from './injection/tile-failure.js';
 export {
 	storedPyramidTileSource,
 	type OpenSeadragonTileContext,

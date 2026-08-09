@@ -1,3 +1,35 @@
+diff --git a/dist/renderers/WebGL2Renderer.js b/dist/renderers/WebGL2Renderer.js
+index 2909baae5208a4de2775ae2a561a6dde3be4a426..3e0b31b8f778350a0ba7b8412150df2447f4eeff 100644
+--- a/dist/renderers/WebGL2Renderer.js
++++ b/dist/renderers/WebGL2Renderer.js
+@@ -134,7 +134,26 @@ var WebGL2Renderer = class extends BaseRenderer {
+ 	render(viewport) {
+ 		if (this.disableRender) return;
+ 		this.viewport = viewport || this.viewport || Viewport.fromSizeAndMaps([this.gl.canvas.width, this.gl.canvas.width], this.warpedMapList);
+-		this.loadMissingImagesInViewport();
++		// BALLASTELLA PATCH — see patches/@allmaps__render@1.0.0-beta.83.patch and ticket 04 of the
++		// `nothing-fails-silently` epic.
++		//
++		// `loadMissingImagesInViewport()` returns an array of promises, one per map whose `info.json`
++		// has not arrived, and `WarpedMap.loadImage` REJECTS when the fetch fails. Upstream's three
++		// other renderers all write `await Promise.allSettled(this.loadMissingImagesInViewport())`
++		// (`CanvasRenderer`, `IntArrayRenderer`, `WasmRenderer`); this one alone dropped the array on
++		// the floor, so every such rejection became an UNHANDLED REJECTION — an uncaught page error on
++		// a published site, where no console is being watched, with nothing on screen changing.
++		//
++		// Ballastella catches the refusal at its own injection boundary (`createStoreImageFetch`) and
++		// turns it into a sentence a Reader reads, but that cannot help here: `@allmaps/stdlib`'s
++		// `fetchUrl` throws for any non-ok `Response`, so the rejection is upstream's own and is
++		// produced after our fetch function has already returned. The only place it can be handled is
++		// here.
++		//
++		// `void Promise.allSettled(...)` rather than `await`: `render` is synchronous, and the three
++		// siblings are `async`. Settling is not waited for — nothing here needs the images to have
++		// arrived, `render` is called again on the next frame — the array is merely handled.
++		void Promise.allSettled(this.loadMissingImagesInViewport());
+ 		if (this.someImagesInViewport()) this.#throttledPrepareRenderInternal();
+ 		this.#renderInternal();
+ 	}
 diff --git a/dist/tilecache/CacheableWorkerImageDataTile.js b/dist/tilecache/CacheableWorkerImageDataTile.js
 index b05aef7262a81f3d7969425774657055cd11558e..d4b06558baf24bc04d2fe0e95dcec52bdf131747 100644
 --- a/dist/tilecache/CacheableWorkerImageDataTile.js
