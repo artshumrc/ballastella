@@ -374,8 +374,11 @@ describe('Autosave', () => {
 		/**
 		 * The other `forget`, on the same rule. {@link Autosave.abandon} drops a deleted Project's
 		 * entries synchronously and is called from a Delete the user is watching, so a journal that
-		 * threw there would take the deletion down with it — the same asymmetry as in the drain loop,
-		 * one method along. Guarded through the same `#forget`.
+		 * threw there would take the deletion down with it — the same hole as in the drain loop, one
+		 * method along. Guarded through the same `#forget`.
+		 *
+		 * ⚠ **Also unreachable from any shipped journal**, for the reason given on the test above: the
+		 * stub here is what the `AutosaveJournal` interface allows, not what `WriteAheadJournal` does.
 		 */
 		it('does not fail abandoning a Project because the journal would not forget it', async () => {
 			const journalling = new Autosave(store, {
@@ -479,9 +482,16 @@ describe('Autosave', () => {
 		 *
 		 * The behaviour is pre-existing; what was new was the *claim* — an explicit two-item
 		 * enumeration of how a drain can stop, and a ranged test whose docblock said it drove every
-		 * ending. Neither was true. `#forget` now swallows, for the same reason `#writeAhead` swallows
-		 * a refused `record`: **a journal failure is not a save failure**, and the asymmetry between
-		 * the two was itself the bug.
+		 * ending. Neither was true. `#forget` now swallows: **a journal failure is not a save
+		 * failure**, and the asymmetry with `#writeAhead`, which swallows a refused `record`, was
+		 * itself the bug.
+		 *
+		 * ⚠ **No shipped journal can reach this, and that is not claimed to be otherwise.**
+		 * `WriteAheadJournal.forget` already swallows a refused `removeItem` of its own, and
+		 * `EditorSession` is the only place that injects it — so the throwing journal below is a stub,
+		 * exercising what the `AutosaveJournal` *interface* permits rather than what any production
+		 * implementation does. The enumeration of how a drain can stop has to be true of the
+		 * interface, because the interface is what a later journal will be written against.
 		 */
 		it('does not fail a write the store took because the journal would not forget it', async () => {
 			const forgotten: string[] = [];

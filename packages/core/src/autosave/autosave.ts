@@ -412,30 +412,62 @@ export class Autosave {
 	/**
 	 * Drop `path`'s journal entry, and **never throw for it**.
 	 *
+	 * Two callers: {@link #drainLoop}, on the success path *after* `store.write` resolved and outside
+	 * the `try` that guards the write, and {@link abandon}, synchronously while sweeping a deleted
+	 * Project. The first is where the damage was.
+	 *
 	 * ⚠ **A `forget` that threw was a third way a drain could stop, and it was the worst of the
-	 * three** (review 2). It is called from {@link #drainLoop} *after* `store.write` resolved and
-	 * outside the `try` that guards the write, so a journal that threw here made `commit` reject for
-	 * a write the store had actually taken: the caller reported failure for a success, `pending` was
-	 * already cleared so nothing was held, `lastError` stayed `undefined`, and the indicator read
-	 * **"Saved"** — a rejected save with no sentence anywhere, which is the exact shape this epic
-	 * exists to remove.
+	 * three** (review 2). A journal that threw in `#drainLoop` made `commit` reject for a write the
+	 * store had actually taken: the caller reported failure for a success, `pending` was already
+	 * cleared so nothing was held, `lastError` stayed `undefined`, and the indicator read **"Saved"**
+	 * — a rejected save with no sentence anywhere, which is the exact shape this epic exists to
+	 * remove. In `abandon` it would have taken down a Delete the user was watching.
 	 *
-	 * Swallowed for the same reason {@link #writeAhead} swallows a refused `record`, and the
-	 * asymmetry between them was the bug: **a journal failure is not a save failure.** The bytes are
-	 * on disk either way. Throwing from here turns a lost bookkeeping guarantee into a lost edit.
+	 * Swallowed because **a journal failure is not a save failure**: the bytes are on disk either
+	 * way, so throwing turns a lost bookkeeping guarantee into a lost edit. {@link #writeAhead} makes
+	 * the same call for a refused `record` — but only half the same, and the difference is the point
+	 * below: it swallows the *throw* and still reports the cause, through `file.journalRefusal` and
+	 * `onJournalRefused`. This swallows both.
 	 *
-	 * ⚠ **Stated exactly, because swallowing is the thing this epic distrusts.** What is lost is a
-	 * stale journal entry: the next startup replays bytes the store already has, which is a
-	 * redundant write of identical bytes and not a lost or resurrected edit. What is *not* done here
-	 * is telling anyone — there is no surface for "the journal is holding something it should not",
-	 * `journalRefusal` says the opposite thing, and `lastError` would be a lie because no write
-	 * failed. That is left open rather than invented here; see the ticket report.
+	 * ⚠ **NOBODY IS TOLD, AND THAT IS THE COST.** There is no surface for "the journal is holding
+	 * something it should not": `journalRefusal` says the opposite thing, and `lastError` would be a
+	 * lie because no write failed. Inventing one belongs to ticket 03, not here.
+	 *
+	 * What the stale entry then does at the next startup, stated to the limit of what is measured:
+	 * `replayJournal` writes it back, which is a **redundant write of identical bytes so long as
+	 * nothing outside `Autosave` has written that path in between**. It is not harmless in general.
+	 * `replay.ts` gates only on the owner still existing (`missingOwner`) and never compares the
+	 * store's bytes against the entry's, so a newer write that arrived by a route which does not call
+	 * `journal.record` is reverted — and reported as `restored`, which reads as good news.
+	 *
+	 * Measured against a real `WriteAheadJournal` and `replayJournal`:
+	 *
+	 * ```
+	 * store v1        → entry v1 → replay → v1          restored: ["p/project.json"]
+	 * store v1, v2    → entry v1 → replay → v1  ← lost  restored: ["q/project.json"]
+	 * ```
+	 *
+	 * Every mutator inside this class re-records, so `Autosave` is not such a route;
+	 * `transfer/open-project-bundle.ts`, `transfer/restore-workspace-tar.ts`, `tiler/ingest.ts`,
+	 * `base-map/offline-cache.ts` and `replay.ts` itself are.
+	 *
+	 * ⚠ **That hazard is pre-existing and untouched here** — it does not depend on this method
+	 * swallowing, and it is a candidate for ticket 06, which is already looking at journal-versus-store
+	 * disagreement. Named rather than fixed.
+	 *
+	 * ⚠ **Reachability is not claimed, on the same standard as {@link #drain}'s.** `WriteAheadJournal`
+	 * is the only production implementation and its own `forget` already swallows a refused
+	 * `removeItem`, and `EditorSession` is the only place that injects it. So **no shipped journal can
+	 * reach this guard**; it is driven in tests by an `AutosaveJournal` stub that throws. It is here
+	 * because the interface permits it and the enumeration of drain endings has to be true of the
+	 * interface, not of today's one implementation.
 	 */
 	#forget(path: StorePath): void {
 		try {
 			this.#journal?.forget(path);
 		} catch {
-			// Deliberately silent here and reported nowhere yet — see above.
+			// Deliberately silent, and reported nowhere at all — see above for what that costs and for
+			// why no existing surface can carry it.
 		}
 	}
 
