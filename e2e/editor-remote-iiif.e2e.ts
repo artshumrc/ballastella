@@ -1,6 +1,8 @@
 import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { IMAGE_HEIGHT, IMAGE_WIDTH } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
@@ -934,43 +936,28 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	});
 });
 
-test.describe('reading a referenced Historical Map as a document', () => {
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * THE EDITOR NO LONGER READS A HISTORICAL MAP AS A DOCUMENT — TICKET 15
+ *
+ * Two tests used to live at the top of this block: one that opened a referenced map unwarped in
+ * triiiceratops and asserted tiles were requested from the library (SPEC story 48), and one that
+ * asserted ADR-0018's Svelte-component import by the absence of `<triiiceratops-viewer>` from the
+ * custom-element registry. Both went with the affordance.
+ *
+ * **Story 101 is rescoped, not dropped**: the published viewer keeps the unwarped view, and
+ * `viewer-reader.e2e.ts`'s "a Historical Map read unwarped" block is where it is asserted now.
+ * That block does **not** carry an equivalent of the custom-element assertion — see the amendment
+ * note on ADR-0018, which records the gap rather than implying it was moved.
+ *
+ * What this block still holds is the *warped* half: a referenced Layer drawn from the remote host's
+ * tiles, by both routes in.
+ */
+test.describe('a referenced Historical Map, drawn from the library that holds it', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 		await emptyWorkspace(page);
 		await page.reload();
-	});
-
-	test('opens it unwarped in triiiceratops, which draws tiles from the remote host', async ({
-		page
-	}) => {
-		// SPEC story 48. Asserted on tiles having been requested from the library rather than on the
-		// viewer having mounted: a mounted OpenSeadragon that fetched nothing is exactly the blank
-		// panel this ticket's CORS gate exists to prevent, and it looks identical to a working one.
-		await installIiifHosts(page);
-		await openNewProject(page);
-
-		await lookUp(page, `${service('images.test', 'florida')}/info.json`);
-		await page.getByTestId('remote-add').click();
-		const referencedRow = await expectReferencedMap(page);
-		await expect(referencedRow.getByTestId('view-unwarped')).toBeVisible();
-
-		const tileRequests: string[] = [];
-		page.on('request', (request) => {
-			if (/images\.test.*default\.(jpg|png)$/.test(request.url())) tileRequests.push(request.url());
-		});
-
-		await referencedRow.getByTestId('view-unwarped').click();
-		await expect(page.getByTestId('unwarped-view')).toBeVisible();
-		// OpenSeadragon draws into a canvas of its own, inside triiiceratops' viewer.
-		await expect(page.getByTestId('unwarped-view').locator('canvas').first()).toBeVisible({
-			timeout: 20_000
-		});
-		await expect.poll(() => tileRequests.length, { timeout: 20_000 }).toBeGreaterThan(0);
-
-		// Closing it takes the viewer away, so a second one is never on the page.
-		await page.getByTestId('unwarped-close').click();
-		await expect(page.getByTestId('unwarped-view')).toHaveCount(0);
 	});
 
 	/**
@@ -1136,31 +1123,156 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		await expect(alert).toContainText('nowhere to fetch its tiles from');
 	});
 
-	test('uses triiiceratops as a Svelte component, never its web-component export', async ({
-		page
+	test('offers no unwarped view, and loads no OpenSeadragon to give one', async ({
+		page,
+		baseURL
 	}) => {
-		// ADR-0018. The web-component export registers `<triiiceratops-viewer>` as a custom element, so
-		// its absence from the registry after the viewer has rendered is the observable difference —
-		// and it is the one that would change if somebody swapped the import.
+		// Ticket 15, and it replaces the two tests named in this block's header rather than merely
+		// deleting them. A criterion of the form "X is gone" is the easiest kind to pass vacuously —
+		// "no control named X" is true of a page that failed to render at all — so this asserts the
+		// *absence* only on a page where the affordance's own preconditions are met: a referenced
+		// Historical Map, added from a library, with its Layer row open and naming its host. That row
+		// is exactly where "View unwarped" used to be.
+		//
+		// The bundle half is what catches a regression no `data-testid` could: an import that comes
+		// back without a control to click.
+		//
+		// **It reads the bytes, not the URLs.** The first cut of this test collected request URLs and
+		// matched `/triiiceratops|openseadragon/` on them, which passes whatever the code does — these
+		// specs run against `vite preview` over a production build, where every chunk is named by a
+		// content hash and no package name survives into a URL. That is exactly the vacuous shape this
+		// epic keeps shipping, so what is asserted instead is the *content* of this route's assets.
+		//
+		// **Where the list comes from matters, and response events alone were not good enough.** The
+		// second cut collected `page.on('response')` URLs. Measured against a probe that put
+		// triiiceratops back in the bundle: it failed on the first attempt and **passed on the retry**,
+		// because a chunk served from the browser's cache on the second run raised no response event
+		// this test saw. A check that reports the truth once and then reports green is worse than no
+		// check. So the list is taken from what the documents *declare* — SvelteKit's static build
+		// emits a `modulepreload` link for every chunk of a route, and a `stylesheet` link for every
+		// sheet — and the observed responses are unioned in on top to catch anything imported later.
+		// The declared half cannot be cached away, because it is read out of the served HTML.
+		//
+		// **Every route, not this one.** The third cut read only the live DOM of `/`, and the editor is
+		// a three-document static build: `index.html`, `align.html` and `image-pane.html` ship 13, 14
+		// and 12 modulepreload links respectively, overlapping but not identical. Measured with a probe
+		// that imported triiiceratops into `routes/align/+page.svelte` alone: the offending chunk is
+		// `nodes/3.*`, which `align.html` declares and `index.html` does not mention at all — so that
+		// version stayed green while the ticket's own `grep -rilE "openseadragon" apps/editor/build`
+		// caught it, narrower than the check it replaced. The documents are **discovered** from the
+		// build rather than listed here, so a fourth route cannot join the app and quietly escape this.
+		//
+		// `openseadragon` is a **known-good positive**: before this ticket it matched
+		// `_app/immutable/chunks/BjdhZAMi.js`, which the Project route loaded, and it survives
+		// minification — it is in the viewer's chunk today. A marker absent from every build would make
+		// this check unfalsifiable; this one was present until the commit that removed it.
+		const origin = new URL(baseURL ?? 'http://localhost').origin;
+		const responded: string[] = [];
+		page.on('response', (response) => {
+			const url = response.url();
+			if (url.startsWith(origin) && /\.(js|css)(\?|$)/.test(url)) responded.push(url);
+		});
+
 		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, `${service('images.test', 'florida')}/info.json`);
 		await page.getByTestId('remote-add').click();
-		await (await expectReferencedMap(page)).getByTestId('view-unwarped').click();
-		await expect(page.getByTestId('unwarped-view').locator('canvas').first()).toBeVisible({
-			timeout: 20_000
-		});
+		const referencedRow = await expectReferencedMap(page);
+		// The precondition: this is the row that used to carry the control, and it is populated.
+		await expect(referencedRow.getByTestId('referenced-image-host')).toHaveText('images.test');
 
+		await expect(referencedRow.getByTestId('view-unwarped')).toHaveCount(0);
+		await expect(page.getByTestId('view-unwarped')).toHaveCount(0);
+		await expect(page.getByTestId('unwarped-view')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: /unwarped/i })).toHaveCount(0);
+
+		// ADR-0018's decision now scopes to the viewer, so neither triiiceratops export is in this app.
 		const registered = await page.evaluate(() =>
 			['triiiceratops-viewer', 'triiiceratops-element'].map(
 				(name) => customElements.get(name) !== undefined
 			)
 		);
 		expect(registered).toEqual([false, false]);
-		await expect(page.locator('triiiceratops-viewer')).toHaveCount(0);
+
+		// The live DOM of the route this test drove, so the assets below are known to be ones a real
+		// session loads and not only ones a document mentions.
+		const loadedHere = await page.evaluate(() =>
+			[
+				...document.querySelectorAll<HTMLLinkElement | HTMLScriptElement>(
+					'link[rel="modulepreload"][href], link[rel="stylesheet"][href], script[type="module"][src]'
+				)
+			].map((element) => (element instanceof HTMLLinkElement ? element.href : element.src))
+		);
+
+		const routes = await editorRouteDocuments();
+		// Fewer than the three this build has means discovery broke, and a discovery that found nothing
+		// would make every assertion below vacuous.
+		expect(routes.length, 'route documents discovered in the editor build').toBeGreaterThanOrEqual(
+			3
+		);
+
+		const declared: string[] = [...loadedHere];
+		for (const route of routes) {
+			const url = `${origin}/${route}`;
+			const document = await page.request.get(url);
+			expect(document.ok(), `fetching ${url}`).toBe(true);
+			declared.push(...assetReferences(await document.text(), url));
+		}
+
+		const inspected = [...new Set([...declared, ...responded])].filter((url) =>
+			url.startsWith(origin)
+		);
+		// **Nothing inspected is a failure, not a pass**, and this guard is on `inspected` rather than
+		// on `declared` deliberately: the loop below runs over `inspected`, so an origin that stopped
+		// matching would empty it, skip every iteration, and leave `carrying` an empty array that
+		// satisfies the final assertion. Measured, not reasoned about — with the filter pointed at a
+		// host nothing serves, the earlier guard on `declared` was **still satisfied and the test
+		// passed**. A guard on a list the loop does not read is not a guard.
+		expect(inspected.length, 'scripts and stylesheets inspected').toBeGreaterThan(0);
+
+		const carrying: string[] = [];
+		for (const url of inspected) {
+			const body = await page.request.get(url);
+			expect(body.ok(), `re-fetching ${url}`).toBe(true);
+			if (/triiiceratops|openseadragon/i.test(await body.text())) carrying.push(url);
+		}
+		expect(carrying, 'editor assets carrying triiiceratops or OpenSeadragon').toEqual([]);
 	});
 });
+
+/**
+ * Every route document the editor's static build produced, as paths to fetch from its own origin.
+ *
+ * **Discovered rather than listed**, because the thing this guards is a route somebody adds later.
+ * `apps/editor/build` is what `vite preview` serves in `playwright.config.ts`, so these are the
+ * documents actually on the wire — the reading is off disk only to enumerate them, and every one is
+ * then fetched over HTTP and asserted `ok()`, which is what catches a name that has moved.
+ */
+async function editorRouteDocuments(): Promise<string[]> {
+	const build = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../apps/editor/build');
+	const entries = await readdir(build, { withFileTypes: true });
+	return entries
+		.filter((entry) => entry.isFile() && entry.name.endsWith('.html'))
+		.map((entry) => entry.name)
+		.sort();
+}
+
+/**
+ * Every script and stylesheet an HTML document references, resolved against the document's own URL.
+ *
+ * Read out of the markup rather than by mounting it, so a route this test never navigates to is
+ * covered on the same terms as the one it drove. Matched attribute-order-independently: SvelteKit
+ * emits `href` before `rel` on its preload links, and a pattern that assumed otherwise would find
+ * nothing and report it as an app with no scripts.
+ */
+function assetReferences(html: string, documentUrl: string): string[] {
+	const links = [...html.matchAll(/<link\b[^>]*>/g)]
+		.filter((tag) => /\brel="(modulepreload|stylesheet)"/.test(tag[0]))
+		.flatMap((tag) => /\bhref="([^"]+)"/.exec(tag[0])?.[1] ?? []);
+	const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].map((tag) => tag[1]);
+	return [...links, ...scripts].map((reference) => new URL(reference, documentUrl).href);
+}
 
 // Declared here as well as in the app, because the root tsconfig compiles only `e2e/` and
 // `playwright.config.ts` — it never sees the editor's own declarations.

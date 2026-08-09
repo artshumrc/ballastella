@@ -13,10 +13,12 @@
 // and without Collection support they have to go hunting for individual manifest URLs, which is
 // the friction that makes people give up before aligning anything.
 //
-// **This is not the parser triiiceratops uses.** triiiceratops carries `manifesto.js` and does
-// its own navigation; the only thing that crosses between them is an image service URI string
-// (ADR-0018). So the two parsers never consume each other's interpretation, and any
-// disagreement between them about anything else in the manifest cannot matter.
+// **This is the editor's only IIIF parser as of ticket 15.** ADR-0018 described a second one —
+// `manifesto.js`, inside triiiceratops — meeting this one at a URI boundary, and that is now the
+// published viewer's arrangement alone: the editor's unwarped view is deleted and triiiceratops is
+// out of its manifest. The URI boundary itself is unchanged and still enforced, in
+// `parser-boundary.ts`, for the reason given there: alignment re-parses the image service rather
+// than inheriting browsing's reading of the document.
 
 import { IIIF, type Collection, type Image, type Manifest } from '@allmaps/iiif-parser';
 
@@ -180,7 +182,12 @@ export type RemoteIiifResource = {
  *
  * Deliberately does **not** decide anything about the resource beyond its shape. Whether an
  * image service can actually be used is `image-service.ts` and `cors-probe.ts`; which canvas is
- * the map is the user's, through triiiceratops.
+ * the map is the user's, in `AddRemoteMap.svelte`.
+ *
+ * **Not through triiiceratops**, which this line used to say and which was already untrue before
+ * ticket 15 removed triiiceratops from the editor: canvas selection is the editor's own list, built
+ * from the `parsed` value below. Corrected here rather than left, because the sentence named the one
+ * dependency the editor no longer has.
  */
 export async function readRemoteIiifResource(
 	input: string | URL,

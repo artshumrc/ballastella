@@ -76,22 +76,31 @@ catalog:
   # never asks Allmaps anything.
   '@allmaps/stdlib': 1.0.0-beta.41
 
-  # triiiceratops: Manifest and Collection browsing, canvas selection, and unwarped viewing
-  # (ADR-0018, ticket 14). Imported from its `./svelte` export as an ordinary Svelte component,
+  # triiiceratops: unwarped viewing — a Historical Map read as a document (ADR-0018, ticket 14).
+  # Manifest and Collection browsing and canvas selection are **not** its: they are the editor's own
+  # list, over `@allmaps/iiif-parser`, in `AddRemoteMap.svelte`.
+  # Imported from its `./svelte` export as an ordinary Svelte component,
   # never as the web component — the OpenSeadragon `TileSource` ADR-0011 requires is natural as
   # a prop and awkward as an attribute.
   #
   # Exact, no range specifier, for the same reason as `@allmaps/*`: it is pre-1.0, we maintain
-  # it, and it carries `manifesto.js` — the second IIIF parser in the bundle, whose only
-  # contract with the first is the URI boundary in ADR-0018. A release that changed how a
-  # canvas's image service URI is reported would move that boundary silently.
+  # it, and it carries `manifesto.js` — which since ticket 15 is the **only** IIIF parser in the
+  # viewer's bundle rather than the second one in a shared bundle, because the editor took
+  # `@allmaps/iiif-parser` with it when it dropped this dependency. A release that changed how a
+  # canvas's image service URI is reported would still move ADR-0018's boundary silently.
   #
-  # **Both apps as of ticket 17**, because story 85 does need it: a Reader viewing a Historical Map on
-  # its own, unwarped, to read it as a document. It is the one thing the editor could not do for a
-  # locally ingested pyramid — triiiceratops 1.0.0-rc.35 offers no way to hand OpenSeadragon a
-  # `TileSource`, and a stored pyramid has no URL (see `UnwarpedView.svelte`). On a Published Site the
-  # pyramid *does* have a URL: it is static files beside `index.html`, so the same component reads it
-  # over HTTP with nothing injected.
+  # **`apps/viewer` alone, as of ticket 15.** It was both apps from ticket 17; the editor's unwarped
+  # view is deleted and the dependency went with it, so a change to this pin can now only reach a
+  # Published Site. The Reader's half is story 85 and it stays: a Historical Map viewed on its own,
+  # unwarped, read as a document.
+  #
+  # The editor's copy was removed because it could only ever serve *referenced* maps. A locally
+  # ingested pyramid has no URL, and triiiceratops 1.0.0-rc.35 offers no way to hand OpenSeadragon a
+  # `TileSource` — so the affordance appeared on a library's map and not on a file's, for a reason no
+  # user could infer, while ticket 07's alignment view deep-zooms both. On a Published Site the
+  # pyramid *does* have a URL: it is static files beside `index.html`, so the viewer's component reads
+  # it over HTTP with nothing injected. The `TileSource` object that gap waits on is still kept, at
+  # `packages/core/src/injection/openseadragon-tile-source.ts`, with the gap named in its header.
   triiiceratops: 1.0.0-rc.35
 
   # `@allmaps/maplibre` is the ADR-0011 injection point for warped rendering: `fetchFn` on

@@ -33,9 +33,9 @@ dependency at a time.
 | Component                        | Licence       | What it does                                    |
 | -------------------------------- | ------------- | ----------------------------------------------- |
 | `@allmaps/*`                     | MIT           | Georeference annotation parsing, warped rendering, transformations, and the ids local images are stored under |
-| `triiiceratops`                  | MIT           | IIIF Manifest and Collection navigation, unwarped viewing |
+| `triiiceratops`                  | MIT           | IIIF Manifest navigation and unwarped viewing — **`apps/viewer` only** (see below) |
 | `manifesto.js` (via triiiceratops) | Apache-2.0  | IIIF Presentation parsing inside triiiceratops   |
-| `openseadragon` (via triiiceratops) | BSD-3-Clause | Deep-zoom image viewer                        |
+| `openseadragon` (via triiiceratops) | BSD-3-Clause | Deep-zoom image viewer, inside triiiceratops  |
 | `maplibre-gl`                    | BSD-3-Clause  | Both map panes                                  |
 | `@maplibre/maplibre-gl-style-spec` | ISC         | The `StyleSpecification` type, across the `core` boundary |
 | `pmtiles`                        | BSD-3-Clause  | Single-file tile archive for the offline base map |
@@ -46,6 +46,16 @@ dependency at a time.
 | `daisyui`                        | MIT           | The only UI dependency (ADR-0016)               |
 | `tailwindcss`                    | MIT           | Styling                                         |
 | `svelte`, `@sveltejs/*`          | MIT           | Framework and static adapter                    |
+
+**`triiiceratops` is a dependency of `apps/viewer` alone since ticket 15**, and its three rows stay
+because that changes *where* it is redistributed and not *whether*. `apps/editor` dropped it with
+its unwarped view ([ADR-0018](docs/adr/0018-triiiceratops-embedded-as-a-svelte-component.md), see
+the amendment note), and the editor's own bundle now carries no OpenSeadragon. The published viewer
+still does, every published site ships that viewer, and the editor build embeds a copy of it under
+`build/viewer-bundle/` so that publishing has something to write — so triiiceratops, `manifesto.js`
+and `openseadragon` are all still redistributed by this project and all three notices are still
+owed. Nothing was removed from this table by that ticket; only the description of what ships where
+was corrected.
 
 `marked` and `dompurify` are direct dependencies of `@ballastella/core` **and of both apps**.
 ADR-0018 explains why `dompurify` arriving in triiiceratops' tree costs nothing extra to

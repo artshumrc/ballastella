@@ -362,10 +362,21 @@ describe('the parser boundary', () => {
 	});
 
 	it('refuses a parsed object, which is the mistake that would otherwise compile', async () => {
-		// ADR-0018's rule is that only a string crosses. A parsed canvas has an `imageService`
-		// property on *both* parsers' objects, so handing one over type-checks and works — until the
-		// manifest where manifesto.js and @allmaps/iiif-parser read the same document differently, at
-		// which point nothing is wrong anywhere and the map is in the wrong place.
+		// ADR-0018's rule is that only a string crosses, and a parsed canvas has an `imageService`
+		// property sitting right there — so handing one over type-checks and works, which is exactly
+		// why it needs a function to refuse it rather than a convention.
+		//
+		// **What it works "until" is no longer two parsers disagreeing.** This comment used to say the
+		// hazard was `manifesto.js` and `@allmaps/iiif-parser` reading one document differently. Since
+		// ticket 15 the editor carries no `manifesto.js` at all — triiiceratops is `apps/viewer`'s
+		// alone, and browsing is the editor's own canvas list over `@allmaps/iiif-parser` — so that
+		// premise is history and ADR-0018's amendment note labels it as such. The rule outlived it:
+		// what the boundary forbids is the alignment path inheriting the browsing step's *reading* of
+		// a document instead of fetching and re-parsing the image service itself, which goes wrong the
+		// moment the two readings are not the same — a library edits the Manifest, a canvas paints a
+		// Choice, a service is behind a redirect. Nothing is wrong anywhere and the map is in the
+		// wrong place. See `parser-boundary.ts`'s header, which this comment must not drift from
+		// again.
 		const resource = await readRemoteIiifResource(
 			'https://library.example.test/iiif/atlas/manifest.json',
 			{ fetch: async () => json(manifest(1)) }

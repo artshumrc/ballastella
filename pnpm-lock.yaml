@@ -170,9 +170,6 @@ importers:
       pmtiles:
         specifier: 'catalog:'
         version: 4.4.1
-      triiiceratops:
-        specifier: 'catalog:'
-        version: 1.0.0-rc.35(svelte@5.56.8(@typescript-eslint/types@8.66.0))
     devDependencies:
       '@ballastella/viewer':
         specifier: workspace:*

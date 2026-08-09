@@ -19,8 +19,7 @@
 		"dompurify": "catalog:",
 		"maplibre-gl": "catalog:",
 		"marked": "catalog:",
-		"pmtiles": "catalog:",
-		"triiiceratops": "catalog:"
+		"pmtiles": "catalog:"
 	},
 	"devDependencies": {
 		"@ballastella/viewer": "workspace:*",

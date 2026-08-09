@@ -26,8 +26,13 @@
 // ADR-0004's own remedy is the opt-in canonical stamp (SPEC story 92), which rewrites that `id` to the
 // address the Workspace is published at — a stamped Project reads unwarped here, and an unstamped one
 // says why it cannot. That limitation is upstream's and is recorded on ticket 17 rather than improvised
-// around: the editor's own `UnwarpedView` already asks for the same missing prop (a `TileSource` it can
-// pass in), and one upstream change closes both.
+// around: it is the missing prop — a `TileSource` a host can pass in — and the object that would be
+// passed is `storedPyramidTileSource` in `@ballastella/core`, whose header states the gap in full.
+//
+// **The editor used to be the second caller waiting on that prop, and is not any more.** Ticket 15
+// deleted its `UnwarpedView` and took triiiceratops out of `apps/editor` altogether; this file and
+// `apps/viewer/src/lib/UnwarpedView.svelte` are now the only consumers, and both are unchanged by
+// that ticket. The upstream change still buys the same thing here.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // WHAT THIS IS BUILT FROM
