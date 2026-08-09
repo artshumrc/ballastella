@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { Autosave, type SaveState } from './autosave.js';
@@ -6,6 +6,38 @@ import { installFlushOnHide } from './flush-on-hide.js';
 
 const utf8 = new TextEncoder();
 const DEBOUNCE = 400;
+
+/**
+ * Catch what `Autosave` rethrows out of band, and hand back the list.
+ *
+ * ⚠ **The swap is an assertion as much as the `expect`s that read the list.** `Autosave` never
+ * swallows a subscriber's failure: it rethrows it from a `queueMicrotask`, which is where an
+ * uncaught error goes — `window.onerror` in a browser, this suite's `pageerror` watch in the e2e
+ * projects, and an `uncaughtException` in Node, which vitest would otherwise fail the run with. So
+ * the process's handlers are borrowed for the length of the test. If the class ever starts
+ * swallowing instead, the returned list is empty and every test that uses this goes red.
+ *
+ * The same pattern as `store-image-fetch.test.ts`'s, which is where ticket 04 established it.
+ */
+const escapesOutOfBand = (): unknown[] => {
+	const saved = process.listeners('uncaughtException');
+	const escaped: unknown[] = [];
+	process.removeAllListeners('uncaughtException');
+	process.on('uncaughtException', (cause) => escaped.push(cause));
+	onTestFinished(() => {
+		process.removeAllListeners('uncaughtException');
+		for (const listener of saved) process.on('uncaughtException', listener);
+	});
+	return escaped;
+};
+
+/**
+ * Let a `queueMicrotask` that threw reach Node's `uncaughtException`.
+ *
+ * Timers are faked in this file, so a real `setTimeout(0)` would never fire; advancing by zero
+ * yields to the microtask queue, which is where the rethrow is waiting.
+ */
+const microtasks = () => vi.advanceTimersByTimeAsync(0);
 
 describe('Autosave', () => {
 	let store: MemoryProjectStore;
@@ -166,15 +198,19 @@ describe('Autosave', () => {
 	 *
 	 * The invariant these assert, rather than the mechanism that keeps it: **if a file has pending
 	 * bytes, a drain is scheduled or running for it.** The exception is a drain that stopped by
-	 * throwing, and there are exactly two ways it can — the store refused the bytes, or a subscriber
-	 * threw while the indicator was being published. Both hold the bytes rather than rescheduling
-	 * them, and `leaves the path alive when a drain stops because …` drives both, and the ordinary
-	 * ending, through each of the three routes to the store.
+	 * throwing, and since ticket 09 there is exactly **one** way it can — the store refused the
+	 * bytes. It holds them rather than rescheduling them, and `leaves the path alive when a drain
+	 * stops because …` drives that ending and the ordinary one through each of the three routes to
+	 * the store.
 	 *
-	 * ⚠ **That enumeration was wrong once and it is the kind of claim this epic exists to catch.** A
-	 * journal whose `forget` threw was a third ending, and the worst of them: `commit` rejected for a
-	 * write the store had taken, with the indicator reading Saved. See `does not fail a write the
-	 * store took because the journal would not forget it`.
+	 * ⚠ **That enumeration has been wrong twice, and re-checking it is the whole discipline.** A
+	 * journal whose `forget` threw was once an ending, and the worst of them: `commit` rejected for a
+	 * write the store had taken, with the indicator reading Saved (see `does not fail a write the
+	 * store took because the journal would not forget it`). A subscriber that threw while the
+	 * indicator was published was once an ending too — **that is the one ticket 09 removed**, by not
+	 * letting a listener throw into this class at all rather than by guarding the three places it
+	 * could land. See `a subscriber that throws cannot touch the write path`, which is where those
+	 * assertions went.
 	 */
 	describe('a write that reports success has been written', () => {
 		/**
@@ -309,6 +345,101 @@ describe('Autosave', () => {
 		});
 
 		/**
+		 * ⚠ **`vi.getTimerCount()` IS THE DISCRIMINATOR, AND THESE FOUR ARE WHY** (ticket 09).
+		 *
+		 * Three assertions in this epic were found unable to tell "nothing is scheduled" from
+		 * "scheduled for ever", because they only read the end state — and a state a timer is about to
+		 * arrive in looks exactly like one nothing is coming for. The count is the only thing that
+		 * separates them, so the states this class can rest in are pinned by it here rather than by an
+		 * indicator that reads the same either way.
+		 *
+		 * They are also what says the union did what it was for. `debouncing` is the only variant that
+		 * carries a timer, so a timer outliving the state that armed it — the stray this epic twice
+		 * caught firing against bytes that were no longer there — has nowhere to be recorded.
+		 */
+		describe('what is scheduled, counted rather than inferred', () => {
+			it('arms exactly one debounce for a queued edit, and none once it has landed', async () => {
+				autosave.queue('p/project.json', utf8.encode('a'));
+				expect(vi.getTimerCount()).toBe(1);
+
+				await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+				expect({ timers: vi.getTimerCount(), state: autosave.state }).toEqual({
+					timers: 0,
+					state: 'saved'
+				});
+			});
+
+			it('collapses a re-queue onto one timer rather than leaving the first behind', async () => {
+				autosave.queue('p/project.json', utf8.encode('a'));
+				autosave.queue('p/project.json', utf8.encode('b'));
+
+				// One window, not two. A second timer here is the stray that fires against bytes that
+				// have gone, which is the shape a refactor in this epic twice made harmless-looking.
+				expect(vi.getTimerCount()).toBe(1);
+			});
+
+			/**
+			 * ⚠ **A BEHAVIOUR CHANGE, AND THE SPECIFICATION CHANGE THAT JUSTIFIES IT** (ticket 09).
+			 *
+			 * `queue` used to record the bytes *and* arm a timer even when a drain already owned the
+			 * path, so one file could be debouncing and writing at the same time. Two consequences, both
+			 * bad and neither asserted anywhere:
+			 *
+			 * 1. the timer usually fired against bytes the running drain had already written — the
+			 *    "stray timer firing harmlessly" this epic caught twice, harmless only by luck;
+			 * 2. when that drain *failed*, the timer turned the documented "bytes the store refused are
+			 *    **held**, not retried" into "retried, if the edit that failed happened to have a
+			 *    sibling behind it". Two answers to one question, decided by timing.
+			 *
+			 * With one state per path there is no way to write "debouncing and writing", so the drain is
+			 * the mechanism and it is the only one. `holds bytes the store refused rather than spinning
+			 * on them` states the rule; this is the case that used to escape it.
+			 */
+			it('does not retry a refused write because an edit was queued behind it', async () => {
+				const write = vi.spyOn(store, 'write').mockRejectedValue(new Error('the disk is full'));
+				const failing = autosave
+					.commit('p/project.json', utf8.encode('first'))
+					.catch(() => undefined);
+				// Typed while the store still had the first bytes, so this lands on a path a drain owns.
+				autosave.queue('p/project.json', utf8.encode('second'));
+				await failing;
+
+				await vi.advanceTimersByTimeAsync(DEBOUNCE * 100);
+
+				expect({
+					timers: vi.getTimerCount(),
+					attempts: write.mock.calls.length,
+					pending: autosave.hasPendingWrite('p/project.json'),
+					state: autosave.state
+				}).toEqual({ timers: 0, attempts: 1, pending: true, state: 'unsaved' });
+				// And nothing was lost by not retrying: the newer bytes are the ones still held, and the
+				// next flush against a store that will take them writes those.
+				write.mockImplementation(writeThrough);
+				await autosave.flush();
+				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('second');
+			});
+
+			it('leaves nothing scheduled for a path it was told to abandon mid-write', async () => {
+				const { land } = writesThatLandOnCommand();
+				autosave.queue('amsterdam-1625/project.json', utf8.encode('a rename mid-debounce'));
+				await vi.advanceTimersByTimeAsync(DEBOUNCE);
+				// A second edit, arriving while the store has the first and after the sweep.
+				const abandoning = autosave.abandon('amsterdam-1625/');
+				autosave.queue('amsterdam-1625/project.json', utf8.encode('and another'));
+
+				land();
+				await vi.advanceTimersByTimeAsync(0);
+				land();
+				await expect(abandoning).resolves.toBe(true);
+
+				// `abandon`'s own bounded wait is over, the drain is over, and the edit that arrived
+				// behind it went to that same drain rather than to a timer of its own.
+				expect(vi.getTimerCount()).toBe(0);
+			});
+		});
+
+		/**
 		 * Re-asserted rather than trusted. Closing the gap is a change to exactly the code that decides
 		 * what happens when a drain stops, and a drain that stops by throwing is the half a fix for the
 		 * other half could quietly take with it.
@@ -410,8 +541,18 @@ describe('Autosave', () => {
 		 * the returned promise ran on rejection too, so the bytes stayed recoverable and the indicator
 		 * read "Unsaved". A recoverable stranding was traded for an unrecoverable one — stories 6 and
 		 * 30 inverted on the exact path this ticket owns.
+		 *
+		 * ⚠ **Ticket 09 changed what this asserts, and the change is a specification change.** It used
+		 * to assert that a subscriber's throw stopped the drain *survivably* — `commit` rejected, the
+		 * bytes held, the path usable afterwards. It now asserts that a subscriber's throw does not
+		 * reach the write path **at all**: the write completes and `commit` resolves. Defending the
+		 * three places a listener could land was the shape that let this defect in twice; a listener
+		 * that cannot throw into this class has no places to land. The subscriber's own failure is not
+		 * swallowed for it — see `a subscriber that throws cannot touch the write path`, which asserts
+		 * it escapes.
 		 */
 		it('is not killed by a subscriber that throws while the indicator is published', async () => {
+			escapesOutOfBand();
 			let willThrow = true;
 			autosave.subscribe((state) => {
 				if (state !== 'saving' || !willThrow) return;
@@ -419,7 +560,7 @@ describe('Autosave', () => {
 				throw new Error('a listener that could not cope');
 			});
 
-			// ⚠ **One assertion over the three facts together, not three in a row.** Asserted
+			// ⚠ **One assertion over the four facts together, not four in a row.** Asserted
 			// separately, the first to fail hides the rest, and a mutation that moves two of them is
 			// then recorded as killing only one — which is how an assertion with no kill of its own
 			// survives a mutation check (review 2, finding C).
@@ -431,8 +572,9 @@ describe('Autosave', () => {
 			expect({
 				outcome,
 				state: autosave.state,
-				pending: autosave.hasPendingWrite('p/project.json')
-			}).toEqual({ outcome: 'rejected', state: 'unsaved', pending: true });
+				pending: autosave.hasPendingWrite('p/project.json'),
+				written: new TextDecoder().decode(await store.read('p/project.json'))
+			}).toEqual({ outcome: 'resolved', state: 'saved', pending: false, written: 'first' });
 
 			// And the path is still alive rather than merely stranded: the next commit *resolves*,
 			// which on the shape this replaced it could not — it was handed the first one's rejection.
@@ -442,24 +584,20 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * ⚠ **The `finally` releases the memo BEFORE it publishes, and the order is load-bearing**
-		 * (review 2, finding F). `#derive` reads `file.draining`, so publishing first reports
-		 * `'saving'` for a drain that has already stopped and then never republishes — the indicator
-		 * sits on "Saving" for ever with nothing in flight.
+		 * ⚠ **The `finally` replaces the drain's state BEFORE it publishes, and the order is
+		 * load-bearing** (review 2, finding F). `#derive` reads the state map, so publishing first
+		 * reports `'saving'` for a drain that has already stopped and then never republishes — the
+		 * indicator sits on "Saving" for ever with nothing in flight.
 		 *
-		 * The subscriber here throws on *every* transition, including the one the `finally` publishes
-		 * on its way out, which is the case the ordering also protects: a throw from that publish
-		 * cannot skip a release that has already happened. **That second consequence is reasoning, not
-		 * what this measures** — what it measures is the indicator, above.
+		 * ⚠ **Driven by a store that rejects rather than by a subscriber that throws** (ticket 09).
+		 * The old version armed a listener to throw on every transition, which since ticket 09 does
+		 * not stop a drain at all — so it would have gone on passing while measuring nothing, which is
+		 * exactly the "a refactor silently disarmed a mutation" failure this epic keeps finding. A
+		 * refused write is the ending that reaches this line with a state still to be replaced, and
+		 * swapping the two lines turns this red.
 		 */
 		it('releases the drain before it publishes, so the indicator does not stick on Saving', async () => {
-			let live = false;
-			// Subscribed first, then armed: `subscribe` calls its listener immediately, and a throw
-			// from that call would be a throw out of `subscribe` rather than out of a drain.
-			autosave.subscribe(() => {
-				if (live) throw new Error('a listener that could not cope, ever');
-			});
-			live = true;
+			vi.spyOn(store, 'write').mockRejectedValue(new Error('the disk is full'));
 
 			await autosave.commit('p/project.json', utf8.encode('first')).catch(() => undefined);
 
@@ -582,6 +720,14 @@ describe('Autosave', () => {
 		 * flush, then a debounced queue, then a commit, and asserted only the final contents — so the
 		 * last write covered for the two before it, and both a no-op `flush` and a deleted debounce
 		 * drain left all three rows green. A route that is written down but not read is decoration.
+		 *
+		 * ⚠ **This table lost a row in ticket 09, and losing a row is exactly the move that needs
+		 * justifying.** `a subscriber threw while the indicator was being published` is no longer a
+		 * way a drain can stop — a listener cannot throw into this class any more — so keeping the row
+		 * would have meant asserting `holdsTheBytes: true` for a write that now completes. The
+		 * property it was here to check has not been dropped: it moved to
+		 * `a subscriber that throws cannot touch the write path`, which drives a throwing listener
+		 * through **every** publish point rather than only the one at the top of the drain loop.
 		 */
 		const waysADrainCanStop = [
 			{
@@ -594,19 +740,6 @@ describe('Autosave', () => {
 				ending: 'the store refused the bytes',
 				arrange: () =>
 					void vi.spyOn(store, 'write').mockRejectedValueOnce(new Error('the disk is full')),
-				holdsTheBytes: true,
-				indicator: 'unsaved'
-			},
-			{
-				ending: 'a subscriber threw while the indicator was being published',
-				arrange: () => {
-					let willThrow = true;
-					autosave.subscribe((state) => {
-						if (state !== 'saving' || !willThrow) return;
-						willThrow = false;
-						throw new Error('a listener that could not cope');
-					});
-				},
 				holdsTheBytes: true,
 				indicator: 'unsaved'
 			}
@@ -644,6 +777,143 @@ describe('Autosave', () => {
 				expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('by commit');
 			});
 		}
+	});
+
+	/**
+	 * ⚠ **A SUBSCRIBER THAT THREW CORRUPTED THIS CLASS TWICE, FROM TWO DIFFERENT PUBLISH POINTS**
+	 * (ticket 09, and reviews 1 and 2 of ticket 01).
+	 *
+	 * Once it left a rejected promise memoised against the path for ever, so every later write to
+	 * that file was handed the rejection and the indicator sat on "Saving" — `commit`, the debounce
+	 * and `flush` all dead for that file, permanently. Once it left the bytes stranded. Each was
+	 * closed by guarding the *place it landed*, and each time a new place turned up.
+	 *
+	 * So the class stopped defending the places. **A listener is never allowed to throw into
+	 * `Autosave` at all**: every call into application code is wrapped, and the failure is rethrown
+	 * from a `queueMicrotask` — not swallowed, which would be the silence this epic exists to
+	 * remove. Ticket 04 established the pattern at the tile-fetch seam and this copies it.
+	 *
+	 * ⚠ **Driven at every seam rather than at the one that hurt.** The two defects above were both at
+	 * `#drainLoop`'s first publish, so a test that drove only that seam would have gone green against
+	 * a class that still let `abandon`, `settled` or `subscribe` be taken down. `onJournalRefused` is
+	 * in here too: it is a different callback, but it is the same thing — application code called
+	 * from inside a method that owns an invariant.
+	 */
+	describe('a subscriber that throws cannot touch the write path', () => {
+		/** A listener that throws on every transition it is told about, for ever. */
+		const alwaysThrows = () =>
+			autosave.subscribe(() => {
+				throw new Error('a listener that could not cope');
+			});
+
+		it('lets subscribe itself return, and reports the listener’s failure out of band', async () => {
+			const escaped = escapesOutOfBand();
+
+			expect(() => alwaysThrows()).not.toThrow();
+
+			// Not swallowed. `subscribe` replays the current state immediately, so this is the very
+			// first call and it has already failed.
+			await microtasks();
+			expect(escaped.map((cause) => (cause as Error).message)).toEqual([
+				'a listener that could not cope'
+			]);
+		});
+
+		it('still writes a debounced edit, and still writes a committed one', async () => {
+			const escaped = escapesOutOfBand();
+			alwaysThrows();
+			// Subscribed behind the thrower, so it counts exactly the calls the thrower also got: its
+			// own immediate replay, and then every transition.
+			const alsoTold: SaveState[] = [];
+			autosave.subscribe((state) => alsoTold.push(state));
+
+			autosave.queue('p/project.json', utf8.encode('by debounce'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('by debounce');
+
+			await expect(
+				autosave.commit('p/project.json', utf8.encode('by commit'))
+			).resolves.toBeUndefined();
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('by commit');
+
+			await microtasks();
+			// Every one of those calls failed, and every one of them was reported — one escape for each
+			// call a healthy listener beside it received. A count rather than a bare
+			// `not.toHaveLength(0)`: this is what says the listener really was called at every publish,
+			// so a change that stopped publishing reads as a failure rather than as a pass.
+			expect({ escaped: escaped.length, told: alsoTold }).toEqual({
+				escaped: 6,
+				told: ['saved', 'unsaved', 'saving', 'saved', 'saving', 'saved']
+			});
+		});
+
+		it('still flushes, abandons and settles', async () => {
+			const escaped = escapesOutOfBand();
+			alwaysThrows();
+
+			autosave.queue('a/project.json', utf8.encode('flushed'));
+			await autosave.flush();
+			expect(new TextDecoder().decode(await store.read('a/project.json'))).toBe('flushed');
+
+			autosave.queue('b/project.json', utf8.encode('settled'));
+			await expect(autosave.settled('b/')).resolves.toBe(true);
+			expect(new TextDecoder().decode(await store.read('b/project.json'))).toBe('settled');
+
+			autosave.queue('c/project.json', utf8.encode('abandoned'));
+			await expect(autosave.abandon('c/')).resolves.toBe(true);
+			expect(autosave.hasPendingWrite('c/project.json')).toBe(false);
+			expect(await store.list('c/')).toEqual([]);
+
+			await microtasks();
+			expect(escaped).not.toHaveLength(0);
+		});
+
+		it('still saves the edit when it is onJournalRefused that throws', async () => {
+			const escaped = escapesOutOfBand();
+			const refusing = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: () => {
+						throw new Error('the journal is full');
+					},
+					forget: () => undefined
+				},
+				onJournalRefused: () => {
+					throw new Error('a refusal handler that could not cope');
+				}
+			});
+
+			// A lost guarantee must not become a lost edit, and neither must a lost *report* of one.
+			refusing.queue('p/project.json', utf8.encode('renamed'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+			expect(new TextDecoder().decode(await store.read('p/project.json'))).toBe('renamed');
+			await microtasks();
+			expect(escaped.map((cause) => (cause as Error).message)).toEqual([
+				'a refusal handler that could not cope'
+			]);
+		});
+
+		it('notifies every other listener, rather than stopping at the one that threw', async () => {
+			escapesOutOfBand();
+			const before: SaveState[] = [];
+			const after: SaveState[] = [];
+			autosave.subscribe((state) => before.push(state));
+			alwaysThrows();
+			autosave.subscribe((state) => after.push(state));
+
+			await autosave.commit('p/project.json', utf8.encode('a'));
+
+			// ⚠ **The listener registered *after* the thrower is the assertion.** `#publish` iterates
+			// its set, and an unguarded throw stopped that iteration — so a single bad subscriber
+			// silenced the indicator for everything registered behind it. Named as a residual on the
+			// previous shape of this class, closed here.
+			await microtasks();
+			expect({ before, after }).toEqual({
+				before: ['saved', 'saving', 'saved'],
+				after: ['saved', 'saving', 'saved']
+			});
+		});
 	});
 
 	describe('what is waiting to be written', () => {
