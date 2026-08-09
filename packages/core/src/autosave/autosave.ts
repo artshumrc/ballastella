@@ -75,10 +75,26 @@ export interface AutosaveOptions {
  * | `settled()` answering `true` with a write coming | `timer` armed behind a caller that was told it was quiet | a timer exists only as `debouncing`, and every reader switches over the whole union |
  * | A refused deletion killing the retry | a "quiescing" flag set with nothing left to clear it | `abandoning` is owned by the drain it names, and that drain's `finally` is what ends it |
  *
- * **The invariant the epic spent four rounds testing is now a property of the type**: *if bytes are
- * pending, a drain is scheduled or running*. Every variant that carries bytes carries either the
- * timer that will start their drain, the drain that is writing them, or — for the one stated
- * exception — the error explaining why nothing is coming. There is no fourth possibility to write.
+ * **Half of the invariant the epic spent four rounds testing is now a property of the type**: every
+ * variant that carries bytes carries either the timer that will start their drain, the drain that is
+ * writing them, or — for the one stated exception — the error explaining why nothing is coming. There
+ * is no fourth possibility to write.
+ *
+ * ⚠ **THE OTHER HALF IS NOT, AND SAYING IT WAS COST A BLOCKING REGRESSION** (review 1). "*If bytes
+ * are pending, a drain is scheduled or running*" is a claim about **which bytes** as much as about
+ * which fields, and a union cannot make it. `{ at: 'writing', bytes, drain }` is a perfectly legal
+ * state whatever `bytes` holds — including bytes older than the ones the caller was just told were
+ * saved. The first cut of this ticket passed bytes into `#drain` as a parameter, a re-entrant
+ * subscriber made one stale, and the original write gap came straight back inside a legal state:
+ * `commit` resolved, the store held the older bytes, the indicator read `saved`.
+ *
+ * So the guarantee stands on two things, and both have to be read together:
+ *
+ * 1. **the type**, for which fields may coexist — this table;
+ * 2. **one rule about bytes**, enforced by the shape of two methods: *only a caller who was handed
+ *    bytes may install bytes*. {@link Autosave.queue} and {@link Autosave.commit} have them from the
+ *    user and pass them to `#drain`; every other route reaches `#drainOwed`, which has no parameter
+ *    to pass a stale value through and re-reads the state at the point of use.
  *
  * **Idle is absence.** A path is in `Autosave`'s map exactly while something is happening to it, so
  * "idle with bytes" is not a state that has to be forbidden; it has no representation at all.
@@ -95,9 +111,13 @@ type FileState =
 			readonly timer: ReturnType<typeof setTimeout>;
 	  }
 	/**
-	 * A drain owns this path and `bytes` are what the store has not taken yet. Rule 2's
-	 * one-writer-per-path is this variant being the only one that carries a `drain`: a second writer
-	 * would need a second `drain` for the same key, and the map has one value per key.
+	 * A drain owns this path and `bytes` are what the store has not taken yet.
+	 *
+	 * Rule 2's one-writer-per-path rests on the map having one value per key: a path is either owned
+	 * by a drain or it is not, and both variants that carry a `drain` — this one and `abandoning` —
+	 * carry exactly one, which `drainOf` is the single reader of. (An earlier draft of this sentence
+	 * said `writing` was *the only* variant carrying a drain. It was false in the same commit that
+	 * wrote it, twelve lines above `drainOf`, which returns one for both.)
 	 */
 	| { readonly at: 'writing'; readonly bytes: Bytes; readonly drain: Promise<void> }
 	/**
@@ -107,8 +127,15 @@ type FileState =
 	 *
 	 * The only variant with no bytes, which is why it is a variant rather than `writing` with an
 	 * empty payload: "a drain is running and owes the store nothing" is a different fact from "a
-	 * drain is running and these bytes are still owed", and conflating them is how `abandon` used to
-	 * let a second writer in.
+	 * drain is running and these bytes are still owed".
+	 *
+	 * ⚠ **It did not fix a shipped defect, and an earlier draft of this comment said it did.**
+	 * Measured against the parent commit: the old `abandon` cleared `pending` but kept the entry
+	 * *and* its `draining` memo, so a `queue` arriving afterwards was handed the running drain and
+	 * one writer was preserved. Running this ticket's tests against that implementation gives eight
+	 * failures and `leaves a path being written to one writer, even after abandoning it` is **not**
+	 * among them. What this variant buys is that the two facts stop being one nullable field, so a
+	 * reader cannot mistake either for the other — expressiveness, not a repair.
 	 */
 	| { readonly at: 'abandoning'; readonly drain: Promise<void> }
 	/**
@@ -371,14 +398,27 @@ export class Autosave {
 	 * **after** writing the deletion down and before removing a byte, so the synchronous guarantee
 	 * that whole ticket rests on is untouched.
 	 *
-	 * ⚠ **`abandoning` is why a path being written to keeps exactly one writer** (ticket 09). The
-	 * in-flight drain stays *in the state*, so a `queue` for the same path a moment later is handed
-	 * to that same drain. Dropping the path from the map instead — which is what "clear the pending
-	 * bytes" used to amount to — let the next `queue` build a fresh entry with no drain on it and
-	 * start a **second** concurrent write to one file.
+	 * ⚠ **`abandoning` keeps the in-flight drain in the state, so a `queue` for the same path a moment
+	 * later is handed to that same drain and one writer is preserved.** Dropping the path from the map
+	 * instead would let the next `queue` build a fresh entry with no drain on it and start a **second**
+	 * concurrent write to one file — which `leaves a path being written to one writer, even after
+	 * abandoning it` asserts, and which deleting this branch turns red.
+	 *
+	 * ⚠ **That is not a defect this variant fixed, and an earlier draft of this comment said it was.**
+	 * The implementation before ticket 09 cleared the pending bytes but kept the entry *and* its
+	 * `draining` memo, which preserved one writer by the same argument. Corrected rather than
+	 * quietly dropped, because a fix that never happened is exactly the kind of claim this epic
+	 * exists to catch.
 	 *
 	 * Never rejects: a write that failed is a write the store does not have, which is the outcome the
 	 * caller wanted anyway.
+	 *
+	 * ⚠ **What this does NOT guarantee, stated because the paragraphs above enumerate what it does.**
+	 * An edit `queue`d for this path *after* the sweep re-adopts it — legitimately, because the caller
+	 * asked for the path back — records itself in the journal, and if its write then fails it is left
+	 * `held` with a live journal entry that `replayJournal` restores at the next startup. Pre-existing
+	 * and identical before ticket 09; named here rather than fixed, because comparing the journal
+	 * against the store is ticket 07's subject.
 	 *
 	 * @returns whether everything under `prefix` is now quiet. `false` means a write is **still out
 	 *   there** and the wait gave up on it — see {@link #quietUnder}.
@@ -455,9 +495,18 @@ export class Autosave {
 	 *
 	 * ⚠ **The one place that reads "what has to happen before this path is quiet" out of a state**,
 	 * shared by {@link flush} and {@link settled} because they had the same three-way decision written
-	 * out twice and one of the two got it wrong (ticket 21, round 5). The `switch` is exhaustive by
-	 * type: a variant added without a case here is a compile error, not a path silently reported as
-	 * quiet.
+	 * out twice and one of the two got it wrong (ticket 21, round 5).
+	 *
+	 * ⚠ **IT WALKS KEYS, AND IT MUST NEVER CARRY A STATE ACROSS AN ITERATION** (ticket 09, review 1).
+	 * The first cut read `[...this.#states]` — keys *and values* — and handed each value's bytes to
+	 * `#drain`. Draining the first path publishes, `#publish` runs subscribers synchronously, and a
+	 * subscriber that writes to a path **later in this walk** then had its edit overwritten by the
+	 * value read before it ran. Measured: `commit` resolved, the store held the older bytes,
+	 * `hasPendingWrite` was false, the indicator read `saved` and nothing was scheduled — story 23
+	 * inverted. A subscriber that *deleted* a Project mid-walk had it written straight back.
+	 *
+	 * {@link #drainOwed} re-reads the state at the moment it drains, and has no parameter through
+	 * which a stale value could be passed. That is why this loop destructures nothing.
 	 *
 	 * ⚠ **The promises come back unhandled, and both callers must settle them with `allSettled`.**
 	 * `flush` reads the rejection — that is how one refused write stops it retrying ninety-nine more
@@ -467,24 +516,46 @@ export class Autosave {
 	 */
 	#bringToRest(matches: (path: StorePath) => boolean): Promise<unknown>[] {
 		const waiting: Promise<unknown>[] = [];
-		for (const [path, state] of [...this.#states]) {
+		for (const path of [...this.#states.keys()]) {
 			if (!matches(path)) continue;
-			switch (state.at) {
-				case 'writing':
-				case 'abandoning':
-					// `#drain` is one-writer-per-path, so joining is all there is to do: bytes that arrived
-					// while the store had the previous ones are picked up by this same loop on its next pass.
-					waiting.push(state.drain);
-					break;
-				case 'debouncing':
-				case 'held':
-					waiting.push(this.#drain(path, state.bytes));
-					break;
-				default:
-					throw unhandled(state);
-			}
+			const owed = this.#drainOwed(path);
+			if (owed) waiting.push(owed);
 		}
 		return waiting;
+	}
+
+	/**
+	 * Drain whatever `path` owes **right now**, or join the drain already running for it.
+	 *
+	 * ⚠ **No `bytes` parameter, and that absence is the fix for review 1's blocking regression.** Only
+	 * a caller who was handed bytes by the user — {@link queue} and {@link commit} — may install bytes;
+	 * see {@link #drain}. Every other route into the store reaches this method instead, which reads the
+	 * state at the point of use, so there is no value in flight for a re-entrant subscriber to make
+	 * stale. The union constrains which fields coexist; it cannot constrain which bytes go in them, and
+	 * this is where that second half is enforced.
+	 *
+	 * `undefined` when the path owes nothing — which is not the same as "nothing happened". It is the
+	 * answer for a path {@link abandon} removed while this walk was in progress, and answering with a
+	 * promise there is what wrote a deleted Project back into the store.
+	 *
+	 * The `switch` is exhaustive by type: a variant added without a case here is a compile error, not
+	 * a path silently reported as quiet.
+	 */
+	#drainOwed(path: StorePath): Promise<void> | undefined {
+		const state = this.#states.get(path);
+		if (state === undefined) return undefined;
+		switch (state.at) {
+			case 'writing':
+			case 'abandoning':
+				// One writer per path, so joining is all there is to do: bytes that arrived while the store
+				// had the previous ones are picked up by that same loop on its next pass.
+				return state.drain;
+			case 'debouncing':
+			case 'held':
+				return this.#startDrain(path, state.bytes, state);
+			default:
+				throw unhandled(state);
+		}
 	}
 
 	/**
@@ -656,7 +727,10 @@ export class Autosave {
 			// Nobody is awaiting a debounced write, so a failure is reported through the save state
 			// and `lastError` rather than as an unhandled rejection. The bytes stay pending either
 			// way, so the next commit or flush tries again.
-			void this.#drain(path, state.bytes).catch(() => undefined);
+			//
+			// Through `#drainOwed`, which has no bytes parameter: this is not a caller the user handed
+			// bytes to, it is a caller draining whatever the path owes. See review 1's regression.
+			void this.#drainOwed(path)?.catch(() => undefined);
 		}, this.#debounceMs);
 	}
 
@@ -714,6 +788,17 @@ export class Autosave {
 			this.#states.set(path, { at: 'writing', bytes, drain: running });
 			return running;
 		}
+		return this.#startDrain(path, bytes, current);
+	}
+
+	/**
+	 * Put `path` into `writing` with `bytes`, and start the loop that will write them.
+	 *
+	 * Shared by {@link #drain} and {@link #drainOwed} so that the deferred below — which is
+	 * load-bearing, see {@link #drain} — exists once rather than twice. The two differ only in where
+	 * the bytes came from, and that difference is the whole of review 1's fix.
+	 */
+	#startDrain(path: StorePath, bytes: Bytes, current: FileState | undefined): Promise<void> {
 		if (current) this.#stopDebounce(current);
 		let started!: (loop: Promise<void>) => void;
 		const drain = new Promise<void>((resolve) => {

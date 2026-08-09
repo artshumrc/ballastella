@@ -446,6 +446,129 @@ describe('Autosave', () => {
 		});
 
 		/**
+		 * ⚠ **A SUBSCRIBER RE-ENTERING DURING A SWEEP COULD REVERT A PATH TO OLDER BYTES** (ticket 09,
+		 * review 1 — a regression the first cut of this ticket introduced).
+		 *
+		 * `flush` and `settled` walk a snapshot of the paths and then drain each one. Draining the
+		 * *first* path publishes `'saving'`, and `#publish` runs subscribers synchronously — a seam this
+		 * class documents, supports and tests. So a subscriber that writes to a path **later in the
+		 * walk** has its edit installed and then overwritten by the value the sweep is still carrying
+		 * for that path.
+		 *
+		 * Measured on the commit before this one, with the sweep passing bytes it had read before the
+		 * subscriber ran:
+		 *
+		 * ```
+		 * commit resolved: true   store: "b1"   pending: false   state: "saved"   timers: 0
+		 * ```
+		 *
+		 * A write that reported success and did not happen, with the indicator reading Saved and
+		 * nothing scheduled — story 23 inverted, by the refactor written to make it unspellable.
+		 *
+		 * ⚠ **The root cause is the ticket's own thesis, one level down.** The union constrains which
+		 * *fields* can coexist; it says nothing about which *bytes* go in them. Before the refactor
+		 * `#drainLoop` read the pending bytes live on every pass and `#drain` took none, so there was no
+		 * value to go stale. Making bytes a parameter of `#drain` reintroduced exactly the value-versus-
+		 * state split the union exists to abolish.
+		 *
+		 * The fix is that **only a caller who was handed bytes may install bytes**. `queue` and `commit`
+		 * have them from the user and pass them; every other route — the sweep, the debounce — asks for
+		 * whatever the path owes *at the moment it is drained*, through a method with no parameter to
+		 * pass a stale value through. See `#drainOwed`.
+		 *
+		 * ⚠ **Reachability in production is not claimed.** The only shipped subscriber assigns
+		 * `this.saveState = state`, and Svelte's effects are not synchronous. But re-entrancy is a
+		 * supported seam here — `keeps one writer per path when a subscriber commits back into it`
+		 * exists precisely because it is — and the first cut preserved it for `commit` while breaking it
+		 * for `flush` and `settled`.
+		 */
+		describe('a sweep cannot revert what a subscriber wrote while it was sweeping', () => {
+			/** Do `gesture` the first time the indicator says `'saving'`, and only then. */
+			const onFirstSaving = (gesture: () => void) => {
+				let done = false;
+				autosave.subscribe((state) => {
+					if (state !== 'saving' || done) return;
+					done = true;
+					gesture();
+				});
+			};
+
+			it('does not let flush write back bytes a subscriber superseded mid-sweep', async () => {
+				// Two paths, so the sweep publishes on the first and still has the second to reach.
+				autosave.queue('a/project.json', utf8.encode('a1'));
+				autosave.queue('b/project.json', utf8.encode('b1'));
+				let committed: 'resolved' | 'rejected' | 'waiting' = 'waiting';
+				onFirstSaving(() => {
+					void autosave.commit('b/project.json', utf8.encode('b2-NEWER')).then(
+						() => (committed = 'resolved'),
+						() => (committed = 'rejected')
+					);
+				});
+
+				await autosave.flush();
+				await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+				// ⚠ **One record over every fact, because the failure is the combination.** The bytes
+				// alone would let a fix that merely rejects the commit look like a pass; `commit`
+				// resolving is what makes it a lie rather than a loss.
+				expect({
+					committed,
+					onDisk: new TextDecoder().decode(await store.read('b/project.json')),
+					pending: autosave.hasPendingWrite('b/project.json'),
+					state: autosave.state,
+					timers: vi.getTimerCount()
+				}).toEqual({
+					committed: 'resolved',
+					onDisk: 'b2-NEWER',
+					pending: false,
+					state: 'saved',
+					timers: 0
+				});
+			});
+
+			it('does not let settled write back bytes a subscriber superseded mid-sweep', async () => {
+				// `settled` is what `EditorSession.#quietBeforeDeleting` calls, so this is the reachable
+				// twin of the test above rather than a second spelling of it. Two files under one
+				// Project, because the sweep has to publish on the first and still have the second to
+				// reach — which is the whole mechanism.
+				autosave.queue('p/annotations/one.geojson', utf8.encode('a1'));
+				autosave.queue('p/project.json', utf8.encode('b1'));
+				onFirstSaving(() => {
+					void autosave.commit('p/project.json', utf8.encode('b2-NEWER')).catch(() => undefined);
+				});
+
+				await expect(autosave.settled('p/')).resolves.toBe(true);
+				await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+				expect({
+					onDisk: new TextDecoder().decode(await store.read('p/project.json')),
+					state: autosave.state
+				}).toEqual({ onDisk: 'b2-NEWER', state: 'saved' });
+			});
+
+			/**
+			 * ⚠ **The same root cause arriving as ticket 21's resurrection class.** A subscriber that
+			 * deletes a Project mid-sweep has `abandon` drop the path and forget its journal entry — and
+			 * the sweep, still carrying the bytes it read beforehand, writes the Project straight back
+			 * into the store. The deletion then drops its own record, so nothing at the next startup
+			 * catches it: exactly the defect ticket 21 closed, by a route it could not have known about.
+			 */
+			it('does not let flush resurrect a Project abandoned mid-sweep', async () => {
+				autosave.queue('a/project.json', utf8.encode('a1'));
+				autosave.queue('amsterdam-1625/project.json', utf8.encode('b1'));
+				onFirstSaving(() => void autosave.abandon('amsterdam-1625/'));
+
+				await autosave.flush();
+
+				expect({
+					written: writes,
+					stored: await store.list('amsterdam-1625/'),
+					pending: autosave.hasPendingWrite('amsterdam-1625/project.json')
+				}).toEqual({ written: ['a/project.json'], stored: [], pending: false });
+			});
+		});
+
+		/**
 		 * Re-asserted rather than trusted. Closing the gap is a change to exactly the code that decides
 		 * what happens when a drain stops, and a drain that stops by throwing is the half a fix for the
 		 * other half could quietly take with it.
@@ -1063,14 +1186,16 @@ describe('Autosave', () => {
 		/**
 		 * ⚠ **THE RESURRECTION DEFECT AT THE SEAM `abandon` CANNOT SWEEP** (ticket 09).
 		 *
-		 * The sibling test above drops a Project's bytes while they sit in a debounce, and asserts
-		 * that neither `capture` nor `flush` can put them back. The other half — a write already handed
-		 * to the store when Delete is pressed — had nothing saying the same thing, and it is the half
-		 * where the bytes are *still in this object*, held by the drain that cannot be called back.
-		 *
-		 * So `capture()` at `pagehide` would re-journal them and the next startup would replay a
-		 * Project the user watched disappear: ticket 21's defect exactly, by the one route its own
-		 * tests could not build.
+		 * ⚠ **Narrower than an earlier version of this comment claimed, and the correction matters.**
+		 * Abandoning mid-write was *not* untested: `answers with a promise for the write it could not
+		 * stop`, `answers even when the write it could not stop rejected` and `leaves a path being
+		 * written to one writer, even after abandoning it` all drive it, and all three predate ticket
+		 * 09. What none of them read is the **resurrection** half — the one the sibling test above
+		 * reads for a file inside its debounce — and that half is the more dangerous one, because a
+		 * write already handed to the store leaves the bytes *still in this object*, held by a drain
+		 * that cannot be called back. `capture()` at `pagehide` would re-journal them and the next
+		 * startup would replay a Project the user watched disappear: ticket 21's defect, by the one
+		 * route its own tests could not build. That, and the indicator, are what is new here.
 		 *
 		 * ⚠ **And the indicator must still read "Saving" while that write is out there**, because it
 		 * is: saying "Saved" for bytes the store has not answered about is the inversion this epic
@@ -1117,6 +1242,40 @@ describe('Autosave', () => {
 				state: 'saved',
 				journal: []
 			});
+		});
+
+		/**
+		 * ⚠ **A REFUSAL OUTLIVING THE PROJECT IT WAS ABOUT** (ticket 09, review 1 — a surviving
+		 * mutation, found green and closed here).
+		 *
+		 * `abandon` drops each swept path's journal refusal, and nothing said so: deleting that line
+		 * left the whole core suite green. Without it the scholar keeps being told that a file is
+		 * unprotected against leaving the page — for a Project they have just deleted, which has no
+		 * files to protect — until some unrelated edit happens to re-derive the answer.
+		 *
+		 * That is the same shape as the defect `lastError` and `#publishJournalRefusal` are both
+		 * per-file for: a warning that is true of nothing, left on the screen.
+		 */
+		it('withdraws a journal refusal for a Project it is giving up on', async () => {
+			const refusals: unknown[] = [];
+			const refusing = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: () => {
+						throw new Error('the journal is full');
+					},
+					forget: () => undefined
+				},
+				onJournalRefused: (problem) => refusals.push(problem)
+			});
+			refusing.queue('amsterdam-1625/project.json', utf8.encode('a rename that would not fit'));
+			expect(refusals).toEqual([expect.any(Error)]);
+
+			await refusing.abandon('amsterdam-1625/');
+
+			// `null` is how this class says "and it is over" — asserted as the whole sequence, so a
+			// change that merely stopped reporting the refusal in the first place cannot pass.
+			expect(refusals).toEqual([expect.any(Error), null]);
 		});
 
 		/** And a failed write settles it too: bytes the store refused are bytes the store has not got. */
