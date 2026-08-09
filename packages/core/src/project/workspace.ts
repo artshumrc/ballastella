@@ -1,6 +1,10 @@
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
 import type { Autosave } from '../autosave/autosave.js';
-import type { DeletedProjects } from '../autosave/deleted-projects.js';
+import type {
+	DeletedProjects,
+	DeletionRecord,
+	ProjectIdentity
+} from '../autosave/deleted-projects.js';
 import { IMAGE_DIRECTORY } from './image-files.js';
 import {
 	ProjectFileUnreadableError,
@@ -109,12 +113,39 @@ export interface WorkspaceOptions {
 	 * is what it was before ticket 21.
 	 */
 	readonly deleted?: DeletedProjects;
+	/**
+	 * Called when the browser refused to write a deletion down (ticket 21).
+	 *
+	 * `DeletedProjects.record` answers "is this durable", and the first cut of this class dropped the
+	 * answer on the floor. Two real browsers reach it — a `localStorage` full of one enormous
+	 * Annotation collection (ADR-0017), and a Safari with cookies blocked, where reads answer and
+	 * every write rejects — and in both the deletion is back to being only as durable as the page.
+	 * That is a **second refusal**, with a different remedy from `onJournalRefused`'s, and ADR-0017
+	 * asks for two refusals rather than one.
+	 */
+	readonly onDeletionNotRecorded?: (directory: string) => void;
 }
 
-/** What a startup found still to do, and what it could not do. */
+/** Why an unfinished deletion was not carried out, in one sentence written for the user. */
+export interface RefusedDeletion {
+	readonly directory: string;
+	readonly detail: string;
+}
+
+/** What a startup found still to do, what it did, and what it would not do. */
 export interface FinishedDeletions {
 	/** Deletions that had not finished and now have. */
 	readonly finished: readonly string[];
+	/**
+	 * Deletions this startup **refused to carry out**, whose record is kept (ticket 21, review 2).
+	 *
+	 * The list that exists because this is the one step of the recovery chain that *destroys* files
+	 * rather than restoring them, and it had no precondition at all. A folder Workspace's key is its
+	 * folder's name, which two folders may share (ADR-0017), so "the record names this directory" is
+	 * not evidence that this is the Project the user deleted. Where the manifest does not still say
+	 * what it said at the gesture, nothing is removed and the refusal is named.
+	 */
+	readonly refused: readonly RefusedDeletion[];
 	/**
 	 * Deletions that still have not finished, and whose record is **kept** for the next startup.
 	 *
@@ -124,6 +155,10 @@ export interface FinishedDeletions {
 	 */
 	readonly unfinished: readonly string[];
 }
+
+/** Whether a startup's deletions are worth telling the user about. */
+export const deletionsAreNoteworthy = (report: FinishedDeletions): boolean =>
+	report.finished.length > 0 || report.refused.length > 0 || report.unfinished.length > 0;
 
 /**
  * The Projects in one workspace, and their whole lifecycle.
@@ -138,12 +173,14 @@ export class Workspace {
 	readonly #autosave: Autosave | undefined;
 	readonly #now: () => Date;
 	readonly #deleted: DeletedProjects | undefined;
+	readonly #onDeletionNotRecorded: (directory: string) => void;
 
 	constructor(store: ProjectStore, options: WorkspaceOptions = {}) {
 		this.#store = store;
 		this.#autosave = options.autosave;
 		this.#now = options.now ?? (() => new Date());
 		this.#deleted = options.deleted;
+		this.#onDeletionNotRecorded = options.onDeletionNotRecorded ?? (() => undefined);
 	}
 
 	get store(): ProjectStore {
@@ -264,8 +301,16 @@ export class Workspace {
 		return this.#summarise(copy);
 	}
 
-	/** Remove a Project and everything in it. */
-	async deleteProject(directory: string): Promise<void> {
+	/**
+	 * Remove a Project and everything in it.
+	 *
+	 * @param was what the Project's manifest said at the moment the user pressed Delete — normally
+	 *   the `ProjectSummary` the hub was rendering. It is what {@link finishInterruptedDeletions}
+	 *   checks before removing a byte, so a caller that passes nothing gets the deletion it asked for
+	 *   *now* and **no** unattended completion later: the record is still written, still refuses a
+	 *   replay, and still licenses nothing destructive. See `deleted-projects.ts`.
+	 */
+	async deleteProject(directory: string, was: ProjectIdentity | null = null): Promise<void> {
 		// ⚠ **Synchronously, and before the first `await` — which is what makes it survive** (ticket
 		// 21). Every line below is asynchronous, against OPFS, and a document that is being unloaded
 		// does not run the continuation (ADR-0017, "Rule 3, amended"). Measured at `--repeat-each=20`
@@ -276,7 +321,12 @@ export class Workspace {
 		// Here rather than in the caller so that no second route to deleting a Project can be added
 		// without it — `EditorSession.deleteProject` is one caller, and {@link
 		// finishInterruptedDeletions} below is another.
-		this.#deleted?.record(directory);
+		if (this.#deleted && !this.#deleted.record(directory, was)) {
+			// The answer was being dropped. A browser that will not hold the note is one where this
+			// deletion is only as durable as the tab, and that is a sentence the user can act on while
+			// the page still exists — the same argument `Autosave.onJournalRefused` makes for an edit.
+			this.#onDeletionNotRecorded(directory);
+		}
 		await this.#removeEverythingIn(directory);
 		// Only now, and only because the removal above actually resolved. Forgetting before it would
 		// be the same false claim `replayJournal` refuses to make: nothing is reported done that was
@@ -287,10 +337,45 @@ export class Workspace {
 	/**
 	 * Carry out the deletions the user asked for and the page did not live long enough to finish.
 	 *
-	 * **Run at startup, before anything reads the Workspace**, which is what makes the ordering below
-	 * safe: every {@link createProject} and {@link duplicateProject} in a session happens after this
-	 * has cleared the record for the directory it claims, so a Project made under a deleted one's
-	 * folder name can never be swept away by a gesture aimed at its predecessor.
+	 * **Run at startup, before anything reads the Workspace.**
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE ONE STEP OF THE RECOVERY CHAIN THAT DESTROYS, AND THEREFORE THE ONE THAT ASKS FIRST
+	 *
+	 * Replay puts bytes back; this takes them away. Its first cut had **no precondition at all**: it
+	 * took each name from `pending()` and removed every file under it. Reachable inside documented
+	 * behaviour, because a folder Workspace's key is `folder:<folder name>` and the browser offers a
+	 * page no stable identifier for a picked directory (ADR-0017 records the collision, and ADR-0023
+	 * explicitly invites synced and copied folders):
+	 *
+	 *   delete `amsterdam-1625` in folder Workspace `maps` on a laptop → torn down in the window this
+	 *   whole ticket exists for → record left → the user next opens a *different* folder also called
+	 *   `maps` — an external drive, a colleague's copy, a second checkout — and that folder's
+	 *   `amsterdam-1625` is removed before the listing renders.
+	 *
+	 * So each record has to answer for itself before anything is removed:
+	 *
+	 *   1. **A reserved name is never a Project** and can never have been deleted as one, so a record
+	 *      naming `images/` — which nothing writes today — could not reach `images/` through here.
+	 *   2. **The record has to carry what it was aimed at.** A record with no `was` (see
+	 *      `DeletedProjects`) is a gesture whose target was never written down; it still refuses a
+	 *      replay, and it removes nothing.
+	 *   3. **The manifest has to still say exactly that.** `readProject` is asked, and the display
+	 *      name and `updatedAt` are compared. A different Project in a same-named folder differs; so
+	 *      does one the user has since reopened and edited, which closes the second half of the same
+	 *      hazard — `#claim` fires from `createProject` and `duplicateProject` and never from merely
+	 *      *opening* an existing Project, so before this a reopened Project could be deleted under
+	 *      the user at a later startup.
+	 *   4. **No manifest at all is not a licence.** `#removeEverythingIn` deletes `project.json`
+	 *      **last** precisely so that an interrupted deletion always still has its evidence; so a
+	 *      directory with no manifest is either a deletion that got all the way to the end, or
+	 *      somebody else's folder. Neither is a reason to walk it and delete files, and the
+	 *      abandoned-write sweep — which can only touch this application's own temporary files — is
+	 *      the whole of what happens.
+	 *
+	 * What is left is a bound of the same shape as replay's and no larger: an unfinished deletion can
+	 * only be finished against a Project whose manifest is still byte-for-byte the one the user
+	 * deleted.
 	 *
 	 * Idempotent, and deliberately so: a Project that is already gone deletes to nothing, which is
 	 * exactly the ordinary case here — the removal usually *had* finished and only the note saying so
@@ -298,30 +383,141 @@ export class Workspace {
 	 */
 	async finishInterruptedDeletions(): Promise<FinishedDeletions> {
 		const finished: string[] = [];
+		const refused: RefusedDeletion[] = [];
 		const unfinished: string[] = [];
-		for (const directory of this.#deleted?.pending() ?? []) {
+		for (const record of this.#deleted?.pending() ?? []) {
+			const { directory } = record;
 			try {
-				await this.#removeEverythingIn(directory);
+				const verdict = await this.#verdictOn(record);
+				if (verdict.act === 'refuse') {
+					refused.push({ directory, detail: verdict.detail });
+					continue;
+				}
+				const removed = await this.#removeEverythingIn(directory);
 				this.#deleted?.forget(directory);
-				finished.push(directory);
+				// Named only when something was actually taken. A record whose Project had already gone
+				// — the ordinary case, where the removal finished and only the note saying so was lost,
+				// and the case of a second folder that never held it — is quietly dropped rather than
+				// reported as a deletion carried out at startup. Nothing is reported done that was not
+				// done, which is `replayJournal`'s rule and this is the destructive side of it.
+				if (removed > 0) finished.push(directory);
 			} catch {
 				// Kept, and the loop goes on. One unreachable Project must not leave the others
 				// half-deleted, and a Workspace that cannot answer today may answer tomorrow.
 				unfinished.push(directory);
 			}
 		}
-		return { finished, unfinished };
+		return { finished, refused, unfinished };
 	}
 
-	async #removeEverythingIn(directory: string): Promise<void> {
-		for (const path of await this.#store.list(`${directory}/`)) {
+	/**
+	 * Whether `record` may be carried out, and the sentence to show the user when it may not.
+	 *
+	 * Rejects — rather than answering — when the store could not be asked, so an unreachable
+	 * Workspace lands in `unfinished` and is tried again, never in `refused`.
+	 */
+	async #verdictOn(
+		record: DeletionRecord
+	): Promise<{ act: 'remove' } | { act: 'refuse'; detail: string }> {
+		const { directory, was } = record;
+		if (isReservedDirectoryName(directory)) {
+			return {
+				act: 'refuse',
+				detail:
+					`A recorded deletion of “${directory}” was not carried out: that is a folder this ` +
+					`Workspace keeps its own shared material in, and it can never have been a Project. ` +
+					`Nothing was removed.`
+			};
+		}
+		if (was === null) {
+			return {
+				act: 'refuse',
+				detail:
+					`A recorded deletion of “${directory}” was not carried out, because this browser did ` +
+					`not keep a note of which Project it named. Nothing was removed — delete it again if ` +
+					`it is still here.`
+			};
+		}
+		let file: ProjectFile;
+		try {
+			file = await this.readProject(directory);
+		} catch (cause) {
+			if (cause instanceof PathNotFoundError) {
+				// Nothing here answers to that gesture. Either the removal did finish and only the note
+				// saying so was lost — the ordinary case — or this is another folder of the same name
+				// that never held it. `#removeEverythingIn` then finds nothing to delete and reports
+				// nothing, and its abandoned-write sweep can only touch this application's own
+				// temporary files, which are unambiguous wherever they are.
+				return { act: 'remove' };
+			}
+			if (
+				cause instanceof ProjectFormatTooNewError ||
+				cause instanceof ProjectFileUnreadableError
+			) {
+				// A manifest that will not read is still a Project the hub lists and offers Delete on
+				// (ADR-0010), so this has to be resumable — but it is compared the way the user saw it
+				// rather than waved through. `#summarise` renders both problems as the directory name
+				// and an empty `updatedAt`, and that is exactly what the record will have captured; a
+				// record holding anything else was aimed at a Project that could still be read, which
+				// this is not.
+				if (was.name === directory && was.updatedAt === '') return { act: 'remove' };
+				return {
+					act: 'refuse',
+					detail:
+						`A recorded deletion of “${was.name}” was not carried out: the project.json in ` +
+						`“${directory}” cannot be read, so this is not the Project that was deleted. ` +
+						`Nothing was removed.`
+				};
+			}
+			throw cause;
+		}
+		if (file.name === was.name && file.updatedAt === was.updatedAt) return { act: 'remove' };
+		return {
+			act: 'refuse',
+			detail:
+				`A recorded deletion of “${was.name}” was not carried out: the Project in “${directory}” ` +
+				`is now “${file.name}”, last changed ${file.updatedAt || 'at an unrecorded time'}, which ` +
+				`is not the one that was deleted. Nothing was removed. This is what a second Workspace ` +
+				`folder of the same name — another drive, a colleague's copy, a second checkout — looks ` +
+				`like from here.`
+		};
+	}
+
+	/**
+	 * Remove every byte under `directory`, **with `project.json` last**.
+	 *
+	 * ⚠ **The order is chosen for the interruption, not for the success** — the same reasoning
+	 * `deleteHistoricalMap` states for its own order. `project.json` is the whole of the evidence
+	 * {@link finishInterruptedDeletions} checks before it will remove anything, so removing it first
+	 * would leave a torn-down deletion with a record it can no longer justify and files it may no
+	 * longer take. Last, the invariant is simple: **while an interrupted deletion has anything left
+	 * to remove, it still has its manifest.**
+	 *
+	 * The Project stays listed until the last moment as a consequence, which is the honest reading
+	 * anyway: it is not gone until it is gone.
+	 *
+	 * @returns how many files were removed, so a caller can tell "carried out a deletion" from "found
+	 *   there was nothing left to do" and report only the first.
+	 */
+	async #removeEverythingIn(directory: string): Promise<number> {
+		const manifest = projectFilePath(directory);
+		const paths = await this.#store.list(`${directory}/`);
+		let removed = 0;
+		for (const path of paths) {
+			if (path === manifest) continue;
 			await this.#store.delete(path);
+			removed += 1;
+		}
+		if (paths.includes(manifest)) {
+			await this.#store.delete(manifest);
+			removed += 1;
 		}
 		// Everything in it includes the half-finished writes `list` cannot report and `delete`
 		// cannot be handed. Without this a "deleted" Project's directory survives on disk
 		// permanently, holding bytes that are also missing from the totals tickets 15 and 16 warn
 		// from — and in ticket 12's real folder, a stray dotfile the user commits to git.
 		await this.#store.reclaimAbandonedWrites(`${directory}/`);
+		return removed;
 	}
 
 	/**
@@ -335,8 +531,15 @@ export class Workspace {
 	 * is not being reintroduced.
 	 *
 	 * Safe against the opposite mistake — forgetting a deletion that has not happened — because
-	 * `#unusedDirectory` has just answered that no Project occupies this name, and
-	 * {@link finishInterruptedDeletions} has already run at startup.
+	 * `#unusedDirectory` has just answered that no Project occupies this name, so there is nothing
+	 * here for the record to be about.
+	 *
+	 * ⚠ **Deliberately not resting on "`finishInterruptedDeletions` has already run"**, which the
+	 * first cut of this comment did. That is true only because `WorkspaceStorage.#replayAndReport`
+	 * happens to call it first, which no test and no type pins — and it is not needed: the record
+	 * that would be a hazard here is one aimed at a *previous* Project of this folder name, and
+	 * {@link finishInterruptedDeletions} would refuse it anyway on the manifest it no longer matches.
+	 * This drops it early so the user is never shown a refusal about a Project they have replaced.
 	 */
 	#claim(directory: string): void {
 		this.#deleted?.forget(directory);

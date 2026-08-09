@@ -6,7 +6,7 @@ import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { TEMP_PATH_SUFFIX } from '../store/project-store.js';
 import { newMapLayer } from './layer.js';
 import { imageInfoPath } from './image-files.js';
-import { ProjectFormatTooNewError } from './project-file.js';
+import { ProjectFormatTooNewError, newProjectFile } from './project-file.js';
 import { DeletedProjects } from '../autosave/deleted-projects.js';
 import { FakeJournalStorage } from '../autosave/fake-journal-storage.js';
 import {
@@ -16,6 +16,9 @@ import {
 	isReservedDirectoryName,
 	toDirectoryName
 } from './workspace.js';
+
+/** Stand-in for what the hub was rendering when Delete was pressed. See `DeletionRecord.was`. */
+const WAS = { name: 'Amsterdam 1625', updatedAt: '2026-08-08T09:00:00.000Z' };
 
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 const readJson = async (store: MemoryProjectStore, path: string) =>
@@ -289,10 +292,12 @@ describe('Workspace', () => {
 			stalled.list = () => new Promise<never>(() => undefined);
 			const halted = new Workspace(stalled, { deleted });
 
-			void halted.deleteProject('amsterdam-1625');
+			void halted.deleteProject('amsterdam-1625', WAS);
 
 			// Synchronously, in the same turn as the call: there is no `await` between these two lines.
-			expect(deleted.pending()).toEqual(['amsterdam-1625']);
+			expect(deleted.pending()).toEqual([
+				{ directory: 'amsterdam-1625', at: expect.any(String), was: WAS }
+			]);
 		});
 
 		/**
@@ -306,7 +311,7 @@ describe('Workspace', () => {
 			const recording = new Workspace(store, { deleted });
 			const doomed = await recording.createProject('Amsterdam 1625');
 
-			await recording.deleteProject(doomed.directory);
+			await recording.deleteProject(doomed.directory, doomed);
 
 			expect(deleted.pending()).toEqual([]);
 			expect(deleted.has(doomed.directory)).toBe(false);
@@ -318,13 +323,13 @@ describe('Workspace', () => {
 			await store.write(`${doomed.directory}/annotations/one.geojson`, new Uint8Array([1]));
 			const kept = await workspace.createProject('Boston 1775');
 			// Exactly what the interrupted page left behind: the record, and every file still there.
-			deleted.record(doomed.directory);
+			deleted.record(doomed.directory, doomed);
 
 			// A new session over the same Workspace and the same record — a reload.
 			const restarted = new Workspace(store, { deleted });
 			const outcome = await restarted.finishInterruptedDeletions();
 
-			expect(outcome).toEqual({ finished: [doomed.directory], unfinished: [] });
+			expect(outcome).toEqual({ finished: [doomed.directory], refused: [], unfinished: [] });
 			expect(await store.list('')).toEqual([`${kept.directory}/project.json`]);
 			// And the record goes with it, so the next startup does no work and — more to the point —
 			// cannot delete a Project that later takes the same folder name.
@@ -333,15 +338,16 @@ describe('Workspace', () => {
 
 		it('keeps a deletion it could not finish, and names it rather than counting it', async () => {
 			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
-			deleted.record('amsterdam-1625');
+			deleted.record('amsterdam-1625', WAS);
 
 			const unreachable = new Workspace(MemoryProjectStore.unreachable(), { deleted });
 			const outcome = await unreachable.finishInterruptedDeletions();
 
 			// Kept, for the same reason `replayJournal` keeps a failed write: an unplugged drive must
-			// cost a delay, never the gesture.
-			expect(outcome).toEqual({ finished: [], unfinished: ['amsterdam-1625'] });
-			expect(deleted.pending()).toEqual(['amsterdam-1625']);
+			// cost a delay, never the gesture. An unreachable store is `unfinished` and never
+			// `refused`: "could not be asked" is not "asked, and the answer was no".
+			expect(outcome).toEqual({ finished: [], refused: [], unfinished: ['amsterdam-1625'] });
+			expect(deleted.pending().map((record) => record.directory)).toEqual(['amsterdam-1625']);
 		});
 
 		/**
@@ -357,9 +363,9 @@ describe('Workspace', () => {
 			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
 			const recording = new Workspace(store, { deleted });
 			const doomed = await recording.createProject('Amsterdam 1625');
-			await recording.deleteProject(doomed.directory);
+			await recording.deleteProject(doomed.directory, doomed);
 			// As if the deletion had finished on disk but the record had not been dropped.
-			deleted.record(doomed.directory);
+			deleted.record(doomed.directory, doomed);
 
 			const replacement = await recording.createProject('Amsterdam 1625');
 
@@ -374,7 +380,7 @@ describe('Workspace', () => {
 			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
 			const recording = new Workspace(store, { deleted });
 			const original = await recording.createProject('Amsterdam 1625');
-			deleted.record('amsterdam-1625-copy');
+			deleted.record('amsterdam-1625-copy', WAS);
 
 			const copy = await recording.duplicateProject(original.directory);
 
@@ -396,6 +402,256 @@ describe('Workspace', () => {
 			await workspace.deleteProject(doomed.directory);
 
 			expect([...store.snapshot().keys()]).toEqual([]);
+		});
+
+		/**
+		 * ⚠ **The deletion's manifest goes last, and the whole precondition rests on it.**
+		 *
+		 * `project.json` is the only evidence `finishInterruptedDeletions` has that the directory in
+		 * front of it is the Project the user deleted. Removed first, an interrupted deletion would be
+		 * left with a record it can no longer justify and files it may no longer take. Last, the
+		 * invariant is simple: while an interrupted deletion has anything left to remove, it still has
+		 * its manifest.
+		 */
+		it('removes the manifest last, so an interrupted deletion keeps its evidence', async () => {
+			const doomed = await workspace.createProject('Amsterdam 1625');
+			await store.write(`${doomed.directory}/annotations/one.geojson`, new Uint8Array([1]));
+			await store.write(`${doomed.directory}/zzz-last-alphabetically.json`, new Uint8Array([1]));
+			const order: string[] = [];
+			const real = store.delete.bind(store);
+			store.delete = async (path) => {
+				order.push(path);
+				return real(path);
+			};
+
+			await workspace.deleteProject(doomed.directory, doomed);
+
+			expect(order.at(-1)).toBe(`${doomed.directory}/project.json`);
+			expect(order).toHaveLength(3);
+		});
+
+		/**
+		 * The contract's "cut off midway" case, seeded rather than reasoned about. `#removeEverythingIn`
+		 * is idempotent and shared by both routes, so this is delivered by construction — but nothing
+		 * seeded a *genuinely* half-removed directory, and "delivered by construction" is the claim a
+		 * test is cheapest to make and most embarrassing to be wrong about.
+		 */
+		it('finishes a deletion that had already removed half the Project', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const doomed = await workspace.createProject('Amsterdam 1625');
+			await store.write(`${doomed.directory}/annotations/one.geojson`, new Uint8Array([1]));
+			await store.write(`${doomed.directory}/annotations/two.geojson`, new Uint8Array([1]));
+			// Exactly the disk an interrupted deletion leaves: one file already gone, the manifest
+			// still there because it goes last, and the record still saying what was asked for.
+			await store.delete(`${doomed.directory}/annotations/one.geojson`);
+			deleted.record(doomed.directory, doomed);
+
+			const outcome = await new Workspace(store, { deleted }).finishInterruptedDeletions();
+
+			expect(outcome).toEqual({ finished: [doomed.directory], refused: [], unfinished: [] });
+			expect(await store.list('')).toEqual([]);
+		});
+
+		/**
+		 * ⚠ **THE WORSE DATA-LOSS PATH THE FIRST CUT OF THIS TICKET OPENED, CLOSED.**
+		 *
+		 * A folder Workspace's key is `folder:<folder name>` — the folder's *name*, because the browser
+		 * offers a page no stable identifier for a picked directory. ADR-0017 records that collision
+		 * and *bounds* it: a wrong-Workspace **replay** can only write into a Project whose
+		 * `project.json` is already there, so its worst case is one overwritten file the user is told
+		 * about. `finishInterruptedDeletions` had no precondition at all, so its worst case was a
+		 * recursive delete of somebody else's Project — reachable entirely inside documented
+		 * behaviour, because ADR-0023 explicitly invites synced folders and second checkouts:
+		 *
+		 *   delete `amsterdam-1625` in folder Workspace `maps` on a laptop → torn down in the 20%
+		 *   window this ticket exists for → record left → open a *different* folder also called `maps`
+		 *   → that folder's `amsterdam-1625` and everything in it goes, before the listing renders.
+		 *
+		 * The key shape where the binding is not unique was the one shape the suite did not exercise.
+		 */
+		it('refuses to finish a deletion against a different Project in a same-named folder', async () => {
+			const storage = new FakeJournalStorage();
+			// The laptop: a folder Workspace called `maps`, and a deletion that never finished.
+			new DeletedProjects(storage, 'folder:maps').record('amsterdam-1625', {
+				name: 'Amsterdam 1625',
+				updatedAt: '2026-08-08T09:00:00.000Z'
+			});
+
+			// The external drive: a *different* folder, also called `maps`, holding a Project that
+			// happens to have the same folder name. Everything in it is somebody's real work.
+			const other = new MemoryProjectStore();
+			// Seeded rather than created through this Workspace: it has been sitting on that drive for
+			// months, which is the whole point — `#claim` never saw it and has nothing to say about it.
+			const theirs = new Workspace(other, { deleted: new DeletedProjects(storage, 'folder:maps') });
+			await theirs.writeProject(
+				'amsterdam-1625',
+				newProjectFile('Amsterdam 1625', new Date('2026-08-01T00:00:00.000Z'))
+			);
+			await other.write('amsterdam-1625/annotations/theirs.geojson', new Uint8Array([9]));
+
+			const outcome = await theirs.finishInterruptedDeletions();
+
+			expect(outcome.finished).toEqual([]);
+			expect(outcome.unfinished).toEqual([]);
+			expect(outcome.refused).toEqual([
+				{
+					directory: 'amsterdam-1625',
+					detail: expect.stringContaining('is not the one that was deleted')
+				}
+			]);
+			// Not one byte, and the Project still lists.
+			expect(await other.list('')).toEqual([
+				'amsterdam-1625/annotations/theirs.geojson',
+				'amsterdam-1625/project.json'
+			]);
+			// And the record is kept, not swallowed: the Workspace it belongs to may still turn up.
+			expect(new DeletedProjects(storage, 'folder:maps').has('amsterdam-1625')).toBe(true);
+		});
+
+		/**
+		 * The same refusal, for the case that made `#claim` insufficient: it fires from `createProject`
+		 * and `duplicateProject` and never from merely **opening** an existing Project. So a Project
+		 * whose deletion could not be finished stayed listed, could be reopened and edited, and a later
+		 * startup would delete it under the user. Its `updatedAt` has moved, so this is the same check.
+		 */
+		it('refuses to finish a deletion against a Project the user has since edited', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const recording = new Workspace(store, { deleted, now: () => clock });
+			const doomed = await recording.createProject('Amsterdam 1625');
+			deleted.record(doomed.directory, doomed);
+			clock = new Date('2027-01-01T00:00:00.000Z');
+			await recording.renameProject(doomed.directory, 'Amsterdam 1625, revisited');
+
+			const outcome = await recording.finishInterruptedDeletions();
+
+			expect(outcome.refused.map((entry) => entry.directory)).toEqual([doomed.directory]);
+			expect((await recording.listProjects()).map((project) => project.name)).toEqual([
+				'Amsterdam 1625, revisited'
+			]);
+		});
+
+		/**
+		 * A record with no evidence is a gesture whose target was never written down — a caller that
+		 * did not know, or a `localStorage` value truncated by a full quota. It still refuses a replay,
+		 * which is additive; it removes nothing, because this is the destructive step.
+		 */
+		it('refuses to finish a deletion whose record does not say what it was aimed at', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const doomed = await workspace.createProject('Amsterdam 1625');
+			deleted.record(doomed.directory, null);
+
+			const outcome = await new Workspace(store, { deleted }).finishInterruptedDeletions();
+
+			expect(outcome.refused.map((entry) => entry.directory)).toEqual([doomed.directory]);
+			expect(await store.list('')).toEqual([`${doomed.directory}/project.json`]);
+		});
+
+		/**
+		 * A manifest that will not read is compared the way the user saw it, not waved through. The hub
+		 * lists a broken Project and offers Delete on it (ADR-0010), so an interrupted deletion of one
+		 * has to be resumable — and `#summarise` renders both of its problems as the directory name
+		 * with an empty `updatedAt`, which is what the record captured.
+		 */
+		it('finishes a deletion of a Project whose manifest was already unreadable', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			await store.write('amsterdam-1625/project.json', new TextEncoder().encode('not json'));
+			const [broken] = await workspace.listProjects();
+			deleted.record('amsterdam-1625', broken!);
+
+			const outcome = await new Workspace(store, { deleted }).finishInterruptedDeletions();
+
+			expect(outcome).toEqual({ finished: ['amsterdam-1625'], refused: [], unfinished: [] });
+			expect(await store.list('')).toEqual([]);
+		});
+
+		/** And the same unreadable manifest refuses a record that named a Project which *could* be read. */
+		it('refuses when the manifest cannot be read and the record named a readable Project', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			await store.write('amsterdam-1625/project.json', new TextEncoder().encode('not json'));
+			deleted.record('amsterdam-1625', WAS);
+
+			const outcome = await new Workspace(store, { deleted }).finishInterruptedDeletions();
+
+			expect(outcome.refused.map((entry) => entry.directory)).toEqual(['amsterdam-1625']);
+			expect(await store.list('')).toEqual(['amsterdam-1625/project.json']);
+		});
+
+		/**
+		 * Nothing writes such a record today — `createProject` refuses a reserved name and
+		 * `missingOwner` skips them — but this is the one operation in the chain that would act on it,
+		 * and `images/` holds every Project's Historical Maps (ADR-0023). The guard is on the
+		 * operation rather than on the writers, for the reason `#removeWorkspace`'s is.
+		 */
+		it('refuses to finish a deletion naming one of the Workspace’s own directories', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			await store.write('images/abc/info.json', new Uint8Array([1]));
+			deleted.record('images', { name: 'images', updatedAt: '' });
+
+			const outcome = await new Workspace(store, { deleted }).finishInterruptedDeletions();
+
+			expect(outcome.refused.map((entry) => entry.directory)).toEqual(['images']);
+			expect(await store.list('')).toEqual(['images/abc/info.json']);
+		});
+
+		/**
+		 * The ordinary case, and the one that must **not** be reported: the removal did finish and only
+		 * the note saying so was lost. Nothing was taken, so nothing is named — the destructive side of
+		 * `replayJournal`'s "nothing is reported as restored that was not written".
+		 */
+		it('says nothing about a record whose Project had already gone', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			deleted.record('amsterdam-1625', WAS);
+
+			const outcome = await new Workspace(store, { deleted }).finishInterruptedDeletions();
+
+			expect(outcome).toEqual({ finished: [], refused: [], unfinished: [] });
+			expect(deleted.pending()).toEqual([]);
+		});
+
+		/**
+		 * ⚠ **`#claim`'s safety does not rest on `finishInterruptedDeletions` having run first**, which
+		 * its comment used to claim — true only because `WorkspaceStorage.#replayAndReport` happens to
+		 * call it in that order, which no test and no type pins. So the order is inverted here.
+		 */
+		it('leaves a new Project alone even when the startup sweep has not run at all', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			deleted.record('amsterdam-1625', WAS);
+			const recording = new Workspace(store, { deleted });
+
+			const replacement = await recording.createProject('Amsterdam 1625');
+			const outcome = await recording.finishInterruptedDeletions();
+
+			expect(replacement.directory).toBe('amsterdam-1625');
+			expect(outcome).toEqual({ finished: [], refused: [], unfinished: [] });
+			expect(await store.list('')).toEqual(['amsterdam-1625/project.json']);
+		});
+
+		/**
+		 * ⚠ **A second refusal, not the first one wearing a hat** (ADR-0017; ticket 21, review 2).
+		 *
+		 * `record` answers "is this durable" and the answer was being dropped. Two real browsers reach
+		 * it — a `localStorage` full of one enormous Annotation collection, and Safari with cookies
+		 * blocked, where reads answer and every write rejects — and in both the deletion is back to
+		 * being only as durable as the tab. The comment that used to stand in for this said
+		 * `protectionWarning`'s sibling "already says so in words"; it does not.
+		 */
+		it('says so when the browser will not write the deletion down, and deletes anyway', async () => {
+			const storage = new FakeJournalStorage();
+			storage.setItem = () => {
+				throw new DOMException('blocked', 'SecurityError');
+			};
+			const refused: string[] = [];
+			const recording = new Workspace(store, {
+				deleted: new DeletedProjects(storage, 'opfs:My Workspace'),
+				onDeletionNotRecorded: (directory) => refused.push(directory)
+			});
+			const doomed = await recording.createProject('Amsterdam 1625');
+
+			await recording.deleteProject(doomed.directory, doomed);
+
+			expect(refused).toEqual([doomed.directory]);
+			// A browser that will not hold a note must not stop a user deleting a Project.
+			expect(await store.list('')).toEqual([]);
 		});
 	});
 

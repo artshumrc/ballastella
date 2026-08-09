@@ -152,7 +152,7 @@ describe('replayJournal', () => {
 		it('does not put a manifest back into a Project the user deleted, and says why', async () => {
 			journal.record('amsterdam-1625/project.json', utf8.encode('the rename they typed'));
 			const deleted = new DeletedProjects(storage, 'Marking 2026');
-			deleted.record('amsterdam-1625');
+			deleted.record('amsterdam-1625', null);
 
 			const report = await replayJournal(storage, store, 'Marking 2026', { deleted });
 
@@ -174,7 +174,7 @@ describe('replayJournal', () => {
 		it('refuses a deleted Project’s other files too, not only its manifest', async () => {
 			journal.record('amsterdam-1625/annotations/l.geojson', utf8.encode('{}'));
 			const deleted = new DeletedProjects(storage, 'Marking 2026');
-			deleted.record('amsterdam-1625');
+			deleted.record('amsterdam-1625', null);
 			// The Project is still on disk — the deletion had not got that far — so the *inference*
 			// branch would happily write this back. The gesture is what refuses it.
 			await seedProject('amsterdam-1625');
@@ -191,7 +191,7 @@ describe('replayJournal', () => {
 			journal.record('amsterdam-1625/project.json', utf8.encode('a rename in Marking 2026'));
 			// The same folder name, deleted in a different Workspace. Nothing about that gesture may
 			// reach this one — the same hazard `WriteAheadJournal`'s Workspace binding exists for.
-			new DeletedProjects(storage, 'Teaching').record('amsterdam-1625');
+			new DeletedProjects(storage, 'Teaching').record('amsterdam-1625', null);
 
 			const report = await replayJournal(storage, store, 'Marking 2026', {
 				deleted: new DeletedProjects(storage, 'Marking 2026')

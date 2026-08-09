@@ -20,7 +20,7 @@
 // ticket 20's whole subject.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// WHAT IS RECORDED IS THE GESTURE, NOT A GUESS ABOUT THE FILES
+// WHAT IS RECORDED IS THE GESTURE, AND THE PROJECT IT WAS AIMED AT
 //
 // The discrimination this makes available is **"the user deleted this Project"**, which the
 // application knows for certain because it is the thing the user just did. It is deliberately *not*
@@ -29,8 +29,21 @@
 // file was gone. `replay.ts` keeps its "unreadable is not absent" rule exactly as it was; this adds
 // the one fact that rule could never derive.
 //
-// So there is nothing here but a set of Project directory names, per Workspace, and the two moments
-// it changes:
+// ⚠ **A folder name alone is not enough to destroy anything on, and the first cut of this module
+// recorded nothing else.** A Workspace key is `folder:<folder name>` for a picked directory, because
+// the browser offers a page no stable identifier for one, and ADR-0017 records the collision that
+// follows: two folders called `maps`, on two drives, share a key. ADR-0017 also *bounds* it — a
+// wrong-Workspace **replay** can only write into a Project whose `project.json` is already there, so
+// its worst case is one overwritten file the user is told about. A wrong-Workspace **deletion** has
+// no such bound: it would list a directory and remove every byte in it.
+//
+// So the record carries {@link DeletionRecord.was} — the Project's display name and `updatedAt` as
+// the user was looking at them when they pressed Delete — and `Workspace.finishInterruptedDeletions`
+// refuses to remove anything whose manifest does not still say exactly that. What is left is a bound
+// of the same shape as replay's, and no larger: an unfinished deletion can only be finished against
+// a Project that is byte-for-byte the one the user deleted.
+//
+// The two moments a record changes:
 //
 //   - **{@link DeletedProjects.record}** at the start of a deletion, synchronously, before the first
 //     `await`. `localStorage` is the only synchronous durable write a page has (ADR-0017, "Rule 3,
@@ -67,6 +80,45 @@ import {
 const DELETED_KEY_PREFIX = 'ballastella.deleted.';
 
 /**
+ * What the user was looking at when they pressed Delete, so a later startup can check it is still
+ * looking at the same thing.
+ *
+ * The two fields of `ProjectSummary` that come out of the Project's own manifest. Deliberately not
+ * the directory name, which is the key and is exactly the part that is *not* unique across two
+ * folder Workspaces of the same name.
+ */
+export interface ProjectIdentity {
+	/** The display name from `project.json`, or the directory name for a manifest that would not read. */
+	readonly name: string;
+	/** ISO 8601 from `project.json`, or `''`. */
+	readonly updatedAt: string;
+}
+
+/** One unfinished deletion: the folder it named, when it was asked for, and what it was aimed at. */
+export interface DeletionRecord {
+	/** The Project directory the user deleted. */
+	readonly directory: string;
+	/** ISO 8601, or `''` for a record whose stored form could not be read. */
+	readonly at: string;
+	/**
+	 * The manifest identity at the moment of the gesture, or `null` when the caller did not supply
+	 * one.
+	 *
+	 * `null` is a real state and not a default: it means **nothing may be destroyed on this record**.
+	 * It still refuses a replay — that is `has()`, and putting a file back is additive — but
+	 * `Workspace.finishInterruptedDeletions` will not remove a byte for it. See that method.
+	 */
+	readonly was: ProjectIdentity | null;
+}
+
+/** The stored shape, so a future field is an addition rather than a re-encoding. */
+interface StoredRecord {
+	readonly formatVersion: 1;
+	readonly at: string;
+	readonly was?: ProjectIdentity;
+}
+
+/**
  * The Projects deleted from **one** Workspace whose removal may not have finished.
  *
  * Bound to a Workspace at construction for the reason {@link WriteAheadJournal} is: since ticket 12
@@ -74,6 +126,10 @@ const DELETED_KEY_PREFIX = 'ballastella.deleted.';
  * keyed by directory alone would let a deletion performed in "Marking 2026" be finished against a
  * same-named Project in whichever Workspace happened to be open next. A class that took a Workspace
  * per call would be one argument away from deleting somebody else's work.
+ *
+ * ⚠ **The binding is necessary and not sufficient**, which the first cut of this module implied it
+ * was. See the module header: a folder Workspace's key is its folder's *name*, which two folders may
+ * share, so {@link DeletionRecord.was} is what actually fences the destructive half.
  */
 export class DeletedProjects {
 	readonly #storage: JournalStorage;
@@ -84,23 +140,27 @@ export class DeletedProjects {
 		this.#workspace = workspace;
 	}
 
-	/** The Workspace these records belong to. */
-	get workspace(): string {
-		return this.#workspace;
-	}
-
 	/**
 	 * Note that the user has deleted `directory`, **synchronously**. The whole point of the module.
 	 *
+	 * @param was what the Project's manifest said at the moment of the gesture, or `null` when the
+	 *   caller does not know. `null` records the refusal for the replay and licenses **no** removal;
+	 *   see {@link DeletionRecord.was}.
 	 * @returns whether the note is durable. `false` means this browser will not store it — a private
-	 *   window with site data blocked — and the deletion is back to being only as durable as the page
-	 *   is, which is what it was before this module existed. Answered rather than swallowed so the
-	 *   loss of the guarantee is a thing a test can assert and a caller could report; nothing is
-	 *   thrown, because a browser that will not hold a note must not stop a user deleting a Project.
+	 *   window with site data blocked, or a Safari with cookies blocked, where reads answer and every
+	 *   write rejects — and the deletion is back to being only as durable as the page is, which is
+	 *   what it was before this module existed. Answered rather than swallowed so the loss of the
+	 *   guarantee can be reported to the user; nothing is thrown, because a browser that will not
+	 *   hold a note must not stop a user deleting a Project.
 	 */
-	record(directory: string): boolean {
+	record(directory: string, was: ProjectIdentity | null): boolean {
+		const stored: StoredRecord = {
+			formatVersion: 1,
+			at: new Date().toISOString(),
+			...(was ? { was } : {})
+		};
 		try {
-			this.#storage.setItem(this.#key(directory), new Date().toISOString());
+			this.#storage.setItem(this.#key(directory), JSON.stringify(stored));
 			return true;
 		} catch {
 			return false;
@@ -136,20 +196,107 @@ export class DeletedProjects {
 		}
 	}
 
-	/** Every Project directory in this Workspace whose deletion may be unfinished, sorted. */
-	pending(): string[] {
-		const directories: string[] = [];
-		for (const key of keysWithPrefix(this.#storage, DELETED_KEY_PREFIX)) {
+	/**
+	 * Every unfinished deletion in this Workspace, sorted by directory.
+	 *
+	 * Sorted so a startup does the same work in the same order on every browser, for the same reason
+	 * `readJournal` sorts: `localStorage` enumeration order is not specified.
+	 */
+	pending(): DeletionRecord[] {
+		const records: DeletionRecord[] = [];
+		let keys: string[];
+		try {
+			keys = keysWithPrefix(this.#storage, DELETED_KEY_PREFIX);
+		} catch {
+			// A storage whose enumeration throws — the same locked-down browser `has` guards against.
+			// An empty answer is the direction that leaves files alone.
+			return [];
+		}
+		for (const key of keys) {
 			const named = parseWorkspaceScopedKey(DELETED_KEY_PREFIX, key);
 			if (!named || named.workspace !== this.#workspace) continue;
-			directories.push(named.subject);
+			records.push({ directory: named.subject, ...decode(this.#read(key)) });
 		}
-		// Sorted so a startup does the same work in the same order on every browser, for the same
-		// reason `readJournal` sorts: `localStorage` enumeration order is not specified.
-		return directories.sort((a, b) => a.localeCompare(b));
+		return records.sort((a, b) => a.directory.localeCompare(b.directory));
+	}
+
+	#read(key: string): string | null {
+		try {
+			return this.#storage.getItem(key);
+		} catch {
+			return null;
+		}
 	}
 
 	#key(directory: string): string {
 		return workspaceScopedKey(DELETED_KEY_PREFIX, this.#workspace, directory);
 	}
+}
+
+/**
+ * What a stored value says, with anything unreadable answering "no evidence".
+ *
+ * ⚠ **Unreadable answers `was: null`, which licenses no removal** — never "no `was` field, so go
+ * ahead". A value truncated by a full `localStorage`, or written by a build that is not this one, is
+ * exactly the case where the safe direction is to leave the user's files where they are and say so.
+ */
+function decode(value: string | null): { at: string; was: ProjectIdentity | null } {
+	if (value === null) return { at: '', was: null };
+	try {
+		const parsed: unknown = JSON.parse(value);
+		if (typeof parsed !== 'object' || parsed === null) return { at: '', was: null };
+		const record = parsed as Partial<StoredRecord>;
+		const was = record.was;
+		return {
+			at: typeof record.at === 'string' ? record.at : '',
+			was:
+				was && typeof was.name === 'string' && typeof was.updatedAt === 'string'
+					? { name: was.name, updatedAt: was.updatedAt }
+					: null
+		};
+	} catch {
+		return { at: '', was: null };
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// THE TWO FUNCTIONS BELOW SEE EVERY WORKSPACE, AND THE CLASS ABOVE DELIBERATELY SEES ONE
+//
+// The same split, for the same reason, as `journalledWorkspaces` and `discardJournal` — see the
+// banner over those. The question here is *"which Workspaces does this browser hold deletion records
+// for, including ones no `DeletedProjects` will ever be constructed for"*, and an instance bound to
+// one Workspace is structurally unable to ask it. Neither writes a record.
+//
+// They exist because review found the asymmetry: `#removeWorkspace` discards a deleted Workspace's
+// *journal* with the reason written on the spot — "if a Workspace of the same name is made later,
+// entries are put back into somebody else's work under a name they happened to reuse" — and these
+// keys have the same shape, the same reuse hazard, and a **destructive** rather than additive
+// effect. They were swept by nothing and were invisible to the orphan report beside them.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Every Workspace key this browser holds an unfinished deletion for. */
+export function workspacesWithDeletions(storage: JournalStorage): string[] {
+	const names = new Set<string>();
+	for (const key of keysWithPrefix(storage, DELETED_KEY_PREFIX)) {
+		const named = parseWorkspaceScopedKey(DELETED_KEY_PREFIX, key);
+		if (named) names.add(named.workspace);
+	}
+	return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+/** Throw away every unfinished deletion recorded for one Workspace, and answer how many there were. */
+export function discardDeletions(storage: JournalStorage, workspace: string): number {
+	let dropped = 0;
+	for (const key of keysWithPrefix(storage, DELETED_KEY_PREFIX)) {
+		const named = parseWorkspaceScopedKey(DELETED_KEY_PREFIX, key);
+		if (!named || named.workspace !== workspace) continue;
+		try {
+			storage.removeItem(key);
+			dropped += 1;
+		} catch {
+			// A storage that refuses a delete. Nothing to do and nothing lost: the record it kept is
+			// re-examined at the next startup, where its own precondition governs what may happen.
+		}
+	}
+	return dropped;
 }

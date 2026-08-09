@@ -30,19 +30,38 @@
 	const host = useWorkspaceHost();
 	const storage = $derived(host.storage);
 	const report = $derived(storage?.session.replayReport ?? null);
+	/**
+	 * And what the startup's **deletions** did (ticket 21, review 2).
+	 *
+	 * ⚠ **The only step of the recovery chain that removes files, and it was the only one that said
+	 * nothing.** `finishInterruptedDeletions` runs before the replay, against the same Workspace,
+	 * from a record written when the user pressed Delete — and it deleted files out of a scholar's
+	 * own folder during startup with no notice in either direction. ADR-0017's standard for this
+	 * chain is that every recovery is *named* to the user; the same three bullets above apply
+	 * unchanged, and the same panel carries it so a startup speaks once rather than twice.
+	 *
+	 * Three lists rather than a count, for the reason the replay has four: "carried out", "refused,
+	 * and here is why" and "could not be done yet" are three different things to do next — and the
+	 * middle one is how a user finds out that a second folder of the same name has an unfinished
+	 * deletion pointed at it.
+	 */
+	const deletions = $derived(storage?.session.deletionReport ?? null);
 
 	let dismissed = $state<string | null>(null);
 	// Keyed on the report object, so a *second* replay — switching Workspace, say — is shown even
 	// though the last one was dismissed. Dismissing by a boolean hid every later recovery too.
-	const showing = $derived(report !== null && dismissed !== reportKey(report));
+	const showing = $derived((report !== null || deletions !== null) && dismissed !== reportKey());
 
-	function reportKey(value: NonNullable<typeof report>): string {
+	function reportKey(): string {
 		return JSON.stringify([
-			value.workspace,
-			value.restored,
-			value.skipped.map((entry) => entry.path),
-			value.failed.map((entry) => entry.path),
-			value.problems.map((entry) => entry.key)
+			report?.workspace ?? '',
+			report?.restored ?? [],
+			report?.skipped.map((entry) => entry.path) ?? [],
+			report?.failed.map((entry) => entry.path) ?? [],
+			report?.problems.map((entry) => entry.key) ?? [],
+			deletions?.finished ?? [],
+			deletions?.refused.map((entry) => entry.directory) ?? [],
+			deletions?.unfinished ?? []
 		]);
 	}
 
@@ -55,7 +74,7 @@
 	aria-atomic="true"
 	data-testid="recovered-region"
 >
-	{#if showing && report !== null}
+	{#if showing}
 		<section
 			class="pointer-events-auto card max-w-md border border-base-300 bg-base-200 shadow-lg"
 			aria-labelledby={headingId}
@@ -63,11 +82,39 @@
 		>
 			<div class="card-body gap-2 p-4">
 				<h2 id={headingId} class="card-title text-base">
-					{report.restored.length > 0
-						? 'An unsaved change was put back'
-						: 'An unsaved change was found'}
+					{report !== null
+						? report.restored.length > 0
+							? 'An unsaved change was put back'
+							: 'An unsaved change was found'
+						: (deletions?.finished.length ?? 0) > 0
+							? 'A deletion was finished'
+							: 'A deletion was not finished'}
 				</h2>
-				{#if report.restored.length > 0}
+				{#if deletions !== null && deletions.finished.length > 0}
+					<p class="text-sm" data-testid="deletion-finished">
+						Ballastella closed before {deletions.finished.length === 1
+							? 'a Project you deleted was'
+							: 'some Projects you deleted were'} finished being removed, so {deletions.finished
+							.length === 1
+							? 'it has'
+							: 'they have'} been removed now: {deletions.finished.join(', ')}.
+					</p>
+				{/if}
+				{#each deletions?.refused ?? [] as entry (entry.directory)}
+					<p class="text-sm text-warning" data-testid="deletion-refused">{entry.detail}</p>
+				{/each}
+				{#if deletions !== null && deletions.unfinished.length > 0}
+					<p class="text-sm text-warning" data-testid="deletion-unfinished">
+						{deletions.unfinished.length === 1 ? 'A Project you deleted' : 'Projects you deleted'} could
+						not be removed and {deletions.unfinished.length === 1 ? 'is' : 'are'} still here: {deletions.unfinished.join(
+							', '
+						)}. Ballastella will try again the next time this Workspace is opened. Deleting {deletions
+							.unfinished.length === 1
+							? 'it'
+							: 'them'} again from the list is the way to be sure.
+					</p>
+				{/if}
+				{#if report !== null && report.restored.length > 0}
 					<p class="text-sm">
 						Ballastella closed before {report.restored.length === 1
 							? 'this file was'
@@ -81,13 +128,13 @@
 						{/each}
 					</ul>
 				{/if}
-				{#each report.skipped as entry (entry.path)}
+				{#each report?.skipped ?? [] as entry (entry.path)}
 					<p class="text-sm text-warning" data-testid="recovered-skipped">{entry.detail}</p>
 				{/each}
-				{#each report.failed as entry (entry.path)}
+				{#each report?.failed ?? [] as entry (entry.path)}
 					<p class="text-sm text-warning" data-testid="recovered-failed">{entry.detail}</p>
 				{/each}
-				{#each report.problems as problem (problem.key)}
+				{#each report?.problems ?? [] as problem (problem.key)}
 					<p class="text-sm text-warning" data-testid="recovered-problem">{problem.detail}</p>
 				{/each}
 				<div class="card-actions justify-end">
@@ -95,7 +142,7 @@
 						type="button"
 						class="btn btn-sm"
 						data-testid="recovered-dismiss"
-						onclick={() => (dismissed = reportKey(report))}
+						onclick={() => (dismissed = reportKey())}
 					>
 						Got it
 					</button>

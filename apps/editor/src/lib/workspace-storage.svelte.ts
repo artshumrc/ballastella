@@ -22,8 +22,10 @@ import {
 	workspaceSize,
 	requestPersistentStorage,
 	browserJournalStorage,
+	discardDeletions,
 	discardJournal,
 	journalledWorkspaces,
+	workspacesWithDeletions,
 	type JournalStorage,
 	type OpenedBundle,
 	type ProjectStore,
@@ -605,7 +607,16 @@ export class WorkspaceStorage {
 		// Its journalled edits go with it (ticket 20). Without this they survive the Workspace, become
 		// orphans nothing will ever replay, and — if a Workspace of the same name is made later — are
 		// put back into somebody else's work under a name they happened to reuse.
-		if (this.#journalStorage) discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
+		//
+		// **And its unfinished deletions, for the same reason and with more force** (ticket 21, review
+		// 2). The records have the same key shape and the same reuse hazard, and their effect is
+		// *destructive* rather than additive: a record left behind by a Workspace called "Marking
+		// 2026" is a standing instruction to delete a folder name inside whatever "Marking 2026" is
+		// made next. They were swept by nothing.
+		if (this.#journalStorage) {
+			discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
+			discardDeletions(this.#journalStorage, opfsWorkspaceKey(name));
+		}
 	}
 
 	/** What a Workspace weighs, so the confirmation can say what is about to go. `list` + `size`. */
@@ -1023,6 +1034,12 @@ export class WorkspaceStorage {
 	 * appears in `listOpfsWorkspaces` at all, so every folder key is an orphan by this test; so is a
 	 * browser Workspace on a listing that failed. The report therefore names them and offers
 	 * {@link discardOrphanedJournal}, and nothing here deletes anybody's unsaved edit on a guess.
+	 *
+	 * **Both kinds of record, not only the journal** (ticket 21, review 2). An unfinished deletion
+	 * lives in the same 5 MB, under a key of the same shape, and was invisible here — so a record
+	 * naming a Workspace this browser will never open again could never be seen or discarded, while
+	 * the journal keys beside it could. It is also the one kind whose standing instruction is
+	 * destructive, which makes it the one a user is likeliest to want to be rid of.
 	 */
 	refreshOrphanedJournals(): void {
 		if (this.#journalStorage === null) return;
@@ -1034,15 +1051,23 @@ export class WorkspaceStorage {
 			opfsWorkspaceKey(this.workspaceName),
 			...(this.folderName ? [folderWorkspaceKey(this.folderName)] : [])
 		];
-		this.orphanedJournals = journalledWorkspaces(this.#journalStorage).filter(
-			(key) => !known.includes(key)
-		);
+		// Deduplicated by hand for the reason `known` is an array: a plain `Set` is ruled out by
+		// `svelte/prefer-svelte-reactivity`, and a `SvelteSet` for a handful of names nothing reads
+		// reactively would be the wrong answer to a rule about reactive state.
+		const held = [
+			...journalledWorkspaces(this.#journalStorage),
+			...workspacesWithDeletions(this.#journalStorage)
+		];
+		this.orphanedJournals = held
+			.filter((key, index) => held.indexOf(key) === index && !known.includes(key))
+			.sort((a, b) => a.localeCompare(b));
 	}
 
-	/** Throw away one orphaned Workspace's journalled edits, because the user said so. */
+	/** Throw away one orphaned Workspace's journalled edits and unfinished deletions, because the user said so. */
 	discardOrphanedJournal(key: string): number {
 		if (this.#journalStorage === null) return 0;
-		const dropped = discardJournal(this.#journalStorage, key);
+		const dropped =
+			discardJournal(this.#journalStorage, key) + discardDeletions(this.#journalStorage, key);
 		this.refreshOrphanedJournals();
 		return dropped;
 	}

@@ -226,6 +226,46 @@ export class Autosave {
 		}
 	}
 
+	/**
+	 * Give up on everything still pending under `prefix`, because it is being deleted (ticket 21).
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE JOURNAL WAS SWEPT AND THE BYTES THAT FILL IT WERE NOT
+	 *
+	 * `EditorSession.deleteProject` emptied the *journal* of the Project it was deleting and left
+	 * `Autosave`'s own pending bytes exactly where they were. Those bytes are the source the journal
+	 * is written from, so both of this class's rule-3 halves put the Project straight back:
+	 * {@link capture} re-records `<project>/project.json` at `pagehide`, **after** the sweep, and
+	 * {@link flush} writes it into the store outright. Either one resurrects a Project the user
+	 * watched disappear — the exact defect ticket 21 closes, arriving by a route the sweep could not
+	 * see.
+	 *
+	 * Swept here rather than by ordering the two more carefully, because there is no ordering that
+	 * works: `pagehide` can fire at any point after the click, including between the sweep and the
+	 * deletion resolving.
+	 *
+	 * Timers are cleared and the save state republished, so a Project deleted mid-debounce does not
+	 * leave the indicator reading "Unsaved" for a file that no longer exists.
+	 */
+	abandon(prefix: string): void {
+		for (const [path, file] of [...this.#files]) {
+			if (!path.startsWith(prefix)) continue;
+			if (file.timer !== undefined) {
+				clearTimeout(file.timer);
+				file.timer = undefined;
+			}
+			file.pending = undefined;
+			file.error = undefined;
+			file.journalRefusal = undefined;
+			this.#journal?.forget(path);
+			// A write already in flight owns this entry until it settles; `#drain`'s `finally` is what
+			// removes it, and removing it here would let a second drain start for the same path.
+			if (!file.draining) this.#files.delete(path);
+		}
+		this.#publishJournalRefusal();
+		this.#publish();
+	}
+
 	/** Whether `path` has changes the store has not been given yet. */
 	hasPendingWrite(path: StorePath): boolean {
 		return this.#files.get(path)?.pending !== undefined;

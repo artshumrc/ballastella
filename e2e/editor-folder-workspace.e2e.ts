@@ -457,6 +457,13 @@ test.describe('choosing a folder as the Workspace', () => {
 		await inBrowserStorage(page);
 		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
 		await page.reload();
+		// ⚠ **The gate, and it is the only thing that makes the line below an assertion.** This is the
+		// sole check on the *persistence* half — line above covers the in-memory clear — and an
+		// unhydrated page has no Reopen button either, so `toHaveCount(0)` resolved on the first poll
+		// against a page that had not rendered anything yet. The deletion that kept it green: make
+		// "forget the folder" clear the reactive state and skip the `localStorage` write. Waiting for
+		// the hub to say which Workspace it is in is what the reload has to survive.
+		await inBrowserStorage(page);
 		await expect(page.getByRole('button', { name: /^Reopen/ })).toHaveCount(0);
 	});
 

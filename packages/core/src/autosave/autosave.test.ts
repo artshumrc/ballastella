@@ -162,6 +162,64 @@ describe('Autosave', () => {
 		});
 	});
 
+	/**
+	 * ⚠ **THE HOLE THAT DISARMED TICKET 21's `project-deleted` LAYER.**
+	 *
+	 * `EditorSession.deleteProject` emptied the write-ahead *journal* of the Project it was deleting
+	 * and left `Autosave`'s own pending bytes exactly where they were. The journal is written **from**
+	 * those bytes, so both halves of rule 3 undid the sweep within milliseconds: `capture()`
+	 * re-records `<project>/project.json` at `pagehide`, after the sweep, and `flush()` writes it into
+	 * the store outright. Either resurrects a Project the user watched disappear — and the
+	 * `project-deleted` layer cannot catch it, because by the time the next startup replays, the
+	 * deletion it named has finished and its record has been dropped.
+	 */
+	describe('giving up on what is being deleted', () => {
+		it('drops pending bytes, so neither capture nor flush can put them back', async () => {
+			const journalled = new Map<string, Uint8Array>();
+			const journalling = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: (path, bytes) => void journalled.set(path, bytes),
+					forget: (path) => void journalled.delete(path)
+				}
+			});
+			journalling.queue('amsterdam-1625/project.json', utf8.encode('a rename mid-debounce'));
+			expect([...journalled.keys()]).toEqual(['amsterdam-1625/project.json']);
+
+			journalling.abandon('amsterdam-1625/');
+
+			// The journal is empty, and — the half that was missing — so is the source it is written
+			// from, so `pagehide` cannot refill it.
+			expect(journalled.size).toBe(0);
+			journalling.capture();
+			expect(journalled.size).toBe(0);
+			// And nothing is written into the store for a Project that is being removed.
+			await journalling.flush();
+			expect(writes).toEqual([]);
+			expect(journalling.hasPendingWrite('amsterdam-1625/project.json')).toBe(false);
+		});
+
+		it('leaves every other Project’s pending bytes alone', async () => {
+			autosave.queue('amsterdam-1625/project.json', utf8.encode('a'));
+			autosave.queue('boston-1775/project.json', utf8.encode('b'));
+
+			autosave.abandon('amsterdam-1625/');
+			await autosave.flush();
+
+			expect(writes).toEqual(['boston-1775/project.json']);
+		});
+
+		it('clears the timer, so the indicator does not sit on “Unsaved” for a file that has gone', () => {
+			autosave.queue('amsterdam-1625/project.json', utf8.encode('a'));
+			expect(autosave.state).toBe('unsaved');
+
+			autosave.abandon('amsterdam-1625/');
+
+			expect(autosave.state).toBe('saved');
+			expect(vi.getTimerCount()).toBe(0);
+		});
+	});
+
 	describe('the save state (rule 5)', () => {
 		it('goes saved → unsaved → saving → saved across one debounced write', async () => {
 			expect(states).toEqual(['saved']);

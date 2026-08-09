@@ -51,6 +51,32 @@ async function emptyWorkspace(page: Page): Promise<void> {
 		for await (const name of open.keys()) inside.push(name);
 		await Promise.all(inside.map((name) => open.removeEntry(name, { recursive: true })));
 	});
+	// The `localStorage` half of "no test can see another's Projects", which was missing: a record
+	// naming a folder outlives the folder, and the next test's `seedProject` puts that folder back.
+	await forgetEveryRecord(page);
+}
+
+/**
+ * Drop every write-ahead journal entry **and** every unfinished-deletion record in the origin.
+ *
+ * ⚠ **Both prefixes, and the second was missing** (ticket 21, review 2). OPFS and `localStorage` are
+ * origin-shared across every test in this harness, and {@link seedProject} writes `project.json`
+ * straight into OPFS — bypassing `Workspace.#claim`, which is what would otherwise drop a stale
+ * record naming that folder. So a `ballastella.deleted.` key left behind by a failing run survived
+ * into later tests, where a startup could act on it against a seeded Project and present as an
+ * unrelated flake.
+ *
+ * Named prefixes rather than `localStorage.clear()`: `ballastella.workspace` and its two siblings are
+ * which Workspace the harness is in, and clearing those is a different test's subject.
+ */
+async function forgetEveryRecord(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		for (const key of Object.keys(localStorage)) {
+			if (key.startsWith('ballastella.journal.') || key.startsWith('ballastella.deleted.')) {
+				localStorage.removeItem(key);
+			}
+		}
+	});
 }
 
 /** Write a `project.json` straight into OPFS, bypassing the app entirely. */
@@ -922,11 +948,7 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		await holdBackTheDebounce(page);
 		await page.goto('./');
 		await emptyWorkspace(page);
-		await page.evaluate(() => {
-			for (const key of Object.keys(localStorage)) {
-				if (key.startsWith('ballastella.journal.')) localStorage.removeItem(key);
-			}
-		});
+		await forgetEveryRecord(page);
 		await page.reload();
 	});
 
@@ -1029,6 +1051,47 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		await expect(page.getByText('No Projects yet')).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
 		await expect(page.getByRole('link', { name: 'Gone before it was saved' })).toHaveCount(0);
+		expect(await everyPath(page)).toEqual([]);
+	});
+
+	/**
+	 * ⚠ **A deletion carried out at startup used to be completely silent** (ticket 21, review 2).
+	 *
+	 * `Workspace.finishInterruptedDeletions` answered with three lists and `EditorSession` discarded
+	 * all three. ADR-0017's standard for this exact recovery chain is explicit and repeated — *"every
+	 * replay is named to the user, so an older state coming back is visible rather than silent"* — and
+	 * the replay half honoured it while the half that **removes files from a scholar's folder** said
+	 * nothing in either direction. SPEC stories 111 and 112.
+	 *
+	 * The record is seeded rather than provoked, because provoking it means winning the ~20% race this
+	 * whole suite is about; what is seeded is exactly the key and value `DeletedProjects.record`
+	 * writes, evidence included — a record without matching evidence is refused, which is the other
+	 * half of the same review and is pinned at the unit seam.
+	 */
+	test('says at startup which Project it finished deleting', async ({ page }) => {
+		await createProject(page, 'Amsterdam 1625');
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		await page.evaluate(async () => {
+			const root = await workspaceRoot();
+			const file = await (
+				await (await root.getDirectoryHandle('amsterdam-1625')).getFileHandle('project.json')
+			).getFile();
+			const manifest = JSON.parse(await file.text());
+			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
+			localStorage.setItem(
+				`ballastella.deleted.${encodeURIComponent(workspace)}/${encodeURIComponent('amsterdam-1625')}`,
+				JSON.stringify({
+					formatVersion: 1,
+					at: new Date().toISOString(),
+					was: { name: manifest.name, updatedAt: manifest.updatedAt }
+				})
+			);
+		});
+
+		await page.reload();
+
+		await expect(page.getByTestId('deletion-finished')).toContainText('amsterdam-1625');
+		await expect(page.getByText('No Projects yet')).toBeVisible();
 		expect(await everyPath(page)).toEqual([]);
 	});
 

@@ -318,6 +318,22 @@
 				</p>
 			{/if}
 			<!--
+				**Two refusals, not one** (ADR-0017; ticket 21, review 2). The sentence above is about an
+				edit on its way to storage and its remedy is "wait for the indicator to read 'Saved'" —
+				a deletion has no indicator and no such wait, so that sentence is not this one and does
+				not stand in for it. It is also not shown at all in the case where `record` actually
+				fails most often: a `localStorage` that answers reads and rejects every write, which is
+				Safari with cookies blocked and is a browser the read-only probe accepts.
+
+				`role="alert"` for the same reason the two above use it: inserted at the instant its text
+				first exists, which a polite region does not reliably announce (SPEC story 112).
+			-->
+			{#if session.deletionWarning}
+				<p role="alert" class="max-w-md text-sm text-warning" data-testid="deletion-warning">
+					{session.deletionWarning}
+				</p>
+			{/if}
+			<!--
 				And the browser that cannot offer the protection at all — a private window with site data
 				blocked. Said once, on every screen, rather than letting the app imply a guarantee it does
 				not have on that browser.

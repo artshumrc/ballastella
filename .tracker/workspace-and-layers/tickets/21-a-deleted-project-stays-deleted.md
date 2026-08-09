@@ -117,6 +117,153 @@ that now have to fail together; either alone still leaves a narrower window. Bot
 | before | **4** | 16 | **20.00%** — run failed |
 | after | 0 | 20 | **0.00%** — run passed |
 
+## What the second round found, and what it changed
+
+Two independent reviews confirmed the diagnosis — the record really is written before the first
+`await`, ticket 20 is untouched, "unreadable is not absent" is intact — and then found nine things.
+All nine are addressed below.
+
+### 1. The fix had opened a worse path than the one it closed
+
+`finishInterruptedDeletions` had **no precondition at all**: it took each name out of `pending()` and
+removed every file under it. A folder Workspace's key is `folder:<folder name>`, because the browser
+offers a page no stable identifier for a picked directory; ADR-0017 records that collision and
+*bounds* it — a wrong-Workspace **replay** can only write into a Project whose `project.json` is
+already there, so its worst case is one overwritten file the user is told about. A wrong-Workspace
+**deletion** had no bound at all, and the route is entirely inside documented behaviour (ADR-0023
+invites synced folders, second checkouts and colleagues' copies):
+
+> delete `amsterdam-1625` in folder Workspace `maps` on a laptop → torn down in the 20% window this
+> ticket exists for → record left → open a *different* folder also called `maps` → that folder's
+> `amsterdam-1625` and everything in it is removed before the listing renders.
+
+The destructive step now has a precondition of its own, and it is the same evidence the deletion had:
+
+- `DeletedProjects.record(directory, was)` also writes **what the Project was** — the display name and
+  `updatedAt` out of the summary the hub was rendering.
+- `#removeEverythingIn` removes `project.json` **last**, so an interrupted deletion always still has
+  its evidence. Ordered for the interruption rather than for the success, exactly as
+  `deleteHistoricalMap` documents for its own order.
+- `finishInterruptedDeletions` reads the manifest and removes nothing unless it still says what the
+  record says. A reserved name is refused; a record with no `was` is refused; a manifest that will
+  not read is refused; anything that does not match is refused and **named**. The record is kept, not
+  swallowed, because the Workspace it belongs to may still turn up.
+
+What is left is a bound of replay's shape and no larger: an unfinished deletion can only be finished
+against a Project whose manifest is still the one the user deleted. It also closes the second half of
+the same hazard the review named — `#claim` fires from `createProject` and `duplicateProject` and
+never from *opening* an existing Project, so a Project reopened and edited after a failed deletion
+could be removed under the user at a later startup. Its `updatedAt` has moved, so it is refused.
+
+### 2. `deleteHistoricalMap` had the same inversion, and worse
+
+Its first `await` is `historicalMapUsage` — a walk of every Project in the Workspace, a far wider
+window than the single `store.list` that lost 4 runs in 20 — and it destroyed the journal
+*synchronously* and did the deletion *asynchronously*. A reload in between lost the user's unsaved
+Alignment edit **and** left the map in place: data loss with no deletion to justify it. The sweep is
+now after the `await`, and **conditional**: `HistoricalMapPartlyDeletedError` is the only failure that
+means bytes are gone, and `HistoricalMapInUseError` is a refusal taken before anything is deleted, so
+sweeping on it would be the same loss by the opposite mistake. Three unit-seam tests.
+
+The *ordering* of the deletion itself is unchanged and not claimed fixed: it is deliberately arranged
+so a half-deleted map stays listed and can be finished, which is a design decision core states in
+words.
+
+### 3. A startup deletion is no longer silent
+
+`EditorSession.deletionReport` carries all three lists, and `RecoveredEdits` renders them in the same
+panel as the replay — carried out, refused with the reason, and could-not-be-done-yet.
+`finished` names only directories where something was actually removed, so the ordinary case (the
+removal *had* finished and only the note was lost) reports nothing: the destructive side of
+`replayJournal`'s "nothing is reported as restored that was not written".
+
+### 4. A failed `record()` is answered
+
+The boolean was being dropped. `WorkspaceOptions.onDeletionNotRecorded` carries it to
+`EditorSession.deletionWarning`, rendered beside `protectionWarning` — **two refusals, not one**. The
+comment claiming `protectionWarning`'s sibling "already says so in words" was wrong and has been
+replaced with why.
+
+### 5, 6, 7. The sweeps and the two test defects
+
+- `#removeWorkspace` now discards the Workspace's deletion records as well as its journal, and
+  `refreshOrphanedJournals` sees both prefixes, so an orphaned record can be seen and thrown away
+  from Workspace settings like the journal keys beside it in the same 5 MB.
+- The e2e's `emptyWorkspace` now clears `ballastella.deleted.` as well as `ballastella.journal.`,
+  because `seedProject` writes straight into OPFS and bypasses `#claim`.
+- `editor-folder-workspace.e2e.ts`'s second `toHaveCount(0)` after the reload is gated on
+  `inBrowserStorage(page)`. Verified vacuous: with the named deletion applied *and* the gate removed
+  the test passes; with the gate it fails.
+
+### 8, 10. The two missing criteria, and the minor list
+
+Unit seams for the journal sweep on `deleteProject` and for a genuinely half-removed directory; the
+dead `DeletedProjects.workspace` getter is gone; `has`'s and `pending()`'s error paths are tested;
+`finishInterruptedDeletions` refuses a reserved name; and `#claim`'s comment no longer rests on an
+ordering nothing pins — the safety is re-derived and tested with the order inverted.
+
+### 9. The `project-deleted` layer, adjudicated
+
+**The reviewer was right that it could be disarmed, and the mechanism is worse than they described.**
+`EditorSession.deleteProject` emptied the *journal* and left `Autosave`'s own pending bytes in place —
+and the journal is written *from* those bytes. So rule 3 undid the sweep by two routes, not one:
+`capture()` re-journals `<project>/project.json` at `pagehide` after the sweep, and `flush()` writes it
+into the store outright. Neither is caught by the `project-deleted` branch, because by the next
+startup the deletion has finished and its record has been dropped.
+
+No ordering fixes this — `pagehide` can fire at any point after the click — so the source is swept
+instead: `Autosave.abandon(prefix)` drops the pending bytes, the timers and the journal entries
+together, and `deleteProject` and `deleteHistoricalMap` both go through it. Pinned at both seams.
+
+With that closed, the honest description of the layer stands and the ticket's original wording was
+overstated: `finishInterruptedDeletions` runs before the replay and forgets each directory it
+removes, so `deleted.has(owner)` is normally `false` by the time `replayJournal` reads it. **The
+branch fires only when the deletion could not finish** — an unreachable store, a refused record. It is
+a unit-tested fallback for that case, not a second layer carrying ordinary traffic.
+
+## The second round's mutation check
+
+Every mutation below was applied, run, and restored.
+
+| # | mutation | result | what went red |
+| --- | --- | --- | --- |
+| M6 | `finishInterruptedDeletions` ignores the recorded identity | **RED** | 2 in `workspace.test.ts`: the same-named folder, and the Project since edited |
+| M7 | `#removeEverythingIn` removes `project.json` first again | **RED** | `removes the manifest last, so an interrupted deletion keeps its evidence` |
+| M8 | a record with no `was` is carried out | **RED** | `refuses to finish a deletion whose record does not say what it was aimed at` |
+| M9 | drop the reserved-name guard | **RED** | `refuses to finish a deletion naming one of the Workspace's own directories` |
+| M10 | drop the answer `record()` gives | **RED** | `says so when the browser will not write the deletion down` |
+| M11 | `abandon` forgets the journal only, as before | **RED** | 3 in `autosave.test.ts`, and `gives up the pending bytes too` at the editor seam |
+| M12 | sweep the Historical Map's journal before the `await` again | **RED** | 2 in `editor-session.test.ts` |
+| M13 | sweep it unconditionally in the `catch` | **RED** | `keeps the unsaved Alignment when the deletion is refused` |
+| M14 | never set `deletionReport` | **RED** | e2e `says at startup which Project it finished deleting` |
+| M15 | `#removeWorkspace` discards the journal only | **RED** | e2e `takes the Workspace's unfinished deletions with it` |
+| M16 | `refreshOrphanedJournals` walks the journal prefix only | **RED** | e2e `reports and discards an unfinished deletion left by a Workspace that is gone` |
+| M17 | "forget the folder" clears memory and skips the store | **RED** | e2e `forgets the folder when browser storage is chosen deliberately` — and **GREEN** with the new gate removed, which is the point |
+
+M11's first spelling *survived*, and so did the first spelling of its editor-seam test: both were
+written against an edit that had already drained. Rewritten against a write that has started and not
+landed — the state `Autosave` actually holds bytes in — both go red.
+
+## The second round's gate
+
+On the final tree, in this order, no `--reporter=` anywhere and nothing piped through `grep`:
+
+| command | exit |
+| --- | --- |
+| `pnpm run check` | **0** |
+| `pnpm run lint` | **0** |
+| `pnpm run test` | **0** |
+| `pnpm run test:e2e` (whole suite) | **0** — 490 passed, 1 skipped, 23.3m, retry budget 0.00% of 491 |
+| `playwright test e2e/editor-workspace.e2e.ts --repeat-each=20` | **0** — 740 passed, 11.2m, retry budget 0.00% of 740 |
+
+The two `✘` lines in `editor-network-fence.e2e.ts` are its `test.fail()` controls, which are expected
+failures and are what the run passing means.
+
+**Contention was heavy and is worth recording**: tickets 07 and 22 were running in other worktrees
+throughout. One-minute load average on the 20-core machine ranged from **38 to 87** during these
+runs, which is why the full suite took 23 minutes. Nothing went flaky under it; the retry budget was
+0.00% on both runs.
+
 ## Deliberately not done
 
 - **`TRACKER.md` was not edited**, as instructed. Open lead 1 is closed by this work but the tracker
@@ -126,12 +273,22 @@ that now have to fail together; either alone still leaves a narrower window. Bot
   The one assertion added to the e2e waits for the hub's *empty state* before two `toHaveCount(0)`
   checks that were passing vacuously — that strengthens them and cannot mask the defect, which is
   asserted against the file list.
-- **`FinishedDeletions.unfinished` is returned but not rendered.** A deletion that could not be
-  finished — an unplugged drive — is kept, retried at every startup, and the Workspace's existing
-  "not reachable" state is what the user sees. A dedicated notice beside `RecoveredEdits` would be
-  the honest end state (SPEC stories 111, 112) and is a small piece of UI work this ticket did not
-  take on.
-- **Historical Map deletion was not given the same protection.** `EditorSession.deleteHistoricalMap`
-  has the identical shape and is presumably identically exposed. It was not measured and is not
-  claimed fixed.
+- ~~**`FinishedDeletions.unfinished` is returned but not rendered.**~~ Done in round 2: all three
+  lists are rendered in `RecoveredEdits` (SPEC stories 111, 112).
+- **`deleteHistoricalMap` was given the inversion fix and not the write-ahead record.** The
+  "destroy synchronously, justify asynchronously" pair is closed and pinned. What it still does not
+  have is `DeletedProjects`' own protection — a gesture written down so a torn-down page's deletion
+  is finished at the next startup. Its partial-failure design already leaves a half-deleted map
+  *listed* and finishable by hand, which is a real answer and not the same hole; giving it the full
+  treatment means recording a map identity and a second recovery step, and is its own ticket.
+- **A refused record is reported at every startup, with no per-record way to be rid of it.** It is
+  kept deliberately — the Workspace it belongs to may still turn up, and dropping it would lose a
+  real deletion — and the panel is dismissible, so the cost is one sentence per startup for as long
+  as two folders of the same name are both in play. Workspace settings can discard records for a
+  Workspace it is *not* in; a "forget this deletion" beside the refusal is the natural next piece of
+  UI and was not built.
+- **Nothing re-`claim`s a Project on `open`.** With the manifest precondition in place a reopened and
+  edited Project is refused rather than deleted, and the refusal is now named to the user with a
+  discard offered in Workspace settings — so the hole is closed without a `localStorage` write on a
+  path ADR-0010 and `editor-opening-view.e2e.ts` hold to "opening writes nothing at all".
 - **Open lead 2 (the OpenSeadragon `forceRedraw` throw) was not touched.**

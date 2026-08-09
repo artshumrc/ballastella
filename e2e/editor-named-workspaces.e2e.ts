@@ -450,6 +450,77 @@ test.describe('deleting a Workspace', () => {
 		expect(await everyPathInBrowserStorage(page)).toEqual([]);
 	});
 
+	/**
+	 * ⚠ **The record has to go with the Workspace, and it was swept by nothing** (ticket 21, review 2).
+	 *
+	 * `#removeWorkspace` already discards the deleted Workspace's write-ahead journal, with the reason
+	 * written on the spot: entries that outlive their Workspace are "put back into somebody else's
+	 * work under a name they happened to reuse". A `ballastella.deleted.` key has the same shape and
+	 * the same reuse hazard, and its standing instruction is **destructive** rather than additive — so
+	 * a Workspace called "Marking 2026" made next year would inherit an order to delete a folder name
+	 * inside it.
+	 */
+	test('takes the Workspace’s unfinished deletions with it, not only its journal', async ({
+		page
+	}) => {
+		await createWorkspace(page, 'Marking 2026');
+		await createProject(page, 'Boston 1775');
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+		// Exactly what an interrupted deletion in "Marking 2026" leaves behind.
+		await page.evaluate(() => {
+			const workspace = encodeURIComponent('opfs:Marking 2026');
+			localStorage.setItem(
+				`ballastella.deleted.${workspace}/${encodeURIComponent('boston-1775')}`,
+				JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), was: null })
+			);
+		});
+
+		await openWorkspaceSettings(page);
+		await page.getByTestId('delete-workspace').click();
+		await page.getByTestId('confirm-delete-workspace').click();
+		await expect(page.getByTestId('workspace-delete-outcome')).toContainText('Marking 2026');
+
+		expect(
+			await page.evaluate(() =>
+				Object.keys(localStorage).filter((key) => key.startsWith('ballastella.deleted.'))
+			)
+		).toEqual([]);
+	});
+
+	/**
+	 * ⚠ **And a record for a Workspace that is already gone has to be *visible*, like the journal keys
+	 * beside it in the same 5 MB** (ticket 21, review 2). The orphan report walked
+	 * `ballastella.journal.` only, so a deletion record naming a Workspace this browser will never
+	 * open again could never be seen or discarded from settings — while the additive keys next to it
+	 * could.
+	 */
+	test('reports and discards an unfinished deletion left by a Workspace that is gone', async ({
+		page
+	}) => {
+		await page.evaluate(() => {
+			const workspace = encodeURIComponent('opfs:A Workspace nobody has any more');
+			localStorage.setItem(
+				`ballastella.deleted.${workspace}/${encodeURIComponent('boston-1775')}`,
+				JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), was: null })
+			);
+		});
+		await page.reload();
+
+		await openWorkspaceSettings(page);
+
+		await expect(page.getByTestId('orphaned-journals')).toContainText(
+			'A Workspace nobody has any more'
+		);
+		await page.getByTestId('discard-orphaned-journal').click();
+
+		await expect(page.getByTestId('orphaned-journals')).toHaveCount(0);
+		expect(
+			await page.evaluate(() =>
+				Object.keys(localStorage).filter((key) => key.startsWith('ballastella.deleted.'))
+			)
+		).toEqual([]);
+	});
+
 	test('keeps the Workspace when the confirmation is declined', async ({ page }) => {
 		await createWorkspace(page, 'Marking 2026');
 		await createProject(page, 'Boston 1775');
