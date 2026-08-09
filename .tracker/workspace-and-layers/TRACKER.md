@@ -98,7 +98,9 @@ Two things the ticket asks for that are easy to skip: the **before/after bundle 
 
    Ticket 15 recorded this in ADR-0018's amendment rather than smuggling it into `viewer-reader.e2e.ts`, whose assertions it was forbidden to touch. That was the right call for that ticket, but **an ADR is a note, not a check**: the decision now has no test in its only remaining consumer. A one-assertion follow-up in the viewer's spec closes it.
 
-   Also worth folding into the same follow-up: two **floating assertions** found on 2026-08-09 — `e2e/editor-stored-image-pane.e2e.ts:275` and `e2e/editor-image-pane.e2e.ts:87` call web-first assertions with **no `await`**, so a failure becomes an unhandled rejection and the test stays green. The deletion that keeps each green is the whole call. Both sit in the deep-zoom area lead 6 concerns. Worth a grep for the same shape across the suite rather than fixing only these two.
+   **Correction, same day: a "two floating assertions" claim recorded here was wrong, and was withdrawn after measurement.** `e2e/editor-stored-image-pane.e2e.ts:275` and `e2e/editor-image-pane.e2e.ts:87` *look* un-awaited but are expression-bodied arrow functions that **return** the promise, and all 17 call sites await it. Settled by mutating each helper to a `data-testid` that does not exist: `editor-image-pane` went **5 of 5 red**, `editor-stored-image-pane` **5 red and 1 passed** — the one test that never calls the helper. A genuinely floating assertion would have left both files green. Nothing here needs fixing.
+
+   Kept as a note on method rather than deleted: the reviewer who raised it read the shape and was wrong; the implementer mutated it and was right. **A missing `await` on a web-first assertion is a real vacuity class and worth grepping for — but the grep must be followed by a mutation, because the returning-arrow shape is indistinguishable from it by eye.**
 
 ## Standing constraints
 
