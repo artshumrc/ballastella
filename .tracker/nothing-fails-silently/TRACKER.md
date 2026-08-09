@@ -8,7 +8,9 @@ Scope, user stories, and the testing approach are in [SPEC.md](./SPEC.md).
 
 ## Current status
 
-**Planning. No tickets written yet** — the spec is deliberately ahead of the ledger.
+**Not Started.** Six tickets, sliced 2026-08-09.
+
+**Ready now: 01 and 04.** They do not collide — 01 is the write path in the domain package, 04 is the render seam and the viewer — so they can run in parallel. `02 → 03` and `04 → 05` are the two chains; `06` waits on the write path settling under 01 and 02.
 
 The three seams are decided and are all existing ones (human decision, 2026-08-09): the domain package's **node** vitest project for the write path and the failure sentences; the Playwright **viewer** project for the Reader-facing half, whose existing "no uncaught page error on any navigation" assertion is what surfaced two of these; and the Playwright **editor** project for the author-facing half. **No new seam is to be introduced.**
 
@@ -43,5 +45,19 @@ These are carried from `workspace-and-layers`, where each was paid for.
 
 | Number | Filename | Status | Depends On | Fulfills |
 | --- | --- | --- | --- | --- |
+| 01 | [01-a-write-that-reports-success-has-been-written.md](./tickets/01-a-write-that-reports-success-has-been-written.md) | Not Started | — | 6, 7, 8, 23, 24, 30 |
+| 02 | [02-a-failed-write-retries-itself.md](./tickets/02-a-failed-write-retries-itself.md) | Not Started | 01 | 1, 9, 29 |
+| 03 | [03-a-save-that-gave-up-says-so.md](./tickets/03-a-save-that-gave-up-says-so.md) | Not Started | 02 | 2, 3, 4, 5, 10, 27, 28, 31, 33–38 |
+| 04 | [04-a-reader-is-told-when-tiles-stop-arriving.md](./tickets/04-a-reader-is-told-when-tiles-stop-arriving.md) | Not Started | — | 14–21, 27, 28, 32, 33 |
+| 05 | [05-the-same-sentence-on-the-authors-side.md](./tickets/05-the-same-sentence-on-the-authors-side.md) | Not Started | 04 | 11, 12, 13, 19, 22, 32 |
+| 06 | [06-instrument-the-screen-ahead-of-disk-disagreement.md](./tickets/06-instrument-the-screen-ahead-of-disk-disagreement.md) | Not Started | 01, 02 | 25, 26 |
 
-**No tickets yet.** Planning has not been done, deliberately — the spec was written first and the ledger stays empty until the work is sliced.
+**Stories 39 and 40 are cross-cutting and deliberately absent from the ledger** — keep the uncaught-error assertions in the end-to-end suites, and make any deliberate exception to them narrow, measured, and stated. They belong inside tickets 04 and 05, and inside anything later that touches those suites.
+
+**06 has no promised outcome, by design.** "Still open, and here is what it is not" is a complete delivery. Closing it against a plausible cause without evidence is the failure this epic exists to prevent.
+
+## Critical path
+
+**01 → 02 → 03** is the write path and the longest chain. **04 → 05** is the render seam. **06** hangs off 01 and 02.
+
+**03 is the ticket most likely to hurt**: it is the one that has to make a distinction the interface does not currently draw — "a debounce is pending" against "a write gave up" — and it inherits the repo's settled but easily-missed rules about which announcement mechanism is reliable for text that is inserted rather than changed.
