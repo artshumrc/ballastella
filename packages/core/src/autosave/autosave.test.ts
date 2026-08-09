@@ -292,7 +292,95 @@ describe('Autosave', () => {
 			autosave.queue('amsterdam-1625/project.json', utf8.encode('a'));
 			await vi.advanceTimersByTimeAsync(DEBOUNCE);
 
-			await expect(autosave.abandon('amsterdam-1625/')).resolves.toBeUndefined();
+			await expect(autosave.abandon('amsterdam-1625/')).resolves.toBe(true);
+		});
+
+		/**
+		 * ⚠ **A store write is not guaranteed to settle, and this one is on a gesture the user is
+		 * watching** (ticket 21, round 4). A folder whose grant was revoked mid-write, or an OPFS
+		 * handle a second tab tore down, leaves `store.write` pending with nothing to reject it. Round
+		 * 3 made `Workspace.deleteProject` await this — where before it was synchronous and the
+		 * removal ran regardless — so an unbounded wait here is a Delete button that does nothing, for
+		 * ever, with the Project still on screen. And in a folder Workspace the consequence compounds:
+		 * the deletion never finishes, so the next startup shows a refusal about it.
+		 *
+		 * The answer is `false` rather than a silent timeout, because "we gave up waiting" is a
+		 * different fact from "everything is quiet" and the caller has to keep its deletion record for
+		 * the first.
+		 */
+		it('gives up on a write that is never going to settle, and says it gave up', async () => {
+			const waiting = new Autosave(store, { debounceMs: DEBOUNCE, inFlightWaitMs: 5000 });
+			vi.spyOn(store, 'write').mockImplementation(() => new Promise<never>(() => undefined));
+			waiting.queue('amsterdam-1625/project.json', utf8.encode('a'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+			let answer: boolean | 'still waiting' = 'still waiting';
+			void waiting.abandon('amsterdam-1625/').then((quiet) => (answer = quiet));
+
+			// Still waiting a moment before the bound, so this is a bound and not an immediate refusal.
+			await vi.advanceTimersByTimeAsync(4999);
+			expect(answer).toBe('still waiting');
+
+			await vi.advanceTimersByTimeAsync(1);
+			expect(answer).toBe(false);
+		});
+
+		/**
+		 * `settled` is `abandon`'s half that destroys nothing: it waits for the store to be quiet
+		 * under a prefix and drops no pending bytes, clears no timers, and touches no journal entry.
+		 * It exists for `deleteHistoricalMap`, which decides for itself whether the deletion may
+		 * happen at all and must not have the user's unsaved Alignment thrown away before it does.
+		 */
+		it('waits for a path without giving anything up', async () => {
+			const journalled = new Map<string, Uint8Array>();
+			const waiting = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: (path, bytes) => void journalled.set(path, bytes),
+					forget: (path) => void journalled.delete(path)
+				}
+			});
+			let land = (): void => undefined;
+			vi.spyOn(store, 'write').mockImplementation(
+				async (path) =>
+					new Promise<void>((resolve) => {
+						land = () => {
+							writes.push(path);
+							resolve();
+						};
+					})
+			);
+			// alignment-write-is-the-fixture: the path is the specimen `settled` waits on — this is the caller it exists for, and nothing here is an Alignment document
+			waiting.queue('alignments/aaa1.json', utf8.encode('a placement mid-drag'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+			// A second edit typed while the first is in flight: pending bytes `abandon` would drop.
+			// alignment-write-is-the-fixture: the second edit is the specimen for "nothing was given up"
+			waiting.queue('alignments/aaa1.json', utf8.encode('and one more control point'));
+
+			let quiet: boolean | 'still waiting' = 'still waiting';
+			void waiting.settled('alignments/aaa1.json').then((answer) => (quiet = answer));
+			await vi.advanceTimersByTimeAsync(0);
+			expect(quiet).toBe('still waiting');
+			// ⚠ **The assertion that separates this from `abandon`, and it has to be made here** —
+			// while the wait is still running, which is the moment `abandon` would already have thrown
+			// both away. The second edit is still pending and still journalled.
+			expect(waiting.hasPendingWrite('alignments/aaa1.json')).toBe(true);
+			expect([...journalled.keys()]).toEqual(['alignments/aaa1.json']);
+
+			// The first write lands, and the drain loop starts a second for the newer bytes — so the
+			// store is not quiet yet, which is exactly what this is waiting to be told.
+			land();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(quiet).toBe('still waiting');
+
+			land();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(quiet).toBe(true);
+			expect(writes).toEqual(['alignments/aaa1.json', 'alignments/aaa1.json']);
+		});
+
+		it('answers at once for a path the store is not writing', async () => {
+			await expect(autosave.settled('alignments/aaa1.json')).resolves.toBe(true);
 		});
 
 		it('clears the timer, so the indicator does not sit on “Unsaved” for a file that has gone', () => {

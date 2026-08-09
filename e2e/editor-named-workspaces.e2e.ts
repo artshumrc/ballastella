@@ -513,6 +513,16 @@ test.describe('deleting a Workspace', () => {
 		);
 		await page.getByTestId('discard-orphaned-journal').click();
 
+		// ⚠ **What went is an unfinished deletion, and the sentence used to call it an unsaved change**
+		// (ticket 21, round 4). Round 2 added the deletion records to this button and *summed* their
+		// count into the journal's, so this Workspace — which holds exactly one deletion note and no
+		// edits at all — reported "Threw away 1 unsaved change": false in both nouns, and silent about
+		// the one of the two that carries a standing instruction to delete a Project.
+		await expect(page.getByTestId('workspace-delete-outcome')).toContainText(
+			'Threw away 1 unfinished deletion'
+		);
+		await expect(page.getByTestId('workspace-delete-outcome')).not.toContainText('unsaved');
+
 		await expect(page.getByTestId('orphaned-journals')).toHaveCount(0);
 		expect(
 			await page.evaluate(() =>

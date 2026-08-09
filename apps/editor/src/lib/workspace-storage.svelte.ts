@@ -1063,11 +1063,23 @@ export class WorkspaceStorage {
 			.sort((a, b) => a.localeCompare(b));
 	}
 
-	/** Throw away one orphaned Workspace's journalled edits and unfinished deletions, because the user said so. */
-	discardOrphanedJournal(key: string): number {
-		if (this.#journalStorage === null) return 0;
-		const dropped =
-			discardJournal(this.#journalStorage, key) + discardDeletions(this.#journalStorage, key);
+	/**
+	 * Throw away one orphaned Workspace's journalled edits and unfinished deletions, because the user
+	 * said so.
+	 *
+	 * ⚠ **Two counts, not their sum** (ticket 21, round 4). Round 2 added the deletion records to
+	 * this and added their count to the journal's, so the one sentence rendered from the answer —
+	 * *"Threw away N unsaved changes"* — was false in both nouns for a Workspace holding only a
+	 * deletion note: nothing was unsaved and nothing was a change. They are two different kinds of
+	 * thing with two different consequences, which is the whole reason `discardDeletions` exists
+	 * beside `discardJournal` rather than inside it, and a sum is exactly what cannot say so.
+	 */
+	discardOrphanedJournal(key: string): { edits: number; deletions: number } {
+		if (this.#journalStorage === null) return { edits: 0, deletions: 0 };
+		const dropped = {
+			edits: discardJournal(this.#journalStorage, key),
+			deletions: discardDeletions(this.#journalStorage, key)
+		};
 		this.refreshOrphanedJournals();
 		return dropped;
 	}

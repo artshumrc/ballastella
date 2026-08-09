@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	import { workspaceKeyLabel } from '$lib/editor-session.svelte.js';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
@@ -66,6 +68,51 @@
 	}
 
 	const headingId = $props.id();
+
+	/** The panel's own last control, so focus has somewhere to land that is still in the document. */
+	let dismissButton = $state<HTMLButtonElement | null>(null);
+
+	/**
+	 * ⚠ **Dismissing this dropped focus on the floor** (ticket 21, round 4; the defect is ticket 20's).
+	 *
+	 * "Got it" removes the `<section>` that contains it, so a keyboard or screen-reader user who
+	 * activates it has the focused element deleted from under them and lands on `<body>` — at the top
+	 * of the document, with no announcement, and with the next Tab starting from the beginning of the
+	 * page. It was always wrong; round 3 made it load-bearing, because this panel is now the *only*
+	 * user-facing surface for every deletion a folder Workspace reports.
+	 *
+	 * Focus goes to `<main>`, which is where the user's attention should be once the news is
+	 * dismissed — the Project list they came here for. `tabIndex = -1` is what makes a landmark
+	 * focusable without putting it in the tab order, which is the settled pattern for exactly this.
+	 */
+	function dismiss(): void {
+		dismissed = reportKey();
+		const main = document.querySelector('main');
+		if (!(main instanceof HTMLElement)) return;
+		main.tabIndex = -1;
+		main.focus();
+	}
+
+	/**
+	 * Forget one refusal's note, and put focus somewhere that still exists.
+	 *
+	 * The paragraph holding the button goes with the note. If the panel is still saying something
+	 * else, focus its "Got it", which is present whenever the panel is; if the panel has gone
+	 * because that refusal was the whole of it, this is a dismissal and lands where one does.
+	 */
+	function forgetDeletion(directory: string): void {
+		storage?.session.forgetDeletion(directory);
+		void tick().then(() => {
+			if (showing && dismissButton) dismissButton.focus();
+			else {
+				const main = document.querySelector('main');
+				if (main instanceof HTMLElement) {
+					main.tabIndex = -1;
+					main.focus();
+				}
+			}
+		});
+	}
 </script>
 
 <div
@@ -100,8 +147,35 @@
 							: 'they have'} been removed now: {deletions.finished.join(', ')}.
 					</p>
 				{/if}
+				<!--
+					⚠ **A refusal needs an exit that costs nobody a file** (ticket 21, round 4).
+
+					Since round 3 a folder Workspace finishes no deletion unattended, so a refusal is the
+					whole of what a startup there ever reports — and nothing ended one. No record expires,
+					`Workspace.#claim` drops one only when a Project is created or duplicated under that
+					name, Workspace settings' discard cannot by construction reach the Workspace that is
+					open, and "Got it" below is keyed on the report's *contents*, so the next startup
+					builds a byte-identical report and shows it again. The one remedy the sentence used to
+					offer was "delete it again", which — in the case the sentence exists for, a
+					colleague's folder holding their own Project of that name — destroys their work.
+
+					So: forget the note. It removes a note about a deletion and never a file, which makes
+					it the one gesture here that is safe to offer for a state the user cannot otherwise
+					leave. If the deletion really was theirs, the Project is still listed and Delete is
+					right there.
+				-->
 				{#each deletions?.refused ?? [] as entry (entry.directory)}
-					<p class="text-sm text-warning" data-testid="deletion-refused">{entry.detail}</p>
+					<p class="text-sm text-warning" data-testid="deletion-refused">
+						{entry.detail}
+						<button
+							type="button"
+							class="btn ml-1 align-baseline btn-xs"
+							data-testid="forget-deletion"
+							onclick={() => forgetDeletion(entry.directory)}
+						>
+							Forget this note
+						</button>
+					</p>
 				{/each}
 				{#if deletions !== null && deletions.unfinished.length > 0}
 					<p class="text-sm text-warning" data-testid="deletion-unfinished">
@@ -142,7 +216,8 @@
 						type="button"
 						class="btn btn-sm"
 						data-testid="recovered-dismiss"
-						onclick={() => (dismissed = reportKey())}
+						bind:this={dismissButton}
+						onclick={dismiss}
 					>
 						Got it
 					</button>

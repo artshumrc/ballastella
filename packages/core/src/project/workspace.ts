@@ -426,12 +426,22 @@ export class Workspace {
 		// at the next startup. Waited out here, between the record and the removal, so that the
 		// synchronous guarantee this whole ticket exists for is untouched: if the page dies during
 		// this await the record is already written and the next startup finishes the job.
-		await this.#autosave?.abandon(`${directory}/`);
+		//
+		// ⚠ **Bounded, and the answer is read** (round 4). A `store.write` is not guaranteed to
+		// settle — a folder whose grant was revoked mid-write, an OPFS handle a second tab tore down
+		// — and an unbounded wait here would be a Delete button that does nothing for ever, with the
+		// Project still on screen. `abandon` gives up after a moment and says it gave up.
+		const quiet = (await this.#autosave?.abandon(`${directory}/`)) ?? true;
 		await this.#removeEverythingIn(directory);
 		// Only now, and only because the removal above actually resolved. Forgetting before it would
 		// be the same false claim `replayJournal` refuses to make: nothing is reported done that was
 		// not done.
-		this.#deleted?.forget(directory);
+		//
+		// And **not at all** when a write was still out there when the wait expired: it may land after
+		// the listing above and put `project.json` back, which is precisely the hole this record
+		// exists to catch. Kept, the next startup finds either nothing (and drops it silently) or the
+		// manifest the deletion was aimed at (and finishes the job).
+		if (quiet) this.#deleted?.forget(directory);
 	}
 
 	/**
@@ -576,22 +586,37 @@ export class Workspace {
 		if (this.#identity === 'a-name-anywhere') {
 			return {
 				act: 'refuse',
+				// ⚠ **Two exits, and the first spelling offered only the destructive one** (round 4).
+				// It said "delete it again from the list if it is the one you meant", which in the case
+				// this sentence exists for — a colleague's folder of the same name, holding their own
+				// `amsterdam-1625` — is an instruction to destroy their Project. And the note is kept, so
+				// the same sentence returns at every startup for ever: nothing expires a record,
+				// `#claim` fires only on create and duplicate, and Workspace settings can only discard
+				// records for a Workspace that is *not* the one open. The panel that renders this offers
+				// "Forget this note" beside it, which is the exit that costs nobody a file.
 				detail:
 					`Deleting “${was?.name || directory}” did not finish, so it is still in this ` +
 					`Workspace folder. Ballastella will not remove it on its own: a Workspace folder is ` +
 					`known only by its name, so another folder called the same thing — an external drive, ` +
 					`a colleague's copy, a second checkout — looks exactly like this one from here. ` +
-					`Nothing was removed. Delete it again from the list if it is the one you meant.`
+					`Nothing was removed. If this is your folder and you still mean to delete it, delete ` +
+					`it again from the list; if it is not, forget this note.`
 			};
 		}
 		// 4. And the gesture has to have written down what it was aimed at.
 		if (was === null) {
 			return {
 				act: 'refuse',
+				// ⚠ **Says what is true of every way this is reached, and the first spelling did not**
+				// (round 4). `was` is `null` when the caller never supplied one *and* when the stored
+				// value came from a build whose format this one does not read — and "this browser did
+				// not keep a note" is plainly false of the second, where a newer build kept a perfectly
+				// good note. The two have the same remedy, so they get one sentence that is true of
+				// both rather than a second field to tell them apart.
 				detail:
-					`A recorded deletion of “${directory}” was not carried out, because this browser did ` +
-					`not keep a note of which Project it named. Nothing was removed — delete it again if ` +
-					`it is still here.`
+					`A recorded deletion of “${directory}” was not carried out, because Ballastella ` +
+					`cannot tell which Project the note was about. Nothing was removed — delete it again ` +
+					`if you still mean to, or forget this note.`
 			};
 		}
 		// 5. Unchanged since the gesture. Not an identity check: step 3 already settled that this is

@@ -22,7 +22,12 @@ import {
 } from '@ballastella/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { EditorSession } from './editor-session.svelte.js';
+import {
+	EditorSession,
+	folderWorkspaceKey,
+	opfsWorkspaceKey,
+	workspaceIdentityOf
+} from './editor-session.svelte.js';
 
 const DIRECTORY = 'amsterdam-1625';
 
@@ -220,6 +225,35 @@ describe('deleting a Project, at the unit seam', () => {
 		expect(await store.list('')).toEqual([]);
 	});
 
+	/**
+	 * ⚠ **The only exit a refusal had was the destructive one** (ticket 21, round 4).
+	 *
+	 * Since round 3 a folder Workspace finishes no deletion unattended, so a refusal is the whole of
+	 * what a startup there ever reports — and nothing ended one. No record expires, `#claim` drops
+	 * one only on create or duplicate, Workspace settings cannot reach the Workspace that is open,
+	 * and the panel's dismiss is keyed on report *contents*, so the identical report returns at every
+	 * startup. The sentence's one remedy — "delete it again" — destroys the Project of whoever's
+	 * folder this is.
+	 */
+	it('forgets the note behind a refusal, and takes the panel with the last one', async () => {
+		const { session, storage } = await sessionWithJournal();
+		new DeletedProjects(storage, WORKSPACE).record(DIRECTORY, {
+			name: 'Amsterdam 1625',
+			updatedAt: 'a time this Project no longer says'
+		});
+		await session.finishInterruptedDeletions();
+		expect(session.deletionReport?.refused.map((entry) => entry.directory)).toEqual([DIRECTORY]);
+
+		session.forgetDeletion(DIRECTORY);
+
+		// The note is gone, so the next startup says nothing…
+		expect(new DeletedProjects(storage, WORKSPACE).has(DIRECTORY)).toBe(false);
+		// …and the panel goes with it rather than lingering with an empty list.
+		expect(session.deletionReport).toBeNull();
+		// And it is a note that went, never a file: the Project is exactly where it was.
+		expect(await session.store.list('')).toEqual([projectFilePath(DIRECTORY)]);
+	});
+
 	/** And the record carries what the hub was showing, which is what a startup checks before removing. */
 	it('records the Project’s identity, not only its folder name', async () => {
 		const { session, storage } = await sessionWithJournal();
@@ -400,5 +434,37 @@ describe('deleting a Historical Map, at the unit seam', () => {
 		expect(await session.deleteHistoricalMap(IMAGE)).toBe(true);
 
 		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
+	});
+});
+
+/**
+ * ⚠ **The one function that decides whether a recorded deletion may destroy anything**, and its
+ * only coverage was transitive, through the browser suite (ticket 21, round 4).
+ *
+ * `WorkspaceIdentity` is the whole of round 3's design: identity is a property of the **key**,
+ * because a copy reproduces a Project's contents perfectly and no comparison of them can tell two
+ * folders apart. This is where a key becomes that answer, and it is two lines of prefix matching —
+ * which is exactly the kind of thing that gets "simplified" by somebody who has not read the two
+ * hundred lines of comment behind it. It belongs in the fast suite.
+ */
+describe('what a Workspace key says about which directory it is', () => {
+	it('calls a named browser Workspace one place, because this origin owns it', () => {
+		expect(workspaceIdentityOf(opfsWorkspaceKey('Marking 2026'))).toBe('this-browser');
+	});
+
+	it('calls a picked folder a name anywhere, because two drives may both hold one', () => {
+		expect(workspaceIdentityOf(folderWorkspaceKey('maps'))).toBe('a-name-anywhere');
+	});
+
+	/**
+	 * A key from a build that spelled them differently, and the empty key a session with no Workspace
+	 * key at all supplies. Both answer the direction that destroys nothing — the same rule
+	 * `Workspace`'s own default follows, and for the same reason.
+	 */
+	it('calls anything it does not recognise a name anywhere', () => {
+		expect(workspaceIdentityOf('')).toBe('a-name-anywhere');
+		expect(workspaceIdentityOf('sharepoint:Teaching')).toBe('a-name-anywhere');
+		// Not a prefix match on a substring: `opfs:` has to be where the key starts.
+		expect(workspaceIdentityOf('mirror-of-opfs:Teaching')).toBe('a-name-anywhere');
 	});
 });

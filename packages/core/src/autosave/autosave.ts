@@ -31,6 +31,14 @@ export interface AutosaveOptions {
 	 */
 	readonly debounceMs?: number;
 	/**
+	 * How long {@link Autosave.abandon} and {@link Autosave.settled} will wait for a write the store
+	 * already has, before answering `false` and letting the caller get on with it.
+	 *
+	 * Injectable so the bound itself is testable — a wait nothing can expire is a wait nothing can
+	 * prove expires. See `Autosave.#quietUnder` for why there is a bound at all.
+	 */
+	readonly inFlightWaitMs?: number;
+	/**
 	 * Where pending bytes are written ahead of the store (ADR-0017 rule 3, as amended by ticket 20).
 	 *
 	 * Optional because it is a browser capability and not a guarantee: `localStorage` can be absent
@@ -66,6 +74,7 @@ export interface AutosaveOptions {
 export class Autosave {
 	readonly #store: ProjectStore;
 	readonly #debounceMs: number;
+	readonly #inFlightWaitMs: number;
 	readonly #files = new Map<StorePath, PendingFile>();
 	readonly #listeners = new Set<(state: SaveState) => void>();
 	readonly #journal: AutosaveJournal | undefined;
@@ -77,6 +86,10 @@ export class Autosave {
 	constructor(store: ProjectStore, options: AutosaveOptions = {}) {
 		this.#store = store;
 		this.#debounceMs = options.debounceMs ?? 400;
+		// Long enough that an OPFS write which is merely slow is waited for rather than given up on,
+		// and short enough that a write which is never going to settle costs the user a pause and not
+		// a Delete button that does nothing. See `#quietUnder`.
+		this.#inFlightWaitMs = options.inFlightWaitMs ?? 2000;
 		this.#journal = options.journal;
 		this.#onJournalRefused = options.onJournalRefused ?? (() => undefined);
 	}
@@ -263,8 +276,11 @@ export class Autosave {
 	 *
 	 * @returns when the writes this could not stop have settled. Never rejects: a write that failed
 	 *   is a write the store does not have, which is the outcome the caller wanted anyway.
+	 *
+	 * @returns whether everything under `prefix` is now quiet. `false` means a write is **still out
+	 *   there** and the wait gave up on it — see {@link #quietUnder}.
 	 */
-	abandon(prefix: string): Promise<void> {
+	abandon(prefix: string): Promise<boolean> {
 		const inFlight: Promise<unknown>[] = [];
 		for (const [path, file] of [...this.#files]) {
 			if (!path.startsWith(prefix)) continue;
@@ -283,8 +299,57 @@ export class Autosave {
 		}
 		this.#publishJournalRefusal();
 		this.#publish();
-		if (inFlight.length === 0) return Promise.resolve();
-		return Promise.allSettled(inFlight).then(() => undefined);
+		return this.#quietUnder(inFlight);
+	}
+
+	/**
+	 * Wait for the writes already in flight under `prefix`, **forgetting nothing** (ticket 21, round 4).
+	 *
+	 * {@link abandon}'s sibling, and the difference is the whole reason it exists: `abandon` is for a
+	 * path whose bytes are about to be *removed*, and this is for a path that is about to be removed
+	 * **by somebody else** — `deleteHistoricalMap`, which decides for itself whether the deletion may
+	 * happen at all and must not have the user's unsaved Alignment thrown away before it does. So
+	 * this drops no pending bytes, clears no timers, and touches no journal entry; it only declines
+	 * to return while the store is still holding bytes for a file that is about to be deleted.
+	 *
+	 * @returns whether everything under `prefix` is quiet — `false` when the wait gave up.
+	 */
+	settled(prefix: string): Promise<boolean> {
+		const inFlight: Promise<unknown>[] = [];
+		for (const [path, file] of this.#files) {
+			if (path.startsWith(prefix) && file.draining) inFlight.push(file.draining);
+		}
+		return this.#quietUnder(inFlight);
+	}
+
+	/**
+	 * Wait for `inFlight`, but **not for ever**.
+	 *
+	 * ⚠ **A store write is not guaranteed to settle, and both callers of this are on a gesture the
+	 * user is watching** (ticket 21, round 4). A folder whose grant was revoked mid-write, or an OPFS
+	 * handle a second tab tore down, can leave `store.write` pending with nothing to reject it — and
+	 * before this class answered with a promise at all, `abandon` was synchronous and a deletion ran
+	 * regardless. An unbounded wait would turn that into a Delete button that does nothing, for ever,
+	 * with the Project still on screen.
+	 *
+	 * So the wait is a **courtesy to a write that is going to land**, not a guarantee, and the answer
+	 * says which of the two happened. `Workspace.deleteProject` removes the files either way — the
+	 * user asked — and keeps its deletion record when the answer is `false`, so the next startup
+	 * finishes what a write landing late may have put back. Nothing is reported done that was not
+	 * done, which is this chain's rule and the reason the boolean exists rather than a silent
+	 * timeout.
+	 */
+	async #quietUnder(inFlight: readonly Promise<unknown>[]): Promise<boolean> {
+		if (inFlight.length === 0) return true;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const expiry = new Promise<false>((resolve) => {
+			timer = setTimeout(() => resolve(false), this.#inFlightWaitMs);
+		});
+		try {
+			return await Promise.race([Promise.allSettled(inFlight).then(() => true), expiry]);
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 
 	/** Whether `path` has changes the store has not been given yet. */

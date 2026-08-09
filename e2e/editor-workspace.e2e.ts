@@ -998,6 +998,14 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		// And it goes when the user says so, not on a timer.
 		await page.getByTestId('recovered-dismiss').click();
 		await expect(notice).toBeHidden();
+
+		// ⚠ **And focus lands somewhere, which it did not** (ticket 21, round 4; the defect is
+		// ticket 20's). "Got it" removes the `<section>` that contains it, so a keyboard or
+		// screen-reader user had the focused element deleted from under them and landed on `<body>` —
+		// back at the top of the document, with the next Tab starting from the beginning of the page.
+		// It has been load-bearing since round 3 made this panel the only surface a folder Workspace's
+		// deletions are ever reported on.
+		expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('MAIN');
 	});
 
 	/**

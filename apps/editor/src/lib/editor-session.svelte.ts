@@ -503,10 +503,10 @@ export class EditorSession {
 			autosave: this.#autosave,
 			...(this.#deleted ? { deleted: this.#deleted } : {}),
 			// Out of the key the records are filed under, and out of nothing else. A session with no
-			// key has no records either, and `'a-name-anywhere'` is the answer that destroys nothing.
-			identity: options.workspaceKey
-				? workspaceIdentityOf(options.workspaceKey)
-				: 'a-name-anywhere',
+			// key has no `#deleted` either, so nothing ever consults this — but `''` answers
+			// `'a-name-anywhere'`, which is the direction that destroys nothing, rather than leaving
+			// the safe answer to a ternary a reader has to check.
+			identity: workspaceIdentityOf(options.workspaceKey ?? ''),
 			onDeletionNotRecorded: () => {
 				this.deletionWarning =
 					'This browser would not let Ballastella write the deletion down, so it is only as ' +
@@ -558,6 +558,36 @@ export class EditorSession {
 			// the next startup; the listing beside this is what tells the user the Workspace is
 			// unreachable.
 		}
+	}
+
+	/**
+	 * Throw away the note behind one refused deletion, because the user said to (ticket 21, round 4).
+	 *
+	 * ⚠ **The only exit a refusal had was the destructive one.** Since round 3 a folder Workspace
+	 * finishes no deletion unattended, so a refusal is the *whole* of what a startup there ever
+	 * reports — and nothing ended one. No record expires; `Workspace.#claim` drops one only when a
+	 * Project is created or duplicated under that name; and Workspace settings' discard is by
+	 * construction unable to reach the Workspace that is open, which is always the one showing the
+	 * refusal. The panel's "Got it" is keyed on the report's *contents*, so the next startup builds a
+	 * byte-identical report and shows it again. What the user was left with was a warning at every
+	 * visit, for ever, whose one offered remedy — "delete it again" — destroys a Project that may
+	 * belong to the colleague whose folder they opened.
+	 *
+	 * Non-destructive by construction: it removes a note about a deletion, never a file. Its cost is
+	 * the one the user has just accepted in words — if the deletion really was theirs and really was
+	 * unfinished, the Project stays, listed, and Delete is right there.
+	 */
+	forgetDeletion(directory: string): void {
+		this.#deleted?.forget(directory);
+		const report = this.deletionReport;
+		if (report === null) return;
+		const remaining = {
+			...report,
+			refused: report.refused.filter((entry) => entry.directory !== directory)
+		};
+		// Through the same predicate the report was published by, so a panel holding nothing but the
+		// refusal just forgotten goes away rather than lingering empty.
+		this.deletionReport = deletionsAreNoteworthy(remaining) ? remaining : null;
 	}
 
 	/**
@@ -1579,6 +1609,27 @@ export class EditorSession {
 	async deleteHistoricalMap(imageId: string): Promise<boolean> {
 		this.historicalMapError = '';
 		const label = this.historicalMaps.find((map) => map.imageId === imageId)?.label ?? '';
+		// ⚠ **Waited out before the deletion, and it forgets nothing** (ticket 21, round 4).
+		//
+		// `Autosave.abandon` cannot call back a write the store already has, so an Alignment write in
+		// flight when Delete is pressed can land *after* `deleteHistoricalMap` has removed
+		// `alignments/<id>.json` — recreating the one leftover that function exists to prevent, an
+		// orphaned placement for a map that is gone, which a later import would then deduplicate a
+		// colleague's copy against.
+		//
+		// ⚠ **This is not the inversion review 2 removed from this method, and the note that said it
+		// was had the reason wrong.** What made the old ordering an inversion was not where `abandon`
+		// sat but that it *destroyed the user's only copy* — the journal entry holding an unsaved
+		// Alignment — before anything justified destroying it, so a reload in between lost the edit
+		// and left the map in place. `settled` is the half of `abandon` that destroys nothing: it
+		// drops no pending bytes, clears no timers and touches no journal entry. It only declines to
+		// return while the store still holds bytes for a file about to be deleted, and the refusal
+		// below can still refuse. `#forgetJournalled` runs after the deletion, exactly as it did.
+		//
+		// Bounded, so a write that never settles costs a pause and not the gesture; if the wait
+		// expires the deletion goes ahead anyway, and its own partial-failure design leaves a map
+		// that is still listed and can be finished by hand.
+		await this.#autosave.settled(alignmentPath(imageId));
 		try {
 			await deleteHistoricalMap(this.#store, imageId, { label });
 		} catch (cause) {
@@ -1634,15 +1685,12 @@ export class EditorSession {
 	 * it at `pagehide` and `flush()` to write it outright — recreating `alignments/<id>.json` for a
 	 * Historical Map that is gone, which is the orphan `deleteHistoricalMap` exists to prevent.
 	 *
-	 * ⚠ **The promise `abandon` answers with is deliberately dropped here, and it is not dropped in
-	 * `Workspace.deleteProject`.** There it is waited on *between* the record and the removal, so a
-	 * write the store already has cannot land behind the listing. Here there is nothing useful to
-	 * wait for: this runs **after** `deleteHistoricalMap` has removed the files, so a write still in
-	 * flight has already either landed or not, and waiting would only delay the caller without
-	 * re-deleting anything. Closing that window properly means abandoning *before* the deletion,
-	 * which is the "destroy synchronously, justify asynchronously" inversion review 2 removed from
-	 * this very method — so it is left open, named here, and recorded in the ticket rather than
-	 * traded for the larger hazard.
+	 * ⚠ **The promise `abandon` answers with is dropped here, and that is now merely true rather than
+	 * load-bearing** (round 4). This runs *after* `deleteHistoricalMap` has removed the files, so a
+	 * write still in flight has already either landed or not and waiting on it would re-delete
+	 * nothing. The window it used to leave open is closed by `Autosave.settled` at the top of
+	 * {@link deleteHistoricalMap}, **before** the deletion, where waiting can still change the
+	 * outcome — and which destroys nothing, so it is not the inversion review 2 removed.
 	 */
 	#forgetJournalled(imageId: string): void {
 		void this.#autosave.abandon(`${imageDirectory(imageId)}/`);

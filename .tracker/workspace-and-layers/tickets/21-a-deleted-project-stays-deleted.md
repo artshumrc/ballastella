@@ -468,3 +468,142 @@ these runs. Nothing went flaky under it; the retry budget was 0.00% on both runs
 - **A "forget this deletion" control beside a refusal** was still not built. With (f) closed, every
   surviving refusal names a Project that is in the list, so the control already exists: it is Delete.
 - **`TRACKER.md` was not edited**, as instructed.
+
+## What the fourth round found
+
+A focused re-review traced every construction path and confirmed the design: no reachable
+wrong-folder recursive delete remains, all three of round 2's doors are shut, and the `abandon`
+plumbing, the synchronous guarantee, `formatVersion` validation and the `historical-maps` reordering
+all hold. Five things were left.
+
+### 1. The round's headline claim was a sentence in a comment
+
+`this.#identity = options.identity ?? 'a-name-anywhere'` — **flip that default to `'this-browser'`
+and the whole suite stayed green.** Round 3 gave every test with a reachable store an explicit
+`identity`, and production always passes one, so the default's only consumer is a future caller and
+nothing told that caller they had got it wrong. That is the same shape as the two things the previous
+rounds were about: a bound asserted in prose. It is now pinned by a test that builds a `Workspace`
+with a matching record, a reachable store, and **no** `identity`.
+
+### 2. A folder Workspace's refusal was permanent, and its only exit destroyed somebody else's work
+
+The case the refusal exists for: the user opens a colleague's `maps`, which holds its own
+`amsterdam-1625` with a readable manifest. Step 2 does not clear the record, step 3 refuses, the note
+is kept — and **nothing ends it**. No record expires; `#claim` fires only on create and duplicate;
+`discardOrphanedJournal` is by construction unable to reach the Workspace that is *open*, which is
+always the one showing the refusal; and the panel's "Got it" is keyed on the report's contents, so
+the next startup builds a byte-identical report and shows it again. Since round 3 made a refusal the
+**only** thing a folder Workspace ever reports, that is a warning at every visit for ever — whose one
+offered remedy, *"delete it again from the list"*, destroys the colleague's Project.
+
+This is the argument the reserved-name branch already uses to justify dropping its record, applied to
+a case round 3 made common. `EditorSession.forgetDeletion` and a **"Forget this note"** control
+beside each refusal are the exit that costs nobody a file: it removes a note about a deletion, never
+a byte. The sentence now offers both, and names the non-destructive one for the case it is written
+for. Pinned across a reload, because "it stops" is a claim about the *next* startup and a
+content-keyed dismissal is exactly what could not deliver it.
+
+Same finding by a second route: an unknown `formatVersion` refuses safely but was described as *"this
+browser did not keep a note of which Project it named"*, which is plainly false of a newer build that
+kept a perfectly good one. The two causes have the same remedy, so they get one sentence that is true
+of both rather than a field to tell them apart.
+
+### 3. `workspaceIdentityOf` was reachable only through the browser suite
+
+The function the design turns on — two lines of prefix matching, and exactly the kind of thing that
+gets "simplified" by somebody who has not read the two hundred lines of comment behind it — now has
+its own unit tests, including that `opfs:` must be where the key *starts*. The unreachable ternary
+beside its production call is gone: `workspaceIdentityOf(options.workspaceKey ?? '')` answers
+`'a-name-anywhere'` for the empty key, so the safe direction is the function's and not a branch a
+reader has to check.
+
+### 4. The `'forget'` branch's sweep was unasserted
+
+Deleting `reclaimAbandonedWrites` from it left the suite green. It is **kept and asserted** with a
+planted temporary file rather than dropped: `#adopt` sweeping the whole Workspace immediately before
+`finishInterruptedDeletions` is an ordering in the app that no test and no type pins, and "it is safe
+because of the order somebody happens to call it in" is the argument `#claim`'s comment had to stop
+making.
+
+### 5. The reason for leaving `deleteHistoricalMap`'s window open was not sound
+
+The round-3 comment said closing it meant reintroducing the inversion review 2 removed. **That is
+wrong, and it proved too much** — `Workspace.deleteProject` does abandon-before-removal two files
+away. What made the old ordering an inversion was not `abandon`'s position but that it *destroyed the
+user's only copy* — the journal entry holding an unsaved Alignment — before anything justified
+destroying it.
+
+And there was a third option. `Autosave.settled(prefix)` is `abandon`'s half that destroys nothing:
+it waits for the store to be quiet under a prefix, drops no pending bytes, clears no timers and
+touches no journal entry. It is awaited before `deleteHistoricalMap`, so an Alignment write in flight
+cannot land after the deletion removed `alignments/<id>.json` — the orphaned placement that function
+exists to prevent. `#forgetJournalled` runs unchanged, after.
+
+### The two PLAUSIBLE items, adjudicated
+
+- **`await abandon()` could block a deletion indefinitely — CONFIRMED, and fixed.** A folder whose
+  grant was revoked mid-write, or an OPFS handle a second tab tore down, leaves `store.write` pending
+  with nothing to reject it; before round 3 `abandon` was synchronous and the removal ran regardless.
+  Unbounded, that is a Delete button that does nothing for ever with the Project still on screen —
+  and in a folder Workspace it compounds into finding 2. The wait is bounded now and **answers
+  whether it gave up**: `deleteProject` removes the files either way, and **keeps its record** when
+  the answer is `false`, because the write still out there may land after the listing. A silent
+  timeout would have reintroduced round 3's own defect.
+- **Focus lost when the panel dismisses itself — CONFIRMED, and fixed.** "Got it" removes the
+  `<section>` containing it, dropping focus to `<body>`. Pre-existing from ticket 20; round 3 made it
+  load-bearing, because this panel is now the only surface a folder Workspace's deletions are
+  reported on. Focus goes to `<main>`, and the "Forget this note" control does the same.
+
+### Adjacent, fixed
+
+`WorkspaceSettings` rendered `discardOrphanedJournal`'s return as *"Threw away N unsaved changes"*,
+and since round 2 that number was `discardJournal(...) + discardDeletions(...)` — so a Workspace
+holding only a deletion note reported "1 unsaved change", false in both nouns and silent about the
+one of the two that carries a standing instruction to delete a Project. Two counts now, named
+separately, and the existing e2e that discards exactly that Workspace asserts the sentence.
+
+## The fourth round's mutation check
+
+Every mutation below was applied, run, and restored.
+
+| # | mutation | result | what went red |
+| --- | --- | --- | --- |
+| M32 | the identity default becomes `'this-browser'` | **RED** | `finishes nothing unattended for a caller that did not say what the Workspace is` |
+| M33 | `deleteProject` forgets the record even when the wait gave up | **RED** | `deletes anyway when a write will not settle, and keeps the record because it might land` |
+| M34 | the in-flight wait has no bound | **RED** | `gives up on a write that is never going to settle, and says it gave up` |
+| M35 | `settled` answers `true` without looking | **RED** | `waits for a path without giving anything up` |
+| M36 | the `'forget'` branch drops its abandoned-write sweep | **RED** | `removes nothing from a directory that has files and no manifest` |
+| M37 | `forgetDeletion` updates the panel and not the record | **RED** | `forgets the note behind a refusal, and takes the panel with the last one` |
+| M38 | `workspaceIdentityOf` matches `opfs:` anywhere in the key | **RED** | `calls anything it does not recognise a name anywhere` |
+| M39 | `RecoveredEdits` drops the "Forget this note" control | **RED** | e2e `forgets a refused deletion's note, and it stays forgotten across a reload` |
+| M40 | dismissing the panel does not move focus | **RED** | e2e `says that it put the change back, in text a screen reader is given` |
+| M41 | the discard sentence sums the two counts again | **RED** | e2e `reports and discards an unfinished deletion left by a Workspace that is gone` |
+
+## The fourth round's gate
+
+On the final tree, no `--reporter=` anywhere and nothing piped through `grep` — exit codes read
+directly:
+
+| command | exit |
+| --- | --- |
+| `pnpm run check` | **0** |
+| `pnpm run lint` | **0** |
+| `pnpm run test` | **0** — core 1681 passed / 15 skipped, editor 31 passed |
+| `pnpm run test:e2e` (whole suite) | **0** — 494 passed, 1 skipped, 16.7m, retry budget 0.00% of 495 |
+| `playwright test e2e/editor-workspace.e2e.ts --repeat-each=20` | **0** — 780 passed, 8.8m, retry budget 0.00% of 780 |
+
+**Contention, as a number**: tickets 07 and 22 were running their own suites throughout. The
+one-minute load average on the 20-core machine ranged from **22 to 47** during these runs, which is
+why the full suite took 16.7 minutes against round 3's 11.6. Nothing went flaky under it; the retry
+budget was 0.00% on both runs.
+
+## Deliberately not done in round 4
+
+- **The in-flight wait is 2 seconds and the number is a judgement**, not a measurement: long enough
+  that a merely slow OPFS write is waited for, short enough that a write which is never going to
+  settle costs a pause rather than the gesture. It is injectable, so the bound itself is tested
+  rather than only its happy path.
+- **`deleteHistoricalMap` still has no write-ahead record of its own**, unchanged from round 2's
+  note: its partial-failure design leaves a half-deleted map listed and finishable, and giving it the
+  full `DeletedProjects` treatment is its own ticket.
+- **`TRACKER.md` was not edited**, as instructed.

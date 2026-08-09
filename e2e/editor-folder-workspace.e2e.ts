@@ -439,6 +439,67 @@ test.describe('choosing a folder as the Workspace', () => {
 		await expect.poll(() => everyPathInFolder(page)).toEqual([]);
 	});
 
+	/**
+	 * ⚠ **THE REFUSAL WAS PERMANENT, AND ITS ONE OFFERED EXIT DESTROYED SOMEBODY ELSE'S PROJECT.**
+	 *
+	 * This is the case the refusal above exists for, played out: the user opens a **colleague's**
+	 * `maps` folder, which happens to hold its own `amsterdam-1625`. The manifest is readable so the
+	 * record is not cleared, the identity rule refuses, and the note is kept — and nothing ends it.
+	 * No record expires, `Workspace.#claim` fires only when a Project is created or duplicated under
+	 * that name, Workspace settings' discard is by construction unable to reach the Workspace that is
+	 * *open*, and the panel's "Got it" is keyed on the report's contents, so the next startup builds a
+	 * byte-identical report and shows the same warning again. Since round 3 made a refusal the only
+	 * thing a folder Workspace ever reports, that is a warning at every visit for ever — whose one
+	 * offered remedy, "delete it again", destroys the colleague's work.
+	 *
+	 * Asserted across a reload, because "it stops" is a claim about the *next* startup and the
+	 * dismissal that does not survive one is precisely what was wrong.
+	 */
+	test('forgets a refused deletion’s note, and it stays forgotten across a reload', async ({
+		page
+	}) => {
+		await chooseFolder(page);
+		await inFolder(page);
+		// Somebody else's Project, of the same name, in a folder of the same name. Nothing this build
+		// can read tells it apart from the one the user deleted on their own machine.
+		await createProject(page, 'Amsterdam 1625');
+		await page.evaluate((folder) => {
+			localStorage.setItem(
+				`ballastella.deleted.${encodeURIComponent(`folder:${folder}`)}/${encodeURIComponent('amsterdam-1625')}`,
+				JSON.stringify({
+					formatVersion: 1,
+					at: new Date().toISOString(),
+					was: { name: 'Amsterdam 1625', updatedAt: '2026-08-08T09:00:00.000Z' }
+				})
+			);
+		}, PICKED_FOLDER);
+
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await inFolder(page);
+		await expect(page.getByTestId('deletion-refused')).toBeVisible();
+
+		await page.getByTestId('forget-deletion').click();
+
+		// The panel goes, because that refusal was the whole of what it had to say.
+		await expect(page.getByTestId('recovered-edits')).toHaveCount(0);
+		// A note went and a file did not: the colleague's Project is untouched.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		expect(await everyPathInFolder(page)).toEqual(['amsterdam-1625/project.json']);
+
+		// And it stays gone, which is the half a content-keyed dismissal could never deliver.
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await inFolder(page);
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		await expect(page.getByTestId('deletion-refused')).toHaveCount(0);
+		expect(
+			await page.evaluate(() =>
+				Object.keys(localStorage).filter((key) => key.startsWith('ballastella.deleted.'))
+			)
+		).toEqual([]);
+	});
+
 	test('sweeps abandoned writes out of the folder when it is adopted', async ({ page }) => {
 		// A laptop that died mid-autosave leaves a `.ballastella-tmp` — or Chromium's
 		// `.ballastella-tmp.crswap` — inside the Project directory. `list` hides it, `delete` refuses

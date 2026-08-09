@@ -316,6 +316,37 @@ describe('Workspace', () => {
 			expect(deleted.has(doomed.directory)).toBe(false);
 		});
 
+		/**
+		 * ⚠ **A write the store already has is not guaranteed to settle, and round 3 made this method
+		 * wait for one** (round 4). A folder whose grant was revoked mid-write, or an OPFS handle a
+		 * second tab tore down, leaves `store.write` pending with nothing to reject it — and before
+		 * round 3 `abandon` was synchronous and the removal ran regardless. Unbounded, this is a
+		 * Delete button that never finishes, with the Project still on screen.
+		 *
+		 * Two things have to be true, and the second is the one that is easy to get wrong: the
+		 * deletion happens anyway — the user asked — **and the record is kept**, because the write
+		 * that was still out there may land after the listing and put `project.json` back. Dropping
+		 * the record there would be the round-3 defect exactly, reintroduced by its own fix.
+		 */
+		it('deletes anyway when a write will not settle, and keeps the record because it might land', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const stuck = new MemoryProjectStore();
+			const autosave = new Autosave(stuck, { debounceMs: 1, inFlightWaitMs: 10 });
+			const recording = new Workspace(stuck, { autosave, deleted, identity: 'this-browser' });
+			const doomed = await recording.createProject('Amsterdam 1625');
+			// A rename whose debounce has fired: the store has the bytes and is never going to answer.
+			stuck.write = () => new Promise<never>(() => undefined);
+			autosave.queue(`${doomed.directory}/project.json`, new Uint8Array([1]));
+			await new Promise((resolve) => setTimeout(resolve, 5));
+
+			await recording.deleteProject(doomed.directory, doomed);
+
+			expect(await stuck.list('')).toEqual([]);
+			// Kept: the next startup finds either nothing and drops it, or the manifest that write put
+			// back and finishes the job.
+			expect(deleted.has(doomed.directory)).toBe(true);
+		});
+
 		it('finishes at the next startup a deletion the page did not live long enough to finish', async () => {
 			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
 			const doomed = await workspace.createProject('Amsterdam 1625');
@@ -598,11 +629,50 @@ describe('Workspace', () => {
 		 * the only honest reading of that is: there is nothing to do. The record is dropped and
 		 * nothing is said.
 		 */
+		/**
+		 * ⚠ **THE ROUND'S HEADLINE CLAIM, AND NOTHING PINNED IT.**
+		 *
+		 * "A caller that has not said which it is has not established identity, and the default is the
+		 * one that destroys nothing" was a sentence in a comment: every test passed an explicit
+		 * `identity`, production passes one, and flipping the default to `'this-browser'` left the
+		 * whole suite green. That is the same shape — a bound asserted in prose and nowhere else —
+		 * that both previous rounds of this ticket were about.
+		 *
+		 * The record here **matches** and the store is reachable, so every other precondition says
+		 * "remove". The default is the only thing standing between this Project and a recursive
+		 * delete.
+		 */
+		it('finishes nothing unattended for a caller that did not say what the Workspace is', async () => {
+			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
+			const doomed = await workspace.createProject('Amsterdam 1625');
+			await store.write(`${doomed.directory}/annotations/one.geojson`, new Uint8Array([1]));
+			deleted.record(doomed.directory, doomed);
+
+			// No `identity`. This is the future caller the comment is addressed to.
+			const outcome = await new Workspace(store, { deleted }).finishInterruptedDeletions();
+
+			expect(outcome.finished).toEqual([]);
+			expect(outcome.refused.map((entry) => entry.directory)).toEqual([doomed.directory]);
+			expect(await store.list('')).toEqual([
+				`${doomed.directory}/annotations/one.geojson`,
+				`${doomed.directory}/project.json`
+			]);
+		});
+
 		it('removes nothing from a directory that has files and no manifest', async () => {
 			const deleted = new DeletedProjects(new FakeJournalStorage(), 'opfs:My Workspace');
 			// Mid-sync: the annotations are here and `project.json` is not.
 			await store.write('amsterdam-1625/annotations/one.geojson', new Uint8Array([1]));
 			await store.write('amsterdam-1625/annotations/two.geojson', new Uint8Array([2]));
+			// And a half-finished write beside them, which is the one thing this branch *does* remove:
+			// this application's own temporary file, under a path this application wrote, unambiguous
+			// wherever the directory came from. Asserted here because nothing else asserts it — and
+			// `#adopt` sweeping the whole Workspace first is an ordering in the app that no test and
+			// no type pins, which is the argument `#claim`'s comment had to stop making.
+			store.plant(
+				`amsterdam-1625/.project.json.abandoned${TEMP_PATH_SUFFIX}`,
+				new TextEncoder().encode('half a document')
+			);
 			deleted.record('amsterdam-1625', WAS);
 
 			const outcome = await new Workspace(store, {
@@ -612,6 +682,12 @@ describe('Workspace', () => {
 
 			expect(outcome).toEqual({ finished: [], refused: [], unfinished: [] });
 			expect(await store.list('')).toEqual([
+				'amsterdam-1625/annotations/one.geojson',
+				'amsterdam-1625/annotations/two.geojson'
+			]);
+			// The two real files are untouched, and the temporary one is gone: `snapshot` sees what
+			// `list` hides.
+			expect([...store.snapshot().keys()].sort()).toEqual([
 				'amsterdam-1625/annotations/one.geojson',
 				'amsterdam-1625/annotations/two.geojson'
 			]);
