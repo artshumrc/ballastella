@@ -72,9 +72,9 @@ These are carried from `workspace-and-layers`, where each was paid for.
 | 04 | [04-a-reader-is-told-when-tiles-stop-arriving.md](./tickets/04-a-reader-is-told-when-tiles-stop-arriving.md) | Completed | — | 14–21, 27, 28, 32, 33 |
 | 05 | [05-the-same-sentence-on-the-authors-side.md](./tickets/05-the-same-sentence-on-the-authors-side.md) | Not Started | 04 | 11, 12, 13, 19, 22, 32 |
 | 06 | [06-instrument-the-screen-ahead-of-disk-disagreement.md](./tickets/06-instrument-the-screen-ahead-of-disk-disagreement.md) | Not Started | 07 | 25, 26 |
-| 07 | [07-replay-never-reverts-newer-bytes.md](./tickets/07-replay-never-reverts-newer-bytes.md) | Not Started | 01 | 1, 6, 9 |
+| 07 | [07-replay-never-reverts-newer-bytes.md](./tickets/07-replay-never-reverts-newer-bytes.md) | In Progress | 01 | 1, 6, 9 |
 | 08 | 08-leaving-with-unwritten-work-is-refused.md *(to write)* | Not Started | 07 | 2, 5, 9 |
-| 09 | [09-one-state-per-path-instead-of-six-fields.md](./tickets/09-one-state-per-path-instead-of-six-fields.md) | Not Started | — | 23, 30 |
+| 09 | [09-one-state-per-path-instead-of-six-fields.md](./tickets/09-one-state-per-path-instead-of-six-fields.md) | Completed | — | 23, 30 |
 
 ### Why 02 is Out of Scope rather than Completed
 
