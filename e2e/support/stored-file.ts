@@ -113,3 +113,59 @@ export const readStoredJsonOrNull = async <T>(page: Page, path: string): Promise
 		return null;
 	}
 };
+
+/**
+ * Write one file at any depth straight into the Workspace, bypassing the app entirely.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THE WRITE HALF OF THIS MODULE, AND IT IS HERE FOR THE SAME REASON THE READ HALF IS.        │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * A spec that needs a Workspace in a particular state — a Historical Map the hub can list and
+ * delete, a colleague's Alignment arriving through a sync — cannot always get there through the
+ * interface: an ingest takes a real image and a real tiler, which is minutes of work and a different
+ * test's subject, and *nothing at all* in this application produces another process's write.
+ *
+ * **Named `seedFile`, and that name is load-bearing.** `scripts/check-alignment-writers.mjs` knows
+ * this spelling: `seedFile(page, \`alignments/<id>.json\`, …)` is one of the four patterns it matches,
+ * so a fixture that seeds an Alignment through here is *seen* by the fence and has to carry an
+ * `alignment-write-is-the-fixture:` pragma saying why. A fixture that assembles the same path out of
+ * `getDirectoryHandle('alignments')` and a bare `` `${id}.json` `` is invisible to it — which is a
+ * writer of `alignments/<id>.json` that the fence's own honesty statement does not count, and that
+ * statement has already been wrong once.
+ *
+ * ⚠ **The temp file is not buying atomicity, and an earlier version of this note claimed it was.**
+ * That claim said `createWritable()` "truncates and then fills", so a reader could catch a short
+ * file. It is wrong twice over in this repository's own words: `store/directory-handle-store.ts`
+ * records as settled fact that `createWritable` "is still atomic by specification — it writes to a
+ * swap file the implementation only exchanges for the real one on `close`", and the retry loop at
+ * the top of this module forgives `NotFoundError`/`NotReadableError` from a *move* window, which a
+ * short successful read would not raise anyway. The app's ordinary write is a bare `createWritable`;
+ * only `renameTempFile` moves. So the temp-and-move here matches the tar path rather than the
+ * ordinary one, and buys nothing a plain `createWritable` did not already give.
+ *
+ * It is kept because it is harmless and already exercised, not because it is needed — and it is the
+ * second place in the repository assuming `FileSystemFileHandle.move`, with no Safari fallback of the
+ * kind `renameTempFile` carries. That is fine for a Chromium-only Playwright config and would not be
+ * fine anywhere else.
+ */
+export async function seedFile(page: Page, path: string, contents: string): Promise<void> {
+	await page.evaluate(
+		async ([path, contents]) => {
+			const segments = path.split('/');
+			let directory = await workspaceRoot();
+			for (const segment of segments.slice(0, -1)) {
+				directory = await directory.getDirectoryHandle(segment, { create: true });
+			}
+			const name = segments[segments.length - 1] as string;
+			const temporary = await directory.getFileHandle(`.${name}.seeding`, { create: true });
+			const writable = await temporary.createWritable();
+			await writable.write(contents);
+			await writable.close();
+			await (
+				temporary as FileSystemFileHandle & { move(to: unknown, as: string): Promise<void> }
+			).move(directory, name);
+		},
+		[path, contents] as const
+	);
+}

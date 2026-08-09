@@ -27,6 +27,7 @@
 		type Annotation,
 		type DistortionView,
 		type FetchFn,
+		type HistoricalMapSource,
 		type OpeningViewFit
 	} from '@ballastella/core';
 	// The browser-only render layer, on a subpath of its own because this barrel's own is Node-safe
@@ -52,6 +53,7 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { onMount, untrack } from 'svelte';
 
+	import { warpedAddressOf } from '$lib/alignment/map-source.svelte.js';
 	import { exposeLayerStackToBrowserTests } from '$lib/layers/browser-test-handle';
 	import { createOverlayPointLayer, type OverlayPointLayer } from '$lib/overlay/overlay-points';
 	import { theme } from '$lib/theme.svelte';
@@ -65,6 +67,7 @@
 		cachedBaseMap = null,
 		overlayPoints = [],
 		alignment = null,
+		alignmentSource = null,
 		layers = [],
 		openingFit = null,
 		distortion = DEFAULT_DISTORTION_VIEW,
@@ -103,6 +106,27 @@
 		 * aligned onto — and that route is gone.
 		 */
 		alignment?: Alignment | null;
+		/**
+		 * Where {@link alignment}'s Historical Map is served from, or `null` when the caller cannot say.
+		 *
+		 * ─────────────────────────────────────────────────────────────────────────────────────────
+		 * ⚠ **WITHOUT THIS, A REFERENCED MAP DRAWS NOTHING AND NOTHING SAYS SO** (ticket 07).
+		 *
+		 * `showAlignment` builds the renderer's document from either the ADR-0004 placeholder or the
+		 * Library's own service, and `@allmaps/maplibre` fetches every warped tile from whichever id it
+		 * finds there. This pane passed neither, so the alignment route drew a referenced map from the
+		 * placeholder — through the ADR-0011 shim, into a Workspace that by definition holds no pyramid
+		 * for it. Zero tiles, no request on the wire to notice, and `data-warped-status="drawn"`.
+		 *
+		 * The stack path (`drawLayerStack`) has always carried the service; only the single-Alignment
+		 * path did not, because at the time nothing that used it could observe the answer. The
+		 * alignment route can — `EditorSession.historicalMapSource` — and it is the same value that
+		 * decides the pane's tile base and the Alignment's `resource.id`, so the three cannot disagree.
+		 *
+		 * `null` keeps ticket 08's behaviour exactly: `referenced: false`, which is right for any caller
+		 * that genuinely cannot observe it, since refusing on a guess would refuse every local copy.
+		 */
+		alignmentSource?: HistoricalMapSource | null;
 		/**
 		 * The Project's Layer stack, top first, with each Layer's documents already read (ticket 09).
 		 *
@@ -501,6 +525,30 @@
 	const hasAlignment = $derived(alignment !== null);
 
 	/**
+	 * Where the aligned map's tiles are, as `showAlignment` takes them.
+	 *
+	 * **Dependencies of the layer effect below, deliberately**: the address is baked into the
+	 * renderer's document at `addGeoreferencedMap`, so unlike the Alignment's content it cannot be
+	 * applied in place. Making an offline copy of a map that is open here changes it from the
+	 * Library's service to `''`, and the layer has to be rebuilt for that to take effect.
+	 *
+	 * ⚠ **Two primitives rather than one object, and the difference is a rebuild storm.** A `$derived`
+	 * returning `{ referenced, service }` takes a new identity every time it recomputes, and identity
+	 * is what decides whether the effect re-runs — so any change upstream of `alignmentSource`, however
+	 * unrelated, would tear the warped layer off the map and build another. That is the rebuild
+	 * `hasAlignment` was carefully narrowed to avoid; a string and a boolean compare by value and
+	 * cannot reintroduce it.
+	 *
+	 * The pair lives in `alignment/map-source.svelte.ts` **so that it has a test**. Written inline here
+	 * the guard was a paragraph and nothing else: collapse it and the whole suite stays green, because
+	 * what goes wrong is a warped layer rebuilt mid-alignment, which flaps rather than fails.
+	 * `map-source.svelte.test.ts` counts the effect runs and is red for the collapsed form.
+	 */
+	const warpedAddress = warpedAddressOf(() => alignmentSource);
+	const warpedReferenced = $derived(warpedAddress.referenced);
+	const warpedService = $derived(warpedAddress.service);
+
+	/**
 	 * The warped Historical Map (ADR-0011's `fetchFn` injection point).
 	 *
 	 * Added once the style has loaded, because `WarpedMapLayer.onAdd` needs the map's own WebGL2
@@ -511,6 +559,10 @@
 		const current = map;
 		const drawing = hasAlignment;
 		const readTiles = fetchTile;
+		// Tracked, unlike the Alignment: see {@link warpedService}. The address is in the document the
+		// renderer was built from, so changing it is a rebuild and not an update.
+		const referenced = warpedReferenced;
+		const service = warpedService;
 		// Read untracked: the Alignment's *content* is applied in place below, so making it a
 		// dependency here is the rebuild this effect exists not to do.
 		const shown = untrack(() => alignment);
@@ -533,7 +585,11 @@
 			unexpose = exposeWarpedLayerToBrowserTests(current, layer);
 			// The distortion view is read untracked for the same reason the Alignment is: it is a display
 			// setting, and making it a dependency is exactly the rebuild this avoids.
-			const render = showAlignment(layer, shown, { distortion: distortionNow() });
+			const render = showAlignment(layer, shown, {
+				distortion: distortionNow(),
+				referenced,
+				service
+			});
 			drawnAlignment = render.status === 'drawn' ? { layer, mapId: render.mapId } : null;
 			onwarped?.(render);
 		};

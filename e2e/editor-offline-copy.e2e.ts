@@ -1,9 +1,17 @@
 import { expect, test } from './support/test.js';
-import { type Locator, type Page, type Route } from '@playwright/test';
-import { createHash } from 'node:crypto';
-import zlib from 'node:zlib';
+import { type Locator, type Page } from '@playwright/test';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+// The fake IIIF services, shared by every spec that needs one (ticket 07). The host table, the
+// `info.json` builder and the tile matcher used to live here; see that module's header for why
+// three private copies of one fixture was a defect rather than a duplication.
+import {
+	communityAnnotation,
+	generateId,
+	installIiifHosts,
+	service,
+	singleCanvas
+} from './support/iiif-hosts.js';
 import { openLayerRow } from './support/layers.js';
 import { ensureAddHistoricalMapOpen } from './support/historical-maps.js';
 
@@ -30,342 +38,17 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
  * ─────────────────────────────────────────────────────────────────────────────────────────
  * THE FIXTURE HOSTS
  *
- *   `library.test`   a Manifest, and the community-alignment API's answer, so the copied map has an
- *                    Alignment and can therefore be rendered warped.
- *   `images.test`    **level 2.** Serves `full/max` and any region at any size. The cheap path.
- *   `static.test`    **level 0.** `profile: "level0"`, tiles only, and `full/max` is a 404 — which is
- *                    what a statically cut pyramid on a plain web server really is.
- *   `capped.test`    level 2 with `maxWidth` below the image. The case two of the fourteen real
- *                    services captured in ticket 14's corpus are in.
- *   `huge.test`      level 2 declaring a 1.4-gigapixel image, above ADR-0027's decode cap, so the
- *                    refusal is reachable without a gigapixel of pixels.
- *   `large.test`     level 2 at 520 megapixels — just *under* that cap, so the ADR-0008 hosting
- *                    warning is still reachable on an image the browser would really decode.
- *   `slow.test`      level 0 with enough tiles, served slowly enough, to cancel in the middle of.
- *   `broken.test`    level 2 whose `full/max` is a 500.
+ * They live in `support/iiif-hosts.ts` now (ticket 07), shared with every other spec that needs a
+ * IIIF service — `library.test` and the whole `HOSTS` table, with `images.test` as the level 2 case
+ * and `static.test`, `capped.test`, `huge.test`, `large.test`, `slow.test` and `broken.test` as the
+ * awkward ones this file drives. The table there carries what each is for.
+ *
+ * **The Manifest is asked for a single canvas here**, which is `singleCanvas`. Tests below click
+ * "add" without choosing a canvas, so a three-canvas Manifest would silently make that mean "add
+ * whichever one is first".
  *
  * Every host is routed, so **nothing in this file reaches the internet.**
  */
-
-const crcTable = (() => {
-	const table = new Int32Array(256);
-	for (let n = 0; n < 256; n++) {
-		let c = n;
-		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-		table[n] = c;
-	}
-	return table;
-})();
-
-const crc32 = (bytes: Buffer): number => {
-	let c = -1;
-	for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff]! ^ (c >>> 8);
-	return (c ^ -1) >>> 0;
-};
-
-const chunk = (type: string, data: Buffer): Buffer => {
-	const out = Buffer.alloc(data.length + 12);
-	out.writeUInt32BE(data.length, 0);
-	out.write(type, 4, 'ascii');
-	data.copy(out, 8);
-	out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
-	return out;
-};
-
-/**
- * A greyscale PNG of exactly `width` × `height`.
- *
- * Exactly matters twice over here. The CORS probe refuses a tile whose decoded dimensions are not what
- * was asked for, and `assembleWithCanvas` refuses a piece whose decoded dimensions are not its
- * region's — so a fixture host that answered with the wrong size would fail every test in this file,
- * which is those two checks working.
- */
-function gradientPng(width: number, height: number): Buffer {
-	const raw = Buffer.alloc((width + 1) * height);
-	for (let y = 0; y < height; y++) {
-		const row = y * (width + 1);
-		raw[row] = 0;
-		for (let x = 0; x < width; x++) {
-			raw[row + 1 + x] = (x * 255) / width / 2 + (y * 255) / height / 2;
-		}
-	}
-	const ihdr = Buffer.alloc(13);
-	ihdr.writeUInt32BE(width, 0);
-	ihdr.writeUInt32BE(height, 4);
-	ihdr[8] = 8;
-	ihdr[9] = 0;
-	return Buffer.concat([
-		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-		chunk('IHDR', ihdr),
-		chunk('IDAT', zlib.deflateSync(raw)),
-		chunk('IEND', Buffer.alloc(0))
-	]);
-}
-
-const IMAGE_WIDTH = 700;
-const IMAGE_HEIGHT = 500;
-
-/**
- * `generateId(uri)` — the identifier Allmaps keys an image on — computed here from `node:crypto`.
- *
- * An independent implementation on purpose: the criterion is that the app's id is unchanged **and** is
- * still `generateId(uri)`, and asserting that with the same function the app used would only prove the
- * function is deterministic.
- */
-const generateId = (uri: string): string =>
-	createHash('sha1').update(uri).digest('hex').slice(0, 16);
-
-const service = (host: string, name: string) => `https://${host}/iiif/3/${name}`;
-
-const scaleFactorsFor = (width: number, height: number, tile: number): number[] => {
-	const factors = [1];
-	while (
-		Math.ceil(width / (tile * factors[factors.length - 1]!)) > 1 ||
-		Math.ceil(height / (tile * factors[factors.length - 1]!)) > 1
-	) {
-		factors.push(factors[factors.length - 1]! * 2);
-	}
-	return factors;
-};
-
-type HostShape = {
-	readonly profile: 'level0' | 'level2';
-	readonly width: number;
-	readonly height: number;
-	readonly tile: number;
-	/** A declared limit on one request, as two of ticket 14's fourteen real services carry. */
-	readonly maxWidth?: number;
-	/** Milliseconds to hold each tile response, so a copy can be cancelled in the middle. */
-	readonly tileDelayMs?: number;
-	/** Whether `full/max` answers at all. `false` is what a level-0 pyramid on a web server does. */
-	readonly wholeImage: boolean | 'error';
-};
-
-const HOSTS: Record<string, HostShape> = {
-	'images.test': { profile: 'level2', width: 700, height: 500, tile: 256, wholeImage: true },
-	'static.test': { profile: 'level0', width: 700, height: 500, tile: 256, wholeImage: false },
-	'capped.test': {
-		profile: 'level2',
-		width: 700,
-		height: 500,
-		tile: 256,
-		maxWidth: 400,
-		wholeImage: true
-	},
-	'huge.test': { profile: 'level2', width: 40_000, height: 36_000, tile: 256, wholeImage: true },
-	'large.test': { profile: 'level2', width: 26_000, height: 20_000, tile: 256, wholeImage: true },
-	'slow.test': {
-		profile: 'level0',
-		width: 2000,
-		height: 1500,
-		tile: 256,
-		tileDelayMs: 120,
-		wholeImage: false
-	},
-	'broken.test': { profile: 'level2', width: 700, height: 500, tile: 256, wholeImage: 'error' }
-};
-
-const infoJson = (host: string, name: string) => {
-	const shape = HOSTS[host]!;
-	return {
-		'@context': 'http://iiif.io/api/image/3/context.json',
-		id: service(host, name),
-		type: 'ImageService3',
-		protocol: 'http://iiif.io/api/image',
-		profile: shape.profile,
-		width: shape.width,
-		height: shape.height,
-		...(shape.maxWidth === undefined
-			? {}
-			: { maxWidth: shape.maxWidth, maxHeight: shape.maxWidth }),
-		tiles: [
-			{
-				width: shape.tile,
-				height: shape.tile,
-				scaleFactors: scaleFactorsFor(shape.width, shape.height, shape.tile)
-			}
-		]
-	};
-};
-
-const canvas = (index: number, label: string, host: string, name: string) => {
-	const shape = HOSTS[host]!;
-	return {
-		id: `https://library.test/iiif/atlas/canvas/${index}`,
-		type: 'Canvas',
-		label: { none: [label] },
-		width: shape.width,
-		height: shape.height,
-		items: [
-			{
-				id: `https://library.test/iiif/atlas/page/${index}`,
-				type: 'AnnotationPage',
-				items: [
-					{
-						id: `https://library.test/iiif/atlas/annotation/${index}`,
-						type: 'Annotation',
-						motivation: 'painting',
-						target: `https://library.test/iiif/atlas/canvas/${index}`,
-						body: {
-							id: `${service(host, name)}/full/max/0/default.jpg`,
-							type: 'Image',
-							format: 'image/jpeg',
-							width: shape.width,
-							height: shape.height,
-							service: [{ id: service(host, name), type: 'ImageService3', profile: shape.profile }]
-						}
-					}
-				]
-			}
-		]
-	};
-};
-
-const atlasManifest = {
-	'@context': 'http://iiif.io/api/presentation/3/context.json',
-	id: 'https://library.test/iiif/atlas/manifest.json',
-	type: 'Manifest',
-	label: { en: ['A Sea Atlas of the Western Approaches'] },
-	requiredStatement: {
-		label: { en: ['Attribution'] },
-		value: { en: ['Provided by the Example Library'] }
-	},
-	rights: 'http://creativecommons.org/licenses/by/4.0/',
-	items: [canvas(2, 'Chart of the Florida coast', 'images.test', 'florida')]
-};
-
-/** A Georeference Annotation for the fixture image, as `annotations.allmaps.org` answers. */
-const communityAnnotation = (host: string, name: string) => ({
-	type: 'Annotation',
-	'@context': [
-		'http://iiif.io/api/extension/georef/1/context.json',
-		'http://iiif.io/api/presentation/3/context.json'
-	],
-	motivation: 'georeferencing',
-	target: {
-		type: 'SpecificResource',
-		source: {
-			id: service(host, name),
-			type: 'ImageService3',
-			width: IMAGE_WIDTH,
-			height: IMAGE_HEIGHT
-		},
-		selector: {
-			type: 'SvgSelector',
-			value: `<svg width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}"><polygon points="10,10 690,10 690,490 10,490" /></svg>`
-		}
-	},
-	body: {
-		type: 'FeatureCollection',
-		transformation: { type: 'polynomial', options: { order: 1 } },
-		features: [
-			{
-				type: 'Feature',
-				properties: { resourceCoords: [60, 80] },
-				geometry: { type: 'Point', coordinates: [-82.5, 27.9] }
-			},
-			{
-				type: 'Feature',
-				properties: { resourceCoords: [640, 90] },
-				geometry: { type: 'Point', coordinates: [-80.1, 28.1] }
-			},
-			{
-				type: 'Feature',
-				properties: { resourceCoords: [340, 430] },
-				geometry: { type: 'Point', coordinates: [-81.2, 25.7] }
-			}
-		]
-	}
-});
-
-const json = (route: Route, body: unknown) =>
-	route.fulfill({
-		status: 200,
-		contentType: 'application/json',
-		headers: { 'access-control-allow-origin': '*' },
-		body: JSON.stringify(body)
-	});
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function installFixtureHosts(
-	page: Page,
-	options: { communityAnnotations?: unknown[] | null } = {}
-): Promise<void> {
-	const annotations = options.communityAnnotations ?? null;
-
-	await page.route('https://library.test/**', (route) => {
-		const url = route.request().url();
-		if (url.endsWith('/atlas/manifest.json')) return json(route, atlasManifest);
-		return route.fulfill({
-			status: 404,
-			headers: { 'access-control-allow-origin': '*' },
-			body: '{}'
-		});
-	});
-
-	for (const host of Object.keys(HOSTS)) {
-		const shape = HOSTS[host]!;
-		await page.route(`https://${host}/**`, async (route) => {
-			const url = route.request().url();
-			const name = /\/iiif\/3\/([^/]+)/.exec(url)?.[1] ?? '';
-
-			if (url.endsWith('/info.json')) return json(route, infoJson(host, name));
-
-			// The whole image, in either spelling. A level-0 pyramid has no such file, which is what makes
-			// it level 0 — so answering 404 here is the fixture being honest rather than being awkward.
-			if (/\/full\/(max|full)\/0\/default\.jpg$/.test(url)) {
-				if (shape.wholeImage === false) {
-					return route.fulfill({
-						status: 404,
-						headers: { 'access-control-allow-origin': '*' },
-						body: 'this service serves only its own tiles'
-					});
-				}
-				if (shape.wholeImage === 'error') {
-					return route.fulfill({
-						status: 500,
-						headers: { 'access-control-allow-origin': '*' },
-						body: 'the image server fell over'
-					});
-				}
-				return route.fulfill({
-					status: 200,
-					contentType: 'image/png',
-					headers: { 'access-control-allow-origin': '*' },
-					body: gradientPng(shape.width, shape.height)
-				});
-			}
-
-			const size = /\/(\d+),(\d+)\/0\/default\.(jpg|png)$/.exec(url);
-			if (!size) {
-				return route.fulfill({
-					status: 404,
-					headers: { 'access-control-allow-origin': '*' },
-					body: 'no such tile'
-				});
-			}
-			if (shape.tileDelayMs) await sleep(shape.tileDelayMs);
-			return route.fulfill({
-				status: 200,
-				contentType: 'image/png',
-				headers: { 'access-control-allow-origin': '*' },
-				body: gradientPng(Number(size[1]), Number(size[2]))
-			});
-		});
-	}
-
-	await page.route('https://annotations.allmaps.org/**', (route) =>
-		annotations === null
-			? route.fulfill({
-					status: 404,
-					contentType: 'application/json',
-					headers: { 'access-control-allow-origin': '*' },
-					body: JSON.stringify({ status: 404, error: 'Not Found' })
-				})
-			: json(route, { '@context': 'x', type: 'AnnotationPage', items: annotations })
-	);
-}
 
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
@@ -709,7 +392,7 @@ test.describe('making an offline copy', () => {
 		// the rights statement and the required statement are in front of the user before anything is
 		// fetched — read from `remote.json`, which ticket 14 wrote them into for exactly this moment,
 		// long after the Manifest was navigated away from.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 
 		await ensureAddHistoricalMapOpen(page);
@@ -745,7 +428,7 @@ test.describe('making an offline copy', () => {
 	});
 
 	test('shows the size of the copy against what the Workspace already holds', async ({ page }) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'images.test');
 		await openMirrorDialog(page);
@@ -771,7 +454,7 @@ test.describe('making an offline copy', () => {
 		// decode cap now admits is about 370 MB — no single offline copy can cross a gigabyte on its
 		// own any more. The cliff is a Workspace total and always was, so the honest way to reach it is
 		// a Workspace that already holds most of it plus a copy the browser would really decode.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await seedWorkspaceBytes(page, 700_000_000);
 		await addReferenced(page, 'large.test', 'enormous');
@@ -795,7 +478,7 @@ test.describe('making an offline copy', () => {
 		// then let them start it — thousands of requests to somebody else's server, ending at a wall.
 		// There is no streaming tiler to need and nowhere for either path to escape to: an offline copy
 		// has to exist as one full-resolution image before it can be cut into tiles.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'huge.test', 'enormous');
 
@@ -822,7 +505,7 @@ test.describe('making an offline copy', () => {
 	test('copies a level-2 source with a single full-image request and then tiles locally', async ({
 		page
 	}) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'images.test');
 
@@ -855,7 +538,7 @@ test.describe('making an offline copy', () => {
 	}) => {
 		// ADR-0007's expensive case, and the warning is a politeness obligation rather than a performance
 		// note: `static.test` serves only what it has pre-cut, so the copy is one request per tile.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'static.test', 'pyramid');
 
@@ -895,7 +578,7 @@ test.describe('making an offline copy', () => {
 		// Two of the fourteen real services in ticket 14's corpus are in this shape — Cambridge with
 		// `maxWidth` 2000 over a 4880×6174 image, and Micrio with a `maxArea` under the image's. Upstream's
 		// own `getImageUrl` throws rather than build the URL, which is the 400 a real server would send.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'capped.test', 'capped');
 
@@ -922,7 +605,7 @@ test.describe('making an offline copy', () => {
 	test('leaves a pyramid indistinguishable from a locally ingested one, under the id Allmaps keys it on', async ({
 		page
 	}) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'images.test');
 		await openMirrorDialog(page);
@@ -998,7 +681,7 @@ test.describe('making an offline copy', () => {
 	test('reports progress, and announces it to assistive technology', async ({ page }) => {
 		// SPEC stories 28 and 96. The level-0 path on `slow.test` is 48 tiles at 120 ms each, so the
 		// progress region is on screen long enough to read — which is the point of it.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'slow.test', 'slow');
 		await openMirrorDialog(page);
@@ -1031,7 +714,7 @@ test.describe('making an offline copy', () => {
 		page
 	}) => {
 		// A partial pyramid renders with holes, which reads as corruption rather than as a cancelled job.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'slow.test', 'slow');
 
@@ -1061,7 +744,7 @@ test.describe('making an offline copy', () => {
 	});
 
 	test('leaves the Layer referenced and working when the copy fails', async ({ page }) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'broken.test', 'broken');
 
@@ -1088,7 +771,7 @@ test.describe('making an offline copy', () => {
 	test('is reachable and operable by keyboard alone', async ({ page }) => {
 		// SPEC story 95. `<dialog>` + `showModal()` brings Escape and the focus trap with it (ADR-0016),
 		// and the button that opened it gets focus back.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'images.test');
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
@@ -1130,7 +813,7 @@ test.describe('making an offline copy', () => {
 		//
 		// `slow.test` is 48 tiles at 120 ms each, which is what makes the *middle* of the job
 		// observable rather than only its end.
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'slow.test', 'slow');
 		await openMirrorDialog(page);
@@ -1171,7 +854,8 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		// pattern that matches nothing — and the before-and-after is what makes it mean something. It is
 		// also the shape that would have caught the mistake this ticket could make, since a Layer drawn
 		// from the library and one drawn from the folder are indistinguishable on screen.
-		await installFixtureHosts(page, {
+		await installIiifHosts(page, {
+			manifestCanvases: singleCanvas,
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
 		await openNewProject(page);
@@ -1261,7 +945,7 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		await page.addInitScript(() => {
 			window.ballastellaServedTiles = [];
 		});
-		await installFixtureHosts(page);
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
 		await openNewProject(page);
 		await addReferenced(page, 'images.test');
 
@@ -1344,7 +1028,8 @@ test.describe('a copied Historical Map, once it is copied', () => {
 	test('a copied map is one pyramid that two Projects both draw', async ({ page }) => {
 		test.slow();
 		// A community Alignment, so the map is really placed and a warped Layer can be drawn from it.
-		await installFixtureHosts(page, {
+		await installIiifHosts(page, {
+			manifestCanvases: singleCanvas,
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
 		await openNewProject(page);

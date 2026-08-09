@@ -15,7 +15,7 @@ The gap this closes is narrow. `createImagePane(info, tiles)` **already** accept
 - `apps/editor/src/lib/image-pane/tile-protocol.ts` — `registerImagePaneTiles(paneId, pane, fetchTile)`. Already source-agnostic; read the comment saying it cannot tell a fixture from a stored pyramid, which is the point.
 - `@allmaps/iiif-parser`'s `getTileZoomLevels` — throws `"Image does not support tiles or custom regions and sizes."` for a level-0 service with no `tiles` and no arbitrary-region support. That throw is the refusal this ticket must surface at add time.
 - The add flow from ticket 06, and `apps/editor/src/lib/remote-iiif/add-remote-map.svelte.ts` — where the CORS probe lives, and where the alignability probe joins it.
-- `e2e/editor-remote-iiif.e2e.ts` and `e2e/editor-mirroring.e2e.ts` — each has its own routed fake-service host table and `json()` helper. Read both; they are being consolidated.
+- `e2e/editor-remote-iiif.e2e.ts` and `e2e/editor-offline-copy.e2e.ts` (named `editor-mirroring.e2e.ts` when this was written; ticket 16 renamed it) — each has its own routed fake-service host table and `json()` helper. Read both; they are being consolidated.
 - `apps/editor/src/lib/pwa/installed-app.svelte.ts` — the app's one online signal. Do not add a second `online`/`offline` listener.
 
 ## Contract
@@ -58,7 +58,7 @@ The gap this closes is narrow. `createImagePane(info, tiles)` **already** accept
 
 ```sh
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check
-pnpm exec playwright test e2e/editor-remote-iiif.e2e.ts e2e/editor-mirroring.e2e.ts e2e/editor-warped-fetch.e2e.ts
+pnpm exec playwright test e2e/editor-remote-iiif.e2e.ts e2e/editor-offline-copy.e2e.ts e2e/editor-warped-fetch.e2e.ts e2e/editor-align-referenced.e2e.ts
 pnpm test:e2e
 ```
 

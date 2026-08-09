@@ -437,9 +437,11 @@ export {
 export {
 	writeAlignmentBytes,
 	writeAlignmentFile,
+	writeAlignmentFileReporting,
 	type AlignmentFilePort,
 	type AlignmentWrite,
-	type AlignmentWriteOutcome
+	type AlignmentWriteOutcome,
+	type AlignmentWriteReport
 } from './alignment/alignment-file.js';
 // Distortion (ADR-0013). The overlay is the renderer's; the fold check is ours, because it has to
 // run whether or not anything is being colourised.
@@ -558,6 +560,7 @@ export {
 export {
 	REFERENCED_IMAGE_FILE,
 	ReferencedImageUnreadableError,
+	imagePaneSourceFor,
 	isReferenced,
 	listReferencedImages,
 	parseReferencedImage,
@@ -569,6 +572,7 @@ export {
 	sourceOf,
 	tileBaseFor,
 	type HistoricalMapSource,
+	type ImagePaneSource,
 	type ReferencedImage
 } from './remote-iiif/referenced-image.js';
 export {

@@ -2,6 +2,8 @@ import { getContext, setContext } from 'svelte';
 
 import { resolveDeploymentAsset } from '$lib/base-map/deployment-assets.js';
 
+import { installedAppOr } from './installed-app-context.js';
+
 /**
  * Ballastella as an installed application: whether this browser can install it, and whether a
  * newer version of it is sitting waiting for the user to say when.
@@ -316,7 +318,13 @@ export function provideInstalledApp(): InstalledApp {
 	return app;
 }
 
-/** The one {@link InstalledApp}. Every route and component reads it; none creates one. */
+/**
+ * The one {@link InstalledApp}. Every route and component reads it; none creates one.
+ *
+ * The refusal for a caller that has no provider is `installed-app-context.ts`, which explains why
+ * three lines live in a file of their own: nothing in a Node test or a browser test can reach them
+ * from here.
+ */
 export function useInstalledApp(): InstalledApp {
-	return getContext<InstalledApp>(INSTALLED_APP);
+	return installedAppOr(getContext<InstalledApp | undefined>(INSTALLED_APP));
 }

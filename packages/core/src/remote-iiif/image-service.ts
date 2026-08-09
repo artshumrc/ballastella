@@ -154,6 +154,14 @@ export async function acceptRemoteImageService(
 
 	assertDeclaredSizeIsSane(info, { url: context.requestedUrl, host });
 
+	// ⚠ **The remedies are worded so that both callers can offer them, because this refusal has two
+	// moments and they are not the same one** (ticket 07's second round). `offline-copy-job` reaches
+	// it for a map already in a Project, where "make an offline copy" is the very gesture in progress;
+	// `remote-resource` reaches it when a Manifest is being *added*, where there is no map yet and
+	// therefore nothing to copy. The old wording named the copy first and flatly, which sent a scholar
+	// adding a Manifest looking for a button that does not exist until the map does. Naming what has
+	// to be true first — "once it is in a Project" — is the cheap fix; the expensive one is a context
+	// argument threaded through both call paths, which buys a better sentence and nothing else.
 	const refuse = (cause: unknown) =>
 		new RemoteIiifRejectedError({
 			url: context.requestedUrl,
@@ -161,9 +169,9 @@ export async function acceptRemoteImageService(
 			reason:
 				`Ballastella cannot draw the image service at ${host}: ${message(cause)}\n\n` +
 				`This is a refusal rather than a blank map on purpose. Every shape refused here is one ` +
-				`that would otherwise render something plausible and wrong. If you need this map, use ` +
-				`“make an offline copy” — Ballastella then re-cuts its own tiles — or add the image ` +
-				`from a file.`
+				`that would otherwise render something plausible and wrong. If you need this map, add ` +
+				`the image from a file — or, once it is in a Project, use “make an offline copy”, which ` +
+				`re-cuts Ballastella's own tiles.`
 		});
 
 	let pane: ImagePane;

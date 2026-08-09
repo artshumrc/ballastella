@@ -5,7 +5,11 @@ import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes, StorePath, WritablePath } from '../store/project-store.js';
 import { seedAlignmentFixture } from './alignment-fixture.js';
 import { alignmentPath, newAlignment, type Alignment, type ControlPoint } from './alignment.js';
-import { writeAlignmentFile, type AlignmentFilePort } from './alignment-file.js';
+import {
+	writeAlignmentFile,
+	writeAlignmentFileReporting,
+	type AlignmentFilePort
+} from './alignment-file.js';
 import { parseAlignment, serialiseAlignment } from './georeference-annotation.js';
 
 // Ticket 18's whole subject: `alignments/<image-id>.json` belongs to the Workspace and is shared by
@@ -309,5 +313,197 @@ describe('the address the file names its image by (ADR-0007)', () => {
 
 		expect(outcome).toBe('written');
 		expect((await read(store)).controlPoints).toHaveLength(3);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// A COLLEAGUE'S EDIT, ARRIVING BETWEEN THE READ AND THE WRITE (ticket 07)
+//
+// ADR-0023 made an Alignment the Workspace's, shared by every Project that draws the map, and a
+// Workspace can be a git checkout or a Dropbox folder. So the file can change under an open
+// alignment view, and ticket 18 left that undetected: `update` wrote over whatever was there.
+//
+// ADR-0023's terms are **visibility, not prevention**. The write still happens — the alternative is
+// discarding the edit in front of the user to protect one they cannot see — so what is asserted here
+// is that the displacement is *noticed and handed back*, and that the bytes really do go down.
+//
+// **The unguarded direction is what makes these mean anything.** Every assertion below distinguishes
+// "the file changed" from "the file did not", so a `changedSince` that always returned `null` — the
+// shape ticket 18 shipped — fails them.
+describe('an Alignment that changed somewhere else while it was open', () => {
+	/** What this session read, and what it is about to write. */
+	const opened = async (store: MemoryProjectStore) => {
+		const bytes = await store.read(path);
+		return bytes;
+	};
+
+	it('reports the displacement and hands back what it wrote over', async () => {
+		const store = new MemoryProjectStore();
+		await seed(store, serialiseAlignment(newAlignment(IMAGE_ID, IMAGE), {}));
+		const basedOn = await opened(store);
+
+		// The colleague, arriving through a sync while the view is open. Seeded rather than written,
+		// because it is another process's write and not this one's.
+		const theirs = serialiseAlignment(
+			{ ...newAlignment(IMAGE_ID, IMAGE), controlPoints: [point(1), point(2)] },
+			{}
+		);
+		await seed(store, theirs);
+
+		const report = await writeAlignmentFileReporting(port(store), {
+			alignment: workedOn(),
+			write: { intent: 'update', basedOn }
+		});
+
+		expect(report.outcome).toBe('written over a change');
+		// Handed back, not merely reported gone: "your colleague's edit was overwritten" with nothing
+		// attached is a sentence nobody can act on.
+		expect(report.displaced).toEqual(theirs);
+		// And the user's own edit is on disk. Visibility, not prevention.
+		expect((await read(store)).controlPoints).toHaveLength(3);
+	});
+
+	it('says nothing when the file is exactly as this session left it', async () => {
+		const store = new MemoryProjectStore();
+		await seed(store, serialiseAlignment(newAlignment(IMAGE_ID, IMAGE), {}));
+		const basedOn = await opened(store);
+
+		const report = await writeAlignmentFileReporting(port(store), {
+			alignment: workedOn(),
+			write: { intent: 'update', basedOn }
+		});
+
+		expect(report.outcome).toBe('written');
+		expect(report.displaced).toBeNull();
+	});
+
+	it('compares bytes rather than the model, so an unmodelled field is a real change', async () => {
+		// The reason the comparison cannot be on `Alignment`. A third-party document carries members
+		// this build does not model — `Alignment.unmodelled` exists for exactly that — so a colleague
+		// editing one of them produces a document this build parses to the *same* model. On a model
+		// comparison that is "no change", and their edit disappears with the warning suppressed.
+		const store = new MemoryProjectStore();
+		const mine = newAlignment(IMAGE_ID, IMAGE);
+		await seed(store, serialiseAlignment(mine, {}));
+		const basedOn = await opened(store);
+
+		const document = JSON.parse(new TextDecoder().decode(basedOn));
+		document['ballastella:theirAnnotation'] = 'a field this build does not model';
+		const theirs = new TextEncoder().encode(JSON.stringify(document, null, '\t') + '\n') as Bytes;
+		await seed(store, theirs);
+
+		// The model really is unchanged by their edit — otherwise this test proves nothing about the
+		// comparison being on bytes.
+		expect(parseAlignment(theirs, { imageId: IMAGE_ID }).controlPoints).toEqual(
+			parseAlignment(basedOn, { imageId: IMAGE_ID }).controlPoints
+		);
+
+		const report = await writeAlignmentFileReporting(port(store), {
+			alignment: workedOn(),
+			write: { intent: 'update', basedOn }
+		});
+
+		expect(report.outcome).toBe('written over a change');
+		expect(report.displaced).toEqual(theirs);
+	});
+
+	it('treats a file that was absent and is now present as a change', async () => {
+		// `basedOn: null` is a caller that looked and found nothing. Somebody else creating the file in
+		// the meantime is the same displacement by a different route, and reporting it as ordinary
+		// would lose a whole Alignment rather than an edit to one.
+		const store = new MemoryProjectStore();
+		const theirs = serialiseAlignment(workedOn(), {});
+		await seed(store, theirs);
+
+		const report = await writeAlignmentFileReporting(port(store), {
+			alignment: newAlignment(IMAGE_ID, IMAGE),
+			write: { intent: 'update', basedOn: null }
+		});
+
+		expect(report.outcome).toBe('written over a change');
+		expect(report.displaced).toEqual(theirs);
+	});
+
+	it('says nothing when the file was absent and still is', async () => {
+		const store = new MemoryProjectStore();
+
+		const report = await writeAlignmentFileReporting(port(store), {
+			alignment: workedOn(),
+			write: { intent: 'update', basedOn: null }
+		});
+
+		expect(report.outcome).toBe('written');
+		expect(report.displaced).toBeNull();
+		expect((await read(store)).controlPoints).toHaveLength(3);
+	});
+
+	it('says nothing when the caller made no claim about what is on disk', async () => {
+		// `basedOn` omitted — ticket 18's `update`, unchanged. A required field would have forced every
+		// existing caller to invent an answer, and an invented baseline is a false alarm on every save.
+		const store = new MemoryProjectStore();
+		await seed(store, serialiseAlignment(workedOn(), {}));
+
+		const report = await writeAlignmentFileReporting(port(store), {
+			alignment: newAlignment(IMAGE_ID, IMAGE),
+			write: { intent: 'update' }
+		});
+
+		expect(report.outcome).toBe('written');
+		expect(report.displaced).toBeNull();
+	});
+
+	it('returns the bytes it wrote, so a caller needs no second serialiser', async () => {
+		// The baseline for the *next* write. Re-deriving it at the call site means two spellings of the
+		// same document, and two spellings would report every ordinary save as a concurrent change.
+		const store = new MemoryProjectStore();
+
+		const report = await writeAlignmentFileReporting(port(store), {
+			alignment: workedOn(),
+			write: { intent: 'update', basedOn: null }
+		});
+
+		expect(report.written).toEqual(await store.read(path));
+
+		// And feeding it straight back is silent, which is the property the session depends on.
+		const next = await writeAlignmentFileReporting(port(store), {
+			alignment: workedOn(),
+			write: { intent: 'update', basedOn: report.written }
+		});
+		expect(next.outcome).toBe('written');
+	});
+
+	it('does not raise a false alarm when the file cannot be read', async () => {
+		// The opposite direction from `existing`, deliberately. There, unreadable has to mean "assume
+		// there is work here", because the cost of being wrong is somebody's afternoon. Here it decides
+		// only what the user is *told* — the write happens regardless — so a false positive is a
+		// frightening sentence about a document nobody can produce.
+		const store = new MemoryProjectStore();
+		const io = port(store);
+		const failing: AlignmentFilePort = {
+			read: () => Promise.reject(new Error('the folder’s permission was revoked')),
+			commit: io.commit
+		};
+
+		const report = await writeAlignmentFileReporting(failing, {
+			alignment: workedOn(),
+			write: { intent: 'update', basedOn: new Uint8Array([1, 2, 3]) as Bytes }
+		});
+
+		expect(report.outcome).toBe('written');
+		expect(report.displaced).toBeNull();
+		expect((await read(store)).controlPoints).toHaveLength(3);
+	});
+
+	it('leaves replace alone: the user has already been told what they are discarding', async () => {
+		const store = new MemoryProjectStore();
+		await seed(store, serialiseAlignment(workedOn(), {}));
+
+		const report = await writeAlignmentFileReporting(port(store), {
+			alignment: newAlignment(IMAGE_ID, IMAGE),
+			write: { intent: 'replace', discarding: 'three Control Points' }
+		});
+
+		expect(report.outcome).toBe('written');
+		expect(report.displaced).toBeNull();
 	});
 });

@@ -403,3 +403,80 @@ describe('the parser boundary', () => {
 		);
 	});
 });
+
+/**
+ * The two refusals that come out of one `IIIF.parse` call (ticket 07).
+ *
+ * `@allmaps/iiif-parser` builds an `Image`'s tile zoom levels while parsing, so a document that is a
+ * perfectly good Image API description with no usable tiling throws from the same place as a document
+ * that is an HTML error page. They need different sentences: one says "this URL is not the resource",
+ * which sends the user hunting for a IIIF link, and the other says "this resource cannot be cut into
+ * tiles", which is a fact about the library's service that no amount of hunting will change.
+ */
+describe('a IIIF image description with no tiles', () => {
+	const refusal = async (document: unknown): Promise<RemoteIiifRejectedError> =>
+		readRemoteIiifResource('https://library.example.test/iiif/3/sheet/info.json', {
+			fetch: async () => json(document)
+		}).then(
+			() => {
+				throw new Error('the resource was accepted');
+			},
+			(cause: unknown) => cause as RemoteIiifRejectedError
+		);
+
+	const sizesOnly = (extra: Record<string, unknown>) => ({
+		id: 'https://library.example.test/iiif/3/sheet',
+		width: 1200,
+		height: 851,
+		sizes: [{ width: 1200, height: 851 }],
+		...extra
+	});
+
+	it('is refused as a tiling problem, naming the host and what can be done', async () => {
+		const failure = await refusal(
+			sizesOnly({
+				'@context': 'http://iiif.io/api/image/3/context.json',
+				type: 'ImageService3',
+				protocol: 'http://iiif.io/api/image',
+				profile: 'level0'
+			})
+		);
+
+		expect(failure).toBeInstanceOf(RemoteIiifRejectedError);
+		expect(failure.host).toBe('library.example.test');
+		expect(failure.message).toContain('publishes no tiles');
+		// The parser's own words are kept, because they are what a maintainer will search for.
+		expect(failure.message).toContain('does not support tiles or custom regions and sizes');
+		// A remedy that exists at this moment. The map has not been added, so "make an offline copy"
+		// is not something the user can reach — only adding the image from a file is.
+		expect(failure.message).toContain('add it from a file');
+		// And **not** the diagnosis for a document of the wrong shape, which is the misreport this
+		// exists to prevent: it sends the user looking for a IIIF link on a page that already gave
+		// them the right URL.
+		expect(failure.message).not.toContain('not a IIIF Manifest');
+		expect(failure.message).not.toContain('viewer page');
+	});
+
+	it.each([
+		['an Image API 2 @context', { '@context': 'http://iiif.io/api/image/2/context.json' }],
+		['an Image API 2 @type', { '@type': 'ImageService2' }],
+		['only the image protocol', { protocol: 'http://iiif.io/api/image' }]
+	])('recognises the shape from %s alone', async (_what, marker) => {
+		// Three independent markers, any one of which a real service carries — a level 0 service on a
+		// plain web server is exactly the kind still serving Image API 2. Read off the document rather
+		// than pattern-matched out of the parser's message, so a reworded dependency cannot silently
+		// turn this back into the other diagnosis.
+		expect((await refusal(sizesOnly(marker))).message).toContain('publishes no tiles');
+	});
+
+	it('still says "not a IIIF resource" for a document that is not one', async () => {
+		// The unguarded direction. Without it, a `looksLikeImageService` that always answered `true`
+		// passes every assertion above while telling somebody who pasted a viewer page that their
+		// library publishes no tiles.
+		const failure = await refusal({ hello: 'this is not IIIF at all' });
+
+		expect(failure.message).toContain('not a IIIF Manifest, Collection, or image description');
+		expect(failure.message).toContain('viewer page');
+		expect(failure.message).not.toContain('publishes no tiles');
+	});
+});

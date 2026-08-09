@@ -28,12 +28,42 @@
 //      module reopens the hole completely, and reads as a cast rather than as the decision it is.
 //
 // What neither layer can see is a path computed at *runtime* from data — an archive entry's own
-// path, say. There are exactly **two** of those, both tar readers, and neither is fenced: they are
-// routed, calling `writeAlignmentBytes` like everybody else.
+// path, or a journal entry's. There are exactly **three** of those, and none is fenced: all three
+// are routed, calling `writeAlignmentBytes` like everybody else.
 //
 //   - `packages/core/src/transfer/restore-workspace-tar.ts` — a Workspace backup coming back in.
 //   - `packages/core/src/transfer/open-project-bundle.ts` — a handoff bundle being opened into a
 //     Review Workspace (ticket 14).
+//   - `packages/core/src/autosave/replay.ts` — an unsaved change being put back from the
+//     write-ahead journal at startup. Its own comment says so at the branch: "the path is runtime
+//     data, so neither `WritablePath` nor the fence can see it."
+//
+// **This list is recounted whenever it is touched, and it went wrong twice already.** It said "two,
+// both tar readers" through ticket 07 while `replay.ts` had been the third since the journal landed;
+// the recount recipe written down to fix *that* then named a command producing seventeen lines for a
+// count of three, which is the same un-checkable claim one level up. So the recipe is one that can
+// be run and compared:
+//
+// ```sh
+// grep -rn "await writeAlignmentBytes(" --include=*.ts packages apps | grep -v "\.test\."
+// ```
+//
+// Four lines today. Three of them are this list. The fourth is
+// `EditorSession.restoreAlignmentChangedElsewhere`, which passes an **image id** rather than a path —
+// so `writeAlignmentBytes` builds the path itself and both layers do see it. Any other line is a new
+// runtime-path writer and belongs above.
+//
+// **Two of the escapes were exercised again in ticket 07, and the answers are unchanged.** A path
+// laundered through a `const` template literal in `AlignmentWorkspace.svelte` was caught here, at
+// the line, with the three intents printed; a path assembled at runtime from three fragments
+// (`folder + imageId + suffix`) passed **both** `pnpm check` and this fence. That second one is the
+// gap stated above, measured rather than assumed, and it is still the honest limit: the cheap ways
+// in are closed and the remaining ones are conspicuous.
+//
+// Ticket 07 added `writeAlignmentFileReporting` beside `writeAlignmentFile` — the same function with
+// the concurrency report attached, and `writeAlignmentFile` delegates to it. It is a third export of
+// the one owning module rather than a third writer, so nothing here changes: the crossing from
+// `AlignmentPath` to `WritablePath` is still the single cast in `alignment-file.ts`.
 //
 // This paragraph named one file, "the Project-zip importer", which ticket 14 deleted along with the
 // whole zip path. A fence whose honesty statement describes a file that is not there any more is a
