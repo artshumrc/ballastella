@@ -94,6 +94,43 @@ export interface ProjectSummary {
 	readonly problem: 'format-too-new' | 'unreadable' | null;
 }
 
+/**
+ * Whether this Workspace's key names **one place**, or only a name the user can reproduce anywhere.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * THE ONLY THING IN THIS APPLICATION THAT ESTABLISHES *WHICH DIRECTORY* A RECORD IS ABOUT
+ *
+ * A deletion record survives the page; the directory it names does not come with it. Something has
+ * to say that the Workspace open now is the Workspace the gesture was made in, and there are only
+ * two candidates: the **key** the record is filed under, and the **content** of the directory. The
+ * second one cannot do it, and two rounds of this ticket were spent discovering that:
+ *
+ *   - the display name and `updatedAt` out of `project.json` are **copied verbatim** by Dropbox,
+ *     Drive, rsync, a zip, or `cp -a`, and ADR-0010 guarantees that merely opening a Project writes
+ *     nothing, so the copy *stays* byte-identical. A backup of the Project the user deleted matches
+ *     every field of the record perfectly, because it **is** the Project the user deleted;
+ *   - a manifest that will not read has no fields to compare at all, so any check degenerates to the
+ *     directory name — which is the key again, and the part that is not unique;
+ *   - a *missing* manifest is not evidence of anything: `#removeEverythingIn` writes it last, so its
+ *     absence means either "the removal finished" or "this was never that Project".
+ *
+ * No fourth comparison fixes this, and each one added made the code claim a bound it did not have.
+ * Identity is a property of the **key**, so it is asked for here, once:
+ *
+ *   - `'this-browser'` — the key names exactly one directory this origin owns and no other page can
+ *     produce. `opfs:<name>`: a named Workspace in this browser's private storage (ADR-0001). A
+ *     deletion recorded against it can only ever be finished against the directory it was made in.
+ *   - `'a-name-anywhere'` — the key is a name a user can put on any folder on any drive.
+ *     `folder:<folder name>`: the browser offers a page **no** stable identifier for a picked
+ *     directory (ADR-0017 records the collision; ADR-0023 explicitly invites synced folders,
+ *     colleagues' copies and second checkouts). Two folders called `maps` are one key.
+ *
+ * ⚠ **The default is `'a-name-anywhere'`, and it is the one that destroys nothing.** A caller that
+ * has not thought about which it is has not established identity, which is exactly what the safe
+ * answer means.
+ */
+export type WorkspaceIdentity = 'this-browser' | 'a-name-anywhere';
+
 export interface WorkspaceOptions {
 	/**
 	 * Routes writes through autosave. Without one, every mutation is written immediately —
@@ -101,6 +138,12 @@ export interface WorkspaceOptions {
 	 * want too.
 	 */
 	readonly autosave?: Autosave;
+	/**
+	 * Whether this Workspace's key establishes *which directory* a deletion record is about — see
+	 * {@link WorkspaceIdentity}. Defaults to `'a-name-anywhere'`, which finishes no deletion
+	 * unattended.
+	 */
+	readonly identity?: WorkspaceIdentity;
 	/** The clock, injectable so `updatedAt` is assertable. */
 	readonly now?: () => Date;
 	/**
@@ -156,6 +199,40 @@ export interface FinishedDeletions {
 	readonly unfinished: readonly string[];
 }
 
+/**
+ * What {@link Workspace.finishInterruptedDeletions} decided about one record.
+ *
+ * `'forget'` is the third answer the first two cuts of this did not have, and its absence was a
+ * data-loss path: with only "remove" and "refuse" available, *"there is no manifest here"* had to be
+ * spelled as `'remove'`, which walked a directory that was never this Project and deleted what was
+ * inside it.
+ */
+type Verdict =
+	| { readonly act: 'remove' }
+	| { readonly act: 'forget' }
+	| { readonly act: 'refuse'; readonly detail: string; readonly forget?: boolean };
+
+/**
+ * The two fields of a {@link ProjectSummary} that come out of the manifest.
+ *
+ * ⚠ **One spelling, because the deletion check compares against exactly what the hub rendered.**
+ * There were two, and they disagreed on the empty name: `#summarise` published `file.name ||
+ * directory` while the deletion check compared the raw `file.name`, so a Project whose manifest has
+ * no name — reachable in a hand-editable folder Workspace, where `parseProjectFile` yields `''` —
+ * could never match its own record. Its deletion could never be finished, its record was refused at
+ * every startup for ever, and the user was shown `is now “”`.
+ */
+const identityOf = (directory: string, file: ProjectFile): ProjectIdentity => ({
+	name: file.name || directory,
+	updatedAt: file.updatedAt
+});
+
+/** The same, for a manifest that is there and will not read: there are no fields to take. */
+const unreadableIdentity = (directory: string): ProjectIdentity => ({
+	name: directory,
+	updatedAt: ''
+});
+
 /** Whether a startup's deletions are worth telling the user about. */
 export const deletionsAreNoteworthy = (report: FinishedDeletions): boolean =>
 	report.finished.length > 0 || report.refused.length > 0 || report.unfinished.length > 0;
@@ -174,6 +251,7 @@ export class Workspace {
 	readonly #now: () => Date;
 	readonly #deleted: DeletedProjects | undefined;
 	readonly #onDeletionNotRecorded: (directory: string) => void;
+	readonly #identity: WorkspaceIdentity;
 
 	constructor(store: ProjectStore, options: WorkspaceOptions = {}) {
 		this.#store = store;
@@ -181,6 +259,9 @@ export class Workspace {
 		this.#now = options.now ?? (() => new Date());
 		this.#deleted = options.deleted;
 		this.#onDeletionNotRecorded = options.onDeletionNotRecorded ?? (() => undefined);
+		// The safe answer by default. See {@link WorkspaceIdentity}: a caller that has not said which
+		// it is has not established identity, and unattended destruction is what that licenses.
+		this.#identity = options.identity ?? 'a-name-anywhere';
 	}
 
 	get store(): ProjectStore {
@@ -305,10 +386,11 @@ export class Workspace {
 	 * Remove a Project and everything in it.
 	 *
 	 * @param was what the Project's manifest said at the moment the user pressed Delete — normally
-	 *   the `ProjectSummary` the hub was rendering. It is what {@link finishInterruptedDeletions}
-	 *   checks before removing a byte, so a caller that passes nothing gets the deletion it asked for
-	 *   *now* and **no** unattended completion later: the record is still written, still refuses a
-	 *   replay, and still licenses nothing destructive. See `deleted-projects.ts`.
+	 *   the `ProjectSummary` the hub was rendering. It is **not** what says this is the right
+	 *   directory ({@link WorkspaceIdentity} is), but it is what
+	 *   {@link finishInterruptedDeletions} checks to see whether the Project has *changed* since the
+	 *   gesture — so a caller that passes nothing gets the deletion it asked for *now* and **no**
+	 *   unattended completion later. See `deleted-projects.ts`.
 	 */
 	async deleteProject(directory: string, was: ProjectIdentity | null = null): Promise<void> {
 		// ⚠ **Synchronously, and before the first `await` — which is what makes it survive** (ticket
@@ -327,6 +409,24 @@ export class Workspace {
 			// the page still exists — the same argument `Autosave.onJournalRefused` makes for an edit.
 			this.#onDeletionNotRecorded(directory);
 		}
+		// ⚠ **Here rather than in `EditorSession`, and the `await` is the point** (ticket 21, review 3).
+		//
+		// The synchronous half is the sweep this class's caller used to do for it: the pending bytes,
+		// the timers and the journal entries of everything under this directory, dropped so that rule
+		// 3 cannot put the Project back at `pagehide` (see {@link Autosave.abandon}). Moved in for the
+		// reason `record` above is in here: `EditorSession.deleteProject` is one route to deleting a
+		// Project and {@link finishInterruptedDeletions} is another, and a third added later must not
+		// be able to opt out.
+		//
+		// The asynchronous half is the hole the sweep alone left. `abandon` cannot call back a write
+		// the store already has: `#drainLoop` captures its bytes and awaits `store.write`, so a
+		// `project.json` write in flight at the moment of the click resolves **after**
+		// `#removeEverythingIn` has listed the directory — recreating the manifest behind the
+		// deletion, which then drops its own record on the line below and leaves nothing to catch it
+		// at the next startup. Waited out here, between the record and the removal, so that the
+		// synchronous guarantee this whole ticket exists for is untouched: if the page dies during
+		// this await the record is already written and the next startup finishes the job.
+		await this.#autosave?.abandon(`${directory}/`);
 		await this.#removeEverythingIn(directory);
 		// Only now, and only because the removal above actually resolved. Forgetting before it would
 		// be the same false claim `replayJournal` refuses to make: nothing is reported done that was
@@ -343,39 +443,46 @@ export class Workspace {
 	 * THE ONE STEP OF THE RECOVERY CHAIN THAT DESTROYS, AND THEREFORE THE ONE THAT ASKS FIRST
 	 *
 	 * Replay puts bytes back; this takes them away. Its first cut had **no precondition at all**: it
-	 * took each name from `pending()` and removed every file under it. Reachable inside documented
-	 * behaviour, because a folder Workspace's key is `folder:<folder name>` and the browser offers a
-	 * page no stable identifier for a picked directory (ADR-0017 records the collision, and ADR-0023
-	 * explicitly invites synced and copied folders):
+	 * took each name from `pending()` and removed every file under it, in whatever folder happened to
+	 * be open. Its second cut compared the Project's display name and `updatedAt` against what the
+	 * record captured — and **a copy reproduces both perfectly**, which is the whole of why the third
+	 * cut stopped asking the directory who it is and started asking the key. See
+	 * {@link WorkspaceIdentity}, which is the design and not a precondition.
 	 *
-	 *   delete `amsterdam-1625` in folder Workspace `maps` on a laptop → torn down in the window this
-	 *   whole ticket exists for → record left → the user next opens a *different* folder also called
-	 *   `maps` — an external drive, a colleague's copy, a second checkout — and that folder's
-	 *   `amsterdam-1625` is removed before the listing renders.
-	 *
-	 * So each record has to answer for itself before anything is removed:
+	 * So, in order:
 	 *
 	 *   1. **A reserved name is never a Project** and can never have been deleted as one, so a record
-	 *      naming `images/` — which nothing writes today — could not reach `images/` through here.
-	 *   2. **The record has to carry what it was aimed at.** A record with no `was` (see
+	 *      naming `images/` — which nothing writes today — could not reach `images/` through here. It
+	 *      is said once and then **dropped**: a record that can never license anything is not worth
+	 *      warning about at every startup for the rest of the Workspace's life.
+	 *   2. **No manifest at all is nothing to do.** `#removeEverythingIn` deletes `project.json`
+	 *      **last**, precisely so that an interrupted deletion always still has its evidence — so a
+	 *      directory with no manifest is either a deletion that got all the way to the end (the
+	 *      ordinary case: the removal finished and only the note saying so was lost) or a directory
+	 *      that was never that Project. **Neither is a reason to walk it and delete what is inside**,
+	 *      which is what this used to do: `PathNotFoundError` from `readProject` means the *manifest*
+	 *      is missing, not the directory, and a Drive folder mid-sync, a partial checkout, or any
+	 *      folder of that name holding `annotations/*.geojson` and no manifest yet was listed and
+	 *      emptied — and reported to the user as a deletion carried out, because `removed > 0`. The
+	 *      record is dropped and the abandoned-write sweep, which can only touch this application's
+	 *      own temporary files, is the whole of what happens.
+	 *   3. **A Workspace whose key does not name one place finishes nothing unattended.** A
+	 *      `'a-name-anywhere'` Workspace is told the deletion did not finish, the Project stays
+	 *      listed, and deleting it again is one gesture — visible and non-destructive, which is
+	 *      ADR-0017's rule for this whole chain. It is not a weaker version of the check below; it is
+	 *      the recognition that *no* check of the directory's contents can be a stronger one.
+	 *   4. **The record has to carry what it was aimed at.** A record with no `was` (see
 	 *      `DeletedProjects`) is a gesture whose target was never written down; it still refuses a
 	 *      replay, and it removes nothing.
-	 *   3. **The manifest has to still say exactly that.** `readProject` is asked, and the display
-	 *      name and `updatedAt` are compared. A different Project in a same-named folder differs; so
-	 *      does one the user has since reopened and edited, which closes the second half of the same
-	 *      hazard — `#claim` fires from `createProject` and `duplicateProject` and never from merely
-	 *      *opening* an existing Project, so before this a reopened Project could be deleted under
-	 *      the user at a later startup.
-	 *   4. **No manifest at all is not a licence.** `#removeEverythingIn` deletes `project.json`
-	 *      **last** precisely so that an interrupted deletion always still has its evidence; so a
-	 *      directory with no manifest is either a deletion that got all the way to the end, or
-	 *      somebody else's folder. Neither is a reason to walk it and delete files, and the
-	 *      abandoned-write sweep — which can only touch this application's own temporary files — is
-	 *      the whole of what happens.
+	 *   5. **And the Project must not have changed since the gesture.** ⚠ **This is not an identity
+	 *      check and must never be read as one** — step 3 is. Identity is already settled by the time
+	 *      this runs; what `was` answers is whether the user has *reopened and edited* the Project in
+	 *      the meantime, which `#claim` cannot see because it fires from `createProject` and
+	 *      `duplicateProject` and never from merely opening one.
 	 *
-	 * What is left is a bound of the same shape as replay's and no larger: an unfinished deletion can
-	 * only be finished against a Project whose manifest is still byte-for-byte the one the user
-	 * deleted.
+	 * What is left is a bound of the same shape as replay's and no larger: a deletion is finished
+	 * unattended only in the directory it was made in, and only while that directory still holds the
+	 * Project it was made against.
 	 *
 	 * Idempotent, and deliberately so: a Project that is already gone deletes to nothing, which is
 	 * exactly the ordinary case here — the removal usually *had* finished and only the note saying so
@@ -391,6 +498,21 @@ export class Workspace {
 				const verdict = await this.#verdictOn(record);
 				if (verdict.act === 'refuse') {
 					refused.push({ directory, detail: verdict.detail });
+					// Kept unless the record could never license anything however long it is kept — a
+					// reserved name. Without this the refusal is a **permanent** leak: nothing expires a
+					// record, `#claim` drops one only on create or duplicate, and `discardOrphanedJournal`
+					// by construction reaches only Workspaces that are *not* the one showing the refusal.
+					// The user would be warned about it at every startup for ever, with no gesture that
+					// makes it stop.
+					if (verdict.forget) this.#deleted?.forget(directory);
+					continue;
+				}
+				if (verdict.act === 'forget') {
+					// Nothing left to answer for, so nothing is removed and nothing is said. The sweep is
+					// this application's own abandoned temporary files under a path this application
+					// wrote, which is unambiguous wherever the directory came from.
+					await this.#store.reclaimAbandonedWrites(`${directory}/`);
+					this.#deleted?.forget(directory);
 					continue;
 				}
 				const removed = await this.#removeEverythingIn(directory);
@@ -411,24 +533,58 @@ export class Workspace {
 	}
 
 	/**
-	 * Whether `record` may be carried out, and the sentence to show the user when it may not.
+	 * What to do with `record`: carry it out, drop it, or leave everything alone and say why.
 	 *
 	 * Rejects — rather than answering — when the store could not be asked, so an unreachable
-	 * Workspace lands in `unfinished` and is tried again, never in `refused`.
+	 * Workspace lands in `unfinished` and is tried again, never in `refused`. The five steps are
+	 * documented on {@link finishInterruptedDeletions} and are in that order here.
 	 */
-	async #verdictOn(
-		record: DeletionRecord
-	): Promise<{ act: 'remove' } | { act: 'refuse'; detail: string }> {
+	async #verdictOn(record: DeletionRecord): Promise<Verdict> {
 		const { directory, was } = record;
+		// 1. A reserved name can never have been a Project, so this record can never license anything
+		//    — today or at any startup after it. Said once, then dropped.
 		if (isReservedDirectoryName(directory)) {
 			return {
 				act: 'refuse',
+				forget: true,
 				detail:
 					`A recorded deletion of “${directory}” was not carried out: that is a folder this ` +
 					`Workspace keeps its own shared material in, and it can never have been a Project. ` +
-					`Nothing was removed.`
+					`Nothing was removed, and the note has been thrown away.`
 			};
 		}
+		// 2. No manifest, so there is nothing here that answers to the gesture and nothing to do.
+		let summary: ProjectIdentity;
+		let readable: boolean;
+		try {
+			summary = identityOf(directory, await this.readProject(directory));
+			readable = true;
+		} catch (cause) {
+			if (cause instanceof PathNotFoundError) return { act: 'forget' };
+			if (
+				cause instanceof ProjectFormatTooNewError ||
+				cause instanceof ProjectFileUnreadableError
+			) {
+				// A manifest that is there and will not read is still a Project the hub lists and offers
+				// Delete on (ADR-0010), so an interrupted deletion of one has to be finishable.
+				summary = unreadableIdentity(directory);
+				readable = false;
+			} else throw cause;
+		}
+		// 3. Something is here, and whether this is the place the gesture was made is a question about
+		//    the key, never about what is inside. See {@link WorkspaceIdentity}.
+		if (this.#identity === 'a-name-anywhere') {
+			return {
+				act: 'refuse',
+				detail:
+					`Deleting “${was?.name || directory}” did not finish, so it is still in this ` +
+					`Workspace folder. Ballastella will not remove it on its own: a Workspace folder is ` +
+					`known only by its name, so another folder called the same thing — an external drive, ` +
+					`a colleague's copy, a second checkout — looks exactly like this one from here. ` +
+					`Nothing was removed. Delete it again from the list if it is the one you meant.`
+			};
+		}
+		// 4. And the gesture has to have written down what it was aimed at.
 		if (was === null) {
 			return {
 				act: 'refuse',
@@ -438,48 +594,20 @@ export class Workspace {
 					`it is still here.`
 			};
 		}
-		let file: ProjectFile;
-		try {
-			file = await this.readProject(directory);
-		} catch (cause) {
-			if (cause instanceof PathNotFoundError) {
-				// Nothing here answers to that gesture. Either the removal did finish and only the note
-				// saying so was lost — the ordinary case — or this is another folder of the same name
-				// that never held it. `#removeEverythingIn` then finds nothing to delete and reports
-				// nothing, and its abandoned-write sweep can only touch this application's own
-				// temporary files, which are unambiguous wherever they are.
-				return { act: 'remove' };
-			}
-			if (
-				cause instanceof ProjectFormatTooNewError ||
-				cause instanceof ProjectFileUnreadableError
-			) {
-				// A manifest that will not read is still a Project the hub lists and offers Delete on
-				// (ADR-0010), so this has to be resumable — but it is compared the way the user saw it
-				// rather than waved through. `#summarise` renders both problems as the directory name
-				// and an empty `updatedAt`, and that is exactly what the record will have captured; a
-				// record holding anything else was aimed at a Project that could still be read, which
-				// this is not.
-				if (was.name === directory && was.updatedAt === '') return { act: 'remove' };
-				return {
-					act: 'refuse',
-					detail:
-						`A recorded deletion of “${was.name}” was not carried out: the project.json in ` +
-						`“${directory}” cannot be read, so this is not the Project that was deleted. ` +
-						`Nothing was removed.`
-				};
-			}
-			throw cause;
-		}
-		if (file.name === was.name && file.updatedAt === was.updatedAt) return { act: 'remove' };
+		// 5. Unchanged since the gesture. Not an identity check: step 3 already settled that this is
+		//    the directory the user deleted in. This is "has the user reopened and edited it since",
+		//    which is the one thing `#claim` cannot see.
+		if (summary.name === was.name && summary.updatedAt === was.updatedAt) return { act: 'remove' };
 		return {
 			act: 'refuse',
-			detail:
-				`A recorded deletion of “${was.name}” was not carried out: the Project in “${directory}” ` +
-				`is now “${file.name}”, last changed ${file.updatedAt || 'at an unrecorded time'}, which ` +
-				`is not the one that was deleted. Nothing was removed. This is what a second Workspace ` +
-				`folder of the same name — another drive, a colleague's copy, a second checkout — looks ` +
-				`like from here.`
+			detail: readable
+				? `A recorded deletion of “${was.name}” was not carried out: the Project in ` +
+					`“${directory}” is now “${summary.name}”, last changed ` +
+					`${summary.updatedAt || 'at an unrecorded time'}. It has been changed since it was ` +
+					`deleted, so nothing was removed — delete it again if you still mean to.`
+				: `A recorded deletion of “${was.name}” was not carried out: the project.json in ` +
+					`“${directory}” cannot be read, and it could be read when it was deleted. Nothing was ` +
+					`removed — delete it again if you still mean to.`
 		};
 	}
 
@@ -547,19 +675,17 @@ export class Workspace {
 
 	async #summarise(directory: string): Promise<ProjectSummary> {
 		try {
-			const file = await this.readProject(directory);
 			return {
 				directory,
-				name: file.name || directory,
-				updatedAt: file.updatedAt,
+				...identityOf(directory, await this.readProject(directory)),
 				problem: null
 			};
 		} catch (cause) {
 			if (cause instanceof ProjectFormatTooNewError) {
-				return { directory, name: directory, updatedAt: '', problem: 'format-too-new' };
+				return { directory, ...unreadableIdentity(directory), problem: 'format-too-new' };
 			}
 			if (cause instanceof ProjectFileUnreadableError || cause instanceof PathNotFoundError) {
-				return { directory, name: directory, updatedAt: '', problem: 'unreadable' };
+				return { directory, ...unreadableIdentity(directory), problem: 'unreadable' };
 			}
 			throw cause;
 		}

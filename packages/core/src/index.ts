@@ -149,6 +149,7 @@ export {
 	type FinishedDeletions,
 	type RefusedDeletion,
 	type ProjectSummary,
+	type WorkspaceIdentity,
 	type WorkspaceOptions
 } from './project/workspace.js';
 // What makes a Workspace a throwaway Review Workspace (ticket 14, ADR-0024).

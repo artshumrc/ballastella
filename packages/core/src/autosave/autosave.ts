@@ -246,8 +246,26 @@ export class Autosave {
 	 *
 	 * Timers are cleared and the save state republished, so a Project deleted mid-debounce does not
 	 * leave the indicator reading "Unsaved" for a file that no longer exists.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * THE SYNCHRONOUS HALF IS ALL OF THE SWEEP AND NONE OF THE GUARANTEE
+	 *
+	 * ⚠ **A write already handed to the store cannot be called back.** {@link #drainLoop} captures
+	 * its `bytes` and then awaits `store.write`; clearing `pending` here does not reach into that.
+	 * So a `<project>/project.json` write in flight at the moment the user presses Delete can resolve
+	 * **after** the deletion has listed the directory, recreating the manifest behind it — and the
+	 * deletion then drops its own record, leaving nothing for the next startup to catch.
+	 *
+	 * Which is why this answers with a promise: everything it *could* stop is stopped before it
+	 * returns, and the promise is for the writes it could not. `Workspace.deleteProject` waits on it
+	 * **after** writing the deletion down and before removing a byte, so the synchronous guarantee
+	 * that whole ticket rests on is untouched.
+	 *
+	 * @returns when the writes this could not stop have settled. Never rejects: a write that failed
+	 *   is a write the store does not have, which is the outcome the caller wanted anyway.
 	 */
-	abandon(prefix: string): void {
+	abandon(prefix: string): Promise<void> {
+		const inFlight: Promise<unknown>[] = [];
 		for (const [path, file] of [...this.#files]) {
 			if (!path.startsWith(prefix)) continue;
 			if (file.timer !== undefined) {
@@ -260,10 +278,13 @@ export class Autosave {
 			this.#journal?.forget(path);
 			// A write already in flight owns this entry until it settles; `#drain`'s `finally` is what
 			// removes it, and removing it here would let a second drain start for the same path.
-			if (!file.draining) this.#files.delete(path);
+			if (file.draining) inFlight.push(file.draining);
+			else this.#files.delete(path);
 		}
 		this.#publishJournalRefusal();
 		this.#publish();
+		if (inFlight.length === 0) return Promise.resolve();
+		return Promise.allSettled(inFlight).then(() => undefined);
 	}
 
 	/** Whether `path` has changes the store has not been given yet. */

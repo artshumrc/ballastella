@@ -209,6 +209,92 @@ describe('Autosave', () => {
 			expect(writes).toEqual(['boston-1775/project.json']);
 		});
 
+		/**
+		 * ⚠ **A write the store already has cannot be called back, and the sweep read as though it
+		 * could** (ticket 21, review 3). `#drainLoop` captures its `bytes` and then awaits
+		 * `store.write`; clearing `pending` does not reach into that await. So the bytes of an edit
+		 * whose debounce had just fired land *after* the deletion that abandoned them has listed the
+		 * directory — recreating the file behind it, and `Workspace.deleteProject` then drops the
+		 * record that would have caught it at the next startup.
+		 *
+		 * Everything this *can* stop is stopped before the call returns; the promise is for the rest,
+		 * and `Workspace.deleteProject` waits on it after writing the deletion down and before
+		 * removing a byte.
+		 */
+		it('answers with a promise for the write it could not stop', async () => {
+			let land = (): void => undefined;
+			vi.spyOn(store, 'write').mockImplementation(
+				async (path) =>
+					new Promise<void>((resolve) => {
+						land = () => {
+							writes.push(path);
+							resolve();
+						};
+					})
+			);
+			autosave.queue('amsterdam-1625/project.json', utf8.encode('a rename mid-debounce'));
+			// The window closes, so the bytes are handed to the store and are no longer callable back.
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+			expect(writes).toEqual([]);
+
+			let settled = false;
+			void autosave.abandon('amsterdam-1625/').then(() => (settled = true));
+
+			// Not yet: the store still has the bytes, and this is exactly the window in which a
+			// deletion would have listed the directory and missed them.
+			await vi.advanceTimersByTimeAsync(0);
+			expect(settled).toBe(false);
+
+			land();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(settled).toBe(true);
+			expect(writes).toEqual(['amsterdam-1625/project.json']);
+		});
+
+		/**
+		 * The other half of the same rule, and the reason the entry is **kept** while a write is in
+		 * flight rather than dropped with the rest: a write already in flight owns its entry until
+		 * `#drain`'s `finally` removes it. Dropped here, the next `queue` for that path builds a fresh
+		 * entry with no `draining` on it and starts a **second** concurrent write to the same file —
+		 * which is exactly the out-of-order write into one path that rule 2's one-writer-per-path
+		 * invariant exists to prevent, arriving through the sweep.
+		 */
+		it('leaves a path being written to one writer, even after abandoning it', async () => {
+			let land = (): void => undefined;
+			vi.spyOn(store, 'write').mockImplementation(
+				async (path) =>
+					new Promise<void>((resolve) => {
+						const previous = land;
+						land = () => {
+							previous();
+							writes.push(path);
+							resolve();
+						};
+					})
+			);
+			autosave.queue('amsterdam-1625/project.json', utf8.encode('first'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+			void autosave.abandon('amsterdam-1625/');
+			// A Project of the same name made straight afterwards, writing to the same path.
+			autosave.queue('amsterdam-1625/project.json', utf8.encode('second'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+			// One writer. The second edit's bytes are pending behind the first, not racing it.
+			land();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(writes).toEqual(['amsterdam-1625/project.json']);
+		});
+
+		/** And a failed write settles it too: bytes the store refused are bytes the store has not got. */
+		it('answers even when the write it could not stop rejected', async () => {
+			vi.spyOn(store, 'write').mockRejectedValue(new Error('the disk is full'));
+			autosave.queue('amsterdam-1625/project.json', utf8.encode('a'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+			await expect(autosave.abandon('amsterdam-1625/')).resolves.toBeUndefined();
+		});
+
 		it('clears the timer, so the indicator does not sit on “Unsaved” for a file that has gone', () => {
 			autosave.queue('amsterdam-1625/project.json', utf8.encode('a'));
 			expect(autosave.state).toBe('unsaved');

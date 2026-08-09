@@ -20,9 +20,7 @@ describe('DeletedProjects', () => {
 		expect(deleted.has('amsterdam-1625')).toBe(false);
 		expect(deleted.record('amsterdam-1625', WAS)).toBe(true);
 		expect(deleted.has('amsterdam-1625')).toBe(true);
-		expect(deleted.pending()).toEqual([
-			{ directory: 'amsterdam-1625', at: expect.any(String), was: WAS }
-		]);
+		expect(deleted.pending()).toEqual([{ directory: 'amsterdam-1625', was: WAS }]);
 
 		deleted.forget('amsterdam-1625');
 		expect(deleted.has('amsterdam-1625')).toBe(false);
@@ -155,9 +153,7 @@ describe('the evidence a deletion record carries', () => {
 
 		deleted.record('amsterdam-1625', null);
 
-		expect(deleted.pending()).toEqual([
-			{ directory: 'amsterdam-1625', at: expect.any(String), was: null }
-		]);
+		expect(deleted.pending()).toEqual([{ directory: 'amsterdam-1625', was: null }]);
 		expect(deleted.has('amsterdam-1625')).toBe(true);
 	});
 
@@ -172,7 +168,7 @@ describe('the evidence a deletion record carries', () => {
 		const [key] = [...storage.items.keys()];
 		storage.items.set(key as string, '{"formatVersion":1,"at":"2026-08-08T09:00:0');
 
-		expect(deleted.pending()).toEqual([{ directory: 'amsterdam-1625', at: '', was: null }]);
+		expect(deleted.pending()).toEqual([{ directory: 'amsterdam-1625', was: null }]);
 	});
 
 	/** The same rule for a value that parses but says something else. */
@@ -186,7 +182,31 @@ describe('the evidence a deletion record carries', () => {
 			JSON.stringify({ formatVersion: 1, at: 'x', was: { name: 'A' } })
 		);
 
-		expect(deleted.pending()[0]).toEqual({ directory: 'amsterdam-1625', at: 'x', was: null });
+		expect(deleted.pending()[0]).toEqual({ directory: 'amsterdam-1625', was: null });
+	});
+
+	/**
+	 * ⚠ **`formatVersion` was written and then ignored** (ticket 21, review 3). The field exists so
+	 * that a build which spells the record differently is *recognised* as such — and that is exactly
+	 * the case that was read with this build's rules instead, so a record from another build could
+	 * have handed `finishInterruptedDeletions` an identity it had misread and licensed a removal on
+	 * it. `readJournal` checks its own version; this is the destructive half of the same chain and
+	 * had the weaker check. The safe direction is the one every other path here takes: no evidence.
+	 */
+	it('reads a record written to another format as no evidence', () => {
+		const storage = new FakeJournalStorage();
+		const deleted = new DeletedProjects(storage, 'opfs:My Workspace');
+		deleted.record('amsterdam-1625', WAS);
+		const [key] = [...storage.items.keys()];
+		storage.items.set(
+			key as string,
+			JSON.stringify({ formatVersion: 2, at: 'x', was: { name: 'A', updatedAt: 'B' } })
+		);
+
+		// The record still stands — it is still a deletion the user asked for, and it still refuses a
+		// replay — but it carries nothing this build may destroy anything on.
+		expect(deleted.pending()).toEqual([{ directory: 'amsterdam-1625', was: null }]);
+		expect(deleted.has('amsterdam-1625')).toBe(true);
 	});
 });
 
@@ -226,7 +246,7 @@ describe('a storage that will not answer', () => {
 		};
 
 		expect(new DeletedProjects(storage, 'opfs:My Workspace').pending()).toEqual([
-			{ directory: 'amsterdam-1625', at: '', was: null }
+			{ directory: 'amsterdam-1625', was: null }
 		]);
 	});
 });

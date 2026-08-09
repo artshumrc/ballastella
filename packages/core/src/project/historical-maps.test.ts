@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { alignmentPath } from '../alignment/alignment.js';
 import { seedAlignmentFixture } from '../alignment/alignment-fixture.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
-import type { Bytes } from '../store/project-store.js';
+import { TEMP_PATH_SUFFIX, type Bytes } from '../store/project-store.js';
 import {
 	referencedImage,
 	referencedImagePath,
@@ -471,6 +471,56 @@ describe('deleting a Historical Map', () => {
 			expect(failure).not.toBeInstanceOf(HistoricalMapPartlyDeletedError);
 			expect((failure as Error).message).toBe('The Workspace is locked');
 			expect([...store.snapshot().keys()]).toEqual(before);
+		});
+
+		/**
+		 * ⚠ **The exit that falsified the caller's rule** (ticket 21, review 3). The abandoned-write
+		 * sweep used to run **after** every file had been deleted, so a rejection from it left the map
+		 * entirely gone and threw something that is neither {@link HistoricalMapInUseError} nor
+		 * {@link HistoricalMapPartlyDeletedError} — and `EditorSession.deleteHistoricalMap` sweeps its
+		 * journal on exactly that discrimination, so the map's journalled bytes survived a map that
+		 * did not. Wrapping it in a `PartlyDeleted` would have been the opposite lie: that error tells
+		 * the user the map "is still listed and deleting it again will finish the job".
+		 *
+		 * Swept first instead. Nothing has been removed when it runs, so a rejection is the plain
+		 * failure it looks like — and no `delete` below it can create a temporary file for it to have
+		 * missed.
+		 */
+		it('sweeps the abandoned writes before it deletes, so a failed sweep removes nothing', async () => {
+			const store = new MemoryProjectStore();
+			await seedLocalMap(store, 'aaa1', 'Untouched', 40_000);
+			await seedAlignmentFixture(store, 'aaa1', 120);
+			const before = [...store.snapshot().keys()];
+			vi.spyOn(store, 'reclaimAbandonedWrites').mockRejectedValue(
+				new Error('The folder grant was revoked')
+			);
+
+			const failure = await deleteHistoricalMap(store, 'aaa1', { label: 'Untouched' }).catch(
+				(cause: unknown) => cause
+			);
+
+			expect(failure).not.toBeInstanceOf(HistoricalMapPartlyDeletedError);
+			expect((failure as Error).message).toBe('The folder grant was revoked');
+			expect([...store.snapshot().keys()]).toEqual(before);
+		});
+
+		/**
+		 * And the sweep really happens, taking with it the half-finished writes `list` cannot report
+		 * and `delete` cannot be handed. Without it a "deleted" map's directory survives on disk
+		 * holding bytes that are missing from every total the reclaim list exists to explain — and in
+		 * a real folder, a stray dotfile `git add -A` commits.
+		 */
+		it('takes the map’s abandoned writes with it', async () => {
+			const store = new MemoryProjectStore();
+			await seedLocalMap(store, 'aaa1', 'Doomed', 40_000);
+			store.plant(
+				`${imageDirectory('aaa1')}/.info.json.abandoned${TEMP_PATH_SUFFIX}`,
+				new TextEncoder().encode('half a document')
+			);
+
+			await deleteHistoricalMap(store, 'aaa1');
+
+			expect([...store.snapshot().keys()]).toEqual([]);
 		});
 	});
 });

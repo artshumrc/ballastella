@@ -382,6 +382,63 @@ test.describe('choosing a folder as the Workspace', () => {
 		await expect(page.getByRole('link', { name: 'In Browser' })).toHaveCount(0);
 	});
 
+	/**
+	 * ⚠ **THE WHOLE OF ROUND 3's DESIGN DECISION, IN THE PLACE IT APPLIES.**
+	 *
+	 * A folder Workspace's key is `folder:<folder name>` — a name the user can put on any folder on
+	 * any drive — because the browser offers a page no stable identifier for a picked directory
+	 * (ADR-0017), and ADR-0023 explicitly invites synced folders, colleagues' copies and second
+	 * checkouts. Two rounds of this ticket tried to make an unattended recursive delete safe *there*
+	 * by comparing what is inside the directory against what the record captured, and it cannot be
+	 * done: Dropbox, Drive, rsync and `cp -a` reproduce `project.json` byte for byte, and ADR-0010
+	 * guarantees that opening a Project writes nothing, so a **backup of the very Project the user
+	 * deleted** matches every field of the record perfectly. Every comparison says "remove".
+	 *
+	 * So the folder case does not delete unattended at all. The Project is listed, the user is told
+	 * plainly that its deletion did not finish, and deleting it again is one gesture — visible and
+	 * non-destructive, which is what ADR-0017 asks of the rest of the recovery chain. The record is
+	 * seeded here exactly as `DeletedProjects.record` writes it, evidence included, so this is the
+	 * *matching* record — the one every content check would have carried out.
+	 */
+	test('will not finish a deletion on its own in a folder, and says so', async ({ page }) => {
+		await chooseFolder(page);
+		await inFolder(page);
+		await createProject(page, 'Amsterdam 1625');
+		// Exactly the state the ~20% teardown window leaves: the record written, nothing removed.
+		const manifest = await readInFolder(page, 'amsterdam-1625/project.json');
+		await page.evaluate(
+			([folder, text]) => {
+				const was = JSON.parse(text as string);
+				localStorage.setItem(
+					`ballastella.deleted.${encodeURIComponent(`folder:${folder as string}`)}/${encodeURIComponent('amsterdam-1625')}`,
+					JSON.stringify({
+						formatVersion: 1,
+						at: new Date().toISOString(),
+						was: { name: was.name, updatedAt: was.updatedAt }
+					})
+				);
+			},
+			[PICKED_FOLDER, manifest]
+		);
+
+		await page.reload();
+		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
+		await inFolder(page);
+
+		await expect(page.getByTestId('deletion-refused')).toContainText(
+			'will not remove it on its own'
+		);
+		// Not one byte, and the Project is still there to be deleted deliberately.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		expect(await everyPathInFolder(page)).toEqual(['amsterdam-1625/project.json']);
+
+		// And the gesture that ends it is the ordinary one, right there in the list.
+		await page.getByRole('button', { name: /^Delete/ }).click();
+		await page.getByRole('button', { name: 'Delete Project' }).click();
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toHaveCount(0);
+		await expect.poll(() => everyPathInFolder(page)).toEqual([]);
+	});
+
 	test('sweeps abandoned writes out of the folder when it is adopted', async ({ page }) => {
 		// A laptop that died mid-autosave leaves a `.ballastella-tmp` — or Chromium's
 		// `.ballastella-tmp.crswap` — inside the Project directory. `list` hides it, `delete` refuses

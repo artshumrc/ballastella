@@ -37,11 +37,27 @@
 // its worst case is one overwritten file the user is told about. A wrong-Workspace **deletion** has
 // no such bound: it would list a directory and remove every byte in it.
 //
-// So the record carries {@link DeletionRecord.was} — the Project's display name and `updatedAt` as
-// the user was looking at them when they pressed Delete — and `Workspace.finishInterruptedDeletions`
-// refuses to remove anything whose manifest does not still say exactly that. What is left is a bound
-// of the same shape as replay's, and no larger: an unfinished deletion can only be finished against
-// a Project that is byte-for-byte the one the user deleted.
+// ⚠ **And {@link DeletionRecord.was} is not the answer to that, which the second cut of this module
+// said it was.** It claimed that carrying the Project's display name and `updatedAt` left "a bound of
+// the same shape as replay's: an unfinished deletion can only be finished against a Project that is
+// byte-for-byte the one the user deleted". That sentence is true and it is the hole — **a copy IS
+// byte-for-byte the one the user deleted.** Dropbox, Drive, rsync, `cp -a` and a zip all reproduce
+// `project.json` exactly, and ADR-0010 guarantees that opening a Project writes nothing, so the copy
+// stays identical; every field of the record matches a backup of the very Project that was deleted.
+// No further field fixes that, because the thing being asked is *identity* and the evidence being
+// offered is *content*.
+//
+// So identity comes from the **key**, and it is asked for once: see `WorkspaceIdentity` in
+// `project/workspace.ts`. `opfs:<name>` names one directory this origin owns; `folder:<name>` names
+// a name a user can put on any folder on any drive, and there a deletion is **reported rather than
+// finished** — the Project stays listed, the user is told its deletion did not finish, and deleting
+// it again is one gesture.
+//
+// What `was` is for, once identity is settled, is the *other* question: has the Project changed
+// since the gesture? `Workspace.#claim` fires from `createProject` and `duplicateProject` and never
+// from merely opening one, so a Project reopened and edited after a failed deletion would otherwise
+// be removed under the user at a later startup. That is the whole of its job, and it is a smaller
+// job than this module used to claim for it.
 //
 // The two moments a record changes:
 //
@@ -80,12 +96,14 @@ import {
 const DELETED_KEY_PREFIX = 'ballastella.deleted.';
 
 /**
- * What the user was looking at when they pressed Delete, so a later startup can check it is still
- * looking at the same thing.
+ * What the user was looking at when they pressed Delete, so a later startup can check that the
+ * Project has not **changed** since.
  *
- * The two fields of `ProjectSummary` that come out of the Project's own manifest. Deliberately not
- * the directory name, which is the key and is exactly the part that is *not* unique across two
- * folder Workspaces of the same name.
+ * ⚠ **Not "check it is the same Project", which is what this said and could not deliver.** The two
+ * fields come out of the manifest, and a manifest is copied verbatim by every sync client there is —
+ * so two folders of the same name holding the same Project produce the same answer, which is the
+ * case that has to be told apart and is the one this cannot tell apart. Identity is settled by the
+ * Workspace key before this is consulted at all; see `WorkspaceIdentity`.
  */
 export interface ProjectIdentity {
 	/** The display name from `project.json`, or the directory name for a manifest that would not read. */
@@ -94,12 +112,19 @@ export interface ProjectIdentity {
 	readonly updatedAt: string;
 }
 
-/** One unfinished deletion: the folder it named, when it was asked for, and what it was aimed at. */
+/**
+ * One unfinished deletion: the folder it named, and what it was aimed at.
+ *
+ * ⚠ **No `at`.** The stored form carries one and this does not: it was decoded, put on the public
+ * type, asserted in tests, and read by no production code — `finishInterruptedDeletions` neither
+ * expires a record nor orders by age, and nothing renders a time. A field on a public type that
+ * nothing consumes is a decision the next reader thinks was taken. The stored `at` stays, because
+ * it is for whoever is looking at `localStorage` with the devtools open, which is the only thing
+ * that ever read it.
+ */
 export interface DeletionRecord {
 	/** The Project directory the user deleted. */
 	readonly directory: string;
-	/** ISO 8601, or `''` for a record whose stored form could not be read. */
-	readonly at: string;
 	/**
 	 * The manifest identity at the moment of the gesture, or `null` when the caller did not supply
 	 * one.
@@ -113,10 +138,22 @@ export interface DeletionRecord {
 
 /** The stored shape, so a future field is an addition rather than a re-encoding. */
 interface StoredRecord {
-	readonly formatVersion: 1;
+	readonly formatVersion: number;
+	/** ISO 8601. Written for whoever is reading `localStorage` in the devtools; see {@link DeletionRecord}. */
 	readonly at: string;
 	readonly was?: ProjectIdentity;
 }
+
+/**
+ * The stored shape this build writes and understands.
+ *
+ * ⚠ **Checked on the way in, which it was not.** The field was written and then ignored, so a record
+ * from a build that spells `was` differently — the exact case the field exists to make survivable —
+ * was read with this build's rules and could have licensed a removal on a misread identity.
+ * `readJournal` validates its own version for the same reason; this is the destructive half of the
+ * same chain and had the weaker check.
+ */
+const DELETION_FORMAT_VERSION = 1;
 
 /**
  * The Projects deleted from **one** Workspace whose removal may not have finished.
@@ -155,7 +192,7 @@ export class DeletedProjects {
 	 */
 	record(directory: string, was: ProjectIdentity | null): boolean {
 		const stored: StoredRecord = {
-			formatVersion: 1,
+			formatVersion: DELETION_FORMAT_VERSION,
 			at: new Date().toISOString(),
 			...(was ? { was } : {})
 		};
@@ -239,23 +276,26 @@ export class DeletedProjects {
  * ⚠ **Unreadable answers `was: null`, which licenses no removal** — never "no `was` field, so go
  * ahead". A value truncated by a full `localStorage`, or written by a build that is not this one, is
  * exactly the case where the safe direction is to leave the user's files where they are and say so.
+ * A record whose `formatVersion` is not this build's is one of those: it is read by no rules this
+ * build has, and {@link DELETION_FORMAT_VERSION} says why the check is here rather than assumed.
  */
-function decode(value: string | null): { at: string; was: ProjectIdentity | null } {
-	if (value === null) return { at: '', was: null };
+function decode(value: string | null): { was: ProjectIdentity | null } {
+	const nothing = { was: null };
+	if (value === null) return nothing;
 	try {
 		const parsed: unknown = JSON.parse(value);
-		if (typeof parsed !== 'object' || parsed === null) return { at: '', was: null };
+		if (typeof parsed !== 'object' || parsed === null) return nothing;
 		const record = parsed as Partial<StoredRecord>;
+		if (record.formatVersion !== DELETION_FORMAT_VERSION) return nothing;
 		const was = record.was;
 		return {
-			at: typeof record.at === 'string' ? record.at : '',
 			was:
 				was && typeof was.name === 'string' && typeof was.updatedAt === 'string'
 					? { name: was.name, updatedAt: was.updatedAt }
 					: null
 		};
 	} catch {
-		return { at: '', was: null };
+		return nothing;
 	}
 }
 

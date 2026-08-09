@@ -13,6 +13,7 @@ import {
 	WriteAheadJournal,
 	alignmentPath,
 	imageInfoPath,
+	newAlignment,
 	newProjectFile,
 	projectFilePath,
 	readJournal,
@@ -173,11 +174,50 @@ describe('deleting a Project, at the unit seam', () => {
 			`${DIRECTORY}/project.json`
 		]);
 
-		await session.deleteProject(DIRECTORY);
+		// ⚠ **Not awaited, and that is the assertion.** The sweep is the synchronous half of
+		// `Autosave.abandon`, which is the only half a document being torn down would run — so it has
+		// to be complete before the deletion's first `await`, and `capture()` here is `pagehide`
+		// firing in that window. Awaiting the deletion would prove nothing about it and could not
+		// resolve anyway: this store's write never lands, which is what a page that has stopped
+		// running its continuations looks like from in here.
+		void session.deleteProject(DIRECTORY);
 		// Rule 3's synchronous half, as `installFlushOnHide` fires it at `pagehide`.
 		session.capture();
 
 		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
+	});
+
+	/**
+	 * ⚠ **`abandon` cannot call back a write the store already has**, and the sweep alone read as
+	 * though it could (ticket 21, review 3). `Autosave.#drainLoop` captures its `bytes` and then
+	 * awaits `store.write`; clearing the pending bytes does not reach into that await. So a
+	 * `project.json` write in flight when Delete is pressed — a rename inside its debounce whose
+	 * timer has just fired — resolves **after** `#removeEverythingIn` has listed the directory, and
+	 * writes the manifest back behind the deletion. `deleteProject` then drops its own record on the
+	 * next line, so the Project is on the hub again at the next startup with nothing left to catch
+	 * it: the exact defect this ticket exists to close, by a route the sweep could not see.
+	 */
+	it('waits out a write it could not call back, so the manifest is not written back behind it', async () => {
+		const { session, store } = await sessionWithJournal();
+		// A store that has taken the bytes and not finished with them, held open by hand.
+		let land = (): void => undefined;
+		const write = store.write.bind(store);
+		store.write = (path, bytes) =>
+			new Promise<void>((resolve, reject) => {
+				land = () => void write(path, bytes).then(resolve, reject);
+			});
+		void session.renameProject(DIRECTORY, 'Renamed and still in flight');
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const deletion = session.deleteProject(DIRECTORY);
+		// A whole macrotask, so every microtask the deletion could run has run: without the wait the
+		// listing and the deletes are all long finished by here, and the manifest lands on an empty
+		// directory.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		land();
+		await deletion;
+
+		expect(await store.list('')).toEqual([]);
 	});
 
 	/** And the record carries what the hub was showing, which is what a startup checks before removing. */
@@ -197,7 +237,6 @@ describe('deleting a Project, at the unit seam', () => {
 		expect(new DeletedProjects(storage, WORKSPACE).pending()).toEqual([
 			{
 				directory: DIRECTORY,
-				at: expect.any(String),
 				was: { name: 'Amsterdam 1625', updatedAt: '2026-08-08T00:00:00.000Z' }
 			}
 		]);
@@ -276,6 +315,77 @@ describe('deleting a Historical Map, at the unit seam', () => {
 		expect(readJournal(storage, WORKSPACE).entries.map((entry) => entry.path)).toEqual([
 			alignmentPath(IMAGE)
 		]);
+	});
+
+	/**
+	 * ⚠ **The Alignment is not under `images/<id>/`, and the pending-bytes sweep was only given that
+	 * prefix** (ticket 21, review 3). `alignmentPath(id)` is `alignments/<id>.json` — a sibling — so
+	 * the hole item 2 of review 2 closed for the pyramid was left open on the one path where the
+	 * unsaved specimen *is* the Alignment. Its journal entry was forgotten and the bytes it is
+	 * written from were not, leaving `capture()` to re-journal it at `pagehide` and `flush()` to
+	 * write it outright: `alignments/<id>.json` recreated for a Historical Map that is gone, which is
+	 * the orphan `deleteHistoricalMap` exists to prevent.
+	 *
+	 * The test that missed it asserted only that the journal was empty, which the sweep's other half
+	 * already made true.
+	 */
+	it('gives up the Alignment’s pending bytes, not only its journal entry', async () => {
+		const store = new MemoryProjectStore();
+		const { session, storage } = await sessionOverAMap(store);
+		await store.write(imageInfoPath(IMAGE), new TextEncoder().encode('{}'));
+		await session.open(DIRECTORY);
+		// An Alignment edit that has started and not landed — the state `Autosave` holds bytes in.
+		const write = store.write.bind(store);
+		store.write = (path, bytes) =>
+			(path as string) === (alignmentPath(IMAGE) as string)
+				? new Promise<never>(() => undefined)
+				: write(path, bytes);
+		void session.writeAlignment(newAlignment(IMAGE, { width: 10, height: 10 }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		store.write = write;
+		expect(readJournal(storage, WORKSPACE).entries.map((entry) => entry.path)).toEqual([
+			alignmentPath(IMAGE)
+		]);
+
+		expect(await session.deleteHistoricalMap(IMAGE)).toBe(true);
+		// Rule 3's synchronous half, exactly as `installFlushOnHide` fires it at `pagehide`. It
+		// re-journals whatever `Autosave` still holds pending, which is the route the sweep's other
+		// half was left open on: with the journal emptied and the bytes kept, this line put the
+		// Alignment straight back.
+		session.capture();
+
+		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
+		// And the map's files really did go, so this is not a green from nothing having happened.
+		expect(await store.list('')).toEqual([projectFilePath(DIRECTORY)]);
+	});
+
+	/**
+	 * The third arm of the conditional sweep, and the one no test constructed: a deletion that got
+	 * part way. `HistoricalMapPartlyDeletedError` is the only failure that means bytes are gone, and
+	 * bytes being gone is the whole of what licenses throwing the journalled copies away — so the arm
+	 * that acts on it has to be exercised, or "conditional" is a claim about one branch.
+	 */
+	it('retires the journalled bytes of a map the Workspace only half deleted', async () => {
+		const store = new MemoryProjectStore();
+		const { session, storage } = await sessionOverAMap(store);
+		await store.write(imageInfoPath(IMAGE), new TextEncoder().encode('{}'));
+		// alignment-write-is-the-fixture: the Alignment on disk is the specimen this half-finished deletion is measured by
+		await store.write(alignmentPath(IMAGE) as StorePath, new TextEncoder().encode('{}'));
+		journalTheAlignment(storage);
+		// The Alignment goes first and by design, so refusing the second delete is a map whose
+		// placement has gone and whose `info.json` has not: still listed, and half its bytes removed.
+		let seen = 0;
+		const remove = store.delete.bind(store);
+		store.delete = async (path) => {
+			seen += 1;
+			if (seen === 2) throw new Error('The Workspace is locked');
+			return remove(path);
+		};
+
+		expect(await session.deleteHistoricalMap(IMAGE)).toBe(false);
+
+		expect(session.historicalMapError).toContain('only partly deleted');
+		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
 	});
 
 	/** And when it does happen, the journalled bytes go — the point of the sweep in the first place. */

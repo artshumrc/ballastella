@@ -93,6 +93,7 @@ import {
 	type IngestProgress,
 	type IngestedImage,
 	type FinishedDeletions,
+	type WorkspaceIdentity,
 	type JournalReplayReport,
 	type JournalStorage,
 	type Layer,
@@ -140,6 +141,19 @@ export type WorkspaceStatus = 'loading' | 'ready' | 'unreachable';
  */
 export const opfsWorkspaceKey = (name: string): string => `opfs:${name}`;
 export const folderWorkspaceKey = (folderName: string): string => `folder:${folderName}`;
+
+/**
+ * Whether a Workspace key names **one place** or only a name a user can reproduce anywhere.
+ *
+ * Beside the two constructors above and derived from the same prefixes, so that no call site can
+ * hold a key and a contradicting opinion about it — which is the one way `Workspace`'s option could
+ * be got wrong. See {@link WorkspaceIdentity} for why this, and not any comparison of what is inside
+ * the directory, is what licenses finishing a deletion unattended.
+ *
+ * A prefix this build does not know answers `'a-name-anywhere'`, which destroys nothing.
+ */
+export const workspaceIdentityOf = (key: string): WorkspaceIdentity =>
+	key.startsWith('opfs:') ? 'this-browser' : 'a-name-anywhere';
 
 /**
  * A journal key as a **Workspace the user recognises**, never as the key itself.
@@ -488,6 +502,11 @@ export class EditorSession {
 		this.#workspace = new Workspace(store, {
 			autosave: this.#autosave,
 			...(this.#deleted ? { deleted: this.#deleted } : {}),
+			// Out of the key the records are filed under, and out of nothing else. A session with no
+			// key has no records either, and `'a-name-anywhere'` is the answer that destroys nothing.
+			identity: options.workspaceKey
+				? workspaceIdentityOf(options.workspaceKey)
+				: 'a-name-anywhere',
 			onDeletionNotRecorded: () => {
 				this.deletionWarning =
 					'This browser would not let Ballastella write the deletion down, so it is only as ' +
@@ -641,18 +660,18 @@ export class EditorSession {
 	 * Before the deletion rather than after, so a deletion that fails part way through does not leave
 	 * journalled bytes for files that have gone.
 	 *
-	 * ⚠ **`Autosave` is swept too, and sweeping only the journal was a hole** (ticket 21, review 2).
-	 * The journal is written *from* Autosave's pending bytes, so a sweep that left those in place was
-	 * undone within milliseconds by rule 3's own two halves: `capture()` re-journals
+	 * ⚠ **`Autosave` is swept too, and it is swept by `Workspace.deleteProject`** (ticket 21, reviews
+	 * 2 and 3). The journal is written *from* Autosave's pending bytes, so a sweep that left those in
+	 * place was undone within milliseconds by rule 3's own two halves: `capture()` re-journals
 	 * `<project>/project.json` at `pagehide`, after the sweep, and `flush()` writes it into the store
-	 * outright. Either resurrects the Project — including through the `project-deleted` layer, which
-	 * by then has nothing left to refuse because the deletion it named has finished. See
-	 * {@link Autosave.abandon}.
+	 * outright. That call lives in core now, beside the record it has to be ordered against — it has
+	 * to run before the removal *and* be waited on after the record, which only the method holding
+	 * both can do. See {@link Autosave.abandon}.
 	 *
-	 * **The Project's identity goes into the record**, out of the summary the hub was rendering, so
-	 * that a startup which finishes this deletion can show it is finishing it against the same
-	 * Project. Nothing else the application has is unique — a folder Workspace is keyed by its
-	 * folder's *name* (ADR-0017) — and this is the only step of the recovery chain that destroys.
+	 * **The Project's summary goes into the record**, out of the list the hub was rendering, so that a
+	 * startup which finishes this deletion can see whether the Project has been changed since. It is
+	 * not what says the Workspace is the right one — a copy reproduces it exactly; see
+	 * `WorkspaceIdentity`.
 	 */
 	async deleteProject(directory: string): Promise<void> {
 		// Cleared here rather than left standing: the callback below re-raises it synchronously if this
@@ -660,7 +679,6 @@ export class EditorSession {
 		// of them and not about one they made ten minutes ago.
 		this.deletionWarning = '';
 		const was = this.projects.find((project) => project.directory === directory) ?? null;
-		this.#autosave.abandon(`${directory}/`);
 		this.#journal?.forgetUnder(`${directory}/`);
 		await this.#mutate(directory, () =>
 			this.#workspace.deleteProject(
@@ -1604,9 +1622,31 @@ export class EditorSession {
 		return true;
 	}
 
-	/** Drop every journalled byte belonging to one Historical Map: its pyramid and its Alignment. */
+	/**
+	 * Drop every pending and journalled byte belonging to one Historical Map: its pyramid **and its
+	 * Alignment**.
+	 *
+	 * ⚠ **The Alignment is not under `images/<id>/`, and `abandon` was only given that prefix**
+	 * (ticket 21, review 3). `alignmentPath(id)` is `alignments/<id>.json` — a sibling, which is why
+	 * the journal below needs a second call and why one `abandon` was not enough. So on the very path
+	 * this method exists for, the unsaved specimen *is* the Alignment: its journal entry was
+	 * forgotten and the pending bytes it is written from were not, leaving `capture()` to re-journal
+	 * it at `pagehide` and `flush()` to write it outright — recreating `alignments/<id>.json` for a
+	 * Historical Map that is gone, which is the orphan `deleteHistoricalMap` exists to prevent.
+	 *
+	 * ⚠ **The promise `abandon` answers with is deliberately dropped here, and it is not dropped in
+	 * `Workspace.deleteProject`.** There it is waited on *between* the record and the removal, so a
+	 * write the store already has cannot land behind the listing. Here there is nothing useful to
+	 * wait for: this runs **after** `deleteHistoricalMap` has removed the files, so a write still in
+	 * flight has already either landed or not, and waiting would only delay the caller without
+	 * re-deleting anything. Closing that window properly means abandoning *before* the deletion,
+	 * which is the "destroy synchronously, justify asynchronously" inversion review 2 removed from
+	 * this very method — so it is left open, named here, and recorded in the ticket rather than
+	 * traded for the larger hazard.
+	 */
 	#forgetJournalled(imageId: string): void {
-		this.#autosave.abandon(`${imageDirectory(imageId)}/`);
+		void this.#autosave.abandon(`${imageDirectory(imageId)}/`);
+		void this.#autosave.abandon(alignmentPath(imageId));
 		this.#journal?.forgetUnder(`${imageDirectory(imageId)}/`);
 		this.#journal?.forget(alignmentPath(imageId));
 	}

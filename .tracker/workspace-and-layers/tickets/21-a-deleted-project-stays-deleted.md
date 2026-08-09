@@ -292,3 +292,179 @@ runs, which is why the full suite took 23 minutes. Nothing went flaky under it; 
   discard offered in Workspace settings — so the hole is closed without a `localStorage` write on a
   path ADR-0010 and `editor-opening-view.e2e.ts` hold to "opening writes nothing at all".
 - **Open lead 2 (the OpenSeadragon `forceRedraw` throw) was not touched.**
+
+## What the third round found, and the design it changed
+
+A focused re-review found the wrong-folder recursive delete **still reachable by three doors**, and
+all three were the same door.
+
+### The root cause: identity was being established from content, and content is copyable
+
+- **(a)** `PathNotFoundError` from `readProject` was read as "the directory is empty". It means the
+  *manifest* is missing. `#removeEverythingIn` then listed the directory and deleted **everything it
+  found**, reporting it as a deletion carried out because `removed > 0`. Reachable with a Drive or
+  Dropbox folder mid-sync where `annotations/*.geojson` have landed and `project.json` has not, a
+  partial checkout, or any directory of that name that was never a Project. No test covered it: the
+  one that looked like it seeded an **empty** store, so the branch only ever ran against nothing.
+- **(b)** The unreadable-manifest hatch degenerated to the name-only check round 1 had. `#summarise`
+  renders both `ProjectFormatTooNewError` and `ProjectFileUnreadableError` as `{name: directory,
+  updatedAt: ''}`, so the comparison was of the directory name and nothing else — the part the
+  module header itself calls "exactly the part that is *not* unique". Two folders called `maps`,
+  both holding a Project too new for this build, is the likely case rather than the unlikely one: it
+  takes one newer build to write both.
+- **(c)** **A copy is byte-for-byte the Project the user deleted, because it *is* that Project.**
+  Round 2's stated bound — "a Project whose manifest is still byte-for-byte the one the user
+  deleted" — is literally true and is the defect. Dropbox, Drive, rsync, `cp -a` and a zip reproduce
+  `project.json` exactly, and ADR-0010 guarantees opening writes nothing, so it stays identical.
+  Delete on the laptop, get interrupted, open the **backup**: every field matches and the backup is
+  destroyed.
+
+A fourth comparison fails the same way, so the design changed instead.
+
+### The decision: identity is a property of the key, and only one key has it
+
+`WorkspaceIdentity` in `project/workspace.ts`, asked for once and derived from the Workspace key in
+one function (`workspaceIdentityOf`) beside the two constructors that make keys:
+
+- `'this-browser'` — `opfs:<name>` names exactly one directory this origin owns and no other page
+  can produce. A deletion recorded against it can only ever be finished in the directory it was made
+  in, so unattended completion stays, and the original defect stays fixed there.
+- `'a-name-anywhere'` — `folder:<folder name>`, a name a user can put on any folder on any drive.
+  **Nothing is finished unattended.** The Project is listed, the user is told plainly that its
+  deletion did not finish and why Ballastella will not finish it, and deleting it again is one
+  gesture. Visible and non-destructive, which is what ADR-0017 asks of the rest of the chain.
+
+The default is `'a-name-anywhere'`: a caller that has not said which it is has not established
+identity.
+
+`was` keeps a smaller and truthful job — **has this Project changed since the gesture** — which is
+the case `#claim` cannot see, because it fires from `createProject` and `duplicateProject` and never
+from opening a Project. It is no longer described as an identity check anywhere.
+
+### What else the third round changed
+
+- **(a) has a third verdict.** `#verdictOn` answers `'remove' | 'forget' | 'refuse'`. With only two,
+  "there is no manifest here" had to be spelled `'remove'`. `'forget'` drops the record, sweeps this
+  application's own abandoned temporary files, and takes nothing.
+- **(d)** `#forgetJournalled` abandoned `images/<id>/` only, and `alignmentPath(id)` is
+  `alignments/<id>.json` — a *sibling*. So on the one path where the unsaved specimen **is** the
+  Alignment, its journal entry was forgotten and the pending bytes it is written from were not:
+  `capture()` re-journalled it at `pagehide` and `flush()` wrote it, recreating an Alignment for a
+  map that is gone. The test that missed it asserted only that the journal was empty.
+- **(e)** A Project whose manifest carries no name could never have its deletion finished, and
+  leaked a record for ever: `#summarise` published `file.name || directory` and the check compared
+  the raw `file.name`. There is now one spelling, `identityOf`, used by both.
+- **(f)** Refusals no longer leak without a remedy. A reserved-name record is said **once** and then
+  dropped — it can never license anything at any startup. A record whose Project is genuinely gone
+  is dropped silently, which is the `was === null` case the round-2 text admitted had no remedy
+  ("delete it again if it is still here" — there was nothing to delete). Every refusal that survives
+  now names a Project that is present in the list, and the gesture that ends it is one click.
+- **(g)** `deleteHistoricalMap` swept its abandoned writes **after** every file was deleted, so a
+  rejection there left the map entirely gone and threw something that is neither `InUse` nor
+  `PartlyDeleted` — falsifying the rule the caller sweeps its journal by. Wrapping it in a
+  `PartlyDeleted` would have been the opposite lie ("it is still listed, and deleting it again will
+  finish the job"). It sweeps **first** now: nothing has been removed when it runs, and no `delete`
+  below it can make a temporary file for it to have missed.
+- **(h) is real, and is fixed.** See the adjudication below.
+- **Dead / over-claimed.** `DeletionRecord.at` is gone from the decoded record (the stored `at`
+  stays, for whoever is reading `localStorage`). `StoredRecord.formatVersion` was written and
+  ignored; it is now **validated**, so a record from a build that spells `was` differently reads as
+  no evidence rather than being read with this build's rules — `readJournal` already did this, and
+  this is the destructive half of the same chain.
+
+### (h), adjudicated: CONFIRMED, and fixed
+
+`Autosave.abandon` cannot call back a write the store already has. `#drainLoop` captures its `bytes`
+and then awaits `store.write`; clearing `pending` does not reach into that await. So a
+`<project>/project.json` write in flight when Delete is pressed — a rename whose debounce timer has
+just fired — resolves **after** `#removeEverythingIn` has listed the directory, writes the manifest
+back behind the deletion, and `deleteProject` then drops its own record on the next line. The
+Project is back at the next startup with nothing left to catch it: the ticket's own defect, by a
+route the sweep could not see. `editor-session.test.ts` already constructed this state and asserted
+only that the journal was empty.
+
+`abandon` now answers with a promise: everything it *can* stop is stopped before it returns, and the
+promise is for the writes it could not. The `abandon` call itself moved into
+`Workspace.deleteProject` — beside the record it has to be ordered against, and for the reason
+`record` is in there: no second route to deleting a Project can opt out. It is waited on **after**
+the synchronous record and **before** the removal, so the guarantee this whole ticket rests on is
+untouched: if the page dies during that await, the record is written and the next startup finishes
+the job.
+
+The same window is **not** closed for `deleteHistoricalMap`, deliberately: its sweep runs after the
+deletion, so waiting there buys nothing, and closing it properly means abandoning *before* the
+deletion — which is the "destroy synchronously, justify asynchronously" inversion round 2 removed
+from that exact method. It is named in the code and left open rather than traded for the larger
+hazard.
+
+### The vacuous list
+
+Six of them were user-facing behaviour that ADR-0017 and SPEC stories 111/112 require, so they were
+**covered rather than deleted**: `deletionsAreNoteworthy`'s `refused` and `unfinished` terms (four
+core tests), the `deletion-refused` arm and the "A deletion was not finished" heading (an e2e), the
+`deletion-warning` render and its `onDeletionNotRecorded` wiring (an e2e that makes every
+`ballastella.deleted.` write throw, which is Safari with cookies blocked), and the `PartlyDeleted`
+sweep at the editor seam (a unit test that half-deletes a map). `autosave.ts`'s `if (!file.draining)`
+is load-bearing now — it is what makes the returned promise mean anything — and is pinned by M24.
+
+`workspace-storage.svelte.ts`'s dedupe, sort, and `discardDeletions` count are **not** covered and
+were not deleted: they are one expression each behind a real button, and the arithmetic is asserted
+nowhere. Named here rather than left to be found again.
+
+## The third round's mutation check
+
+Every mutation below was applied, run, and restored.
+
+| # | mutation | result | what went red |
+| --- | --- | --- | --- |
+| M18 | `finishInterruptedDeletions` ignores `WorkspaceIdentity` | **RED** | 2 in `workspace.test.ts`: the same-named folder, and the byte-identical copy |
+| M19 | `PathNotFoundError` reads as “remove everything here” again | **RED** | `removes nothing from a directory that has files and no manifest` |
+| M20 | the summary's identity compares the raw `file.name` again | **RED** | `finishes the deletion of a Project whose manifest carries no name` |
+| M21 | a reserved-name refusal keeps its record | **RED** | `refuses a deletion naming one of the Workspace's own directories, and drops the note` |
+| M22 | `deleteProject` does not wait out the writes `abandon` could not stop | **RED** at the editor seam | `waits out a write it could not call back…`. **GREEN** in `workspace.test.ts`, which constructs no autosave — recorded because it says which seam holds this |
+| M23 | `deleteProject` does not abandon at all | **RED** at the editor seam | `gives up the pending bytes too…` and `waits out a write it could not call back…` |
+| M24 | `abandon` answers nothing about the write it could not stop | **RED** | `answers with a promise for the write it could not stop` |
+| M24b | `abandon` drops the entry of a path being written to | **RED** | `leaves a path being written to one writer, even after abandoning it` |
+| M25 | `#forgetJournalled` abandons `images/<id>/` only, as before | **RED** | `gives up the Alignment's pending bytes, not only its journal entry` |
+| M26 | `deleteHistoricalMap` sweeps its abandoned writes last again | **RED** | 2 in `historical-maps.test.ts` |
+| M27 | `decode` ignores `formatVersion` again | **RED** | `reads a record written to another format as no evidence` |
+| M28 | `deletionsAreNoteworthy` reads `finished` only | **RED** | 2: the refused arm and the unfinished arm |
+| M29 | `EditorSession` claims `'this-browser'` for every Workspace | **RED** | e2e `will not finish a deletion on its own in a folder, and says so` |
+| M30 | `NavigationBar` drops the `deletion-warning` render | **RED** | e2e `says when the browser will not write a deletion down` |
+| M31 | `RecoveredEdits` drops the `deletion-refused` arm | **RED** | e2e `says at startup which deletion it would not carry out, and leaves the Project alone` |
+
+M22's split is the honest reading and not a gap: the wait exists for bytes `Autosave` is holding, and
+`workspace.test.ts` builds a `Workspace` with no autosave at all. The seam that can hold that state
+is the editor's, and that is where it is pinned.
+
+## The third round's gate
+
+On the final tree, no `--reporter=` anywhere and nothing piped through `grep` — exit codes read
+directly:
+
+| command | exit |
+| --- | --- |
+| `pnpm run check` | **0** |
+| `pnpm run lint` | **0** |
+| `pnpm run test` | **0** — core 1676 passed / 15 skipped, editor 28 passed |
+| `pnpm run test:e2e` (whole suite) | **0** — 493 passed, 1 skipped, 11.6m, retry budget 0.00% of 494 |
+| `playwright test e2e/editor-workspace.e2e.ts --repeat-each=20` | **0** — 780 passed, 6.5m, retry budget 0.00% of 780 |
+
+**Contention, as a number**: seven `playwright test` processes were running across five worktrees
+throughout, and the one-minute load average on the 20-core machine ranged from **9 to 26** during
+these runs. Nothing went flaky under it; the retry budget was 0.00% on both runs.
+
+## Deliberately not done in round 3
+
+- **A folder Workspace no longer finishes a deletion unattended, and that is a real reduction in
+  what the app does for the user.** It is the point: the alternative is a recursive delete in a
+  directory nothing can identify. The Project is listed and one click removes it.
+- **No per-folder nonce.** It would give a folder Workspace a real identity, and it is a **write on
+  a path** — into the user's own folder, at pick time. ADR-0010 and `editor-opening-view.e2e.ts`
+  hold "opening writes nothing at all", ADR-0008 makes the folder the product (zipped, cloned,
+  committed), and a sync client copies the nonce with everything else, so two copies of a folder
+  would share it anyway and the identity would be false. Rejected on both counts.
+- **`deleteHistoricalMap`'s in-flight write window** — see the adjudication above.
+- **A "forget this deletion" control beside a refusal** was still not built. With (f) closed, every
+  surviving refusal names a Project that is in the list, so the control already exists: it is Delete.
+- **`TRACKER.md` was not edited**, as instructed.

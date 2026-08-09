@@ -1095,6 +1095,85 @@ test.describe('surviving a real navigation (ADR-0017 rule 3, as amended)', () =>
 		expect(await everyPath(page)).toEqual([]);
 	});
 
+	/**
+	 * ⚠ **The other direction, and it was rendered by no test at all** (ticket 21, review 3).
+	 *
+	 * A refusal is the *only* thing a startup deletion ever reports in a folder Workspace since the
+	 * identity rule, and the whole arm that renders it — `deletion-refused`, the "A deletion was not
+	 * finished" heading, and `deletionsAreNoteworthy`'s `refused` term — was reachable in no test. A
+	 * build that dropped any of them would silently throw away the one sentence standing between the
+	 * user and a Project they think is deleted and which is still on disk.
+	 *
+	 * Provoked rather than seeded on the refusal itself: the record is written by the real deletion
+	 * gesture against a store that cannot carry it out, and then the Project is renamed, which is
+	 * exactly the "reopened and edited after a failed deletion" case `#claim` cannot see.
+	 */
+	test('says at startup which deletion it would not carry out, and leaves the Project alone', async ({
+		page
+	}) => {
+		await createProject(page, 'Amsterdam 1625');
+		await page.evaluate(async () => {
+			const root = await workspaceRoot();
+			const file = await (
+				await (await root.getDirectoryHandle('amsterdam-1625')).getFileHandle('project.json')
+			).getFile();
+			const manifest = JSON.parse(await file.text());
+			const workspace = `opfs:${localStorage.getItem('ballastella.workspace') || 'My Workspace'}`;
+			localStorage.setItem(
+				`ballastella.deleted.${encodeURIComponent(workspace)}/${encodeURIComponent('amsterdam-1625')}`,
+				JSON.stringify({
+					formatVersion: 1,
+					at: new Date().toISOString(),
+					// What the hub was showing when Delete was pressed — and the Project has moved on
+					// since, which is what the next startup has to notice.
+					was: { name: manifest.name, updatedAt: '2020-01-01T00:00:00.000Z' }
+				})
+			);
+		});
+
+		await page.reload();
+
+		await expect(page.getByTestId('deletion-refused')).toContainText('Amsterdam 1625');
+		await expect(page.getByTestId('deletion-refused')).toContainText('nothing was removed');
+		// The panel says what it is, which is the arm of the heading nothing else reaches: no edit was
+		// put back, so it cannot borrow the replay's sentence.
+		await expect(page.getByTestId('recovered-edits')).toContainText('A deletion was not finished');
+		// And the Project is right there, with every byte of it.
+		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
+		expect(await everyPath(page)).toEqual(['amsterdam-1625/project.json']);
+	});
+
+	/**
+	 * ⚠ **ADR-0017 asks for two refusals and only one was rendered by a test.** A browser that answers
+	 * reads and rejects every write — Safari with cookies blocked, or a `localStorage` filled by one
+	 * enormous Annotation collection — cannot hold the deletion note, and the deletion is then only as
+	 * durable as this tab. `protectionWarning` does not stand in for it: that sentence is about an
+	 * edit on its way to storage and offers "wait for the indicator to read Saved", which a deletion
+	 * has neither of.
+	 */
+	test('says when the browser will not write a deletion down', async ({ page }) => {
+		await createProject(page, 'Amsterdam 1625');
+		// Reads still answer, which is the browser this actually happens on — a probe that only reads
+		// accepts this storage, and every write throws.
+		await page.evaluate(() => {
+			const setItem = Storage.prototype.setItem;
+			Storage.prototype.setItem = function (key: string, value: string) {
+				if (key.startsWith('ballastella.deleted.')) throw new Error('QuotaExceededError');
+				setItem.call(this, key, value);
+			};
+		});
+
+		await page.getByRole('button', { name: /^Delete/ }).click();
+		await page.getByRole('button', { name: 'Delete Project' }).click();
+
+		await expect(page.getByTestId('deletion-warning')).toContainText(
+			'would not let Ballastella write the deletion down'
+		);
+		// And the deletion itself still happened: a browser that will not hold a note must not stop a
+		// user deleting a Project.
+		await expect(page.getByText('No Projects yet')).toBeVisible();
+	});
+
 	test('does not leak a deleted Project’s file into a new one that reused its folder', async ({
 		page
 	}) => {
