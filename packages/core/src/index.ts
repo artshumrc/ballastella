@@ -485,7 +485,6 @@ export { padTileToCell } from './image-pane/pad-tile-to-cell.js';
 // reads published pyramids through it too (ADR-0019).
 export {
 	MissingImageServiceOverrideError,
-	classifyTileFailure,
 	createStoreImageFetch,
 	isImageServicePlaceholderUrl,
 	refuseUnroutedImageServiceRequests,

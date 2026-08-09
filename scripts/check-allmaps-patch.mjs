@@ -96,11 +96,146 @@ if (!source.includes('this.fetchFn')) {
 	);
 }
 
-// The second hunk, checked separately because it is in a different file and fails differently: its
-// absence is not a blank map but an uncaught page error on a refused `info.json`, which reaches
-// nobody at all on a published site. `viewer-reader.e2e.ts` asserts the *consequence*; this asserts
-// that the mechanism is still there, because pnpm applying a patch says nothing about which of its
-// hunks survived a version move.
+// ── The second hunk: WebGL2Renderer's dropped promises ────────────────────────────────────────
+//
+// Checked separately because it is in a different file and fails differently: its absence is not a
+// blank map but an uncaught page error on a refused `info.json`, which reaches nobody at all on a
+// published site. `viewer-reader.e2e.ts` asserts the *consequence*; this asserts that the mechanism
+// is still there, because pnpm applying a patch says nothing about which of its hunks survived a
+// version move.
+//
+// ⚠ **This check has now been wrong twice, in the same way, and the positive control below is the
+// answer to both.** The first spelling looked for
+// `Promise.allSettled(this.loadMissingImagesInViewport())`; the second for
+// `void Promise.allSettled(`. Neither could fail, because both strings also appear in the patch's
+// OWN EXPLANATORY COMMENT in the very file being read — so deleting the line of code, or swapping
+// `allSettled` for `all`, or calling `allSettled([])` beside an unhandled call, all left the check
+// green. A regex fence's way of dying is silent, and reading it found neither mistake.
+//
+// So the predicate is a function, comments are not code, and `KNOWN_BAD` runs it against every
+// mutation that was measured green. That is the shape CONTRIBUTING requires and that
+// `check-e2e-network-fence.mjs`, `check-alignment-writers.mjs` and `check-workspace-rooted-paths.mjs`
+// all use.
+
+/**
+ * `source` with its comment lines removed, so that a comment can never satisfy a code check.
+ *
+ * Whole lines only — a line whose first non-space characters are `//`, and every line inside a
+ * `/* … *\/` block. That is exactly what the patch adds, and it is the conservative choice: a
+ * trailing `//` stripped mid-line could delete real code and turn a failing check green, which is
+ * the failure mode this whole comment is about.
+ */
+const codeOf = (source) => {
+	const kept = [];
+	let inBlock = false;
+	for (const line of source.split('\n')) {
+		const trimmed = line.trim();
+		if (inBlock) {
+			if (trimmed.includes('*/')) inBlock = false;
+			continue;
+		}
+		if (trimmed.startsWith('/*')) {
+			if (!trimmed.includes('*/')) inBlock = true;
+			continue;
+		}
+		if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
+		kept.push(line);
+	}
+	return kept.join('\n');
+};
+
+/** Where the array of promises has to be going, immediately before the call that produces it. */
+const HANDED_TO_ALLSETTLED = /Promise\s*\.\s*allSettled\(\s*$/;
+
+const CALL = 'this.loadMissingImagesInViewport()';
+
+/**
+ * Why `source` is not patched, or `null` when it is.
+ *
+ * ⚠ **Every call site is checked, not "is there a good one somewhere".** The check is that each
+ * occurrence of the call is handed straight to `Promise.allSettled` — so a second call site added by
+ * a version move, beside a first one the patch still applies to perfectly, is caught. pnpm applying
+ * a patch says nothing whatever about a call site that did not exist when the patch was written.
+ */
+const dropsTheImagePromises = (source) => {
+	const code = codeOf(source);
+	let found = 0;
+	for (let at = code.indexOf(CALL); at !== -1; at = code.indexOf(CALL, at + CALL.length)) {
+		found += 1;
+		if (!HANDED_TO_ALLSETTLED.test(code.slice(0, at))) {
+			return `a call to \`loadMissingImagesInViewport()\` drops the promises it returns`;
+		}
+	}
+	if (found === 0) return '`loadMissingImagesInViewport()` is not called at all any more';
+	return null;
+};
+
+// ── Positive control ──────────────────────────────────────────────────────────────────────────
+//
+// Every entry below is a mutation that was **measured green** against an earlier spelling of this
+// check. They are the reason it is a function rather than an `includes`.
+
+const PATCH_COMMENT = [
+	'\t\t// BALLASTELLA PATCH — ticket 04.',
+	'\t\t// Upstream writes `await Promise.allSettled(this.loadMissingImagesInViewport())` in its',
+	'\t\t// three other renderers. `void Promise.allSettled(...)` rather than `await` here.'
+].join('\n');
+
+const KNOWN_BAD = [
+	{
+		source: `${PATCH_COMMENT}\n\t\tthis.loadMissingImagesInViewport();`,
+		expect: 'the hunk reverted, with the patch comment left behind'
+	},
+	{
+		source: `${PATCH_COMMENT}\n\t\tif (x) return;`,
+		expect: 'the patched line deleted outright, with only the comment left'
+	},
+	{
+		source: `${PATCH_COMMENT}\n\t\tvoid Promise.all(this.loadMissingImagesInViewport());`,
+		expect: '`Promise.all`, which rejects on the first failure instead of settling'
+	},
+	{
+		source: `${PATCH_COMMENT}\n\t\tvoid Promise.allSettled([]);\n\t\tthis.loadMissingImagesInViewport();`,
+		expect: '`allSettled` called on something else beside an unhandled call'
+	},
+	{
+		source: '\t\tthis.loadMissingImagesInViewport();',
+		expect: 'the unpatched upstream line, with no comment at all'
+	},
+	{
+		// ⚠ **The only entry the negative half catches on its own**, and it is here because the check
+		// was measured without it: with `DROPPED` deleted, every other row above was still caught by
+		// `HANDLED`, so the negative half was decoration. This is the shape that makes it load-bearing
+		// — the hunk applies perfectly to the call site it names while a *second* call site, added by
+		// a version move, drops its promises exactly as the first one used to. pnpm applying a patch
+		// says nothing whatever about that.
+		source: `${PATCH_COMMENT}\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());\n\t\tif (x) this.loadMissingImagesInViewport();`,
+		expect: 'a second, unhandled call site beside the patched one'
+	}
+];
+
+/** Spellings that must keep passing: the one shipped, and the three upstream already writes. */
+const KNOWN_GOOD = [
+	`${PATCH_COMMENT}\n\t\tvoid Promise.allSettled(this.loadMissingImagesInViewport());`,
+	'\t\tawait Promise.allSettled(this.loadMissingImagesInViewport());',
+	'\t\tawait Promise.allSettled( this.loadMissingImagesInViewport() );'
+];
+
+const controlFailures = [];
+for (const { source, expect } of KNOWN_BAD) {
+	if (dropsTheImagePromises(source) === null) controlFailures.push(`${expect} is no longer caught`);
+}
+for (const source of KNOWN_GOOD) {
+	const why = dropsTheImagePromises(source);
+	if (why !== null) controlFailures.push(`a correct spelling is now refused (${why})`);
+}
+if (controlFailures.length > 0) {
+	fail(
+		'the WebGL2Renderer check no longer does what it claims — it has been wrong this way twice ' +
+			`already:\n  ${controlFailures.join('\n  ')}`
+	);
+}
+
 const rendererFile = join(renderDir, 'dist/renderers/WebGL2Renderer.js');
 let renderer;
 try {
@@ -108,19 +243,14 @@ try {
 } catch (cause) {
 	fail(`could not read ${rendererFile}: ${cause.message}`);
 }
-//
-// ⚠ **Asked as "is the unhandled call gone?", not only as "is the handled one present?"** The first
-// spelling of this check looked for `Promise.allSettled(this.loadMissingImagesInViewport())` and
-// **could not fail**: that exact string also appears in the patch's own explanatory comment, so
-// deleting the line of code left the check green. Found by mutation, which is the only way it would
-// have been. Both halves are asserted now, and the negative one is the load-bearing half.
-const UNHANDLED_CALL = /^\s*this\.loadMissingImagesInViewport\(\);\s*$/m;
-if (UNHANDLED_CALL.test(renderer) || !renderer.includes('void Promise.allSettled(')) {
+
+const dropped = dropsTheImagePromises(renderer);
+if (dropped !== null) {
 	fail(
-		`@allmaps/render ${resolvedVersion}'s WebGL2Renderer is NOT patched to handle the promises ` +
-			'`loadMissingImagesInViewport()` returns. A Historical Map whose tiles are refused will ' +
-			'throw an uncaught page error again, with nothing on screen changing. If upstream has ' +
-			'fixed it — the other three renderers already had — drop this check with the hunk.'
+		`@allmaps/render ${resolvedVersion}'s WebGL2Renderer is NOT patched — ${dropped}. A Historical ` +
+			'Map whose tiles are refused will throw an uncaught page error again, with nothing on ' +
+			'screen changing. If upstream has fixed it — the other three renderers already had — drop ' +
+			'this check with the hunk.'
 	);
 }
 

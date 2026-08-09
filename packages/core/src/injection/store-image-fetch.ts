@@ -119,14 +119,25 @@ export type StoreImageFetchOptions = {
 	/**
 	 * Told what became of each request, so the app can say when a Historical Map stops drawing.
 	 *
-	 * ⚠ **Optional, and a caller that omits it makes the failure silent.** The published viewer
-	 * passes one (ticket 04) and the editor gets one in ticket 05; until then the editor's shim
-	 * answers a refusal with a `Response` and tells nobody, which is a *quieter* failure than the
-	 * uncaught error it used to throw. That is a deliberate, temporary trade recorded here rather
-	 * than left to be discovered: an uncaught error in a renderer reaches nobody either, and it took
-	 * the whole page's error handling with it.
+	 * ⚠ **Optional. The published viewer passes one (ticket 04); the editor gets one in ticket 05.**
+	 *
+	 * Until then the editor is no worse off than it was, and that is a measured claim rather than a
+	 * hope: its two readers of this shim — `HistoricalMapPane.svelte`'s ADR-0008 catch and
+	 * `tile-protocol.ts` — already turned a refusal into a sentence a scholar reads, by throwing on a
+	 * non-ok `Response`, and {@link refusal} carries the store's own cause through in `statusText` so
+	 * that sentence still names it. An earlier version of this comment claimed the editor path "used
+	 * to throw an uncaught error"; it did not, and the shim was quietly degrading a working message
+	 * until that was measured.
 	 *
 	 * See {@link TileFetchOutcome} for which requests are reported and which are deliberately not.
+	 *
+	 * ⚠ **One thing for ticket 05 to check before wiring this in the editor.** A refused URL keeps the
+	 * notice up until that URL comes back, and the editor makes requests through this shim that are
+	 * *expected* to fail and are never retried — `add-remote-map`'s cross-origin tile probe deliberately
+	 * asks a host for a tile to find out whether it will answer. Wired naively, one probe against an
+	 * unreachable library leaves a permanent "a Historical Map stopped drawing" over a Workspace where
+	 * nothing is wrong. Either the probe stops going through this shim, or a probe is told apart from a
+	 * draw.
 	 */
 	readonly onOutcome?: (outcome: TileFetchOutcome) => void;
 };
@@ -145,9 +156,21 @@ export type StoreImageFetchOptions = {
  *
  * A 404 for the pyramid's own `info.json` **is** reported, because without it there is no map at
  * all: that is a site that was published incomplete, and it is the `file-missing` remedy.
+ *
+ * ⚠ **That policy leaves a hole, and the hole is written down as a hole:** a Published Site carrying
+ * its `info.json` while missing some of its *tile* files draws a map with gaps in it and says
+ * nothing. It is a residual of this epic rather than a settled trade-off, and closing it needs the
+ * pyramid to carry a record of which cells were actually written — a change to what publishing
+ * emits, not to what the reader reports. **ADR-0028** states it, with the reason the obvious fix is
+ * the wrong one.
  */
 export type TileFetchOutcome =
-	/** Bytes arrived. The app takes any notice it is showing down. */
+	/**
+	 * Every URL that had been refused has now come back. The app takes its notice down.
+	 *
+	 * Not "some bytes arrived": during a partial outage plenty of bytes arrive while the map stays
+	 * holed, and a notice withdrawn on that evidence is a notice withdrawn over a broken map.
+	 */
 	| { readonly ok: true }
 	/** Bytes did not arrive, for a reason a person can be told. */
 	| {
@@ -174,7 +197,7 @@ const hostOrHere = (host: string): string | null => (host === '' ? null : host);
  * means the same thing to a Reader on a published site and to a scholar whose Library stopped
  * answering, and the two deployments must be incapable of describing it differently.
  */
-export function classifyTileFailure(cause: unknown, host: string | null = null): TileSourceFailure {
+function classifyTileFailure(cause: unknown, host: string | null = null): TileSourceFailure {
 	if (cause instanceof SiteFileUnreachableError) {
 		// The two message forms `SiteFileUnreachableError` already distinguishes, kept distinct: a
 		// status means a server answered and is failing, and its absence means nothing answered at
@@ -235,15 +258,54 @@ const isAbort = (cause: unknown): boolean => cause instanceof Error && cause.nam
  * what the server said. The body is the sentence's *facts*, not the sentence: a renderer's log is
  * not where a person is told anything, and {@link historicalMapTilesUnavailableNotice} owns the
  * wording so that the two deployments cannot drift.
+ *
+ * ⚠ **`statusText` carries the cause, and that is not decoration.** Two callers in the editor build
+ * a sentence a scholar reads out of `${status} ${statusText}` — `HistoricalMapPane.svelte`'s
+ * ADR-0008 catch and `tile-protocol.ts`'s tile loader — and both of them used to receive the store's
+ * own thrown error. Answering with a bare status turned `“abc123” could not be opened: the quota was
+ * exceeded` into `… (500 )`, losing the cause and leaving a dangling space. Measured, and fixed here
+ * rather than by editing those two call sites, because the fault is this function throwing away
+ * something it was handed.
+ *
+ * ⚠ **The status is clamped.** `SiteFileUnreachableError.status` is a plain `number` on an exported
+ * class, and `new Response(…, { status: 999 })` throws `RangeError` — out of the one function in
+ * this module that promises never to reject for a request it answers.
  */
 function refusal(failure: TileSourceFailure): Response {
-	const status =
+	const detail = describeFailure(failure);
+	const wanted =
 		failure.kind === 'server-error' ? failure.status : failure.kind === 'no-answer' ? 504 : 500;
-	return new Response(JSON.stringify({ error: describeFailure(failure) }), {
-		status,
+	return new Response(JSON.stringify({ error: detail }), {
+		status: wanted >= 200 && wanted <= 599 ? wanted : 500,
+		statusText: reasonPhrase(detail),
 		headers: { 'content-type': 'application/json' }
 	});
 }
+
+/**
+ * `detail` as something `statusText` will accept.
+ *
+ * ⚠ **The accepted set is narrower than it looks, and it was measured rather than assumed.** A
+ * `Response`'s `statusText` throws `TypeError` for a newline, for `NUL`, for `BEL`, for `DEL` — and
+ * **for any character above US-ASCII at all**, which matters here because this repository's own error
+ * messages are full of typographic dashes and curly quotes. A first version of this folded only
+ * `< 0x20` and would have thrown on the shim's own wording.
+ *
+ * So the filter is the grammar rather than a list of things noticed: `HTAB`, `SP`, and `VCHAR`
+ * (0x21–0x7E) survive, everything else becomes a space. Then collapsed, trimmed, and cut short,
+ * because a reason-phrase is a label and not a log. Iterated by code point, so an astral character
+ * becomes one space rather than two.
+ */
+const reasonPhrase = (detail: string): string =>
+	[...detail]
+		.map((character) => {
+			const code = character.codePointAt(0) ?? 0;
+			return code === 0x09 || (code >= 0x20 && code <= 0x7e) ? character : ' ';
+		})
+		.join('')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.slice(0, 200);
 
 /** The facts, for a log or a `Response` body. Never shown to a person — see the note above. */
 const describeFailure = (failure: TileSourceFailure): string => {
@@ -273,10 +335,20 @@ const describeFailure = (failure: TileSourceFailure): string => {
  * original `input` and `init` are handed on **unmodified** rather than rebuilt from a parsed
  * URL — a remote IIIF service is entitled to the request its caller made, headers included.
  *
- * **Answers with a `Response` for every request, including every failure, and never rejects.**
+ * **A request this function answers itself — anything addressed to the placeholder host — comes back
+ * as a `Response`, whatever went wrong.** There are exactly two ways the returned promise rejects,
+ * both of them deliberate and both asserted: a **pass-through** request rejects with whatever the
+ * network gave it, because that answer is the caller's rather than this shim's; and an **abort**
+ * rethrows untouched, because the caller asked for it. Nothing else. In particular a store that
+ * refused, a store that could not be reached, and a subscriber that threw all still produce a
+ * `Response` — each of those was a way this function used to reject, and each is a way a refusal
+ * used to escape into a renderer that would not catch it.
  *
- * ⚠ That last clause used to have an exception — "a store that cannot be reached at all is the
- * caller's to render" — and the exception was the defect. This function is installed inside other
+ * ⚠ That guarantee used to be written here as "never rejects", flatly, twenty lines above two
+ * documented rejections. The headline is what a reader takes away, so it says what is true.
+ *
+ * ⚠ It also used to have an exception — "a store that cannot be reached at all is the caller's to
+ * render" — and that exception was the defect. This function is installed inside other
  * people's renderers, and the caller never sees the promise: `@allmaps/render`'s `WarpedMap.loadImage`
  * rethrows whatever `fetchFn` rejected with, and `WebGL2Renderer` calls it without awaiting or
  * catching, so the rejection arrived as an uncaught `pageerror` and reached nobody at all. On a
@@ -300,43 +372,64 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 	const passThrough = options.fetch ?? ((input, init) => fetch(input, init));
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// WHEN A NOTICE GOES BACK UP, AND WHEN IT COMES DOWN: THE BURST RULE
+	// WHEN A NOTICE GOES UP, AND WHEN IT COMES DOWN: THE BYTES THAT DID NOT ARRIVE
 	//
-	// ⚠ **A refusal is reported the moment it happens; an arrival is reported only at the end of a
-	// burst that had no refusals in it.** The two halves are deliberately asymmetric, and the
-	// asymmetry is what stops an alert flickering over a map that is still broken.
+	// **A refusal is reported the moment it happens. An arrival is reported when the last URL that was
+	// refused has come back** — not before, and not on the strength of some *other* URL succeeding.
 	//
-	// Tiles are fetched dozens at a time. Inside one such burst the successes and the failures
-	// interleave in whatever order the network settles them, so "the most recent outcome wins" makes
-	// the notice depend on which request happened to finish last — and a *partial* outage, where half
-	// the cells are refused every time, would take its own notice down. The previous epic's warning is
-	// the mirror image of the same defect: a one-way flag leaves an alert sitting over a working map.
+	// ⚠ **This replaced a rule that counted concurrent requests, and the replacement is here because
+	// the first rule's stated guarantee was false.** That rule withdrew the notice when a burst of
+	// in-flight requests completed with no refusal in it, which is sound while requests overlap and
+	// nonsense when they do not: requests issued one at a time each formed their own "burst", so three
+	// serial refusals interleaved with three serial successes produced three withdrawals. Measured.
+	// `@allmaps/render` mostly fetches concurrently, but the tail of a burst and a re-fetched
+	// `info.json` are serial, so the hole was reachable.
 	//
-	// So: a burst is the stretch from the first request going out to the last one settling. Raising is
-	// immediate, because a person should not wait on a burst to be told something failed. Withdrawing
-	// waits for a whole burst to complete cleanly, which is the only evidence that the source is
-	// answering again rather than answering sometimes.
+	// Naming the URLs removes the question rather than answering it better. There is no burst, no
+	// ordering assumption, and no difference between the serial and the concurrent case: the notice is
+	// up exactly while some tile the map asked for has not arrived. A *partial* outage keeps its
+	// notice, because the cells it refuses stay outstanding however many others succeed.
 	//
-	// Counters and not clocks, so the rule is deterministic and the tests are not timing tests.
-	let inFlight = 0;
-	let refusedInBurst = false;
-	let arrivedInBurst = false;
+	// ⚠ **The consequence, stated because it is the thing a reader will want to know:** a refused URL
+	// that is never asked for again keeps the notice up. That is deliberate — those bytes really are
+	// missing from the map — and it is why the sentence's remedy has to name the gesture that fetches
+	// them rather than promising the map will heal on its own. See `tile-failure.ts`, and the two
+	// end-to-end tests that measure which failures self-heal and which do not.
+	const outstanding = new Set<string>();
 
-	const arrived = (): void => {
-		arrivedInBurst = true;
-	};
-	const refused = (failure: TileSourceFailure, imageId: string | null): void => {
-		refusedInBurst = true;
-		onOutcome?.({ ok: false, failure, imageId });
-	};
-	const burstEnded = (): void => {
-		const clean = arrivedInBurst && !refusedInBurst;
-		refusedInBurst = false;
-		arrivedInBurst = false;
-		if (clean) onOutcome?.({ ok: true });
+	/**
+	 * Hand an outcome to the app, and never let the app's own failure destroy this request.
+	 *
+	 * ⚠ **A subscriber is application code and it can throw.** `onOutcome` is called from the middle
+	 * of a fetch — once from a `catch`, once beside a 200 whose `Response` is already built — so an
+	 * unguarded call turns a tile that *arrived* into a rejected promise, inside a function whose
+	 * whole purpose is that refusals do not escape into a renderer. That is ticket 01's `9ee43b5`
+	 * defect at a new seam, and this is the same answer: the path is not the subscriber's to break.
+	 *
+	 * Rethrown out of band rather than swallowed, because a silent subscriber failure is precisely
+	 * what this epic exists to stop. `queueMicrotask` puts it where an uncaught error goes, with
+	 * nothing of ours left on the stack to catch it, so the page's error handling and the suite's
+	 * `pageerror` watch both see it — and the tile still arrives.
+	 */
+	const tell = (outcome: TileFetchOutcome): void => {
+		try {
+			onOutcome?.(outcome);
+		} catch (cause) {
+			queueMicrotask(() => {
+				throw cause;
+			});
+		}
 	};
 
-	const answer: FetchFn = async (input, init) => {
+	const arrived = (url: string): void => {
+		if (outstanding.delete(url) && outstanding.size === 0) tell({ ok: true });
+	};
+	const refused = (url: string, failure: TileSourceFailure, imageId: string | null): void => {
+		outstanding.add(url);
+		tell({ ok: false, failure, imageId });
+	};
+
+	return async (input, init) => {
 		const url = urlOf(input);
 
 		if (!isImageServicePlaceholderUrl(url)) {
@@ -362,14 +455,14 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 			// request its caller made, headers included, and to answer it however it likes.
 			try {
 				const response = await passThrough(input, init);
-				if (response.ok) arrived();
+				if (response.ok) arrived(url);
 				return response;
 			} catch (cause) {
 				// An abort is the caller changing its mind, not a failure: the viewport moved and the
 				// tile is no longer wanted. Reporting one would put "the tiles stopped arriving" on
 				// screen every time a Reader panned the map.
 				if (!isAbort(cause)) {
-					refused(classifyTileFailure(cause, parseUrl(url)?.hostname ?? null), null);
+					refused(url, classifyTileFailure(cause, parseUrl(url)?.hostname ?? null), null);
 				}
 				throw cause;
 			}
@@ -419,7 +512,7 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 			// {@link TileFetchOutcome}. Without the `info.json` there is no map at all, and that is a
 			// site published incomplete.
 			if (failure.kind !== 'file-missing' || path === imageInfoPath(imageId)) {
-				refused(failure, imageId);
+				refused(url, failure, imageId);
 			}
 			if (failure.kind === 'file-missing') {
 				return notFound(`Nothing is stored at ${path}, which is where ${url} resolves to.`);
@@ -427,7 +520,7 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 			return refusal(failure);
 		}
 
-		arrived();
+		arrived(url);
 
 		const headers = {
 			'content-type': mediaType(path),
@@ -437,19 +530,6 @@ export function createStoreImageFetch(options: StoreImageFetchOptions): FetchFn 
 		return method === 'HEAD'
 			? new Response(null, { status: 200, headers })
 			: new Response(bytes, { status: 200, headers });
-	};
-
-	// The burst bookkeeping wraps every path, including the ones that answer without a read — a 405
-	// or a malformed path still opened and closed a request, and a burst that forgot one would never
-	// reach zero and never withdraw a notice.
-	return async (input, init) => {
-		inFlight += 1;
-		try {
-			return await answer(input, init);
-		} finally {
-			inFlight -= 1;
-			if (inFlight === 0) burstEnded();
-		}
 	};
 }
 

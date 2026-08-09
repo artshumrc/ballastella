@@ -39,6 +39,18 @@ const SAFE =
 	'author’s work are unaffected, and whatever of the map had already been drawn is still on screen.';
 
 /**
+ * The recovery clause the two recoverable rows share.
+ *
+ * ⚠ **Every word of it is measured** — see the two recovery tests in `viewer-reader.e2e.ts`. A
+ * refused `info.json` heals with no gesture; a refused tile cell does not, and not after a zoom
+ * either. The sentence it replaced promised the map would finish drawing on its own, which was false
+ * for the tile-cell half and left a Reader waiting in front of a warning that would never go.
+ */
+const WHEN_IT_ANSWERS_AGAIN =
+	'When it is answering again the map picks up what it can by itself; anything still missing ' +
+	'comes back if you hide this Layer and show it again, or reload the page.';
+
+/**
  * The row for a request that got no answer at all — what an aborted route looks like to `fetch`.
  *
  * @param mapName the Layer's name, as the stack shows it
@@ -48,8 +60,7 @@ export function tilesUnavailableNotice(mapName: string, where: string): string {
 	return (
 		`The Historical Map “${mapName}” stopped drawing, because ${where} could not be reached. ` +
 		`${SAFE} That is either your connection or that server, and there is no way to tell which ` +
-		'from here. The map finishes drawing on its own once the tiles start arriving again, so it ' +
-		'is worth checking your connection and waiting rather than reloading.'
+		`from here. ${WHEN_IT_ANSWERS_AGAIN}`
 	);
 }
 
@@ -63,6 +74,6 @@ export function tilesServerErrorNotice(mapName: string, where: string, status: n
 	return (
 		`The Historical Map “${mapName}” stopped drawing, because ${where} answered ${status}. ` +
 		`${SAFE} The server answered, so your own connection is working and it is that server that ` +
-		'is failing. The map draws itself again once it recovers.'
+		`is failing. ${WHEN_IT_ANSWERS_AGAIN}`
 	);
 }

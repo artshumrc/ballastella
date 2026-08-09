@@ -47,7 +47,6 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		expect(library).toContain('maps.library.example could not be reached');
 		// Both remedies, because `status === 0` genuinely cannot tell them apart from inside the page.
 		expect(here).toContain('either your connection or that server');
-		expect(here).toContain('checking your connection');
 	});
 
 	it('tells a Reader that reconnecting will not help when the file is simply not there', () => {
@@ -68,7 +67,39 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		expect(notice).toContain('maps.library.example answered 503');
 		// The one thing this row knows that the no-answer row cannot: something answered.
 		expect(notice).toContain('your own connection is working');
-		expect(notice).toContain('draws itself again once it recovers');
+	});
+
+	it('names the gesture that actually fetches what is still missing, and no other', () => {
+		// ⚠ **This row is measured, not reasoned.** `viewer-reader.e2e.ts` drives both shapes of the
+		// failure: a refused `info.json` heals with no gesture at all (`loadMissingImagesInViewport`
+		// runs every frame), and a refused tile cell does not — **not even after a zoom**, because the
+		// failed cell sits in the renderer's tile cache. Only a rebuilt layer re-requests it.
+		//
+		// The sentence used to promise "the map finishes drawing on its own … worth checking your
+		// connection and waiting rather than reloading". A Reader who followed that waited in front of
+		// a warning that would never go. So: what the map does by itself, and what it needs a person
+		// for, said separately.
+		for (const failure of EVERY_ROW) {
+			const notice = historicalMapTilesUnavailableNotice(failure, 'Blaeu’s plan');
+			const recovers = failure.kind === 'no-answer' || failure.kind === 'server-error';
+
+			if (recovers) {
+				expect(notice, failure.kind).toContain('picks up what it can by itself');
+				expect(notice, failure.kind).toContain('hide this Layer and show it again');
+				expect(notice, failure.kind).toContain('reload the page');
+			} else {
+				// Nothing to come back: reloading for a file the site does not carry cannot work.
+				expect(notice, failure.kind).not.toContain('picks up what it can');
+				expect(notice, failure.kind).not.toContain('hide this Layer');
+			}
+
+			// The two claims that were false, in every row, in any wording.
+			expect(notice, failure.kind).not.toContain('finishes drawing on its own');
+			expect(notice, failure.kind).not.toContain('waiting rather than reloading');
+			expect(notice, failure.kind).not.toContain('draws itself again');
+			// And never the gesture that was measured NOT to work.
+			expect(notice, failure.kind).not.toMatch(/mov(e|ing) the map|pan|zoom/i);
+		}
 	});
 
 	it('says what happened and nothing more for a failure it cannot classify', () => {
@@ -105,7 +136,9 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		for (const failure of EVERY_ROW) {
 			const notice = historicalMapTilesUnavailableNotice(failure, 'Blaeu’s plan');
 
-			if (failure.kind !== 'no-answer') expect(notice).not.toContain('checking your connection');
+			if (failure.kind !== 'no-answer') {
+				expect(notice).not.toContain('either your connection or that server');
+			}
 			if (failure.kind !== 'file-missing') {
 				expect(notice).not.toContain('Whoever published');
 				expect(notice).not.toContain('Reconnecting will not help');
@@ -123,18 +156,32 @@ describe('historicalMapTilesUnavailableNotice', () => {
 		}
 	});
 
-	it('is one sentence group in a fixed order, so both deployments read the same', () => {
-		// Three things, in the order the questions arrive (SPEC: it is not you; your work is safe;
-		// here is what would fix it). Asserted as an order rather than as three memberships, because
-		// the failure this shape prevents is a remedy read before the reassurance.
+	it('puts the three things in the order the questions arrive, and says all three', () => {
+		// SPEC: it is not you; your work is safe; here is what would fix it. Asserted as three indices
+		// in order rather than as three memberships, because the failure this shape prevents is a
+		// remedy read before the reassurance.
+		//
+		// ⚠ **The first version of this test could not detect a reorder**, which is what it existed
+		// for. It compared the fact against the reassurance and then asserted that the string was
+		// merely *longer* than the reassurance — satisfied by `SAFE` alone, and green with `remedy()`
+		// returning `''` for every row. The remedy needs its own index, and the index needs to be of
+		// something only that row's remedy contains.
+		const REMEDY_MARK: Record<TileSourceFailure['kind'], string> = {
+			'no-answer': 'either your connection or that server',
+			'file-missing': 'Whoever published this site',
+			'server-error': 'your own connection is working',
+			unreadable: 'Reloading the page'
+		};
+
 		for (const failure of EVERY_ROW) {
 			const notice = historicalMapTilesUnavailableNotice(failure, 'Blaeu’s plan');
 			const stopped = notice.indexOf('stopped drawing');
 			const safe = notice.indexOf('Nothing you did caused this');
+			const remedy = notice.indexOf(REMEDY_MARK[failure.kind]);
 
-			expect(stopped).toBeGreaterThanOrEqual(0);
-			expect(safe).toBeGreaterThan(stopped);
-			expect(notice.length).toBeGreaterThan(safe + 'Nothing you did caused this'.length);
+			expect(stopped, failure.kind).toBeGreaterThanOrEqual(0);
+			expect(safe, failure.kind).toBeGreaterThan(stopped);
+			expect(remedy, failure.kind).toBeGreaterThan(safe);
 		}
 	});
 });

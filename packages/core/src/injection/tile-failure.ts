@@ -125,10 +125,12 @@ function remedy(failure: TileSourceFailure): string {
 			// the same discipline `online.svelte.ts` applies to `navigator.onLine`.
 			return (
 				'That is either your connection or that server, and there is no way to tell which from ' +
-				'here. The map finishes drawing on its own once the tiles start arriving again, so it is ' +
-				'worth checking your connection and waiting rather than reloading.'
+				`here. ${WHEN_IT_ANSWERS_AGAIN}`
 			);
 		case 'file-missing':
+			// No recovery clause: there is nothing to come back. Telling somebody to reload a page to
+			// re-request a file the site does not carry is advice that cannot work, which is the whole
+			// reason this row is told apart from the two that can recover.
 			return (
 				'Reconnecting will not help, because the file is not there to fetch. Whoever published ' +
 				'this site has to restore it.'
@@ -138,9 +140,37 @@ function remedy(failure: TileSourceFailure): string {
 			// can say with certainty and the one thing the row above cannot.
 			return (
 				'The server answered, so your own connection is working and it is that server that is ' +
-				'failing. The map draws itself again once it recovers.'
+				`failing. ${WHEN_IT_ANSWERS_AGAIN}`
 			);
 		case 'unreadable':
 			return 'Reloading the page is the thing most likely to help.';
 	}
 }
+
+/**
+ * What actually happens when the bytes become fetchable again — measured, not assumed.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THIS DOES NOT SAY "THE MAP FINISHES DRAWING ON ITS OWN"
+ *
+ * ⚠ It used to, and it was **false for the commoner half of the failure**. `viewer-reader.e2e.ts`
+ * drives both shapes and the two do not recover alike:
+ *
+ *   - a refused **`info.json`** DOES heal with no gesture at all, because `WebGL2Renderer.render`
+ *     calls `loadMissingImagesInViewport()` on every frame and re-asks for it until it arrives;
+ *   - a refused **tile cell** does NOT. The renderer never asks for it again — **not even after a
+ *     zoom**, which was measured too, because the failed cell is already in its tile cache. Only a
+ *     rebuilt layer re-requests it.
+ *
+ * So a Reader who followed the old sentence — "worth checking your connection and waiting rather than
+ * reloading" — waited in front of a warning that would never go, over a map that would never finish.
+ * A sentence promising something the code cannot do is the failure mode this epic's own notes name as
+ * the recurring one.
+ *
+ * Hiding and showing the Layer is named as well as reloading because it is the cheaper of the two and
+ * it is measured to work: the Reader keeps their place on the map, their Annotations, and every other
+ * Layer.
+ */
+const WHEN_IT_ANSWERS_AGAIN =
+	'When it is answering again the map picks up what it can by itself; anything still missing ' +
+	'comes back if you hide this Layer and show it again, or reload the page.';

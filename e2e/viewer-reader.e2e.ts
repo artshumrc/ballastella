@@ -1566,10 +1566,15 @@ test.describe('a Published Site that is not entirely well', () => {
 		// **What this line defends, stated from the mutation rather than from the intention.** Restoring
 		// the `throw cause` that `createStoreImageFetch` used to do leaves this line GREEN — measured —
 		// because the patch to `@allmaps/render`'s `WebGL2Renderer` now settles the promise that
-		// carried the rejection. Reverting *that* hunk turns this red with
-		// `pageerror: … could not be reached`, also measured. So this assertion is the guard on the
-		// patch, and "the Reader is told" is guarded by the two tests at the end of this describe.
-		// Both halves are needed and neither subsumes the other.
+		// carried the rejection. "The Reader is told" is guarded by the three tests at the end of this
+		// describe instead.
+		//
+		// ⚠ **And this is a WEAK guard on the patch, which is worth knowing before trusting it.** With
+		// the hunk reverted this test fails **1 run in 8** — its refusal is a race between the
+		// connection being cut and the `info.json` fetch — while `tells a server that is failing apart
+		// from a connection that is gone` fails **4 of 4**, because it drives the refusal deliberately.
+		// A green run with this test merely *retried* is exactly what a reverted patch looks like, so
+		// the retry budget is not the instrument here. That test is.
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -2139,9 +2144,37 @@ test.describe('a Published Site that is not entirely well', () => {
 		});
 	};
 
+	const askForMoreTiles = async (page: Page, delta: number): Promise<void> => {
+		await page.evaluate((by) => {
+			const handle = window.ballastellaReaderMap!;
+			handle.map.jumpTo({
+				center: [handle.map.getCenter().lng, handle.map.getCenter().lat],
+				zoom: handle.map.getZoom() + by
+			});
+		}, delta);
+	};
+
+	/**
+	 * Whether `locator` is still on screen after long enough for a withdrawal to have happened.
+	 *
+	 * A bounded wait rather than an instant `toHaveCount(1)`, because the claim is about an *absence
+	 * of change over time*: the notice is **not** withdrawn, as against not having been withdrawn yet.
+	 *
+	 * ⚠ **8 s is chosen against a measurement, not picked.** The withdrawal this is asserting the
+	 * absence of is the same one `takes the notice down by itself when the map's own record answers
+	 * again` asserts the presence of, and that one clears inside a second. And the negative has a
+	 * positive control **in its own test**: a few lines later the same locator does reach count 0, so
+	 * "it stayed" cannot be a locator that could never have cleared.
+	 */
+	const stillThereAfter = async (locator: Locator): Promise<boolean> =>
+		locator
+			.waitFor({ state: 'detached', timeout: 8_000 })
+			.then(() => false)
+			.catch(() => true);
+
 	const TILE_ROUTE = `**/images/${IMAGE_ID}/**`;
 
-	test('tells a Reader when a Historical Map’s tiles stop arriving, and takes it back', async ({
+	test('tells a Reader when a Historical Map’s tiles stop arriving, and keeps what arrived', async ({
 		page
 	}) => {
 		site = await published(oneProject());
@@ -2218,11 +2251,25 @@ test.describe('a Published Site that is not entirely well', () => {
 			)
 		).toBeGreaterThan(0);
 
-		// ── It withdraws itself ─────────────────────────────────────────────────────────────────────
-		// SPEC story 17, and the shape the previous epic warned about: a one-way flag leaves an alert
-		// sitting over a working map. Driven as error → recovery, with the notice asserted visible
-		// above, so this cannot pass by never having raised it.
+		// ── A refused cell is NOT re-asked for, and the notice says so rather than waiting ──────────
+		// **Measured, and it is why the sentence above says what it says.** With the route lifted the
+		// tiles are fetchable again — and the renderer never asks. `askForMoreTiles` is a whole zoom
+		// level and does not shift it either, because the failed cell is already in the tile cache. So
+		// the notice stays, correctly: those bytes really are missing from the map.
+		//
+		// The wait is bounded, and it has a positive control a few lines down: the same locator does
+		// reach count 0 once the Layer is redrawn, so "it stayed" is not a locator that could never
+		// have cleared.
 		await page.unroute(TILE_ROUTE);
+		await askForMoreTiles(page, 1);
+		expect(
+			await stillThereAfter(notice),
+			'a refused tile cell is not re-requested, so its notice stays'
+		).toBe(true);
+
+		// ── …and it withdraws itself the moment those cells do arrive ───────────────────────────────
+		// SPEC story 17, driven as error → recovery, with the notice asserted visible above so this
+		// cannot pass by never having raised it. The gesture is the one the sentence names.
 		await redrawMapLayer(page);
 		await expect(notice).toHaveCount(0, { timeout: 45_000 });
 		await expect.poll(() => cachedTiles(page), { timeout: 60_000 }).toBeGreaterThan(0);
@@ -2277,6 +2324,58 @@ test.describe('a Published Site that is not entirely well', () => {
 		// core's shim answers the refusal with a `Response`, `@allmaps/stdlib`'s `fetchUrl` throws its
 		// own error for any non-ok answer, and `WebGL2Renderer.render` used to drop the promise that
 		// carried it. Revert either half and this goes red.
+		//
+		// ⚠ **This is the deterministic guard on the patch, and the offline test above is not.** With
+		// the hunk reverted this test failed 4 of 4; the offline test failed 1 of 8, because its own
+		// refusal is a race. A green run with one retried offline test is exactly what a reverted patch
+		// looks like, so the retry budget is not the instrument here — this test is.
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('takes the notice down by itself when the map’s own record answers again', async ({
+		page
+	}) => {
+		// ═══════════════════════════════════════════════════════════════════════════════════════════
+		// SPEC STORY 17, AND THE HALF THAT REALLY DOES HEAL WITH NO GESTURE AT ALL
+		//
+		// ⚠ **The two shapes of this failure recover differently, and the difference is measured here
+		// and in the test above rather than reasoned about.** A refused `info.json` is re-asked for on
+		// every frame — `WebGL2Renderer.render` calls `loadMissingImagesInViewport()` unconditionally —
+		// so the moment the site answers, the map heals and this notice goes, with the Reader doing
+		// nothing whatever. A refused tile **cell** is never re-asked, not even after a zoom.
+		//
+		// Both tests exist because the earlier single test drove recovery through a Layer redraw, which
+		// rebuilds the renderer with an empty cache and therefore makes **both** shapes recover. It
+		// passed either way and the asymmetry was invisible to it — while the sentence on screen
+		// promised every Reader that the map "finishes drawing on its own".
+		// ═══════════════════════════════════════════════════════════════════════════════════════════
+		site = await published(oneProject());
+		const served = site.sites[0]!;
+		const seen = watch(page);
+
+		await page.goto(`${served.url}?p=amsterdam-1625`);
+		await mapReady(page);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
+			timeout: 60_000
+		});
+		const notice = page.getByTestId('historical-map-tiles-unavailable');
+		await expect(notice).toHaveCount(0);
+
+		const INFO_ROUTE = `**/images/${IMAGE_ID}/info.json`;
+		await page.route(INFO_ROUTE, (route) => route.abort());
+		await redrawMapLayer(page);
+		// Asserted **visible first**, so the disappearance below is this signal acting rather than a
+		// notice that was never raised.
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+
+		// ── No gesture. None. ───────────────────────────────────────────────────────────────────────
+		// The route is lifted and nothing else happens: no click, no zoom, no redraw. This is the one
+		// place in the suite where the Reader does nothing and the interface is still expected to
+		// correct itself, which is exactly what story 17 asks for.
+		await page.unroute(INFO_ROUTE);
+		await expect(notice).toHaveCount(0, { timeout: 45_000 });
+		await expect.poll(() => cachedTiles(page), { timeout: 60_000 }).toBeGreaterThan(0);
+
 		expect(seen.failures).toEqual([]);
 	});
 });

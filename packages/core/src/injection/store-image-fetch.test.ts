@@ -6,7 +6,7 @@
 // `ingestImageFile` actually wrote, because a routing rule that agrees with a hand-written path
 // and disagrees with the tiler would be worse than no rule at all.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 
 import { createImagePane } from '../image-pane/iiif-image-pane.js';
 import { ROUND_TRIP_TOLERANCE_PX } from '../image-pane/synthetic-projection.js';
@@ -381,81 +381,223 @@ describe('createStoreImageFetch', () => {
 		]);
 	});
 
-	it('reports bytes arriving, which is what takes a notice back down', async () => {
+	it('says nothing at all while everything is arriving', async () => {
+		// There is no notice to take down, so there is nothing to report. A shim that announced every
+		// healthy tile would make the app's `onOutcome` the hottest callback on the page.
 		const { fetchImage, outcomes } = outcomesOf(await storeWithTile());
 
 		expect((await fetchImage(placeholderTile)).status).toBe(200);
 
-		expect(outcomes).toEqual([{ ok: true }]);
+		expect(outcomes).toEqual([]);
 	});
 
-	it('withdraws nothing until a whole burst has completed without a refusal', async () => {
-		// ⚠ **The rule that stops an alert flickering over a map that is still broken.** Tiles are
-		// fetched dozens at a time, and inside one burst the successes and the failures interleave in
-		// whatever order the network settles them. "The most recent outcome wins" would make the notice
-		// depend on which request finished last — and a *partial* outage, where half the cells are
-		// refused on every attempt, would take its own notice down. So an arrival is only reported when
-		// a burst ends with no refusal in it, while a refusal is reported the moment it happens.
-		let hold: (() => void) | undefined;
+	it('takes the notice down when the URL that was refused comes back, and not before', async () => {
+		let refusing = true;
 		const store: ReadOnlyProjectStore = {
 			read: async (path) => {
-				if (path.endsWith('default.jpg')) {
-					await new Promise<void>((resolve) => (hold = resolve));
-					return new TextEncoder().encode('late bytes');
-				}
-				throw new SiteFileUnreachableError(path, path, 0, 'Failed to fetch');
+				if (refusing) throw new SiteFileUnreachableError(path, path, 0, 'Failed to fetch');
+				return new TextEncoder().encode('bytes');
 			}
 		};
 		const outcomes: TileFetchOutcome[] = [];
-		const fetchImage = createStoreImageFetch({
-			store,
-			onOutcome: (outcome) => outcomes.push(outcome)
-		});
+		const fetchImage = createStoreImageFetch({ store, onOutcome: (o) => outcomes.push(o) });
 
-		// One burst: a tile that arrives late and an `info.json` that is refused. The arrival settles
-		// last, and must not be read as the outage being over.
-		const arriving = fetchImage(placeholderTile);
-		await fetchImage(`${imageServiceId('abc123')}/info.json`);
-		hold!();
-		await arriving;
-
+		await fetchImage(placeholderTile);
 		expect(outcomes).toEqual([
 			{ ok: false, failure: { kind: 'no-answer', host: null }, imageId: 'abc123' }
 		]);
 
-		// A second burst, this one clean: that is the evidence the source is answering again.
-		const after = fetchImage(placeholderTile);
-		hold!();
-		await after;
+		// **Some other URL arriving is not evidence about this one.** A map can be serving nine cells
+		// happily while the tenth is refused, and a notice withdrawn on the nine is a notice withdrawn
+		// over a hole.
+		refusing = false;
+		await fetchImage(`${imageServiceId('abc123')}/0,0,1,1/1,1/0/default.jpg`);
+		expect(outcomes).toHaveLength(1);
+
+		// The one that failed, arriving, is the whole signal.
+		await fetchImage(placeholderTile);
 		expect(outcomes.at(-1)).toEqual({ ok: true });
 	});
 
-	it('keeps a partial outage’s notice up, burst after burst', async () => {
-		// The row the rule above exists for, driven rather than argued: half the cells refused every
-		// time is a map that is half drawn, and the sentence stays true until that stops.
+	it('keeps the notice up while any refused URL is still missing, not just the last one', async () => {
+		// ⚠ **Two outstanding at once, which is the row a one-at-a-time test cannot reach.** An
+		// implementation that cleared the whole set whenever any refused URL came back — or that
+		// reported `ok` on the first recovery rather than the last — passes every other test in this
+		// file and takes the notice down over a map that is still short of a cell.
+		const refusing = new Set([placeholderTile, `${imageServiceId('abc123')}/info.json`]);
+		const store: ReadOnlyProjectStore = {
+			read: async (path) => {
+				if ([...refusing].some((url) => url.endsWith(path.split('/').slice(2).join('/')))) {
+					throw new SiteFileUnreachableError(path, path, 0, 'Failed to fetch');
+				}
+				return new TextEncoder().encode('bytes');
+			}
+		};
+		const outcomes: TileFetchOutcome[] = [];
+		const fetchImage = createStoreImageFetch({ store, onOutcome: (o) => outcomes.push(o) });
+
+		await Promise.all([...refusing].map((url) => fetchImage(url)));
+		expect(outcomes.filter((outcome) => !outcome.ok)).toHaveLength(2);
+
+		// The first of the two starts answering. The other has not, so nothing is withdrawn.
+		refusing.delete(placeholderTile);
+		await fetchImage(placeholderTile);
+		expect(outcomes.filter((outcome) => outcome.ok)).toEqual([]);
+
+		// Only when the last one comes back is the map whole again.
+		refusing.clear();
+		await fetchImage(`${imageServiceId('abc123')}/info.json`);
+		expect(outcomes.at(-1)).toEqual({ ok: true });
+	});
+
+	it('keeps a partial outage’s notice up, concurrently and serially alike', async () => {
+		// ⚠ **The row that killed the rule this replaced.** That rule withdrew the notice when a burst
+		// of in-flight requests completed with no refusal in it, which is sound while requests overlap
+		// and nonsense when they do not — serial requests each formed their own burst, so this loop
+		// produced three withdrawals instead of none. `@allmaps/render` mostly fetches concurrently,
+		// but the tail of a burst and a re-fetched `info.json` are serial, so the hole was reachable.
+		//
+		// Driven **both ways from one body**, deliberately: the previous version of this test used
+		// `Promise.all` only, and that is exactly the shape the defect hid behind.
+		const refused = `${imageServiceId('abc123')}/256,0,256,256/256,256/0/default.jpg`;
 		const store: ReadOnlyProjectStore = {
 			read: async (path) => {
 				if (path.includes('256,0,')) throw new SiteFileUnreachableError(path, path, 0, 'no');
 				return new TextEncoder().encode('bytes');
 			}
 		};
-		const outcomes: TileFetchOutcome[] = [];
-		const fetchImage = createStoreImageFetch({
-			store,
-			onOutcome: (outcome) => outcomes.push(outcome)
+
+		for (const concurrently of [true, false]) {
+			const outcomes: TileFetchOutcome[] = [];
+			const fetchImage = createStoreImageFetch({ store, onOutcome: (o) => outcomes.push(o) });
+
+			for (let round = 0; round < 3; round += 1) {
+				const requests = [fetchImage(placeholderTile), fetchImage(refused)];
+				if (concurrently) await Promise.all(requests);
+				else for (const request of requests) await request;
+			}
+
+			// Three rounds, three refusals, and not one withdrawal — even though every round also
+			// carried a tile that arrived, and in the serial case it arrived first every time.
+			expect(
+				outcomes.filter((outcome) => outcome.ok),
+				String(concurrently)
+			).toEqual([]);
+			expect(outcomes, String(concurrently)).toHaveLength(3);
+		}
+	});
+
+	it('is not destroyed by a subscriber that throws, on a refusal or on bytes that arrived', async () => {
+		// ⚠ **Ticket 01's `9ee43b5` defect, at a new seam.** `onOutcome` is application code called
+		// from the middle of a fetch — once from a `catch`, once beside a 200 whose `Response` is
+		// already built. Unguarded, a subscriber that throws turns a tile that ARRIVED into a rejected
+		// promise, inside the one function in this epic whose purpose is that refusals do not escape
+		// into a renderer.
+		//
+		// ⚠ **The subscriber's own error is not swallowed — it is rethrown out of band**, so it reaches
+		// `window.onerror` in a browser and this suite's `pageerror` watch in the viewer. Node turns
+		// that into an `uncaughtException`, which vitest would otherwise fail the run with, so the
+		// process's handlers are swapped for the length of this test. That swap **is the assertion**
+		// as much as the two below: if the module ever starts swallowing, `escaped` is empty.
+		const saved = process.listeners('uncaughtException');
+		const escaped: unknown[] = [];
+		process.removeAllListeners('uncaughtException');
+		process.on('uncaughtException', (cause) => escaped.push(cause));
+		onTestFinished(() => {
+			process.removeAllListeners('uncaughtException');
+			for (const listener of saved) process.on('uncaughtException', listener);
 		});
 
-		for (let burst = 0; burst < 3; burst += 1) {
-			await Promise.all([
-				fetchImage(placeholderTile),
-				fetchImage(`${imageServiceId('abc123')}/256,0,256,256/256,256/0/default.jpg`)
-			]);
-		}
+		let refusing = true;
+		const store: ReadOnlyProjectStore = {
+			read: async (path) => {
+				if (refusing) throw new SiteFileUnreachableError(path, path, 0, 'Failed to fetch');
+				return new TextEncoder().encode('tile bytes');
+			}
+		};
+		const fetchImage = createStoreImageFetch({
+			store,
+			onOutcome: () => {
+				throw new Error('the subscriber blew up');
+			}
+		});
 
-		// Three bursts, three refusals, and not one withdrawal — even though every burst also carried a
-		// tile that arrived, and in two of the three it arrived last.
-		expect(outcomes.filter((outcome) => outcome.ok)).toEqual([]);
-		expect(outcomes).toHaveLength(3);
+		// The refusal still becomes a Response…
+		const refusal = await fetchImage(placeholderTile);
+		expect(refusal.status).toBe(504);
+
+		// …and the arrival still hands back its bytes, which is the half that matters most: the read
+		// succeeded and the subscriber must not be able to throw over the return value.
+		refusing = false;
+		const arrival = await fetchImage(placeholderTile);
+		expect(arrival.status).toBe(200);
+		expect(await arrival.text()).toBe('tile bytes');
+
+		// Both failures reached somewhere a person could see them, rather than nowhere.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(escaped.map((cause) => (cause as Error).message)).toEqual([
+			'the subscriber blew up',
+			'the subscriber blew up'
+		]);
+	});
+
+	it('carries the cause into statusText, because two editor sentences are built from it', async () => {
+		// `HistoricalMapPane.svelte` renders `${status} ${statusText}` at a scholar under ADR-0008, and
+		// `tile-protocol.ts` throws it. Answering with a bare status turned `“abc123” could not be
+		// opened: the quota was exceeded` into `… (500 )` — the cause lost and a dangling space left.
+		const { fetchImage } = outcomesOf(
+			refusingStore(() => {
+				throw new Error('the quota was exceeded');
+			})
+		);
+
+		const response = await fetchImage(placeholderTile);
+
+		expect(response.statusText).toContain('the quota was exceeded');
+	});
+
+	it('clamps a status a Response constructor would refuse', async () => {
+		// `SiteFileUnreachableError.status` is a plain `number` on an exported class, and
+		// `new Response(…, { status: 999 })` throws `RangeError` — out of the function that promises
+		// not to reject for a request it answers. Newlines in the detail would throw too, from
+		// `statusText`, so a multi-line message is folded rather than passed through.
+		const { fetchImage } = outcomesOf(
+			refusingStore(() => {
+				throw new SiteFileUnreachableError(
+					'images/abc123/info.json',
+					'https://maps.library.example/x',
+					999,
+					'line one\nline two'
+				);
+			})
+		);
+
+		const response = await fetchImage(`${imageServiceId('abc123')}/info.json`);
+
+		expect(response.status).toBe(500);
+		expect(response.statusText).not.toContain('\n');
+	});
+
+	it('folds a detail Response would refuse, including the dashes this repo writes', async () => {
+		// ⚠ **Measured, and narrower than it looks.** `statusText` throws `TypeError` for a newline,
+		// for `NUL`, for `DEL` — and for **any character above US-ASCII**, which is not a hypothetical
+		// here: this repository's own error prose is full of typographic dashes and curly quotes. A
+		// version of this that folded only `< 0x20` threw on the shim's own wording.
+		const { fetchImage } = outcomesOf(
+			refusingStore(() => {
+				throw new Error('the quota — “abc123” — was exceeded\u007f\u0000');
+			})
+		);
+
+		const response = await fetchImage(placeholderTile);
+
+		expect(response.statusText).toContain('the quota');
+		expect(response.statusText).toContain('was exceeded');
+		// Every surviving character is one a reason-phrase may hold.
+		for (const character of response.statusText) {
+			const code = character.codePointAt(0) ?? 0;
+			expect(code === 0x09 || (code >= 0x20 && code <= 0x7e), JSON.stringify(character)).toBe(true);
+		}
 	});
 });
 

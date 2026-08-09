@@ -351,10 +351,17 @@
 	 * previous epic left an alert sitting over a working map because nothing ever took it down.
 	 *
 	 * **When it goes back to `null` is not this component's decision.** `createStoreImageFetch` reports
-	 * an arrival only at the end of a burst of requests that had no refusal in it — so a straggler that
-	 * was already in flight when the outage began cannot be mistaken for a recovery, and a *partial*
-	 * outage, where half the cells are refused on every attempt, keeps its notice. Its header sets that
-	 * rule out at length. Here it is one assignment, which is the point of having put it there.
+	 * an arrival only when the last URL that was *refused* has come back — never on the strength of
+	 * some other URL succeeding — so a partial outage keeps its notice however many cells are arriving
+	 * beside the missing ones. Its header sets that rule out at length, and ADR-0028 records why it
+	 * replaced one that counted concurrent requests. Here it is one assignment, which is the point of
+	 * having put it there.
+	 *
+	 * ⚠ **The consequence a reader of this component should know:** what recovers unattended and what
+	 * does not is *not uniform*, and it is measured rather than reasoned. A refused `info.json` heals
+	 * with no gesture at all; a refused tile cell is never re-asked for, not even after a zoom. That is
+	 * why the sentence names hiding and showing the Layer — and why this notice can legitimately stay
+	 * up over a map whose server is answering again.
 	 */
 	let tileFailure = $state.raw<{
 		failure: TileSourceFailure;
