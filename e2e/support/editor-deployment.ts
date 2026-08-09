@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
+import type { Route } from '@playwright/test';
 import type { Page } from './test.js';
 import { PMTiles } from 'pmtiles';
 
@@ -227,6 +228,99 @@ export async function routeBaseMapArchive(target: Pick<Page, 'route'>): Promise<
  */
 export async function refuseBaseMapArchive(target: Pick<Page, 'route'>): Promise<void> {
 	await target.route(/\.pmtiles$/, (route) => route.abort('blockedbyclient'));
+}
+
+/** What {@link routePartialBaseMapArchive} hands back: the two switches, and its positive control. */
+export type PartialArchive = {
+	/** Hold every tile range open for ever — asked, never answered, never refused. */
+	hang(): void;
+	/** The limit lifts: tile ranges answer with the fixture's real bytes. */
+	serve(): void;
+	/** Tile ranges asked for, which can only be non-zero once the header answered. */
+	tileRangesAsked(): number;
+};
+
+/**
+ * Serve the archive's first range from the real fixture and refuse the rest, until told otherwise.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * THE SECOND WAY AN ARCHIVE FAILS, AND THE ONLY ONE THAT COMES BACK
+ *
+ * {@link refuseBaseMapArchive} models a host that is down: the **header** read fails, and `pmtiles`
+ * caches that rejected promise under the archive URL for the life of the page
+ * (`SharedPromiseCache.getHeader` stores the promise before it can reject, and `prune()` only evicts
+ * past `maxCacheEntries`). Nothing in that page load can make such an archive draw again — not a
+ * theme change, not a Base Map switch, since all four of this deployment's entries share one archive.
+ *
+ * This models the other one: a bucket that answers, then rate-limits mid-session. The header and root
+ * directory arrive, and every later **tile data** range refuses. Those go through an uncached
+ * `getBytes`, so when `serve()` lifts the limit and the map is panned, tiles arrive and the Base Map
+ * draws — which is the state both applications' `'drawing'` report exists for, and the only one that
+ * can withdraw an outage notice. `viewer-reader.e2e.ts` and `editor-base-map.e2e.ts` both drive it.
+ *
+ * ⚠ **A leaf directory read is not tile data.** `getDirectory` uses the same promise cache as
+ * `getHeader`, so a refused leaf directory is cached exactly like a refused header, and an archive
+ * large enough to have leaf directories does not recover this way. The committed fixture is one city
+ * and has none, so what these tests drive is the pure tile-data case — which is real, and is not the
+ * whole of what a planet-scale archive would do.
+ *
+ * `bytes=0-…` is the header read and nothing else: `FetchSource.getBytes` asks for `bytes=0-16383`
+ * once per archive and every later read is at `tileDataOffset + …`, past the end of a 4 MB fixture's
+ * header. So the discriminator is the offset rather than a counter, and it does not care how many
+ * tiles a viewport happens to want.
+ *
+ * `hang()` switches the refusal for silence — a request never answered and never failed — which is
+ * the only way to hold a source in "asked, not yet told" for the length of an assertion. Held
+ * handlers are dropped rather than resolved when the test ends, so call `page.unrouteAll({ behavior:
+ * 'ignoreErrors' })` rather than leaving Playwright waiting on a promise that by construction never
+ * settles.
+ *
+ * ⚠ **`tileRangesAsked` is this fixture's positive control, and both specs assert it.** Everything
+ * else a partial-refusal test asserts — a notice, no geography, a drawn stack — holds identically if
+ * the serving branch below is deleted and the whole archive refused, which would make "this reaches a
+ * different path" documentation rather than coverage. A tile range can only be *asked for* once
+ * `getHeader` resolved, so a non-zero count is the one observation that separates the two.
+ */
+export async function routePartialBaseMapArchive(
+	target: Pick<Page, 'route' | 'unroute'>
+): Promise<PartialArchive> {
+	const archive = await baseMapArchiveFixture();
+	let tiles: 'refuse' | 'hang' | 'serve' = 'refuse';
+	let asked = 0;
+	const answer = async (route: Route, range: string | undefined): Promise<void> => {
+		const served = byteRange(archive, range, 'application/octet-stream');
+		await route.fulfill({
+			status: served.status,
+			headers: { ...served.headers, 'access-control-allow-origin': '*' },
+			body: served.body
+		});
+	};
+	await target.unroute(/\.pmtiles$/);
+	await target.route(/\.pmtiles$/, async (route) => {
+		const range = route.request().headers()['range'];
+		// Counted before anything is decided, and counting only ranges that are **not** the header: a
+		// counter incremented inside the branch below would go on counting the header request if that
+		// branch were deleted, and would report a partial refusal for an outright one — precisely the
+		// mutation it exists to catch, which it did not catch until this line moved out here.
+		//
+		// ⚠ **Only a `bytes=0-…` request is the header.** A request carrying no `Range` at all is
+		// counted and refused with everything else, which is deliberate: `byteRange` answers an absent
+		// range with `200` and the **whole four-megabyte archive**, so treating one as the header would
+		// hand a test the entire archive under a fixture whose subject is an archive that will not
+		// answer. `FetchSource.getBytes` always sets a range, so nothing reaches this either way —
+		// which is exactly why the safer of the two spellings is the one to keep.
+		const header = range?.startsWith('bytes=0-') ?? false;
+		if (!header) asked += 1;
+		if (header) return answer(route, range);
+		if (tiles === 'hang') return new Promise<void>(() => undefined);
+		if (tiles === 'serve') return answer(route, range);
+		await route.abort('blockedbyclient');
+	});
+	return {
+		hang: () => void (tiles = 'hang'),
+		serve: () => void (tiles = 'serve'),
+		tileRangesAsked: () => asked
+	};
 }
 
 /**

@@ -35,6 +35,7 @@
 	import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 	import {
 		ANNOTATION_ID_PROPERTY,
+		BASE_MAP_SOURCE_ID,
 		applyOpeningFit,
 		baseMapStyle,
 		defaultEntry,
@@ -81,7 +82,8 @@
 		popupAt = null,
 		onclickannotation,
 		onpopupclose,
-		onstack
+		onstack,
+		onbasemapstatus
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
@@ -156,6 +158,28 @@
 		 * normal states a Reader has to be able to be told about.
 		 */
 		onstack?: (outcomes: Readonly<Record<string, DrawnOutcome>>) => void;
+		/**
+		 * Whether the Base Map's own source is drawing, and that it is not when it is not (ticket 22).
+		 *
+		 * ─────────────────────────────────────────────────────────────────────────────────────
+		 * A PUBLISHED SITE HAS NO CONSOLE ANYONE IS WATCHING
+		 *
+		 * The editor's `BaseMapPane` grew this in ticket 20, after `demo-bucket.protomaps.com` began
+		 * refusing the archive every entry in this deployment's catalog reads and the application's
+		 * whole response was a pane with nothing in it. The viewer did not, and the viewer is the side
+		 * with no developer looking: a Reader cannot tell an outage from a broken tool, and cannot rule
+		 * out the third possibility either — that the scholar's own work failed to draw.
+		 *
+		 * **Reported, not rendered here**, for the same reason it is in the editor: what to say is the
+		 * page's question, and the page already owns the fallback notice and the published-without-files
+		 * notice that this has to sit beside without contradicting.
+		 *
+		 * `'drawing'` is sent when the source loads, so this is a state rather than a one-way alarm. The
+		 * failure it is for is the archive that answers its header and then refuses tile **data** ranges
+		 * — a bucket rate-limiting mid-session — because those go through an uncached read and do come
+		 * back. The note on the `error` handler below has which failures recover and which cannot.
+		 */
+		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -188,7 +212,7 @@
 	 * glyphs, and sprites are all site-relative paths — so building the ordinary style would fire a
 	 * pmtiles range request and two sprite requests at files that are not there. The Reader would get a
 	 * blank map, three 404s, and no account of either. So the reference map is simply absent, the Project's
-	 * own Layers still draw over the background, and the page says why (see `base-map-unavailable`).
+	 * own Layers still draw over the background, and the page says why (see `base-map-not-published`).
 	 */
 	const styleFor = (id: string): StyleSpecification => {
 		const entry = catalog.entries.find((candidate) => candidate.id === id) ?? defaultEntry(catalog);
@@ -243,7 +267,7 @@
 		// system font, which is invisible to every assertion about the map (ADR-0025).
 		//
 		// **A map with no place names on it is not a map that needs no explanation.** The page says so:
-		// `baseMapUnavailable` in `+page.svelte` has a branch for exactly this state, and dropping it
+		// `baseMapNotPublished` in `+page.svelte` has a branch for exactly this state, and dropping it
 		// would leave a Reader holding an unlabelled world with no account of why.
 		const withoutDisplayAssets = { ...style };
 		delete withoutDisplayAssets.glyphs;
@@ -302,6 +326,72 @@
 			locale: { 'Map.Title': 'Base Map' }
 		});
 		created.addControl(new NavigationControl({}), 'top-right');
+
+		// ──────────────────────────────────────────────────────────────────────────────────────
+		// THE BASE MAP'S SOURCE, AND ONLY THAT SOURCE
+		//
+		// `error` carries everything MapLibre could not do — a warped Layer's tiles, a sprite, a glyph
+		// range. Reporting the lot as "no Base Map" would be a notice that appears for reasons it does
+		// not name, so this is filtered to the one source `baseMapStyle` declares. The same filter as
+		// the editor's pane, and deliberately the same source id: `styleFor` builds both the archive
+		// style and the cached-tiles style through `baseMapStyle`, so a site drawing from its own
+		// `base-map/tiles/…` reports through this too, which is right — tiles that will not read are
+		// as blank as an archive that will not answer.
+		//
+		// Only one of the five styles `styleFor` builds declares no source at all — the bare background,
+		// which is reached for a site published without its Base Map **and** a site-relative archive.
+		// Every entry in this deployment's catalog has an absolute archive, so the state a Reader
+		// actually meets on a site published without those files is the remote style with its symbol
+		// layers stripped, which declares this source, can fail, and reports here. Both notices can
+		// therefore be on screen at once, and `+page.svelte` says nothing in either that the other
+		// denies.
+		//
+		// ─────────────────────────────────────────────────────────────────────────────────────
+		// WHY THERE IS A `'drawing'` AS WELL, AND WHICH FAILURE IT IS FOR
+		//
+		// The two ways an archive fails are not the same shape, and only one of them can come back:
+		//
+		//   - **A header that refuses is sticky for the life of the page.** `pmtiles`'
+		//     `SharedPromiseCache.getHeader` caches the *promise* under the archive URL and never
+		//     deletes a rejected one (`prune()` only evicts past 100 entries), `Protocol.tiles` holds
+		//     one `PMTiles` per URL, and `registerPmtilesProtocol` makes one page-global `Protocol`. So
+		//     a theme change, a Base Map switch, and all four of this deployment's entries — they share
+		//     one archive — re-reject from cache without a request. Nothing can make a failed **header**
+		//     draw again, and the Base Map switch is covered by the page's own reset anyway.
+		//   - **Tile *data* ranges are not cached.** `getBytes` for tile data goes to the network
+		//     afresh every time, so the bucket that rate-limits mid-session — the shape
+		//     `routePartialBaseMapArchive` models — recovers the moment the limit lifts and the Reader
+		//     pans: tiles arrive, geography draws, and without this handler the alert would still be
+		//     sitting over a working map.
+		//
+		// ⚠ **A leaf directory is neither.** `getDirectory` shares the header's promise cache, so a
+		// refused leaf directory is a cached rejection exactly like a refused header — which means an
+		// archive big enough to have leaf directories, such as the planet-scale one this deployment
+		// points at, does not necessarily recover even when its tile data would. The committed test
+		// fixture is one city and has none, so what is driven is the pure tile-data case: real, and
+		// not the whole of it.
+		//
+		// That case is the whole of what `'drawing'` is for. The one measurement worth keeping from the
+		// round that deleted this: while the source is *persistently* failing, `sourcedata` fires only
+		// with `isSourceLoaded: false` (`visibility`, `metadata`, `content`), so the handler cannot
+		// withdraw a notice that is still true — which is asserted, and is why the partial-refusal
+		// notice is also asserted to stay up.
+		//
+		// Identical to `BaseMapPane`'s pair in the editor, deliberately: same source id, same shared
+		// sentence, and now the same recovery driven against both — `editor-base-map.e2e.ts`'s "is
+		// taken down when the archive starts answering again" is this test on the authoring side, and
+		// was added because deleting the editor's half left the whole repository green.
+		created.on('error', (event) => {
+			if ((event as { sourceId?: string }).sourceId !== BASE_MAP_SOURCE_ID) return;
+			onbasemapstatus?.('unavailable');
+		});
+		// `sourcedata` rather than `load`: the map fires `load` once the *style* is in, which happens
+		// whether or not the archive answered. What has to be observed is the source itself becoming
+		// loaded, which is the event that does not fire while the archive is refusing.
+		created.on('sourcedata', (event) => {
+			if (event.sourceId !== BASE_MAP_SOURCE_ID || !event.isSourceLoaded) return;
+			onbasemapstatus?.('drawing');
+		});
 
 		// A click reports the Annotation under it, and nothing else. There is no "place a point" here:
 		// a Reader cannot draw, so a click on empty geography is a click on empty geography.

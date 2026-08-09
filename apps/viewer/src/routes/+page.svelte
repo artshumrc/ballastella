@@ -41,12 +41,14 @@
 		PathNotFoundError,
 		ProjectFormatTooNewError,
 		SiteFileUnreachableError,
+		baseMapArchiveHost,
 		baseMapFallbackNotice,
+		baseMapNotPublishedNotice,
+		baseMapUnavailableNotice,
 		cachedTilePath,
 		legacyCachedTilePath,
 		createStoreImageFetch,
 		imageInfoPath,
-		isAbsoluteUrl,
 		otherTheme,
 		parseProjectFile,
 		parsePublishedSite,
@@ -73,6 +75,7 @@
 	import { onMount, untrack } from 'svelte';
 
 	import BaseMapSwitcher from '$lib/BaseMapSwitcher.svelte';
+	import { online } from '$lib/online.svelte';
 	import { readLayerDocuments, toContentLayers, type ReadDocuments } from '$lib/project-documents';
 	import ReaderLayerControls from '$lib/ReaderLayerControls.svelte';
 	import ReaderMapPane from '$lib/ReaderMapPane.svelte';
@@ -102,6 +105,8 @@
 		// ADR-0016: the theme ships with the viewer, and one signal drives the interface and the Base Map
 		// flavor. Here rather than at module scope, because a module body runs during prerendering too.
 		startTheme();
+		// Only ever used to *withhold* a claim — see `online.svelte.ts` and {@link archiveUnavailable}.
+		return online.start();
 	});
 
 	/**
@@ -587,31 +592,83 @@
 	const siteRecordKnown = $derived(site !== null || siteError !== '');
 
 	/**
+	 * Whether the Base Map's own source failed, as `ReaderMapPane` reports it (ticket 22).
+	 *
+	 * `false` until the pane has said otherwise, so the notice below appears when the archive has
+	 * actually failed and not in the moment before it has been asked for. The pane sends `'drawing'`
+	 * as well, so a Base Map that comes back — a bucket whose rate limit lifts, since tile ranges are
+	 * not cached the way the header is — takes its own accusation down.
+	 *
+	 * **Also cleared when the shown Base Map changes**, which is a different question rather than an
+	 * answer to the same one: a stale "could not be loaded" carrying the label of an entry the Reader
+	 * has just switched *to* accuses a Base Map that has not failed. That case is exactly where the
+	 * pane cannot help, because a refusing archive header is cached page-wide by `pmtiles` and every
+	 * entry in this catalog shares one archive.
+	 *
+	 * The dependency is `baseMap`, not only its entry's id: reading `entry.id` subscribes to the whole
+	 * derived, so this also runs when `resolveBaseMap` recomputes to an equal entry. Clearing a flag
+	 * that the pane restates within the same load is harmless, and pretending otherwise in a comment
+	 * would be the more expensive kind of wrong.
+	 */
+	let baseMapUnavailable = $state(false);
+	$effect(() => {
+		void baseMap.entry.id;
+		baseMapUnavailable = false;
+	});
+
+	/**
+	 * What to say when the Base Map's archive answered nothing and the connection is fine — the failure
+	 * that is, right now, the behaviour of every published site (ADR-0025, open lead 3).
+	 *
+	 * ⚠ **The sentence is `baseMapUnavailableNotice`'s, not this template's**, and that is the contract
+	 * rather than a convenience: the editor renders the same function's output for the same failure, so
+	 * the two deployments cannot drift into describing one outage two ways at the same scholar. If a
+	 * second sentence is ever wanted here, it belongs in core.
+	 *
+	 * ⚠ **Only while online.** With no connection the archive also fails, and `needsNetwork`'s remedy
+	 * reads "this is usually that server rather than your connection" — a plain falsehood to hand
+	 * somebody whose wifi is off. Saying nothing is the better of the two answers available, and it is
+	 * the same gate the editor's `unavailableNotice` carries.
+	 *
+	 * Distinct from {@link baseMapNotPublished}, which is about files this **site** does not carry: that
+	 * is a publishing choice, with a different remedy, knowable without waiting for a request. It is
+	 * **not** mutually exclusive with this one, and the code used to claim it was: only the bare
+	 * background style declares no source, and it is built solely for a site-relative archive. Every
+	 * entry in this deployment's catalog is absolute, so a site published without those files draws the
+	 * remote style — which declares the source, and fails with it. Both notices are up in that state
+	 * today, and neither now says anything the other denies.
+	 */
+	const archiveUnavailable = $derived(
+		baseMapUnavailable && online.current
+			? baseMapUnavailableNotice(baseMap.entry, baseMapArchiveHost(baseMap.entry))
+			: null
+	);
+
+	/**
 	 * What the Reader is missing from the modern reference map, or `''`.
 	 *
-	 * Said rather than left unexplained, and there are **two** ways a site can be short of the Base Map's
-	 * files — they differ in what the Reader sees, so they cannot share one sentence:
+	 * ⚠ **The sentence is core's, and the branch is core's**, for the reason the function's own header
+	 * gives at length: two of its four rows cannot be reached from a published site in this deployment,
+	 * and the shipped ternary was false in both of them. Choosing between two sentences using two
+	 * booleans is exactly the work that belongs one seam down, where `resolve.test.ts` drives every row
+	 * in milliseconds instead of in a browser that cannot produce two of them at all.
 	 *
-	 *   - **No files and a site-relative archive**: nothing draws. An empty rectangle under the work.
-	 *   - **No files and a `needsNetwork` archive**: since ticket 10 every catalog entry reads a remote
-	 *     archive, so the geography draws over the network — and `ReaderMapPane` drops `glyphs`, `sprite`,
-	 *     and every `symbol` layer rather than firing 404s at files the site does not carry. The result is
-	 *     a map with roads, coastlines, and **no place names at all**. That is a startling thing to be
-	 *     handed with no account of itself, and it is the case a Reader now actually meets: silently
-	 *     losing every label is exactly the failure ADR-0025 says those 820 KB exist to prevent.
+	 * `cachedBaseMap !== null` rather than any flag on the site record: it is the same value the pane
+	 * is handed, so the notice and the style cannot disagree about whether this site has tiles.
 	 *
-	 * The entries that *would* be complete are already marked in the switcher, so each sentence points at
-	 * the way out rather than merely apologising.
+	 * ⚠ **This argument is unobservable in this deployment, and no test can close it.** The two
+	 * sentences differ only when the entry's archive is site-relative, and every entry in this
+	 * catalog is absolute — so passing a constant `true` or `false` here produces identical text in
+	 * every row a Published Site can reach, and a browser test asserting on rendered text cannot tell
+	 * the difference by construction. It is not that the wiring is untested for want of effort: there
+	 * is nothing here to observe until a fork repoints the catalog at its own tiles, which is the case
+	 * the function's own tests cover. Said rather than left as a gap someone else has to rediscover.
 	 */
-	const baseMapUnavailable = $derived(
-		bundledBaseMapAvailable
-			? ''
-			: !isAbsoluteUrl(baseMap.entry.archive)
-				? 'This site was published without its own copy of the modern reference map, so only the ' +
-					'Historical Maps and Annotations are drawn. The Base Maps marked “needs network” still work.'
-				: 'This site was published without the Base Map’s labels and symbols, so the modern reference ' +
-					'map is drawn from the network without any place names on it. The geography, the ' +
-					'Historical Maps, and the Annotations are all here.'
+	const baseMapNotPublished = $derived(
+		baseMapNotPublishedNotice(baseMap.entry, {
+			bundledAssets: bundledBaseMapAvailable,
+			cachedTiles: cachedBaseMap !== null
+		})
 	);
 
 	/** Remember the Reader's choice for this site, and for no other (ADR-0020). Never Project data. */
@@ -909,10 +966,51 @@
 							</p>
 						{/if}
 
-						{#if baseMapUnavailable}
-							<p class="text-sm text-warning" aria-live="polite" data-testid="base-map-unavailable">
-								{baseMapUnavailable}
+						{#if baseMapNotPublished}
+							<p
+								class="text-sm text-warning"
+								aria-live="polite"
+								data-testid="base-map-not-published"
+							>
+								{baseMapNotPublished}
 							</p>
+						{/if}
+
+						{#if archiveUnavailable}
+							<!--
+								The archive answered nothing while the connection is fine (ticket 22). `role="alert"`
+								rather than `aria-live`, and the reasoning is the editor's, copied along with the
+								decision: this element is *inserted* when its text first exists, and an `aria-live`
+								region is announced on a text **change** rather than on insertion — so a live region
+								here is a notice a screen-reader user never hears.
+
+								⚠ **The two notices above have the bug this one avoids**, and saying otherwise here
+								would be worse than saying nothing. Both sit inside `{#if}` blocks, so both are
+								inserted *with* their text and are `aria-live` regions a screen-reader user is
+								unlikely ever to hear. Both predate this ticket and neither is in its scope; the
+								fix is to render them unconditionally with an empty string when they have nothing
+								to say, which is what makes a live region work at all.
+
+								A deliberate deviation from ADR-0016's `aria-live="polite"` mandate for status,
+								recorded as an amendment in the ADR itself rather than only here, so the next
+								implementer meets it in the table rather than in a template comment.
+
+								It is the same alert whether the Base Map is somebody else's or this site's own; what
+								differs is the remedy, and that is `baseMapUnavailableNotice`'s to decide rather than
+								this template's, so the editor and the viewer cannot drift apart.
+
+								Above the map in the DOM, with the other Base Map notices, because the controls come
+								first here deliberately (see the grid comment): the account of why the rectangle is
+								empty should be read before the rectangle, not found underneath it.
+							-->
+							<div
+								role="alert"
+								class="alert flex-col items-start alert-warning"
+								data-testid="base-map-unavailable"
+							>
+								<h2 class="font-semibold">The Base Map did not load</h2>
+								<p>{archiveUnavailable}</p>
+							</div>
 						{/if}
 
 						<ReaderLayerControls
@@ -982,6 +1080,9 @@
 									onclickannotation={(hit) => (selected = hit)}
 									onpopupclose={() => (selected = null)}
 									onstack={(reported) => (rendered = reported)}
+									onbasemapstatus={(status) => {
+										baseMapUnavailable = status === 'unavailable';
+									}}
 								/>
 							{/if}
 						</div>
