@@ -174,8 +174,10 @@
 		 * page's question, and the page already owns the fallback notice and the published-without-files
 		 * notice that this has to sit beside without contradicting.
 		 *
-		 * `'drawing'` is sent when the source loads, so this is a state rather than a one-way alarm — a
-		 * Reader who switches to a Base Map that works must not be left holding a stale accusation.
+		 * `'drawing'` is sent when the source loads, so this is a state rather than a one-way alarm. The
+		 * failure it is for is the archive that answers its header and then refuses tile ranges — a
+		 * bucket rate-limiting mid-session — because those ranges are not cached and do come back. The
+		 * note on the `error` handler below has which failure recovers and which cannot.
 		 */
 		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
 	} = $props();
@@ -336,16 +338,49 @@
 		// `base-map/tiles/…` reports through this too, which is right — tiles that will not read are
 		// as blank as an archive that will not answer.
 		//
-		// The bare "this site was published without its Base Map" style declares **no sources at all**,
-		// so it can neither fail nor load here and nothing is ever reported for it. That state is not an
-		// outage and the page says something else about it — see `base-map-not-published`.
+		// Only one of the five styles `styleFor` builds declares no source at all — the bare background,
+		// which is reached for a site published without its Base Map **and** a site-relative archive.
+		// Every entry in this deployment's catalog has an absolute archive, so the state a Reader
+		// actually meets on a site published without those files is the remote style with its symbol
+		// layers stripped, which declares this source, can fail, and reports here. Both notices can
+		// therefore be on screen at once, and `+page.svelte` says nothing in either that the other
+		// denies.
+		//
+		// ─────────────────────────────────────────────────────────────────────────────────────
+		// WHY THERE IS A `'drawing'` AS WELL, AND WHICH FAILURE IT IS FOR
+		//
+		// The two ways an archive fails are not the same shape, and only one of them can come back:
+		//
+		//   - **A header that refuses is sticky for the life of the page.** `pmtiles`'
+		//     `SharedPromiseCache.getHeader` caches the *promise* under the archive URL and never
+		//     deletes a rejected one (`prune()` only evicts past 100 entries), `Protocol.tiles` holds
+		//     one `PMTiles` per URL, and `registerPmtilesProtocol` makes one page-global `Protocol`. So
+		//     a theme change, a Base Map switch, and all four of this deployment's entries — they share
+		//     one archive — re-reject from cache without a request. Nothing can make a failed **header**
+		//     draw again, and the Base Map switch is covered by the page's own reset anyway.
+		//   - **Tile ranges are not cached at all.** Only headers and directories are; every
+		//     `getBytes` for tile data goes to the network afresh. So the bucket that rate-limits
+		//     mid-session — the shape `viewer-reader.e2e.ts`'s partial-refusal fixture models — recovers
+		//     the moment the limit lifts and the Reader pans: tiles arrive, geography draws, and
+		//     without this handler the alert would still be sitting over a working map.
+		//
+		// That second case is the whole of what `'drawing'` is for, and `viewer-reader.e2e.ts` drives
+		// it. The one measurement worth keeping from the round that deleted this: while the source is
+		// *persistently* failing, `sourcedata` fires only with `isSourceLoaded: false` (`visibility`,
+		// `metadata`, `content`), so the handler cannot withdraw a notice that is still true — which is
+		// asserted, and is why the partial-refusal notice is also asserted to stay up.
+		//
+		// Identical to `BaseMapPane`'s pair in the editor, deliberately: same source id, same shared
+		// sentence, and in the editor recovery is reached by a different route again — a scholar who
+		// follows the notice's own advice and makes the Project available offline restyles onto site
+		// tiles, and `'drawing'` is what takes the alert down.
 		created.on('error', (event) => {
 			if ((event as { sourceId?: string }).sourceId !== BASE_MAP_SOURCE_ID) return;
 			onbasemapstatus?.('unavailable');
 		});
 		// `sourcedata` rather than `load`: the map fires `load` once the *style* is in, which happens
 		// whether or not the archive answered. What has to be observed is the source itself becoming
-		// loaded, which is the event that does not fire when the archive refuses.
+		// loaded, which is the event that does not fire while the archive is refusing.
 		created.on('sourcedata', (event) => {
 			if (event.sourceId !== BASE_MAP_SOURCE_ID || !event.isSourceLoaded) return;
 			onbasemapstatus?.('drawing');

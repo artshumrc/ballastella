@@ -1,9 +1,10 @@
 import { expect, test } from './support/test.js';
-import { type Locator, type Page } from '@playwright/test';
+import { type Locator, type Page, type Route } from '@playwright/test';
 import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { unavailableNotice } from './support/base-map-notice.js';
 import {
 	baseMapArchiveFixture,
 	byteRange,
@@ -1366,9 +1367,19 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.goto(`${served.url}?p=amsterdam-1625`);
 		await mapReady(page);
 
+		// The whole sentence, in the row where the archive answers. Two more tests below assert the
+		// **same** string with the archive refusing, and with the connection gone as well: it is one
+		// sentence about the site's own files, and the point of pinning it in three rows is that it
+		// stays one. A conditional version of it was where this notice went wrong.
 		const notice = page.getByTestId('base-map-not-published');
-		await expect(notice).toContainText('labels and symbols');
-		await expect(notice).toContainText('without any place names');
+		await expect(notice).toHaveText(
+			'This site was published without the Base Map’s labels and symbols, so the modern ' +
+				'reference map here carries no place names at all. The Historical Maps and the ' +
+				'Annotations are not affected.'
+		);
+		// **And no outage claimed.** The archive answers here (the global `beforeEach` serves the
+		// fixture), so this site is short of its labels and of nothing else.
+		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
 		// The scholar's own work is still drawn, and so is the geography: this is a reference map
 		// missing its lettering, not a missing Project.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
@@ -1397,28 +1408,15 @@ test.describe('a Published Site that is not entirely well', () => {
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 
 	/**
-	 * The whole sentence, as `baseMapUnavailableNotice` in `@ballastella/core` composes it for a
-	 * `needsNetwork` entry served from `demo-bucket.protomaps.com`.
-	 *
-	 * ⚠ **Written out rather than imported, and asserted whole rather than by fragment**, and both
-	 * halves of that are deliberate. This suite's tsconfig covers only `e2e/` and resolves nothing
-	 * from `@ballastella/core` — the arrangement `support/editor-deployment.ts` explains at length —
-	 * so importing is not available. Asserting the *complete* string is what makes the duplication
-	 * safe in the direction that matters: a viewer that stopped calling the shared function and wrote
-	 * its own sentence would still satisfy every fragment assertion below and fails this one.
+	 * The whole sentence, for the entry these tests ask for and the host this deployment's catalog
+	 * names. `support/base-map-notice.ts` builds it, and `editor-base-map.e2e.ts` asserts the same
+	 * function's output against the editor — which is what makes "one outage, one sentence, two
+	 * applications" a contract rather than an intention. Its header says why it is a function.
 	 *
 	 * The three things it carries, in the order the questions arrive: **it is not you**, **your work
-	 * is safe**, **here is what would fix it**. `editor-base-map.e2e.ts`'s "a Base Map archive that
-	 * does not answer" pins the editor's side of the same sentence against the same fragments.
+	 * is safe**, **here is what would fix it**.
 	 */
-	const UNAVAILABLE_NOTICE =
-		'The Base Map “Physical geography” could not be loaded from demo-bucket.protomaps.com. ' +
-		'Nothing in your Workspace is affected — your Historical Maps, their Alignments and your ' +
-		'Annotations are all still here and still saving, and they will draw over the geography ' +
-		'again as soon as a Base Map does. ' +
-		'This Base Map is fetched from another server, so this is usually that server rather ' +
-		'than your connection. Try another Base Map, or make this Project available offline ' +
-		'while one is working so it keeps drawing when none is.';
+	const UNAVAILABLE_NOTICE = unavailableNotice('Physical geography', 'demo-bucket.protomaps.com');
 
 	test('says so when the Base Map’s archive answers nothing, and keeps drawing the work', async ({
 		page
@@ -1449,17 +1447,14 @@ test.describe('a Published Site that is not entirely well', () => {
 
 		// Visible text and not a tooltip (SPEC story 111, ADR-0016: daisyUI renders tooltips through CSS
 		// `::before`, so they are neither announced nor dismissable).
+		//
+		// **One assertion, and it is the whole sentence.** The fragments that used to follow — the host,
+		// "Nothing in your Workspace is affected", "available offline", "usually that server rather than
+		// your connection" — were each a substring of the string already pinned exactly, so no edit could
+		// turn one red without turning this red first. CONTRIBUTING is explicit that such an assertion
+		// should go, and go in the commit that made it so: they were documentation dressed as coverage,
+		// and they made this criterion look four times as well covered as it is.
 		await expect(notice.locator('p')).toHaveText(UNAVAILABLE_NOTICE);
-		// It is not you: the host is named, because "the Base Map did not load" is unactionable.
-		await expect(notice).toContainText('demo-bucket.protomaps.com');
-		// Your work is safe — the fear a blank map actually produces.
-		await expect(notice).toContainText('Nothing in your Workspace is affected');
-		// And what would fix it, for a remote archive: something a Reader can act on now.
-		await expect(notice).toContainText('available offline');
-		// **Not the offline notice** — the connection here is fine and the notice says so, naming the
-		// server rather than the Reader's wifi. Telling somebody with working wifi they have none is a
-		// worse answer than saying nothing, so nothing on this page makes that claim.
-		await expect(notice).toContainText('usually that server rather than your connection');
 		await expect(page.getByTestId('base-map-not-published')).toHaveCount(0);
 
 		// ── The notice explains an absence; it does not replace the map ─────────────────────────────
@@ -1476,6 +1471,26 @@ test.describe('a Published Site that is not entirely well', () => {
 								feature.layer.id.startsWith('ballastella-layer-')
 							).length
 					),
+				{ timeout: 60_000 }
+			)
+			.toBeGreaterThan(0);
+		// **And the Historical Map, which the assertion above cannot see.** A `kind: 'map'` Layer is a
+		// `WarpedMapLayer` — a custom WebGL layer — and `queryRenderedFeatures()` returns nothing for
+		// one, so the filter above is satisfied by the Annotation Layer alone. `data-drawn="2"` is the
+		// page's own count of itself, which is exactly the kind of evidence this ticket refuses. Tiles
+		// in the renderer's cache are the Historical Map's equivalent of a rendered feature, and the
+		// idiom is this suite's own — see "draws the stack in the author's order". Mutation-checked by
+		// 404ing the Historical Map's tiles: `data-drawn` stayed at `2` and this went to `0`.
+		await expect
+			.poll(
+				() =>
+					page.evaluate(async (id) => {
+						const handle = window.ballastellaReaderMap!;
+						const layer = handle.warped[id]!;
+						handle.map.fitBounds(layer.getBounds(), { animate: false });
+						await new Promise((resolve) => setTimeout(resolve, 500));
+						return (layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
+					}, MAP_LAYER_ID),
 				{ timeout: 60_000 }
 			)
 			.toBeGreaterThan(0);
@@ -1518,6 +1533,15 @@ test.describe('a Published Site that is not entirely well', () => {
 
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
 		await expect(page.getByTestId('base-map-unavailable')).toBeVisible({ timeout: 45_000 });
+		// **Drawn before the connection goes**, and this wait is load-bearing rather than tidy.
+		// `setOffline` refuses `localhost` too, so it takes away the site's own files as well as the
+		// archive — and the Historical Map's tiles are site files, fetched as the renderer needs them.
+		// Cutting the connection mid-fetch leaves one Layer of two drawn, which is a true report of a
+		// Project that had not finished arriving and not the claim below. Without this the assertion
+		// after the cut is a race, and it lost one run in four here.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2', {
+			timeout: 60_000
+		});
 
 		await context.setOffline(true);
 		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
@@ -1529,6 +1553,443 @@ test.describe('a Published Site that is not entirely well', () => {
 		await context.setOffline(false);
 		await expect(page.getByTestId('base-map-unavailable')).toBeVisible();
 		expect(seen.failures).toEqual([]);
+	});
+
+	test('makes no claim about the Base Map when the page is opened with no connection', async ({
+		page
+	}) => {
+		// The case the test above cannot reach. `context.setOffline(true)` drives the `offline` **event**,
+		// and an event only tells a page that something changed — so a page *loaded* while already
+		// offline hears nothing, and `online.svelte.ts` reads `navigator.onLine` once at `start()` for
+		// exactly that Reader. Delete that one line and the suite above stays entirely green while an
+		// offline Reader is handed the sentence the whole module exists to withhold: that a bucket in
+		// another country is having a bad afternoon and their own connection is fine.
+		//
+		// ⚠ **`navigator.onLine` is overridden rather than the context taken offline**, and that is the
+		// only lever there is: Playwright's offline emulation refuses `localhost` too, so the site could
+		// not be fetched at all and there would be no page to assert about. This is not a network stub —
+		// nothing here answers or refuses a request (the archive is refused by a route, as everywhere
+		// else in this section) — it is the browser being asked to report the state a Reader on a train
+		// arrives in.
+		await page.addInitScript(() =>
+			Object.defineProperty(window.navigator, 'onLine', { get: () => false })
+		);
+		await page.unroute(/\.pmtiles$/);
+		await refuseBaseMapArchive(page);
+
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		const seen = watch(page);
+
+		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
+		await mapReady(page);
+
+		// **The archive genuinely failed**, asserted rather than said in a comment. Every other check
+		// here is an *absence*, and absences are satisfied just as well by a Base Map that worked
+		// perfectly: delete the two lines above that refuse the archive and this test would otherwise
+		// stay green with the global fixture serving it, proving nothing about the gate at all. None of
+		// the Base Map's own geography being on screen is what makes the silence below a suppression.
+		expect(
+			await page.evaluate(() =>
+				(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).some(
+					(feature) => feature.layer.id.startsWith('roads_') || feature.layer.id.startsWith('water')
+				)
+			)
+		).toBe(false);
+		// And the page still says nothing about whose fault it is, because it does not know. Long enough
+		// for the source error to have arrived and been suppressed rather than merely not having
+		// happened yet — an absence asserted one frame after `goto` is an absence of nothing.
+		await page.waitForTimeout(3_000);
+		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
+		// And the Reader's work is drawn regardless, which is the whole of ADR-0012's promise.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('does not blame the Base Map for a failure that is not the Base Map’s', async ({ page }) => {
+		// `error` carries everything MapLibre could not do — a sprite, a glyph range, a warped Layer's
+		// tiles — and the handler in `ReaderMapPane` filters it to the one source `baseMapStyle`
+		// declares. Delete that filter and every other test in this section stays green, because in all
+		// of them the Base Map is the thing that failed. So one where it is not: the sprite is refused
+		// and the archive answers, and the Reader must be told nothing, because there is nothing wrong
+		// with their Base Map.
+		//
+		// The sprite rather than the glyphs, because MapLibre asks for a sprite unconditionally while a
+		// glyph range is only fetched once a label needs one — an assertion resting on a request nobody
+		// makes is the vacuity CONTRIBUTING names.
+		//
+		// ⚠ **Asserted as "never appeared", not as "is not there now"**, and that distinction is the
+		// whole of this test. The pane reports `'drawing'` when the source loads, so a Base Map that
+		// works takes down any notice raised a moment earlier — which means an unfiltered `error` from
+		// the sprite would raise this notice, have it withdrawn, and leave a `toHaveCount(0)` at the
+		// end of the test green. It did, until this observer replaced it. Recording every insertion is
+		// the only way to fail on a notice that was on screen for two frames, and two frames of "the
+		// Base Map did not load" over a Base Map that plainly did is exactly the accusation the filter
+		// exists to prevent.
+		await page.addInitScript(() => {
+			const seenNotice = { at: false };
+			(window as unknown as { ballastellaNoticeSeen: { at: boolean } }).ballastellaNoticeSeen =
+				seenNotice;
+			new MutationObserver(() => {
+				if (document.querySelector('[data-testid="base-map-unavailable"]')) seenNotice.at = true;
+			}).observe(document, { childList: true, subtree: true });
+		});
+		await page.route(/\/base-map\/sprites\//, (route) =>
+			route.fulfill({ status: 404, body: 'not here' })
+		);
+
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		const seen = watch(page);
+
+		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
+		await mapReady(page);
+
+		// The Base Map itself drew: its own geography is on screen, so the refusal above cost a symbol
+		// and not the map.
+		await expect
+			.poll(
+				() =>
+					page.evaluate(() =>
+						(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).some(
+							(feature) =>
+								feature.layer.id.startsWith('roads_') || feature.layer.id.startsWith('water')
+						)
+					),
+				{ timeout: 60_000 }
+			)
+			.toBe(true);
+		// And the sprite really was refused, so this is not a test of nothing.
+		expect(seen.requests.some((request) => request.url.includes('/base-map/sprites/'))).toBe(true);
+		await page.waitForTimeout(2_000);
+		expect(
+			await page.evaluate(
+				() =>
+					(window as unknown as { ballastellaNoticeSeen?: { at: boolean } }).ballastellaNoticeSeen
+						?.at
+			),
+			'the outage notice was never on screen, not even for a frame'
+		).toBe(false);
+		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('says both things when a site published without those files also meets an outage', async ({
+		page
+	}) => {
+		// **The combination, which is the state of a `withoutBaseMap` site today.** The code claimed in
+		// prose that these two notices were mutually exclusive — that the not-published style "declares
+		// no source at all, so it can never reach this". That is true only of the bare background style,
+		// which is built for a *site-relative* archive; every entry in this deployment's catalog is
+		// absolute, so a site published without its Base Map files draws the remote style with its
+		// symbol layers stripped, and that style declares the source, fails with it, and raises the
+		// outage notice alongside.
+		//
+		// The pair then read: "the modern reference map is drawn from the network without any place
+		// names on it — the geography, the Historical Maps, and the Annotations are all here", directly
+		// above "The Base Map could not be loaded from demo-bucket.protomaps.com". The first sentence is
+		// a flat falsehood in that state, and it was the live behaviour of every site this deployment
+		// published. The claim about the geography is gone rather than made conditional — see the next
+		// test for the row a conditional one would still have got wrong.
+		await page.unroute(/\.pmtiles$/);
+		await refuseBaseMapArchive(page);
+
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: false }), {
+			withoutBaseMap: true
+		});
+		const seen = watch(page);
+
+		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
+		await expect(page.getByTestId('base-map-unavailable')).toBeVisible({ timeout: 45_000 });
+		await mapReady(page);
+
+		// Both are up, because both are true and they have different remedies: the outage is the
+		// Reader's to work around by switching Base Map, the missing labels are the publisher's to fix.
+		const notPublished = page.getByTestId('base-map-not-published');
+		await expect(notPublished).toBeVisible();
+		await expect(notPublished).toHaveText(
+			'This site was published without the Base Map’s labels and symbols, so the modern ' +
+				'reference map here carries no place names at all. The Historical Maps and the ' +
+				'Annotations are not affected.'
+		);
+		await expect(page.getByTestId('base-map-unavailable').locator('p')).toHaveText(
+			UNAVAILABLE_NOTICE
+		);
+
+		// The Reader's own work is drawn under both notices, which is what makes them notices rather
+		// than an error page.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('says the same thing about its missing labels with no connection at all', async ({
+		page
+	}) => {
+		// **The row a conditional sentence would still have got wrong**, and the worse of the two: with
+		// no connection the archive fails exactly as it does above, and the outage alert is deliberately
+		// withheld — its remedy reads "this is usually that server rather than your connection", which
+		// is a falsehood to hand somebody whose wifi is off. So a sentence keyed on *the notice* rather
+		// than on *the failure* would print "the geography, the Historical Maps, and the Annotations are
+		// all here" in front of an empty rectangle, alone, with nothing underneath it to contradict it.
+		//
+		// The fix was not a third branch. This notice is about files the site does not carry, which is
+		// knowable without asking anything of the network, so it says one thing in every row — and this
+		// test is here because that is a property worth being unable to lose.
+		await page.addInitScript(() =>
+			Object.defineProperty(window.navigator, 'onLine', { get: () => false })
+		);
+		await page.unroute(/\.pmtiles$/);
+		await refuseBaseMapArchive(page);
+
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: false }), {
+			withoutBaseMap: true
+		});
+		const seen = watch(page);
+
+		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
+		await mapReady(page);
+
+		await expect(page.getByTestId('base-map-not-published')).toHaveText(
+			'This site was published without the Base Map’s labels and symbols, so the modern ' +
+				'reference map here carries no place names at all. The Historical Maps and the ' +
+				'Annotations are not affected.'
+		);
+		// The archive did fail — no Base Map geography is on screen — and nothing on the page blames
+		// the server for it.
+		expect(
+			await page.evaluate(() =>
+				(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).some(
+					(feature) => feature.layer.id.startsWith('roads_') || feature.layer.id.startsWith('water')
+				)
+			)
+		).toBe(false);
+		await page.waitForTimeout(3_000);
+		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		expect(seen.failures).toEqual([]);
+	});
+
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+	// AN ARCHIVE THAT ANSWERS ITS HEADER AND THEN STOPS
+	//
+	// Every test above refuses the archive outright, which is one failure shape out of two, and the
+	// easier one. {@link routePartialBaseMapArchive} produces the other: the first range — the header
+	// and the root directory — is served from the real fixture, and every range after it is refused.
+	// A bucket rate-limiting mid-session looks exactly like this, and so does a proxy with a partial
+	// cache.
+	//
+	// It reaches a different path through the application, and the difference is the whole reason the
+	// pane reports `'drawing'` as well as `'unavailable'`. An outright refusal is a failed **header**,
+	// and `pmtiles` caches that rejection under the archive URL for the life of the page, so it can
+	// never come back. A tile range is not cached at all, so this one **can**: the three tests below
+	// are the notice going up, staying up while the refusal lasts, and coming down when it does not.
+	//
+	// One hazard was chased here and is not present. MapLibre's `SourceCache.loaded()` is documented as
+	// true once every tile is loaded *or errored*, so the fear was that this shape fires `error` and
+	// then `sourcedata` with `isSourceLoaded`, taking a true notice down. Instrumented, the sequence
+	// while the refusal lasts is `sourcedata` × 3, all `isSourceLoaded: false` (`visibility`,
+	// `metadata`, `content`), then ten `error`s — and "stays up" is asserted rather than left to that
+	// measurement.
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+	/**
+	 * Serve the archive's first range from the real fixture and refuse the rest, until told to hang.
+	 *
+	 * `bytes=0-…` is the header read and nothing else: `pmtiles`' `FetchSource.getBytes` asks for
+	 * `bytes=0-16383` once per archive and every later read is at `tileDataOffset + …`, which is past
+	 * the end of a 4 MB fixture's header. So the discriminator is the offset, not a counter, and it
+	 * does not care how many tiles a viewport happens to want.
+	 *
+	 * `hang()` switches the refusal for silence — a request that is never answered and never fails —
+	 * which is the only way to hold a source in "asked, not yet told" for the length of an assertion.
+	 * Held handlers are dropped rather than resolved when the test ends; `unrouteAll` is called with
+	 * `ignoreErrors` so Playwright does not wait for a promise that by construction never settles.
+	 * `serve()` is the bucket's limit lifting: tile ranges begin answering with the fixture's real
+	 * bytes while the header stays exactly as it was.
+	 *
+	 * ⚠ **`tileRangesAsked` is this fixture's positive control, and it is asserted.** Everything else
+	 * these two tests assert — a notice, no geography, a drawn stack — holds identically if the
+	 * serving branch above is deleted and the whole archive is refused, which is what makes "this
+	 * reaches a different path" documentation rather than coverage. A tile range can only be *asked
+	 * for* once `getHeader` resolved, so a non-zero count is the one observation that separates a
+	 * partial refusal from an outright one.
+	 */
+	/** What {@link routePartialBaseMapArchive} hands back: the two switches, and its positive control. */
+	type PartialArchive = {
+		/** Hold every tile range open for ever — asked, never answered, never refused. */
+		hang(): void;
+		/** The limit lifts: tile ranges answer with the fixture's real bytes. */
+		serve(): void;
+		/** Tile ranges asked for, which can only be non-zero once the header answered. */
+		tileRangesAsked(): number;
+	};
+
+	async function routePartialBaseMapArchive(page: Page): Promise<PartialArchive> {
+		const archive = await baseMapArchiveFixture();
+		let tiles: 'refuse' | 'hang' | 'serve' = 'refuse';
+		let asked = 0;
+		const answer = async (route: Route, range: string | undefined): Promise<void> => {
+			const served = byteRange(archive, range, 'application/octet-stream');
+			await route.fulfill({
+				status: served.status,
+				headers: { ...served.headers, 'access-control-allow-origin': '*' },
+				body: served.body
+			});
+		};
+		await page.unroute(/\.pmtiles$/);
+		await page.route(/\.pmtiles$/, async (route) => {
+			const range = route.request().headers()['range'];
+			// Counted before anything is decided, and counting only ranges that are **not** the header:
+			// a counter incremented inside the branch below would go on counting the header request if
+			// that branch were deleted, and would report a partial refusal for an outright one — which
+			// is precisely the mutation it exists to catch, and it did not catch it until this line
+			// moved out here.
+			const header = range?.startsWith('bytes=0-') ?? false;
+			if (!header) asked += 1;
+			if (header) return answer(route, range);
+			if (tiles === 'hang') return new Promise<void>(() => undefined);
+			if (tiles === 'serve') return answer(route, range);
+			await route.abort('blockedbyclient');
+		});
+		return {
+			hang: () => void (tiles = 'hang'),
+			serve: () => void (tiles = 'serve'),
+			tileRangesAsked: () => asked
+		};
+	}
+
+	test('keeps the outage notice up when the archive answers its header and then stops', async ({
+		page
+	}) => {
+		const archive = await routePartialBaseMapArchive(page);
+
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		const seen = watch(page);
+
+		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
+		const notice = page.getByTestId('base-map-unavailable');
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+		await mapReady(page);
+
+		// **And it stays up**, which no test asserted before: a notice that flickered off would have
+		// surfaced only as a flake, in a suite that retries. Five seconds, which is an order of
+		// magnitude longer than the whole load takes here.
+		await page.waitForTimeout(5_000);
+		await expect(notice).toBeVisible();
+		await expect(notice.locator('p')).toHaveText(UNAVAILABLE_NOTICE);
+
+		// The refusal was real: no Base Map geography drew, despite the header having answered.
+		expect(
+			await page.evaluate(() =>
+				(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).some(
+					(feature) => feature.layer.id.startsWith('roads_') || feature.layer.id.startsWith('water')
+				)
+			)
+		).toBe(false);
+		// **And it really was a partial refusal**, which is the only assertion here that an
+		// outright one would not also satisfy: tile ranges were asked for, so the header answered.
+		expect(archive.tileRangesAsked()).toBeGreaterThan(0);
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		expect(seen.failures).toEqual([]);
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	});
+
+	test('takes the notice down when the archive starts answering again', async ({ page }) => {
+		// **The recovery the `'drawing'` half of the pane's report exists for**, and the reason it is
+		// not dead code. `pmtiles` caches the archive *header* promise per URL and never evicts a
+		// rejected one, so a header that refuses is sticky for the life of the page — but tile ranges
+		// are not cached at all, and every `getBytes` for tile data goes to the network afresh. A
+		// bucket that rate-limits mid-session therefore comes back: the limit lifts, the Reader pans,
+		// tiles arrive, and geography draws. Without `'drawing'` the alert would sit over a working
+		// Base Map for as long as the Reader stayed on the page, which is a worse lie than the silence
+		// this ticket was written to end.
+		//
+		// The pan is what makes it a recovery rather than a wait. MapLibre has no reason to re-ask for
+		// a tile it has already given up on, so a fixture that merely starts answering changes nothing
+		// until the viewport wants tiles it does not hold.
+		const archive = await routePartialBaseMapArchive(page);
+
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		const seen = watch(page);
+
+		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
+		const notice = page.getByTestId('base-map-unavailable');
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+		await mapReady(page);
+
+		archive.serve();
+
+		// The geography arrives… **with the pan inside the poll**, which is the same idiom this suite
+		// uses for a warped Layer's tile cache and for the same reason: one nudge is a bet that a
+		// single round of tile requests lands, and this test measured that bet losing about one run in
+		// six. Alternating the zoom asks for a fresh set of tiles on every attempt, so the loop is what
+		// drives the recovery rather than what waits for it. The centre stays where the fixture's data
+		// is — this archive is one city — so a failure here is a Base Map that did not come back rather
+		// than a viewport pointed at empty ocean.
+		let step = 0;
+		await expect
+			.poll(
+				() =>
+					page.evaluate(
+						async (zoom: number) => {
+							const map = window.ballastellaReaderMap!.map;
+							map.jumpTo({ center: [4.9041, 52.3676], zoom });
+							await new Promise((resolve) => setTimeout(resolve, 500));
+							return map
+								.queryRenderedFeatures()
+								.some(
+									(feature) =>
+										feature.layer.id.startsWith('roads_') || feature.layer.id.startsWith('water')
+								);
+						},
+						12 + (step++ % 2)
+					),
+				{ timeout: 60_000 }
+			)
+			.toBe(true);
+		// …and the accusation goes with it, rather than being left over a map that is plainly drawing.
+		await expect(notice).toHaveCount(0, { timeout: 30_000 });
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		expect(seen.failures).toEqual([]);
+	});
+
+	test('withdraws the claim when the Reader switches to a Base Map it has not asked yet', async ({
+		page
+	}) => {
+		// The other half of the clearing mechanism, and the only half there is: the page drops what it
+		// knows when the shown entry changes, because a switch asks a fresh question and the answer to
+		// the old one is not an answer to it. "Could not be loaded" carries the *new* entry's label —
+		// `archiveUnavailable` composes it from whichever entry is shown — so an unreset flag does not
+		// merely linger, it accuses a Base Map that has not failed.
+		//
+		// Driving that needs a Base Map whose fate is genuinely undecided, which is what `hang()` is
+		// for: after the switch the tile requests are neither answered nor refused, so nothing can
+		// clear the flag except the reset under test. A fixture that answered would clear it by
+		// drawing, and one that refused would replace the notice with a true one — both green either
+		// way, which is why this was untested.
+		const archive = await routePartialBaseMapArchive(page);
+
+		site = await published(oneProject({ baseMap: 'physical' }, { baseMapAssetsBundled: true }));
+		const seen = watch(page);
+
+		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
+		const notice = page.getByTestId('base-map-unavailable');
+		await expect(notice).toBeVisible({ timeout: 45_000 });
+		await expect(notice.locator('p')).toContainText('Physical geography');
+
+		archive.hang();
+		await page.getByTestId('base-map-switcher').selectOption('muted');
+
+		// Nothing is said about “Muted, high contrast” until it has answered for itself.
+		await expect(notice).toHaveCount(0);
+		await page.waitForTimeout(3_000);
+		await expect(notice).toHaveCount(0);
+		// And the switch really happened rather than the notice having gone for some other reason.
+		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
+		// **The Layer stack is deliberately not asserted drawn here**, and the reason is the fixture:
+		// a style whose source never settles never finishes loading, and `whenStyleLoaded` gives the
+		// wait up rather than holding a Reader for ever — so `data-drawn` is `0`, correctly. That the
+		// work keeps drawing through an outage is asserted where the outage is a real one, above.
+		expect(seen.failures).toEqual([]);
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	});
 
 	test('refuses a Project from a newer version plainly, naming where to open it (ADR-0010)', async ({

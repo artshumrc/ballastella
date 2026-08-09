@@ -1,6 +1,7 @@
 import { expect, test } from './support/test.js';
 import { type Page } from '@playwright/test';
 
+import { unavailableNotice } from './support/base-map-notice.js';
 import {
 	baseMapTileDirectory,
 	baseMapTileSourcePath,
@@ -394,14 +395,20 @@ test.describe('a Base Map archive that does not answer', () => {
 
 		// Visible text and not a tooltip (SPEC story 111, ADR-0016: daisyUI renders tooltips through
 		// CSS `::before`, so they are neither announced nor dismissable).
-		await expect(notice).toContainText('could not be loaded');
-		// The host, because "the Base Map did not load" is unactionable and "that server did not
-		// answer" tells a scholar it is not their connection and not their Project.
-		await expect(notice).toContainText('demo-bucket.protomaps.com');
-		// The sentence that stops this reading as data loss, which is the fear a blank map produces.
-		await expect(notice).toContainText('Nothing in your Workspace is affected');
-		// A remedy a scholar can act on now, rather than one only the deployment's owner can.
-		await expect(notice).toContainText('available offline');
+		//
+		// **The whole sentence, and the same sentence the viewer is held to.** Both applications render
+		// `baseMapUnavailableNotice` from `@ballastella/core` precisely so that one outage is not
+		// described two ways at the same scholar — and until this line that contract had no test on
+		// this side: four `toContainText` fragments stood here, and replacing `{unavailableNotice}` in
+		// `ProjectScreen.svelte` with an inlined sentence carrying those four phrases left the whole
+		// repository green. This is the side that would drift, because it is the side with three other
+		// notices around it to be tempted into rewording.
+		//
+		// “Streets” because this Project seeds no author default and the catalog's `defaultId` is that
+		// entry; `support/base-map-notice.ts` says why the expectation is a function.
+		await expect(notice.locator('p')).toHaveText(
+			unavailableNotice('Streets', 'demo-bucket.protomaps.com')
+		);
 
 		// Announced, not merely drawn. `role="alert"` rather than a live region, because this element
 		// is *inserted* when its text first exists and an `aria-live` region is announced on a text
