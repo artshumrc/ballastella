@@ -326,10 +326,74 @@ describe('Autosave', () => {
 		});
 
 		/**
-		 * `settled` is `abandon`'s half that destroys nothing: it waits for the store to be quiet
-		 * under a prefix and drops no pending bytes, clears no timers, and touches no journal entry.
-		 * It exists for `deleteHistoricalMap`, which decides for itself whether the deletion may
-		 * happen at all and must not have the user's unsaved Alignment thrown away before it does.
+		 * ⚠ **THE CASE `settled` WAS BUILT FOR, AND THE ONE ITS FIRST CUT DID NOT COVER** (round 5).
+		 *
+		 * It waited only on `file.draining` — a write the store already had — which is precisely the
+		 * state that does *not* obtain when the user drags a Control Point and presses Delete. Inside
+		 * the 400 ms debounce there is no drain: `pending` is set and `draining` is undefined, so the
+		 * wait answered `true` on the spot and the timer fired **during** `deleteHistoricalMap`'s own
+		 * awaits — the first of which walks every Project in the Workspace. The Alignment landed after
+		 * `alignments/<id>.json` had been removed, orphaning a placement for a map that is gone, which
+		 * is the one leftover that function exists to prevent.
+		 *
+		 * The pending case is the live one, and the suite already said so: the test below queues a
+		 * second edit and asserts it is still pending while the wait runs.
+		 */
+		it('drains a file still inside its debounce, rather than calling it quiet', async () => {
+			let land = (): void => undefined;
+			vi.spyOn(store, 'write').mockImplementation(
+				async (path) =>
+					new Promise<void>((resolve) => {
+						land = () => {
+							writes.push(path);
+							resolve();
+						};
+					})
+			);
+			// A Control Point dragged, and Delete pressed before the window closes. Nothing is in
+			// flight: this is the whole of what `Autosave` is holding.
+			// alignment-write-is-the-fixture: the debounced edit is the specimen the deletion has to wait for
+			autosave.queue('alignments/aaa1.json', utf8.encode('a placement mid-drag'));
+			expect(writes).toEqual([]);
+
+			let quiet: boolean | 'still waiting' = 'still waiting';
+			void autosave.settled('alignments/aaa1.json').then((answer) => (quiet = answer));
+
+			// Not "quiet" — and not waiting on the debounce either: the write is started **now**, which
+			// is the only reading of "settled" that is true of bytes that have not left this object.
+			await vi.advanceTimersByTimeAsync(0);
+			expect(quiet).toBe('still waiting');
+			// The write is under way **without the debounce having elapsed** — the indicator says so —
+			// which is the difference between draining a pending file and waiting for its timer.
+			expect(autosave.state).toBe('saving');
+
+			land();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(quiet).toBe(true);
+			// And the edit is on disk, not discarded: if the deletion is now refused the user has it.
+			expect(writes).toEqual(['alignments/aaa1.json']);
+		});
+
+		/**
+		 * ⚠ **The prefix is load-bearing and nothing asserted it** (round 5). Without it every call
+		 * would wait on every write in the Workspace, so one stuck write in a Project nobody is
+		 * looking at would put the whole two-second bound on every Historical Map deletion — a pause
+		 * with no cause the user could see, and no test to say why.
+		 */
+		it('ignores a write in flight somewhere else in the Workspace', async () => {
+			vi.spyOn(store, 'write').mockImplementation(() => new Promise<never>(() => undefined));
+			autosave.queue('amsterdam-1625/project.json', utf8.encode('a rename that will never land'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+			// The map being deleted has nothing outstanding, so this must not wait on the Project's.
+			await expect(autosave.settled('images/aaa1/')).resolves.toBe(true);
+		});
+
+		/**
+		 * `settled` is `abandon`'s half that loses nothing: it brings a prefix to rest and discards no
+		 * bytes and no journal entry. It exists for `deleteHistoricalMap`, which decides for itself
+		 * whether the deletion may happen at all and must not have the user's unsaved Alignment thrown
+		 * away before it does.
 		 */
 		it('waits for a path without giving anything up', async () => {
 			const journalled = new Map<string, Uint8Array>();
@@ -381,6 +445,29 @@ describe('Autosave', () => {
 
 		it('answers at once for a path the store is not writing', async () => {
 			await expect(autosave.settled('alignments/aaa1.json')).resolves.toBe(true);
+		});
+
+		/**
+		 * ⚠ **The shipped bound, not an injected one** (round 5). Every other assertion here passes an
+		 * `inFlightWaitMs`, so deleting `?? 2000` from the constructor left the suite green — and a
+		 * bound of zero is not cosmetic: every `deleteProject` with any write in flight would answer
+		 * `false`, keep its deletion record, and produce a refusal at the next startup for a deletion
+		 * that had in fact finished. The number is a judgement, but that it is *this* number, and
+		 * comfortably longer than a debounce, is a fact the build should hold to.
+		 */
+		it('waits two seconds by default, which is what every caller that says nothing gets', async () => {
+			const shipped = new Autosave(store, { debounceMs: DEBOUNCE });
+			vi.spyOn(store, 'write').mockImplementation(() => new Promise<never>(() => undefined));
+			shipped.queue('amsterdam-1625/project.json', utf8.encode('a'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+			let answer: boolean | 'still waiting' = 'still waiting';
+			void shipped.abandon('amsterdam-1625/').then((quiet) => (answer = quiet));
+
+			await vi.advanceTimersByTimeAsync(1999);
+			expect(answer).toBe('still waiting');
+			await vi.advanceTimersByTimeAsync(1);
+			expect(answer).toBe(false);
 		});
 
 		it('clears the timer, so the indicator does not sit on “Unsaved” for a file that has gone', () => {

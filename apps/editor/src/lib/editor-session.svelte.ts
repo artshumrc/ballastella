@@ -1609,27 +1609,7 @@ export class EditorSession {
 	async deleteHistoricalMap(imageId: string): Promise<boolean> {
 		this.historicalMapError = '';
 		const label = this.historicalMaps.find((map) => map.imageId === imageId)?.label ?? '';
-		// ⚠ **Waited out before the deletion, and it forgets nothing** (ticket 21, round 4).
-		//
-		// `Autosave.abandon` cannot call back a write the store already has, so an Alignment write in
-		// flight when Delete is pressed can land *after* `deleteHistoricalMap` has removed
-		// `alignments/<id>.json` — recreating the one leftover that function exists to prevent, an
-		// orphaned placement for a map that is gone, which a later import would then deduplicate a
-		// colleague's copy against.
-		//
-		// ⚠ **This is not the inversion review 2 removed from this method, and the note that said it
-		// was had the reason wrong.** What made the old ordering an inversion was not where `abandon`
-		// sat but that it *destroyed the user's only copy* — the journal entry holding an unsaved
-		// Alignment — before anything justified destroying it, so a reload in between lost the edit
-		// and left the map in place. `settled` is the half of `abandon` that destroys nothing: it
-		// drops no pending bytes, clears no timers and touches no journal entry. It only declines to
-		// return while the store still holds bytes for a file about to be deleted, and the refusal
-		// below can still refuse. `#forgetJournalled` runs after the deletion, exactly as it did.
-		//
-		// Bounded, so a write that never settles costs a pause and not the gesture; if the wait
-		// expires the deletion goes ahead anyway, and its own partial-failure design leaves a map
-		// that is still listed and can be finished by hand.
-		await this.#autosave.settled(alignmentPath(imageId));
+		await this.#quietBeforeDeleting(imageId);
 		try {
 			await deleteHistoricalMap(this.#store, imageId, { label });
 		} catch (cause) {
@@ -1688,15 +1668,58 @@ export class EditorSession {
 	 * ⚠ **The promise `abandon` answers with is dropped here, and that is now merely true rather than
 	 * load-bearing** (round 4). This runs *after* `deleteHistoricalMap` has removed the files, so a
 	 * write still in flight has already either landed or not and waiting on it would re-delete
-	 * nothing. The window it used to leave open is closed by `Autosave.settled` at the top of
-	 * {@link deleteHistoricalMap}, **before** the deletion, where waiting can still change the
-	 * outcome — and which destroys nothing, so it is not the inversion review 2 removed.
+	 * nothing. The window it used to leave open is closed by {@link #quietBeforeDeleting}, at the top
+	 * of {@link deleteHistoricalMap} and **before** the deletion, where waiting can still change the
+	 * outcome.
 	 */
 	#forgetJournalled(imageId: string): void {
 		void this.#autosave.abandon(`${imageDirectory(imageId)}/`);
 		void this.#autosave.abandon(alignmentPath(imageId));
 		this.#journal?.forgetUnder(`${imageDirectory(imageId)}/`);
 		this.#journal?.forget(alignmentPath(imageId));
+	}
+
+	/**
+	 * Let the store finish with a Historical Map's files before asking for them to be deleted
+	 * (ticket 21, rounds 4 and 5).
+	 *
+	 * `Autosave.abandon` cannot call back a write the store already has, and `#forgetJournalled` runs
+	 * *after* the deletion, so a write still in flight when Delete is pressed lands on top of a map
+	 * that has gone — an orphaned `alignments/<id>.json` that a later import would deduplicate a
+	 * colleague's copy against, or an `images/<id>/image-info.json` for a pyramid that is not there.
+	 *
+	 * ⚠ **Both prefixes, exactly as {@link #forgetJournalled} sweeps both** (round 5). The first cut
+	 * waited on the Alignment alone, which left the pyramid's own files — `image-info.json`,
+	 * `remote.json`, the tiles — with the identical window and no sentence saying why they were
+	 * different. They are not different; the argument covers both or neither. Each is pinned by its
+	 * own test holding one write open, because written as one test the two waits sit in the same
+	 * `Promise.all` and either alone parks the deletion until both are released — so a pair would
+	 * have asserted nothing about either.
+	 *
+	 * ⚠ **What this closes is the *in-flight* case, and saying more than that is what round 4 got
+	 * wrong.** `Autosave.settled` also brings a merely-pending file to rest, but on these two
+	 * prefixes nothing debounced is ever queued and a pending file is swept by
+	 * {@link #forgetJournalled} before anything restarts it. The wait earns its place on writes the
+	 * store already has, which are the ones nothing downstream can call back.
+	 *
+	 * ⚠ **This is not the inversion review 2 removed from this method.** What made the old ordering
+	 * an inversion was not that something happened before the deletion but that it *destroyed the
+	 * user's only copy* — the journal entry holding an unsaved Alignment — before anything justified
+	 * destroying it, so a reload in between lost the edit **and** left the map in place.
+	 * `Autosave.settled` discards nothing: it starts the writes that were already queued and waits
+	 * for the store to take them. An edit that survives this is on disk, so the refusal below can
+	 * still refuse and the user still has their work. `Workspace.deleteProject` does the same thing
+	 * with `abandon`, two files away, for the same reason.
+	 *
+	 * Bounded, so a write that never settles costs a pause and not the gesture; if the wait expires
+	 * the deletion goes ahead anyway, and `deleteHistoricalMap`'s partial-failure design leaves a map
+	 * that is still listed and can be finished by hand.
+	 */
+	async #quietBeforeDeleting(imageId: string): Promise<void> {
+		await Promise.all([
+			this.#autosave.settled(`${imageDirectory(imageId)}/`),
+			this.#autosave.settled(alignmentPath(imageId))
+		]);
 	}
 
 	/**

@@ -463,29 +463,57 @@ test.describe('choosing a folder as the Workspace', () => {
 		// Somebody else's Project, of the same name, in a folder of the same name. Nothing this build
 		// can read tells it apart from the one the user deleted on their own machine.
 		await createProject(page, 'Amsterdam 1625');
+		// ⚠ **Two, and that is the point** (round 5). One refusal made three things unfalsifiable: the
+		// "still showing" arm of the focus move, `bind:this={dismissButton}`, and the accessible names
+		// — two buttons both reading "Forget this note", told apart only by prose in a `<p>` that is
+		// associated with neither. A screen-reader user meets two identical controls and has to guess
+		// which note each one throws away, for the one gesture here that is supposed to be safe.
+		await createProject(page, 'Boston 1775');
 		await page.evaluate((folder) => {
-			localStorage.setItem(
-				`ballastella.deleted.${encodeURIComponent(`folder:${folder}`)}/${encodeURIComponent('amsterdam-1625')}`,
-				JSON.stringify({
-					formatVersion: 1,
-					at: new Date().toISOString(),
-					was: { name: 'Amsterdam 1625', updatedAt: '2026-08-08T09:00:00.000Z' }
-				})
-			);
+			for (const directory of ['amsterdam-1625', 'boston-1775']) {
+				localStorage.setItem(
+					`ballastella.deleted.${encodeURIComponent(`folder:${folder}`)}/${encodeURIComponent(directory)}`,
+					JSON.stringify({
+						formatVersion: 1,
+						at: new Date().toISOString(),
+						was: { name: 'Whatever it was called', updatedAt: '2026-08-08T09:00:00.000Z' }
+					})
+				);
+			}
 		}, PICKED_FOLDER);
 
 		await page.reload();
 		await page.getByRole('button', { name: `Reopen “${PICKED_FOLDER}”` }).click();
 		await inFolder(page);
-		await expect(page.getByTestId('deletion-refused')).toBeVisible();
+		await expect(page.getByTestId('deletion-refused')).toHaveCount(2);
 
-		await page.getByTestId('forget-deletion').click();
+		// Named by the folder each one is about, so they are distinguishable to somebody who cannot
+		// see which paragraph the button sits in.
+		await page
+			.getByRole('button', { name: 'Forget the unfinished deletion of “boston-1775”' })
+			.click();
 
-		// The panel goes, because that refusal was the whole of what it had to say.
+		// The panel is still saying something, so focus stays inside it rather than falling to <body>.
+		await expect(page.getByTestId('deletion-refused')).toHaveCount(1);
+		expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe(
+			'recovered-dismiss'
+		);
+
+		await page
+			.getByRole('button', { name: 'Forget the unfinished deletion of “amsterdam-1625”' })
+			.click();
+
+		// The panel goes, because that refusal was the last of what it had to say — and focus lands
+		// where a dismissal's does rather than on the element that has just been removed.
 		await expect(page.getByTestId('recovered-edits')).toHaveCount(0);
-		// A note went and a file did not: the colleague's Project is untouched.
+		expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('MAIN');
+		// Notes went and files did not: both Projects are untouched.
 		await expect(page.getByRole('link', { name: 'Amsterdam 1625' })).toBeVisible();
-		expect(await everyPathInFolder(page)).toEqual(['amsterdam-1625/project.json']);
+		await expect(page.getByRole('link', { name: 'Boston 1775' })).toBeVisible();
+		expect(await everyPathInFolder(page)).toEqual([
+			'amsterdam-1625/project.json',
+			'boston-1775/project.json'
+		]);
 
 		// And it stays gone, which is the half a content-keyed dismissal could never deliver.
 		await page.reload();

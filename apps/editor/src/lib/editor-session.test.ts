@@ -12,6 +12,7 @@ import {
 	MemoryProjectStore,
 	WriteAheadJournal,
 	alignmentPath,
+	acceptRemoteImageService,
 	imageInfoPath,
 	newAlignment,
 	newProjectFile,
@@ -304,6 +305,34 @@ describe('deleting a Historical Map, at the unit seam', () => {
 		return { session, storage };
 	}
 
+	/**
+	 * Hold exactly one path's write open, and answer the function that lets it land.
+	 *
+	 * Every other path writes through untouched, which is what keeps each test above holding one
+	 * prefix and leaving the other quiet.
+	 */
+	function holdOneWriteOpen(
+		store: MemoryProjectStore,
+		target: string,
+		options: { thenFail?: boolean } = {}
+	): () => void {
+		const write = store.write.bind(store);
+		let land = (): void => undefined;
+		let held = false;
+		store.write = async (path, bytes) => {
+			if (held || (path as string) !== target) return write(path, bytes);
+			held = true;
+			return new Promise<void>((resolve, reject) => {
+				land = () =>
+					void write(path, bytes).then(
+						() => (options.thenFail ? reject(new Error('the folder grant went away')) : resolve()),
+						reject
+					);
+			});
+		};
+		return () => land();
+	}
+
 	/** The unsaved Alignment edit a scholar has typed and not yet had written. */
 	const journalTheAlignment = (storage: FakeJournalStorage) =>
 		new WriteAheadJournal(storage, WORKSPACE).record(
@@ -390,6 +419,94 @@ describe('deleting a Historical Map, at the unit seam', () => {
 
 		expect(readJournal(storage, WORKSPACE).entries).toEqual([]);
 		// And the map's files really did go, so this is not a green from nothing having happened.
+		expect(await store.list('')).toEqual([projectFilePath(DIRECTORY)]);
+	});
+
+	/**
+	 * ⚠ **THE WINDOW, AND IT IS ON BOTH OF THE MAP'S PREFIXES** (ticket 21, rounds 4 and 5).
+	 *
+	 * `Autosave.abandon` cannot call back a write the store already has, and `#forgetJournalled` runs
+	 * *after* the deletion — so a write in flight when Delete is pressed lands on top of a map that
+	 * has gone. Round 4 closed that for `alignments/<id>.json` and left `images/<id>/` wide open with
+	 * no sentence saying why the two were different. They are not: `deleteHistoricalMap` removes both
+	 * and `#forgetJournalled` sweeps both, so the argument covers both or neither.
+	 *
+	 * ⚠ **One prefix per test, and that is not tidiness.** Written as one test holding both writes,
+	 * the two waits sit in the same `Promise.all` and either one alone parks the deletion until both
+	 * are released — so removing either call left the suite green and the pair asserted nothing about
+	 * either. Each test below holds exactly one write open and leaves the other prefix quiet.
+	 */
+	it('lets an in-flight Alignment write land before deleting the map', async () => {
+		const store = new MemoryProjectStore();
+		const { session } = await sessionOverAMap(store);
+		await store.write(imageInfoPath(IMAGE), new TextEncoder().encode('{}'));
+		// alignment-write-is-the-fixture: the Alignment on disk is what the deletion has to take with the map
+		await store.write(alignmentPath(IMAGE) as StorePath, new TextEncoder().encode('{}'));
+		await session.open(DIRECTORY);
+		const land = holdOneWriteOpen(store, alignmentPath(IMAGE));
+		void session.writeAlignment(newAlignment(IMAGE, { width: 10, height: 10 }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const deletion = session.deleteHistoricalMap(IMAGE);
+		// A whole macrotask, so every await the deletion could run has run. Without the wait it is
+		// finished by here and the write lands on a directory the deletion has already emptied.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		land();
+
+		expect(await deletion).toBe(true);
+		// An orphaned placement for a map that is gone is the one leftover `deleteHistoricalMap`
+		// exists to prevent — a later import would deduplicate a colleague's copy against it.
+		expect(await store.list('')).toEqual([projectFilePath(DIRECTORY)]);
+	});
+
+	it('lets an in-flight write under images/<id>/ land before deleting the map', async () => {
+		const store = new MemoryProjectStore();
+		const { session } = await sessionOverAMap(store);
+		await session.open(DIRECTORY);
+		// A real service, built the way the app builds one — from a service document, through the
+		// guards — rather than a shape cast into the type, so this cannot drift from production.
+		const service = await acceptRemoteImageService(
+			{
+				'@context': 'http://iiif.io/api/image/3/context.json',
+				id: 'https://static.example.test/iiif/plate-1',
+				type: 'ImageService3',
+				protocol: 'http://iiif.io/api/image',
+				profile: 'level2',
+				width: 1024,
+				height: 1024,
+				tiles: [{ width: 256, scaleFactors: [1, 2, 4] }]
+			},
+			{
+				requestedUrl: 'https://static.example.test/iiif/plate-1/info.json',
+				fallbackUri: 'https://static.example.test/iiif/plate-1'
+			}
+		);
+		// Landed, and then reported as failed. A real File System Access shape — a folder grant
+		// revoked between the bytes reaching disk and the write being acknowledged — and the one that
+		// isolates this: `addReferencedMap` takes its failure branch, so no Layer is added and the
+		// deletion below is not refused, while the bytes are on disk exactly as a late write leaves
+		// them.
+		const land = holdOneWriteOpen(store, `images/${service.imageId}/remote.json`, {
+			thenFail: true
+		});
+		void session.addReferencedMap({
+			service,
+			label: 'Plate 1',
+			partOf: '',
+			canvas: '',
+			rights: '',
+			attribution: '',
+			alignment: null
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const deletion = session.deleteHistoricalMap(service.imageId);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		land();
+
+		expect(await deletion).toBe(true);
+		// A `remote.json` describing a pyramid that is not there: the map is unlisted, its citation
+		// survives it, and nothing in the Workspace admits the bytes exist.
 		expect(await store.list('')).toEqual([projectFilePath(DIRECTORY)]);
 	});
 

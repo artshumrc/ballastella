@@ -307,7 +307,17 @@
 										]
 									: [])
 							];
-							outcome = `Threw away ${parts.length > 0 ? parts.join(' and ') : 'nothing'} held for “${workspaceKeyLabel(key)}”. Nothing in any Workspace was touched.`;
+							// ⚠ **The empty arm is not decoration and is not dead.** The button renders only for
+							// a key in `orphanedJournals`, which is built as the union of the Workspaces holding
+							// journal entries and those holding deletion notes — so a count of zero takes a
+							// second tab having cleared them between this list being built and this click. Rare,
+							// reachable, and the one wording that must not come out of it is "Threw away 0
+							// unsaved changes", which reads as a failure of the button rather than as somebody
+							// else having got there first.
+							outcome =
+								parts.length > 0
+									? `Threw away ${parts.join(' and ')} held for “${workspaceKeyLabel(key)}”. Nothing in any Workspace was touched.`
+									: `There was nothing left to throw away for “${workspaceKeyLabel(key)}” — something else had already cleared it. Nothing in any Workspace was touched.`;
 						}}
 					>
 						Throw away the changes for {workspaceKeyLabel(key)}

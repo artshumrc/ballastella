@@ -607,3 +607,111 @@ budget was 0.00% on both runs.
   note: its partial-failure design leaves a half-deleted map listed and finishable, and giving it the
   full `DeletedProjects` treatment is its own ticket.
 - **`TRACKER.md` was not edited**, as instructed.
+
+## What the fifth round found
+
+Round 4's `Autosave.settled` did not close the window round 4 said it closed, and round 3 had been
+more honest about the same ground. That is the finding; the rest are its neighbours.
+
+### 1. `settled` waited for the wrong half, and the sentence claiming closure had to go either way
+
+It collected only `file.draining` — a write the store already had — and ignored `file.pending` and
+`file.timer`. A file inside its debounce has bytes that have not left `Autosave` at all, so `settled`
+answered `true` for it on the spot.
+
+`settled` now brings a pending file **to rest** rather than calling it quiet: the timer is cleared
+and the write started now instead of in a few hundred milliseconds. Nothing is discarded — that is
+the whole difference from `abandon` — and it is a write the store was about to be given anyway, so
+an edit that survives it is on disk and the refusal downstream can still refuse.
+
+⚠ **What that is worth, stated exactly, because overstating it is the mistake being corrected.** The
+only caller today sees `commit`, which drains at once, so its *reachable* hazard is the in-flight
+case — and the first cut did cover that. On these two prefixes a merely-pending file is also swept by
+`#forgetJournalled`'s `abandon` before anything restarts it. So the widening fixes **no currently
+reachable orphan**: it makes the method's name true and removes the landmine waiting for the first
+caller who queues a debounced write under a prefix they then delete. That is written into the code at
+both seams, and **M45 is recorded below as GREEN** rather than dressed up — the editor seam can only
+build the in-flight state, and saying otherwise would be round 4's error repeated.
+
+### 2. The same window was wide open for `images/<id>/`, with no sentence at all
+
+`deleteHistoricalMap` removes the pyramid, `image-info.json` and `remote.json` as well as the
+Alignment, and `#forgetJournalled` sweeps both prefixes for exactly the reason the Alignment needs
+it. The wait covered one of them. It covers both now, through `#quietBeforeDeleting`, which mirrors
+`#forgetJournalled` line for line.
+
+⚠ **One prefix per test, and that is not tidiness.** Written as one test holding both writes open,
+the two waits sit in the same `Promise.all` and either one alone parks the deletion until both are
+released — so removing either call left the suite green and the pair asserted nothing about either.
+Found by running the mutation, not by reading.
+
+### 3, 4. Two more bounds that were prose
+
+- **`settled`'s prefix filter was asserted by nothing.** Deleting `path.startsWith(prefix) &&` left
+  both tests green — one had a single matching file and the other had none. Unfiltered, one stuck
+  write in a Project nobody is looking at would put the whole two-second bound on every Historical
+  Map deletion, with nothing to say why.
+- **The shipped `?? 2000` was asserted by nothing.** Every assertion injected its own bound, so a
+  default of zero passed — and zero is not cosmetic: every `deleteProject` with any write in flight
+  would answer `false`, keep its record, and produce a startup refusal for a deletion that had in
+  fact finished.
+
+### 5. The forget control's focus management was pinned only in prose
+
+M40 asserted focus for **dismiss**; the forget e2e never read `document.activeElement`, so deleting
+the whole focus block left everything green. The e2e now constructs **two** refusals, which is what
+makes three things falsifiable at once: the "panel is still showing" arm of the focus move,
+`bind:this={dismissButton}`, and the accessible names.
+
+### 6. Minor, and one that was not
+
+- `abandon` carried two contradictory `@returns`, the stale one first, so tooling took it. Gone.
+- **a11y:** two refusals rendered two buttons both reading "Forget this note", told apart only by
+  prose in a `<p>` associated with neither — two indistinguishable controls for the one gesture here
+  that is meant to be the safe one, and a strict-mode violation for `getByTestId` the moment a test
+  constructs two. Each button's accessible name now carries its folder.
+- The `'nothing'` arm of the discard sentence is **reachable**, not dead: a second tab clearing the
+  records between the list being built and the click. Its wording no longer reads as a failure of the
+  button. The plural arms and the `' and '` join, which nothing exercised, now have their own e2e.
+
+## The fifth round's mutation check
+
+Every mutation below was applied, run, and restored.
+
+| # | mutation | result | what went red |
+| --- | --- | --- | --- |
+| M42 | `settled` waits only for `file.draining` again | **RED** | `drains a file still inside its debounce, rather than calling it quiet` |
+| M43 | `settled` drops its prefix filter | **RED** | `ignores a write in flight somewhere else in the Workspace` |
+| M44 | the shipped in-flight bound becomes zero | **RED** | 4 in `autosave.test.ts`, including `waits two seconds by default` |
+| M45 | M42, judged at the editor seam | **GREEN** | *Nothing, and it is recorded rather than hidden.* Both editor tests build an **in-flight** write, which the old `settled` did cover; the pending half is reachable only through this class directly, and is pinned there by M42. See §1. |
+| M46 | `#quietBeforeDeleting` drops the `images/<id>/` wait | **RED** | `lets an in-flight write under images/<id>/ land before deleting the map` |
+| M47 | `#quietBeforeDeleting` drops the Alignment wait | **RED** | `lets an in-flight Alignment write land before deleting the map` |
+| M48 | forgetting a note no longer moves focus | **RED** | e2e `forgets a refused deletion's note, and it stays forgotten across a reload` |
+| M49 | the forget buttons share one accessible name | **RED** | e2e, same test — the two controls become indistinguishable |
+
+## The fifth round's gate
+
+On the final tree, no `--reporter=` anywhere and nothing piped through `grep` — exit codes read
+directly:
+
+| command | exit |
+| --- | --- |
+| `pnpm run check` | **0** |
+| `pnpm run lint` | **0** |
+| `pnpm run test` | **0** — core 1684 passed / 15 skipped, editor 33 passed |
+| `pnpm run test:e2e` (whole suite) | **0** — 495 passed, 1 skipped, 10.9m, retry budget 0.00% of 496 |
+| `playwright test e2e/editor-workspace.e2e.ts --repeat-each=20` | **0** — 780 passed, 8.6m, retry budget 0.00% of 780 |
+
+**Contention, as a number**: tickets 07 and 22 were running their own suites throughout. The
+one-minute load average on the 20-core machine ranged from **2 to 52** across these runs. Nothing
+went flaky under it; the retry budget was 0.00% on both.
+
+## Deliberately not done in round 5
+
+- **`settled`'s widening is not claimed to fix a reachable orphan**, and M45 is recorded GREEN. See
+  §1: today's only caller sees `commit`, and the pending half is pinned against this class directly
+  rather than at the editor seam, because the editor seam cannot build it.
+- **`deleteHistoricalMap` still has no write-ahead record of its own**, unchanged from rounds 2 and
+  4: its partial-failure design leaves a half-deleted map listed and finishable, and giving it the
+  full `DeletedProjects` treatment is its own ticket.
+- **`TRACKER.md` was not edited**, as instructed.

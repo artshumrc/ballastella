@@ -167,10 +167,20 @@
 				{#each deletions?.refused ?? [] as entry (entry.directory)}
 					<p class="text-sm text-warning" data-testid="deletion-refused">
 						{entry.detail}
+						<!--
+							⚠ **The accessible name carries the folder, and the visible label cannot** (round 5).
+							Two refusals render two buttons reading "Forget this note", and the only thing telling
+							them apart is the prose beside them in a `<p>` that is not programmatically associated
+							with either. A screen-reader user tabbing the panel would meet two identical buttons
+							and have to guess which note each one throws away — for a control whose whole purpose
+							is to be the safe choice. It also makes `getByTestId('forget-deletion')` a strict-mode
+							violation the moment a test constructs two, which is the test that had to exist.
+						-->
 						<button
 							type="button"
 							class="btn ml-1 align-baseline btn-xs"
 							data-testid="forget-deletion"
+							aria-label="Forget the unfinished deletion of “{entry.directory}”"
 							onclick={() => forgetDeletion(entry.directory)}
 						>
 							Forget this note

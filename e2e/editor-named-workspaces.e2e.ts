@@ -522,6 +522,38 @@ test.describe('deleting a Workspace', () => {
 			'Threw away 1 unfinished deletion'
 		);
 		await expect(page.getByTestId('workspace-delete-outcome')).not.toContainText('unsaved');
+	});
+
+	/**
+	 * The other shape of the same sentence, which nothing exercised: **both** kinds at once, and both
+	 * plural. The join and the two plural arms are three separate ways to produce a sentence that is
+	 * wrong about what the user just threw away, and the singular-deletion case above reaches none of
+	 * them.
+	 */
+	test('names both kinds when an absent Workspace held edits and deletions', async ({ page }) => {
+		await page.evaluate(() => {
+			const workspace = encodeURIComponent('opfs:A Workspace nobody has any more');
+			for (const directory of ['boston-1775', 'amsterdam-1625']) {
+				localStorage.setItem(
+					`ballastella.deleted.${workspace}/${encodeURIComponent(directory)}`,
+					JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), was: null })
+				);
+			}
+			for (const path of ['boston-1775/project.json', 'boston-1775/annotations/one.geojson']) {
+				localStorage.setItem(
+					`ballastella.journal.${workspace}/${encodeURIComponent(path)}`,
+					JSON.stringify({ formatVersion: 1, at: new Date().toISOString(), bytes: btoa('{}') })
+				);
+			}
+		});
+		await page.reload();
+
+		await openWorkspaceSettings(page);
+		await page.getByTestId('discard-orphaned-journal').click();
+
+		await expect(page.getByTestId('workspace-delete-outcome')).toContainText(
+			'Threw away 2 unsaved changes and 2 unfinished deletions'
+		);
 
 		await expect(page.getByTestId('orphaned-journals')).toHaveCount(0);
 		expect(

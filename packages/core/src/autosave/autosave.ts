@@ -274,8 +274,8 @@ export class Autosave {
 	 * **after** writing the deletion down and before removing a byte, so the synchronous guarantee
 	 * that whole ticket rests on is untouched.
 	 *
-	 * @returns when the writes this could not stop have settled. Never rejects: a write that failed
-	 *   is a write the store does not have, which is the outcome the caller wanted anyway.
+	 * Never rejects: a write that failed is a write the store does not have, which is the outcome the
+	 * caller wanted anyway.
 	 *
 	 * @returns whether everything under `prefix` is now quiet. `false` means a write is **still out
 	 *   there** and the wait gave up on it — see {@link #quietUnder}.
@@ -303,23 +303,54 @@ export class Autosave {
 	}
 
 	/**
-	 * Wait for the writes already in flight under `prefix`, **forgetting nothing** (ticket 21, round 4).
+	 * Bring everything under `prefix` to rest, **losing nothing** (ticket 21, rounds 4 and 5).
 	 *
 	 * {@link abandon}'s sibling, and the difference is the whole reason it exists: `abandon` is for a
-	 * path whose bytes are about to be *removed*, and this is for a path that is about to be removed
-	 * **by somebody else** — `deleteHistoricalMap`, which decides for itself whether the deletion may
-	 * happen at all and must not have the user's unsaved Alignment thrown away before it does. So
-	 * this drops no pending bytes, clears no timers, and touches no journal entry; it only declines
-	 * to return while the store is still holding bytes for a file that is about to be deleted.
+	 * path whose bytes are about to be *removed*, so it throws them away; this is for a path that is
+	 * about to be removed **by somebody else** — `deleteHistoricalMap`, which decides for itself
+	 * whether the deletion may happen at all and must not have the user's unsaved Alignment thrown
+	 * away before it does. Nothing here is discarded: an edit that survives this is on disk, and if
+	 * the deletion is then refused the user still has it.
+	 *
+	 * ⚠ **"Rest" is not "nothing in flight", and the first cut of this waited only for
+	 * `file.draining`** (round 5). A file inside its debounce has `pending` set and `draining`
+	 * undefined, so that version answered `true` for a path whose bytes had not left this object —
+	 * and its timer would then fire during whatever the caller went on to do. A pending file is
+	 * **drained** instead: the timer is cleared and the write started now rather than in a few
+	 * hundred milliseconds, which costs nothing because it is a write the store was about to be given
+	 * anyway, and is the only reading of "settled" that is true of bytes still held here.
+	 *
+	 * ⚠ **What that is worth, stated exactly, because the round before this one over-claimed a
+	 * narrower version of it.** Today's caller — `EditorSession.#quietBeforeDeleting` — sees only
+	 * `commit`, which drains at once, so its reachable hazard is the in-flight case and the first cut
+	 * did cover that. On those two prefixes a merely-pending file is also swept by
+	 * `#forgetJournalled`'s `abandon` before anything restarts it. So this widening fixes **no
+	 * currently reachable orphan**: it makes the method's name true, and it removes the landmine
+	 * waiting for the first caller who queues a debounced write under a prefix they then delete. The
+	 * unit test for it drives this class directly, and the editor-seam tests — which can only build
+	 * the in-flight state — are honest about covering the other half.
 	 *
 	 * @returns whether everything under `prefix` is quiet — `false` when the wait gave up.
 	 */
 	settled(prefix: string): Promise<boolean> {
-		const inFlight: Promise<unknown>[] = [];
-		for (const [path, file] of this.#files) {
-			if (path.startsWith(prefix) && file.draining) inFlight.push(file.draining);
+		const quiet: Promise<unknown>[] = [];
+		for (const [path, file] of [...this.#files]) {
+			// ⚠ **Prefix-scoped, and it has to be.** Without this every call would wait on every write
+			// in the Workspace, so one stuck write in a Project nobody is looking at would put the
+			// whole bound on every Historical Map deletion — a pause with no cause the user could see.
+			if (!path.startsWith(prefix)) continue;
+			if (file.timer !== undefined) {
+				clearTimeout(file.timer);
+				file.timer = undefined;
+			}
+			// `#drain` is one-writer-per-path: handed a file that is already draining it returns that
+			// same promise, and `#drainLoop` picks the newer bytes up on its next pass. So this is the
+			// pending case and the in-flight case in one line, with no second drain.
+			if (file.pending !== undefined) quiet.push(this.#drain(path).catch(() => undefined));
+			else if (file.draining) quiet.push(file.draining);
 		}
-		return this.#quietUnder(inFlight);
+		this.#publish();
+		return this.#quietUnder(quiet);
 	}
 
 	/**
