@@ -80,21 +80,46 @@ export interface AutosaveOptions {
  * writing them, or — for the one stated exception — the error explaining why nothing is coming. There
  * is no fourth possibility to write.
  *
- * ⚠ **THE OTHER HALF IS NOT, AND SAYING IT WAS COST A BLOCKING REGRESSION** (review 1). "*If bytes
- * are pending, a drain is scheduled or running*" is a claim about **which bytes** as much as about
- * which fields, and a union cannot make it. `{ at: 'writing', bytes, drain }` is a perfectly legal
- * state whatever `bytes` holds — including bytes older than the ones the caller was just told were
- * saved. The first cut of this ticket passed bytes into `#drain` as a parameter, a re-entrant
- * subscriber made one stale, and the original write gap came straight back inside a legal state:
- * `commit` resolved, the store held the older bytes, the indicator read `saved`.
+ * ⚠ **THE OTHER HALF IS NOT, AND SAYING IT WAS COST TWO ROUNDS OF BLOCKING REGRESSIONS** (reviews 1
+ * and 2). "*If bytes are pending, a drain is scheduled or running*" is a claim about **which bytes**
+ * as much as about which fields, and a union cannot make it. `{ at: 'writing', bytes, drain }` is a
+ * perfectly legal state whatever `bytes` holds — including bytes older than the ones the caller was
+ * just told were saved. Ticket 09 turned bytes into a parameter in three places and each round found
+ * the inversion in a new one: the sweep, the debounce, and then `commit` and `queue` themselves.
  *
- * So the guarantee stands on two things, and both have to be read together:
+ * ⚠ **Round 1's rule — "only a caller who was handed bytes may install bytes" — was itself false.**
+ * `commit` *is* such a caller and still reverted a newer edit, because between being handed the bytes
+ * and installing them it called `#writeAhead`, which reports a refusal through `onJournalRefused`.
+ * The rule that survives is not about *who* holds a value but about *when*:
  *
- * 1. **the type**, for which fields may coexist — this table;
- * 2. **one rule about bytes**, enforced by the shape of two methods: *only a caller who was handed
- *    bytes may install bytes*. {@link Autosave.queue} and {@link Autosave.commit} have them from the
- *    user and pass them to `#drain`; every other route reaches `#drainOwed`, which has no parameter
- *    to pass a stale value through and re-reads the state at the point of use.
+ * > **A byte value may exist outside `#states` only across code that cannot reach application code.**
+ *
+ * Every call that can reach application code must have the bytes already installed, and anything
+ * after such a call must re-read `#states` rather than use what it read before. The complete list of
+ * places control leaves this class, and how each is held to that:
+ *
+ * | Reaches out | Where | Held by |
+ * |---|---|---|
+ * | listeners, via `#tell` | `#publish`, `subscribe` | **shape** — `#publish` takes no bytes and reads nothing but `#states` |
+ * | `onJournalRefused`, via `#tell` | `#publishJournalRefusal` | **shape** — reached only from `#writeAhead`, which takes no bytes |
+ * | `journal.record` | `#writeAhead` | **shape** — the bytes are read from `#states` on the line above and used for nothing else |
+ * | `journal.forget` | `#forget`, from `#drainLoop` and `abandon` | **shape** — both re-read `#states` afterwards; `abandon` walks keys |
+ * | `store.write` | `#drainLoop` | **shape** — the loop re-reads `#states` after every await and compares by identity |
+ *
+ * ⚠ **One window is held by argument rather than by shape, and it is named rather than hidden.**
+ * `#owe` is handed a byte value by its caller. That is safe because `#owe` reaches nothing on the
+ * list above — it touches `#states`, `drainOf` and `clearTimeout` and constructs a promise — so no
+ * application code can run while the value is in flight. **Nothing enforces that it stays that way**:
+ * a future edit adding a `#publish` to `#owe` would reopen the whole class of defect and no test
+ * would say so. If that method grows, this table is what has to be re-read.
+ *
+ * ⚠ **`journal.record` re-entering is a second argument, not a proof.** If a `record` implementation
+ * synchronously wrote to the same path, the outer `record` would finish last and the journal would
+ * end up holding the older bytes. `WriteAheadJournal.record` is a `localStorage.setItem` that calls
+ * nothing, so no shipped journal can do it. Stated because the interface permits it.
+ *
+ * So the guarantee stands on two things, and both have to be read together: **the type**, for which
+ * fields may coexist — this table — and **the rule above**, for which bytes go in them.
  *
  * **Idle is absence.** A path is in `Autosave`'s map exactly while something is happening to it, so
  * "idle with bytes" is not a state that has to be forbidden; it has no representation at all.
@@ -270,16 +295,23 @@ export class Autosave {
 	 * this epic twice caught firing against bytes that were no longer there, and — worse — it turned
 	 * the documented "bytes the store refused are **held**, not retried" into "retried, if the edit
 	 * that failed happened to have a sibling behind it". Now the drain is the mechanism, alone.
+	 *
+	 * ⚠ **Installed before anything that can call out, which is the rule in {@link FileState}'s
+	 * banner** (ticket 09, review 2). This used to journal first, and `#writeAhead` reports a refusal
+	 * to the app: a handler that made its own edit had it silently reverted by the `bytes` this method
+	 * was still holding. The journal record is still synchronous and still happens before any
+	 * suspension, which is all ticket 20 needs of it.
 	 */
 	queue(path: WritablePath, bytes: Bytes): void {
-		// Before anything else, and synchronously. This is the one call in this class that a document
-		// being torn down will actually finish (ticket 20).
-		this.#writeAhead(path, bytes);
 		const current = this.#states.get(path);
 		const drain = current && drainOf(current);
 		if (drain) this.#states.set(path, { at: 'writing', bytes, drain });
 		else
 			this.#states.set(path, { at: 'debouncing', bytes, timer: this.#armDebounce(path, current) });
+		// Synchronously, and reading what was just installed rather than what this method was passed.
+		// This is the one call in this class that a document being torn down will actually finish
+		// (ticket 20).
+		this.#writeAhead(path);
 		this.#publish();
 	}
 
@@ -301,13 +333,20 @@ export class Autosave {
 	 * exists to prevent. `alignment/alignment-file.ts` is the one module that may cross it.
 	 */
 	commit(path: WritablePath, bytes: Bytes): Promise<void> {
+		// ⚠ **Three steps, and the order is the whole of review 2's finding A.** `#owe` installs and
+		// calls nothing that can reach application code; `#writeAhead` and `start` both can, and by
+		// then there is no byte value left in this method for either to make stale. Written as one
+		// `#drain(path, bytes)` call with the journal in front of it, a refusal handler that made its
+		// own edit had that edit reverted — `commit` resolved, the store held the older bytes and the
+		// indicator read Saved.
+		const { drain, start } = this.#owe(path, bytes);
 		// Journalled even though the write starts immediately: "immediately" is still asynchronous,
 		// and the gap between here and the store having the bytes is exactly the gap a navigation
-		// falls into. It is also the gap a failed write leaves the bytes sitting in.
-		this.#writeAhead(path, bytes);
-		// The debounce is cancelled by `#drain`, which is where every transition out of `debouncing`
-		// happens. Cancelling it here as well is how a second cancellation site gets forgotten.
-		return this.#drain(path, bytes);
+		// falls into. It is also the gap a failed write leaves the bytes sitting in. Still ahead of
+		// `start`, so the ticket-20 ordering — journalled before the store is asked — is unchanged.
+		this.#writeAhead(path);
+		start();
+		return drain;
 	}
 
 	/**
@@ -356,10 +395,10 @@ export class Autosave {
 	 */
 	capture(): void {
 		if (!this.#journal) return;
-		for (const [path, state] of this.#states) {
-			const bytes = bytesOf(state);
-			if (bytes !== undefined) this.#writeAhead(path, bytes);
-		}
+		// Keys, snapshotted, and `#writeAhead` re-reads each one: `journal.record` and the refusal it
+		// may report are both application code, so a value read before them can be stale by the time
+		// it is used. Same rule as {@link #bringToRest} and {@link abandon} — see {@link FileState}.
+		for (const path of [...this.#states.keys()]) this.#writeAhead(path);
 	}
 
 	/**
@@ -425,12 +464,22 @@ export class Autosave {
 	 */
 	abandon(prefix: string): Promise<boolean> {
 		const inFlight: Promise<unknown>[] = [];
-		for (const [path, state] of [...this.#states]) {
+		// ⚠ **Keys, and the state re-read *after* `#forget`** (ticket 09, review 2). `#forget` calls an
+		// injected `AutosaveJournal.forget`, which is application code by the same standard as a
+		// listener: a `forget` that wrote to a path later in this walk left the old loop holding a
+		// value from before that write, so it saw a live `writing` state as merely debouncing, deleted
+		// it, and never put its drain into `inFlight`. This then answered `true` — everything is quiet
+		// — with a write outstanding, past the very promise it exists to provide. Pre-existing; fixed
+		// here because the rule this ticket writes down forbids it.
+		for (const path of [...this.#states.keys()]) {
 			if (!path.startsWith(prefix)) continue;
 			// One of the two points a journal refusal stops being interesting: these bytes are not
 			// going anywhere, so whether they reached the journal no longer says anything true.
 			this.#journalRefusals.delete(path);
 			this.#forget(path);
+			const state = this.#states.get(path);
+			// Re-added by the `forget` above, or removed by it. Either way it is not this sweep's.
+			if (state === undefined) continue;
 			const drain = drainOf(state);
 			if (drain) {
 				this.#states.set(path, { at: 'abandoning', drain });
@@ -551,8 +600,15 @@ export class Autosave {
 				// had the previous ones are picked up by that same loop on its next pass.
 				return state.drain;
 			case 'debouncing':
-			case 'held':
-				return this.#startDrain(path, state.bytes, state);
+			case 'held': {
+				// `state.bytes` is read here and installed by `#owe` with nothing in between that can
+				// reach application code — the one window in which a byte value may exist outside
+				// `#states`. Nothing is journalled: these bytes were recorded when they were queued or
+				// committed, and re-recording from a sweep would report a refusal nobody asked about.
+				const { drain, start } = this.#owe(path, state.bytes);
+				start();
+				return drain;
+			}
 			default:
 				throw unhandled(state);
 		}
@@ -602,9 +658,19 @@ export class Autosave {
 	 * which is the failure this whole ticket is closing, reintroduced by its own fix. What it costs
 	 * is protection against leaving the page in the next few hundred milliseconds, and that is what
 	 * the user is told, in the words `JournalFullError` carries.
+	 *
+	 * ⚠ **It takes no bytes: it records what `path` owes, read out of `#states`** (ticket 09, review
+	 * 2). Taking them as a parameter meant `queue` and `commit` had to hold a value across this call —
+	 * and this call reports a refusal to the app, so a handler that made its own edit had it reverted
+	 * a moment later. Reading the state instead means the journal cannot hold bytes the store is not
+	 * also about to be given.
 	 */
-	#writeAhead(path: StorePath, bytes: Bytes): void {
+	#writeAhead(path: StorePath): void {
 		if (!this.#journal) return;
+		const state = this.#states.get(path);
+		const bytes = state && bytesOf(state);
+		// Nothing owed — the path is `abandoning`, or has gone entirely. There is nothing to protect.
+		if (bytes === undefined) return;
 		try {
 			this.#journal.record(path, bytes);
 			this.#journalRefusals.delete(path);
@@ -638,26 +704,14 @@ export class Autosave {
 	 * something it should not": a journal refusal says the opposite thing, and `lastError` would be a
 	 * lie because no write failed. Inventing one belongs to ticket 03, not here.
 	 *
-	 * What the stale entry then does at the next startup, stated to the limit of what is measured:
-	 * `replayJournal` writes it back, which is a **redundant write of identical bytes so long as
-	 * nothing outside `Autosave` has written that path in between**. It is not harmless in general.
-	 * `replay.ts` gates only on the owner still existing (`missingOwner`) and never compares the
-	 * store's bytes against the entry's, so a newer write that arrived by a route which does not call
-	 * `journal.record` is reverted — and reported as `restored`, which reads as good news.
-	 *
-	 * Measured against a real `WriteAheadJournal` and `replayJournal`:
-	 *
-	 * ```
-	 * store v1        → entry v1 → replay → v1          restored: ["p/project.json"]
-	 * store v1, v2    → entry v1 → replay → v1  ← lost  restored: ["q/project.json"]
-	 * ```
-	 *
-	 * Every mutator inside this class re-records, so `Autosave` is not such a route;
-	 * `transfer/open-project-bundle.ts`, `transfer/restore-workspace-tar.ts`, `tiler/ingest.ts`,
-	 * `base-map/offline-cache.ts` and `replay.ts` itself are.
-	 *
-	 * ⚠ **That hazard is pre-existing and untouched here** — it does not depend on this method
-	 * swallowing, and it is ticket 07's subject. Named rather than fixed.
+	 * What the stale entry then does at the next startup is `replay.ts`'s subject, and ticket 07
+	 * changed the answer: replay compares the store against the entry rather than writing
+	 * unconditionally, so an entry whose bytes the store already has resolves to
+	 * `already-in-the-store` and **no write happens at all**, and one it cannot decide about is kept
+	 * and reported rather than applied. What `Autosave` contributes to that comparison is the
+	 * baseline, and only from {@link #forget} — this method, called after a store write has actually
+	 * succeeded. That is why a swallowed `forget` matters at all: it costs the path its baseline, not
+	 * a reverted file. See `replay.ts` for the decision table.
 	 *
 	 * ⚠ **Reachability is not claimed, on the same standard as {@link #drain}'s.** `WriteAheadJournal`
 	 * is the only production implementation and its own `forget` already swallows a refused
@@ -718,24 +772,36 @@ export class Autosave {
 	#armDebounce(path: StorePath, current: FileState | undefined): ReturnType<typeof setTimeout> {
 		if (current) this.#stopDebounce(current);
 		return setTimeout(() => {
-			const state = this.#states.get(path);
 			// Not `debouncing` means this timer was cleared and its state replaced — which cannot happen,
 			// because clearing it is what replacing it consists of. Written as a read of the state rather
 			// than as an assertion so that a future transition which forgets to clear costs a missed
 			// write rather than a second writer on a path that already has one.
-			if (state?.at !== 'debouncing') return;
+			//
+			// ⚠ **Deliberately not bound to a variable** (ticket 09, review 2). Holding `state` here and
+			// passing `state.bytes` on the next line was measured to be an *equivalent* mutant — nothing
+			// runs in between, so nothing could redden it — which meant "every route but `queue` and
+			// `commit` drains what the path owes rather than a value it is carrying" was enforced by
+			// care at this site and by shape everywhere else. With no binding there is no value to
+			// pass, so it is shape here too.
+			if (this.#states.get(path)?.at !== 'debouncing') return;
 			// Nobody is awaiting a debounced write, so a failure is reported through the save state
 			// and `lastError` rather than as an unhandled rejection. The bytes stay pending either
 			// way, so the next commit or flush tries again.
-			//
-			// Through `#drainOwed`, which has no bytes parameter: this is not a caller the user handed
-			// bytes to, it is a caller draining whatever the path owes. See review 1's regression.
 			void this.#drainOwed(path)?.catch(() => undefined);
 		}, this.#debounceMs);
 	}
 
 	/**
-	 * Start draining `path` with `bytes`, or hand them to the drain already running for it.
+	 * Install `bytes` as what `path` owes the store, and answer both the drain that will write them
+	 * and how to set it going.
+	 *
+	 * ⚠ **THIS METHOD REACHES NO APPLICATION CODE, AND THAT IS ITS CONTRACT.** It touches
+	 * `#states`, `drainOf` and `clearTimeout`, and constructs a promise. Nothing here can call a
+	 * listener, a journal or the store. That is what makes it safe to hold a byte value across —
+	 * the only place in this class where a byte value may be held at all — and it is why `start`
+	 * comes back as a thunk rather than being called here: starting the loop publishes, and
+	 * publishing is application code that must not run until the caller has finished installing and
+	 * journalling. See {@link FileState}'s banner for the rule and {@link commit} for the defect.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * A `commit` COULD RESOLVE SUCCESSFULLY WITH ITS BYTES STILL IN MEMORY
@@ -777,36 +843,28 @@ export class Autosave {
 	 * Asserted by `keeps one writer per path when a subscriber commits back into it`. This shape is
 	 * not a stylistic choice.
 	 */
-	#drain(path: StorePath, bytes: Bytes): Promise<void> {
+	#owe(
+		path: StorePath,
+		bytes: Bytes
+	): { readonly drain: Promise<void>; readonly start: () => void } {
 		const current = this.#states.get(path);
 		const running = current && drainOf(current);
 		// One writer per path, so two edits to the same file can never race into the store out
 		// of order. Different paths are independent — that is the whole of rule 2.
 		if (running) {
 			// Not a no-op even when the bytes are unchanged: this is also how `abandoning` is undone by
-			// a caller that wants the path back.
+			// a caller that wants the path back, which `lets a commit take back a path that was
+			// abandoned mid-write` asserts.
 			this.#states.set(path, { at: 'writing', bytes, drain: running });
-			return running;
+			return { drain: running, start: () => undefined };
 		}
-		return this.#startDrain(path, bytes, current);
-	}
-
-	/**
-	 * Put `path` into `writing` with `bytes`, and start the loop that will write them.
-	 *
-	 * Shared by {@link #drain} and {@link #drainOwed} so that the deferred below — which is
-	 * load-bearing, see {@link #drain} — exists once rather than twice. The two differ only in where
-	 * the bytes came from, and that difference is the whole of review 1's fix.
-	 */
-	#startDrain(path: StorePath, bytes: Bytes, current: FileState | undefined): Promise<void> {
 		if (current) this.#stopDebounce(current);
 		let started!: (loop: Promise<void>) => void;
 		const drain = new Promise<void>((resolve) => {
 			started = resolve;
 		});
 		this.#states.set(path, { at: 'writing', bytes, drain });
-		started(this.#drainLoop(path));
-		return drain;
+		return { drain, start: () => started(this.#drainLoop(path)) };
 	}
 
 	async #drainLoop(path: StorePath): Promise<void> {

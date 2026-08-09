@@ -335,6 +335,36 @@ describe('Autosave', () => {
 		});
 
 		/**
+		 * ⚠ **A `commit` TAKING BACK A PATH THAT WAS ABANDONED MID-WRITE** (ticket 09, review 2 —
+		 * a surviving mutation, found green and closed here).
+		 *
+		 * `abandoning` keeps the in-flight drain in the state precisely so a caller who wants the path
+		 * back is handed that same drain rather than starting a second one. `queue` reaches that
+		 * branch too, but it installs `writing` directly and several tests drive it; the `commit`
+		 * route had none, and treating `abandoning` as unowned there survived the whole suite.
+		 *
+		 * Under that mutation the store is given the re-adopted bytes twice by two concurrent loops —
+		 * or not at all, depending on which loop wins — while `commit` resolves regardless. Asserted
+		 * on what the store was **handed**, in order, because the final contents are the same either
+		 * way and would not redden.
+		 */
+		it('lets a commit take back a path that was abandoned mid-write', async () => {
+			const { given, land } = writesThatLandOnCommand();
+			void autosave.commit('amsterdam-1625/project.json', utf8.encode('v1')).catch(() => undefined);
+			// Delete pressed while that write is out there, and then the Project made again.
+			void autosave.abandon('amsterdam-1625/');
+			const readopted = autosave.commit('amsterdam-1625/project.json', utf8.encode('v2-READOPTED'));
+
+			await leftAlone(land);
+
+			await expect(readopted).resolves.toBeUndefined();
+			expect(given).toEqual([
+				{ path: 'amsterdam-1625/project.json', text: 'v1' },
+				{ path: 'amsterdam-1625/project.json', text: 'v2-READOPTED' }
+			]);
+		});
+
+		/**
 		 * The bytes the invariant deliberately does **not** cover, stated so the exception cannot be
 		 * lost: a write the store refused keeps its bytes and schedules nothing. Rescheduling them
 		 * here would turn a full disk into a spin. They wait for the next `commit`, `queue` or
@@ -553,6 +583,98 @@ describe('Autosave', () => {
 			 * into the store. The deletion then drops its own record, so nothing at the next startup
 			 * catches it: exactly the defect ticket 21 closed, by a route it could not have known about.
 			 */
+			/**
+			 * ⚠ **THE THIRD PLACE, AND THE ONE THAT SAYS THE PER-ROUTE FIX WAS NOT CONVERGING**
+			 * (ticket 09, review 2).
+			 *
+			 * Round 1 fixed the sweep and the debounce, and stated the rule as *only a caller who was
+			 * handed bytes may install bytes*. `commit` **is** such a caller and still reverted a newer
+			 * edit, because between being handed the bytes and installing them it called
+			 * `#writeAhead` — and a journal refusal is reported to the app through
+			 * `onJournalRefused`, which is application code, from a constructor-option seam this class
+			 * has always had.
+			 *
+			 * So the rule that survives is not about who holds the bytes but about **when**:
+			 *
+			 * > a byte value may exist outside `#states` only across code that cannot reach
+			 * > application code.
+			 *
+			 * Both routes are driven, because `queue` and `commit` install through different branches
+			 * and round 1's experience is that fixing one of a pair leaves the other.
+			 */
+			const revertedByItsOwnRefusalHandler = (gesture: (autosave: Autosave) => unknown) => {
+				let reentered = false;
+				const refusing: Autosave = new Autosave(store, {
+					debounceMs: DEBOUNCE,
+					journal: {
+						record: () => {
+							throw new Error('the journal is full');
+						},
+						forget: () => undefined
+					},
+					onJournalRefused: (problem) => {
+						// Once, and never for the withdrawal, or this recurses: each refusal is a fresh
+						// `Error`, so every record publishes a change.
+						if (problem === null || reentered) return;
+						reentered = true;
+						void refusing.commit('p/project.json', utf8.encode('NEWER')).catch(() => undefined);
+					}
+				});
+				return { refusing, outcome: gesture(refusing), reentered: () => reentered };
+			};
+
+			it('does not let commit revert an edit its own refusal handler made', async () => {
+				const { refusing, outcome, reentered } = revertedByItsOwnRefusalHandler((autosave) =>
+					autosave.commit('p/project.json', utf8.encode('older')).then(
+						() => 'resolved' as const,
+						() => 'rejected' as const
+					)
+				);
+
+				const committed = await outcome;
+				await vi.advanceTimersByTimeAsync(DEBOUNCE);
+
+				expect({
+					committed,
+					reentered: reentered(),
+					onDisk: new TextDecoder().decode(await store.read('p/project.json')),
+					pending: refusing.hasPendingWrite('p/project.json'),
+					state: refusing.state,
+					timers: vi.getTimerCount()
+				}).toEqual({
+					committed: 'resolved',
+					// Here so that a change which stopped the handler being called at all reads as a
+					// failure rather than as a pass — the assertion is worthless without it.
+					reentered: true,
+					onDisk: 'NEWER',
+					pending: false,
+					state: 'saved',
+					timers: 0
+				});
+			});
+
+			it('does not let queue revert an edit its own refusal handler made', async () => {
+				const { refusing, reentered } = revertedByItsOwnRefusalHandler((autosave) =>
+					autosave.queue('p/project.json', utf8.encode('older'))
+				);
+
+				await vi.advanceTimersByTimeAsync(DEBOUNCE * 2);
+
+				expect({
+					reentered: reentered(),
+					onDisk: new TextDecoder().decode(await store.read('p/project.json')),
+					pending: refusing.hasPendingWrite('p/project.json'),
+					state: refusing.state,
+					timers: vi.getTimerCount()
+				}).toEqual({
+					reentered: true,
+					onDisk: 'NEWER',
+					pending: false,
+					state: 'saved',
+					timers: 0
+				});
+			});
+
 			it('does not let flush resurrect a Project abandoned mid-sweep', async () => {
 				autosave.queue('a/project.json', utf8.encode('a1'));
 				autosave.queue('amsterdam-1625/project.json', utf8.encode('b1'));
@@ -1276,6 +1398,68 @@ describe('Autosave', () => {
 			// `null` is how this class says "and it is over" — asserted as the whole sequence, so a
 			// change that merely stopped reporting the refusal in the first place cannot pass.
 			expect(refusals).toEqual([expect.any(Error), null]);
+		});
+
+		/**
+		 * ⚠ **THE SWEEP'S OWN SNAPSHOT, ON THE METHOD THAT ANSWERS A PROMISE FOR WHAT IT COULD NOT
+		 * STOP** (ticket 09, review 2 — pre-existing, and fixed here because the rule this ticket
+		 * writes down forbids it).
+		 *
+		 * `abandon` walked keys *and values*, and calls `#forget(path)` in the loop — an injected
+		 * `AutosaveJournal.forget`, which is application code by the same standard as `onJournalRefused`
+		 * and `#publish`. A `forget` that writes to a path later in the walk leaves the sweep holding a
+		 * value from before that write: it sees the path as merely debouncing, takes the branch that
+		 * deletes it outright, and the drain it was actually in **never reaches `inFlight`**.
+		 *
+		 * `abandon` then answers `true` — everything is quiet — with a write outstanding, straight past
+		 * the `#quietUnder` promise that whole ticket-21 round exists to provide. The write lands
+		 * afterwards and recreates the Project, and `Workspace.deleteProject`, told it was quiet, drops
+		 * the record that would have caught it at the next startup.
+		 *
+		 * Identical on the commit before ticket 09, so this is not a regression — it is a rule being
+		 * applied to the sibling of the method it was written for.
+		 */
+		it('re-reads each path as it sweeps, so a journal that writes back cannot orphan a drain', async () => {
+			let land = (): void => undefined;
+			vi.spyOn(store, 'write').mockImplementation(
+				async (path) =>
+					new Promise<void>((resolve) => {
+						land = () => {
+							writes.push(path);
+							resolve();
+						};
+					})
+			);
+			let reentered = false;
+			const sweeping: Autosave = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: () => undefined,
+					forget: () => {
+						if (reentered) return;
+						reentered = true;
+						// An edit to a *later* path in the same sweep, made from inside it.
+						void sweeping
+							.commit('amsterdam-1625/project.json', utf8.encode('typed during the sweep'))
+							.catch(() => undefined);
+					}
+				}
+			});
+			// Insertion order is the walk order, so the re-entrant write lands on a path not yet reached.
+			sweeping.queue('amsterdam-1625/annotations/one.geojson', utf8.encode('a'));
+			sweeping.queue('amsterdam-1625/project.json', utf8.encode('b'));
+
+			let quiet: boolean | 'still waiting' = 'still waiting';
+			void sweeping.abandon('amsterdam-1625/').then((answer) => (quiet = answer));
+			await vi.advanceTimersByTimeAsync(0);
+
+			// Not quiet: the re-entrant commit put a write in the store's hands, and this is the promise
+			// that exists to cover exactly the writes `abandon` could not call back.
+			expect({ reentered, quiet }).toEqual({ reentered: true, quiet: 'still waiting' });
+
+			land();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(quiet).toBe(true);
 		});
 
 		/** And a failed write settles it too: bytes the store refused are bytes the store has not got. */
