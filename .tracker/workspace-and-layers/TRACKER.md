@@ -84,17 +84,23 @@ Also found, and not yet fixed:
 
    No test relies on the demo archive, and that is enforced rather than followed — every Base Map assertion routes to the committed Amsterdam extract, and the URL appears in tests only as the example of a *blocked* host. `pnpm check:deployment` is deliberately unchanged: it still refuses a **production** deployment reading an archive it does not control, which is the right relationship between a proof of concept and a real one.
 
-4. **A `commit` that reports success and never writes the bytes — `autosave.ts:292`.** Found 2026-08-09 while reviewing ticket 07, by a reviewer looking for the cause of a once-seen "DOM shows 3 Control Points, disk holds 2, no error". **Not yet confirmed by instrumentation** — it is a traced mechanism, and the next person should measure it before trusting this write-up.
+4. **A `commit` that reports success and never writes the bytes — `autosave.ts`, `#drain`'s `file.draining ??=`.** **CONFIRMED by deterministic reproduction, 2026-08-09** (ticket 07's round 3), not merely traced. A probe chained on the *same* promise `#drainLoop` awaits, registered after it, runs between the loop's continuation and the `.finally`:
 
-   ```js
-   file.draining ??= this.#drainLoop(path, file).finally(() => { file.draining = undefined; … });
+   ```
+   WRITTEN [{"path":"p/project.json","text":"one"}]   ← "two" never written
+   GATES   1                                          ← store.write called once
+   STATE   unsaved
    ```
 
-   `#drainLoop` clears `file.pending` and exits its `while` synchronously, then resolves; the `.finally` callback runs **one microtask later**. A `commit` landing in that gap sees `file.draining` still set, so `#drain` hands back the *old* promise, sets `file.pending = bytes2`, and nothing drains again. The caller's `commit` resolves successfully, the bytes are never written, and if it was the last write of a burst it is lost permanently. One microtask wide, and it self-heals on the next commit to the same path — so it presents as a flake and would be absorbed by any budget above zero.
+   `commit(path, 'two')` **resolved successfully**. `#drain` saw `file.draining` still set, handed back the old promise, and no loop restarted. The probe was deleted; nothing shipped.
 
-   **Ticket 07's per-map Alignment write queue closes it for `alignments/<id>.json`**, because `port.commit` only resolves after the `finally` has run, so write *n+1* cannot enter the gap. **It is still live for `project.json`** — the manifest. That is where it should be fixed, and it wants its own ticket and its own mutation check rather than being folded into a ticket that happens to be open.
+   **The symptom is not what the first write-up of this lead said.** The indicator is *not* fooled: `state` reads `'unsaved'`, because `#derive()` sees `pending`. So it presents as **"Unsaved, forever, for no reason"** with one caller told it succeeded — not as "Saved" over missing bytes. Two more measured facts: **`flush()` recovers it** (the bytes are still in `file.pending`), and **the next `commit` to that path destroys it** (commit overwrites `pending` before draining). So the last write of a burst is lost permanently; a superseded one is lost silently.
 
-   Note the shape, because this epic keeps meeting it: the reviewer's brief was to test the implementer's own hypothesis (their new write queue), and the honest answer was that the queue is clean and the cause is somewhere nobody had been looking.
+   **Reachability is unproven.** The window is one microtask, entered only by a continuation registered on a promise settling in the same batch *after* `#drainLoop` registered its own. Synthetic reproduction is trivial; that real OPFS timing produces it is **not** claimed.
+
+   **It is not the explanation for `editor-alignment.e2e.ts:678`** (DOM 3 Control Points, disk 2, seen once and never reproduced). That failure happened *after* ticket 07's per-map write queue landed, and that test writes through the queue, which closes this gap for `alignments/<id>.json`. **That one is still unexplained. Do not close it with this.**
+
+   **The link worth carrying into the ticket:** `#drainLoop` calls `journal.forget(path)` only when the store took the bytes, so a wedged file keeps a **live journal entry** *and* **stale pending bytes**. That is a candidate mechanism for open lead 1's shape, on a `project.json` path — the one ticket 07's queue does not cover. Ticket 21 closed lead 1's measured cause; this would be a second, rarer route to the same symptom, and it should be checked rather than assumed absent.
 
 5. **An uncaught `pageerror` when the connection is cut with a warped Layer on screen.** Found 2026-08-09 during ticket 22, and **measured rather than absorbed: 3 failures in 8 runs (37%), and 3 in 8 at the base commit too** — so neither that ticket's change nor machine contention.
 
