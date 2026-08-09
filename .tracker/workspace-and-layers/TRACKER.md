@@ -96,6 +96,14 @@ Also found, and not yet fixed:
 
    Note the shape, because this epic keeps meeting it: the reviewer's brief was to test the implementer's own hypothesis (their new write queue), and the honest answer was that the queue is clean and the cause is somewhere nobody had been looking.
 
+5. **An uncaught `pageerror` when the connection is cut with a warped Layer on screen.** Found 2026-08-09 during ticket 22, and **measured rather than absorbed: 3 failures in 8 runs (37%), and 3 in 8 at the base commit too** — so neither that ticket's change nor machine contention.
+
+   `@allmaps/render`'s `loadImage` asks for the Historical Map's `info.json` when tiles are needed, and the store's `SiteFileUnreachableError` escapes it **uncaught**, arriving as a `pageerror`. Nothing a Reader sees changes today, which is why it went unnoticed — the viewer's own `pageerror` assertion is what surfaced it.
+
+   Ticket 22 excepted **that one message in that one test**, with the measurement written beside it; any other page error from the same path still turns the test red. That is a deliberate narrow exception, not a silenced assertion.
+
+   **What to do about it is a render-seam question, not a Base Map one**: what should happen when a Historical Map's tiles stop being fetchable mid-session? ADR-0023 has an opinion about the Workspace's shared material; nothing yet says what the render layer owes a Reader whose connection goes while a map is drawn.
+
 ## Standing constraints
 
 These apply to every remaining ticket. They are not advice.
