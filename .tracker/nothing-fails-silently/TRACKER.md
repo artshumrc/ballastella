@@ -28,6 +28,20 @@ Last updated: 2026-08-09.
 
 **The unexplained case is genuinely unexplained.** One observation of three Control Points on screen against two on disk, never reproduced, and the confirmed write gap is ruled out **by timeline** — the observation postdates the change that closes that gap on the affected path. Do not close it with that. Two candidate mechanisms are named in the spec and should be instrumented first.
 
+## A defect found while measuring, and not this epic's to fix
+
+`editor-align-referenced.e2e.ts:735` retried across several runs during this epic. It was measured rather than argued about, on an exclusive box, and the answer is **a pre-existing application defect, not load and not ticket 04**.
+
+- **It is not ticket 04.** It reproduces on `7868a4b`, one commit before ticket 04 existed, with an identical stack and an identical call log. The `await passThrough(...)` / `inFlight` microtask suspect is ruled out as the introducer.
+- **It is not load, and this is the number.** The passing retry ran under *identical* concurrency to the failure — same run, same 4 workers, dispatched as test #169 of 523 with ~350 still in flight — and finished in **11.5–23.8s against the failed attempt's 180s**. Load was not lower when it passed. Contention makes work slow; it does not make a laid-out button vanish for 172 consecutive seconds.
+- **What it is.** `locator.click` on `getByTestId('remote-read')` (`e2e/editor-align-referenced.e2e.ts:113`, inside `addReferenced`) logs `element is not stable` twice, then `element is not visible` **345 times** — ~172s of polling an already-resolved button. The Add-Historical-Map dialog closes under the click and never returns. `e2e/support/historical-maps.ts` documents this exact signature as the bug `HTMLDialogElement.open` was introduced to fix. **It is not fully fixed.** `openAddHistoricalMap` verifies `open === true` and all three sources visible, and the dialog closes anyway after that check passes.
+
+That is an app/helper race in the Add-Historical-Map dialog, not a harness problem and not this epic's subject. It needs its own ticket.
+
+**Not measured:** any workers=1 or workers=2 cell, on any commit. So the "load *widens* an existing window" half is unproven and is not claimed — only the "pre-existing" half is.
+
+This is the fourth time this repository has had a failure attributed to load and found a defect underneath. The standing constraint below is why it was caught.
+
 ## Standing constraints
 
 These are carried from `workspace-and-layers`, where each was paid for.
@@ -45,10 +59,10 @@ These are carried from `workspace-and-layers`, where each was paid for.
 
 | Number | Filename | Status | Depends On | Fulfills |
 | --- | --- | --- | --- | --- |
-| 01 | [01-a-write-that-reports-success-has-been-written.md](./tickets/01-a-write-that-reports-success-has-been-written.md) | Not Started | — | 6, 7, 8, 23, 24, 30 |
-| 02 | [02-a-failed-write-retries-itself.md](./tickets/02-a-failed-write-retries-itself.md) | Not Started | 01 | 1, 9, 29 |
+| 01 | [01-a-write-that-reports-success-has-been-written.md](./tickets/01-a-write-that-reports-success-has-been-written.md) | Completed | — | 6, 7, 8, 23, 24, 30 |
+| 02 | [02-a-failed-write-retries-itself.md](./tickets/02-a-failed-write-retries-itself.md) | In Progress | 01 | 1, 9, 29 |
 | 03 | [03-a-save-that-gave-up-says-so.md](./tickets/03-a-save-that-gave-up-says-so.md) | Not Started | 02 | 2, 3, 4, 5, 10, 27, 28, 31, 33–38 |
-| 04 | [04-a-reader-is-told-when-tiles-stop-arriving.md](./tickets/04-a-reader-is-told-when-tiles-stop-arriving.md) | Not Started | — | 14–21, 27, 28, 32, 33 |
+| 04 | [04-a-reader-is-told-when-tiles-stop-arriving.md](./tickets/04-a-reader-is-told-when-tiles-stop-arriving.md) | In Progress | — | 14–21, 27, 28, 32, 33 |
 | 05 | [05-the-same-sentence-on-the-authors-side.md](./tickets/05-the-same-sentence-on-the-authors-side.md) | Not Started | 04 | 11, 12, 13, 19, 22, 32 |
 | 06 | [06-instrument-the-screen-ahead-of-disk-disagreement.md](./tickets/06-instrument-the-screen-ahead-of-disk-disagreement.md) | Not Started | 01, 02 | 25, 26 |
 
