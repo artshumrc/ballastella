@@ -84,9 +84,10 @@ catalog:
   # a prop and awkward as an attribute.
   #
   # Exact, no range specifier, for the same reason as `@allmaps/*`: it is pre-1.0, we maintain
-  # it, and it carries `manifesto.js` — the second IIIF parser in the bundle, whose only
-  # contract with the first is the URI boundary in ADR-0018. A release that changed how a
-  # canvas's image service URI is reported would move that boundary silently.
+  # it, and it carries `manifesto.js` — which since ticket 15 is the **only** IIIF parser in the
+  # viewer's bundle rather than the second one in a shared bundle, because the editor took
+  # `@allmaps/iiif-parser` with it when it dropped this dependency. A release that changed how a
+  # canvas's image service URI is reported would still move ADR-0018's boundary silently.
   #
   # **`apps/viewer` alone, as of ticket 15.** It was both apps from ticket 17; the editor's unwarped
   # view is deleted and the dependency went with it, so a change to this pin can now only reach a

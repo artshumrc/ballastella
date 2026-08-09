@@ -196,9 +196,16 @@ export class AddRemoteMap {
 	 * The user has picked the canvas that is the map.
 	 *
 	 * `imageServiceUriCrossingBoundary` is the door in the wall (ADR-0018): a **string** crosses, and
-	 * `@allmaps/iiif-parser` re-parses from it independently. Passing the parsed canvas would compile
-	 * and would work, right up to the manifest where manifesto.js and `@allmaps/iiif-parser` read the
-	 * same document differently — at which point nothing is wrong anywhere and the map is misplaced.
+	 * the alignment path re-parses from it independently, from its own fetch of its own `info.json`.
+	 * Passing the parsed canvas below would compile and would work, right up to the point where this
+	 * browsing step's reading of a document and the alignment path's are not the same — a library
+	 * edits the Manifest, a canvas paints a Choice, a service is behind a redirect. Nothing is wrong
+	 * anywhere and the map is misplaced.
+	 *
+	 * **Not "manifesto.js versus `@allmaps/iiif-parser`", which this said until ticket 15.** Both
+	 * sides of this boundary are `@allmaps/iiif-parser` now — the editor dropped triiiceratops, and
+	 * `manifesto.js` with it, when the unwarped view went (ADR-0018's amendment note). The rule
+	 * outlived the two-parser reason for it; `parser-boundary.ts` carries the full statement.
 	 */
 	async select(selected: unknown): Promise<void> {
 		this.error = '';

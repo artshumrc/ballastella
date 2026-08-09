@@ -1,6 +1,8 @@
 import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { IMAGE_HEIGHT, IMAGE_WIDTH } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
@@ -1146,15 +1148,24 @@ test.describe('a referenced Historical Map, drawn from the library that holds it
 		// triiiceratops back in the bundle: it failed on the first attempt and **passed on the retry**,
 		// because a chunk served from the browser's cache on the second run raised no response event
 		// this test saw. A check that reports the truth once and then reports green is worse than no
-		// check. So the list is taken from what the document *declares* — SvelteKit's static build
-		// emits a `modulepreload` link for every chunk of the route, and a `stylesheet` link for every
+		// check. So the list is taken from what the documents *declare* — SvelteKit's static build
+		// emits a `modulepreload` link for every chunk of a route, and a `stylesheet` link for every
 		// sheet — and the observed responses are unioned in on top to catch anything imported later.
-		// The declared half cannot be cached away, because it is read out of the live DOM.
+		// The declared half cannot be cached away, because it is read out of the served HTML.
+		//
+		// **Every route, not this one.** The third cut read only the live DOM of `/`, and the editor is
+		// a three-document static build: `index.html`, `align.html` and `image-pane.html` ship 13, 14
+		// and 12 modulepreload links respectively, overlapping but not identical. Measured with a probe
+		// that imported triiiceratops into `routes/align/+page.svelte` alone: the offending chunk is
+		// `nodes/3.*`, which `align.html` declares and `index.html` does not mention at all — so that
+		// version stayed green while the ticket's own `grep -rilE "openseadragon" apps/editor/build`
+		// caught it, narrower than the check it replaced. The documents are **discovered** from the
+		// build rather than listed here, so a fourth route cannot join the app and quietly escape this.
 		//
 		// `openseadragon` is a **known-good positive**: before this ticket it matched
-		// `_app/immutable/chunks/BjdhZAMi.js`, which the Project route loaded. A marker absent from
-		// every build would make this check unfalsifiable; this one was present until the commit that
-		// removed it.
+		// `_app/immutable/chunks/BjdhZAMi.js`, which the Project route loaded, and it survives
+		// minification — it is in the viewer's chunk today. A marker absent from every build would make
+		// this check unfalsifiable; this one was present until the commit that removed it.
 		const origin = new URL(baseURL ?? 'http://localhost').origin;
 		const responded: string[] = [];
 		page.on('response', (response) => {
@@ -1184,7 +1195,9 @@ test.describe('a referenced Historical Map, drawn from the library that holds it
 		);
 		expect(registered).toEqual([false, false]);
 
-		const declared = await page.evaluate(() =>
+		// The live DOM of the route this test drove, so the assets below are known to be ones a real
+		// session loads and not only ones a document mentions.
+		const loadedHere = await page.evaluate(() =>
 			[
 				...document.querySelectorAll<HTMLLinkElement | HTMLScriptElement>(
 					'link[rel="modulepreload"][href], link[rel="stylesheet"][href], script[type="module"][src]'
@@ -1192,13 +1205,31 @@ test.describe('a referenced Historical Map, drawn from the library that holds it
 			].map((element) => (element instanceof HTMLLinkElement ? element.href : element.src))
 		);
 
-		// Nothing was inspected is a failure, not a pass: a page that loaded no scripts would satisfy
-		// every assertion above by having rendered nothing at all. Asserted on the *declared* half
-		// specifically — that is the half the cache cannot empty.
-		expect(declared.length, 'assets the document declares').toBeGreaterThan(0);
+		const routes = await editorRouteDocuments();
+		// Fewer than the three this build has means discovery broke, and a discovery that found nothing
+		// would make every assertion below vacuous.
+		expect(routes.length, 'route documents discovered in the editor build').toBeGreaterThanOrEqual(
+			3
+		);
+
+		const declared: string[] = [...loadedHere];
+		for (const route of routes) {
+			const url = `${origin}/${route}`;
+			const document = await page.request.get(url);
+			expect(document.ok(), `fetching ${url}`).toBe(true);
+			declared.push(...assetReferences(await document.text(), url));
+		}
+
 		const inspected = [...new Set([...declared, ...responded])].filter((url) =>
 			url.startsWith(origin)
 		);
+		// **Nothing inspected is a failure, not a pass**, and this guard is on `inspected` rather than
+		// on `declared` deliberately: the loop below runs over `inspected`, so an origin that stopped
+		// matching would empty it, skip every iteration, and leave `carrying` an empty array that
+		// satisfies the final assertion. Measured, not reasoned about — with the filter pointed at a
+		// host nothing serves, the earlier guard on `declared` was **still satisfied and the test
+		// passed**. A guard on a list the loop does not read is not a guard.
+		expect(inspected.length, 'scripts and stylesheets inspected').toBeGreaterThan(0);
 
 		const carrying: string[] = [];
 		for (const url of inspected) {
@@ -1209,6 +1240,39 @@ test.describe('a referenced Historical Map, drawn from the library that holds it
 		expect(carrying, 'editor assets carrying triiiceratops or OpenSeadragon').toEqual([]);
 	});
 });
+
+/**
+ * Every route document the editor's static build produced, as paths to fetch from its own origin.
+ *
+ * **Discovered rather than listed**, because the thing this guards is a route somebody adds later.
+ * `apps/editor/build` is what `vite preview` serves in `playwright.config.ts`, so these are the
+ * documents actually on the wire — the reading is off disk only to enumerate them, and every one is
+ * then fetched over HTTP and asserted `ok()`, which is what catches a name that has moved.
+ */
+async function editorRouteDocuments(): Promise<string[]> {
+	const build = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../apps/editor/build');
+	const entries = await readdir(build, { withFileTypes: true });
+	return entries
+		.filter((entry) => entry.isFile() && entry.name.endsWith('.html'))
+		.map((entry) => entry.name)
+		.sort();
+}
+
+/**
+ * Every script and stylesheet an HTML document references, resolved against the document's own URL.
+ *
+ * Read out of the markup rather than by mounting it, so a route this test never navigates to is
+ * covered on the same terms as the one it drove. Matched attribute-order-independently: SvelteKit
+ * emits `href` before `rel` on its preload links, and a pattern that assumed otherwise would find
+ * nothing and report it as an app with no scripts.
+ */
+function assetReferences(html: string, documentUrl: string): string[] {
+	const links = [...html.matchAll(/<link\b[^>]*>/g)]
+		.filter((tag) => /\brel="(modulepreload|stylesheet)"/.test(tag[0]))
+		.flatMap((tag) => /\bhref="([^"]+)"/.exec(tag[0])?.[1] ?? []);
+	const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].map((tag) => tag[1]);
+	return [...links, ...scripts].map((reference) => new URL(reference, documentUrl).href);
+}
 
 // Declared here as well as in the app, because the root tsconfig compiles only `e2e/` and
 // `playwright.config.ts` — it never sees the editor's own declarations.
