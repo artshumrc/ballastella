@@ -106,6 +106,12 @@ describe('Autosave', () => {
 			await autosave.commit('alignments/one.json', utf8.encode('pointer-up'));
 
 			expect(writes).toEqual(['alignments/one.json']);
+			// ⚠ **Cancelled, not merely overtaken.** Counting the timers is what says so: the debounce
+			// callback checks the file's state before it drains, so a timer left armed here fires
+			// *harmlessly* and every assertion about bytes stays green. That is precisely the shape this
+			// epic twice caught a refactor sliding into — a stray timer that used to strand bytes going
+			// quiet rather than going away — and the count is the only thing that can see it.
+			expect(vi.getTimerCount()).toBe(0);
 			await vi.advanceTimersByTimeAsync(DEBOUNCE * 2);
 			expect(writes).toEqual(['alignments/one.json']);
 			expect(new TextDecoder().decode(await store.read('alignments/one.json'))).toBe('pointer-up');
@@ -1052,6 +1058,65 @@ describe('Autosave', () => {
 			land();
 			await vi.advanceTimersByTimeAsync(0);
 			expect(writes).toEqual(['amsterdam-1625/project.json']);
+		});
+
+		/**
+		 * ⚠ **THE RESURRECTION DEFECT AT THE SEAM `abandon` CANNOT SWEEP** (ticket 09).
+		 *
+		 * The sibling test above drops a Project's bytes while they sit in a debounce, and asserts
+		 * that neither `capture` nor `flush` can put them back. The other half — a write already handed
+		 * to the store when Delete is pressed — had nothing saying the same thing, and it is the half
+		 * where the bytes are *still in this object*, held by the drain that cannot be called back.
+		 *
+		 * So `capture()` at `pagehide` would re-journal them and the next startup would replay a
+		 * Project the user watched disappear: ticket 21's defect exactly, by the one route its own
+		 * tests could not build.
+		 *
+		 * ⚠ **And the indicator must still read "Saving" while that write is out there**, because it
+		 * is: saying "Saved" for bytes the store has not answered about is the inversion this epic
+		 * exists to remove, and it does not stop being one because the file is on its way out.
+		 */
+		it('gives up the bytes of a write it could not stop, without pretending it is over', async () => {
+			const journalled = new Map<string, Uint8Array>();
+			const journalling = new Autosave(store, {
+				debounceMs: DEBOUNCE,
+				journal: {
+					record: (path, bytes) => void journalled.set(path, bytes),
+					forget: (path) => void journalled.delete(path)
+				}
+			});
+			let land = (): void => undefined;
+			vi.spyOn(store, 'write').mockImplementation(
+				async (path) =>
+					new Promise<void>((resolve) => {
+						land = () => {
+							writes.push(path);
+							resolve();
+						};
+					})
+			);
+			journalling.queue('amsterdam-1625/project.json', utf8.encode('a rename mid-debounce'));
+			await vi.advanceTimersByTimeAsync(DEBOUNCE);
+			expect([...journalled.keys()]).toEqual(['amsterdam-1625/project.json']);
+
+			const abandoning = journalling.abandon('amsterdam-1625/');
+
+			// Given up: nothing here is holding them any more, so `pagehide` has nothing to re-record.
+			journalling.capture();
+			expect({
+				pending: journalling.hasPendingWrite('amsterdam-1625/project.json'),
+				journal: [...journalled.keys()],
+				// …and yet a write really is still out there, and the indicator says so rather than
+				// reporting a file it has no answer about as saved.
+				state: journalling.state
+			}).toEqual({ pending: false, journal: [], state: 'saving' });
+
+			land();
+			await expect(abandoning).resolves.toBe(true);
+			expect({ state: journalling.state, journal: [...journalled.keys()] }).toEqual({
+				state: 'saved',
+				journal: []
+			});
 		});
 
 		/** And a failed write settles it too: bytes the store refused are bytes the store has not got. */
