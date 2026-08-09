@@ -45,6 +45,7 @@
 		MINIMUM_MASK_VERTICES,
 		canSolve,
 		detectFold,
+		imagePaneSourceFor,
 		type Alignment,
 		type ControlPoint,
 		type ControlPointDeletedUndo,
@@ -52,6 +53,7 @@
 		type DistortionView,
 		type FetchFn,
 		type GeoPoint,
+		type HistoricalMapSource,
 		type ImagePane,
 		type OpeningViewFit,
 		type ResourcePoint
@@ -83,6 +85,48 @@
 		/** The Base Map to show beneath, chosen by the author (ADR-0020). */
 		baseMapId: string;
 	} = $props();
+
+	/**
+	 * Where the Historical Map being aligned is served from (ticket 07).
+	 *
+	 * **Resolved here and handed down**, because this is the component that also writes the
+	 * Alignment, and the two answers have to be the same one: `session.historicalMapSource` is what
+	 * `#alignmentAddressFor` reads, so the sheet in the pane and the `resource.id` in the file cannot
+	 * name different servers. A pane that resolved this for itself would be a second lookup, and the
+	 * two drifting is a Library map drawn correctly and written unresolvable.
+	 *
+	 * `$derived` rather than read once: `remoteOrigins` changes when a map is copied offline, and
+	 * from that moment the pane should read the Workspace's own pyramid rather than the Library's.
+	 *
+	 * ⚠ **Two steps, and the first one is a primitive on purpose.**
+	 *
+	 * `session.historicalMapSource` builds a fresh object every call, and `remoteOrigins` behind it is
+	 * a getter recomputed from two `$state` arrays. A `$derived` holding that object therefore takes a
+	 * **new identity** whenever anything in those arrays changes — and identity is what Svelte compares
+	 * to decide whether a dependent effect re-runs. Handed straight to the panes, that meant an
+	 * unrelated Workspace refresh re-read the pyramid and rebuilt the warped layer underneath somebody
+	 * mid-alignment. `editor-alignment-refinement.e2e.ts:314` went red once and passed on retry on the
+	 * first full run with this in it, which is what a rebuild racing a reload looks like.
+	 *
+	 * Deriving the *service string* first fixes it at the root: a string compares by value, so
+	 * `mapSource` is recomputed only when the address or the image really changed — which is exactly
+	 * when both panes should be rebuilt, and never otherwise.
+	 *
+	 * `mapSource` and `paneSource` below are then stable for the same reason: a `$derived` recomputes
+	 * only when *its* dependencies change, and theirs are now a string and an id.
+	 */
+	const mapService = $derived.by(() => {
+		const source = session.historicalMapSource(imageId);
+		return source.imageMode === 'referenced' ? source.service : '';
+	});
+
+	const mapSource = $derived<HistoricalMapSource>(
+		mapService === ''
+			? { imageMode: 'offline-copy', imageId }
+			: { imageMode: 'referenced', imageId, service: mapService }
+	);
+
+	const paneSource = $derived(imagePaneSourceFor(mapSource));
 
 	let pairing = $state.raw<AlignmentPairing | undefined>(undefined);
 	let failure = $state('');
@@ -187,6 +231,9 @@
 		// deleted Layer or Annotation is about the Project rather than about one image, and survives.
 		session.forgetUndoOfOtherImages(imageId);
 		pairing = undefined;
+		// For the same reason: a pyramid held from the previous map would let `reload` rebuild an
+		// Alignment in the wrong image's pixel space.
+		livePane = undefined;
 		warped = null;
 		failure = '';
 		maskStatus = null;
@@ -236,8 +283,30 @@
 	 * exactly the ones being drawn: the Resource Mask defaults to that rectangle, and a second
 	 * `createImagePane` on the same `info.json` would be a second answer that can disagree.
 	 */
+	/**
+	 * The pyramid currently on screen, so the Alignment can be re-read without it.
+	 *
+	 * A plain `let` and not `$state`: it is only ever read by {@link reload}, at the moment a button is
+	 * pressed, and making it reactive would put `loadAlignment` in a dependency graph it writes to.
+	 */
+	let livePane: ImagePane | undefined;
+
+	/**
+	 * Read this Historical Map's Alignment again, discarding the pairing on screen.
+	 *
+	 * One caller: putting back a version somebody else wrote. Re-reading rather than reconstructing
+	 * from the displaced bytes, so the screen shows what is on disk — and so `readAlignment` resets
+	 * the session's baseline, without which the very next drag would be reported as displacing
+	 * something all over again.
+	 */
+	const reload = (): void => {
+		const pane = livePane;
+		if (pane) loadAlignment(imageId, pane);
+	};
+
 	const loadAlignment = (wanted: string, pane: ImagePane): void => {
 		if (destroyed) return;
+		livePane = pane;
 		const mine = ++generation;
 		void (async () => {
 			try {
@@ -688,6 +757,57 @@
 	{/if}
 
 	<!--
+		An Alignment that changed somewhere else while it was open here (ticket 07, ADR-0023).
+
+		ADR-0023 makes an Alignment the Workspace's, shared by every Project that draws the map, and
+		accepts that a Workspace kept in git or Dropbox can therefore receive a colleague's edit between
+		this session's read and its write. The mitigation it asks for is **visibility, not prevention**:
+		the save has already happened — refusing it would discard the work in front of the user to
+		protect work they cannot see — and this is where they are told, and offered the other version.
+
+		`role="alert"` rather than a polite region, and it stays until dismissed. It is the one thing on
+		this screen the user cannot find out any other way: nothing moved, nothing failed, and the save
+		indicator says "Saved". It is only shown for the map on screen, because the button beside it
+		writes that map's file.
+	-->
+	{#if session.alignmentChangedElsewhere?.imageId === imageId}
+		<div
+			role="alert"
+			class="mt-3 alert flex-col items-start alert-warning"
+			data-testid="alignment-changed-elsewhere"
+		>
+			<p class="max-w-prose">
+				Somebody else changed this Historical Map’s Alignment while you had it open — through a
+				Workspace shared with this one — and your edit has just been saved over theirs. A Historical
+				Map has one Alignment, shared by every Project that draws it, so there is only ever one file
+				to change.
+			</p>
+			<div class="flex flex-wrap gap-2">
+				<button
+					class="btn btn-sm"
+					data-testid="restore-changed-elsewhere"
+					onclick={async () => {
+						await session.restoreAlignmentChangedElsewhere();
+						// Re-read, so the pane shows what is now on disk rather than the pairing that was
+						// just discarded. Without this the screen keeps drawing the Control Points the user
+						// chose to give up, and the next drag writes them back.
+						reload();
+					}}
+				>
+					Put their version back instead
+				</button>
+				<button
+					class="btn btn-ghost btn-sm"
+					data-testid="dismiss-changed-elsewhere"
+					onclick={() => session.dismissAlignmentChangedElsewhere()}
+				>
+					Keep mine
+				</button>
+			</div>
+		</div>
+	{/if}
+
+	<!--
 		The fold warning (ADR-0013): "the single most useful piece of feedback a student can receive."
 
 		Above the panes and not tucked beside the distortion toggles, because it is about the Alignment
@@ -781,6 +901,7 @@
 			-->
 			<HistoricalMapPane
 				{imageId}
+				source={paneSource}
 				{fetchTile}
 				label="Historical Map, unwarped, in image pixel coordinates. Click a feature to start a Control Point."
 				overlayPoints={imagePoints}
@@ -905,6 +1026,7 @@
 					entryId={baseMapId}
 					overlayPoints={basePoints}
 					alignment={solvable}
+					alignmentSource={mapSource}
 					{openingFit}
 					{distortion}
 					{fetchTile}

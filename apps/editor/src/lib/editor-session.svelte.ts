@@ -1,5 +1,5 @@
 import { fetchAnnotationsFromApi } from '@allmaps/stdlib';
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 import {
 	Autosave,
@@ -71,11 +71,13 @@ import {
 	serialiseReferencedImage,
 	setLayerVisible,
 	setMapLayerOpacity,
+	sourceOf,
 	// Aliased: the session has a method of the same name, and the two doing different amounts of work
 	// under one word is how a later edit calls the wrong one.
 	stampCanonicalUrl as stampWorkspaceImages,
 	workspaceSize,
-	writeAlignmentFile,
+	writeAlignmentBytes,
+	writeAlignmentFileReporting,
 	type Alignment,
 	type AlignmentAddress,
 	type AlignmentFilePort,
@@ -88,6 +90,7 @@ import {
 	type FetchFn,
 	type FetchTilesOptions,
 	type GeoBounds,
+	type HistoricalMapSource,
 	type IngestProgress,
 	type IngestedImage,
 	type JournalReplayReport,
@@ -416,6 +419,43 @@ export class EditorSession {
 	 * which is the largest single loss this slice could inflict.
 	 */
 	alignmentError = $state('');
+
+	/**
+	 * An Alignment somebody else changed while this session had it open, and what they had (ticket 07).
+	 *
+	 * `null` until it happens, and it is **not cleared by the next write** — see
+	 * {@link dismissAlignmentChangedElsewhere}. A notice about work the user cannot see, that
+	 * disappears on their next gesture, is a notice nobody reads. Only the user dismissing it, or
+	 * putting the other version back, ends it.
+	 *
+	 * ADR-0023's mitigation is visibility, and this field is the visibility: the write already
+	 * happened, so nothing here is a guard.
+	 */
+	alignmentChangedElsewhere = $state.raw<{
+		readonly imageId: string;
+		/** What was on disk and has been written over. Kept so it can be offered back. */
+		readonly displaced: Bytes;
+	} | null>(null);
+
+	/**
+	 * For each Historical Map, the Alignment bytes this session believes are on disk.
+	 *
+	 * Written by {@link readAlignment} — what it read — and by every successful
+	 * {@link writeAlignment} — what it wrote. `Autosave.commit` resolves only once the store has the
+	 * bytes, so "what we last wrote" really is what is on disk at that moment; a debounced write
+	 * would have made this an announcement of a change that had not happened yet, which is why
+	 * {@link writeAlignment} must keep using `commit` rather than `queue`.
+	 *
+	 * `null` records "there was no file", which is different from having no entry at all: no entry
+	 * means this session has never looked, and a write from there makes no claim to check.
+	 *
+	 * A `SvelteMap` because `svelte/prefer-svelte-reactivity` requires one, and here that is free
+	 * rather than merely tolerable: **nothing reads this in a reactive context.** The only readers are
+	 * {@link writeAlignment} and {@link restoreAlignmentChangedElsewhere}, both called from event
+	 * handlers, so there is no `$derived` for a write to invalidate. What *is* rendered is
+	 * {@link alignmentChangedElsewhere}, which is ordinary `$state` and is set from the write's result.
+	 */
+	readonly #alignmentOnDisk = new SvelteMap<string, Bytes | null>();
 
 	constructor(store: ProjectStore, options: EditorSessionOptions = {}) {
 		this.#store = store;
@@ -868,11 +908,64 @@ export class EditorSession {
 		this.alignmentError = '';
 		try {
 			const bytes = await this.#store.read(alignmentPath(imageId));
+			// The bytes, not the model: this is the baseline a later write compares against, and
+			// `Alignment.unmodelled` means a re-serialisation of the same document can differ. Held
+			// here because this is the moment the user's view of the file is fixed (ticket 07).
+			this.#alignmentOnDisk.set(imageId, bytes);
 			return parseAlignment(bytes, { imageId });
 		} catch (cause) {
-			if (cause instanceof PathNotFoundError) return newAlignment(imageId, image);
+			if (cause instanceof PathNotFoundError) {
+				this.#alignmentOnDisk.set(imageId, null);
+				return newAlignment(imageId, image);
+			}
+			// Deliberately no entry: an unreadable file is one this session cannot claim to know, and
+			// a baseline of `null` here would report every later write as having displaced something.
+			this.#alignmentOnDisk.delete(imageId);
 			this.alignmentError = cause instanceof Error ? cause.message : String(cause);
 			throw cause;
+		}
+	}
+
+	/**
+	 * Stop showing {@link alignmentChangedElsewhere}. The user has read it.
+	 *
+	 * A method rather than letting the component assign, because the field is the record of a thing
+	 * that happened and clearing it is a decision — the same reason `saveError` is not public state
+	 * anybody may blank.
+	 */
+	dismissAlignmentChangedElsewhere(): void {
+		this.alignmentChangedElsewhere = null;
+	}
+
+	/**
+	 * Put back the Alignment somebody else made, discarding the edit that displaced it.
+	 *
+	 * The other half of "let them choose". A `replace`, said in the words the user was shown — which
+	 * is what {@link AlignmentWrite}'s `discarding` field is for, and this is the application's first
+	 * caller of that intent.
+	 *
+	 * The baseline is updated to the bytes just written, so the next ordinary save is not itself
+	 * reported as displacing something.
+	 */
+	async restoreAlignmentChangedElsewhere(): Promise<void> {
+		const pending = this.alignmentChangedElsewhere;
+		if (!pending || !this.openDirectory) return;
+		try {
+			await writeAlignmentBytes(this.#alignmentFile, {
+				imageId: pending.imageId,
+				bytes: pending.displaced,
+				write: {
+					intent: 'replace',
+					discarding:
+						'the Control Points this session wrote over the version that arrived from ' +
+						'elsewhere, at the user’s request'
+				}
+			});
+			this.#alignmentOnDisk.set(pending.imageId, pending.displaced);
+			this.alignmentChangedElsewhere = null;
+			this.saveError = '';
+		} catch (cause) {
+			this.saveError = cause instanceof Error ? cause.message : String(cause);
 		}
 	}
 
@@ -907,10 +1000,14 @@ export class EditorSession {
 		// rather than a case to serve.
 		if (!this.openDirectory) return;
 		const path = alignmentPath(alignment.imageId);
+		const baseline = this.#alignmentOnDisk.get(alignment.imageId);
 		try {
-			await writeAlignmentFile(this.#alignmentFile, {
+			const report = await writeAlignmentFileReporting(this.#alignmentFile, {
 				alignment,
-				write: { intent: 'update' },
+				// **The bytes this session believes are on disk** (ticket 07). Omitted entirely when it
+				// has never looked, which is a caller making no claim rather than one claiming absence.
+				write:
+					baseline === undefined ? { intent: 'update' } : { intent: 'update', basedOn: baseline },
 				// **The address has to be supplied on every write, including this one** (ADR-0007). It is
 				// not carried on `Alignment` and does not survive a read, so omitting it here does not
 				// leave the document's `target.source.id` alone — it rewrites it to the ADR-0004
@@ -921,6 +1018,17 @@ export class EditorSession {
 				...this.#alignmentAddressFor(alignment.imageId)
 			});
 			this.saveError = '';
+			// The new baseline. Set from what the writer actually wrote, so the next write's comparison
+			// is against bytes produced by one serialiser rather than two.
+			this.#rememberAlignmentOnDisk(alignment.imageId, report.written);
+			if (report.outcome === 'written over a change' && report.displaced) {
+				// Reported, never blocked (ADR-0023: visibility, not prevention). The edit is already on
+				// disk; what is new is that the user now knows something of somebody else's is not.
+				this.alignmentChangedElsewhere = {
+					imageId: alignment.imageId,
+					displaced: report.displaced
+				};
+			}
 			// After the write resolved, so an attempt the store refused is not counted as one that
 			// happened. This is what lets the drag test assert the *number* of writes.
 			recordAlignmentWrite(path, alignment.controlPoints.length);
@@ -985,11 +1093,30 @@ export class EditorSession {
 		const alignment = options.offered
 			? { ...options.offered, imageId }
 			: newAlignment(imageId, image);
-		return writeAlignmentFile(this.#alignmentFile, {
+		const report = await writeAlignmentFileReporting(this.#alignmentFile, {
 			alignment,
 			write: { intent: 'create' },
 			...(options.address ? { address: options.address } : {})
 		});
+		this.#rememberAlignmentOnDisk(imageId, report.written);
+		return report.outcome;
+	}
+
+	/**
+	 * Record what is on disk for a Historical Map after a write this session made (ticket 07).
+	 *
+	 * **Every write of an Alignment must come through here, and the reason is a false alarm rather
+	 * than a lost edit.** `writeAlignment` compares against this baseline to decide whether somebody
+	 * else changed the file; a write that changed the bytes and did not update it leaves the next
+	 * ordinary save reporting a concurrent edit that never happened — a frightening sentence about a
+	 * colleague who does not exist, which is worse than no sentence at all because it teaches the user
+	 * to dismiss the real one.
+	 *
+	 * `null` — a write that did not happen, such as a `create` declining over somebody's work — leaves
+	 * the baseline alone. Nothing changed, so nothing this session believes about the file has.
+	 */
+	#rememberAlignmentOnDisk(imageId: string, written: Bytes | null): void {
+		if (written) this.#alignmentOnDisk.set(imageId, written);
 	}
 
 	/**
@@ -1001,19 +1128,38 @@ export class EditorSession {
 	 * file the user is actually editing.
 	 */
 	/**
+	 * Where one Historical Map's tiles are, as the union `tileBaseFor` and `imagePaneSourceFor` take.
+	 *
+	 * **The one lookup behind two answers that must never disagree** (ticket 07). The pane's tile base
+	 * and the Alignment's `resource.id` are both "where is this image served from", and the pairing
+	 * that matters is the wrong one: a pane drawing a Library's sheet while the Alignment says
+	 * `unset.invalid` writes a file Allmaps cannot resolve and a warped Layer that renders nothing —
+	 * and the reverse writes a Library's address over Control Points placed on our own pyramid. Both
+	 * now read this, so there is one fact rather than two lookups that happen to be spelled the same.
+	 *
+	 * Derived from whether a `remote.json` is on disk (ADR-0023: `imageMode` is observable, never
+	 * stored), through `remoteOrigins`, which is `partitionByOfflineCopy` and therefore answers
+	 * `'offline-copy'` for a referenced map that has since been copied — which is right: once the
+	 * pyramid is here it is what should be drawn and what the Alignment should be keyed on.
+	 */
+	historicalMapSource(imageId: string): HistoricalMapSource {
+		const referenced = this.remoteOrigins.referenced.find((image) => image.imageId === imageId);
+		return referenced ? sourceOf(referenced) : { imageMode: 'offline-copy', imageId };
+	}
+
+	/**
 	 * Where this Historical Map's Alignment should say its image is served from, as an argument
 	 * spread onto a `writeAlignmentFile` call — `{ address }` for a referenced map, `{}` for one
 	 * whose pyramid is in the Workspace.
 	 *
 	 * **`{}` and not `{ address: undefined }`**, so a caller that spreads this cannot accidentally
 	 * override an address it passed itself.
-	 *
-	 * Derived from whether a `remote.json` is on disk (ADR-0023: `imageMode` is observable, never
-	 * stored), so it is the same answer `remoteOrigins` gives and cannot drift from it.
 	 */
 	#alignmentAddressFor(imageId: string): { address?: AlignmentAddress } {
-		const referenced = this.remoteOrigins.referenced.find((image) => image.imageId === imageId);
-		return referenced ? { address: referencedAlignmentAddress(referenced.service) } : {};
+		const source = this.historicalMapSource(imageId);
+		return source.imageMode === 'referenced'
+			? { address: referencedAlignmentAddress(source.service) }
+			: {};
 	}
 
 	get #alignmentFile(): AlignmentFilePort {
@@ -1797,10 +1943,20 @@ export class EditorSession {
 		try {
 			// Round-tripped through the parser rather than string-edited: `alignment-file.ts` is the one
 			// writer of that document, and omitting the address is what puts the placeholder back.
-			await writeAlignmentFile(this.#alignmentFile, {
+			//
+			// **No `basedOn`, deliberately.** This is not a user's edit racing a colleague's; it is this
+			// session rewriting the address of a file it has just finished copying the tiles for, and the
+			// bytes it is based on were read one line above. A concurrency report here would be about the
+			// wrong thing.
+			const report = await writeAlignmentFileReporting(this.#alignmentFile, {
 				alignment: parseAlignment(await this.#store.read(path), { imageId }),
 				write: { intent: 'update' }
 			});
+			// **The baseline moves with it**, and this is the false alarm it prevents: the copy rewrites
+			// `target.source.id` from the Library's service to the placeholder, so an alignment view left
+			// open over this map would have been comparing its next save against bytes two versions old
+			// and telling the user a colleague had changed their Alignment.
+			this.#rememberAlignmentOnDisk(imageId, report.written);
 			this.saveError = '';
 		} catch (cause) {
 			// No Alignment yet is the ordinary case for a map nobody has placed. Anything else is not:

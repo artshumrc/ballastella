@@ -10,6 +10,7 @@ import { MemoryProjectStore } from '../store/memory-project-store';
 import { imageServiceId } from '../tiler/pyramid';
 import {
 	ReferencedImageUnreadableError,
+	imagePaneSourceFor,
 	isReferenced,
 	listReferencedImages,
 	parseReferencedImage,
@@ -130,6 +131,84 @@ describe('where a Historical Map’s tiles come from', () => {
 
 		const response = await fetch(`${imageServiceId('local-1234')}/info.json`);
 		expect(await response.text()).toBe('{"width":1200}');
+	});
+});
+
+/**
+ * The pair a pane is handed (ticket 07): the tile base and the `info.json` beside it.
+ *
+ * The point of the pair is that it is built in one place from one fact, so a pane cannot be given a
+ * Library's tiles with the Workspace's description of them. That combination has no symptom — the
+ * geometry is a plausible pyramid either way — and it puts every Control Point the scholar then
+ * places at the wrong image pixel.
+ */
+describe('everything a pane needs to read one Historical Map', () => {
+	it('reads a referenced map from the Library, document and tiles from the same base', () => {
+		const source = imagePaneSourceFor(sourceOf(record()));
+
+		expect(source.tiles).toBe(SERVICE);
+		expect(source.infoUrl).toBe(`${SERVICE}/info.json`);
+		// Nothing about a referenced map may mention the ADR-0004 placeholder: it is the shim's routing
+		// key, and a request carrying it would be answered out of a Workspace that has no such pyramid.
+		expect(source.infoUrl).not.toContain('unset.invalid');
+	});
+
+	it('reads an offline copy out of the store, document and tiles from the same base', () => {
+		const source = imagePaneSourceFor(offlineCopySource);
+
+		expect(source.tiles).toEqual({ storedImageId: 'local-1234' });
+		// The placeholder is *correct* here and is the whole mechanism: it is what `createStoreImageFetch`
+		// routes into the store, which is why this URL needs no network and works with none.
+		expect(source.infoUrl).toBe('https://unset.invalid/local-1234/info.json');
+	});
+
+	it('resolves the tiles and the info.json from one fact, so they cannot name different servers', () => {
+		// The unguarded direction. Both fields are derived from one `HistoricalMapSource`, so there is no
+		// input that produces a Library's tile base beside the store's `info.json` — the pairing that
+		// draws a stranger's sheet under our own pyramid's geometry with nothing raising anywhere.
+		for (const source of [sourceOf(record()), offlineCopySource]) {
+			const { tiles, infoUrl } = imagePaneSourceFor(source);
+			const base = typeof tiles === 'string' ? tiles : imageServiceId(tiles.storedImageId);
+			expect(infoUrl).toBe(`${base}/info.json`);
+		}
+	});
+
+	it('uses the canonical spelling of the service, so one map is one address', () => {
+		// A trailing slash is the ordinary way the same service arrives spelled two ways. It must not
+		// produce `…/sheet//info.json`, and it must not make the pane's base differ from the address
+		// written into the Alignment — `referencedAlignmentAddress` canonicalises the same way.
+		const source = imagePaneSourceFor({
+			imageMode: 'referenced',
+			imageId: 'a8eb9e9cf936cc3d',
+			service: `${SERVICE}/`
+		});
+
+		expect(source.infoUrl).toBe(`${SERVICE}/info.json`);
+		expect(source.tiles).toBe(referencedAlignmentAddress(`${SERVICE}/`).imageService);
+	});
+
+	it('builds a pane that really reads from where it said', async () => {
+		// Not a restatement of the two strings: the reader is handed the pair and asked where its tiles
+		// are. Without this the test above passes against an `imagePaneSourceFor` whose `tiles` field
+		// `createImagePane` happens to reject.
+		const info = {
+			'@context': 'http://iiif.io/api/image/3/context.json',
+			id: SERVICE,
+			type: 'ImageService3',
+			protocol: 'http://iiif.io/api/image',
+			profile: 'level0',
+			width: 1200,
+			height: 851,
+			tiles: [{ width: 256, height: 256, scaleFactors: [1, 2, 4, 8] }]
+		};
+
+		const remote = createImagePane(info, imagePaneSourceFor(sourceOf(record())).tiles);
+		expect(remote.allTiles().every((tile) => tile.url.startsWith(`${SERVICE}/`))).toBe(true);
+
+		const stored = createImagePane(info, imagePaneSourceFor(offlineCopySource).tiles);
+		expect(
+			stored.allTiles().every((tile) => tile.url.startsWith('https://unset.invalid/local-1234/'))
+		).toBe(true);
 	});
 });
 

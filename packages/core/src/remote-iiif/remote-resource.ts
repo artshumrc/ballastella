@@ -194,13 +194,30 @@ export async function readRemoteIiifResource(
 	try {
 		parsed = IIIF.parse(document);
 	} catch (cause) {
+		// **Two very different faults arrive here, and telling a scholar the wrong one wastes their
+		// afternoon** (ticket 07). `@allmaps/iiif-parser` builds an `Image`'s tile zoom levels while
+		// parsing, so a document that is a perfectly good IIIF image description — but publishes no
+		// `tiles` and does not offer arbitrary regions — throws from the same call as a document that
+		// is an HTML error page. Reported as "what it sent is not a IIIF image description", that
+		// sends the user looking for a IIIF link on a page that already gave them the right URL.
+		//
+		// So the *document* is asked what it claims to be, rather than the parser's message being
+		// pattern-matched: the shape is a fact about the bytes, and it does not move when the
+		// dependency rewords an error.
 		throw new RemoteIiifRejectedError({
 			url: url.href,
 			host: url.hostname,
-			reason:
-				`${url.hostname} answered, but what it sent is not a IIIF Manifest, Collection, or ` +
-				`image description: ${message(cause)}. If you pasted the address of a viewer page ` +
-				`rather than of the IIIF resource itself, look for a “IIIF” link on that page.`
+			reason: looksLikeImageService(document)
+				? `${url.hostname} describes an image but publishes no tiles for it, and does not offer ` +
+					`arbitrary regions either — so there is no request Ballastella could make that would ` +
+					`return part of this sheet: ${message(cause)}\n\n` +
+					`This is a refusal rather than a blank map on purpose, and it is made now rather than ` +
+					`when you press Align, so that you are never given a Layer that cannot be aligned. If ` +
+					`you need this map, download the image and add it from a file — Ballastella then cuts ` +
+					`its own tiles.`
+				: `${url.hostname} answered, but what it sent is not a IIIF Manifest, Collection, or ` +
+					`image description: ${message(cause)}. If you pasted the address of a viewer page ` +
+					`rather than of the IIIF resource itself, look for a “IIIF” link on that page.`
 		});
 	}
 
@@ -379,3 +396,33 @@ async function readBounded(
 
 const message = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
+
+/**
+ * Whether this document is *claiming* to be a Image API description, however badly.
+ *
+ * Only used to choose between two refusals — see {@link readRemoteIiifResource} — so it is
+ * deliberately generous: three independent markers, any one of which a real service carries, and no
+ * attempt to validate. A false positive costs a slightly wrong sentence about a document that was
+ * going to be refused anyway; a false negative is the misdiagnosis this exists to prevent.
+ *
+ * `@type` and the Image API 2 `@context` are checked as well as their version 3 spellings, because a
+ * level 0 service on a plain web server is exactly the kind that is still serving Image API 2.
+ */
+function looksLikeImageService(document: unknown): boolean {
+	if (typeof document !== 'object' || document === null) return false;
+	const record = document as Record<string, unknown>;
+
+	if (record['protocol'] === 'http://iiif.io/api/image') return true;
+
+	for (const key of ['type', '@type']) {
+		const value = record[key];
+		if (typeof value === 'string' && value.startsWith('ImageService')) return true;
+	}
+
+	const contexts = record['@context'];
+	for (const context of Array.isArray(contexts) ? contexts : [contexts]) {
+		if (typeof context === 'string' && context.includes('/api/image/')) return true;
+	}
+
+	return false;
+}

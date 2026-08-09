@@ -1,15 +1,24 @@
 import { expect, test } from './support/test.js';
-import { type Locator, type Page, type Route } from '@playwright/test';
-import { createHash } from 'node:crypto';
+import { type Locator, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import zlib from 'node:zlib';
 
+import { IMAGE_HEIGHT, IMAGE_WIDTH } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import {
 	addHistoricalMapButton,
 	addHistoricalMapIsOpen,
 	ensureAddHistoricalMapOpen
 } from './support/historical-maps.js';
+// The fake IIIF services, shared by every spec that needs one (ticket 07). This file used to carry
+// its own copy of the host table, the `info.json` builder and the tile matcher; see the module
+// header there for why three private copies of one fixture was a defect rather than a duplication.
+import {
+	communityAnnotation,
+	generateId,
+	installIiifHosts,
+	routeCommunityAnnotations,
+	service
+} from './support/iiif-hosts.js';
 import { layerRows, openLayerRow } from './support/layers.js';
 
 // The catalog's archive is somebody else's bucket, and **no spec may reach the internet**. This suite
@@ -25,12 +34,15 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
  * 25, 26, 29, 48).
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
- * THE FIXTURE HOSTS, AND WHY THERE ARE FOUR OF THEM
+ * THE FIXTURE HOSTS
  *
  * The pyramid geometry, the guards, and the parsing are asserted in `@ballastella/core` against
  * fourteen `info.json` documents captured from live services. What can only be asserted here is
  * everything about *hosts*: which requests the app makes, which it does not, and what happens when
  * a host refuses one.
+ *
+ * They live in `support/iiif-hosts.ts` now (ticket 07), shared with every other spec that needs a
+ * IIIF service. The ones this file drives:
  *
  *   `library.test`  — Manifests and a Collection. CORS everywhere.
  *   `images.test`   — an image service that serves everything readably.
@@ -39,341 +51,14 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
  *                     ships the blank-map failure this slice exists to prevent, so the fixture host
  *                     is built to catch exactly that. `route.abort()` is what a browser does to a
  *                     cross-origin request the host does not permit: the `fetch` rejects.
+ *   `sizes-only.test` — level 0 publishing no `tiles` at all, which is the one shape this app must
+ *                     refuse when the map is *added* (ticket 07).
  *   `annotations.allmaps.org` — the community lookup, so "off means no request" is a claim about
  *                     the network rather than about a variable.
  *
  * Every host is routed, so **nothing in this file reaches the internet**. A red run means this
  * repository is wrong, not that a library is having a bad afternoon.
  */
-
-const crcTable = (() => {
-	const table = new Int32Array(256);
-	for (let n = 0; n < 256; n++) {
-		let c = n;
-		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-		table[n] = c;
-	}
-	return table;
-})();
-
-const crc32 = (bytes: Buffer): number => {
-	let c = -1;
-	for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff]! ^ (c >>> 8);
-	return (c ^ -1) >>> 0;
-};
-
-const chunk = (type: string, data: Buffer): Buffer => {
-	const out = Buffer.alloc(data.length + 12);
-	out.writeUInt32BE(data.length, 0);
-	out.write(type, 4, 'ascii');
-	data.copy(out, 8);
-	out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
-	return out;
-};
-
-/**
- * A greyscale PNG of exactly `width` × `height`.
- *
- * Exactly matters. The CORS probe decodes the tile it fetched and refuses the resource if its
- * dimensions are not what was asked for — the exact-resize check — so a fixture host that answered
- * with the wrong size would fail every test here, which is the point of that check.
- */
-function gradientPng(width: number, height: number): Buffer {
-	const raw = Buffer.alloc((width + 1) * height);
-	for (let y = 0; y < height; y++) {
-		const row = y * (width + 1);
-		raw[row] = 0;
-		for (let x = 0; x < width; x++) {
-			raw[row + 1 + x] = (x * 255) / width / 2 + (y * 255) / height / 2;
-		}
-	}
-	const ihdr = Buffer.alloc(13);
-	ihdr.writeUInt32BE(width, 0);
-	ihdr.writeUInt32BE(height, 4);
-	ihdr[8] = 8;
-	ihdr[9] = 0;
-	return Buffer.concat([
-		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-		chunk('IHDR', ihdr),
-		chunk('IDAT', zlib.deflateSync(raw)),
-		chunk('IEND', Buffer.alloc(0))
-	]);
-}
-
-const IMAGE_WIDTH = 700;
-const IMAGE_HEIGHT = 500;
-
-/**
- * `generateId(uri)` — the identifier Allmaps keys an image on — computed here from `node:crypto`.
- *
- * Deliberately an independent implementation rather than an import of `@allmaps/id`: the criterion
- * is that the app's id *equals* `generateId(uri)`, and asserting that with the same function the app
- * used would only prove the function is deterministic. SHA-1 of the URI, first 16 hex characters.
- * Verified against the live Allmaps API in `packages/core/src/remote-iiif/live-services.test.ts`.
- */
-const generateId = (uri: string): string =>
-	createHash('sha1').update(uri).digest('hex').slice(0, 16);
-
-const service = (host: string, name: string) => `https://${host}/iiif/3/${name}`;
-
-const infoJson = (host: string, name: string) => ({
-	'@context': 'http://iiif.io/api/image/3/context.json',
-	id: service(host, name),
-	type: 'ImageService3',
-	protocol: 'http://iiif.io/api/image',
-	profile: 'level2',
-	width: IMAGE_WIDTH,
-	height: IMAGE_HEIGHT,
-	tiles: [{ width: 256, height: 256, scaleFactors: [1, 2, 4] }]
-});
-
-const canvas = (index: number, label: string, host: string, name: string) => ({
-	id: `https://library.test/iiif/atlas/canvas/${index}`,
-	type: 'Canvas',
-	label: { none: [label] },
-	width: IMAGE_WIDTH,
-	height: IMAGE_HEIGHT,
-	items: [
-		{
-			id: `https://library.test/iiif/atlas/page/${index}`,
-			type: 'AnnotationPage',
-			items: [
-				{
-					id: `https://library.test/iiif/atlas/annotation/${index}`,
-					type: 'Annotation',
-					motivation: 'painting',
-					target: `https://library.test/iiif/atlas/canvas/${index}`,
-					body: {
-						id: `${service(host, name)}/full/max/0/default.jpg`,
-						type: 'Image',
-						format: 'image/jpeg',
-						width: IMAGE_WIDTH,
-						height: IMAGE_HEIGHT,
-						service: [{ id: service(host, name), type: 'ImageService3', profile: 'level2' }]
-					}
-				}
-			]
-		}
-	]
-});
-
-const atlasManifest = {
-	'@context': 'http://iiif.io/api/presentation/3/context.json',
-	id: 'https://library.test/iiif/atlas/manifest.json',
-	type: 'Manifest',
-	label: { en: ['A Sea Atlas of the Western Approaches'] },
-	summary: { en: ['Three charts, engraved 1657.'] },
-	metadata: [
-		{ label: { en: ['Date'] }, value: { en: ['1657'] } },
-		{ label: { en: ['Shelfmark'] }, value: { none: ['MS Atlas 44'] } }
-	],
-	requiredStatement: {
-		label: { en: ['Attribution'] },
-		value: { en: ['Provided by the Example Library'] }
-	},
-	rights: 'http://creativecommons.org/licenses/by/4.0/',
-	items: [
-		canvas(1, 'Title page', 'images.test', 'title-page'),
-		canvas(2, 'Chart of the Florida coast', 'images.test', 'florida'),
-		canvas(3, 'Chart of the Chesapeake', 'images.test', 'chesapeake')
-	]
-};
-
-const collection = {
-	'@context': 'http://iiif.io/api/presentation/3/context.json',
-	id: 'https://library.test/iiif/collection',
-	type: 'Collection',
-	label: { en: ['Sea atlases'] },
-	items: [
-		{
-			id: 'https://library.test/iiif/atlas/manifest.json',
-			type: 'Manifest',
-			label: { en: ['A Sea Atlas of the Western Approaches'] }
-		}
-	]
-};
-
-/** A single-canvas Manifest on the host whose tiles are not readable cross-origin. */
-const hostileManifest = {
-	'@context': 'http://iiif.io/api/presentation/3/context.json',
-	id: 'https://library.test/iiif/locked/manifest.json',
-	type: 'Manifest',
-	label: { en: ['A chart from a locked-down host'] },
-	items: [canvas(1, 'The chart', 'tiles-only.test', 'locked')]
-};
-
-/**
- * A Georeference Annotation for one of the fixture images, as `annotations.allmaps.org` answers.
- *
- * Three Control Points, which is what `polynomial1` needs to solve — so importing this produces an
- * Alignment that can actually be rendered rather than one that merely parses.
- */
-/**
- * A Georeference Annotation of the shape `annotations.allmaps.org` answers with: three Control
- * Points, which is what a first-order polynomial needs (ADR-0013), and a Resource Mask inside the
- * sheet.
- *
- * @param reading which of two *different* readings of the same sheet. Two tests below turn on which
- *   Alignment ended up on disk, and identical documents are indistinguishable there — so
- *   `'refined'` is a second colleague's placement of the same map, differing in every Control Point
- *   and in the Mask.
- */
-const communityAnnotation = (
-	host: string,
-	name: string,
-	reading: 'first' | 'refined' = 'first'
-) => ({
-	type: 'Annotation',
-	'@context': [
-		'http://iiif.io/api/extension/georef/1/context.json',
-		'http://iiif.io/api/presentation/3/context.json'
-	],
-	motivation: 'georeferencing',
-	target: {
-		type: 'SpecificResource',
-		source: {
-			id: service(host, name),
-			type: 'ImageService3',
-			width: IMAGE_WIDTH,
-			height: IMAGE_HEIGHT
-		},
-		selector: {
-			type: 'SvgSelector',
-			value:
-				reading === 'first'
-					? `<svg width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}"><polygon points="10,10 690,10 690,490 10,490" /></svg>`
-					: `<svg width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}"><polygon points="20,20 680,20 680,480 20,480" /></svg>`
-		}
-	},
-	body: {
-		type: 'FeatureCollection',
-		transformation: { type: 'polynomial', options: { order: 1 } },
-		features:
-			reading === 'first'
-				? [
-						{
-							type: 'Feature',
-							properties: { resourceCoords: [60, 80] },
-							geometry: { type: 'Point', coordinates: [-82.5, 27.9] }
-						},
-						{
-							type: 'Feature',
-							properties: { resourceCoords: [640, 90] },
-							geometry: { type: 'Point', coordinates: [-80.1, 28.1] }
-						},
-						{
-							type: 'Feature',
-							properties: { resourceCoords: [340, 430] },
-							geometry: { type: 'Point', coordinates: [-81.2, 25.7] }
-						}
-					]
-				: [
-						{
-							type: 'Feature',
-							properties: { resourceCoords: [70, 90] },
-							geometry: { type: 'Point', coordinates: [-82.4, 27.8] }
-						},
-						{
-							type: 'Feature',
-							properties: { resourceCoords: [630, 100] },
-							geometry: { type: 'Point', coordinates: [-80.2, 28.2] }
-						},
-						{
-							type: 'Feature',
-							properties: { resourceCoords: [350, 420] },
-							geometry: { type: 'Point', coordinates: [-81.3, 25.6] }
-						}
-					]
-	}
-});
-
-const json = (route: Route, body: unknown) =>
-	route.fulfill({
-		status: 200,
-		contentType: 'application/json',
-		headers: { 'access-control-allow-origin': '*' },
-		body: JSON.stringify(body)
-	});
-
-/** The size a IIIF tile URL asked for, so the fixture host can honour it exactly. */
-function requestedSize(url: string): { width: number; height: number } | null {
-	const match = /\/(\d+),(\d+),(\d+),(\d+)\/(\d+),(\d+)\/0\/default\.(jpg|png)$/.exec(url);
-	if (!match) return null;
-	return { width: Number(match[5]), height: Number(match[6]) };
-}
-
-/**
- * Install every fixture host.
- *
- * @param options.tilesReadable whether `tiles-only.test` may serve its tiles. `false` aborts them,
- *   which is what a browser does to a cross-origin request the host does not permit.
- * @param options.communityAnnotations what the Allmaps API answers with, or `null` for a 404 —
- *   which is what the real API answers for a resource it has nothing for.
- */
-async function installFixtureHosts(
-	page: Page,
-	options: { communityAnnotations?: unknown[] | null } = {}
-): Promise<void> {
-	const annotations = options.communityAnnotations ?? null;
-
-	await page.route('https://library.test/**', (route) => {
-		const url = route.request().url();
-		if (url.endsWith('/atlas/manifest.json')) return json(route, atlasManifest);
-		if (url.endsWith('/locked/manifest.json')) return json(route, hostileManifest);
-		if (url.endsWith('/iiif/collection')) return json(route, collection);
-		if (url.endsWith('/maps/1657')) {
-			// A viewer page answered with a 200, which is the most common single failure on this path.
-			return route.fulfill({
-				status: 200,
-				contentType: 'text/html; charset=utf-8',
-				headers: { 'access-control-allow-origin': '*' },
-				body: '<!DOCTYPE html><title>A Sea Atlas</title><p>Look at this map.</p>'
-			});
-		}
-		return route.fulfill({
-			status: 404,
-			headers: { 'access-control-allow-origin': '*' },
-			body: '{}'
-		});
-	});
-
-	for (const host of ['images.test', 'tiles-only.test']) {
-		await page.route(`https://${host}/**`, (route) => {
-			const url = route.request().url();
-			const name = /\/iiif\/3\/([^/]+)/.exec(url)?.[1] ?? '';
-
-			if (url.endsWith('/info.json')) return json(route, infoJson(host, name));
-
-			const size = requestedSize(url);
-			if (!size) {
-				return route.fulfill({
-					status: 404,
-					headers: { 'access-control-allow-origin': '*' },
-					body: 'no such tile'
-				});
-			}
-			// The whole point of `tiles-only.test`: its description is readable and its tiles are not.
-			if (host === 'tiles-only.test') return route.abort('accessdenied');
-			return route.fulfill({
-				status: 200,
-				contentType: 'image/png',
-				headers: { 'access-control-allow-origin': '*' },
-				body: gradientPng(size.width, size.height)
-			});
-		});
-	}
-
-	await page.route('https://annotations.allmaps.org/**', (route) =>
-		annotations === null
-			? route.fulfill({
-					status: 404,
-					contentType: 'application/json',
-					headers: { 'access-control-allow-origin': '*' },
-					body: JSON.stringify({ status: 404, error: 'Not Found' })
-				})
-			: json(route, { '@context': 'x', type: 'AnnotationPage', items: annotations })
-	);
-}
 
 /** Empty the origin's OPFS, so no test can see another's Projects. */
 async function emptyWorkspace(page: Page): Promise<void> {
@@ -469,25 +154,15 @@ const readJson = async (page: Page, directory: string, path: string): Promise<un
 	JSON.parse(await readText(page, directory, path));
 
 /**
- * Change what `annotations.allmaps.org` answers with, after {@link installFixtureHosts} has run.
+ * Change what `annotations.allmaps.org` answers with, after {@link installIiifHosts} has run.
  *
  * Playwright matches the most recently registered route first, so this shadows the one the fixture
  * hosts installed. It is how a second add of the same map meets a *different* offer, or none at all
  * — which is the only way to tell "the Alignment on disk was kept" apart from "the same Alignment
  * was written over itself".
  */
-async function nowOffering(page: Page, annotations: unknown[] | null): Promise<void> {
-	await page.route('https://annotations.allmaps.org/**', (route) =>
-		annotations === null
-			? route.fulfill({
-					status: 404,
-					contentType: 'application/json',
-					headers: { 'access-control-allow-origin': '*' },
-					body: JSON.stringify({ status: 404, error: 'Not Found' })
-				})
-			: json(route, { '@context': 'x', type: 'AnnotationPage', items: annotations })
-	);
-}
+const nowOffering = (page: Page, annotations: unknown[] | null): Promise<void> =>
+	routeCommunityAnnotations(page, annotations);
 
 async function createProject(page: Page, name: string): Promise<void> {
 	await page.getByRole('button', { name: 'New Project' }).click();
@@ -552,7 +227,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	test('accepts a Manifest, a Collection, and a bare image service, and browses each', async ({
 		page
 	}) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		// A Manifest (SPEC story 16) — three canvases, each pickable (story 19).
@@ -594,7 +269,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// SPEC story 24, and the failure ADR-0007 exists to prevent. `tiles-only.test` serves its
 		// `info.json` with CORS and aborts its tiles, so an implementation that probed only the
 		// description would pass every other test in this file and ship a blank map.
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		const requested: string[] = [];
@@ -624,7 +299,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	test('gives a referenced image the id Allmaps keys it on, and a Layer that says so', async ({
 		page
 	}) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
@@ -692,7 +367,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	test('a map added without an Alignment exports to a bundle this build opens back', async ({
 		page
 	}) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
@@ -775,7 +450,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	 * and fail this.
 	 */
 	test('adding the same referenced map again leaves the stack byte-identical', async ({ page }) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
@@ -824,7 +499,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	 * still have been waiting.
 	 */
 	test('a deleted map Layer comes back when the same map is added again', async ({ page }) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, 'https://library.test/iiif/atlas/manifest.json');
@@ -884,7 +559,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	test('re-adding a map after deleting its Layer keeps the Alignment already on it', async ({
 		page
 	}) => {
-		await installFixtureHosts(page, {
+		await installIiifHosts(page, {
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
 		await openNewProject(page);
@@ -952,7 +627,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	test('adding a map another Project has aligned keeps that Alignment, and says so', async ({
 		page
 	}) => {
-		await installFixtureHosts(page, {
+		await installIiifHosts(page, {
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
 		const imageId = generateId(service('images.test', 'florida'));
@@ -1015,7 +690,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	 * cropped sheet as untouched and throw the crop away.
 	 */
 	test('imports the community Alignment over a starter nobody has touched', async ({ page }) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		const imageId = generateId(service('images.test', 'florida'));
 
 		// The first Project adds the map with no offer at all, so all that lands is the starter.
@@ -1078,7 +753,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	 * symptom: a download that arrives is `assertReferencesPresent` no longer refusing.
 	 */
 	test('re-adding a map repairs a Project whose Alignment went missing', async ({ page }) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 		const imageId = generateId(service('images.test', 'florida'));
 
@@ -1124,7 +799,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	}) => {
 		// SPEC story 25. The annotation the fixture API answers with has three Control Points, which is
 		// what `polynomial1` needs — so "working" means renderable, not merely parseable.
-		await installFixtureHosts(page, {
+		await installIiifHosts(page, {
 			communityAnnotations: [
 				communityAnnotation('images.test', 'florida'),
 				communityAnnotation('images.test', 'chesapeake')
@@ -1171,7 +846,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	}) => {
 		// SPEC story 26 and ADR-0015. Asserted three ways, because the interesting claim is an
 		// *absence* and an absence is the easiest thing in the world to assert vacuously.
-		await installFixtureHosts(page, {
+		await installIiifHosts(page, {
 			communityAnnotations: [communityAnnotation('images.test', 'florida')]
 		});
 		await openNewProject(page);
@@ -1218,7 +893,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 	});
 
 	test('refuses a viewer page answered with 200, naming it for what it is', async ({ page }) => {
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, 'https://library.test/maps/1657');
@@ -1233,7 +908,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// ticket 06 put the library source inside a dialog, so "reachable" now starts one gesture
 		// earlier. Reaching it with `click()` while the test's name claimed otherwise made the first
 		// half of this criterion untrue and unasserted at the same time.
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await addHistoricalMapButton(page).focus();
@@ -1272,7 +947,7 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		// SPEC story 48. Asserted on tiles having been requested from the library rather than on the
 		// viewer having mounted: a mounted OpenSeadragon that fetched nothing is exactly the blank
 		// panel this ticket's CORS gate exists to prevent, and it looks identical to a working one.
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, `${service('images.test', 'florida')}/info.json`);
@@ -1329,7 +1004,7 @@ test.describe('reading a referenced Historical Map as a document', () => {
 			// renderer an Alignment whose `resource.id` is the ADR-0004 placeholder. That document parses,
 			// solves, and reports a map id — and then asks the injection layer for a pyramid the Project
 			// does not contain, and draws nothing.
-			await installFixtureHosts(page, {
+			await installIiifHosts(page, {
 				communityAnnotations: [communityAnnotation('images.test', 'florida')]
 			});
 			await openNewProject(page);
@@ -1411,7 +1086,7 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		// Project whose *only* referenced record is unreadable currently says nothing at all. That gap
 		// is recorded against `apps/editor/src/lib/project/ProjectScreen.svelte` rather than asserted
 		// here — ticket 04 moved the markup, not the gap.
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		for (const name of ['florida', 'approaches']) {
@@ -1467,7 +1142,7 @@ test.describe('reading a referenced Historical Map as a document', () => {
 		// ADR-0018. The web-component export registers `<triiiceratops-viewer>` as a custom element, so
 		// its absence from the registry after the viewer has rendered is the observable difference —
 		// and it is the one that would change if somebody swapped the import.
-		await installFixtureHosts(page);
+		await installIiifHosts(page);
 		await openNewProject(page);
 
 		await lookUp(page, `${service('images.test', 'florida')}/info.json`);

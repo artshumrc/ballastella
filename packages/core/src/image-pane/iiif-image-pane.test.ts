@@ -386,3 +386,93 @@ describe('createImagePane tile grid', () => {
 		expect(() => createImagePane(info, { storedImageId: info.id })).toThrow(/info\.id/);
 	});
 });
+
+/**
+ * The three shapes a Library's own image service arrives in, decided without a browser (ticket 07).
+ *
+ * **This is what makes the add-time refusal decidable.** ADR-0007's rule is that a remote resource is
+ * judged when it is added and never when Align is clicked, and the judgement *is* whether
+ * `createImagePane` can be built — so the three answers have to be assertable as a pure function over
+ * a document, with no host, no fetch and no canvas. `remote-iiif/image-service.ts` wraps each of them
+ * in a sentence naming the host; that is a different test, and it is deliberately not restated here.
+ *
+ * The documents are the shapes real services publish, and the third is the one that matters: a level 0
+ * service serves exactly the tiles it declares, so one that declares none has no tiles at any address
+ * this app could construct.
+ */
+describe('a Library’s image service, aligned in place', () => {
+	const service = 'https://library.example.test/iiif/3/sheet';
+
+	/** 1200×851 so the pyramid is ragged at both margins, like the committed fixture. */
+	const remoteInfo = (extra: Record<string, unknown>) => ({
+		'@context': 'http://iiif.io/api/image/3/context.json',
+		id: service,
+		type: 'ImageService3',
+		protocol: 'http://iiif.io/api/image',
+		width: 1200,
+		height: 851,
+		...extra
+	});
+
+	const tiles = [{ width: 256, height: 256, scaleFactors: [1, 2, 4, 8] }];
+
+	it('reads a level 2 service, building every tile URL on the Library’s own base', () => {
+		const pane = createImagePane(remoteInfo({ profile: 'level2', tiles }), service);
+
+		expect([pane.image.width, pane.image.height, pane.tileSize]).toEqual([1200, 851, 256]);
+		// The whole point of the string arm: the tiles are fetched from the Library, so nothing in this
+		// pane may mention the ADR-0004 placeholder. Asserted over *every* tile rather than the first,
+		// because a base that leaked in at one level only is the version that renders plausibly.
+		const urls = pane.allTiles().map((tile) => tile.url);
+		expect(urls).not.toHaveLength(0);
+		expect(urls.every((url) => url.startsWith(`${service}/`))).toBe(true);
+		expect(urls.some((url) => url.includes('unset.invalid'))).toBe(false);
+	});
+
+	it('reads a level 0 service that publishes tiles, identically', () => {
+		// Level 0 is the constrained profile — no arbitrary regions, only the pre-cut tiles it names —
+		// and it is alignable precisely because it names them. Nothing about the reader differs.
+		const level0 = createImagePane(remoteInfo({ profile: 'level0', tiles }), service);
+		const level2 = createImagePane(remoteInfo({ profile: 'level2', tiles }), service);
+
+		expect(level0.allTiles().map((tile) => tile.url)).toEqual(
+			level2.allTiles().map((tile) => tile.url)
+		);
+		expect(level0.projection.fullResolutionMapZoom).toBe(level2.projection.fullResolutionMapZoom);
+	});
+
+	it('refuses a level 0 service that publishes no tiles at all', () => {
+		// `@allmaps/iiif-parser`'s `getTileZoomLevels` throws for this, and the throw is the right
+		// answer rather than an inconvenience: with no `tiles` and no arbitrary-region support there is
+		// no request this app could make that the service would serve. Ticket 07's contract turns this
+		// into a refusal at the moment the resource is added — so that a user is never given a Layer
+		// with an Align button leading to a screen that cannot work.
+		expect(() => createImagePane(remoteInfo({ profile: 'level0' }), service)).toThrow(
+			/does not support tiles or custom regions and sizes/i
+		);
+		// `sizes` is what such a service usually publishes instead, and it changes nothing: a list of
+		// whole-image derivatives is not a pyramid.
+		expect(() =>
+			createImagePane(
+				remoteInfo({ profile: 'level0', sizes: [{ width: 1200, height: 851 }] }),
+				service
+			)
+		).toThrow(/does not support tiles or custom regions and sizes/i);
+	});
+
+	it('keeps the Library’s base out of the store, and the store’s base off the network', () => {
+		// The pairing this ticket exists to make unconstructible, from the reader's side. Both arms are
+		// legal on their own; what must not happen is a document from one source read against the other's
+		// base, which draws a stranger's tiles under our own pyramid's geometry with nothing raising.
+		const remote = createImagePane(remoteInfo({ profile: 'level2', tiles }), service);
+		const stored = createImagePane(remoteInfo({ profile: 'level2', tiles }), {
+			storedImageId: 'sheet'
+		});
+
+		expect(remote.image.uri).toBe(service);
+		expect(stored.image.uri).toBe('https://unset.invalid/sheet');
+		// And the geometry is identical, which is why the addresses are the only thing telling them
+		// apart — there is no shape check downstream that would catch the swap.
+		expect(stored.allTiles()).toHaveLength(remote.allTiles().length);
+	});
+});

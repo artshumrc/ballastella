@@ -47,7 +47,7 @@ import { toRendererDocument, type AlignmentAddress } from '../alignment/georefer
 import type { ImagePaneTileBase } from '../image-pane/iiif-image-pane.js';
 import { imageDirectory, IMAGE_DIRECTORY } from '../project/image-files.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
-import { serialiseJson } from '../tiler/pyramid.js';
+import { imageServiceId, serialiseJson } from '../tiler/pyramid.js';
 import { canonicalServiceUri } from './service-uri.js';
 
 /**
@@ -77,14 +77,58 @@ export type HistoricalMapSource =
  * per pane — and the `ImagePaneTileBase` union means the answer cannot be mistaken for the other
  * kind downstream.
  *
- * **Not yet every consumer, and the exception is worth knowing.** `HistoricalMapPane.svelte` builds
+ * **Every consumer now, which it was not before ticket 07.** `HistoricalMapPane.svelte` used to build
  * `{ storedImageId }` for itself, so the pane the Alignment workspace draws a Historical Map in always
- * reaches into the Workspace's own pyramids — correct for a local copy, and for a referenced image the
- * pane asks the injection layer for a pyramid that is not there. Routing it through here is what would
- * make aligning a referenced Historical Map work; that is ticket 07's, not claimed here.
+ * reached into the Workspace's own pyramids — correct for a local copy, and for a referenced image an
+ * ask to the injection layer for a pyramid that is not there. It takes {@link ImagePaneSource} as a
+ * prop now and decides nothing, which is what makes aligning a referenced Historical Map work.
  */
 export function tileBaseFor(source: HistoricalMapSource): ImagePaneTileBase {
 	return source.imageMode === 'referenced' ? source.service : { storedImageId: source.imageId };
+}
+
+/**
+ * Everything a pane needs to read one Historical Map: where its tiles are, and where the `info.json`
+ * describing them is.
+ *
+ * **Two fields rather than one, because they are fetched by different mechanisms** and only their
+ * *origin* is the same fact. `tiles` is an {@link ImagePaneTileBase}, whose two arms
+ * `createImagePane` tells apart by type; `infoUrl` is a plain URL handed to a `fetch`, and for a
+ * Workspace-held map it is on the ADR-0004 placeholder host precisely so the ADR-0011 shim answers it
+ * out of the store — which is why it is not simply "the tile base with `/info.json` on the end" at
+ * the call site, where the placeholder would look like a mistake.
+ *
+ * **Derived together, from one `HistoricalMapSource`, so they cannot disagree.** A pane given a
+ * Library's tile base and the store's `info.json` would draw a stranger's tiles under our own
+ * pyramid's geometry: every coordinate in the resulting Alignment wrong, and nothing raising. That is
+ * the failure this pair exists to make unconstructible — which is also why `HistoricalMapPane` takes
+ * this whole value and never assembles one from an `imageId`.
+ */
+export type ImagePaneSource = {
+	readonly tiles: ImagePaneTileBase;
+	/** Absolute URL of the `info.json` describing {@link tiles}. */
+	readonly infoUrl: string;
+};
+
+/**
+ * {@link ImagePaneSource} for one Historical Map. The one place the pair is built.
+ *
+ * **Both fields come off `base`**, rather than `tiles` coming from {@link tileBaseFor} and `infoUrl`
+ * being built separately. That is not tidiness: `tileBaseFor` passes `service` through verbatim while
+ * a URL has to be canonicalised, so a record spelled with a trailing slash produced a tile base and an
+ * `info.json` URL that were *different strings for the same service*. `createImagePane` happens to
+ * strip the slash, so it drew correctly and the disagreement was invisible — which is the shape of
+ * defect this whole pair exists to make unconstructible, found by the test that asserts they agree.
+ */
+export function imagePaneSourceFor(source: HistoricalMapSource): ImagePaneSource {
+	if (source.imageMode !== 'referenced') {
+		return {
+			tiles: { storedImageId: source.imageId },
+			infoUrl: `${imageServiceId(source.imageId)}/info.json`
+		};
+	}
+	const base = canonicalServiceUri(source.service);
+	return { tiles: base, infoUrl: `${base}/info.json` };
 }
 
 /**

@@ -2,8 +2,12 @@
 //
 // **This module is the only place in the codebase where an `AlignmentPath` becomes a
 // `WritablePath`.** Everything in the application that writes one — every pane, every route, both
-// tar readers — comes through {@link writeAlignmentFile} or {@link writeAlignmentBytes}
-// and has to say which of three things it means.
+// tar readers — comes through {@link writeAlignmentFile}, {@link writeAlignmentFileReporting} or
+// {@link writeAlignmentBytes} and has to say which of three things it means.
+//
+// Since ticket 07 it is also the only place that can *notice* a concurrent edit, for the same reason:
+// the re-read has to happen immediately before the commit, and the commit is here. See
+// {@link AlignmentWrite}'s `update`, which states both what that delivers and what it does not.
 //
 // That is a claim about this codebase as it stands, kept true by a type and a fence, and **not** a
 // claim that the language makes a blind write impossible. It does not: `WritablePath` accepts any
@@ -109,33 +113,39 @@ export type AlignmentWrite =
 	 * to say. Both callers in the editor now do, explicitly.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
-	 * ⚠ **AND IT DOES NOT DETECT A CONCURRENT EDIT. THIS IS THE ONE OPEN GAP IN THIS MODULE.**
+	 * ⚠ **A CONCURRENT EDIT IS NOW SEEN AND SAID, NOT PREVENTED** (ticket 07).
 	 *
 	 * `update` writes what the user has, over whatever is there — so if a colleague changed the same
-	 * Alignment through a synced Workspace since this one was read, their change is gone with no
-	 * error, no log, and nothing on screen. ADR-0023 accepts it, and is precise about the terms: the
-	 * mitigation is **visibility, not prevention**. Nothing yet delivers that visibility.
+	 * Alignment through a synced Workspace since this one was read, their change is gone. ADR-0023
+	 * accepts that and is precise about the terms: the mitigation is **visibility, not prevention**.
+	 * Ticket 14 wrote the mitigation down and deferred it; the align route is the path that reaches
+	 * this, so it is built here.
 	 *
-	 * **What the mitigation would be**, so that whoever builds it does not have to re-derive it: hold
-	 * the bytes the open Alignment was read as, re-read the file immediately before `commit`, and
-	 * when the two differ tell the user that this Alignment changed under them and let them choose.
-	 * The comparison is bytes, not a model — `Alignment.unmodelled` means two documents can be
-	 * semantically equal and byte-different, and the honest claim is "the file changed", which is
-	 * what a scholar can act on.
+	 * {@link basedOn} is what makes it possible: the bytes the caller believes are on disk. When it
+	 * is supplied, the file is re-read immediately before the commit and compared. If it has changed,
+	 * the write still happens — **losing the edit in front of the user to protect one they cannot see
+	 * would be the worse trade, and it is not what ADR-0023 asks for** — and the outcome says so, with
+	 * the displaced bytes handed back so the caller can offer them. That is the "let them choose" half:
+	 * a choice made *after* the save, which is the only kind available on a path where every gesture
+	 * end is a write.
 	 *
-	 * **Why it is not in ticket 14, stated rather than left silent.** Ticket 14 is handoff and review:
-	 * a bundle opens into a throwaway Workspace of its own, and ADR-0024's whole design is that two
-	 * people's Alignments of the same sheet **never meet** — each is in its own Workspace, and there
-	 * is deliberately no promotion out of one. So nothing this ticket adds can reach this gap, and
-	 * the path that does reach it is the align route, which ticket 06 is carving right now. Building
-	 * a re-read-and-warn into `AlignmentWorkspace` from here would be editing the file another
-	 * in-flight ticket is restructuring, to fix a hazard this ticket does not create. It is recorded
-	 * here, in the module that would carry it, rather than claimed away.
+	 * **The comparison is bytes, not a model.** `Alignment.unmodelled` means two documents can be
+	 * semantically equal and byte-different, so a model comparison would call a colleague's edit
+	 * "no change" whenever this build happens not to model the field they touched. The honest claim is
+	 * "the file changed", which is what a scholar can act on.
 	 *
-	 * What this module *does* prevent is the **unasked-for** overwrite — a `create` landing on
-	 * somebody's work — which is a different and much more common thing.
+	 * **What it still does not do, stated rather than left to be discovered.** It is a check-then-write
+	 * with no lock — nothing in the Web platform offers one across a Dropbox or git sync — so a change
+	 * landing *between* the re-read and the commit is still lost silently. The window is narrowed from
+	 * "however long the alignment view has been open", which is minutes, to the duration of one store
+	 * write. It is not closed, and no test here should be read as claiming it is.
+	 *
+	 * **`basedOn: null` is a caller that knows the file was absent**; `undefined` — the field omitted —
+	 * is a caller that is not making the claim at all, and gets ticket 18's behaviour unchanged. The
+	 * two are different on purpose: a required field would have forced every existing `update` to
+	 * invent an answer.
 	 */
-	| { readonly intent: 'update' }
+	| { readonly intent: 'update'; readonly basedOn?: Bytes | null }
 	/**
 	 * **Replace** — deliberately discard an existing Alignment for a different one.
 	 *
@@ -164,7 +174,48 @@ export type AlignmentWriteOutcome =
 	/** There was already an Alignment and the caller was only offering the starter. Ordinary. */
 	| 'left alone'
 	/** There was work in the file and the caller's offer was refused to protect it. Say so. */
-	| 'kept over the offer';
+	| 'kept over the offer'
+	/**
+	 * The bytes are on disk, **and they replaced a version this caller had never seen** (ticket 07).
+	 *
+	 * Somebody else changed this Alignment through a synced Workspace while the user had it open. The
+	 * user's edit was written — see {@link AlignmentWrite}'s `update` for why that direction — so this
+	 * is not a failure, but it is the one outcome the user must be told about, because the thing they
+	 * lost is invisible: it was never on their screen. What was displaced comes back on
+	 * {@link AlignmentWriteReport.displaced}.
+	 */
+	| 'written over a change';
+
+/**
+ * What became of the file, with the one thing an outcome alone cannot carry.
+ *
+ * Only {@link writeAlignmentFileReporting} returns this; {@link writeAlignmentFile} keeps returning
+ * the bare outcome, because a caller that has no concurrency story to tell should not be made to
+ * destructure one.
+ */
+export type AlignmentWriteReport = {
+	readonly outcome: AlignmentWriteOutcome;
+	/**
+	 * The bytes now on disk, or `null` when nothing was written.
+	 *
+	 * **Returned rather than left to the caller to re-derive.** A caller tracking what it believes is
+	 * on disk — which is what makes the concurrency check above possible at all — would otherwise have
+	 * to call `serialiseAlignment` itself, and a second serialiser at the call site is exactly the
+	 * drift `writeAlignmentFile`'s `address` argument exists to avoid. Two spellings of the bytes would
+	 * make every write report itself as a concurrent change.
+	 */
+	readonly written: Bytes | null;
+	/**
+	 * The bytes that were on disk and have just been written over, when the outcome is
+	 * `'written over a change'`. `null` otherwise.
+	 *
+	 * **Handed back rather than merely reported gone.** "Your colleague's edit was overwritten" with
+	 * nothing attached is a sentence that helps nobody; with the document in hand the caller can offer
+	 * to put it back, which is the choice ADR-0023's "visibility" is for. Holding it costs one
+	 * Alignment document in memory, which is kilobytes.
+	 */
+	readonly displaced: Bytes | null;
+};
 
 /**
  * The two operations this module needs from storage, and nothing else.
@@ -198,6 +249,24 @@ export async function writeAlignmentFile(
 		readonly address?: AlignmentAddress;
 	}
 ): Promise<AlignmentWriteOutcome> {
+	return (await writeAlignmentFileReporting(port, request)).outcome;
+}
+
+/**
+ * {@link writeAlignmentFile}, with the displaced bytes when there were any.
+ *
+ * The same function — `writeAlignmentFile` delegates to this one — split only so that the concurrency
+ * report is opt-in at the call site rather than a tuple every existing caller has to unpack. There is
+ * still exactly one implementation of the decision, which is the whole point of this module.
+ */
+export async function writeAlignmentFileReporting(
+	port: AlignmentFilePort,
+	request: {
+		readonly alignment: Alignment;
+		readonly write: AlignmentWrite;
+		readonly address?: AlignmentAddress;
+	}
+): Promise<AlignmentWriteReport> {
 	const { alignment, write, address = {} } = request;
 	const path = alignmentPath(alignment.imageId);
 	const wanted = serialiseAlignment(alignment, address);
@@ -211,13 +280,20 @@ export async function writeAlignmentFile(
 	void (write.intent === 'replace' ? write.discarding : '');
 
 	if (write.intent !== 'create') {
-		// `update` and `replace` both assert that the caller knows what is there — the user has it
-		// open, or has been told in words what they are discarding. There is nothing to check *that
-		// this process can see*: a colleague's edit arriving through a synced Workspace between the
-		// read and here would be overwritten, and nothing below would notice. See {@link
-		// AlignmentWrite} on why that is out of scope rather than covered.
+		// `replace` asserts the user has been told in words what they are discarding, so there is
+		// nothing left to check. An `update` that named the bytes it is based on is checked here —
+		// see {@link AlignmentWrite} for why the write goes ahead either way, and for the window this
+		// narrows rather than closes.
+		const displaced =
+			write.intent === 'update' && write.basedOn !== undefined
+				? await changedSince(port, path, write.basedOn)
+				: null;
 		await port.commit(writable(path), wanted);
-		return 'written';
+		return {
+			outcome: displaced ? 'written over a change' : 'written',
+			written: wanted,
+			displaced
+		};
 	}
 
 	// The bytes this build would write for a brand-new Alignment of this map. Both halves of the
@@ -232,13 +308,47 @@ export async function writeAlignmentFile(
 			// Nothing has happened to the file since it was created, so there is nothing to lose. An
 			// offer replaces it; the starter is already what is there, and rewriting identical bytes is
 			// a diff in a git Workspace for no reason.
-			return offering ? commitAs(port, path, wanted, 'written') : 'left alone';
+			return offering ? commitAs(port, path, wanted, 'written') : report('left alone');
 		case 'worked on':
 			// Somebody's work is in that file, possibly in another Project. The ordinary re-add of a map
 			// is not worth a word to anybody; a refused offer is, because the user asked for it.
-			return offering ? 'kept over the offer' : 'left alone';
+			return report(offering ? 'kept over the offer' : 'left alone');
 	}
 }
+
+/**
+ * The bytes on disk if they are not the ones the caller was working from, or `null`.
+ *
+ * `null` also for a file that has gone — a colleague deleting the Alignment and this write putting one
+ * back is not a change written over, it is a file restored, and reporting it as a loss would put a
+ * warning in front of a user who has lost nothing. And `null` for a file that cannot be read: unlike
+ * {@link existing}, where unreadable has to mean "assume there is work here", the safe direction is the
+ * other one. This decides only what the user is *told*; the write happens regardless, so a false alarm
+ * here is a scary sentence about a document nobody can produce.
+ */
+async function changedSince(
+	port: AlignmentFilePort,
+	path: AlignmentPath,
+	basedOn: Bytes | null
+): Promise<Bytes | null> {
+	let stored: Bytes;
+	try {
+		stored = await port.read(path);
+	} catch {
+		return null;
+	}
+	if (basedOn !== null && sameBytes(stored, basedOn)) return null;
+	return stored;
+}
+
+const report = (
+	outcome: AlignmentWriteOutcome,
+	written: Bytes | null = null
+): AlignmentWriteReport => ({
+	outcome,
+	written,
+	displaced: null
+});
 
 /**
  * The same three intents, for a caller holding **bytes it must not re-serialise**.
@@ -272,12 +382,16 @@ export async function writeAlignmentBytes(
 	const { imageId, bytes, write } = request;
 	const path = alignmentPath(imageId);
 
-	if (write.intent !== 'create') return commitAs(port, path, bytes, 'written');
+	// The two tar readers are copying a document into a Workspace nobody has open, so there is no
+	// "the bytes I was working from" for them to name and nothing here consults `basedOn`.
+	if (write.intent !== 'create') return (await commitAs(port, path, bytes, 'written')).outcome;
 
 	try {
 		await port.read(path);
 	} catch (cause) {
-		if (cause instanceof PathNotFoundError) return commitAs(port, path, bytes, 'written');
+		if (cause instanceof PathNotFoundError) {
+			return (await commitAs(port, path, bytes, 'written')).outcome;
+		}
 		// Unreadable is not absent. See {@link existing} for why that direction is the safe one.
 	}
 	return 'kept over the offer';
@@ -288,9 +402,9 @@ async function commitAs(
 	path: AlignmentPath,
 	bytes: Bytes,
 	outcome: AlignmentWriteOutcome
-): Promise<AlignmentWriteOutcome> {
+): Promise<AlignmentWriteReport> {
 	await port.commit(writable(path), bytes);
-	return outcome;
+	return report(outcome, bytes);
 }
 
 /**
