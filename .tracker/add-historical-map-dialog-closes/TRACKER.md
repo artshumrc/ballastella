@@ -8,7 +8,25 @@ One ticket. This is a bug report with a measurement attached, not a feature.
 
 ## Current status
 
-**Not Started.** Sliced 2026-08-09, out of the `nothing-fails-silently` epic, where it was measured and explicitly ruled out of scope.
+**Completed and merged**, 2026-08-09.
+
+The cause was named with captured evidence and the fix is test-support only — no product code changed. `EditorSession.#addMapLayer` publishes the new Layer (rendering `layer-row`) and *then* awaits the trailing `project.json` write, which is when the dialog closes. `addReferenced` returned inside that window, and the next `ensureAddHistoricalMapOpen` asked `HTMLDialogElement.open`, got `true`, and handed back a dialog it never re-opened.
+
+**`.open` was never the wrong fact. It was the wrong question** — it answers "open at this instant" where the callers meant "open and mine to use."
+
+Measured: `layer-row` at 597.2 ms against the close at 632.2 ms, a **35 ms window**; and under a 20x CPU throttle a caller returning at the row was answered `open: true`.
+
+`n = 6` full-suite runs post-fix with no retry of `editor-align-referenced.e2e.ts:735`, against a measured ~1-in-3 rate before — roughly a 1.4% chance of six clean misses. The mutation check (removing the settle wait) goes red twice.
+
+**The honest limit:** the original 172-second failure was never captured in the wild. The weight sits on the two direct measurements of the mechanism and on the mutation check, not on the green runs.
+
+**A residual, stated:** `addReferenced` still returns while the add's `project.json` write is in flight. Only the *dialog* question is now safe; anything a spec does immediately afterwards that assumes the write has landed is still racy, and `support/saved.ts` is what exists for that.
+
+## An observation from the same measurement, not attributed
+
+`editor-undo.e2e.ts:331` — *reverses the pairing now on screen, keeping a pair made after the round trip* — retried once. Counts, not a rate: **0 of 3 pre-fix full runs, 1 of 6 post-fix full runs.**
+
+One observation is not enough to attribute and it is deliberately not attributed here. Two things a future measurement should weigh rather than assume: this ticket added a `page`-fixture console collector that runs in **every** spec, which is a global timing change; and this repository has been wrong four times by calling a retry load and finding a defect underneath. If it recurs, produce the number before producing a story.
 
 ## What is already known — do not re-derive it
 
@@ -45,4 +63,4 @@ The defect is in the app or in the helper, not in the harness. `openAddHistorica
 
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
-| 01 | [01-the-dialog-stays-open-until-it-is-dismissed.md](./tickets/01-the-dialog-stays-open-until-it-is-dismissed.md) | Not Started | — |
+| 01 | [01-the-dialog-stays-open-until-it-is-dismissed.md](./tickets/01-the-dialog-stays-open-until-it-is-dismissed.md) | Completed | — |
