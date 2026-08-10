@@ -22,6 +22,7 @@
 // itself build on the fence** — otherwise the composition could be quietly unpicked and every spec
 // would still pass the import check while reaching the network.
 
+import { DIALOG_PROBE_PREFIX, DIALOG_PROBE_SCRIPT } from './dialog-probe.js';
 import { test as fenced } from './network-fence.js';
 import { expect } from '@playwright/test';
 
@@ -101,13 +102,40 @@ const WORKSPACE_ROOT_SCRIPT = ({ fallback, key }: { fallback: string; key: strin
  * Import this in every spec. Nothing else is behind both fixtures.
  */
 export const test = fenced.extend({
-	page: async ({ page }, use) => {
+	page: async ({ page }, use, testInfo) => {
 		// The function closes over nothing, which is what lets Playwright serialise it into the page.
 		await page.addInitScript(WORKSPACE_ROOT_SCRIPT, {
 			fallback: DEFAULT_WORKSPACE,
 			key: OPEN_WORKSPACE_KEY
 		});
+
+		// ─────────────────────────────────────────────────────────────────────────────────────────
+		// WHY A DIALOG CLOSED, KEPT FOR THE RUN THAT NEEDS IT. See `dialog-probe.ts`.
+		//
+		// **Collected as the messages arrive, not read back at teardown.** The failure this exists
+		// for spends 172 s waiting on a control inside a dialog that has already gone and then dies
+		// on the test's own budget; a page that has been killed answers no `evaluate`. So the lines
+		// are accumulated here in Node and attached whatever state the page ends in.
+		await page.addInitScript(DIALOG_PROBE_SCRIPT, { prefix: DIALOG_PROBE_PREFIX });
+		const dialogLog: string[] = [];
+		const started = Date.now();
+		page.on('console', (message) => {
+			const text = message.text();
+			if (!text.startsWith(DIALOG_PROBE_PREFIX)) return;
+			dialogLog.push(`+${Date.now() - started}ms ${text.slice(DIALOG_PROBE_PREFIX.length + 1)}`);
+		});
+
 		await use(page);
+
+		// Attached only on a failure, because a green run has nothing to explain and 500 passing
+		// tests each carrying a trace of their dialogs is a report nobody opens.
+		if (testInfo.status !== testInfo.expectedStatus && dialogLog.length > 0) {
+			const body = dialogLog.join('\n');
+			await testInfo.attach('dialog-probe', { body, contentType: 'text/plain' });
+			// Printed as well as attached: the `list` reporter is what a full-suite run is read from,
+			// and an attachment nobody knows to open is a measurement that was not taken.
+			console.log(`\n${DIALOG_PROBE_PREFIX} ${testInfo.titlePath.join(' › ')}\n${body}\n`);
+		}
 	}
 });
 
