@@ -22,10 +22,12 @@ import {
 	addHistoricalMapButton,
 	addHistoricalMapFromFile,
 	addHistoricalMapIsOpen,
+	ensureAddHistoricalMapOpen,
 	openAddHistoricalMap,
 	pickHistoricalMapFile,
 	preparingCard
 } from './support/historical-maps.js';
+import { installIiifHosts, service } from './support/iiif-hosts.js';
 import { openLayerRow } from './support/layers.js';
 import { waitForStoredLayers } from './support/saved.js';
 
@@ -307,6 +309,61 @@ test.describe('the dialog itself (ADR-0016, SPEC stories 111, 112)', () => {
 		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(false);
 		// Back on the control the user reached for, which is where they can open it again.
 		await expect(button).toBeFocused();
+	});
+
+	test('is never handed to a caller while the panel inside it is still working', async ({
+		page
+	}) => {
+		// ┌───────────────────────────────────────────────────────────────────────────────────────┐
+		// │ `.open` IS TRUE THROUGHOUT THIS TEST. THAT IS THE POINT OF IT.                        │
+		// └───────────────────────────────────────────────────────────────────────────────────────┘
+		//
+		// `ensureAddHistoricalMapOpen` used to answer from `HTMLDialogElement.open` alone, and an
+		// add that is still being written has the dialog open with a close already committed to it
+		// — measured at 35 ms on an idle box and reproduced at 20× CPU throttle, both written down
+		// on `settle` in `support/historical-maps.ts`. A caller handed that dialog filled a field
+		// on it and then waited 172 seconds to click the button beside it, because by then it had
+		// shut and nothing was going to re-open it.
+		//
+		// **The busy state here is the *lookup*, not the write.** The write cannot be slowed from a
+		// spec without a seam, and the one this suite is allowed to slow is the network. Both go
+		// through the same `disabled`, which is what the helper now reads, so this pins the rule
+		// the helper follows; the measurement of the case it was written for is at `settle`.
+		await installIiifHosts(page);
+		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
+
+		const address = `${service('images.test', 'florida')}/info.json`;
+		// Registered after the hosts, so it runs first and hands on to them. Local, and therefore
+		// nothing the network fence has to allow.
+		await page.route(address, async (route) => {
+			await new Promise((resolve) => setTimeout(resolve, 3_000));
+			await route.fallback();
+		});
+
+		await openAddHistoricalMap(page);
+		await page.getByTestId('remote-url').fill(address);
+		await page.getByTestId('remote-read').click();
+		await expect(page.getByTestId('remote-read')).toBeDisabled();
+		// The dialog really is open while all of this is true — so a helper that asks only that
+		// question answers instantly, which is the defect.
+		expect(await addHistoricalMapIsOpen(page)).toBe(true);
+
+		const began = Date.now();
+		await ensureAddHistoricalMapOpen(page);
+		const ensured = Date.now() - began;
+
+		// A whole second of margin under a three-second delay: the only way this number is small is
+		// if the helper answered from `.open` without waiting, and load can only make it larger.
+		expect(ensured, 'the dialog was handed back while its panel was still working').toBeGreaterThan(
+			1_500
+		);
+		await expect(page.getByTestId('remote-add')).toBeVisible({ timeout: 30_000 });
+
+		// **One door, not two, and that was measured too.** `openAddHistoricalMap` clicks the
+		// sidebar button, which an open modal intercepts — so it is only reachable with the dialog
+		// shut, and a shut dialog has no add in flight. Putting the same wait there as well would
+		// have been a guard nothing could turn red, which is exactly how the previous fix came to be
+		// believed. The reasoning is written at the function.
 	});
 
 	test('every control in it is reachable by keyboard', async ({ page }) => {

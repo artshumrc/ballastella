@@ -10,6 +10,19 @@
 // It matters that this is written once. Twelve suites drove the old input by its label, and a
 // helper is what keeps the next change to this flow from being 95% done — which is exactly what
 // ticket 16 left behind and `pnpm check` could not see.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ⚠ THIS FILE ONCE CLAIMED A BUG FIXED THAT IT HAD ONLY HALF FIXED. READ {@link settle} BEFORE
+// ADDING ANYTHING HERE THAT ASKS WHETHER THE DIALOG IS OPEN.
+//
+// The first fix replaced an `isVisible()` question with `HTMLDialogElement.open`, and said so as
+// though that were the end of it. It was not: the suite went on failing at roughly one full run in
+// three for another epic, with the same signature — "element is not stable", twice, then "element
+// is not visible", hundreds of times, on a control in a dialog the suite believed was open.
+//
+// `.open` was never the wrong *fact*. It was the wrong *question*. It answers "is this dialog open
+// at this instant", and the callers here all meant "is this dialog mine to use". Those come apart
+// for as long as an add is being written, and that window is where the whole defect lived.
 
 import { expect, type Locator, type Page } from './test.js';
 
@@ -30,11 +43,62 @@ const addDialog = (page: Page): Locator =>
  * filled the URL field of a dialog that was closing and then waited its whole timeout to click the
  * button beside it — "element is not stable", twice, then "element is not visible", 111 times.
  * `HTMLDialogElement.open` is the fact, and it flips exactly when `close()` is called.
+ *
+ * ⚠ **And it is still not enough on its own, which the fix above this one did not know.** `.open`
+ * is the truth about *this instant*; it says nothing about a close that has already been decided
+ * and is waiting on a write. See {@link settle}, which is what every caller here goes through
+ * first, and do not ask this question without it.
  */
 export const addHistoricalMapIsOpen = (page: Page): Promise<boolean> =>
 	addDialog(page)
 		.evaluate((element) => (element as HTMLDialogElement).open)
 		.catch(() => false);
+
+/**
+ * Whether the dialog is part-way through something — a lookup, or an add that is still being
+ * written.
+ *
+ * Read off the controls' own `disabled`, which is the application's `busy` (`AddRemoteMap`'s
+ * `step`) and its `adding` (the Workspace picker's one-at-a-time guard) rather than a sentence
+ * that could be reworded out from under this file.
+ */
+const addInFlight = (page: Page): Promise<boolean> =>
+	page.evaluate(() => {
+		const look = document.querySelector('[data-testid="remote-read"]');
+		if (look instanceof HTMLButtonElement && look.disabled) return true;
+		return document.querySelector('[data-testid="workspace-map"]:disabled') !== null;
+	});
+
+/**
+ * Wait until no add is part-way through, before asking anything about the dialog.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * ⚠ **THE DIALOG IS OPEN FOR A WHILE AFTER THE ADD IT IS DOING HAS VISIBLY SUCCEEDED, AND THAT
+ * WINDOW IS WHAT MADE THIS SUITE FLAKE.**
+ *
+ * `EditorSession.#addMapLayer` publishes the new Layer into `openProject` — which renders the
+ * `layer-row` a caller is waiting for — and only *then* awaits the trailing `project.json` write.
+ * The dialog closes at the end of that write, by way of `AddRemoteMap`'s `onadded`. So there is a
+ * window in which the add is done as far as the screen is concerned and the dialog is open with a
+ * close already committed to it.
+ *
+ * **Measured, twice, rather than reasoned about.** On an idle box, an in-page `MutationObserver`
+ * timed the `layer-row` at 597.2 ms and the dialog closing at 632.2 ms: a **35 ms** window. Under
+ * `Emulation.setCPUThrottlingRate` at 20×, a caller that returned the moment the row appeared —
+ * which is exactly what `addReferenced` in `editor-align-referenced.e2e.ts` does — then asked
+ * {@link addHistoricalMapIsOpen} and was answered **`true`**.
+ *
+ * What followed is the failure this file's `.open` fix was supposed to have ended, and did not:
+ * {@link ensureAddHistoricalMapOpen} took that `true` and handed back the dialog *without
+ * re-opening it*; `fill` on the URL waited out the `disabled` and landed during daisyUI's ~300 ms
+ * fade; and the click beside it reported "element is not stable" twice and then "element is not
+ * visible" for 172 seconds, on a button that was present, laid out, and inside a dialog that had
+ * shut. Nothing ever re-opened it, because as far as the suite was concerned it had never closed.
+ *
+ * `.open` was not wrong. It was answering a different question from the one the caller meant.
+ */
+const settle = (page: Page): Promise<void> =>
+	expect.poll(() => addInFlight(page), { timeout: 30_000 }).toBe(false);
 
 /**
  * Open the dialog and wait until all three sources are on screen.
@@ -44,6 +108,12 @@ export const addHistoricalMapIsOpen = (page: Page): Promise<boolean> =>
  * whichever suite happened to use it next.
  */
 export async function openAddHistoricalMap(page: Page): Promise<Locator> {
+	// **No {@link settle} here, and that is a measurement rather than an omission.** This clicks the
+	// sidebar button, which an open modal intercepts — so this function is only reachable with the
+	// dialog shut, and a shut dialog has no add in flight: every source closes the dialog at the
+	// *end* of its add. A wait here would be a guard no run could exercise, which is the shape the
+	// last version of this fix took. The wait belongs at the one door that can be answered by an
+	// open dialog, which is {@link ensureAddHistoricalMapOpen}.
 	await addHistoricalMapButton(page).click();
 	const dialog = addDialog(page);
 	// The element's own state first, so none of what follows can be satisfied by a dialog that is
@@ -64,8 +134,16 @@ export async function openAddHistoricalMap(page: Page): Promise<Locator> {
 	return dialog;
 }
 
-/** The dialog, opening it first if a successful add has closed it. */
+/**
+ * The dialog, opening it first if a successful add has closed it.
+ *
+ * ⚠ **The wait is the whole of this function's correctness, not politeness.** "Open right now" and
+ * "open, and still yours a moment from now" are different facts while an add is being written, and
+ * this used to return the first when its caller meant the second. {@link settle} carries the
+ * measurement and the failure it produced.
+ */
 export async function ensureAddHistoricalMapOpen(page: Page): Promise<Locator> {
+	await settle(page);
 	if (await addHistoricalMapIsOpen(page)) return addDialog(page);
 	return openAddHistoricalMap(page);
 }

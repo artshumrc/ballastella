@@ -23,6 +23,12 @@
 //                             place. `.open` was true of a node that no longer exists.
 //   `open attribute`        — the attribute changed with none of the above, which would mean
 //                             something is driving the element directly.
+//   `left the top layer`    — still `open`, no longer `:modal`, which is what a *moved* node
+//                             becomes. Context rather than a verdict: daisyUI hides on `[open]`,
+//                             so this alone does not make the button invisible.
+//
+// Every line carries `open`, `:modal` and `checkVisibility()` separately, because the whole of this
+// bug is those three disagreeing — an `open === true` check passed and the button was invisible.
 //
 // **It costs nothing when no dialog is open.** The `MutationObserver` is connected by `showModal`
 // and disconnected on the close it observes, so the suite is not paying for a document-wide
@@ -69,6 +75,14 @@ export const DIALOG_PROBE_SCRIPT = ({ prefix }: { prefix: string }): void => {
 		return {
 			open: element.open,
 			connected: element.isConnected,
+			// **`open`, `:modal` and actual visibility are three facts, recorded separately because
+			// this bug is about them disagreeing.** A modal that is *moved* in the document leaves
+			// the top layer for good while `open` stays `true`; and daisyUI keys its
+			// `visibility: hidden` on the `[open]` **attribute** (measured in
+			// `daisyui/components/modal.css`, not assumed), so `visible` is the one that answers what
+			// Playwright is looking at.
+			modal: element.matches(':modal'),
+			visible: element.checkVisibility?.() ?? null,
 			contains: ids
 		};
 	};
@@ -83,20 +97,28 @@ export const DIALOG_PROBE_SCRIPT = ({ prefix }: { prefix: string }): void => {
 	// time, which is what makes a single slot correct rather than a simplification.
 	let watched: HTMLDialogElement | null = null;
 
+	/** Said once per open, so a re-render that thrashes cannot fill the log with one fact. */
+	let saidRemoved = false;
+	/** The same, for the top-layer report. */
+	let saidUnmodal = false;
+
 	const removalObserver = new MutationObserver((records) => {
-		if (!watched) return;
+		if (!watched || saidRemoved) return;
 		for (const record of records) {
 			for (const node of Array.from(record.removedNodes)) {
 				if (node.nodeType !== 1) continue;
 				if (node === watched || (node as Element).contains(watched)) {
+					saidRemoved = true;
 					say({
 						at: Date.now(),
 						why: 'removed',
-						detail: 'the open dialog left the document — its component tree was torn down',
+						detail: 'the open dialog left the document — a re-render took it out',
 						dialog: which(watched),
 						active: active()
 					});
-					stopWatching();
+					// **Watching continues on purpose.** A dialog that is taken out and put straight
+					// back is still open and no longer `:modal`, and that state — not the removal — is
+					// what the user and the suite actually see. The poll below reports it.
 					return;
 				}
 			}
@@ -116,16 +138,50 @@ export const DIALOG_PROBE_SCRIPT = ({ prefix }: { prefix: string }): void => {
 		stopWatching();
 	});
 
+	/**
+	 * The one state no event announces: still open, no longer in the top layer.
+	 *
+	 * There is no `topLayerChange` event and no mutation record for it — leaving the top layer is a
+	 * side effect of the node being moved — so it is polled. 100 ms while a dialog is open and never
+	 * otherwise, which is what makes a poll acceptable here.
+	 */
+	let topLayerPoll: ReturnType<typeof setInterval> | undefined;
+
 	function stopWatching(): void {
 		watched = null;
+		saidRemoved = false;
+		saidUnmodal = false;
 		removalObserver.disconnect();
 		attributeObserver.disconnect();
+		if (topLayerPoll !== undefined) clearInterval(topLayerPoll);
+		topLayerPoll = undefined;
 	}
 
 	function startWatching(dialog: HTMLDialogElement): void {
 		watched = dialog;
+		saidRemoved = false;
+		saidUnmodal = false;
 		removalObserver.observe(document.documentElement, { childList: true, subtree: true });
 		attributeObserver.observe(dialog, { attributes: true, attributeFilter: ['open'] });
+		if (topLayerPoll !== undefined) clearInterval(topLayerPoll);
+		topLayerPoll = setInterval(() => {
+			const element = watched;
+			if (!element || saidUnmodal) return;
+			if (!element.open) return; // The close paths above say why, and they stop the watch.
+			if (element.matches(':modal')) return;
+			saidUnmodal = true;
+			// **Reported and then kept watching.** daisyUI hides on the `[open]` *attribute*, not on
+			// `:modal`, so this on its own does not produce the invisible button this bug reports —
+			// which makes it context for whatever comes next rather than the verdict. Stopping here
+			// would blind the log to the close that actually matters.
+			say({
+				at: Date.now(),
+				why: 'left the top layer',
+				detail: 'still open, no longer :modal — the node was moved',
+				dialog: which(element),
+				active: active()
+			});
+		}, 100);
 	}
 
 	const nativeShowModal = HTMLDialogElement.prototype.showModal;
