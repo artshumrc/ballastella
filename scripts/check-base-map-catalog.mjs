@@ -71,11 +71,24 @@ const entryArchives = [...catalogSource.matchAll(/^\s*archive:\s*(?:'([^']*)'|(\
 );
 
 /**
- * Archives no deployment may ship: someone else's, published for trying the format out.
+ * Archives no deployment may ship: someone else's, whoever else's.
  *
  * Compared by host, so a path change on the same bucket does not slip past.
+ *
+ * ⚠ **A host is listed here because of who runs it, not because it is broken.**
+ * `demo-bucket.protomaps.com` is the bucket Protomaps publishes for trying the format out.
+ * `data.source.coop` is the Source Cooperative mirror of Protomaps' daily planet build, and its
+ * operators say "We don't recommend cross-origin hotlinking directly to source.coop URLs" — so it
+ * is the same kind of dependency, on somebody else's bandwidth with no promise to this deployment.
+ *
+ * **Adding the replacement here was the point.** When the catalog moved off the demo bucket on
+ * 2026-08-10, this set still named only the host being left, so `pnpm check:deployment` would have
+ * gone green and reported a deployment fit to ship. A fence that passes because the thing it
+ * describes moved is worse than no fence: it is a green light nobody asked for. The rule this set
+ * encodes is *the deployment controls its own archive*, and a host belongs here whenever it does
+ * not — which is every host until somebody provisions one.
  */
-const UNCONTROLLED_HOSTS = new Set(['demo-bucket.protomaps.com']);
+const UNCONTROLLED_HOSTS = new Set(['demo-bucket.protomaps.com', 'data.source.coop']);
 const hostOf = (archive) => {
 	try {
 		return new URL(archive).host;

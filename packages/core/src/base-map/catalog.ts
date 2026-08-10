@@ -19,19 +19,31 @@ import type { BaseMapCatalog } from './entry';
  * Protomaps' public **demo** planet. Keyless, so it costs no secret and breaks no fork — but it
  * is a network dependency, which is what `needsNetwork` exists to say out loud.
  *
- * **Provenance and terms.** This is the bucket Protomaps publishes for trying the format out. Its
- * data is OpenStreetMap under ODbL 1.0, carried by the `attribution` below; the *hosting* is
- * Protomaps' goodwill, with no published rate limit, uptime promise, or terms of use, and every
- * fork's users reach it by default because it is in this deployment's catalog. Nothing about it is
- * suitable to rely on. A deployment that wants worldwide coverage should point this entry at its
- * own archive — a Protomaps API key, a bucket of its own, or a self-hosted extract — which is a
- * change to this line and nothing else (ADR-0020).
+ * **Provenance and terms.** This is Protomaps' daily planet build, mirrored on Source Cooperative
+ * (AWS us-west-2). Its data is OpenStreetMap under ODbL 1.0, carried by the `attribution` below.
+ * The *hosting* is somebody else's, and Source Cooperative says in as many words: "We don't
+ * recommend cross-origin hotlinking directly to source.coop URLs." So this is the same **kind** of
+ * dependency as the archive it replaced, and it is chosen with that understood rather than
+ * overlooked — see the amendment in ADR-0025 dated 2026-08-10.
  *
- * This educational development deployment has no hosting budget, so the maintainer explicitly
- * accepted this URL for evaluation only. `pnpm check:deployment` refuses it: production must point
- * this constant at an archive that deployment controls (ADR-0025, ticket 10).
+ * **Why it replaced `demo-bucket.protomaps.com`.** That bucket now answers `404` for this file, so
+ * the Base Map was not degraded but absent: Historical Maps drew on blank space with nothing on
+ * screen saying why. The previous decision — recorded in ADR-0025 as settled — was that the demo
+ * tiles stayed. A 404 overtook it.
+ *
+ * **Two facts measured on 2026-08-10 rather than assumed**, because both fail quietly if wrong:
+ * `v4.pmtiles` answers `HTTP 206` to a range request with `access-control-allow-origin: *` and
+ * `access-control-expose-headers: *`, so a browser can read it cross-origin; and the sibling
+ * `v3.pmtiles` is a `404`, so v4 is not a preference here but the only file there. v4 is also what
+ * `@protomaps/basemaps@5` styles are built against — a v3 tileset under a v5 style is the silent
+ * failure ADR-0025 warns about, a plausible-looking pane of the wrong world.
+ *
+ * A deployment that wants worldwide coverage it controls should point this entry at its own archive
+ * — a bucket of its own or a self-hosted extract — which is a change to this line and nothing else
+ * (ADR-0020). `pnpm check:deployment` refuses this host for exactly that reason: production must
+ * point this constant at an archive that deployment controls (ADR-0025, ticket 10).
  */
-const REMOTE_ARCHIVE = 'https://demo-bucket.protomaps.com/v4.pmtiles';
+const REMOTE_ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmtiles';
 
 export const BASE_MAP_CATALOG: BaseMapCatalog = {
 	entries: [

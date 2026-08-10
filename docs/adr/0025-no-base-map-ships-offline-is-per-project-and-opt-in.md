@@ -65,3 +65,23 @@ Two things follow, and both are already true:
 - **The failure is honest.** Ticket 22 gives the published viewer the unreachable-archive notice the editor already had, so a Reader is told it is not their fault, that their work is safe, and what would fix it. An outage renders as an explanation rather than a blank rectangle.
 
 **`pnpm check:deployment` is deliberately left as it is** — it still fails while the catalog reads an archive this deployment does not control, and it still blocks a *production* deployment. That is the correct relationship between a proof of concept and a production one, and nothing about this decision asks for the safeguard to be weakened. Changing what the catalog points at remains a one-file change by ADR-0020's design, for whenever a real deployment wants one.
+
+## Amendment, 2026-08-10: the demo archive is gone, and the mirror replacing it is borrowed too
+
+The amendment above settled that `demo-bucket.protomaps.com` stayed. **That decision has been overtaken rather than reversed on its merits:** the bucket now answers `404` for `v4.pmtiles`. Measured, not inferred — `curl -r 0-16` returns `HTTP/2 404` from `Tigris OS`.
+
+So the Base Map was not degraded, it was **absent**. Every catalog entry read that one URL, so a scholar saw Historical Maps floating on blank space with nothing on screen explaining why. That is the failure this repository spent an epic removing from the write path, sitting unnoticed in deployment configuration — and it was invisible to the whole test suite by construction, because no test may reach the network (ADR-0014, and the network fence).
+
+`REMOTE_ARCHIVE` now reads `https://data.source.coop/protomaps/openstreetmap/v4.pmtiles`: Protomaps' daily planet build, mirrored on Source Cooperative in AWS us-west-2.
+
+**Three facts measured on 2026-08-10, because each fails quietly if wrong:**
+
+- `v4.pmtiles` answers `HTTP 206` to a range request, `content-range: bytes 0-16/134812420554`, with `access-control-allow-origin: *` and `access-control-expose-headers: *`. A browser can read it cross-origin, which is the whole requirement — PMTiles over HTTP range requests means a reader downloads the tiles in view and nothing else.
+- The sibling `v3.pmtiles` is a `404`. v4 is not a preference here; it is the only file there.
+- v4 is what `@protomaps/basemaps@5` styles are built against. A v3 tileset under a v5 style would draw *something* — the silent failure this ADR already warns about, a plausible pane of the wrong world.
+
+**This is honestly the same kind of dependency as the one it replaces.** Source Cooperative's own guidance is: "We don't recommend cross-origin hotlinking directly to source.coop URLs." It is somebody else's bandwidth, with no promise to this deployment, reached by every fork's users because it is in this catalog. It is chosen because Ballastella is a proof of concept that needs a working Base Map for user feedback this week, and because a 125 GB archive nobody has provisioned is not a thing one can conjure between now and then. **It is a stated trade, not an oversight, and the next 404 is a matter of when.**
+
+**`data.source.coop` was therefore added to `UNCONTROLLED_HOSTS` in the same change.** That set previously named only the host being left, so repointing would have made `pnpm check:deployment` pass and report a deployment fit to ship. A fence that goes green because the thing it described moved is worse than no fence. The rule the set encodes is *the deployment controls its own archive*, and every host fails that until somebody provisions one.
+
+**What ends this properly**, and the estimate is small enough to be worth writing down: `pmtiles extract <remote build> world.pmtiles --maxzoom=14` pulls a zoom-limited planet without downloading 125 GB — Protomaps documents extracting a full sub-pyramid from 0 to `maxzoom` as an efficient operation — giving roughly 60 GB, which is about **$0.75 a month** on storage with zero egress. Buildings appear around z14 and are what a scholar aligns a historical city map against; MapLibre overzooms above the archive's maximum, so z15–18 still render sharp vector geometry. That is one line of this file plus a bucket.
