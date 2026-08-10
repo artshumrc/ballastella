@@ -46,8 +46,12 @@ const addDialog = (page: Page): Locator =>
  *
  * ⚠ **And it is still not enough on its own, which the fix above this one did not know.** `.open`
  * is the truth about *this instant*; it says nothing about a close that has already been decided
- * and is waiting on a write. See {@link settle}, which is what every caller here goes through
- * first, and do not ask this question without it.
+ * and is waiting on a write, which is a state that lasts as long as a `project.json` write takes.
+ * See {@link settle} for the measurement.
+ *
+ * Asking this **`toBe(false)`** is always sound — a dialog cannot un-close. Asking it `toBe(true)`
+ * and then *acting* on the answer is what needs {@link settle} in front of it, and
+ * {@link ensureAddHistoricalMapOpen} is the only place here that does that.
  */
 export const addHistoricalMapIsOpen = (page: Page): Promise<boolean> =>
 	addDialog(page)
