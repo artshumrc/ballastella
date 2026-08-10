@@ -650,9 +650,21 @@ test.describe('the route from the keyboard', () => {
 		expect(new URL(page.url()).searchParams.get('p')).toBe(PROJECT_DIRECTORY);
 	});
 
-	/** SPEC story 112: what this screen does, in text, before either canvas. */
+	/**
+	 * SPEC story 112: what this screen does, in text.
+	 *
+	 * **Behind "How this works" in the sidebar now.** It was standing prose above the panes, which is
+	 * the height the maps needed. What story 112 asks for is asserted unchanged — visible text rather
+	 * than a `title` — and the trade is stated rather than hidden: the sentence now follows the two
+	 * canvases in the reading order instead of introducing them.
+	 */
 	test('says what the two panes are for, as text rather than as a tooltip', async ({ page }) => {
 		await start(page);
+		const toggle = page.getByTestId('align-explainer-toggle');
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		// Nothing is standing on the page taking height from the maps until it is asked for.
+		await expect(page.getByTestId('align-explainer')).toHaveCount(0);
+		await toggle.click();
 		const explainer = page.getByTestId('align-explainer');
 		await expect(explainer).toBeVisible();
 		await expect(explainer).toContainText('Click a feature on the Historical Map');

@@ -9,6 +9,7 @@ import {
 	historicalMap,
 	makePairs,
 	rows,
+	showPaneDetails,
 	storedAlignment,
 	waitForStored,
 	warpedTiles
@@ -211,6 +212,7 @@ for (const [what, host] of [
 
 		// The pane is reading the Library's sheet: its declared geometry, not the Workspace's. Read off
 		// the pane's own summary, which is the only way to say *which* pyramid is on screen.
+		await showPaneDetails(page);
 		const pyramid = page.getByTestId('historical-map-pyramid');
 		await expect(pyramid).toHaveAttribute('data-image-id', imageId);
 		await expect(pyramid).toHaveAttribute('data-width', '700');

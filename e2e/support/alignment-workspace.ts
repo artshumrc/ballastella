@@ -229,6 +229,26 @@ export async function waitForSurface(page: Page): Promise<void> {
 	);
 }
 
+/**
+ * Open the Historical Map pane's "Image details" readout — the pyramid, the zoom and the pointer.
+ *
+ * **Closed by default on the page, so a test that reads it has to ask.** The readout is a diagnostic,
+ * and on the alignment screen it was four rows of numbers charging permanent rent under the sheet;
+ * it is behind a `<button aria-expanded>` disclosure now. The readout is *conditionally rendered*
+ * rather than CSS-hidden, so this is not a nicety: `innerText()` returns `''` for a hidden element
+ * and `getByTestId` finds nothing at all for an absent one, and either way a suite that skipped this
+ * would fail with a message about the pyramid rather than about the disclosure.
+ *
+ * Idempotent, and cheap enough to call after every navigation: the state lives on the component, so a
+ * route change closes it again while switching Historical Maps deliberately does not.
+ */
+export async function showPaneDetails(page: Page): Promise<void> {
+	const toggle = page.getByTestId('historical-map-details-toggle');
+	await expect(toggle).toBeVisible();
+	if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+	await expect(page.getByTestId('historical-map-pyramid')).toBeVisible();
+}
+
 export const historicalMap = (page: Page) => page.getByTestId('image-pane');
 export const baseMap = (page: Page) => page.getByTestId('base-map-pane');
 export const rows = (page: Page) => page.getByTestId('control-point-row');

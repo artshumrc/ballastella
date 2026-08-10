@@ -1,18 +1,22 @@
 <script lang="ts">
-	// The app's navigation bar: the four things that are true on every screen (ticket 04).
+	// The app's navigation bar: the things that are true on every screen (ticket 04).
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// WHY EXACTLY FOUR, AND WHY THESE FOUR
+	// WHAT BELONGS HERE
 	//
-	// Which Workspace you are in, what the interface looks like, whether your work is kept, and how
-	// to take the last thing back. Every one of them is answerable without knowing what is on screen,
-	// and every one of them is a question a user has *while* doing something else — which is what
-	// makes a persistent bar the right place for them rather than a panel that comes and goes.
+	// Which Workspace you are in, which screen you are on and the way off it, what the interface looks
+	// like, whether your work is kept, and how to take the last thing back. Every one of them is a
+	// question a user has *while* doing something else, which is what makes a persistent bar the right
+	// place for them rather than a panel that comes and goes.
 	//
-	// **Project-specific controls are deliberately excluded**: the Project name, the Base Map
-	// switcher, and Project settings all belong to the Project screen, because on the hub they would
-	// have to either disappear or lie. A bar whose contents depend on the route is not a bar, it is
-	// three headers wearing one.
+	// **Project-specific controls are still excluded**: the Project name, the Base Map switcher, and
+	// Project settings all belong to the Project screen, because on the hub they would have to either
+	// disappear or lie.
+	//
+	// The screen's own name and way back arrive through `page-chrome.svelte.ts` — one generic slot a
+	// route fills, not a switch on the route. Ticket 04 read the rule more strictly and had each such
+	// route carry its own header strip beneath this bar; on `/align`, with two live map panes, that was
+	// a second header costing height the maps needed.
 	//
 	// Before this, the theme toggle was on `/base-map/`, `/layers/` and `/align/` and not on the hub;
 	// the save indicator and the undo control were on three pages each, mounted separately. Three
@@ -22,6 +26,7 @@
 	// storage now holds several named Workspaces (ADR-0024) — and from ticket 14 onward one of them can
 	// be a throwaway Review Workspace, which is a thing a user must never be in doubt about.
 
+	import { resolve } from '$app/paths';
 	import { otherTheme } from '@ballastella/core';
 
 	import UndoControl from '$lib/undo/UndoControl.svelte';
@@ -29,6 +34,7 @@
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
 	import MenuPopover from './MenuPopover.svelte';
+	import { pageChrome } from './page-chrome.svelte.js';
 	import SaveIndicator from './SaveIndicator.svelte';
 	import WorkspaceSettings from './WorkspaceSettings.svelte';
 
@@ -254,9 +260,35 @@
 	-->
 	<p class="sr-only" aria-live="polite" data-testid="workspace-announcement">{announcement}</p>
 
+	<!--
+		2. Which screen this is, and the way off it — whatever the screen said it was, and nothing when a
+		screen (the hub) says nothing.
+
+		A real `<h1>`: the bar is before `children()`, so this is the first heading a screen reader
+		reaches. The link is spelled out here rather than handed over finished because
+		`svelte/no-navigation-without-resolve` checks the literal start of an `href` — hence
+		{@link WayBack} carrying a Project directory.
+	-->
+	{#if pageChrome.heading !== ''}
+		<div class="flex min-w-0 items-center gap-3" data-testid="page-chrome">
+			<h1 class="truncate text-base font-bold" data-testid="page-heading">
+				{pageChrome.heading}
+			</h1>
+			{#if pageChrome.back}
+				<a
+					class="btn btn-sm"
+					data-testid={pageChrome.back.testid}
+					href="{resolve('/')}?p={encodeURIComponent(pageChrome.back.project)}"
+				>
+					{pageChrome.back.label}
+				</a>
+			{/if}
+		</div>
+	{/if}
+
 	<div class="grow"></div>
 
-	<!-- 2. The theme, for the interface and the Base Map together (SPEC stories 109, 110). One
+	<!-- 3. The theme, for the interface and the Base Map together (SPEC stories 109, 110). One
 	     control in the whole app, and it says what it will do rather than what it is. -->
 	<button
 		type="button"
@@ -269,7 +301,7 @@
 
 	{#if session !== null}
 		<!--
-			3. The way back from the last destructive action (SPEC story 12, ADR-0014). A slot rather
+			4. The way back from the last destructive action (SPEC story 12, ADR-0014). A slot rather
 			than a button, because `UndoControl` renders nothing when there is nothing to undo — absent
 			is the honest state, and it still has to be one identifiable place on the bar.
 		-->
@@ -277,7 +309,7 @@
 			<UndoControl {session} />
 		</div>
 
-		<!-- 4. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
+		<!-- 5. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
 		     only signal that anything reached storage — which is why it is on every screen and not
 		     only on the ones that happen to write. -->
 		<div class="flex flex-col items-end" data-testid="save-slot">

@@ -935,6 +935,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		// same rule: with no Layer in the stack there is no `?layer=` to address, so the Project screen
 		// offers no Align link for this map at all rather than a control that would make one.
 		await expect(page.getByTestId('align-historical-map')).toHaveCount(0);
+		await expect(page.getByTestId('align-historical-map-now')).toHaveCount(0);
 		// Said, not merely absent. The Project page used to carry a dedicated "this map is in the
 		// Workspace but not in this Project" alert beside its list of the Workspace's Historical Maps;
 		// ticket 04 deleted that list, so the sentence that has to be true here is the sidebar's own
@@ -1953,14 +1954,15 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		await expect(open.getByTestId('align-historical-map')).toHaveCount(1);
 	});
 
-	test('the Align link is inside the Layer, and is not on the screen until it is opened', async ({
+	test("the Layer's own Align is inside it, and is not on the screen until it is opened", async ({
 		page
 	}) => {
 		const directory = await projectWithImage(page);
 		await openLayers(page, directory, { drawn: 0 });
 
-		// Closed, there is no Align anywhere on the screen — which is what makes every other spec's
-		// `openLayerRow` a step the user really takes rather than a formality.
+		// Closed, the row's own Align is not on the screen — which is what makes every other spec's
+		// `openLayerRow` a step the user really takes rather than a formality. The "Align now" beside the
+		// not-aligned sentence is a different affordance under a different id, and has its own spec below.
 		await expect(page.getByTestId('align-historical-map')).toHaveCount(0);
 
 		const row = await openLayerRow(page, 0);
@@ -1969,6 +1971,75 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		const layerId = (await projectJson(page, directory)).layers[0].id as string;
 		expect(await align.getAttribute('href')).toContain(`?p=${directory}&layer=${layerId}`);
 		expect(await align.getAttribute('href')).toMatch(/\/align\/?\?p=/);
+	});
+
+	/**
+	 * The closed row's warning answers itself.
+	 *
+	 * "Not aligned yet" is on the closed row so a scholar can notice it without opening anything — and a
+	 * state worth noticing there is worth acting on there. Before this, noticing was all they could do:
+	 * the control the sentence describes was a disclosure away.
+	 *
+	 * The href is asserted, not just the presence, because this link and the open row's carry the same
+	 * `(directory, layer id)` pair out of one snippet, and the way that goes wrong is a pair that is
+	 * individually plausible and never true together.
+	 */
+	test('a closed, unaligned map Layer offers Align now beside the sentence', async ({ page }) => {
+		const directory = await projectWithImage(page);
+		await openLayers(page, directory, { drawn: 0 });
+
+		const row = rows(page).first();
+		await expect(row.getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
+		// Still closed: the point is that nothing had to be opened.
+		await expect(row.getByTestId('layer-disclosure')).toHaveAttribute('aria-expanded', 'false');
+
+		const now = row.getByTestId('align-historical-map-now');
+		await expect(now).toHaveRole('link');
+		await expect(now).toHaveText('Align now');
+		const layerId = (await projectJson(page, directory)).layers[0].id as string;
+		expect(await now.getAttribute('href')).toContain(`?p=${directory}&layer=${layerId}`);
+
+		// And it goes where it says it goes, without the row ever being opened.
+		await now.click();
+		await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
+		expect(new URL(page.url()).searchParams.get('layer')).toBe(layerId);
+	});
+
+	/**
+	 * An aligned Layer has nothing to warn about, so it has nothing to offer beside the warning.
+	 *
+	 * The negative half matters more than usual here: the closed row is the one place on the screen
+	 * where an Align could appear for every Layer in the stack at once, which would be four buttons
+	 * competing with the sentence they no longer answer.
+	 */
+	test('a closed, aligned map Layer offers no Align now', async ({ page }) => {
+		const directory = await alignedProject(page);
+		await openLayers(page, directory);
+
+		await expect(rows(page).first().getByTestId('layer-problem')).toHaveCount(0);
+		await expect(page.getByTestId('align-historical-map-now')).toHaveCount(0);
+	});
+
+	/**
+	 * The same narrowing the open row makes, made here: an Alignment that is *there and unreadable* is
+	 * work the user made that is not on screen, and offering "Align now" as the answer to it would be
+	 * this row's version of announcing one failure as another.
+	 *
+	 * The row still warns — under the generic id, which claims nothing in particular — and the Layer's
+	 * own Align inside the open row is still there, because aligning remains a thing you may do about a
+	 * broken Alignment. What is withheld is the *sentence's* answer, since it is not that sentence.
+	 */
+	test('an unreadable Alignment gets no Align now on the closed row', async ({ page }) => {
+		const directory = await alignedProject(page);
+		const alignmentRef = await alignmentRefOf(page, directory);
+		// alignment-write-is-the-fixture: the unreadable Alignment this narrowing test is about
+		await writeProjectFile(page, '', alignmentRef, '{ this is not JSON');
+		await openLayers(page, directory, { drawn: 0 });
+
+		const row = rows(page).first();
+		await expect(row.getByTestId('layer-problem')).not.toHaveText('');
+		await expect(row.getByTestId('align-historical-map-now')).toHaveCount(0);
+		await expect((await openLayerRow(page, 0)).getByTestId('align-historical-map')).toHaveCount(1);
 	});
 
 	/**

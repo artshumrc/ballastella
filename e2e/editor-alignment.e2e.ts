@@ -187,6 +187,7 @@ declare global {
 			map: { fitBounds(bounds: unknown, options?: unknown): void };
 			layer: {
 				getBounds(): unknown;
+				getOpacity(): number;
 				/** Upstream internals, optional all the way down so a version bump fails loudly. */
 				renderer?: { tileCache?: { getCachedTiles?(): unknown[] } };
 			};
@@ -655,6 +656,42 @@ test.describe('the warped Historical Map', () => {
 			await warpedTiles(page),
 			'no warped tile reached the renderer through the ProjectStore shim'
 		).toBeGreaterThan(0);
+	});
+
+	/**
+	 * ⚠ **The defect this covers: a solved Alignment covered the earth it was solved against.**
+	 *
+	 * The third Control Point drew the sheet over the Base Map at full opacity, so the fourth had to be
+	 * placed on geography the author could no longer see — the screen stopped being usable at exactly
+	 * the moment it started working.
+	 *
+	 * Asserted on the renderer's own `opacity` option and not on the label beside the slider, because a
+	 * percentage that never reaches the layer is precisely the failure: the control is only worth
+	 * anything if the drawing changes.
+	 */
+	test('is drawn translucent, and the slider reaches the renderer', async ({ page }) => {
+		await start(page);
+		await makePair(page, 0.3, 0.3);
+		await makePair(page, 0.6, 0.35);
+		await makePair(page, 0.45, 0.7);
+		await expectWarpedDrawn(page);
+
+		const layerOpacity = () =>
+			page.evaluate(() => window.ballastellaWarped?.layer.getOpacity() ?? -1);
+
+		// Translucent from the first frame it is drawn on, not after a gesture.
+		const slider = page.getByTestId('overlay-opacity');
+		await expect(slider).toHaveValue('50');
+		await expect.poll(layerOpacity).toBeCloseTo(0.5, 5);
+
+		// And `0` uncovers the earth completely while leaving the renderer in place — the map is still
+		// drawn and still described, which is what keeps the distortion measure available.
+		await slider.fill('0');
+		await expect.poll(layerOpacity).toBeCloseTo(0, 5);
+		await expect(warpedStatus(page)).toHaveAttribute('data-warped-status', 'drawn');
+
+		await slider.fill('100');
+		await expect.poll(layerOpacity).toBeCloseTo(1, 5);
 	});
 
 	test('is withdrawn again when a pair is deleted and there are too few', async ({ page }) => {

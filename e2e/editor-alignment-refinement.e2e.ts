@@ -85,7 +85,17 @@ async function openCheck(page: Page): Promise<void> {
 	await expect(distortionControls(page)).toBeVisible();
 }
 const maskToggle = (page: Page) => page.getByTestId('mask-edit-toggle');
+/** The gesture instructions, which are on screen only while Crop is on. */
 const maskSummary = (page: Page) => page.getByTestId('mask-summary');
+/**
+ * How many corners the Resource Mask has, off the element that is always there.
+ *
+ * On the wrapper rather than on the instructions: the sentence that used to carry the count also said
+ * what a mask *is*, permanently, and a control labelled Crop says that by itself. The count is still
+ * the pairing's own number rather than a count of handles — handles exist only while Crop is on, and
+ * half these assertions are made with it off.
+ */
+const maskCorners = (page: Page) => page.getByTestId('resource-mask-controls');
 const maskStatus = (page: Page) => page.getByTestId('mask-status');
 
 /**
@@ -680,7 +690,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 
 		// **Not empty** (ADR-0013): an empty mask renders nothing, which reads as a broken tool on a
 		// user's first Alignment.
-		await expect(maskSummary(page)).toHaveAttribute('data-mask-vertices', '4');
+		await expect(maskCorners(page)).toHaveAttribute('data-mask-vertices', '4');
 		expect(maskPointsAttribute((await storedAlignment(page, imageId)) as string)).toBe(
 			`0,0 ${IMAGE_WIDTH},0 ${IMAGE_WIDTH},${IMAGE_HEIGHT} 0,${IMAGE_HEIGHT}`
 		);
@@ -742,7 +752,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		// draggable corners — the midpoint handle inserts without moving the outline.
 		await maskEdges(page).first().click();
 		await expect(maskVertices(page)).toHaveCount(5);
-		await expect(maskSummary(page)).toHaveAttribute('data-mask-vertices', '5');
+		await expect(maskCorners(page)).toHaveAttribute('data-mask-vertices', '5');
 
 		// On disk: five vertices, and the first one is no longer the image origin.
 		await expect
@@ -781,7 +791,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		await page.reload();
 		await waitForSurface(page);
 
-		await expect(maskSummary(page)).toHaveAttribute('data-mask-vertices', '5');
+		await expect(maskCorners(page)).toHaveAttribute('data-mask-vertices', '5');
 		expect(maskPointsAttribute((await storedAlignment(page, imageId)) as string)).toBe(
 			storedBefore
 		);
@@ -826,7 +836,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 		const HALVINGS = 30;
 		for (let done = 0; done < HALVINGS; done += 1) {
 			await page.keyboard.press('Enter');
-			await expect(maskSummary(page)).toHaveAttribute('data-mask-vertices', String(5 + done));
+			await expect(maskCorners(page)).toHaveAttribute('data-mask-vertices', String(5 + done));
 		}
 
 		// 700 / 2**30, which is 6.51925802230835e-7 — under the threshold, and non-zero.
@@ -858,7 +868,7 @@ test.describe('the Resource Mask (SPEC stories 46 and 47)', () => {
 
 		await expect(page.getByTestId('alignment-failure')).toHaveCount(0);
 		await expect(rows(page)).toHaveCount(2);
-		await expect(maskSummary(page)).toHaveAttribute('data-mask-vertices', String(4 + HALVINGS));
+		await expect(maskCorners(page)).toHaveAttribute('data-mask-vertices', String(4 + HALVINGS));
 		// Byte-identical, which says the value survived the round trip exactly rather than approximately.
 		expect(await storedAlignment(page, imageId)).toBe(storedBefore);
 	});

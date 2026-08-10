@@ -874,6 +874,7 @@
 					ondelete={(id) => void session.deleteLayer(id)}
 					preparing={session.ingest ? preparingLayer : undefined}
 					{mapContents}
+					problemAction={layerProblemAction}
 					{annotationContents}
 				/>
 
@@ -1148,7 +1149,15 @@
 					/>
 				</div>
 
-				<div class="shrink-0 px-4 py-1">
+				<!--
+					The map's running commentary, announced but not drawn. Every sentence below is for a
+					screen reader: sighted authors read the same facts off the map itself and off the
+					"Make available offline" button above, which is only offered while something in this
+					Project still is not offline — so on screen this was four lines of restatement eating
+					the Base Map's vertical space. `sr-only` rather than deletion, because the
+					announcements themselves are the accessibility story these lines were written for.
+				-->
+				<div class="sr-only">
 					<!--
 						What is on the map, in words. `aria-live` rather than `role="status"`, because the save
 						indicator already owns that role in the app.
@@ -1296,7 +1305,9 @@
 	**"Not aligned yet" is said here *and* on the closed row**, which is not a duplication that could
 	drift: one sentence, `NOT_ALIGNED`, and one predicate, `notAligned`. The closed row has to carry it
 	because "this map needs aligning" is the state a scholar has to be able to notice without opening
-	anything; the open row carries it because it is the sentence the Align button beside it answers.
+	anything; the open row carries it because it is the sentence the Align button beside it answers. On
+	the closed row it now answers itself too — see `layerProblemAction`, which puts an "Align now"
+	beside that sentence so noticing and acting are the same gesture.
 	Nothing here says the opposite when a map *is* aligned — the Align button is that affordance either
 	way, and an unrequested "Aligned" line was the first cut's other mistake.
 -->
@@ -1367,6 +1378,62 @@
 	{/if}
 {/snippet}
 
+<!--
+	The link that opens the align route for one Historical Map Layer, written **once** and rendered
+	from both places that offer it: inside the open row, and beside "not aligned yet" on the closed one.
+
+	One snippet rather than two `<a>` elements, because the href is the part that can be wrong in a way
+	nobody notices — it carries a Project directory and a Layer id that have to be true *together*, for
+	the reason below — and two copies of it are two chances to fix only one of them.
+
+	**`session.openDirectory`, not the `?p=` prop**, and the difference is a real window rather than a
+	style preference. `open()` clears `openProject` and sets its own directory, so between a navigation
+	to another Project and that call the URL names the new folder while the Layers on screen are still
+	the old Project's — which is exactly why the opening-fit effect above compares the two. Built from
+	the prop, this link would spend that window naming the *new* directory with the *old* Project's
+	Layer id: a pair that has never been true together. The align route refuses an unknown `?layer=`
+	and says so, so the cost is a wrong explanation rather than a wrong map, but the pair the link
+	carries has to come from one source.
+
+	The label and the test id are given by the caller because the two are not the same affordance: one
+	is the row's own action, the other is the answer to a sentence a few characters to its left, and a
+	single id on both would make every `getByTestId('align-historical-map')` in the suite ambiguous.
+-->
+{#snippet alignLink(layer: Layer, testid: string, label: string)}
+	<a
+		class="btn btn-primary btn-xs"
+		data-testid={testid}
+		href="{resolve('/align')}?p={encodeURIComponent(
+			session.openDirectory ?? ''
+		)}&layer={encodeURIComponent(layer.id)}"
+	>
+		{label}
+	</a>
+{/snippet}
+
+<!--
+	What can be done about what a **closed** row is warning about — which, of the refusals a Layer can
+	report, is this one: a Historical Map that has not been aligned yet is answered by aligning it.
+
+	The closed row carries "not aligned yet" so that a scholar can notice it without opening anything;
+	before this, noticing was all they could do there, and the control the sentence describes was one
+	disclosure away. Now the sentence names its own next action (SPEC story 106's rule, applied to a
+	Layer rather than to an empty sidebar).
+
+	**Only the not-aligned refusal, tested the same way the open row tests it** — on the *reported*
+	outcome rather than on `notAligned`, because that is where the precedence between the three
+	refusals lives and an Alignment that is there and unreadable is a different failure that would
+	otherwise be offered this one's cure. See `mapContents` below for the whole of that argument. The
+	other refusals get no button here: an Annotation Layer with nothing in it is answered by drawing,
+	which is what opening the row is for.
+-->
+{#snippet layerProblemAction(layer: Layer)}
+	{@const reported = outcomes[layer.id]}
+	{#if layer.kind === 'map' && reported?.status === 'refused' && reported.reason === NOT_ALIGNED}
+		{@render alignLink(layer, 'align-historical-map-now', 'Align now')}
+	{/if}
+{/snippet}
+
 {#snippet mapContents(layer: MapLayer)}
 	{@const origin = originFor(layer)}
 	{@const referenced = referencedImageIds.has(layer.imageId)}
@@ -1401,25 +1468,8 @@
 		{/if}
 
 		<div class="flex flex-wrap items-center gap-2">
-			<!--
-				**`session.openDirectory`, not the `?p=` prop**, and the difference is a real window rather
-				than a style preference. `open()` clears `openProject` and sets its own directory, so between
-				a navigation to another Project and that call the URL names the new folder while the Layers
-				on screen are still the old Project's — which is exactly why the opening-fit effect above
-				compares the two. Built from the prop, this link would spend that window naming the *new*
-				directory with the *old* Project's Layer id: a pair that has never been true together. The
-				align route refuses an unknown `?layer=` and says so, so the cost is a wrong explanation
-				rather than a wrong map, but the pair the link carries has to come from one source.
-			-->
-			<a
-				class="btn btn-primary btn-xs"
-				data-testid="align-historical-map"
-				href="{resolve('/align')}?p={encodeURIComponent(
-					session.openDirectory ?? ''
-				)}&layer={encodeURIComponent(layer.id)}"
-			>
-				Align
-			</a>
+			<!-- The Layer's own Align, offered whatever its Alignment says — see `alignLink` above. -->
+			{@render alignLink(layer, 'align-historical-map', 'Align')}
 
 			{#if referenced && origin}
 				<!-- Where the tiles come from, on the Layer that fetches them (SPEC story 80). -->

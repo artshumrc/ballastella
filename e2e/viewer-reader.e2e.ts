@@ -280,7 +280,16 @@ const ANNOTATION_AT: [number, number] = [4.9, 52.3676];
  * failure the key exists to end. `scripts/check-base-map-catalog.mjs` exempts `*.e2e.ts`; this file
  * already names entry ids for the same reason.
  */
-const ARCHIVE = 'https://demo-bucket.protomaps.com/v4.pmtiles';
+const ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmtiles';
+
+/**
+ * The host that archive is fetched from — what an outage notice names at a Reader.
+ *
+ * Derived rather than written a second time, so a repoint of the catalog is one edit here instead
+ * of two that can disagree. When it does drift from `base-map/catalog.ts`, this suite is what says
+ * so: `scripts/check-base-map-catalog.mjs` exempts `*.e2e.ts`.
+ */
+const ARCHIVE_HOST = new URL(ARCHIVE).host;
 
 /**
  * Open the fixture Annotation's popup, and hand back the popup.
@@ -1401,8 +1410,9 @@ test.describe('a Published Site that is not entirely well', () => {
 	// the third possibility either, that the scholar's work failed to draw.
 	//
 	// **This is not hypothetical.** `demo-bucket.protomaps.com` — the host every entry in this
-	// deployment's catalog reads — has refused the archive since 2026-08-07, so a blank map with no
-	// explanation is the current behaviour of every published site. ADR-0025 predicted exactly that.
+	// deployment's catalog read until the repoint to the source.coop mirror — began refusing the
+	// archive on 2026-08-07, and a blank map with no explanation was then the behaviour of every
+	// published site. ADR-0025 predicted exactly that, and the mirror is borrowed too.
 	//
 	// **The refusal is the fixture, not the network.** `refuseBaseMapArchive` aborts it deliberately,
 	// so these assertions hold on a machine with a working connection and on the day the bucket
@@ -1418,7 +1428,7 @@ test.describe('a Published Site that is not entirely well', () => {
 	 * The three things it carries, in the order the questions arrive: **it is not you**, **your work
 	 * is safe**, **here is what would fix it**.
 	 */
-	const UNAVAILABLE_NOTICE = unavailableNotice('Physical geography', 'demo-bucket.protomaps.com');
+	const UNAVAILABLE_NOTICE = unavailableNotice('Physical geography', ARCHIVE_HOST);
 
 	test('says so when the Base Map’s archive answers nothing, and keeps drawing the work', async ({
 		page
@@ -1712,7 +1722,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		//
 		// The pair then read: "the modern reference map is drawn from the network without any place
 		// names on it — the geography, the Historical Maps, and the Annotations are all here", directly
-		// above "The Base Map could not be loaded from demo-bucket.protomaps.com". The first sentence is
+		// above "The Base Map could not be loaded from" the archive's host. The first sentence is
 		// a flat falsehood in that state, and it was the live behaviour of every site this deployment
 		// published. The claim about the geography is gone rather than made conditional — see the next
 		// test for the row a conditional one would still have got wrong.

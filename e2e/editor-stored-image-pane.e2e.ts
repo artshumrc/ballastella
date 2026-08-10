@@ -8,6 +8,7 @@ import {
 	pickHistoricalMapFile
 } from './support/historical-maps.js';
 import { alignFromLayer } from './support/layers';
+import { showPaneDetails } from './support/alignment-workspace.js';
 
 // Every spec in this suite is behind the default-deny network fence in `support/network-fence.ts`,
 // and this deployment's Base Map catalog points every entry at an archive on somebody else's host.
@@ -311,6 +312,9 @@ test.describe('a Historical Map read from the Project', () => {
 		const imageId = await ingest(page, 700, 500, 'la-floride.png');
 		await openPane(page);
 		await waitForTiles(page);
+		// The readout this test is about is behind the pane's "Image details" disclosure, and it is
+		// rendered only when open — see `showPaneDetails`.
+		await showPaneDetails(page);
 
 		// The pyramid on screen is the one that was just written, stated as text so a pane showing
 		// some other image cannot pass.
@@ -435,6 +439,7 @@ test.describe('a Historical Map read from the Project', () => {
 		// pinning it here would be pinning `generateRandomId`.
 		await openPane(page);
 		await waitForTiles(page);
+		await showPaneDetails(page);
 		await expect(pyramidReadout(page)).toHaveAttribute(
 			'data-image-id',
 			new RegExp(`${wide}|${tall}`)
@@ -463,6 +468,10 @@ test.describe('a Historical Map read from the Project', () => {
 			await backToProject(page);
 			await openPane(page, imageId);
 			await waitForTiles(page);
+			// Reopened deliberately: the disclosure's state is the component's, and this round trip
+			// destroys the pane. Switching Historical Maps *without* leaving the route does not close it,
+			// which is the case the pane's own comment settles.
+			await showPaneDetails(page);
 			await expect(pyramidReadout(page)).toHaveAttribute('data-image-id', imageId);
 			// On the attributes, which are exact: "scale factors 1, 2, 4" is a substring of
 			// "scale factors 1, 2, 4, 8", so text alone would not tell the two pyramids apart.
@@ -521,6 +530,7 @@ test.describe('a Historical Map read from the Project', () => {
 		// Four levels rather than the usual fixture's three, so the opening view settles more slowly:
 		// the default 5 s timed out about one run in ten under the suite's own contention.
 		await waitForTiles(page, 30_000);
+		await showPaneDetails(page);
 		await expect(pyramidReadout(page)).toContainText('scale factors 1, 2, 4, 8');
 
 		// Out to the coarsest level, the same way the first test in this file gets there: fitting the
@@ -556,6 +566,8 @@ test.describe('a Historical Map read from the Project', () => {
 		await ingest(page, 700, 500, 'la-floride.png');
 		await openPane(page);
 		await waitForTiles(page);
+		// The zoom readout and the pointer readout are both inside the disclosure.
+		await showPaneDetails(page);
 
 		// Every control is a real button and reachable by tabbing (ADR-0016, stories 95 and 96).
 		await button(page, 'Fit whole map').focus();

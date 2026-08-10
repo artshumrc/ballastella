@@ -364,7 +364,8 @@ test.describe('the Base Map pane', () => {
 // AN ARCHIVE THAT DOES NOT ANSWER, SAID OUT LOUD (ticket 20, SPEC stories 111–112)
 //
 // On 2026-08-07 `demo-bucket.protomaps.com` — the host every entry in this deployment's catalog
-// reads — began refusing the archive, and the application's entire response was a pane with
+// read before the repoint to the source.coop mirror — began refusing the archive, and the
+// application's entire response was a pane with
 // nothing in it. ADR-0025 had predicted the outage ("no published rate limit, no uptime promise")
 // and said nothing about what the scholar sees, which turned out to be the part that mattered: a
 // grey rectangle is also what a broken tool looks like, and what a Project that failed to draw
@@ -407,9 +408,7 @@ test.describe('a Base Map archive that does not answer', () => {
 		//
 		// “Streets” because this Project seeds no author default and the catalog's `defaultId` is that
 		// entry; `support/base-map-notice.ts` says why the expectation is a function.
-		await expect(notice.locator('p')).toHaveText(
-			unavailableNotice('Streets', 'demo-bucket.protomaps.com')
-		);
+		await expect(notice.locator('p')).toHaveText(unavailableNotice('Streets', ARCHIVE_HOST));
 
 		// Announced, not merely drawn. `role="alert"` rather than a live region, because this element
 		// is *inserted* when its text first exists and an `aria-live` region is announced on a text
@@ -743,7 +742,15 @@ const CANAL_BELT_BOX = { west: 4.88, south: 52.36, east: 4.92, north: 52.38 };
  * exactly this class of assertion — the switcher test below already names entry ids for the same
  * reason — and never exempts a support module, so the harness stays fork-safe.
  */
-const ARCHIVE = 'https://demo-bucket.protomaps.com/v4.pmtiles';
+const ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmtiles';
+
+/**
+ * The host that archive is fetched from — what an outage notice names at a scholar.
+ *
+ * Derived rather than written a second time, so a repoint of the catalog is one edit here instead
+ * of two that can disagree.
+ */
+const ARCHIVE_HOST = new URL(ARCHIVE).host;
 
 /** Where this deployment's cached tiles sit in a Workspace, with its trailing `/`. */
 const TILES = baseMapTileDirectory(ARCHIVE);

@@ -64,6 +64,7 @@
 	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import { fitToAlignment } from '$lib/base-map/opening-view';
 	import HistoricalMapPane from '$lib/image-pane/HistoricalMapPane.svelte';
+	import ImageDetails, { type ImageReadout } from '$lib/image-pane/ImageDetails.svelte';
 	import type { PaneOverlayPoint } from '$lib/image-pane/ImagePane.svelte';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
@@ -75,12 +76,15 @@
 	let {
 		session,
 		imageId,
+		mapName,
 		fetchTile,
 		baseMapId
 	}: {
 		session: EditorSession;
 		/** Which Historical Map of the open Project is being aligned. */
 		imageId: string;
+		/** What the author called it, for the sentence saying what this screen is (SPEC story 112). */
+		mapName: string;
 		/** The ADR-0011 shim for the open Project, for both panes' tiles. */
 		fetchTile: FetchFn;
 		/** The Base Map to show beneath, chosen by the author (ADR-0020). */
@@ -186,6 +190,24 @@
 	let distortion = $state<DistortionView>(DEFAULT_DISTORTION_VIEW);
 
 	/**
+	 * How opaque the warped Historical Map is drawn over the Base Map, `0` to `1`.
+	 *
+	 * ⚠ **Half, not all, and this is why the control exists.** Three Control Points solve an Alignment,
+	 * and the moment one solves the sheet is drawn over exactly the geography it was solved against — so
+	 * at full opacity the fourth Control Point is placed on a Base Map the author can no longer see.
+	 * Translucent by default keeps both readable, and the slider's `0` uncovers the earth completely
+	 * without taking the renderer down: the distortion measure and `warped-status` still have a map to
+	 * describe.
+	 *
+	 * A working view like {@link distortion}, so it is persisted nowhere (ADR-0002, ADR-0013) and every
+	 * visit starts translucent.
+	 */
+	let overlayOpacity = $state(0.5);
+
+	/** The Historical Map pane's pyramid and view readout, shown in this screen's sidebar. */
+	let readout = $state.raw<ImageReadout | null>(null);
+
+	/**
 	 * Whether "Check this alignment" is open (ticket 03).
 	 *
 	 * **Closed by default, and not persisted anywhere** — not in `project.json`, not in `localStorage`,
@@ -203,6 +225,14 @@
 	 * `TransformationPicker` already sets this precedent for the Advanced tier on the same screen.
 	 */
 	let checking = $state(false);
+
+	/**
+	 * Whether "How this works" is open (SPEC story 112).
+	 *
+	 * Closed by default and persisted nowhere, the same contract {@link checking} has and for ADR-0002's
+	 * reason: which explanations are open is a working view.
+	 */
+	let explaining = $state(false);
 
 	/**
 	 * Open or close the disclosure, and **put the drawing back as it was when it closes**.
@@ -762,275 +792,64 @@
 	</div>
 {:else}
 	<!--
-		The pending prompt. `role="status"` is already taken by the save indicator on this page, so
-		this is an `aria-live` region — which is also why the ingest progress region is one. `atomic`,
-		so it is read as a whole sentence rather than as the words that changed.
+		┌───────────────────────────────────────────────────────────────────────────────────────────┐
+		│ THE PANES ARE THE WORK, SO THE PANES GET THE HEIGHT.                                       │
+		└───────────────────────────────────────────────────────────────────────────────────────────┘
+		Two canvases beside each other, and everything that is *about* them in a column of its own.
+		Every part of this screen used to be one scrolling stack: the panes were a fixed 24rem each and
+		the prose grew above them, so a tall display made the words taller and the maps no bigger, and a
+		short one pushed the sheet under the fold. The measurement recorded further down — a sentence
+		moved above the panes and `editor-alignment.e2e.ts`'s drag went red because the handles were
+		outside the viewport — is that failure with a number on it.
+
+		**Desktop is a fixed sidebar and the panes take what is left**, which is `ProjectScreen`'s
+		arrangement and for its stated reason: a proportional sidebar grows with the display, and on a
+		large one that is a wall of controls beside maps that gained nothing.
+
+		**Mobile is the same DOM in the other direction** — panes first at a fixed share of the viewport,
+		the column beneath them as a footer — so visual order and reading order agree at both
+		breakpoints. That is why the sidebar is on the right and after the panes in the markup: putting
+		it on the left would mean `lg:order-first`, and a keyboard user tabbing into a column that reads
+		second and sits first is a defect this app does not get to introduce for a preference.
+
+		The route's own container scrolls, so nothing here is ever *cut off*: on a display too short for
+		the minimums below, the page grows and scrolls exactly as it used to.
 	-->
-	<div class="flex flex-wrap items-center gap-3">
-		<p
-			class="min-h-6 flex-1 text-sm"
-			aria-live="polite"
-			aria-atomic="true"
-			data-testid="pairing-status"
-			data-pending={pending ? pending.half : ''}
-		>
-			{#if pending}
-				<span class="font-medium text-warning">{pending.message}</span>
-			{:else if controlPoints.length === 0}
-				Click a feature on the Historical Map, then the same place on the Base Map, to make your
-				first Control Point.
-			{:else if controlPoints.length < needed}
-				{controlPoints.length} of {needed} Control Points. The Historical Map appears over the Base Map
-				once there are {needed}.
-			{:else}
-				{controlPoints.length} Control Points.
-			{/if}
-		</p>
-
-		{#if pending}
-			<button class="btn btn-sm btn-warning" onclick={() => pairing?.cancelPending()}>
-				Cancel this Control Point
-			</button>
-		{/if}
-	</div>
-
-	<!--
-		An undo that declined. `role="alert"` rather than a polite region, and beside the pairing
-		instead of replacing it the way {@link failure} does: the user has just pressed a button whose
-		label promised to put a Control Point back, and nothing on screen moved. Being told is the
-		difference between "the app refused" and "the app lost my work".
-	-->
-	{#if undoRefused}
-		<div role="alert" class="mt-3 alert max-w-prose alert-warning" data-testid="undo-refused">
-			<p>{undoRefused}</p>
-		</div>
-	{/if}
-
-	<!--
-		An Alignment that changed somewhere else while it was open here (ticket 07, ADR-0023).
-
-		ADR-0023 makes an Alignment the Workspace's, shared by every Project that draws the map, and
-		accepts that a Workspace kept in git or Dropbox can therefore receive a colleague's edit between
-		this session's read and its write. The mitigation it asks for is **visibility, not prevention**:
-		the save has already happened — refusing it would discard the work in front of the user to
-		protect work they cannot see — and this is where they are told, and offered the other version.
-
-		`role="alert"` rather than a polite region, and it stays until dismissed. It is the one thing on
-		this screen the user cannot find out any other way: nothing moved, nothing failed, and the save
-		indicator says "Saved". It is only shown for the map on screen, because the button beside it
-		writes that map's file.
-	-->
-	{#if session.alignmentChangedElsewhere?.imageId === imageId}
-		<div
-			role="alert"
-			class="mt-3 alert flex-col items-start alert-warning"
-			data-testid="alignment-changed-elsewhere"
-		>
-			<p class="max-w-prose">
-				Somebody else changed this Historical Map’s Alignment while you had it open — through a
-				Workspace shared with this one — and your edit has just been saved over theirs. A Historical
-				Map has one Alignment, shared by every Project that draws it, so there is only ever one file
-				to change.
-			</p>
-			<div class="flex flex-wrap gap-2">
-				<button
-					class="btn btn-sm"
-					data-testid="restore-changed-elsewhere"
-					disabled={restoring}
-					onclick={async () => {
-						// **Guarded against a second press, because the answer is a write.** The restore now
-						// waits behind whatever is already writing this map's file, so the alert — and this
-						// button — stay on screen for the whole wait, and a double-click queued two identical
-						// `replace` writes of the same bytes. Idempotent on disk, and still wrong in the one
-						// place ADR-0023 cares about: a Workspace kept in git or Dropbox syncs a rewrite
-						// whatever it says.
-						if (restoring) return;
-						restoring = true;
-						// **Which map this answer is about**, because the restore waits behind whatever is
-						// already writing this map's file and the user can navigate inside that wait. The
-						// re-read and the effect above both handle that correctly on their own; the
-						// *sentence* did not, and it is the half that speaks. Without this, a navigation
-						// landing inside one store write announced "their version is back — the list below
-						// is what is on disk now" over a different Historical Map's Control Points, and
-						// took focus to say it.
-						const answering = imageId;
-						try {
-							// **Branched on what actually happened**, never announced in advance. A failure
-							// leaves the alert standing and `saveError` set, and the sentence below is read out
-							// loud to the one user who cannot see that contradiction — so claiming success over
-							// it is the worst version of this control.
-							const restored = await session.restoreAlignmentChangedElsewhere();
-							// The right file was still written either way — that is the session's business and
-							// it is keyed by image id. What is dropped here is only the announcement.
-							if (destroyed || answering !== imageId) return;
-							if (restored) {
-								// Re-read, so the pane shows what is now on disk rather than the pairing that was
-								// just discarded. Without this the screen keeps drawing the Control Points the
-								// user chose to give up, and the next drag writes them back.
-								reload();
-							}
-							concurrentEditOutcome = restored
-								? 'Their version of this Alignment is back, and the Control Points you placed over ' +
-									'it have been discarded. The list below is what is on disk now.'
-								: 'Their version could not be put back, so nothing has changed: your Control Points ' +
-									'are still on screen and still on disk. The warning above is still there, and ' +
-									'the reason is with the save indicator.';
-							concurrentEditOutcomeLine?.focus();
-						} finally {
-							restoring = false;
-						}
-					}}
-				>
-					Put their version back instead
-				</button>
-				<button
-					class="btn btn-ghost btn-sm"
-					data-testid="dismiss-changed-elsewhere"
-					onclick={() => {
-						session.dismissAlignmentChangedElsewhere();
-						concurrentEditOutcome =
-							'Your version has been kept. Theirs is not on disk any more, and nothing on this ' +
-							'screen has changed.';
-						concurrentEditOutcomeLine?.focus();
-					}}
-				>
-					Keep mine
-				</button>
-			</div>
-		</div>
-	{/if}
-
-	<!--
-		What the answer above did, and where focus lands when the alert that asked removes itself.
-
-		Always rendered and empty when there is nothing to say — the rule every live region in this app
-		follows, and the one the offline notice in `HistoricalMapPane` had to be reshaped to obey: a
-		region inserted together with its first text is not reliably announced.
-	-->
-	<p
-		bind:this={concurrentEditOutcomeLine}
-		tabindex="-1"
-		aria-live="polite"
-		class="mt-2 max-w-prose text-sm opacity-80"
-		data-testid="changed-elsewhere-outcome"
-	>
-		{concurrentEditOutcome}
-	</p>
-
-	<!--
-		The fold warning (ADR-0013): "the single most useful piece of feedback a student can receive."
-
-		Above the panes and not tucked beside the distortion toggles, because it is about the Alignment
-		being wrong rather than about how it is drawn — and it appears with the overlay off, which is
-		its whole point. `role="alert"` rather than a polite region: an Alignment that has folded over
-		itself is a mistake the user is currently making, and the next thing they do is place another
-		point on top of it.
-	-->
-	{#if fold}
-		<div
-			role="alert"
-			class="mt-3 alert max-w-prose alert-warning"
-			data-testid="fold-warning"
-			data-fold-kind={fold.kind}
-			data-fold-where={fold.where}
-		>
-			<p>{fold.message}</p>
-		</div>
-	{/if}
-
-	{#if pairing}
+	<div class="flex min-h-0 grow flex-col gap-4 lg:flex-row lg:gap-6">
 		<!--
-			How the map is stretched, and how that is drawn. Two groups rather than one: the
-			transformation type is part of the Alignment and is written to disk, and the distortion view
-			is a working view that is deliberately not (ADR-0013). Putting them in one row would invite
-			exactly the conflation that puts a debugging toggle in a Published Site.
+			The pane column. `shrink-0` until `lg`, where the two sit side by side and each takes half:
+			without `min-w-0` a WebGL canvas's own width wins the flex negotiation and the pair overflow
+			the row.
 		-->
-		<div class="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
-			<div class="min-w-0 flex-1">
-				<TransformationPicker
-					value={pairing.transformationType}
-					controlPointCount={controlPoints.length}
-					onchoose={(type) => {
-						const current = pairing;
-						if (!current) return;
-						// Every Control Point survives, because this touches one field. Written now rather
-						// than on a timer: choosing a type is a discrete act (ADR-0017 rule 1).
-						current.setTransformationType(type);
-						save(current);
-					}}
-				/>
-			</div>
-
-			<!--
-				"Check this alignment" (ticket 03): the distortion overlay, which measure it shows, and the
-				bent grid, behind one disclosure.
-
-				**Labelled for what it is for and not for what it is.** "Distortion" names a quantity a
-				cartographer knows and a historian does not; "check this alignment" names the question a
-				scholar actually has, which is the same principle ADR-0013 applies to the transformation
-				types — guidance first, label second.
-
-				**The fold warning is deliberately not in here.** It is above the panes, it runs whether or
-				not this is open, and it is a correctness warning about a contradictory Control Point rather
-				than a way of drawing one. Folding it in would hide the one piece of feedback ADR-0013 calls
-				the most useful a student can receive behind a control they have no reason to open.
-			-->
-			<div class="min-w-0 flex-1">
-				<button
-					type="button"
-					class="btn btn-sm"
-					aria-expanded={checking}
-					aria-controls={checking ? 'check-alignment' : undefined}
-					data-testid="check-alignment-toggle"
-					onclick={() => closeOrOpenChecking(!checking)}
-				>
-					Check this alignment
-				</button>
-
-				{#if checking}
-					<div id="check-alignment" class="mt-3">
-						<DistortionControls
-							view={distortion}
-							enabled={warped?.status === 'drawn'}
-							onchange={(next) => (distortion = next)}
-						/>
-					</div>
-				{/if}
-			</div>
-		</div>
-	{/if}
-
-	<div class="mt-3 grid items-start gap-4 lg:grid-cols-2">
-		<section aria-labelledby="historical-map-pane-heading" class="min-w-0">
-			<h4 id="historical-map-pane-heading" class="mb-2 text-sm font-semibold">Historical Map</h4>
-			<!--
-				The same pane story 31 already delivers, now carrying Control Points. It loads the
-				pyramid and reports it through `onpane`, which is what the Alignment's Resource Mask and
-				coordinate space are built from — reading the same `info.json` a second time here would
-				be a second answer that can disagree with what is being drawn.
-			-->
-			<HistoricalMapPane
-				{imageId}
-				source={paneSource}
-				{fetchTile}
-				label="Historical Map, unwarped, in image pixel coordinates. Click a feature to start a Control Point."
-				overlayPoints={imagePoints}
-				maskRing={pairing?.resourceMask ?? []}
-				onclickpoint={clickHistoricalMap}
-				onpane={(pane) => loadAlignment(imageId, pane)}
-			/>
-
-			{#if pairing}
+		<div class="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:min-w-0 lg:shrink lg:grow lg:flex-row">
+			<section
+				aria-labelledby="historical-map-pane-heading"
+				class="flex shrink-0 flex-col lg:min-h-0 lg:min-w-0 lg:flex-1"
+			>
+				<h4 id="historical-map-pane-heading" class="mb-2 text-sm font-semibold">Historical Map</h4>
 				<!--
-					The Resource Mask (SPEC stories 46 and 47): which part of this sheet is actually the map.
+					The same pane story 31 already delivers, now carrying Control Points. It loads the
+					pyramid and reports it through `onpane`, which is what the Alignment's Resource Mask and
+					coordinate space are built from — reading the same `info.json` a second time here would
+					be a second answer that can disagree with what is being drawn.
 
-					The outline is always drawn — dimming what it leaves out, so the user can see what the
-					Alignment excludes whether or not they are changing it — and the handles are asked for,
-					because eight of them over a sheet you are placing Control Points on is noise and a
-					mis-aimed click is a moved outline.
+					`frameClass` is where this screen's answer to "how tall is a pane" is stated: it grows into
+					the column on a desktop, and takes a fixed share of the viewport below `lg`. The `min-h`
+					floor is the point at which growing stops being the better answer — below it the sheet is
+					too small to aim a Control Point at, so the page scrolls instead of squeezing further.
 				-->
-				<div class="mt-3 flex flex-col gap-1" data-testid="resource-mask-controls">
-					<div class="flex flex-wrap items-center gap-3">
+				{#snippet cropControls()}
+					<!--
+						Crop: the Resource Mask's handles, on or off.
+
+						**In the pane's own control row**, because it acts on the sheet in that pane exactly as "Fit
+						whole map" does — it was a row of its own underneath, one line high, on the screen with two
+						live panes competing for height. **"Crop" rather than "Outline the part of the sheet that is
+						the map"**: the sentence was the label, and a sentence-long label in a row of verbs reads as
+						prose rather than as a control. What it does is still said in full — in the summary under the
+						pane, which is where the gestures and the corner count already are.
+					-->
+					{#if pairing}
 						<label class="label cursor-pointer gap-2 text-sm">
 							<input
 								type="checkbox"
@@ -1042,7 +861,7 @@
 									maskStatus = null;
 								}}
 							/>
-							Outline the part of the sheet that is the map
+							Crop
 						</label>
 
 						{#if editingMask}
@@ -1063,209 +882,613 @@
 								Show the whole sheet again
 							</button>
 						{/if}
-					</div>
+					{/if}
+				{/snippet}
 
+				<HistoricalMapPane
+					{imageId}
+					source={paneSource}
+					{fetchTile}
+					frameClass="mt-3 h-[45dvh] lg:h-auto lg:min-h-64 lg:grow"
+					label="Historical Map, unwarped, in image pixel coordinates. Click a feature to start a Control Point."
+					overlayPoints={imagePoints}
+					maskRing={pairing?.resourceMask ?? []}
+					onclickpoint={clickHistoricalMap}
+					onpane={(pane) => loadAlignment(imageId, pane)}
+					onreadout={(current) => (readout = current)}
+					controls={cropControls}
+				/>
+
+				{#if pairing}
 					<!--
-						What the outline is, and what can be done to it.
+						The Resource Mask (SPEC stories 46 and 47): which part of this sheet is actually the map.
 
-						**The two handles do two different things, and the text says which.** A corner is
-						dragged; a dashed handle is *activated* and adds a corner where it sits. Ticket 08's
-						own note is why — "a handle that both inserted and moved would make 'I nudged it' and
-						'I added one' the same gesture" — and an earlier version of this sentence said "drag a
-						dashed handle to add one", which is a gesture the code deliberately refuses. On a
-						teaching tool a promised gesture that does nothing reads as a broken handle.
+						The outline is always drawn — dimming what it leaves out, so the user can see what the
+						Alignment excludes whether or not they are changing it — and the handles are asked for,
+						because eight of them over a sheet you are placing Control Points on is noise and a
+						mis-aimed click is a moved outline.
+
+						**Under this pane and not in the sidebar**, because a Resource Mask is in one image's pixel
+						space: it is a property of the sheet above it rather than of the Alignment, and its handles are
+						on that canvas. The toggle itself is up in the pane's own control row — see `cropControls`.
 					-->
-					<p
-						class="text-sm opacity-70"
-						data-testid="mask-summary"
+					<div
+						class="mt-2 flex shrink-0 flex-col gap-1"
+						data-testid="resource-mask-controls"
 						data-mask-vertices={pairing.resourceMask.length}
 					>
 						{#if editingMask}
-							{pairing.resourceMask.length} corners. Drag a corner to move it. Click a dashed handle to
-							add a corner there. Arrow keys move the corner you have focused; Delete removes it.
-						{:else}
-							{pairing.resourceMask.length} corners. Everything outside the outline is left out when the
-							Historical Map is drawn over the Base Map.
-						{/if}
-					</p>
+							<!--
+								What can be done to the outline, **only while Crop is on**.
 
+								The line that said what the mask *is* — "n corners. Everything outside the outline is
+								left out…" — is gone: a control labelled Crop explains itself, and it was a permanent
+								line of prose on the screen with the least height to spare.
+
+								**These are instructions for a gesture in progress, which is a different thing, and the
+								two handles do two different things.** A corner is dragged; a dashed handle is
+								*activated* and adds a corner where it sits. Ticket 08's own note is why — "a handle
+								that both inserted and moved would make 'I nudged it' and 'I added one' the same
+								gesture" — and an earlier version of this said "drag a dashed handle to add one", which
+								is a gesture the code deliberately refuses. On a teaching tool a promised gesture that
+								does nothing reads as a broken handle.
+							-->
+							<p class="text-sm opacity-70" data-testid="mask-summary">
+								{pairing.resourceMask.length} corners. Drag a corner to move it. Click a dashed handle
+								to add a corner there. Arrow keys move the corner you have focused; Delete removes it.
+							</p>
+						{/if}
+
+						<!--
+							What the last edit did, or why it did not happen. **One live region for both**, because
+							the alternative is what this was: a refusal announced and a success announced as
+							silence, which teaches a keyboard user that nothing said means nothing worked. The
+							handles sit on a WebGL canvas and the outline is drawn into it, so there is no other
+							signal for someone not looking at the pane. `aria-live="polite"` is ADR-0016's mandated
+							method for a status.
+						-->
+						<p
+							class="min-h-0 text-sm"
+							class:text-warning={maskStatus?.kind === 'refused'}
+							class:opacity-70={maskStatus?.kind === 'done'}
+							aria-live="polite"
+							aria-atomic="true"
+							data-testid="mask-status"
+							data-mask-status={maskStatus?.kind ?? ''}
+						>
+							{maskStatus?.message ?? ''}
+						</p>
+					</div>
+				{/if}
+			</section>
+
+			<section
+				aria-labelledby="base-map-pane-heading"
+				class="flex shrink-0 flex-col lg:min-h-0 lg:min-w-0 lg:flex-1"
+			>
+				<!--
+					The Base Map heading and the choice of Base Map, together.
+
+					**Here because this is where the wrong one is discovered.** The deployment default is a
+					regional extract (ADR-0020), so an author aligning a sheet of anywhere outside its bounds
+					zooms in and watches the earth go blank — and the switcher lived only on the Layers pane,
+					behind a button labelled with a Layer count, which says nothing about Base Maps. The
+					control belongs beside the pane whose emptiness sends you looking for it — which is also
+					why it stayed out of the sidebar when everything else about the Alignment moved into one.
+
+					It writes through `session.chooseBaseMap`, the same one every other switcher calls, so the
+					choice is the Project's author default (ADR-0020) rather than a third copy of that state.
+				-->
+				<div class="mb-2 flex flex-wrap items-end justify-between gap-3">
+					<h4 id="base-map-pane-heading" class="text-sm font-semibold">Base Map</h4>
 					<!--
-						What the last edit did, or why it did not happen. **One live region for both**, because
-						the alternative is what this was: a refusal announced and a success announced as
-						silence, which teaches a keyboard user that nothing said means nothing worked. The
-						handles sit on a WebGL canvas and the outline is drawn into it, so there is no other
-						signal for someone not looking at the pane. `aria-live="polite"` is ADR-0016's mandated
-						method for a status.
+						The switcher's own label is `sr-only` here, and only here: the heading to its left already
+						says "Base Map", so on screen it was the word twice and a line of height for the second one.
+						The `<select>` keeps its accessible name.
 					-->
+					<div class="max-w-xs grow">
+						<BaseMapSwitcher
+							entryId={baseMapId}
+							labelSrOnly
+							onSelect={(id) => session.chooseBaseMap(id)}
+						/>
+					</div>
+					<!--
+						How much of the sheet is drawn over the earth — in this pane's header, in the room the
+						repeated label gave back, so it costs the map no height at all.
+
+						Shown only once there is something to fade: with fewer than three Control Points nothing is
+						warped, and a slider over an empty Base Map is a control with no referent.
+					-->
+					{#if solvable}
+						<div data-testid="overlay-opacity-controls">
+							<label class="label" for="overlay-opacity">
+								<span class="label-text">Opacity</span>
+							</label>
+							<div class="flex items-center gap-2">
+								<input
+									id="overlay-opacity"
+									type="range"
+									class="range w-32 range-xs"
+									min="0"
+									max="100"
+									step="5"
+									value={Math.round(overlayOpacity * 100)}
+									data-testid="overlay-opacity"
+									oninput={(event) => (overlayOpacity = event.currentTarget.valueAsNumber / 100)}
+								/>
+								<!--
+								Fixed width and right-aligned, because the row moved as the number grew a digit. `100%`
+								is as wide as this ever gets, so reserving it is what stops the slider shifting under
+								the pointer that is dragging it.
+							-->
+								<span
+									class="w-10 text-right text-sm tabular-nums opacity-70"
+									data-testid="overlay-opacity-value"
+								>
+									{Math.round(overlayOpacity * 100)}%
+								</span>
+							</div>
+						</div>
+					{/if}
+				</div>
+				<!-- The same height contract as the sheet beside it — see `frameClass` above. -->
+				<div
+					class="h-[45dvh] overflow-hidden rounded border border-base-300 lg:h-auto lg:min-h-64 lg:grow"
+				>
+					<BaseMapPane
+						entryId={baseMapId}
+						overlayPoints={basePoints}
+						alignment={solvable}
+						alignmentSource={mapSource}
+						{openingFit}
+						{distortion}
+						{fetchTile}
+						onclickpoint={clickBaseMap}
+						alignmentOpacity={overlayOpacity}
+						onwarped={(render) => (warped = render)}
+					/>
+				</div>
+				<!--
+					Where the Base Map pane is looking and why (SPEC story 112, ADR-0026). Opening a Historical
+					Map moves this pane, and a WebGL canvas announces nothing — so without this the one person
+					who cannot see it happen is the one person not told it happened.
+
+					`sr-only`, because that person is the only one it tells anything: a sighted author watched the
+					pane move, and the sentence was three lines of prose charged to the map's height. Still in the
+					DOM, still a live region, still announced — read out rather than printed.
+				-->
+				<p
+					class="sr-only"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="alignment-opening-view"
+					data-opening-view={openingOutcome}
+				>
+					{#if openingOutcome === 'control-points'}
+						Framed on this Historical Map’s Control Points, where the work was left.
+					{:else if openingOutcome === 'content'}
+						No Control Points yet, so the Base Map is framed on this Project’s own content.
+					{:else if openingOutcome === 'default'}
+						No Control Points yet and nothing else placed on the earth, so the Base Map is on the
+						default view.
+					{/if}
+				</p>
+			</section>
+		</div>
+
+		<!--
+			Everything that is about the pairing rather than about one pane: the prompt, the warnings, the
+			transformation, the Control Points, and who else this Alignment belongs to.
+
+			A fixed 24rem column that scrolls on its own at `lg`, so a long Control Point list cannot take
+			height away from the maps it is a list of — the failure the whole of this arrangement exists to
+			remove. Below `lg` it is a footer under the panes and the page scrolls as one.
+		-->
+		<div
+			class="flex shrink-0 flex-col gap-3 border-base-300 lg:min-h-0 lg:w-96 lg:overflow-y-auto lg:border-l lg:pl-6"
+			data-testid="alignment-sidebar"
+		>
+			<!--
+				What this screen is, in words, behind a disclosure (SPEC story 112).
+
+				A WebGL canvas announces its own accessible name and nothing about what the pair of them is
+				*for*, and "Historical Map" beside "Base Map" does not tell a screen-reader user that clicking
+				one and then the other is the gesture. Visible text and not a tooltip (ADR-0016).
+
+				Closed by default, because a scholar who has placed a Control Point before does not need to be
+				told again — and standing prose is the one thing this screen had too much of.
+			-->
+			<div>
+				<button
+					type="button"
+					class="btn btn-ghost btn-sm"
+					aria-expanded={explaining}
+					aria-controls={explaining ? 'align-explainer' : undefined}
+					data-testid="align-explainer-toggle"
+					onclick={() => (explaining = !explaining)}
+				>
+					How this works
+				</button>
+
+				{#if explaining}
 					<p
-						class="min-h-0 text-sm"
-						class:text-warning={maskStatus?.kind === 'refused'}
-						class:opacity-70={maskStatus?.kind === 'done'}
-						aria-live="polite"
-						aria-atomic="true"
-						data-testid="mask-status"
-						data-mask-status={maskStatus?.kind ?? ''}
+						id="align-explainer"
+						class="mt-2 max-w-prose text-sm opacity-70"
+						data-testid="align-explainer"
 					>
-						{maskStatus?.message ?? ''}
+						{mapName} beside the Base Map. Click a feature on the Historical Map and then the same place
+						on the earth to make a Control Point pair; with enough pairs the Historical Map is drawn over
+						the Base Map. Your work saves as you go.
 					</p>
+				{/if}
+			</div>
+
+			<!--
+				The pending prompt. `role="status"` is already taken by the save indicator on this page, so
+				this is an `aria-live` region — which is also why the ingest progress region is one. `atomic`,
+				so it is read as a whole sentence rather than as the words that changed.
+
+				First in the column, because it is the sentence that answers "what do I click next" and it is
+				read after every half-pair. It is also why the column is not allowed to be the thing that
+				scrolls off: on a phone this is the line under the maps, not two screens below them.
+			-->
+			<div class="flex flex-wrap items-center gap-3">
+				<p
+					class="min-h-6 flex-1 text-sm"
+					aria-live="polite"
+					aria-atomic="true"
+					data-testid="pairing-status"
+					data-pending={pending ? pending.half : ''}
+				>
+					{#if pending}
+						<span class="font-medium text-warning">{pending.message}</span>
+					{:else if controlPoints.length === 0}
+						Click a feature on the Historical Map, then the same place on the Base Map, to make your
+						first Control Point.
+					{:else if controlPoints.length < needed}
+						{controlPoints.length} of {needed} Control Points. The Historical Map appears over the Base
+						Map once there are {needed}.
+					{:else}
+						{controlPoints.length} Control Points.
+					{/if}
+				</p>
+
+				{#if pending}
+					<button class="btn btn-sm btn-warning" onclick={() => pairing?.cancelPending()}>
+						Cancel this Control Point
+					</button>
+				{/if}
+			</div>
+
+			<!--
+		An undo that declined. `role="alert"` rather than a polite region, and beside the pairing
+		instead of replacing it the way {@link failure} does: the user has just pressed a button whose
+		label promised to put a Control Point back, and nothing on screen moved. Being told is the
+		difference between "the app refused" and "the app lost my work".
+	-->
+			{#if undoRefused}
+				<div role="alert" class="alert max-w-prose alert-warning" data-testid="undo-refused">
+					<p>{undoRefused}</p>
 				</div>
 			{/if}
-		</section>
 
-		<section aria-labelledby="base-map-pane-heading" class="min-w-0">
 			<!--
-				The Base Map heading and the choice of Base Map, together.
+		An Alignment that changed somewhere else while it was open here (ticket 07, ADR-0023).
 
-				**Here because this is where the wrong one is discovered.** The deployment default is a
-				regional extract (ADR-0020), so an author aligning a sheet of anywhere outside its bounds
-				zooms in and watches the earth go blank — and the switcher lived only on the Layers pane,
-				behind a button labelled with a Layer count, which says nothing about Base Maps. The
-				control belongs beside the pane whose emptiness sends you looking for it.
+		ADR-0023 makes an Alignment the Workspace's, shared by every Project that draws the map, and
+		accepts that a Workspace kept in git or Dropbox can therefore receive a colleague's edit between
+		this session's read and its write. The mitigation it asks for is **visibility, not prevention**:
+		the save has already happened — refusing it would discard the work in front of the user to
+		protect work they cannot see — and this is where they are told, and offered the other version.
 
-				It writes through `session.chooseBaseMap`, the same one every other switcher calls, so the
-				choice is the Project's author default (ADR-0020) rather than a third copy of that state.
-			-->
-			<div class="mb-2 flex flex-wrap items-end justify-between gap-2">
-				<h4 id="base-map-pane-heading" class="text-sm font-semibold">Base Map</h4>
-				<div class="max-w-xs grow">
-					<BaseMapSwitcher entryId={baseMapId} onSelect={(id) => session.chooseBaseMap(id)} />
-				</div>
-			</div>
-			<div class="h-96 overflow-hidden rounded border border-base-300">
-				<BaseMapPane
-					entryId={baseMapId}
-					overlayPoints={basePoints}
-					alignment={solvable}
-					alignmentSource={mapSource}
-					{openingFit}
-					{distortion}
-					{fetchTile}
-					onclickpoint={clickBaseMap}
-					onwarped={(render) => (warped = render)}
-				/>
-			</div>
-			<!--
-				Where the Base Map pane is looking and why (SPEC story 112, ADR-0026). Opening a Historical
-				Map moves this pane, and a WebGL canvas announces nothing — so without this the one person
-				who cannot see it happen is the one person not told it happened.
-			-->
-			<p
-				class="mt-2 min-h-5 text-sm text-base-content/70"
-				aria-live="polite"
-				aria-atomic="true"
-				data-testid="alignment-opening-view"
-				data-opening-view={openingOutcome}
-			>
-				{#if openingOutcome === 'control-points'}
-					Framed on this Historical Map’s Control Points, where the work was left.
-				{:else if openingOutcome === 'content'}
-					No Control Points yet, so the Base Map is framed on this Project’s own content.
-				{:else if openingOutcome === 'default'}
-					No Control Points yet and nothing else placed on the earth, so the Base Map is on the
-					default view.
-				{/if}
-			</p>
-		</section>
-	</div>
-
-	<!--
-		Which Projects this Alignment belongs to (SPEC story 56, ADR-0023).
-
-		One Alignment per Historical Map, shared by every Project that draws the map — so this is the
-		scope of every gesture on this screen, and a scholar refining a placement here is moving every
-		Project named in it, published ones included. Visible text and not a tooltip (ADR-0016), and
-		`aria-live="polite"` because it arrives after the screen does: the Workspace's `project.json`
-		files are read to answer it, and the panes are up first.
-
-		⚠ **Below the panes, and that is a measurement rather than a preference.** It reads as the scope
-		of what is about to happen, so it was written above the pairing prompt first — and prose above
-		the panes pushes the panes down. At the browser suite's window size that put the Historical
-		Map's Control Point handles below the fold, and `editor-alignment.e2e.ts`'s drag test went red
-		with zero writes: the pointer was moved to coordinates outside the viewport, so the gesture
-		never started. A scholar on a laptop feels the same thing as scrolling to reach the sheet. The
-		panes are the work; a sentence does not get to move them.
-
-		Rendered even while the answer is `''`, which is this app's rule for every live region: one
-		inserted at the same moment as its first text is not reliably announced.
+		`role="alert"` rather than a polite region, and it stays until dismissed. It is the one thing on
+		this screen the user cannot find out any other way: nothing moved, nothing failed, and the save
+		indicator says "Saved". It is only shown for the map on screen, because the button beside it
+		writes that map's file.
 	-->
-	<p
-		class="mt-2 max-w-prose text-sm opacity-70"
-		aria-live="polite"
-		data-testid="alignment-used-by"
-		data-used-by-count={usedBy ? usedBy.usedBy.length : ''}
-	>
-		{usedByMessage}
-	</p>
+			{#if session.alignmentChangedElsewhere?.imageId === imageId}
+				<div
+					role="alert"
+					class="alert flex-col items-start alert-warning"
+					data-testid="alignment-changed-elsewhere"
+				>
+					<p class="max-w-prose">
+						Somebody else changed this Historical Map’s Alignment while you had it open — through a
+						Workspace shared with this one — and your edit has just been saved over theirs. A
+						Historical Map has one Alignment, shared by every Project that draws it, so there is
+						only ever one file to change.
+					</p>
+					<div class="flex flex-wrap gap-2">
+						<button
+							class="btn btn-sm"
+							data-testid="restore-changed-elsewhere"
+							disabled={restoring}
+							onclick={async () => {
+								// **Guarded against a second press, because the answer is a write.** The restore now
+								// waits behind whatever is already writing this map's file, so the alert — and this
+								// button — stay on screen for the whole wait, and a double-click queued two identical
+								// `replace` writes of the same bytes. Idempotent on disk, and still wrong in the one
+								// place ADR-0023 cares about: a Workspace kept in git or Dropbox syncs a rewrite
+								// whatever it says.
+								if (restoring) return;
+								restoring = true;
+								// **Which map this answer is about**, because the restore waits behind whatever is
+								// already writing this map's file and the user can navigate inside that wait. The
+								// re-read and the effect above both handle that correctly on their own; the
+								// *sentence* did not, and it is the half that speaks. Without this, a navigation
+								// landing inside one store write announced "their version is back — the list below
+								// is what is on disk now" over a different Historical Map's Control Points, and
+								// took focus to say it.
+								const answering = imageId;
+								try {
+									// **Branched on what actually happened**, never announced in advance. A failure
+									// leaves the alert standing and `saveError` set, and the sentence below is read out
+									// loud to the one user who cannot see that contradiction — so claiming success over
+									// it is the worst version of this control.
+									const restored = await session.restoreAlignmentChangedElsewhere();
+									// The right file was still written either way — that is the session's business and
+									// it is keyed by image id. What is dropped here is only the announcement.
+									if (destroyed || answering !== imageId) return;
+									if (restored) {
+										// Re-read, so the pane shows what is now on disk rather than the pairing that was
+										// just discarded. Without this the screen keeps drawing the Control Points the
+										// user chose to give up, and the next drag writes them back.
+										reload();
+									}
+									concurrentEditOutcome = restored
+										? 'Their version of this Alignment is back, and the Control Points you placed over ' +
+											'it have been discarded. The list below is what is on disk now.'
+										: 'Their version could not be put back, so nothing has changed: your Control Points ' +
+											'are still on screen and still on disk. The warning above is still there, and ' +
+											'the reason is with the save indicator.';
+									concurrentEditOutcomeLine?.focus();
+								} finally {
+									restoring = false;
+								}
+							}}
+						>
+							Put their version back instead
+						</button>
+						<button
+							class="btn btn-ghost btn-sm"
+							data-testid="dismiss-changed-elsewhere"
+							onclick={() => {
+								session.dismissAlignmentChangedElsewhere();
+								concurrentEditOutcome =
+									'Your version has been kept. Theirs is not on disk any more, and nothing on this ' +
+									'screen has changed.';
+								concurrentEditOutcomeLine?.focus();
+							}}
+						>
+							Keep mine
+						</button>
+					</div>
+				</div>
+			{/if}
 
-	<!--
+			<!--
+		What the answer above did, and where focus lands when the alert that asked removes itself.
+
+		Always rendered and empty when there is nothing to say — the rule every live region in this app
+		follows, and the one the offline notice in `HistoricalMapPane` had to be reshaped to obey: a
+		region inserted together with its first text is not reliably announced.
+	-->
+			<p
+				bind:this={concurrentEditOutcomeLine}
+				tabindex="-1"
+				aria-live="polite"
+				class="max-w-prose text-sm opacity-80"
+				data-testid="changed-elsewhere-outcome"
+			>
+				{concurrentEditOutcome}
+			</p>
+
+			<!--
+		The fold warning (ADR-0013): "the single most useful piece of feedback a student can receive."
+
+		Above the transformation controls and not tucked beside the distortion toggles, because it is
+		about the Alignment being wrong rather than about how it is drawn — and it appears with the
+		overlay off, which is its whole point. It is near the top of this column with the other alerts,
+		so that on a phone, where the column is a footer, it is the first thing under the maps. `role="alert"` rather than a polite region: an Alignment that has folded over
+		itself is a mistake the user is currently making, and the next thing they do is place another
+		point on top of it.
+	-->
+			{#if fold}
+				<div
+					role="alert"
+					class="alert max-w-prose alert-warning"
+					data-testid="fold-warning"
+					data-fold-kind={fold.kind}
+					data-fold-where={fold.where}
+				>
+					<p>{fold.message}</p>
+				</div>
+			{/if}
+
+			{#if pairing}
+				<!--
+			How the map is stretched, and how that is drawn. Two groups rather than one: the
+			transformation type is part of the Alignment and is written to disk, and the distortion view
+			is a working view that is deliberately not (ADR-0013). Keeping them apart is what stops the
+			conflation that puts a debugging toggle in a Published Site — they were two columns of a row
+			when this screen was full-width, and they are two blocks of one column now that it is 24rem.
+		-->
+				<div class="flex flex-col gap-4">
+					<div class="min-w-0">
+						<TransformationPicker
+							value={pairing.transformationType}
+							controlPointCount={controlPoints.length}
+							onchoose={(type) => {
+								const current = pairing;
+								if (!current) return;
+								// Every Control Point survives, because this touches one field. Written now rather
+								// than on a timer: choosing a type is a discrete act (ADR-0017 rule 1).
+								current.setTransformationType(type);
+								save(current);
+							}}
+						/>
+					</div>
+
+					<!--
+				"Check this alignment" (ticket 03): the distortion overlay, which measure it shows, and the
+				bent grid, behind one disclosure.
+
+				**Labelled for what it is for and not for what it is.** "Distortion" names a quantity a
+				cartographer knows and a historian does not; "check this alignment" names the question a
+				scholar actually has, which is the same principle ADR-0013 applies to the transformation
+				types — guidance first, label second.
+
+				**The fold warning is deliberately not in here.** It is above this control, it runs whether or
+				not this is open, and it is a correctness warning about a contradictory Control Point rather
+				than a way of drawing one. Folding it in would hide the one piece of feedback ADR-0013 calls
+				the most useful a student can receive behind a control they have no reason to open.
+			-->
+					<div class="min-w-0">
+						<button
+							type="button"
+							class="btn btn-sm"
+							aria-expanded={checking}
+							aria-controls={checking ? 'check-alignment' : undefined}
+							data-testid="check-alignment-toggle"
+							onclick={() => closeOrOpenChecking(!checking)}
+						>
+							Check this alignment
+						</button>
+
+						{#if checking}
+							<div id="check-alignment" class="mt-3">
+								<DistortionControls
+									view={distortion}
+									enabled={warped?.status === 'drawn'}
+									onchange={(next) => (distortion = next)}
+								/>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
+			<!--
 		What the warped renderer did. Said rather than left to look like an empty map, because the
 		upstream defect in `@allmaps/render` (see `warped-map-layer.ts`) makes the failure silent:
 		tiles fail inside a worker and the errors are swallowed, so without this the user sees a Base
 		Map with nothing on it and no reason given.
 	-->
-	<p
-		class="mt-2 text-sm"
-		aria-live="polite"
-		aria-atomic="true"
-		data-testid="warped-status"
-		data-warped-status={warped?.status ?? ''}
-	>
-		{#if warped?.status === 'drawn'}
-			The Historical Map is being drawn over the Base Map from {controlPoints.length} Control Points.
-		{:else if warped?.status === 'refused'}
-			The Historical Map could not be drawn over the Base Map: {warped.reason}
-		{:else if controlPoints.length < needed}
-			{needed - controlPoints.length} more Control {needed - controlPoints.length === 1
-				? 'Point'
-				: 'Points'} and the Historical Map will be drawn over the Base Map.
-		{/if}
-	</p>
+			<p
+				class="text-sm"
+				aria-live="polite"
+				aria-atomic="true"
+				data-testid="warped-status"
+				data-warped-status={warped?.status ?? ''}
+			>
+				{#if warped?.status === 'drawn'}
+					The Historical Map is being drawn over the Base Map from {controlPoints.length} Control Points.
+				{:else if warped?.status === 'refused'}
+					The Historical Map could not be drawn over the Base Map: {warped.reason}
+				{:else if controlPoints.length < needed}
+					{needed - controlPoints.length} more Control {needed - controlPoints.length === 1
+						? 'Point'
+						: 'Points'} and the Historical Map will be drawn over the Base Map.
+				{/if}
+			</p>
 
-	<!--
+			<!--
 		The Control Points as a list. Not decoration: it is the keyboard and screen-reader path to
 		every pairing action ADR-0022 asks for, and it is where the ordinals are unambiguously
 		readable — the numbers drawn on the map are small, and on a dense Alignment they overlap.
-	-->
-	<section class="mt-4" aria-labelledby="control-points-heading">
-		<h4 id="control-points-heading" class="text-sm font-semibold">
-			Control Points ({controlPoints.length})
-		</h4>
 
-		{#if controlPoints.length === 0}
-			<p class="mt-1 text-sm opacity-70">None yet.</p>
-		{:else}
-			<ul class="mt-2 flex flex-col gap-1" data-testid="control-point-list">
-				{#each controlPoints as point (point.id)}
-					<li class="flex flex-wrap items-center gap-2 text-sm" data-testid="control-point-row">
-						<!--
+		**The one thing in this column that is allowed to be long**, which is why the column scrolls and
+		the panes do not: a fifty-point Alignment used to add fifty rows to the height of the page, and
+		the page was the same scrolling stack the maps were in.
+	-->
+			<section aria-labelledby="control-points-heading">
+				<h4 id="control-points-heading" class="text-sm font-semibold">
+					Control Points ({controlPoints.length})
+				</h4>
+
+				{#if controlPoints.length === 0}
+					<p class="mt-1 text-sm opacity-70">None yet.</p>
+				{:else}
+					<ul class="mt-2 flex flex-col gap-1" data-testid="control-point-list">
+						{#each controlPoints as point (point.id)}
+							<li class="flex flex-wrap items-center gap-2 text-sm" data-testid="control-point-row">
+								<!--
 							Selecting from here highlights *both* halves, which is the same state the map
 							points read — so the cross-pane highlight has a keyboard route as well as a
 							pointer one. `aria-pressed` because it is a toggle, not a navigation.
 						-->
-						<button
-							class="btn btn-xs"
-							class:btn-secondary={point.id === selectedId}
-							aria-pressed={point.id === selectedId}
-							data-testid="control-point-select"
-							data-ordinal={point.ordinal}
-							onclick={() => pairing?.toggleSelected(point.id)}
-						>
-							Point {point.ordinal}
-						</button>
-						<code class="opacity-70">
-							{Math.round(point.resource.x)}, {Math.round(point.resource.y)} px →
-							{point.geo.lng.toFixed(5)}, {point.geo.lat.toFixed(5)}
-						</code>
-						<button
-							class="btn btn-ghost btn-xs"
-							data-testid="control-point-delete"
-							onclick={() => removePair(point.id)}
-						>
-							Delete point {point.ordinal}
-						</button>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	</section>
+								<button
+									class="btn btn-xs"
+									class:btn-secondary={point.id === selectedId}
+									aria-pressed={point.id === selectedId}
+									data-testid="control-point-select"
+									data-ordinal={point.ordinal}
+									onclick={() => pairing?.toggleSelected(point.id)}
+								>
+									Point {point.ordinal}
+								</button>
+								<code class="opacity-70">
+									{Math.round(point.resource.x)}, {Math.round(point.resource.y)} px →
+									{point.geo.lng.toFixed(5)}, {point.geo.lat.toFixed(5)}
+								</code>
+								<button
+									class="btn btn-ghost btn-xs"
+									data-testid="control-point-delete"
+									onclick={() => removePair(point.id)}
+								>
+									Delete point {point.ordinal}
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</section>
+
+			<!--
+			Which Projects this Alignment belongs to (SPEC story 56, ADR-0023).
+
+			One Alignment per Historical Map, shared by every Project that draws the map — so this is the
+			scope of every gesture on this screen, and a scholar refining a placement here is moving every
+			Project named in it, published ones included. Visible text and not a tooltip (ADR-0016), and
+			`aria-live="polite"` because it arrives after the screen does: the Workspace's `project.json`
+			files are read to answer it, and the panes are up first.
+
+			⚠ **Last in this column, and never above the panes — that is a measurement rather than a
+			preference.** It reads as the scope of what is about to happen, so it was written above the
+			pairing prompt first, and prose above the panes pushed the panes down: at the browser suite's
+			window size that put the Historical Map's Control Point handles below the fold, and
+			`editor-alignment.e2e.ts`'s drag test went red with zero writes — the pointer was moved to
+			coordinates outside the viewport, so the gesture never started. A scholar on a laptop felt the
+			same thing as scrolling to reach the sheet.
+
+			The sidebar is what makes that class of defect unreachable rather than merely avoided: nothing
+			in this column can take height from the panes at `lg`, because the column has its own scroll.
+			The ordering rule stays anyway — below `lg` this *is* a stack under the maps, which is the
+			arrangement the measurement was taken in.
+
+			Rendered even while the answer is `''`, which is this app's rule for every live region: one
+			inserted at the same moment as its first text is not reliably announced.
+		-->
+			<p
+				class="max-w-prose text-sm opacity-70"
+				aria-live="polite"
+				data-testid="alignment-used-by"
+				data-used-by-count={usedBy ? usedBy.usedBy.length : ''}
+			>
+				{usedByMessage}
+			</p>
+
+			<!--
+				What is being drawn, as numbers, last in the column because it is a diagnostic.
+
+				It was under the sheet, which is the one place on this screen where four rows of numbers cost
+				the map its height. Absent until there is a pyramid to describe, rather than showing a
+				disclosure over nothing.
+			-->
+			{#if readout}
+				<ImageDetails {...readout} />
+			{/if}
+		</div>
+	</div>
 {/if}

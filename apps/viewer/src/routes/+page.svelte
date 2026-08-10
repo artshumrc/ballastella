@@ -1182,38 +1182,47 @@
 							{/if}
 						</div>
 						<!--
-							What is on the map, in words. `aria-live` rather than `role="status"`, because a Reader
-							who has just hidden a Layer needs to be told what the map now holds — and "nothing is
-							drawn" has many reasons, each of which is beside its own Layer in the list.
+							The map's running commentary, announced but not drawn — the same treatment as the
+							editor's Project screen. A sighted Reader reads both facts off the map itself and off
+							the Layer list beside it, so on screen these two lines were restatement taking room the
+							Base Map wants. `sr-only` rather than deletion: the announcements are the whole reason
+							they were written.
 						-->
-						<p
-							class="mt-2 min-h-6 text-sm"
-							aria-live="polite"
-							aria-atomic="true"
-							data-testid="stack-status"
-							data-drawn={drawnCount}
-						>
-							{#if layers.length === 0}
-								This Project has nothing on the map.
-							{:else}
-								{drawnCount} of {layers.length}
-								{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
-							{/if}
-						</p>
-						<!--
+						<div class="sr-only">
+							<!--
+								What is on the map, in words. `aria-live` rather than `role="status"`, because a Reader
+								who has just hidden a Layer needs to be told what the map now holds — and "nothing is
+								drawn" has many reasons, each of which is beside its own Layer in the list.
+							-->
+							<p
+								class="mt-2 min-h-6 text-sm"
+								aria-live="polite"
+								aria-atomic="true"
+								data-testid="stack-status"
+								data-drawn={drawnCount}
+							>
+								{#if layers.length === 0}
+									This Project has nothing on the map.
+								{:else}
+									{drawnCount} of {layers.length}
+									{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
+								{/if}
+							</p>
+							<!--
 							Where the map is looking and why (SPEC story 112). A WebGL canvas announces nothing
 							about what it is showing, so a Reader who cannot see it is otherwise never told that
 							the map opened on the author's own work rather than on a default somewhere else.
 						-->
-						<p
-							class="min-h-6 text-sm text-base-content/70"
-							aria-live="polite"
-							aria-atomic="true"
-							data-testid="opening-view"
-							data-opening-view={openingOutcome}
-						>
-							{openingViewSentence(openingOutcome, refitted)}
-						</p>
+							<p
+								class="min-h-6 text-sm text-base-content/70"
+								aria-live="polite"
+								aria-atomic="true"
+								data-testid="opening-view"
+								data-opening-view={openingOutcome}
+							>
+								{openingViewSentence(openingOutcome, refitted)}
+							</p>
+						</div>
 					</div>
 				</div>
 			{/if}

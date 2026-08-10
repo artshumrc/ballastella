@@ -179,6 +179,8 @@ declare global {
 			};
 			layer: {
 				getBounds(): unknown;
+				/** The layer opacity, which the alignment screen's slider sets (`editor-alignment.e2e.ts`). */
+				getOpacity(): number;
 				/**
 				 * Reached into so a tile can be asserted to have *arrived and decoded*, rather than
 				 * merely to have been requested — `isCachedTile()` is `data !== undefined`. Optional

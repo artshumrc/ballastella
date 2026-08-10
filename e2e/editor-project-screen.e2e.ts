@@ -288,19 +288,20 @@ test.describe('the navigation bar', () => {
 		await routeBaseMapArchive(context);
 	});
 
-	test('is on the hub, the Project and the alignment route, carrying exactly its four things', async ({
+	test('is on the hub, the Project and the alignment route, carrying exactly its things', async ({
 		page
 	}) => {
 		const bar = page.getByTestId('navigation-bar');
 		const assertBar = async (where: string) => {
 			await expect(bar, `no navigation bar on ${where}`).toHaveCount(1);
-			// 1: which Workspace. 2: the theme. 3: undo. 4: whether the work is kept.
+			// Which Workspace, the theme, undo, and whether the work is kept.
 			await expect(bar.getByTestId('workspace-identity')).toHaveCount(1);
 			await expect(bar.getByTestId('theme-toggle')).toHaveCount(1);
 			await expect(bar.getByTestId('undo-slot')).toHaveCount(1);
 			await expect(bar.getByTestId('save-slot')).toHaveCount(1);
-			// And nothing about *a Project*, which is the other half of "exactly four": the name, the
-			// Base Map switcher and the settings menu belong to the screen that has a Project.
+			// And nothing about *a Project*: the name, the Base Map switcher and the settings menu belong
+			// to the screen that has a Project. The screen's own name and way back are a different thing —
+			// generic, set by whichever route is on, and asserted below.
 			await expect(bar.getByTestId('project-name')).toHaveCount(0);
 			await expect(bar.getByTestId('project-menu-button')).toHaveCount(0);
 			await expect(bar.getByRole('combobox', { name: 'Base Map' })).toHaveCount(0);
@@ -320,6 +321,21 @@ test.describe('the navigation bar', () => {
 		await alignFromLayer(page);
 		await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 		await assertBar('the alignment route');
+
+		// The alignment route's name and its way out are **on the bar**, not in a header strip of its
+		// own: that strip cost 60 pixels above two live map panes, which is the one screen with no height
+		// to spare. The heading is the document's `<h1>` and the bar is before the page content, so it is
+		// still the first heading a screen reader reaches.
+		const chrome = bar.getByTestId('page-chrome');
+		await expect(chrome.getByTestId('page-heading')).toHaveText('Align');
+		await expect(chrome.getByTestId('back-to-project')).toBeVisible();
+		await expect(page.locator('h1')).toHaveCount(1);
+
+		// And it is given back on the way out, rather than following the user to a screen it is not
+		// about — the failure a route-specific bar has, and the reason the slot is cleared by its holder.
+		await chrome.getByTestId('back-to-project').click();
+		await expect(page.getByTestId('project-screen')).toBeVisible();
+		await expect(bar.getByTestId('page-chrome')).toHaveCount(0);
 	});
 
 	test('holds the app’s only theme toggle', async ({ page }) => {

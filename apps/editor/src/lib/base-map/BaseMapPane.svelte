@@ -68,6 +68,7 @@
 		overlayPoints = [],
 		alignment = null,
 		alignmentSource = null,
+		alignmentOpacity = 1,
 		layers = [],
 		openingFit = null,
 		distortion = DEFAULT_DISTORTION_VIEW,
@@ -127,6 +128,16 @@
 		 * that genuinely cannot observe it, since refusing on a guess would refuse every local copy.
 		 */
 		alignmentSource?: HistoricalMapSource | null;
+		/**
+		 * How opaque the warped {@link alignment} is drawn, `0` to `1`.
+		 *
+		 * A display setting, applied in place and never persisted (ADR-0002/ADR-0013), for the reason
+		 * the alignment route needs it: a solved Alignment covers the geography it was solved against,
+		 * so at full opacity the author can no longer see the feature they were about to place the next
+		 * Control Point on. `0` leaves the layer built and drawing nothing, which keeps the distortion
+		 * measure and the renderer's own account of itself alive while the earth is uncovered.
+		 */
+		alignmentOpacity?: number;
 		/**
 		 * The Project's Layer stack, top first, with each Layer's documents already read (ticket 09).
 		 *
@@ -811,6 +822,20 @@
 		if (!shown || !forAlignment) return;
 		void currentTheme;
 		updateAlignment(shown.layer, shown.mapId, forAlignment, view);
+	});
+
+	/**
+	 * How opaque that map is, in place and in an effect of its own.
+	 *
+	 * Separate from the update above for the same reason the Layer stack's opacity is separate from its
+	 * rebuild (ADR-0017 rule 1): this is dragged, so it must not be a dependency of anything that
+	 * rebuilds a renderer or re-reads a document.
+	 */
+	$effect(() => {
+		const shown = drawnAlignment;
+		const opacity = alignmentOpacity;
+		if (!shown) return;
+		shown.layer.setOpacity(opacity);
 	});
 
 	/**

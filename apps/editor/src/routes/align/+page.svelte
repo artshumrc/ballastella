@@ -22,6 +22,7 @@
 	import { resolveBaseMap, type MapLayer } from '@ballastella/core';
 
 	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
+	import { pageChrome } from '$lib/components/page-chrome.svelte.js';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
@@ -94,51 +95,53 @@
 	 * string is not.
 	 */
 	const projectQuery = $derived(encodeURIComponent(openDirectory ?? ''));
+
+	/**
+	 * This screen's name and its way out, on the app's navigation bar.
+	 *
+	 * ⚠ **Both were a header strip of this route's own, and this screen is the reason there is a slot
+	 * on the bar instead** — a second header above two live map panes is 60 pixels of chrome charged to
+	 * the one thing on the page that needs the height.
+	 *
+	 * The way back is behind the same session guard the link was: ADR-0008 has this route pick its
+	 * subject client-side and SvelteKit throws on `url.searchParams` during a prerender, so `?p=` is
+	 * read only once there is a browser. With no Project named it lands on the hub, which is still
+	 * somewhere — a dead control on an error page is worse than an imprecise one.
+	 */
+	$effect(() => {
+		pageChrome.show(
+			'Align',
+			session === null
+				? null
+				: {
+						label: 'Back to this Project',
+						project: openDirectory ?? '',
+						testid: 'back-to-project'
+					}
+		);
+		return () => pageChrome.clear('Align');
+	});
 </script>
 
 <svelte:head><title>Align — Ballastella Editor</title></svelte:head>
 
-<div class="flex min-h-full flex-col">
-	<header class="flex flex-wrap items-end gap-4 border-b border-base-300 bg-base-200 p-4">
-		<h1 class="text-xl font-bold">Align</h1>
+<!--
+	⚠ **`h-full`, not `min-h-full`, and that is what makes the panes full height.** The root layout
+	hands every route one screen minus the bar (`+layout.svelte`), and this screen is that height and
+	nothing more, so `AlignmentWorkspace` has a *bounded* height to grow into. With `min-h-full` it had only a floor, so a `grow` pane resolved to
+	its content and the two canvases stayed at whatever number they had been given — which is why this
+	route was a tall scrolling page with two small windows on it.
+-->
+<div class="flex h-full min-h-0 flex-col">
+	<!--
+		The region the workspace fills, and the one that scrolls when it cannot.
 
-		<!--
-			The way out, and it is first in the tab order after the heading (ticket 03's contract: "one
-			obvious control", reachable by keyboard from anywhere on the page). A real link to
-			`/?p=<project>` rather than `history.back()`, so it works on a reload, on a bookmark, and on
-			the very first page of a session — the three cases where there is no history to go back to.
-
-			**Behind the session guard because `?p=` may not be read while prerendering.** ADR-0008 has
-			this route pick its subject client-side, and SvelteKit throws on `url.searchParams` during a
-			prerender for exactly that reason — a query parameter cannot be baked into a static file. The
-			guard is not a workaround: `session` is `null` until the layout's effect has run, which is the
-			same "not in a browser yet" condition, and it is why `/layers/` reads `?p=` only inside its own
-			state chain. Every state below is inside that chain and carries its own way back.
-
-			**Not disabled when `?p=` is missing.** With no Project named this lands on the hub, which is
-			still somewhere; a dead control on an error page is worse than an imprecise one.
-		-->
-		{#if session !== null}
-			<a class="btn btn-sm" data-testid="back-to-project" href="{resolve('/')}?p={projectQuery}">
-				Back to this Project
-			</a>
-		{/if}
-
-		<!--
-			No Base Map switcher here, deliberately. `AlignmentWorkspace` already carries one beside the
-			pane whose emptiness sends you looking for it, and a second control writing the same author
-			default (ADR-0020) would be a third place that state can be written from.
-
-			**And no theme toggle, no save indicator and no undo control** (ticket 04). All three are
-			true on every screen and are on the app's navigation bar, in the root layout. A Control Point
-			undo outlives this route anyway — the record is on `EditorSession`, which a navigation does
-			not close — so mounting a second `UndoControl` here only ever meant two affordances over one
-			session-wide slot.
-		-->
-		<div class="grow"></div>
-	</header>
-
-	<div class="grow p-4">
+		`overflow-y-auto` here rather than nowhere: at `lg` nothing overflows, because the panes size
+		themselves to this box and the sidebar scrolls on its own. Below `lg`, and on any display too
+		short for the panes' minimum heights, this is the scroll that keeps the whole screen reachable —
+		so making the maps full height never costs anybody access to what is underneath them.
+	-->
+	<div class="flex min-h-0 grow flex-col overflow-y-auto p-4">
 		{#if host.unsupported}
 			<div role="alert" class="alert flex-col items-start alert-warning">
 				<h2 class="font-semibold">No storage for a Workspace</h2>
@@ -206,23 +209,10 @@
 				<a class="btn btn-sm" href="{resolve('/')}?p={projectQuery}">Back to this Project</a>
 			</div>
 		{:else if fetchTile}
-			<!--
-				What this screen is, in words, before either canvas.
-
-				SPEC story 112: a WebGL canvas announces its own accessible name and nothing about what the
-				pair of them is *for*, and "Historical Map" beside "Base Map" does not tell a screen-reader
-				user that clicking one and then the other is the gesture. Visible text and not a tooltip
-				(ADR-0016) — every reader gets it, and it is the sentence a first-time author needs too.
-			-->
-			<p class="mb-3 max-w-prose text-sm opacity-70" data-testid="align-explainer">
-				{layer.name} beside the Base Map. Click a feature on the Historical Map and then the same place
-				on the earth to make a Control Point pair; with enough pairs the Historical Map is drawn over
-				the Base Map. Your work saves as you go.
-			</p>
-
 			<AlignmentWorkspace
 				{session}
 				imageId={layer.imageId}
+				mapName={layer.name}
 				{fetchTile}
 				baseMapId={resolution.entry.id}
 			/>

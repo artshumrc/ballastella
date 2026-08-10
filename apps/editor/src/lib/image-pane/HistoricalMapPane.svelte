@@ -37,10 +37,11 @@
 		type ImagePaneSource,
 		type ResourcePoint
 	} from '@ballastella/core';
-	import { untrack } from 'svelte';
+	import { onDestroy, untrack, type Snippet } from 'svelte';
 
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 
+	import type { ImageReadout } from './ImageDetails.svelte';
 	import ImagePaneView, { type PaneOverlayPoint } from './ImagePane.svelte';
 
 	let {
@@ -51,7 +52,10 @@
 		overlayPoints = [],
 		maskRing = [],
 		onclickpoint,
-		onpane
+		onpane,
+		onreadout,
+		frameClass = 'mt-3 h-96',
+		controls
 	}: {
 		/**
 		 * Which Historical Map of the Workspace this is.
@@ -83,6 +87,31 @@
 		 * would be a second answer that can disagree.
 		 */
 		onpane?: (pane: ImagePane) => void;
+		/**
+		 * The pyramid and view readout, for a screen that wants to place it (`ImageDetails.svelte`), or
+		 * `null` when there is nothing on screen to describe.
+		 */
+		onreadout?: (readout: ImageReadout | null) => void;
+		/**
+		 * The classes on the box the canvas fills.
+		 *
+		 * **Passed in, because how tall this pane is belongs to the screen and not to the pane.** The
+		 * default is the fixed 24rem that `/image-pane` and every earlier caller drew; the alignment
+		 * screen hands over `lg:grow` instead, so the sheet takes whatever height is left beside the Base
+		 * Map rather than a number this component guessed. A pane deciding its own height is what made
+		 * `/align` a tall scrolling page with two small windows on it.
+		 *
+		 * Only the box: the canvas inside it is `h-full` either way, so a caller cannot hand over
+		 * something that leaves the pane with no height at all without also saying so out loud.
+		 */
+		frameClass?: string;
+		/**
+		 * Extra controls for the pane's own row — the screen's, not the pane's.
+		 *
+		 * The alignment screen puts Crop here: it acts on the sheet in this pane, so it belongs beside
+		 * "Fit whole map" rather than on a row of its own beneath it.
+		 */
+		controls?: Snippet;
 	} = $props();
 
 	let pane: ImagePane | undefined = $state.raw();
@@ -92,6 +121,25 @@
 	let tilesLoaded = $state(false);
 	let mapZoom = $state(0);
 	let pointer = $state<{ x: number; y: number } | undefined>();
+
+	/**
+	 * The pyramid, zoom and pointer readout, handed to whoever is placing it (`ImageDetails.svelte`).
+	 *
+	 * **Reported rather than rendered here**, because where a diagnostic belongs is the screen's
+	 * question: the alignment screen puts it in its sidebar with everything else that is about the work
+	 * rather than about the gesture, which is height the sheet gets back. The numbers are still this
+	 * pane's — they are the pyramid it read and the view it is showing — so nothing above it computes
+	 * them a second time.
+	 *
+	 * `null` while there is nothing on screen, so a readout cannot outlive the map it describes.
+	 */
+	$effect(() => {
+		const built = pane;
+		const id = shownImageId;
+		onreadout?.(built && id !== '' ? { imageId: id, pane: built, mapZoom, pointer } : null);
+	});
+
+	onDestroy(() => onreadout?.(null));
 
 	/**
 	 * The app's one online signal (ADR's "do not add a second online/offline listener"; ticket 07's
@@ -237,9 +285,6 @@
 	const offlineAfterOpening = $derived(
 		pane !== undefined && remoteHost !== '' && !installedApp.online
 	);
-
-	const pixel = (point: { x: number; y: number }) =>
-		`${Math.round(point.x)}, ${Math.round(point.y)}`;
 </script>
 
 {#if failure}
@@ -247,7 +292,6 @@
 		<p>{failure}</p>
 	</div>
 {:else if pane}
-	{@const projection = pane.projection}
 	<!--
 		The sheet has gone but the work has not (ticket 07). Visible text rather than a colour or a
 		tooltip (SPEC story 111, ADR-0016), and it names the host — "offline" alone does not tell a
@@ -286,16 +330,56 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-wrap items-center gap-2" role="group" aria-label="Historical Map view">
-		<button class="btn btn-sm" onclick={() => paneView?.fitImage()}>Fit whole map</button>
-		<button class="btn btn-sm" onclick={() => paneView?.zoomToFullResolution()}>
-			Zoom to full resolution
-		</button>
-		<button class="btn btn-sm" onclick={() => paneView?.zoomBy(-1)}>Zoom out one level</button>
-		<button class="btn btn-sm" onclick={() => paneView?.zoomBy(1)}>Zoom in one level</button>
+	<!--
+		One row for everything done *to this pane*: the view controls, whatever the screen adds through
+		{@link controls}, and whether the view has settled.
+
+		The alternative — and what this was — is a stack of rows under the canvas, each a line high, on
+		the screen with two live map panes competing for the height.
+	-->
+	<div class="flex flex-wrap items-center gap-2">
+		<div class="flex flex-wrap items-center gap-2" role="group" aria-label="Historical Map view">
+			<button class="btn btn-sm" onclick={() => paneView?.fitImage()}>Fit whole map</button>
+			<button class="btn btn-sm" onclick={() => paneView?.zoomToFullResolution()}>
+				Zoom to full resolution
+			</button>
+			<button class="btn btn-sm" onclick={() => paneView?.zoomBy(-1)}>Zoom out one level</button>
+			<button class="btn btn-sm" onclick={() => paneView?.zoomBy(1)}>Zoom in one level</button>
+		</div>
+
+		{@render controls?.()}
+
+		<div class="grow"></div>
+
+		<!--
+			Whether the view has settled (SPEC story 96) — **a spinner while it has not, and nothing at all
+			once it has**, plus the sentence for a screen reader.
+
+			The visible half only says the interesting thing. A mark that stayed on the row at rest read as a
+			stray dot beside the buttons: a permanent glyph for a state that is true almost always carries no
+			information and cannot be told from decoration. Loading is what a user needs to see, and it goes
+			when it stops being true.
+
+			The words themselves stay, in `sr-only` text inside a live region present from the first frame —
+			never a `title`, which ADR-0016 keeps out of the information channel — and the spinner is
+			`aria-hidden` so the two are not announced twice.
+		-->
+		<p
+			class="text-sm"
+			aria-live="polite"
+			data-testid="historical-map-tiles"
+			data-tiles-loaded={tilesLoaded}
+		>
+			{#if !tilesLoaded}
+				<span class="loading loading-xs loading-spinner" aria-hidden="true"></span>
+			{/if}
+			<span class="sr-only">
+				{tilesLoaded ? 'All tiles for this view have loaded.' : 'Loading tiles…'}
+			</span>
+		</p>
 	</div>
 
-	<div class="mt-3 h-96 overflow-hidden rounded border border-base-300">
+	<div class="{frameClass} overflow-hidden rounded border border-base-300">
 		<!--
 			Keyed on the image, so switching Historical Maps builds a new map rather than repointing
 			the old one. The tile protocol's registry is populated in `onMount`, and MapLibre's own
@@ -320,41 +404,6 @@
 			/>
 		{/key}
 	</div>
-
-	<!--
-		The geometry of the pyramid on screen, as text. It is genuinely useful — it is how a user
-		tells two scans of the same sheet apart — and it is also the only way a test can say *which*
-		pyramid is being drawn, since a pyramid read out of OPFS issues no request to observe.
-	-->
-	<dl
-		class="mt-3 grid gap-x-4 text-sm sm:grid-cols-2"
-		data-testid="historical-map-pyramid"
-		data-image-id={shownImageId}
-		data-width={pane.image.width}
-		data-height={pane.image.height}
-	>
-		<dt class="font-medium">Pyramid</dt>
-		<dd>
-			{pane.image.width} × {pane.image.height} pixels, {pane.tileSize}-pixel tiles, scale factors
-			{pane.image.tileZoomLevels.map((level) => level.scaleFactor).join(', ')}
-		</dd>
-		<dt class="font-medium">Zoom</dt>
-		<dd>
-			<span data-testid="historical-map-zoom">{mapZoom.toFixed(4)}</span>
-			of {projection.fullResolutionMapZoom} at full resolution
-		</dd>
-		<dt class="font-medium">Pointer</dt>
-		<dd data-testid="historical-map-pointer">{pointer ? pixel(pointer) : '—'}</dd>
-	</dl>
-
-	<p
-		class="mt-1 text-sm"
-		aria-live="polite"
-		data-testid="historical-map-tiles"
-		data-tiles-loaded={tilesLoaded}
-	>
-		{tilesLoaded ? 'All tiles for this view have loaded.' : 'Loading tiles…'}
-	</p>
 {:else}
 	<p aria-live="polite">Opening the Historical Map…</p>
 {/if}

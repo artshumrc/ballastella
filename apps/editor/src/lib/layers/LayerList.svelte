@@ -42,6 +42,7 @@
 		ondelete,
 		preparing,
 		mapContents,
+		problemAction,
 		annotationContents
 	}: {
 		/** The stack, top first. Index 0 draws over everything else. */
@@ -106,6 +107,20 @@
 		 * Layer stack is also rendered where there is nothing to do to it.
 		 */
 		mapContents?: Snippet<[MapLayer]>;
+		/**
+		 * The way to act on what a **closed** row is warning about, drawn beside {@link outcomes}'
+		 * sentence for that Layer.
+		 *
+		 * A closed row carries the warning precisely so a map that needs aligning can be noticed without
+		 * opening anything — and a state worth noticing there is worth acting on there, rather than making
+		 * the user open the row to reach the control the sentence is about.
+		 *
+		 * A snippet for the same reason as {@link mapContents}, and the same reason sharpened: the thing to
+		 * do about a problem is a route or a Workspace fact, which the screen knows and the stack does not.
+		 * It is rendered for every refused Layer and decides for itself whether it has anything to offer —
+		 * the row does not know which refusals are actionable.
+		 */
+		problemAction?: Snippet<[Layer]>;
 		/**
 		 * What is inside an Annotation Layer, revealed when its row is open: its drawing tools, its
 		 * Annotations, and the selected one's editor.
@@ -481,7 +496,16 @@
 						{/if}
 
 						{#if outcome?.status === 'refused'}
-							<span class="text-warning" data-testid="layer-problem">{outcome.reason}</span>
+							<!--
+								The sentence and, next to it, whatever can be done about it — see
+								{@link problemAction}. Inside one wrapper so the control stays with the sentence it
+								answers when the row wraps at 24rem, instead of drifting onto a line under the
+								opacity slider.
+							-->
+							<span class="flex flex-wrap items-center gap-2">
+								<span class="text-warning" data-testid="layer-problem">{outcome.reason}</span>
+								{@render problemAction?.(layer)}
+							</span>
 						{/if}
 					</div>
 
