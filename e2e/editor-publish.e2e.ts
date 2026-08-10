@@ -586,16 +586,37 @@ test.describe('publishing a Workspace', () => {
 		// file rather than as a real gigabyte: `ProjectStore#size` reports its length without reading it,
 		// which is the whole reason the warning can be computed at all (ADR-0001, ADR-0008).
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-		await page.evaluate(async () => {
-			const root = await workspaceRoot();
-			// At the Workspace root: the ~1 GB budget is the Workspace's, shared by every Project that
-			// publishes together (ADR-0008, ADR-0023).
-			const images = await (await root.getDirectoryHandle('images')).getDirectoryHandle('aaa');
-			const handle = await images.getFileHandle('huge.jpg', { create: true });
-			const writable = await handle.createWritable();
-			await writable.write({ type: 'truncate', size: 999_000_000 });
-			await writable.close();
+		// **Sparse on the disk, but not free of the browser's storage quota.** A `truncate` is charged
+		// at its full length against the origin's quota, and Chromium derives that quota from the free
+		// space on the filesystem holding the browser profile — so this one test has a precondition no
+		// other test in the suite has: ~1 GB of quota must be available to it. On CI it once was not,
+		// and the failure read as a bare `QuotaExceededError` from this `evaluate` with no hint that
+		// the environment rather than the app was short. So the shortfall is named here, with the two
+		// numbers needed to act on it.
+		const quota = await page.evaluate(async () => {
+			try {
+				const root = await workspaceRoot();
+				// At the Workspace root: the ~1 GB budget is the Workspace's, shared by every Project that
+				// publishes together (ADR-0008, ADR-0023).
+				const images = await (await root.getDirectoryHandle('images')).getDirectoryHandle('aaa');
+				const handle = await images.getFileHandle('huge.jpg', { create: true });
+				const writable = await handle.createWritable();
+				await writable.write({ type: 'truncate', size: 999_000_000 });
+				await writable.close();
+				return null;
+			} catch (error) {
+				if (!(error instanceof DOMException && error.name === 'QuotaExceededError')) throw error;
+				return await navigator.storage.estimate();
+			}
 		});
+		expect(
+			quota,
+			'this test needs ~1 GB of browser storage quota to stand a Workspace up at the ADR-0008 ' +
+				'cliff, and the browser refused the write. Chromium sizes the quota from the free space on ' +
+				'the filesystem holding its profile — which is the temporary directory, so check that ' +
+				'`TMPDIR` points somewhere with room. Quota the browser reported: ' +
+				JSON.stringify(quota)
+		).toBeNull();
 
 		const dialog = await openPublishDialog(page);
 

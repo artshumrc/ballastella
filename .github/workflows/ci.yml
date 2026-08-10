@@ -88,7 +88,36 @@ jobs:
       # run is not a test, which is exactly why one of them spent a while filed under `base-map`.
       - run: pnpm test
 
+      # ═══════════════════════════════════════════════════════════════════════════════════════════
+      # `TMPDIR`: THE BROWSER PROFILE GOES ON A DISK WITH ROOM, BECAUSE THE QUOTA IS COMPUTED FROM IT.
+      #
+      # Playwright puts each Chromium profile under the temporary directory. What is measured: a
+      # `truncate` is charged in full against the origin's storage quota (999 MB of quota for the
+      # sparse file in `editor-publish.e2e.ts`), a developer's disk-backed `/tmp` yields a 10 GiB
+      # quota, and on this runner that one test's write is refused with `QuotaExceededError` —
+      # deterministically, on every run, while passing everywhere else and while every other test in
+      # the suite, which asks for kilobytes, passes here too.
+      #
+      # What is inferred: Chromium takes the smaller of that 10 GiB and a fraction of the free space
+      # on the filesystem holding the profile, and the runner's `/tmp` has far less room than a
+      # developer's. `runner.temp` is on the root filesystem, which has tens of gigabytes free, so
+      # moving the profile there should put the quota back above what the test needs.
+      #
+      # **The inference is unproven, so it is instrumented rather than trusted.** Reproducing it needs
+      # a filesystem under ~2 GB, which no developer machine here has. `df` below prints what the two
+      # candidate directories actually hold, and the test names the quota the browser offered it when
+      # a write is refused — so if this is wrong, the next run says so in numbers instead of in a bare
+      # `QuotaExceededError`. Check both before believing this comment.
+      #
+      # What is deliberately *not* done: lowering the ~1 GB the test stands the Workspace up against.
+      # That is ADR-0008's real constant, the one the shipped warning reads, and a suite-only smaller
+      # limit would assert a number that does not ship.
+      - name: Temporary-directory space (browser storage quota comes from here)
+        run: df -h /tmp "${{ runner.temp }}"
+
       - run: pnpm exec playwright test
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
