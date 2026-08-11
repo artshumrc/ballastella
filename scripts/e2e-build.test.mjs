@@ -18,14 +18,29 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, utimesSync } from 'node:fs';
+import {
+	existsSync,
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+	utimesSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { lockIsStale, ownerIsGone, releaseLock, releaseOwnLock, takeLock } from './e2e-build.mjs';
+import {
+	OUTPUTS,
+	lockIsStale,
+	ownerIsGone,
+	releaseLock,
+	releaseOwnLock,
+	takeLock
+} from './e2e-build.mjs';
 
 /** This module's subject, as a URL a spawned child can `import`, and as a path it can be run from. */
 const moduleUrl = new URL('./e2e-build.mjs', import.meta.url).href;
@@ -276,5 +291,41 @@ test('running the script with a failing build leaves no lock behind', (t) => {
 		existsSync(repoLockDirectory),
 		false,
 		'the script leaked its lock on a failed build — the defect this file exists for'
+	);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// THE OTHER WAY A STALE BUILD GETS SERVED: THE RIGHT FILES, FROM THE WRONG BUILD.
+//
+// `pnpm build:deploy` writes the same `apps/editor/build` from a filtered source tree, leaving the
+// `/image-pane` harness route and the test fixtures out (`scripts/stage-deploy-build.mjs`). Its
+// inputs are the same bytes, so the fingerprint matches; only the *output* differs. `OUTPUTS` is
+// therefore the sole thing standing between a developer who ran a deployment build and a suite
+// silently served it, and the guard works only while at least one entry names something a
+// deployment build does not produce.
+//
+// Read out of both scripts rather than restated, because the failure is drift: rename the excluded
+// directory, or drop the sentinel as a redundant-looking path, and the guard goes quiet while
+// looking exactly as it does now.
+
+test('OUTPUTS names something a deployment build does not produce, so the two are told apart', () => {
+	const staging = readFileSync(new URL('./stage-deploy-build.mjs', import.meta.url), 'utf8');
+	const omitted = [...staging.matchAll(/^\s*omit: '([^']+)'/gm)].map((match) => match[1]);
+
+	// If this is empty the assertion below would pass vacuously — which is the shape of a guard that
+	// has quietly stopped guarding, so it is refused outright.
+	assert.ok(
+		omitted.length > 0,
+		'no `omit:` entries found in stage-deploy-build.mjs — this test can no longer tell what a ' +
+			'deployment build leaves out, so it cannot check that OUTPUTS distinguishes one.'
+	);
+
+	const sentinels = OUTPUTS.filter((output) => omitted.some((name) => output.includes(name)));
+	assert.ok(
+		sentinels.length > 0,
+		`OUTPUTS names none of what a deployment build omits (${omitted.join(', ')}), so an ` +
+			'ordinary build and a deployment build are indistinguishable to the stamp and the e2e ' +
+			'suite can be served the wrong one. Keep a path in OUTPUTS that only the ordinary build ' +
+			'writes — see the comment on OUTPUTS in e2e-build.mjs.'
 	);
 });

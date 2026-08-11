@@ -1,5 +1,20 @@
 import adapter from '@sveltejs/adapter-static';
 
+/**
+ * A **deployment** build reads a filtered source tree, so that a public instance ships neither the
+ * `/image-pane` developer harness nor the test fixtures it reads.
+ *
+ * Set by `pnpm run build:deploy`, which stages that tree first
+ * (`scripts/stage-deploy-build.mjs` — the reasoning lives there, including why the harness route
+ * cannot simply be deleted from `build/` afterwards).
+ *
+ * **An env var rather than a second config file**, because everything else about the two builds must
+ * be identical and a copied config is how they would drift. The only difference a deployment gets is
+ * which directories SvelteKit reads; adapter, `paths.relative`, and the service worker settings below
+ * are the ones that ship either way.
+ */
+const deploying = process.env.BALLASTELLA_DEPLOY === '1';
+
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	compilerOptions: {
@@ -42,7 +57,10 @@ const config = {
 		// a domain root or a project subdirectory — is unknown at build time, and `paths.base`
 		// is baked in at build time. Relative asset paths are the only way one build serves
 		// both, and retrofitting this means auditing every asset reference in the app.
-		paths: { relative: true }
+		paths: { relative: true },
+		// Defaults (`src/routes`, `static`) for every ordinary build — dev, CI, and the e2e suite all
+		// see the whole app, harness included, so it stays type-checked, linted, and driven by tests.
+		...(deploying ? { files: { routes: '.deploy/routes', assets: '.deploy/static' } } : undefined)
 	}
 };
 

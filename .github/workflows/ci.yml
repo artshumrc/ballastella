@@ -72,6 +72,15 @@ jobs:
           fi
           echo "OK: no absolute asset paths"
 
+      # The other half of "a static host will serve this". Relative paths get the asset *referenced*
+      # correctly; `.nojekyll` is what stops GitHub Pages' Jekyll build from dropping `_app/` so the
+      # reference resolves. Here rather than in `pnpm lint` for the same reason as the check above:
+      # it reads built output, and the config is not what ships. The chain it follows ends in a
+      # repository we never see — the author's, holding their published Workspace — so this is the
+      # last point at which it can be checked at all. See scripts/check-nojekyll.mjs.
+      - name: Jekyll is off in both builds and in what publishing writes
+        run: node scripts/check-nojekyll.mjs
+
       # Before `pnpm -r test`, not only before the Playwright suite: the ProjectStore adapter
       # suite runs against real OPFS in Vitest browser mode, so the unit tests need a browser
       # too. `--with-deps` is what brings the system libraries headless browsers need here.
@@ -125,3 +134,23 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+      # ═══════════════════════════════════════════════════════════════════════════════════════════
+      # THE DEPLOYMENT BUILD, LAST, BECAUSE IT IS A DIFFERENT ARTIFACT FROM THE ONE TESTED ABOVE.
+      #
+      # `pages.yml` deploys `pnpm build:deploy`, which reads a filtered source tree so that a public
+      # instance ships neither the `/image-pane` developer harness nor its test fixtures. Everything
+      # above this line — the whole unit suite and the whole browser suite — runs against the
+      # *ordinary* build, which contains both, because that is what the specs drive.
+      #
+      # That gap is inherent to any build-time exclusion, and leaving it unwatched is how a
+      # deployment build comes to fail on a push nobody connected to it. So CI produces the
+      # deployment artifact too and checks it. **Last, and deliberately**: it overwrites
+      # `apps/editor/build`, so nothing after it may depend on the tested build.
+      - run: pnpm build:deploy
+
+      - name: The deployable artifact carries the app and no developer harness
+        run: node scripts/check-deploy-artifact.mjs
+
+      - name: Jekyll is off in the deployable artifact too
+        run: node scripts/check-nojekyll.mjs

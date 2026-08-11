@@ -58,6 +58,10 @@ _Avoid_: crop, clip, cutline, boundary
 A piece of scholarly content a user places on the map: a label, pin, route, or shape. Author-facing, and the reason the tool exists. Never used for georeferencing data.
 _Avoid_: feature, marker, note, overlay
 
+**Place**:
+One candidate answer to a place name a scholar typed — a name and a point on the earth, offered by a lookup rather than drawn. A lookup typically offers several and the scholar picks one; what it gives them is a starting point, frequently wrong, and correcting it against the Base Map or a Historical Map is the scholarly act rather than an inconvenience. A Place is transient by design: choosing one either moves the map or drops an ordinary Annotation, and nothing in a Project's files records that a Place was ever involved. The service that answers has no name here, in the UI or in this glossary.
+_Avoid_: result, hit, match, location, address, feature, gazetteer, geocode
+
 **Write-Ahead Journal**:
 Where an edit's bytes wait between the keystroke and the moment the Workspace has them — a synchronous copy in browser storage, keyed by Workspace and by file, written before the store write and thrown away as soon as it lands (ADR-0017 rule 3, ADR-0001). It exists because a page being closed does not finish an asynchronous write. It holds only what the Workspace has not taken, which is usually nothing — but a write that failed is kept deliberately, and a Workspace nobody reopens keeps its entries until someone says otherwise. It is not a store, not a backup, and not durable. User-facing, putting those bytes back at startup is **putting a change back**, and it is said in words rather than done quietly.
 _Avoid_: cache, buffer, autosave file, draft, recovery file

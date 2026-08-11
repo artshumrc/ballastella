@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "pnpm run stage:viewer && vite dev",
 		"build": "pnpm run stage:viewer && vite build",
+		"build:deploy": "pnpm run stage:viewer && node ../../scripts/stage-deploy-build.mjs && BALLASTELLA_DEPLOY=1 vite build",
 		"stage:viewer": "pnpm --filter @ballastella/viewer run build && node ../../scripts/stage-viewer-bundle.mjs",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",

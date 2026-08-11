@@ -30,6 +30,16 @@ export const PUBLISHED_SITE_RECORD_NAME = 'ballastella-site.json';
 export const PUBLISHED_APP_DIRECTORY = '_app/';
 
 /**
+ * The empty file that turns GitHub Pages' Jekyll build off, so that {@link PUBLISHED_APP_DIRECTORY}
+ * is served rather than excluded for beginning with `_`.
+ *
+ * A constant because two very different places need the same string — this list, and `publishSite`,
+ * which writes the file — and because `scripts/check-nojekyll.mjs` reads it out of here rather than
+ * spelling it a third time.
+ */
+export const JEKYLL_OFF_MARKER = '.nojekyll';
+
+/**
  * Paths publishing writes, relative to the directory it publishes into. A trailing `/` means a
  * whole directory.
  *
@@ -45,6 +55,21 @@ export const PUBLISHED_APP_DIRECTORY = '_app/';
 export const VIEWER_FILE_PATHS: readonly string[] = [
 	PUBLISHED_APP_DIRECTORY,
 	PUBLISHED_SITE_RECORD_NAME,
+	// GitHub Pages' Jekyll build excludes every path beginning with `_`, and
+	// `PUBLISHED_APP_DIRECTORY` is `_app/` — so without this file a Workspace pushed to a
+	// branch-deployed Pages site serves `index.html` and 404s every script and stylesheet it asks
+	// for. The Reader gets a blank page and the browser console is the only place that says why.
+	//
+	// **It is the author's own repository that needs it, which is why it is published rather than
+	// merely built.** A fork deployed through `.github/workflows/pages.yml` never meets Jekyll at
+	// all; the scholar pushing a Workspace by hand, which is the flow the Publish dialog describes,
+	// is the one this protects — and that repository holds no workflow of ours to protect them with.
+	//
+	// **`publishSite` authors it, like the site record and unlike every other path here** — see the
+	// empty-marker note there. It is not in the viewer's build and must not be: an empty file
+	// fetched over HTTP makes publishing depend on the *authoring* host serving a dotfile, and
+	// plenty do not.
+	JEKYLL_OFF_MARKER,
 	// The Base Map extract, its glyphs, and its sprites, written only for a site that has to work
 	// with no network at all (ADR-0020, SPEC story 88). Recorded whether or not this Workspace has
 	// them, for the same reason `_app/` is recorded as a directory.

@@ -6,14 +6,20 @@ A **ballastella** — also Jacob's staff — is a graduated pole with a sliding 
 
 ## Status
 
-**Early.** The monorepo, toolchain, and CI are in place; both apps boot and render a placeholder, and `@ballastella/core` is still empty. No product behaviour has been built yet. Work is tracked in [`.tracker/ballastella-v1/TRACKER.md`](.tracker/ballastella-v1/TRACKER.md).
+**All 18 v1 implementation tickets are merged.** Both apps are built and driven end to end: images are tiled in the browser, aligned against the modern world, annotated, and published as a static site. Several tickets are merged but not yet code-reviewed, and one human decision — a Base Map archive this deployment controls — is outstanding; see [`.tracker/ballastella-v1/TRACKER.md`](.tracker/ballastella-v1/TRACKER.md) and the known gaps in [`docs/hosting.md`](docs/hosting.md).
 
 ```sh
 pnpm install
 pnpm -r build && pnpm -r test && pnpm lint && pnpm check && pnpm test:e2e
 ```
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for what each command covers, and for the two rules the toolchain enforces on your behalf.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for what each command covers, and for the three rules the toolchain enforces on your behalf.
+
+## Hosting your own instance
+
+Fork this repository, set **Settings → Pages → Source** to **GitHub Actions**, and push. `.github/workflows/pages.yml` builds the editor and deploys it to `https://<you>.github.io/<your-fork>/`. No server, no account, no API key or secret — CI asserts the last of those.
+
+Your users then publish their own work from their own folders to repositories they own. Both halves, including the Base Map archive you should point at your own tiles before telling anyone the instance is ready, are in [`docs/hosting.md`](docs/hosting.md).
 
 ## The idea
 
@@ -35,6 +41,7 @@ Publishing writes a read-only viewer into the workspace. That workspace, pushed 
 | [`apps/editor/`](apps/editor) | `@ballastella/editor` — the authoring app |
 | [`apps/viewer/`](apps/viewer) | `@ballastella/viewer` — the lean read-only viewer written into published sites |
 | [`e2e/`](e2e) | Playwright browser tests, run against both built apps |
+| [`docs/hosting.md`](docs/hosting.md) | How to host an instance, and how a user publishes a Workspace as a site |
 | [`docs/adr/`](docs/adr) | Architectural decision records, referenced by number throughout the spec |
 | [`.tracker/ballastella-v1/SPEC.md`](.tracker/ballastella-v1/SPEC.md) | The v1 specification: problem, solution, user stories, scope |
 | [`.tracker/ballastella-v1/TRACKER.md`](.tracker/ballastella-v1/TRACKER.md) | Ticket ledger, status, and dependency ordering |

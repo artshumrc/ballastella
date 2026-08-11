@@ -347,6 +347,7 @@ describe('publishing', () => {
 
 		expect(await store.list('')).toEqual(
 			[
+				'.nojekyll',
 				'_app/immutable/entry/start.AAAA.js',
 				'_app/immutable/nodes/0.BBBB.js',
 				'_app/version.json',
@@ -668,7 +669,11 @@ describe('publishing', () => {
 		expect((await readPublishedSite(store))?.viewerVersion).toBe('v1-abcdef0123456789');
 	});
 
-	it('reports progress that reaches the total it announced, the record included', async () => {
+	it('reports progress that reaches the total it announced, both authored files included', async () => {
+		// The two publishing authors rather than fetches — `ballastella-site.json` and `.nojekyll` —
+		// are counted like any other file. A total that omitted one would tick past its own maximum,
+		// which is the progress bar going backwards in front of the user.
+		const AUTHORED = 2;
 		const seen: { files: number; totalFiles: number; path: string | null }[] = [];
 
 		await publishSite({
@@ -684,11 +689,17 @@ describe('publishing', () => {
 
 		const last = seen.at(-1);
 		expect(last).toEqual({
-			files: bundle.files.length + 1,
-			totalFiles: bundle.files.length + 1,
+			files: bundle.files.length + AUTHORED,
+			totalFiles: bundle.files.length + AUTHORED,
 			path: 'ballastella-site.json'
 		});
-		expect(seen[0]).toEqual({ files: 0, totalFiles: bundle.files.length + 1, path: null });
+		expect(seen[0]).toEqual({
+			files: 0,
+			totalFiles: bundle.files.length + AUTHORED,
+			path: null
+		});
+		// The record stays last, so "the site is complete" still means the record landed.
+		expect(seen.map((progress) => progress.path)).toContain('.nojekyll');
 	});
 
 	it('has never been published until it has, and says so as null rather than as a failure', async () => {

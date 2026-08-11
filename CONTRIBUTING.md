@@ -65,12 +65,36 @@ but no `build`.
 | `pnpm format`                        | rewrite formatting in place                    |
 
 CI runs the ordinary development verification commands on every push. `pnpm check:deployment`
-intentionally **fails** while the Base Map catalog uses Protomaps' demo bucket for educational
-development and evaluation (ADR-0025, an explicit human decision of 2026-08-07), so it is not part of
-`pnpm lint`. It is not left to be remembered either: `scripts/check-deployment-runs.test.mjs` runs it
-against the shipped catalog inside `pnpm test` and asserts its verdict *matches* that catalog —
-production blocked while the demo bucket is named, clear once it is repointed — and prints which of
-the two is true. Run `pnpm check:deployment` itself before a production deployment.
+intentionally **fails** while the Base Map catalog reads an archive this deployment does not control
+— Protomaps' demo bucket originally, and since 2026-08-10 the Source Cooperative mirror that replaced
+it when the demo bucket began answering 404 — accepted for educational development and evaluation
+(ADR-0025, an explicit human decision of 2026-08-07), so it is not part of `pnpm lint`. It is not
+left to be remembered either: `scripts/check-deployment-runs.test.mjs` runs it against the shipped
+catalog inside `pnpm test` and asserts its verdict *matches* that catalog — production blocked while
+a borrowed host is named, clear once it is repointed — and prints which of the two is true. Run
+`pnpm check:deployment` itself before a production deployment.
+
+Three checks read **built output** rather than source, so they live in `.github/workflows/` instead
+of in `pnpm lint`, which does not build: the ADR-0006 scan for absolute asset paths,
+`scripts/check-nojekyll.mjs`, and `scripts/check-deploy-artifact.mjs`. Run them by hand after a
+build if you have touched either app's `static/`, its adapter, the publish file set, or the routes.
+
+## Deploying
+
+`.github/workflows/pages.yml` builds the editor and deploys it to GitHub Pages on every push to
+`main`. What a forker has to do, what a *user* has to do to publish their own Workspace, and the
+outstanding Base Map decision are all in [`docs/hosting.md`](docs/hosting.md).
+
+**There are two editor builds, and the difference is one directory each.** `pnpm build` is what you
+and the test suite use. `pnpm build:deploy` is what ships: it reads a filtered source tree so a public
+instance carries neither the `/image-pane` developer harness nor its test fixtures
+(`scripts/stage-deploy-build.mjs` explains why this has to happen at build time — deleting the route
+from `build/` afterwards leaves the service worker's precache manifest naming a document that is not
+there, and `cache.addAll` rejects atomically, so the PWA silently never installs again).
+
+Everything above the deployment build in `ci.yml` runs against the *ordinary* build, because that is
+what the specs drive. CI therefore produces the deployment artifact last and checks it, so the shape
+that actually ships is not the one shape nothing looks at.
 
 ## Three rules the toolchain enforces for you
 

@@ -51,6 +51,7 @@ import type { ProjectSummary } from '../project/workspace.js';
 import { assertStorePath, type Bytes, type ProjectStore } from '../store/project-store.js';
 import { serialiseJson } from '../tiler/pyramid.js';
 import {
+	JEKYLL_OFF_MARKER,
 	PUBLISHED_APP_DIRECTORY,
 	PUBLISHED_SITE_RECORD_NAME,
 	VIEWER_FILE_PATHS,
@@ -161,6 +162,31 @@ export class PublishedSiteUnreadableError extends Error {
 
 /** Tab-indented with a trailing newline, matching every other JSON this project writes. */
 export const serialisePublishedSite = (site: PublishedSite): Bytes => serialiseJson(site);
+
+/**
+ * The Jekyll-off marker, as a plan entry. Zero bytes, and there is nothing to fetch.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ WRITTEN HERE RATHER THAN CARRIED IN THE VIEWER'S BUILD, AND THAT IS NOT A TIDINESS CHOICE. │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * It was in `apps/viewer/static/` first, which staged it into the bundle and made publishing
+ * `fetch` it like any other asset. That broke the Publish button outright under `vite preview`,
+ * which serves no dotfiles — twelve e2e specs, every one of them the whole publish flow hanging
+ * with an empty status line, because `readBundleAsset` got a 404 for a file with no bytes in it.
+ *
+ * **The lesson generalises past the dev server.** Refusing dotfiles is ordinary static-host
+ * behaviour, so any deployment of the *editor* onto such a host would have had the same dead
+ * button — and it would have failed only there, on somebody's fork, where nobody is looking. An
+ * empty file has no bytes worth a round trip and nothing worth a dependency on how the authoring
+ * host feels about hidden files. So it is authored, exactly as `ballastella-site.json` is, and for
+ * the same reason: `source: ''` means there is nothing to serve it from.
+ */
+const JEKYLL_OFF_MARKER_FILE: ViewerBundleFile = {
+	path: JEKYLL_OFF_MARKER,
+	source: '',
+	bytes: 0
+};
 
 /**
  * Parse the record.
@@ -409,7 +435,7 @@ export async function planPublish(
 			})
 		).byteLength
 	};
-	const files = [...bundle.files, ...baseMap, recordFile];
+	const files = [...bundle.files, ...baseMap, recordFile, JEKYLL_OFF_MARKER_FILE];
 	const bytes = bundleBytes(files);
 
 	const collisions = listed
@@ -664,8 +690,12 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 		);
 	}
 
-	const assets = plan.files.filter((file) => file.path !== PUBLISHED_SITE_RECORD_NAME);
-	const totalFiles = assets.length + 1;
+	// The two files publishing *authors* rather than copies, so neither is fetched. Filtered by the
+	// same predicate that drives the loop, so a third authored file cannot be added to the plan and
+	// then be looked for on the server: `source: ''` is the one signal both ends read.
+	const assets = plan.files.filter((file) => file.source !== '');
+	const authored = plan.files.filter((file) => file.source === '');
+	const totalFiles = assets.length + authored.length;
 	let written = 0;
 	const report = (path: string | null) =>
 		options.onProgress?.({ files: written, totalFiles, path });
@@ -674,6 +704,14 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 	for (const file of assets) {
 		const path = assertStorePath(file.path);
 		await store.write(path, await readAsset(file));
+		written += 1;
+		report(file.path);
+	}
+
+	// Before the site record, because the record is the last thing written and the marker is not what
+	// "the site is complete" should hinge on. Empty, which is all Jekyll asks of it.
+	for (const file of authored.filter((file) => file.path !== PUBLISHED_SITE_RECORD_NAME)) {
+		await store.write(assertStorePath(file.path), new Uint8Array(0));
 		written += 1;
 		report(file.path);
 	}

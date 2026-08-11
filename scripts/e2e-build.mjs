@@ -97,7 +97,13 @@ const SKIP_DIRECTORIES = new Set([
 	'.vitest-attachments',
 	// `stage-viewer-bundle.mjs` writes this from `apps/viewer/build`; it is output living under a
 	// source tree, and it is the one entry here that is easy to mistake for an input.
-	'viewer-bundle'
+	'viewer-bundle',
+	// `stage-deploy-build.mjs` writes `apps/editor/.deploy` — a filtered copy of `src/routes` and
+	// `static` that only a deployment build reads. Output under a source tree, like `viewer-bundle`
+	// above, and `INPUT_ROOTS` includes `apps` wholesale, so without this entry the fingerprint
+	// would take a copy of the source into account *as well as* the source, and every deployment
+	// build would invalidate the e2e build that has nothing to do with it.
+	'.deploy'
 ]);
 
 const cacheDirectory = path.join(repoRoot, 'node_modules/.cache/ballastella-e2e');
@@ -141,8 +147,27 @@ const fingerprint = () => {
 	return digest.digest('hex');
 };
 
-/** The built output both preview servers will serve, as the things that must exist for a skip. */
-const OUTPUTS = ['apps/editor/build/index.html', 'apps/viewer/build/index.html'];
+/**
+ * The built output both preview servers will serve, as the things that must exist for a skip.
+ *
+ * **`image-pane.html` is here to tell the two editor builds apart, and it is load-bearing.**
+ * `pnpm build:deploy` writes the same `apps/editor/build` from a filtered source tree with the
+ * `/image-pane` harness route and the test fixtures left out (`scripts/stage-deploy-build.mjs`).
+ * Its inputs are the same files, so the fingerprint matches — and with only `index.html` on this
+ * list, a developer who had run a deployment build would then have the suite silently served it.
+ * `editor-image-pane.e2e.ts` would fail on a missing route and `editor-pwa.e2e.ts` on a missing
+ * entry, both for a reason nothing on screen connects to a build they ran earlier. That is exactly
+ * the stale-build failure this whole stamp exists to prevent, arriving through the one door the
+ * stamp could not see.
+ *
+ * One sentinel is enough: the harness route and the fixtures are omitted by the same build, so a
+ * tree holding this document holds both.
+ */
+export const OUTPUTS = [
+	'apps/editor/build/index.html',
+	'apps/editor/build/image-pane.html',
+	'apps/viewer/build/index.html'
+];
 
 const outputsPresent = () => OUTPUTS.every((file) => existsSync(path.join(repoRoot, file)));
 

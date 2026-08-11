@@ -82,7 +82,7 @@ export interface WorkspaceBackup {
  * claim to hold more than it holds.
  *
  * **The published viewer files are left out** (ADR-0024). `index.html`, `_app/`,
- * `ballastella-site.json`, `robots.txt` and `base-map/` are what publishing wrote, they are
+ * `ballastella-site.json`, `.nojekyll`, `robots.txt` and `base-map/` are what publishing wrote, they are
  * enumerated in `viewer-files.ts`, and including them would bloat every backup and restore a viewer
  * bundle possibly older than the app — which ADR-0006 already warns goes stale against its data. A
  * restored Workspace therefore needs one re-publish to be a site again, and the offline Base Map
