@@ -15,8 +15,6 @@
 // `properties` hold only what the user actually set — which is the criterion that an Annotation
 // created with default styling carries **no** style properties in the file (ADR-0009).
 
-import type { SimpleStyle } from '../project/layer.js';
-
 import {
 	SIMPLESTYLE_DEFAULTS,
 	lineStyleOf,
@@ -58,10 +56,10 @@ export const LINE_STYLES: readonly LineStyle[] = ['solid', 'dashed', 'dotted'];
  * renderer chooses to do with a property. Rendering happens in `markdown.ts`, at the moment a popup
  * is built, and nowhere else.
  */
-export function toRenderCollection(
-	collection: AnnotationCollection,
-	layerDefault: SimpleStyle | undefined
-): { type: 'FeatureCollection'; features: Record<string, unknown>[] } {
+export function toRenderCollection(collection: AnnotationCollection): {
+	type: 'FeatureCollection';
+	features: Record<string, unknown>[];
+} {
 	return {
 		type: 'FeatureCollection',
 		features: collection.annotations.flatMap((annotation) => {
@@ -70,7 +68,7 @@ export function toRenderCollection(
 			// malformed. It is still in the document, still listed, still editable as text, and still
 			// written back intact — it simply has nothing to paint.
 			if (geometry === null || geometry.type === 'foreign') return [];
-			const style = resolveStyle(annotation.properties, layerDefault);
+			const style = resolveStyle(annotation.properties);
 			return [
 				{
 					type: 'Feature',

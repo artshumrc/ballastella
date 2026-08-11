@@ -16,6 +16,7 @@
 		"@allmaps/maplibre": "catalog:",
 		"@allmaps/stdlib": "catalog:",
 		"@ballastella/core": "workspace:*",
+		"@lucide/svelte": "catalog:",
 		"dompurify": "catalog:",
 		"maplibre-gl": "catalog:",
 		"marked": "catalog:",

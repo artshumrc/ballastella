@@ -27,6 +27,9 @@ catalogs:
     '@allmaps/types':
       specifier: 1.0.0-beta.23
       version: 1.0.0-beta.23
+    '@lucide/svelte':
+      specifier: ^0.552.0
+      version: 0.552.0
     '@maplibre/maplibre-gl-style-spec':
       specifier: ^24.8.1
       version: 24.10.0
@@ -158,6 +161,9 @@ importers:
       '@ballastella/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@lucide/svelte':
+        specifier: 'catalog:'
+        version: 0.552.0(svelte@5.56.8(@typescript-eslint/types@8.66.0))
       dompurify:
         specifier: 'catalog:'
         version: 3.4.13
@@ -449,6 +455,11 @@ packages:
 
   '@kninnug/constrainautor@4.1.0':
     resolution: {integrity: sha512-YEkGtzMewRxPRZuK1QmFDmELwaSL4LSLmc0WXTmpT8AqdcR/Ueu77fiJZ2lwOwXUX8aBJpHuy/e/06/Ve2dPNQ==}
+
+  '@lucide/svelte@0.552.0':
+    resolution: {integrity: sha512-8wQF1YUKgaXiFidPdHM5NKESArKHLrgf8A1EAOjvqRmdVlL2KFsPxTchez/lMUOJKxXeDgrRKfXQuaN1O5KlhQ==}
+    peerDependencies:
+      svelte: ^5
 
   '@mapbox/jsonlint-lines-primitives@2.0.3':
     resolution: {integrity: sha512-0SElaV0uMxEnxzBhhX9WTuPyUeMsAN/SS0i16tjuba4/mio63MG9khjC1a0JAiPGXAwvwm4UfHJURCN7nyudQg==}
@@ -2122,6 +2133,10 @@ snapshots:
   '@kninnug/constrainautor@4.1.0':
     dependencies:
       robust-predicates: 3.0.3
+
+  '@lucide/svelte@0.552.0(svelte@5.56.8(@typescript-eslint/types@8.66.0))':
+    dependencies:
+      svelte: 5.56.8(@typescript-eslint/types@8.66.0)
 
   '@mapbox/jsonlint-lines-primitives@2.0.3': {}
 

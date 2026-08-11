@@ -115,7 +115,6 @@ import {
 	type ReferencedImage,
 	type RemoteImageService,
 	type SaveState,
-	type SimpleStyle,
 	type TileCoordinate,
 	type TileFetchResult,
 	type TransferProgress,
@@ -2952,32 +2951,6 @@ export class EditorSession {
 		const directory = this.openDirectory;
 		if (!directory) return false;
 		return this.#autosave.hasPendingWrite(annotationStorePath(directory, layer.id));
-	}
-
-	/**
-	 * Record an Annotation Layer's default style (ADR-0002, ADR-0009).
-	 *
-	 * On the **Layer**, in `project.json`, and not on the Annotations — which is what lets a whole
-	 * Layer be restyled in bulk and is why nothing stamps defaults onto a feature at creation time.
-	 * Debounced, because a colour input is dragged.
-	 */
-	async setLayerDefaultStyle(
-		id: string,
-		style: SimpleStyle,
-		options: { debounce?: boolean } = {}
-	): Promise<void> {
-		await this.#changeLayers((layers) => {
-			const at = layers.findIndex((layer) => layer.id === id && layer.kind === 'annotation');
-			// The array it was given when nothing changed, so `#changeLayers` can skip the write on
-			// reference equality — the discipline every operation in `layer.ts` follows, and what keeps a
-			// control that reports its current value from rewriting `project.json`.
-			if (at === -1) return layers;
-			const layer = layers[at] as AnnotationLayer;
-			if (JSON.stringify(layer.defaultStyle) === JSON.stringify(style)) return layers;
-			const next = [...layers];
-			next[at] = { ...layer, defaultStyle: style };
-			return next;
-		}, options);
 	}
 
 	/**

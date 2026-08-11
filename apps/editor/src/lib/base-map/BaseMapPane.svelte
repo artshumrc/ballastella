@@ -33,6 +33,7 @@
 	// The browser-only render layer, on a subpath of its own because this barrel's own is Node-safe
 	// and this is not — see the note at the bottom of `packages/core/src/index.ts`.
 	import {
+		annotationDrawKey,
 		annotationLayerIds,
 		cachedBaseMapTileTemplate,
 		createWarpedMapLayer,
@@ -648,7 +649,7 @@
 			layers.map((stacked) =>
 				isDrawnMap(stacked)
 					? [stacked.layer.id, 'map', stacked.alignment, stacked.service ?? '']
-					: [stacked.layer.id, 'annotation', stacked.layer.defaultStyle, stacked.annotations]
+					: [stacked.layer.id, 'annotation', annotationDrawKey(stacked.annotations)]
 			)
 		])
 	);
@@ -783,6 +784,28 @@
 		if (!current || !annotation || !at) return;
 		const shown = showAnnotationPopup({ map: current, annotation, at, onclose: onpopupclose });
 		return () => shown?.destroy();
+	});
+
+	/**
+	 * The Annotations themselves, pushed into the source that is already there.
+	 *
+	 * **Not a rebuild, for the same reason opacity is not** — and for a sharper one. An Annotation's
+	 * title is typed a character at a time, every keystroke writes the file, and every write hands
+	 * this component a new collection. While the collection was part of {@link stackStructure}, that
+	 * tore down and re-added *every layer in the stack* per keystroke, Historical Maps included, so
+	 * typing a title made the whole map thrash and refetch tiles. The structure key now carries only
+	 * `annotationDrawKey` — which MapLibre layers the contents need — so a rename, a recolour, or a
+	 * moved vertex lands here instead, and a first dashed line still rebuilds because it needs a
+	 * layer that was never added.
+	 */
+	$effect(() => {
+		const built = stack;
+		if (!built) return;
+		for (const stacked of layers) {
+			if (!isDrawnMap(stacked)) {
+				built.setAnnotations(stacked.layer.id, stacked.annotations ?? { annotations: [] });
+			}
+		}
 	});
 
 	/** Opacity, applied in place — see {@link stackStructure} for why this is not a rebuild. */

@@ -26,13 +26,18 @@ import { openLayerRow } from './support/layers.js';
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
 import {
+	ANNOTATION_COLOR,
+	annotationLayerId,
 	annotationWrites,
 	baseMap,
+	chooseColour,
 	chooseTool,
+	chooseLineStyle,
 	clickAt,
 	createProject,
 	drawPin,
 	drawShape,
+	editAnnotationText,
 	emptyWorkspace,
 	hashesUnder,
 	openLayers,
@@ -188,6 +193,8 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// and take the editor and the vertex handles with it.
 		await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
+		// The list is back once the tools are put away; the new pin is selected in it.
+		await chooseTool(page, 'select');
 
 		const row = page.getByTestId('annotation-row');
 		await expect(row).toHaveAttribute('aria-pressed', 'true');
@@ -200,6 +207,77 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await row.click();
 		await expect(row).toHaveAttribute('aria-pressed', 'true');
 		await expect(page.getByTestId('annotation-editor')).toBeVisible();
+	});
+
+	test('“New Annotation” closes the Annotation that was open', async ({ page }) => {
+		// The editor is not part of the list, so it used to stay on screen when the list stepped aside for
+		// the shape buttons: a panel titled after the *previous* Annotation, sitting directly under the
+		// tool that is about to draw a different one, in the place the new one's own panel will appear.
+		await startAnnotating(page);
+		await drawPin(page, 0.4, 0.4);
+		await chooseTool(page, 'select');
+		await selectAnnotation(page);
+		await editAnnotationText(page);
+		await page.getByTestId('annotation-title').fill('The west quay');
+		await page.getByTestId('annotation-text-done').click();
+		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
+
+		await page.getByTestId('annotation-new').click();
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+
+		// And the shape drawn next opens in an editor of its own, which is the panel that belongs there.
+		await page.getByTestId('annotation-tool-point').click();
+		await clickAt(baseMap(page), 0.6, 0.6);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByTestId('annotation-editor')).not.toContainText('The west quay');
+	});
+
+	test('the selected row wears the Layer’s own wash, and no rule of its own', async ({ page }) => {
+		// **Measured, because the defect was two colours making two claims.** The row carried
+		// `border-primary` — the app's action colour, which belongs to the controls *outside* the Layer
+		// cards — over daisyUI's `menu-active`, which paints `base-content`: a blue rule against a
+		// near-black slab, in a card whose every other control is the Annotation kind's `info`.
+		const layerId = await startAnnotating(page);
+		await drawPin(page, 0.4, 0.4);
+		await drawPin(page, 0.6, 0.4);
+		await chooseTool(page, 'select');
+		await selectAnnotation(page, 0);
+
+		const rows = page.getByTestId('annotation-row');
+		const marked = rows.nth(0);
+		const plain = rows.nth(1);
+		const backgroundOf = (target: typeof marked) =>
+			target.evaluate((element) => getComputedStyle(element).backgroundColor);
+
+		// The wash is the *kind's*, asserted by comparing it with the wash on the card's own header rather
+		// than by naming a token here — the one table both read from is `layer-kind-style.ts`, and a row
+		// repainted in the app's action colour is exactly what this catches.
+		const header = page
+			.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`)
+			.getByTestId('layer-header');
+
+		// **Polled, because `menu` transitions its background.** Read once, a row that has just gained or
+		// lost the wash reports whatever alpha the fade is passing through — the same colour at 0.04
+		// instead of 0.1, which is a true reading of a moving value and a useless assertion. This settles.
+		const wash = await backgroundOf(header);
+		await expect.poll(() => backgroundOf(marked)).toBe(wash);
+		// And only the chosen row wears it: the other one settles back to no background at all.
+		await expect.poll(() => backgroundOf(plain)).toBe('rgba(0, 0, 0, 0)');
+
+		// And it marks the row without repainting what is written on it: `menu-active` swapped the text to
+		// `base-100` because it had to, having made the row near-black.
+		const inkOf = (target: typeof marked) =>
+			target.evaluate((element) => getComputedStyle(element).color);
+		expect(await inkOf(marked)).toBe(await inkOf(plain));
+
+		// No rule down the left edge, on either row. The list already draws a hairline between rows and a
+		// border around itself, and a two-pixel line inside that was a fourth vertical edge in a 384px
+		// column. A one-line `border-l-2` is all it would take to come back.
+		for (const row of [marked, plain]) {
+			expect(await row.evaluate((element) => getComputedStyle(element).borderLeftWidth)).toBe(
+				'0px'
+			);
+		}
 	});
 
 	test('the gesture is announced, so it is legible without seeing the canvas', async ({ page }) => {
@@ -317,42 +395,122 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 	test('both are editable and persist across a reload', async ({ page }) => {
 		const layerId = await withOnePin(page);
 
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('Warehouses');
 		await page.getByTestId('annotation-title').blur();
 		await page.getByTestId('annotation-description').fill('The *west* quay.');
 		await page.getByTestId('annotation-description').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
+		// The three colours a drawn Annotation starts on are alongside the text, which is the point of
+		// asserting the whole object: prose and style share one `properties` bag, and a title that landed
+		// in it by clobbering the style would pass a `toMatchObject`.
 		expect((await storedAnnotations(page, layerId)).features[0]?.properties).toEqual({
 			title: 'Warehouses',
-			description: 'The *west* quay.'
+			description: 'The *west* quay.',
+			'marker-color': ANNOTATION_COLOR.grey,
+			stroke: ANNOTATION_COLOR.grey,
+			fill: ANNOTATION_COLOR.grey
 		});
 
 		await reopenLayers(page);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
+		// Read as text; the pencil is what turns them back into fields.
+		await expect(page.getByTestId('annotation-title-text')).toHaveText('Warehouses');
+		await expect(page.getByTestId('annotation-description-text')).toContainText('The west quay.');
+		await editAnnotationText(page);
 		await expect(page.getByTestId('annotation-title')).toHaveValue('Warehouses');
 		await expect(page.getByTestId('annotation-description')).toHaveValue('The *west* quay.');
 	});
 
-	test('the preview renders emphasis and links while typing', async ({ page }) => {
-		// The live preview is the deliverable, not a nicety: ADR-0009 chose Markdown, and the preview is
-		// what makes it acceptable to a scholar who has never written any.
+	test('typing a whole sentence does not shut the fields', async ({ page }) => {
+		// The regression this is here for: the panel resets its editing state when **a different
+		// Annotation arrives**, and `annotation` is a fresh object after every save — which is after
+		// every keystroke. Written as an effect that merely read `annotation.id`, that reset fired on
+		// each character, and a scholar could type exactly one letter before the fields turned back into
+		// text and they had to press the pencil again. Typed character by character, because `fill()`
+		// sets the value once and would never have seen it.
 		await withOnePin(page);
-		const preview = page.getByTestId('annotation-preview');
+		await editAnnotationText(page);
 
+		const title = page.getByTestId('annotation-title');
+		await title.click();
+		await page.keyboard.type('Fort Amsterdam', { delay: 60 });
+		await expect(title).toHaveValue('Fort Amsterdam');
+
+		const description = page.getByTestId('annotation-description');
+		await description.click();
+		await page.keyboard.type('Built in 1625.', { delay: 60 });
+		await expect(description).toHaveValue('Built in 1625.');
+	});
+
+	test('typing does not rebuild the Layer stack, so the map does not thrash', async ({ page }) => {
+		// The bug: the collection was part of the key the stack was built from, so every keystroke —
+		// each of which writes the file and hands the page a new collection — tore down and re-added
+		// **every layer in the stack**, Historical Maps included, and the map flickered and refetched
+		// tiles while a scholar typed a title. The structure key now carries only which MapLibre layers
+		// the contents need; the features themselves are pushed into the source that is already there.
+		//
+		// Counted rather than looked at, through the stack's own build counter — the same one ticket
+		// 09 used to assert that dragging opacity is not a rebuild.
+		await withOnePin(page);
+		const builds = () =>
+			page.evaluate(() => (window as unknown as StackWindow).ballastellaLayerStack?.builds ?? -1);
+		const before = await builds();
+		expect(before).toBeGreaterThan(0);
+
+		await editAnnotationText(page);
+		await page.getByTestId('annotation-title').click();
+		await page.keyboard.type('The old mill', { delay: 40 });
+		await page.getByTestId('annotation-description').click();
+		await page.keyboard.type('Built 1780.', { delay: 40 });
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		expect(await builds()).toBe(before);
+		// And the words did land, so this is not passing by having typed into nothing.
+		expect((await storedAnnotations(page, await annotationLayerId(page))).features[0]?.properties) //
+			.toMatchObject({ title: 'The old mill', description: 'Built 1780.' });
+	});
+
+	test('recolouring an Annotation does not rebuild the stack either', async ({ page }) => {
+		// The same seam from the other side: a paint property is set, which is the change that would be
+		// most expensive if it tore the stack down and refetched (ADR-0017 rule 1 is about this shape).
+		await withOnePin(page);
+		const builds = () =>
+			page.evaluate(() => (window as unknown as StackWindow).ballastellaLayerStack?.builds ?? -1);
+		const before = await builds();
+
+		await chooseColour(page, 'annotation-marker-color', 'purple');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		expect(await builds()).toBe(before);
+	});
+
+	test('the description reads as rendered Markdown, not as source', async ({ page }) => {
+		// ADR-0009 chose Markdown, and a scholar who has never written any has to be able to see what
+		// they wrote. The live preview used to be where that happened; now the **resting state** of the
+		// panel is the rendered description, which is why the preview went rather than the rendering.
+		await withOnePin(page);
+		const description = page.getByTestId('annotation-description-text');
+
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-description').fill('A *conjectural* route');
-		// No blur and no commit: this is asserted *while typing*.
-		await expect(preview.locator('em')).toHaveText('conjectural');
+		await page.getByTestId('annotation-text-done').click();
+		await expect(description.locator('em')).toHaveText('conjectural');
 
+		await editAnnotationText(page);
 		await page
 			.getByTestId('annotation-description')
 			.fill('See [the survey](https://example.org/s).');
-		await expect(preview.locator('a')).toHaveText('the survey');
-		await expect(preview.locator('a')).toHaveAttribute('href', 'https://example.org/s');
+		await page.getByTestId('annotation-text-done').click();
+		await expect(description.locator('a')).toHaveText('the survey');
+		await expect(description.locator('a')).toHaveAttribute('href', 'https://example.org/s');
 
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-description').fill('**Certainly** the west quay');
-		await expect(preview.locator('strong')).toHaveText('Certainly');
+		await page.getByTestId('annotation-text-done').click();
+		await expect(description.locator('strong')).toHaveText('Certainly');
 	});
 
 	test('footnote syntax renders as literal text, with no anchors and no ids', async ({ page }) => {
@@ -360,22 +518,25 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		// `marked` it is neither: `^1` is a legal CommonMark link label, so `[^1]: <url>` really is a link
 		// reference definition — it produces no output of its own and turns every `[^1]` into an anchor.
 		await withOnePin(page);
-		const preview = page.getByTestId('annotation-preview');
+		const description = page.getByTestId('annotation-description-text');
 
+		await editAnnotationText(page);
 		await page
 			.getByTestId('annotation-description')
 			.fill('A claim[^1] worth noting.\n\n[^1]: https://example.org/note');
+		await page.getByTestId('annotation-text-done').click();
 
-		await expect(preview).toContainText('A claim[^1] worth noting.');
+		await expect(description).toContainText('A claim[^1] worth noting.');
 		// The definition line is kept as text rather than silently deleted.
-		await expect(preview).toContainText('[^1]: https://example.org/note');
-		await expect(preview.locator('a')).toHaveCount(0);
-		await expect(preview.locator('[id]')).toHaveCount(0);
+		await expect(description).toContainText('[^1]: https://example.org/note');
+		await expect(description.locator('a')).toHaveCount(0);
+		await expect(description.locator('[id]')).toHaveCount(0);
 	});
 
 	test('a description is shown in a popup over the map, rendered', async ({ page }) => {
 		const failures = watchFailures(page);
 		await withOnePin(page);
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-description').fill('The *west* quay.');
 		await page.getByTestId('annotation-description').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -526,7 +687,12 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		const row = page.getByTestId('annotation-row');
 		await expect(row).toHaveCount(1);
 
-		const inert = await inertWithin(page, '[data-testid="annotation-list"]');
+		// Scoped to the **name**, which is the element a stranger's title is interpolated into, rather
+		// than to the whole list. The list legitimately holds an `<svg>` per row now — the glyph for what
+		// each Annotation is — and a probe that counts every `<svg>` under it would be satisfied by our
+		// own icon rather than by the payload's absence. Narrowing keeps every count at zero and keeps
+		// the claim exact: nothing the payload carries becomes an element here.
+		const inert = await inertWithin(page, '[data-testid="annotation-row-name"]');
 		expect(inert.missing).toBe(false);
 		expect(inert.scripts).toBe(0);
 		expect(inert.images).toBe(0);
@@ -546,22 +712,24 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		expect(failures).toEqual([]);
 	});
 
-	test('the payload is inert in the description preview', async ({ page }) => {
+	test('the payload is inert in the rendered description', async ({ page }) => {
 		const failures = watchFailures(page);
 		await withPayload(page);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
-		await expect(page.getByTestId('annotation-preview')).toBeVisible();
+		await expect(page.getByTestId('annotation-description-text')).toBeVisible();
 
-		const inert = await inertWithin(page, '[data-testid="annotation-preview"]');
+		const inert = await inertWithin(page, '[data-testid="annotation-description-text"]');
 		expect(inert.missing).toBe(false);
-		// **First**, that something rendered at all. A blank preview passes every assertion below it, and
-		// blank is exactly what a `{@html}` adopted from prerendered output looks like — so the anti-
+		// **First**, that something rendered at all. A blank description passes every assertion below it,
+		// and blank is exactly what a `{@html}` adopted from prerendered output looks like — so the anti-
 		// vacuous assertion comes before the security ones rather than after them. The prose proves the
 		// surface is live; the payload's own characters do not survive here, because DOMPurify removes a
 		// disallowed element rather than escaping it.
 		expect(inert.text).toContain('The west quay, per the survey.');
-		await expect(page.getByTestId('annotation-preview').locator('strong')).toHaveText('west');
+		await expect(page.getByTestId('annotation-description-text').locator('strong')).toHaveText(
+			'west'
+		);
 		expect(inert.scripts).toBe(0);
 		expect(inert.images).toBe(0);
 		expect(inert.svgs).toBe(0);
@@ -678,6 +846,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		await clickAt(baseMap(page), 0.5, 0.5);
 		await expect(page.locator('.maplibregl-popup')).toBeVisible();
 		// Tab out of the title field, which is the shape ticket 02 got wrong: a blur must not rewrite.
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').focus();
 		await page.getByTestId('annotation-title').blur();
 
@@ -703,14 +872,14 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 	}) => {
 		const layerId = await withOneLine(page);
 
-		await page.getByTestId('annotation-stroke').fill('#aa3311');
+		const stroke = await chooseColour(page, 'annotation-stroke', 'red');
 		await page.getByTestId('annotation-stroke-width').fill('4');
 		await page.getByTestId('annotation-stroke-opacity').fill('0.5');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const properties = (await storedAnnotations(page, layerId)).features[0]!.properties;
 
-		expect(properties['stroke']).toBe('#aa3311');
+		expect(properties['stroke']).toBe(stroke);
 		expect(properties['stroke-width']).toBe(4);
 		expect(properties['stroke-opacity']).toBe(0.5);
 		// Every name written is one simplestyle defines. A camelCase name would look right in the app and
@@ -728,14 +897,80 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
 
-		await page.getByTestId('annotation-fill').fill('#223344');
+		const fill = await chooseColour(page, 'annotation-fill', 'blue');
 		await page.getByTestId('annotation-fill-opacity').fill('0.25');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const properties = (await storedAnnotations(page, layerId)).features[0]!.properties;
-		expect(properties['fill']).toBe('#223344');
+		expect(properties['fill']).toBe(fill);
 		expect(properties['fill-opacity']).toBe(0.25);
 		for (const name of Object.keys(properties)) expect(SIMPLESTYLE_NAMES).toContain(name);
+	});
+
+	// **The palette is nine colours and there is no way to type a tenth** (ticket 10's amendment). The
+	// well this replaced offered sixteen million, which is how a Project ends up with nine
+	// indistinguishable near-reds and no way to say "the blue route" out loud.
+	test('an Annotation can only be one of the nine colours, each named and legibly ticked', async ({
+		page
+	}) => {
+		await startAnnotating(page);
+		await drawPin(page, 0.4, 0.4);
+		await chooseTool(page, 'select');
+		await selectAnnotation(page);
+
+		// Nine swatches, each a real radio: the count *and* the element, because a row of nine
+		// `<div>`s that looked identical would pass a count and be unreachable from a keyboard.
+		const swatches = page.getByTestId('annotation-marker-color').locator('input[type=radio]');
+		await expect(swatches).toHaveCount(9);
+
+		// **All nine on one line, and inside the sidebar.** This was a 3×3 grid, and three of these
+		// pickers made the selected Annotation's card the tallest thing in the column. A wrapped row is
+		// the failure this asserts against — it looks like a design choice rather than a bug — so the
+		// measurement is that every swatch shares a top edge and the last one ends inside the sidebar.
+		const boxes = await page
+			.getByTestId('annotation-marker-color')
+			.locator('label')
+			.evaluateAll((labels) =>
+				labels.map((label) => {
+					const box = label.getBoundingClientRect();
+					return { top: Math.round(box.top), right: Math.round(box.right) };
+				})
+			);
+		expect(boxes).toHaveLength(9);
+		expect(new Set(boxes.map((box) => box.top)).size).toBe(1);
+		const sidebar = (await page.getByTestId('layer-sidebar').boundingBox())!;
+		expect(Math.max(...boxes.map((box) => box.right))).toBeLessThanOrEqual(
+			Math.round(sidebar.x + sidebar.width)
+		);
+
+		// Every swatch is named, so the accessible name is "Red" rather than "option 4" (SPEC story 111).
+		for (const [name, hex] of Object.entries(ANNOTATION_COLOR)) {
+			const swatch = page.getByTestId(`annotation-marker-color-${name}`);
+			await expect(swatch).toHaveText(new RegExp(name, 'i'));
+			await expect(swatch.locator('input')).toHaveValue(hex);
+		}
+
+		// The tick is white on the seven dark swatches and black on the two light ones, which is a
+		// contrast fact rather than a taste one: a white tick carries 1.7:1 on Yellow and 1.0:1 on White.
+		// `ColorPicker.svelte` records the measured ratio for all nine.
+		for (const [name, ink] of [
+			['black', '#ffffff'],
+			['blue', '#ffffff'],
+			['green', '#ffffff'],
+			['orange', '#ffffff'],
+			['white', '#000000'],
+			['yellow', '#000000']
+		] as const) {
+			await chooseColour(page, 'annotation-marker-color', name);
+			await expect(
+				page.getByTestId(`annotation-marker-color-${name}`).locator('[data-ink]')
+			).toHaveAttribute('data-ink', ink);
+		}
+
+		// And the choice is said in words, which is the channel that survives a monochrome screen.
+		await chooseColour(page, 'annotation-marker-color', 'purple');
+		await expect(page.getByTestId('annotation-marker-color-chosen')).toHaveText('Purple');
+		await expect(page.getByRole('status')).toHaveText('Saved');
 	});
 
 	test('a pin gets marker properties and no line or fill controls', async ({ page }) => {
@@ -748,21 +983,34 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		await expect(page.getByTestId('annotation-fill')).toHaveCount(0);
 		await expect(page.getByTestId('annotation-marker-color')).toHaveCount(1);
 
-		await page.getByTestId('annotation-marker-color').fill('#7e00ff');
-		await page.getByTestId('annotation-marker-size').selectOption('large');
+		const markerColor = await chooseColour(page, 'annotation-marker-color', 'purple');
+		// There is no line on a pin either, so the whole Line group is absent rather than empty.
+		await expect(page.getByTestId('annotation-stroke')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-stroke-width')).toHaveCount(0);
+		await page.getByTestId('annotation-marker-size-large').click();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const properties = (await storedAnnotations(page, layerId)).features[0]!.properties;
-		expect(properties['marker-color']).toBe('#7e00ff');
+		expect(properties['marker-color']).toBe(markerColor);
 		expect(properties['marker-size']).toBe('large');
 	});
 
-	test('an Annotation drawn with default styling carries no style properties at all', async ({
+	test('an Annotation drawn with default styling carries the palette’s grey and nothing more', async ({
 		page
 	}) => {
-		// A criterion, not an omission: precedence is what lets a Layer be restyled in bulk, and stamping
-		// defaults at creation time would break that on the first thing drawn and make every file several
-		// times larger.
+		// **This used to assert `{}` — no style properties at all** — on the grounds that precedence let a
+		// Layer be restyled in bulk. That precedence is gone: ADR-0009's amendment deleted the Layer's
+		// `defaultStyle` and writes style onto each Annotation as it is drawn, so there is no longer a
+		// bulk restyle for an absent property to preserve.
+		//
+		// What replaced it is the palette. simplestyle's own defaults are two *different* greys —
+		// `#555555` for a line and a fill, `#7e7e7e` for a pin — and only the first is one of the nine
+		// colours a scholar is offered, so a pin drawn with defaults would have reported a colour the
+		// picker could not show. Writing the palette's grey explicitly is what makes every freshly drawn
+		// shape sit on a swatch.
+		//
+		// The three colours and *nothing else*: `stroke-width`, the opacities and `marker-size` stay
+		// absent, because simplestyle has one default for each and this app does not contradict it.
 		const layerId = await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
 		await drawShape(page, 'line', [
@@ -771,19 +1019,27 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		]);
 
 		for (const feature of (await storedAnnotations(page, layerId)).features) {
-			expect(feature.properties).toEqual({});
+			expect(feature.properties).toEqual({
+				'marker-color': ANNOTATION_COLOR.grey,
+				stroke: ANNOTATION_COLOR.grey,
+				fill: ANNOTATION_COLOR.grey
+			});
 		}
-		expect(await readAnnotationText(page, layerId)).not.toContain('stroke');
+		// And the picker says so in words, rather than only in a coloured square (SPEC story 111).
+		await chooseTool(page, 'select');
+		await selectAnnotation(page, 0);
+		await expect(page.getByTestId('annotation-marker-color-chosen')).toHaveText('Grey');
+		expect(await readAnnotationText(page, layerId)).not.toContain('stroke-width');
 	});
 
 	test('the written file is valid GeoJSON with simplestyle values of the right types', async ({
 		page
 	}) => {
 		const layerId = await withOneLine(page);
-		await page.getByTestId('annotation-stroke').fill('#aa3311');
+		await chooseColour(page, 'annotation-stroke', 'red');
 		await page.getByTestId('annotation-stroke-width').fill('3');
 		await page.getByTestId('annotation-stroke-opacity').fill('0.8');
-		await page.getByTestId('annotation-line-style').selectOption('dotted');
+		await chooseLineStyle(page, 'dotted');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const stored = await storedAnnotations(page, layerId);
@@ -818,15 +1074,23 @@ test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
 
-		// Solid is the default and writes nothing.
-		expect((await storedAnnotations(page, layerId)).features[0]!.properties).toEqual({});
+		// Solid is the default and writes **no `stroke-dasharray`** — which is the claim, and is now worth
+		// stating exactly, because the Annotation does carry the three colours it was drawn with. A
+		// `toEqual({})` here would have been asserting the palette's absence by accident.
+		const drawn = (await storedAnnotations(page, layerId)).features[0]!.properties;
+		expect(drawn).not.toHaveProperty('stroke-dasharray');
+		expect(drawn).toEqual({
+			'marker-color': ANNOTATION_COLOR.grey,
+			stroke: ANNOTATION_COLOR.grey,
+			fill: ANNOTATION_COLOR.grey
+		});
 
-		await page.getByTestId('annotation-line-style').selectOption('dashed');
+		await chooseLineStyle(page, 'dashed');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		expect((await storedAnnotations(page, layerId)).features[0]!.properties['stroke-dasharray']) //
 			.toEqual([8, 4]);
 
-		await page.getByTestId('annotation-line-style').selectOption('dotted');
+		await chooseLineStyle(page, 'dotted');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		expect((await storedAnnotations(page, layerId)).features[0]!.properties['stroke-dasharray']) //
 			.toEqual([1, 3]);
@@ -836,7 +1100,7 @@ test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
 		for (const keyword of ['"dashed"', '"dotted"', '"solid"']) expect(text).not.toContain(keyword);
 
 		// And going back to solid *removes* the property rather than blanking it.
-		await page.getByTestId('annotation-line-style').selectOption('solid');
+		await chooseLineStyle(page, 'solid');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		expect((await storedAnnotations(page, layerId)).features[0]!.properties) //
 			.not.toHaveProperty('stroke-dasharray');
@@ -918,10 +1182,14 @@ const line = (
 	geometry: { type: 'LineString', coordinates: [from, to] }
 });
 
-test.describe('style precedence: properties → Layer defaultStyle → simplestyle (ADR-0009)', () => {
-	test('a Layer defaultStyle reaches an Annotation with none of its own, and a property overrides it', async ({
+test.describe('style is on each Annotation (ADR-0009, as amended)', () => {
+	test('a defaultStyle from an earlier build is carried, not resolved and not deleted', async ({
 		page
 	}) => {
+		// A Layer no longer has a default style, and the amendment accepts that a Project which relied
+		// on one changes appearance. What it does **not** accept is destroying the field: it is a user's
+		// bytes, and opening a Project must not rewrite it (ADR-0010). So it rides through
+		// `unknownFields` and is written back exactly as it arrived, while nothing resolves against it.
 		const failures = watchFailures(page);
 		const layerId = await startAnnotating(page);
 		await writeProjectFile(
@@ -930,13 +1198,11 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 			JSON.stringify({
 				type: 'FeatureCollection',
 				features: [
-					line('inherits', [4.8, 52.3], [5.0, 52.3], {}),
-					line('overrides', [4.8, 52.35], [5.0, 52.35], { stroke: '#ff0000' })
+					line('plain', [4.8, 52.3], [5.0, 52.3], {}),
+					line('own', [4.8, 52.35], [5.0, 52.35], { stroke: '#ff0000' })
 				]
 			})
 		);
-		// The Layer's default, set in `project.json` — which is where display state lives (ADR-0002) and
-		// never in the GeoJSON.
 		const project = await projectJson(page);
 		project.layers[0].defaultStyle = { stroke: '#112233', 'stroke-width': 5 };
 		await writeProjectFile(page, 'project.json', JSON.stringify(project, null, '\t'));
@@ -944,90 +1210,85 @@ test.describe('style precedence: properties → Layer defaultStyle → simplesty
 
 		const styles = await renderedStyles(page);
 
-		// The inheriting Annotation draws with the Layer's colour and width.
-		expect(styles['inherits']?.['stroke']).toBe('#112233');
-		expect(styles['inherits']?.['stroke-width']).toBe(5);
-		// The overriding one takes its own colour and keeps the Layer's width — per property, not per
-		// object. An object-level fallback would silently discard every other value the Layer carried.
-		expect(styles['overrides']?.['stroke']).toBe('#ff0000');
-		expect(styles['overrides']?.['stroke-width']).toBe(5);
-		// And neither has had the Layer's default stamped into its own file.
-		const stored = await storedAnnotations(page, layerId);
-		expect(stored.features[0]!.properties).toEqual({});
-		expect(stored.features[1]!.properties).toEqual({ stroke: '#ff0000' });
+		// The Annotation with no style of its own draws with simplestyle's, not the Layer's.
+		expect(styles['plain']?.['stroke']).not.toBe('#112233');
+		expect(styles['plain']?.['stroke-width']).not.toBe(5);
+		// The one with its own colour still draws with it.
+		expect(styles['own']?.['stroke']).toBe('#ff0000');
+
+		// And the field is still in `project.json`, untouched, after a session that opened and drew.
+		await drawPin(page, 0.5, 0.5);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		const after = (await projectJson(page)).layers.find(
+			(one: { id: string }) => one.id === layerId
+		);
+		expect(after.defaultStyle).toEqual({ stroke: '#112233', 'stroke-width': 5 });
 		expect(failures).toEqual([]);
 	});
 
-	test('the Layer’s default style is set from the UI, restyles in bulk, and stays out of the GeoJSON', async ({
-		page
-	}) => {
-		// The bulk-restyle affordance, which is the reason precedence exists at all (ADR-0009): setting a
-		// default has to reach every Annotation that says nothing of its own, in one action, **without
-		// touching their file**. The last part is ADR-0002 — display state lives on the Layer in
-		// `project.json` and never in the portability document.
+	test('a newly drawn Annotation is drawn with the last one’s style', async ({ page }) => {
+		// What replaced the Layer default, and the whole of it: pick a colour once, and everything drawn
+		// after it is that colour — with the file saying so on each Annotation rather than a reader
+		// having to resolve it against something on the Layer.
 		const failures = watchFailures(page);
 		const layerId = await startAnnotating(page);
 		await drawShape(page, 'line', [
 			[0.3, 0.35],
 			[0.7, 0.4]
 		]);
+		await selectAnnotation(page);
+		const stroke = await chooseColour(page, 'annotation-stroke', 'green');
+		await chooseLineStyle(page, 'dashed');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		// A second line, drawn after that choice.
 		await drawShape(page, 'line', [
 			[0.3, 0.6],
 			[0.7, 0.65]
 		]);
-		// **And a pin**, because a pin is painted from `marker-color` and a line from `stroke`. A control
-		// labelled "Line and pin colour" that wrote only `stroke` left every pin at simplestyle's own
-		// grey, and this test could not see it while it drew nothing but lines.
-		await drawPin(page, 0.5, 0.5);
-		const before = await hashesUnder(page, 'annotations/');
-
-		await page.getByTestId('layer-default-stroke').fill('#112233');
-		await page.getByTestId('layer-default-line-style').selectOption('dashed');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
-		// It landed on the Layer, under both colour names and as a tuple rather than a keyword.
-		const layer = (await projectJson(page)).layers.find(
-			(one: { id: string }) => one.id === layerId
-		);
-		expect(layer.defaultStyle).toEqual({
-			stroke: '#112233',
-			'marker-color': '#112233',
+		const stored = await storedAnnotations(page, layerId);
+		expect(stored.features).toHaveLength(2);
+		// Stamped onto the new one, as ordinary properties, under the spec's own names. The two colours
+		// nobody touched come along as well, at the palette's grey: a new Annotation starts on a swatch
+		// rather than on simplestyle's own defaults, so "the last one's style" is the whole style.
+		expect(stored.features[1]!.properties).toEqual({
+			'marker-color': ANNOTATION_COLOR.grey,
+			stroke,
+			fill: ANNOTATION_COLOR.grey,
 			'stroke-dasharray': [8, 4]
 		});
+		for (const name of Object.keys(stored.features[1]!.properties)) {
+			expect(SIMPLESTYLE_NAMES).toContain(name);
+		}
 
-		// All three now draw with it: the lines in the dashed bucket, the pin in the new colour.
-		const stored = await storedAnnotations(page, layerId);
-		const isPin = (feature: { geometry: { type: string } | null }) =>
-			feature.geometry?.type === 'Point';
-		// Polled, because this asks what MapLibre has *drawn*: changing the Layer's default replaces the
-		// source, and asking before the next frame answers about the one before it — which would read as
-		// "the bulk restyle did not reach this Annotation".
-		await expect
-			.poll(
-				async () => {
-					const drawn = await renderedStyles(page);
-					return stored.features.every(
-						(feature) =>
-							drawn[feature.id]?.[isPin(feature) ? 'marker-color' : 'stroke'] === '#112233'
-					);
-				},
-				{ timeout: 20_000 }
-			)
-			.toBe(true);
-
+		// And it draws that way: same colour, same dash bucket as the one it was copied from.
 		const painted = await waitForPaintedAnnotations(
 			page,
 			stored.features.map((feature) => feature.id)
 		);
 		for (const feature of stored.features) {
-			expect(painted[feature.id]).toContain(
-				`ballastella-layer-${layerId}-${isPin(feature) ? 'point' : 'line-dashed'}`
-			);
-			// And nothing was stamped into the file: that is what makes the next bulk change possible.
-			expect(feature.properties).toEqual({});
+			expect(painted[feature.id]).toContain(`ballastella-layer-${layerId}-line-dashed`);
 		}
-		expect(await hashesUnder(page, 'annotations/')).toEqual(before);
 		expect(failures).toEqual([]);
+	});
+
+	test('the first Annotation in a Layer carries the palette’s grey and nothing else', async ({
+		page
+	}) => {
+		// There is nothing to copy from in an empty Layer, so this is where the palette's own starting
+		// colour is written — and it is written rather than left absent because simplestyle's defaults are
+		// two different greys, only one of which is a colour the picker can show. See
+		// `styleForNewAnnotation`.
+		const layerId = await startAnnotating(page);
+		await drawPin(page, 0.4, 0.4);
+
+		expect((await storedAnnotations(page, layerId)).features[0]!.properties).toEqual({
+			'marker-color': ANNOTATION_COLOR.grey,
+			stroke: ANNOTATION_COLOR.grey,
+			fill: ANNOTATION_COLOR.grey
+		});
 	});
 
 	test('simplestyle’s own defaults apply where neither says anything', async ({ page }) => {
@@ -1083,6 +1344,7 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		await drawPin(page, 0.4, 0.4);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('Warehouses');
 		await page.getByTestId('annotation-title').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -1097,10 +1359,14 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
 		await clickAt(baseMap(page), 0.4, 0.4);
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').focus();
 		await page.getByTestId('annotation-title').blur();
 		await page.getByTestId('annotation-description').focus();
 		await page.getByTestId('annotation-description').blur();
+		// The Layer's name is text until its own pencil is pressed, the same rule the Annotation's text
+		// follows — so renaming now starts there rather than in a field that is always on the card.
+		await page.getByTestId('layer-rename').click();
 		await page.getByTestId('layer-name').fill('Trade routes');
 		await page.getByTestId('layer-name').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -1128,6 +1394,7 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		await reopenLayers(page);
 		await chooseTool(page, 'select');
 		await page.getByTestId('annotation-row').first().click();
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('A');
 		await page.getByTestId('annotation-title').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -1147,12 +1414,20 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		const failures = watchFailures(page);
 		const layerId = await startAnnotating(page);
 
-		// Each tool is a real button whose pressed state is announced, not merely drawn — and the region
-		// **names the tool in words**. The criterion is that the active tool is announced, so what is
-		// asserted is the announced text: `data-tool` is a test attribute and reaches nobody, and a
-		// toolbar could satisfy it while the live region said nothing about which tool was in hand.
+		// Selecting is the resting behaviour: no button to press for it, and **nothing announced about
+		// it** — the region is there and empty, which is what lets the next real status be heard.
+		await expect(page.getByTestId('annotation-status')).toHaveText('');
+
+		// The way to a shape is one button, reached and pressed with the keyboard.
+		await tabTo(page, page.getByTestId('annotation-new'), 'the New Annotation button');
+		await page.keyboard.press('Enter');
+
+		// Each shape is a real button whose pressed state is announced, not merely drawn — and the
+		// region **names the tool in words**. The criterion is that the active tool is announced, so
+		// what is asserted is the announced text: `data-tool` is a test attribute and reaches nobody,
+		// and a toolbar could satisfy it while the live region said nothing about which tool was in
+		// hand.
 		for (const [tool, spoken] of [
-			['select', 'Select tool.'],
 			['point', 'Pin tool.'],
 			['line', 'Line tool.'],
 			['polygon', 'Shape tool.']
@@ -1163,6 +1438,13 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 			await expect(button).toHaveAttribute('aria-pressed', 'true');
 			await expect(page.getByTestId('annotation-status')).toContainText(spoken);
 		}
+
+		// And the way back out, which is what selecting is reached by.
+		await tabTo(page, page.getByTestId('annotation-tool-cancel'), 'the Done button');
+		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('annotation-status')).toHaveText('');
+		await expect(page.getByTestId('annotation-new')).toBeVisible();
+		await page.getByTestId('annotation-new').click();
 
 		// The toolbar announces itself as one set of alternatives.
 		await expect(page.getByTestId('annotation-tools')).toHaveAttribute('role', 'toolbar');
@@ -1194,14 +1476,33 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		expect(stored.features).toHaveLength(2);
 		expect(stored.features[1]?.geometry?.type).toBe('LineString');
 
-		// Every style control on the selected Annotation is reachable too.
+		// Every control on the selected Annotation is reachable too — including the one that now stands
+		// between the keyboard and the text: the pencil that turns it into fields. It is native, which is
+		// why it needed no key handler of its own (ADR-0016); this is what asserts that.
 		await chooseTool(page, 'select');
 		await selectAnnotation(page, 1);
+		await tabTo(page, page.getByTestId('annotation-edit-text'), 'the edit pencil');
+		await page.keyboard.press('Enter');
+		for (const control of ['annotation-title', 'annotation-description']) {
+			await tabTo(page, page.getByTestId(control), control);
+		}
+		await page.getByTestId('annotation-text-done').click();
+
+		// A radio group is one tab stop and it lands on the checked member, which is why this asks for the
+		// checked swatch rather than for the row: the row itself is a `<div>` and never takes focus.
+		await tabTo(
+			page,
+			page.getByTestId('annotation-stroke').locator('input:checked'),
+			'the chosen line colour'
+		);
+		await tabTo(
+			page,
+			page.getByTestId('annotation-line-style-solid').locator('input'),
+			'the line style choice'
+		);
+		// The measured properties are reached by Tab and nothing else, now that no disclosure stands in
+		// front of them — and in the order the Line group draws them, which is the order they are read in.
 		for (const control of [
-			'annotation-title',
-			'annotation-description',
-			'annotation-stroke',
-			'annotation-line-style',
 			'annotation-stroke-width',
 			'annotation-stroke-opacity',
 			'annotation-delete'
@@ -1282,29 +1583,32 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 	 * The drawing tools exist only inside an open Annotation Layer.
 	 *
 	 * The "Drawing into" picker is gone and this is the assertion that it did not simply move: with
-	 * every row closed there is no toolbar, no Annotation list, and no Layer default style anywhere on
-	 * the screen, because there is no Layer chosen to draw into.
+	 * every row closed there is no way to draw and no Annotation list anywhere on the screen, because
+	 * there is no Layer chosen to draw into.
 	 */
 	test('the tools and the Annotations are inside the Layer, and nowhere else', async ({ page }) => {
 		const layerId = await startAnnotating(page);
 		const failures = watchFailures(page);
 
-		// `startAnnotating` leaves the Layer open, so the tools are there.
-		await expect(page.getByTestId('annotation-tools')).toHaveCount(1);
-		await expect(page.getByTestId('layer-default-stroke')).toHaveCount(1);
-		// And they are inside that Layer's own row rather than merely somewhere on the page.
+		// `startAnnotating` leaves the Layer open, so the way to draw is there — one button, with the
+		// shapes behind it, because selecting is the resting behaviour rather than a fourth tool.
+		await expect(page.getByTestId('annotation-new')).toHaveCount(1);
+		// And it is inside that Layer's own row rather than merely somewhere on the page.
+		await expect(rowFor(page, layerId).getByTestId('annotation-new')).toHaveCount(1);
+		await page.getByTestId('annotation-new').click();
 		await expect(rowFor(page, layerId).getByTestId('annotation-tools')).toHaveCount(1);
 
 		// Drawing into the open Layer works, and lands in that Layer's file.
 		await drawPin(page, 0.4, 0.45);
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
+		await chooseTool(page, 'select');
 		await expect(rowFor(page, layerId).getByTestId('annotation-row')).toHaveCount(1);
 
 		// Closed, none of it is on the screen — and the picker it replaced is not there either.
 		await rowFor(page, layerId).getByTestId('layer-disclosure').click();
 		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-new')).toHaveCount(0);
 		await expect(page.getByTestId('annotation-list')).toHaveCount(0);
-		await expect(page.getByTestId('layer-default-stroke')).toHaveCount(0);
 		await expect(page.getByTestId('annotation-layer-choice')).toHaveCount(0);
 
 		// The Annotation is still on the map: closing a Layer is not hiding it.
@@ -1431,6 +1735,9 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'false');
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', 'polygon');
 		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		// The Layer that was opened is empty — read once the tool is put down, because the list stands
+		// aside while a shape is armed.
+		await chooseTool(page, 'select');
 		await expect(page.getByTestId('annotation-list-empty')).toBeVisible();
 
 		// And nothing was written into either Layer: the abandoned polygon is not in the file it was
@@ -1462,6 +1769,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		// One Annotation in the first Layer, titled so the editor is identifiable.
 		await drawPin(page, 0.4, 0.45);
 		await selectAnnotation(page);
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('Fort Amsterdam');
 		await page.getByTestId('annotation-title').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -1496,7 +1804,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 			'false'
 		);
 		await expect(page.getByTestId('annotation-editor')).toBeVisible();
-		await expect(page.getByTestId('annotation-title')).toHaveValue('Fort Amsterdam');
+		await expect(page.getByTestId('annotation-title-text')).toHaveText('Fort Amsterdam');
 		await expect(rowFor(page, routes).getByTestId('annotation-row').first()).toHaveAttribute(
 			'aria-pressed',
 			'true'

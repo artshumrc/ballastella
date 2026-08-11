@@ -43,7 +43,8 @@ dependency at a time.
 | `marked`                         | MIT           | Markdown → HTML, the first stage of the Annotation `description` pipeline (ADR-0009) |
 | `dompurify`                      | Apache-2.0 or MPL-2.0 | HTML → sanitised HTML, the second stage, and the security boundary |
 | `modern-tar`                     | MIT           | Backup, handoff and review archives, ADR-0001's only way in and out (ADR-0024) |
-| `daisyui`                        | MIT           | The only UI dependency (ADR-0016)               |
+| `daisyui`                        | MIT           | The only UI **component** dependency (ADR-0016) |
+| `@lucide/svelte`                 | ISC, with portions of Feather under MIT | Icons, one glyph at a time — **`apps/editor` only** (ADR-0016's icon amendment) |
 | `tailwindcss`                    | MIT           | Styling                                         |
 | `svelte`, `@sveltejs/*`          | MIT           | Framework and static adapter                    |
 

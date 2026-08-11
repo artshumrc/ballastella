@@ -96,7 +96,6 @@ export interface AnnotationLayer extends LayerCommon {
 	readonly kind: 'annotation';
 	/** The `FeatureCollection` this Layer draws, by path within the Project. */
 	readonly geojsonRef: string;
-	readonly defaultStyle: SimpleStyle;
 }
 
 /**
@@ -171,19 +170,14 @@ export function newMapLayer(fields: { id: string; name: string; imageId: string 
 }
 
 /** A new, empty Annotation Layer. Its `geojsonRef` is derived from its id, so the two cannot drift. */
-export function newAnnotationLayer(fields: {
-	id: string;
-	name: string;
-	defaultStyle?: SimpleStyle;
-}): AnnotationLayer {
+export function newAnnotationLayer(fields: { id: string; name: string }): AnnotationLayer {
 	return {
 		kind: 'annotation',
 		id: fields.id,
 		name: fields.name,
 		visible: true,
 		order: 0,
-		geojsonRef: annotationPath(fields.id),
-		defaultStyle: fields.defaultStyle ?? {}
+		geojsonRef: annotationPath(fields.id)
 	};
 }
 
@@ -407,14 +401,19 @@ function parseLayer(record: Readonly<Record<string, unknown>>, id: string): Laye
 	}
 
 	if (kind === 'annotation') {
-		const { geojsonRef, defaultStyle, ...carriedRest } = rest;
+		const { geojsonRef, ...carriedRest } = rest;
 		return {
 			...common,
 			kind: 'annotation',
 			geojsonRef: readString(geojsonRef, ''),
-			// Carried whole rather than picked apart, so a style property this build does not know
-			// survives the round trip. Ticket 10 owns validating what the controls write.
-			defaultStyle: (readRecord(defaultStyle) ?? {}) as SimpleStyle,
+			// **`defaultStyle` is not named here any more, and that is deliberate.** A Layer no longer
+			// has one (ADR-0009, as amended): style lives on each Annotation, put there when it is
+			// drawn. A Project written by an earlier build still has the field, and it falls through to
+			// `carried` like any other value this build does not interpret — so opening such a Project
+			// preserves it byte for byte instead of deleting a user's data, and nothing here has to
+			// rewrite a file that was only looked at (ADR-0010). Its Annotations draw with simplestyle's
+			// own defaults where they set nothing themselves, which is the appearance change the
+			// amendment accepts.
 			...carried(carriedRest)
 		};
 	}
@@ -460,7 +459,8 @@ function serialiseLayer(layer: Layer): Record<string, unknown> {
 				kind: 'annotation',
 				...common,
 				geojsonRef: layer.geojsonRef,
-				defaultStyle: layer.defaultStyle,
+				// A `defaultStyle` written by an earlier build is in `unknownFields` and is written back
+				// from there, untouched (ADR-0009 as amended, ADR-0010).
 				...layer.unknownFields
 			};
 		// No `default:` and no exhaustiveness assertion. A fourth kind added to the union lands here

@@ -23,6 +23,7 @@ import {
 	type AnnotationCollection,
 	type LineStyle
 } from '../annotation/annotation.js';
+import { PIN_ICON_SIZE, PIN_IMAGE_ID, PIN_PIXEL_RATIO, pinImage } from './pin-icon.js';
 import {
 	LINE_STYLES,
 	LINE_STYLE_PROPERTY,
@@ -110,6 +111,22 @@ export interface StackRender {
 	 */
 	setOpacity(layerId: string, opacity: number): void;
 	/**
+	 * Replace an Annotation Layer's features in place.
+	 *
+	 * Separate from the build for the same reason as {@link setOpacity}, and for a sharper one: an
+	 * Annotation's title is typed a character at a time, each keystroke writes the file, and each
+	 * write hands the page a new collection. Rebuilding on that tore down and re-added **every layer
+	 * in the stack**, Historical Maps included, once per keystroke — so typing a title made the whole
+	 * map thrash and refetch tiles. Nothing about the *structure* changed; only the data in one
+	 * source did, and this is that.
+	 *
+	 * What a rebuild is still for is a change of structure — the first dashed line in a Layer needs a
+	 * layer that was not added — which is what {@link annotationDrawKey} exists to detect.
+	 *
+	 * A no-op for a Layer that is not drawn, or whose source has gone with a `setStyle`.
+	 */
+	setAnnotations(layerId: string, collection: AnnotationCollection): void;
+	/**
 	 * Take the whole stack off the map. Survivable after a `setStyle` has already removed it.
 	 *
 	 * @param options.mapIsGone the **map itself** has been removed, not just its style. Then its layers
@@ -136,7 +153,20 @@ export const stackLayerId = (layerId: string, part = ''): string =>
  * How big a pin draws, by `marker-size`. simplestyle names three sizes and gives no pixel values, so
  * these are ours; the ratios are what matter.
  */
-const MARKER_RADIUS: Record<string, number> = { small: 4, medium: 6, large: 9 };
+/**
+ * Register the pin image on this map if it is not already there.
+ *
+ * Idempotent, and **re-run on every stack build on purpose**: a theme change calls `setStyle`, which
+ * discards every image along with every layer, so an image registered once at startup would vanish
+ * the first time somebody switched to dark and every pin would stop drawing.
+ */
+function ensurePinImage(map: MapLibreMap): boolean {
+	if (map.hasImage(PIN_IMAGE_ID)) return true;
+	const image = pinImage();
+	if (image === null) return false;
+	map.addImage(PIN_IMAGE_ID, image, { sdf: true, pixelRatio: PIN_PIXEL_RATIO });
+	return true;
+}
 
 /**
  * The MapLibre layers one Annotation Layer needs.
@@ -212,26 +242,47 @@ function annotationLayers(
 		}
 	};
 
+	// **A pin, drawn as a symbol rather than a circle.** A circle reads as an area — a region, a
+	// radius — and a Point Annotation is "this place, here". The image is an SDF so that each pin
+	// takes its own `marker-color` through `icon-color`; see `pin-icon.ts` for why a PNG cannot.
+	//
+	// `icon-anchor: 'bottom'` because the *tip* is what points at the coordinate; a centred pin marks
+	// a spot half its own height north of the place it means. `icon-allow-overlap` because two
+	// Annotations near each other are two claims a scholar made, and MapLibre's default is to drop
+	// one of them — silent loss of somebody's work from the map is not a decluttering.
 	const point = {
 		id: stackLayerId(layerId, 'point'),
 		spec: {
-			type: 'circle',
+			type: 'symbol',
 			source,
 			filter: ['==', ['geometry-type'], 'Point'],
-			paint: {
-				'circle-color': ['get', 'marker-color'],
-				'circle-radius': [
+			layout: {
+				'icon-image': PIN_IMAGE_ID,
+				'icon-anchor': 'bottom',
+				'icon-allow-overlap': true,
+				'icon-ignore-placement': true,
+				'icon-size': [
 					'match',
 					['coalesce', ['get', 'marker-size'], 'medium'],
 					'small',
-					MARKER_RADIUS['small'] ?? 4,
+					PIN_ICON_SIZE['small'] ?? 0.5,
 					'large',
-					MARKER_RADIUS['large'] ?? 9,
-					MARKER_RADIUS['medium'] ?? 6
-				],
-				'circle-stroke-color': ['get', 'stroke'],
-				'circle-stroke-width': 1,
-				'circle-opacity': ['to-number', ['get', 'fill-opacity']]
+					PIN_ICON_SIZE['large'] ?? 0.95,
+					PIN_ICON_SIZE['medium'] ?? 0.7
+				]
+			},
+			paint: {
+				'icon-color': ['get', 'marker-color'],
+				// **No opacity.** The circle took `fill-opacity`, which is simplestyle's *area* opacity —
+				// it belongs to a polygon's interior, and a pin has no interior. Inheriting it made every
+				// pin translucent by default and gave a scholar no control that explained why. A pin is a
+				// mark on the map: it is there or it is not, and whether the Layer is showing is the
+				// visibility toggle's job.
+				//
+				// The ring the pin's own `stroke` used to draw as a circle outline. Kept, because a pin
+				// whose colour matches the ground under it is otherwise invisible.
+				'icon-halo-color': ['get', 'stroke'],
+				'icon-halo-width': 1
 			}
 		}
 	};
@@ -270,6 +321,24 @@ function whatItContains(rendered: { features: Record<string, unknown>[] }): {
 		}
 	}
 	return { lineStyles, hasArea, hasPoint };
+}
+
+/**
+ * What about an Annotation Layer's contents decides **which** MapLibre layers it needs.
+ *
+ * A stable string, so a caller can hold it as "the shape of this Layer" and rebuild only when it
+ * changes. Everything else about a collection — a title, a description, a colour, a moved vertex —
+ * is data inside a source that is already there, and belongs in {@link StackRender.setAnnotations}
+ * instead. Typing a title used to change this Layer's entry in a structure key and rebuild the whole
+ * stack per keystroke; this is the value that does not move when it should not.
+ */
+export function annotationDrawKey(collection: AnnotationCollection | null | undefined): string {
+	const present = whatItContains(toRenderCollection(collection ?? { annotations: [] }));
+	return [
+		present.hasPoint ? 'point' : '',
+		present.hasArea ? 'area' : '',
+		...LINE_STYLES.filter((style) => present.lineStyles.has(style))
+	].join('|');
 }
 
 /**
@@ -355,13 +424,14 @@ export function drawLayerStack(options: {
 		// `toRenderCollection` resolves each Annotation's style against this Layer's default and
 		// simplestyle's own (ADR-0009). A Layer with no file yet, or one whose file could not be read,
 		// draws nothing rather than taking the rest of the stack down with it.
-		const rendered = toRenderCollection(
-			drawn.annotations ?? { annotations: [] },
-			drawn.layer.defaultStyle
-		);
+		const rendered = toRenderCollection(drawn.annotations ?? { annotations: [] });
 		map.addSource(source, { type: 'geojson', data: rendered as never });
 		sources.push(source);
-		for (const { id, spec } of annotationLayers(layerId, whatItContains(rendered))) {
+		const contents = whatItContains(rendered);
+		// No image, no pin layer — which shows as a missing mark rather than as MapLibre logging a
+		// missing image once per frame.
+		if (contents.hasPoint && !ensurePinImage(map)) contents.hasPoint = false;
+		for (const { id, spec } of annotationLayers(layerId, contents)) {
 			map.addLayer({ id, ...spec } as never);
 			added.push(id);
 		}
@@ -374,6 +444,13 @@ export function drawLayerStack(options: {
 		outcomes,
 		setOpacity(layerId, opacity) {
 			warped[layerId]?.setOpacity(opacity);
+		},
+		setAnnotations(layerId, collection) {
+			const source = map.getSource(stackLayerId(layerId, 'source'));
+			// `getSource` returns whatever kind is there; only a GeoJSON source has `setData`, and after
+			// a `setStyle` there is nothing there at all.
+			const geojson = source as { setData?: (data: unknown) => void } | undefined;
+			geojson?.setData?.(toRenderCollection(collection));
 		},
 		destroy({ mapIsGone = false } = {}) {
 			unexpose();

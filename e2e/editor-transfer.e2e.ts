@@ -804,8 +804,9 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 		await openLayerRow(page, notes);
 		await expect(page.getByTestId('annotation-row-name')).toHaveText('The west quay');
 		await page.getByTestId('annotation-row').click();
-		await expect(page.getByTestId('annotation-title')).toHaveValue('The west quay');
-		await expect(page.getByTestId('annotation-description')).toHaveValue(
+		// Read as text, which is how a review copy is read: no field is opened to see it.
+		await expect(page.getByTestId('annotation-title-text')).toHaveText('The west quay');
+		await expect(page.getByTestId('annotation-description-text')).toContainText(
 			'Bonded warehouses, still standing in 1625.'
 		);
 

@@ -28,6 +28,7 @@ import {
 	addAnnotation,
 	findAnnotation,
 	newAnnotation,
+	styleForNewAnnotation,
 	removeAnnotation,
 	insertAnnotationAt,
 	setGeometry,
@@ -278,10 +279,22 @@ export class AnnotationEditing {
 		if (finished !== null) await this.#addDrawn(finished);
 	}
 
-	/** Put a finished geometry in the Layer as a new Annotation, and select it so it can be titled. */
+	/**
+	 * Put a finished geometry in the Layer as a new Annotation, and select it so it can be titled.
+	 *
+	 * **It is drawn with the last one's style** (ADR-0009, as amended). That is the whole of what
+	 * replaced a Layer's `defaultStyle`: pick a colour once and everything drawn after it is that
+	 * colour, without a control named "default" and without anything being inherited at read time.
+	 * `styleForNewAnnotation` is in `core` so the rule is stated once, beside the resolution it
+	 * replaced.
+	 */
 	async #addDrawn(geometry: AnnotationGeometry): Promise<void> {
 		const collection = this.#activeCollection ?? { annotations: [] };
-		const annotation = newAnnotation({ id: crypto.randomUUID(), geometry });
+		const annotation = newAnnotation({
+			id: crypto.randomUUID(),
+			geometry,
+			style: styleForNewAnnotation(collection)
+		});
 		this.selectedAnnotationId = annotation.id;
 		this.popupAt = null;
 		await this.commitAnnotations(addAnnotation(collection, annotation));

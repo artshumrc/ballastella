@@ -29,6 +29,14 @@ So a notice that is *conditionally inserted* uses `role="alert"`, which announce
 
 The mandate above is unchanged for its own case, and it remains the better shape where it applies: a region present from the first frame whose text moves is announced without stealing focus from what the user is doing. Reach for `role="alert"` only when the element genuinely comes and goes — and prefer converting the element to an always-present region with an empty string, which is what the two other Base Map notices in the viewer still need.
 
+### Amendment: an icon set is not a second UI dependency
+
+`@lucide/svelte` is adopted for glyphs, and that is not a relaxation of "daisyUI is the only UI dependency". What this ADR rejected was a headless **component** library — `bits-ui`, Melt UI — because such a library owns focus, keyboard handling and ARIA, which is where WCAG 2.1 AA is won or lost, and because a second owner of those makes each surface's accessibility outcome depend on which library an implementer reached for. An icon is none of that: each Lucide icon is a Svelte component that renders one `<svg>` with `stroke="currentColor"` and no behaviour at all, imported one glyph at a time (`@lucide/svelte/icons/map`) so that only what is used is bundled. ISC, with portions of Feather under MIT; both plainly permissive, and no compiled artefact.
+
+**The binding rule is that a glyph is never alone with meaning**, which is this ADR's tooltip consequence applied to icons rather than an exception to it. A kind icon sits beside the words it illustrates; an icon-only button carries its label in visible or `sr-only` text and its state in ARIA. An icon that would need a tooltip to be understood is the wrong icon, and the answer is words, not a `title` attribute. Where SPEC story 111 asks for an explanation, the explanation is still text.
+
+Adopted for the Layer card redesign, which needed a Layer's *kind* to be recognisable before it is read; `apps/editor` only, so no published site downloads it (ADR-0019).
+
 The Popover API mandate also buys correctness, not only compliance: dropdowns here open over a **MapLibre WebGL canvas** — a positioned canvas with its own stacking context, into which MapLibre injects its own controls. That is exactly where z-index and `overflow` bugs live, and top-layer rendering eliminates the class outright.
 
 ## Consequences

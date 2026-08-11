@@ -11,30 +11,21 @@
 	// Only one row is open at a time, so exactly one of these exists on the screen. That is what lets
 	// the heading and the list carry fixed ids and fixed accessible names.
 	//
-	// The {@link layer} this is handed is the screen's `activeLayer` — both are `openLayerId` — so the
-	// collection, the selection and every write function passed in are about the Layer named in the
-	// prop and there is no second answer available. That is why `layer` is not nullable here and was
-	// before: a `null` Layer used to mean "the Project has no Annotation Layer", which this component
-	// can no longer be rendered in.
+	// The collection, the selection and every write function passed in are about the open Layer, and
+	// there is no second answer available. **The Layer itself is no longer among them**: it was here
+	// for its `defaultStyle`, and a Layer no longer has one (ADR-0009, as amended) — style lives on
+	// each Annotation, put there when it is drawn.
 
-	import {
-		LINE_STYLES,
-		SIMPLESTYLE_DEFAULTS,
-		dashArrayFor,
-		lineStyleOf,
-		type Annotation,
-		type AnnotationCollection,
-		type AnnotationLayer,
-		type LineStyle,
-		type SimpleStyle
-	} from '@ballastella/core';
+	import { type Annotation, type AnnotationCollection, type LineStyle } from '@ballastella/core';
+
+	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
 
 	import AnnotationEditor from './AnnotationEditor.svelte';
 	import AnnotationTools from './AnnotationTools.svelte';
+	import { iconForGeometry } from './shape-icons';
 	import type { AnnotationTool } from './drawing.svelte';
 
 	let {
-		layer,
 		collection,
 		selectedId,
 		tool,
@@ -50,11 +41,8 @@
 		oncommit,
 		onstyle,
 		onlinestyle,
-		ondelete,
-		onlayerstyle
+		ondelete
 	}: {
-		/** The open Layer, which is by definition the one being drawn into (ticket 05). */
-		layer: AnnotationLayer;
 		collection: AnnotationCollection | null;
 		selectedId: string | null;
 		tool: AnnotationTool;
@@ -71,18 +59,24 @@
 		onstyle: (style: Record<string, unknown>, options?: { debounce?: boolean }) => void;
 		onlinestyle: (line: LineStyle) => void;
 		ondelete: () => void;
-		/**
-		 * Change the **Layer's** default style, which every Annotation in it that says nothing of its own
-		 * takes (ADR-0002, ADR-0009).
-		 *
-		 * This is what makes precedence worth having rather than merely correct: it is how a whole Layer
-		 * is restyled in one action, which is the reason ADR-0009 forbids stamping defaults onto each
-		 * feature at creation time. It lives on the Layer in `project.json`, never in the GeoJSON.
-		 */
-		onlayerstyle: (style: SimpleStyle, options?: { debounce?: boolean }) => void;
 	} = $props();
 
 	const annotations = $derived<readonly Annotation[]>(collection?.annotations ?? []);
+
+	/**
+	 * Whether the shapes are on offer — "New Annotation" has been pressed, or a tool is armed.
+	 *
+	 * Held here rather than in the toolbar because it decides more than the toolbar: **the list of
+	 * Annotations is out of the way while a new one is being drawn.** Somebody who has just said "new"
+	 * is looking at the map, and a list of what is already in the Layer is the thing they are not
+	 * doing. It comes back the moment they are done.
+	 *
+	 * `picking` is only the gap the tool cannot describe: pressed, but no shape chosen yet. Once one
+	 * is, the armed tool holds the state on its own, so drawing three pins in a row is three clicks on
+	 * the map rather than three trips through the button.
+	 */
+	let picking = $state(false);
+	const choosing = $derived(picking || tool !== 'select');
 	const selected = $derived(annotations.find((one) => one.id === selectedId) ?? null);
 
 	/**
@@ -114,131 +108,134 @@
 	};
 </script>
 
-<section aria-labelledby="annotations-heading" class="flex flex-col gap-3">
-	<!--
-		`<h3>`, because this sits inside a Layer row, inside the `<ol>`, under the stack's own `<h2>`.
-		The Layer's name is not repeated in it: the row's name field is a few pixels above and says it.
-	-->
-	<h3 id="annotations-heading" class="font-semibold">Annotations</h3>
-
+<!--
+	Named by `aria-label` rather than by a heading of its own. The card this renders inside already
+	says "Annotations" in its header — the one line that stays visible when the card is collapsed —
+	so a `<h3>` here put the same word on the screen twice, a few pixels apart, saying nothing the
+	first one had not. The name still reaches assistive technology, which is what the heading was
+	carrying; only the duplicated pixels went.
+-->
+<section aria-label="Annotations" class="flex flex-col gap-3">
 	<AnnotationTools
 		{tool}
+		{choosing}
 		{status}
 		{drawing}
 		{canFinish}
-		onchoose={onchoosetool}
+		onnew={() => {
+			picking = true;
+			// **"New Annotation" closes whatever was open.** The editor is not part of the list, so it
+			// stayed on screen while the list stepped aside — a panel titled "The west quay" sitting
+			// directly under the shape buttons, which reads as the thing about to be drawn and is not. It
+			// is the same panel the shape that gets drawn will appear in, a few pixels from where the
+			// pointer is, so the two were as close to indistinguishable as the interface can make them.
+			// Deselecting is also what the gesture means: a new Annotation is not an edit to the old one.
+			onselect(null);
+		}}
+		onchoose={(chosen) => {
+			if (chosen === 'select') picking = false;
+			onchoosetool(chosen);
+		}}
 		{onfinish}
 		{oncancel}
 		{onundovertex}
 	/>
 
-	<!--
-		The Layer's own default style. Two controls only — a colour and a line style — because this is
-		the bulk-restyle affordance rather than a second full style editor: it exists so that "make every
-		conjectural route in this Layer dashed" is one action, which is the whole reason ADR-0009 keeps
-		defaults off the features. Anything an Annotation sets for itself still wins (precedence is
-		resolved in `core`, once, for both apps).
-	-->
-	<fieldset class="rounded border border-base-300 p-3">
-		<legend class="px-1 text-sm font-semibold">This Layer's default style</legend>
-		<div class="flex flex-col gap-2">
-			<!--
-				One control writing **two** simplestyle properties, because a pin's colour is not a line's.
-				`marker-color` is what paints a pin and `stroke` is what paints a line, an outline, and a
-				pin's own thin ring — so a control labelled "Line and pin colour" that wrote `stroke` alone
-				left every pin at simplestyle's grey `#7e7e7e` and contradicted its own label. Two separate
-				controls are the alternative and are what the per-Annotation editor has; here they would
-				make the bulk affordance two actions where "make this Layer's Annotations blue" is one.
-				Anything an Annotation sets for itself still wins, per property (ADR-0009) — so the pin
-				whose own colour differs from the Layer's still shows its 1px `stroke` ring, and a pin
-				taking the Layer's default draws that ring in its own colour and so has none to see.
-
-				The swatch shows `stroke`, because this control writes the two together and is the only
-				thing in the app that sets either on a Layer. A `defaultStyle` that arrived from somewhere
-				else with only `marker-color` therefore shows the line colour until this is used, which
-				then makes them agree.
-			-->
-			<label class="flex items-center justify-between gap-2 text-sm">
-				<span>Line and pin colour</span>
-				<input
-					type="color"
-					class="h-8 w-16"
-					value={layer.defaultStyle.stroke ?? SIMPLESTYLE_DEFAULTS.stroke}
-					data-testid="layer-default-stroke"
-					oninput={(event) => {
-						const colour = event.currentTarget.value;
-						onlayerstyle(
-							{ ...layer.defaultStyle, stroke: colour, 'marker-color': colour },
-							{ debounce: true }
-						);
-					}}
-					onchange={() => oncommit()}
-				/>
-			</label>
-
-			<label class="flex items-center justify-between gap-2 text-sm">
-				<span>Line style</span>
-				<select
-					class="select select-sm"
-					value={lineStyleOf(layer.defaultStyle['stroke-dasharray'])}
-					data-testid="layer-default-line-style"
-					onchange={(event) => {
-						const dash = dashArrayFor(event.currentTarget.value as LineStyle);
-						// Solid is the property being **absent**, so it is deleted rather than set to
-						// something that looks continuous (ADR-0009) — the same rule the per-Annotation
-						// control follows.
-						const rest = Object.fromEntries(
-							Object.entries(layer.defaultStyle).filter(([key]) => key !== 'stroke-dasharray')
-						) as SimpleStyle;
-						onlayerstyle(dash === undefined ? rest : { ...rest, 'stroke-dasharray': dash });
-					}}
-				>
-					{#each LINE_STYLES as style (style)}
-						<option value={style}>{style}</option>
-					{/each}
-				</select>
-			</label>
-		</div>
-	</fieldset>
-
-	{#if annotations.length === 0}
+	{#if choosing}
+		<!--
+			Nothing here while a new Annotation is being drawn. The list is not hidden to save space: it
+			is the answer to "what is already in this Layer", and somebody who has just pressed "New
+			Annotation" is asking the opposite question. What they draw appears in its own editor below,
+			and the list is back as soon as they are done.
+		-->
+	{:else if annotations.length === 0}
 		<p class="text-sm opacity-70" data-testid="annotation-list-empty">Nothing in this Layer yet.</p>
 	{:else}
 		<!--
-			An `<ol>`, so the list's structure reaches assistive technology from the markup. Each row is
-			a `<button>` with `aria-pressed`, which is ADR-0016's shape for a selection toggle and what
-			makes the list operable by keyboard with nothing added.
+			**Outlined, headed and divided, because it did not read as a list.** Ghost buttons in a gap-1
+			column are the shape a toolbar has: nothing said where the Annotations began, where they
+			ended, or that the rows were siblings rather than four unrelated controls stacked in a
+			sidebar. The box draws the edge, the caption says what is inside it and how many, and the
+			hairlines between rows are what make them read as items of one thing.
+
+			daisyUI's own `menu`, which is the component for a list of choices — ADR-0016 mandates no
+			method for a list, and reaching for `menu` rather than restyling `btn` keeps the hover, focus
+			and active states the theme already defines. Still an `<ol>`, so the structure reaches
+			assistive technology from the markup rather than from the class; still a `<button>` per row
+			with `aria-pressed`, which is ADR-0016's shape for a selection toggle and what makes the list
+			operable by keyboard with nothing added.
 		-->
-		<ol
-			class="flex flex-col gap-1"
-			aria-label="Annotations in this Layer"
-			data-testid="annotation-list"
-		>
-			{#each annotations as annotation, index (annotation.id)}
-				<li>
-					<button
-						type="button"
-						class="btn w-full justify-start btn-ghost btn-sm"
-						class:btn-active={annotation.id === selectedId}
-						aria-pressed={annotation.id === selectedId}
-						data-testid="annotation-row"
-						data-annotation-id={annotation.id}
-						onclick={() => onselect(annotation.id === selectedId ? null : annotation.id)}
-					>
-						<span class="opacity-60">{shapeWord(annotation)}</span>
-						<span class="truncate" data-testid="annotation-row-name">
-							{describe(annotation, index)}
-						</span>
-					</button>
-				</li>
-			{/each}
-		</ol>
+		<div class="overflow-hidden rounded-lg border border-base-300">
+			<p
+				class="border-b border-base-300 bg-base-200 px-3 py-1 text-[0.65rem] font-semibold uppercase opacity-70"
+				id="annotation-list-caption"
+			>
+				{annotations.length}
+				{annotations.length === 1 ? 'Annotation' : 'Annotations'}
+			</p>
+
+			<ol
+				class="menu w-full gap-0 menu-sm p-0"
+				aria-labelledby="annotation-list-caption"
+				data-testid="annotation-list"
+			>
+				{#each annotations as annotation, index (annotation.id)}
+					{@const Icon = iconForGeometry(annotation.geometry?.type)}
+					{@const chosen = annotation.id === selectedId}
+					<li class="border-b border-base-200 last:border-b-0">
+						<!--
+							**The chosen row is marked by the Annotation Layer's own wash, and nothing else.**
+							`KIND_STYLE.annotation.tint` is the same 10% the card's header wears, from the one table
+							every colour in this card comes from (`layer-kind-style.ts`).
+
+							It was `border-primary` with daisyUI's `menu-active`, which is two colours making two
+							claims: `primary` is the *app's* action colour, reserved for the controls outside the
+							Layer cards, and `menu-active` paints `base-content` — near-black in the light theme —
+							so a blue rule sat against a black slab in a card whose every other control is `info`.
+							Reported as clashing, and it was: nothing about either colour said "this belongs to the
+							Annotations".
+
+							**The rule down the left edge went with them.** It was the third mark on a row that
+							needed one, in a column that already draws a hairline between every row and a border
+							around the whole list — a fourth vertical line, two pixels from the box's own. The wash
+							alone says which row it is, and it is a wash rather than a fill for a reason: at 10%
+							over `base-100` the row's text stays on the colour it was already legible on, where a
+							`base-content` slab has to re-solve its own contrast and then repaint the text to win.
+
+							Colour is not the only channel (SPEC story 111): the name goes semibold, which survives
+							a monochrome screen, and `aria-pressed` is what carries the state to a screen reader.
+						-->
+						<button
+							type="button"
+							class={[
+								'flex w-full items-center gap-2 rounded-none py-2',
+								chosen && `font-semibold ${KIND_STYLE.annotation.tint}`
+							]}
+							aria-pressed={chosen}
+							data-testid="annotation-row"
+							data-annotation-id={annotation.id}
+							onclick={() => onselect(chosen ? null : annotation.id)}
+						>
+							<!--
+								The same glyph the tool that drew it carries, and **beside the word rather than
+								instead of it** (SPEC story 111) — the word is what a screen reader reads and what a
+								glyph alone would have taken away.
+							-->
+							<Icon class="size-4 shrink-0 opacity-60" aria-hidden="true" />
+							<span class="shrink-0 text-xs opacity-60">{shapeWord(annotation)}</span>
+							<span class="truncate" data-testid="annotation-row-name">
+								{describe(annotation, index)}
+							</span>
+						</button>
+					</li>
+				{/each}
+			</ol>
+		</div>
 	{/if}
 
 	{#if selected !== null}
 		<AnnotationEditor
 			annotation={selected}
-			layerDefault={layer.defaultStyle}
 			{ontext}
 			{oncommit}
 			{onstyle}

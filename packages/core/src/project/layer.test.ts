@@ -235,10 +235,16 @@ describe('reading the layers array', () => {
 			opacity: 0.6,
 			imageId: 'floride-1657'
 		});
+		// **`defaultStyle` is carried, not interpreted.** A Layer no longer has one (ADR-0009, as
+		// amended), and a Project written by an earlier build still says it — so it lands in
+		// `unknownFields` like any other value this build does not understand, and is written back from
+		// there. Opening such a Project preserves a user's bytes rather than deleting them (ADR-0010),
+		// and its Annotations simply draw with simplestyle's own defaults where they say nothing.
 		expect(layers[1]).toMatchObject({
 			kind: 'annotation',
-			defaultStyle: { stroke: '#aa0000', 'stroke-dasharray': [8, 4] }
+			unknownFields: { defaultStyle: { stroke: '#aa0000', 'stroke-dasharray': [8, 4] } }
 		});
+		expect(layers[1]).not.toHaveProperty('defaultStyle');
 	});
 
 	it('sorts by order and renumbers from it', () => {
@@ -271,7 +277,12 @@ describe('reading the layers array', () => {
 		['a NaN opacity', { id: 'x', kind: 'map', opacity: Number.NaN }, { opacity: 1 }],
 		['a missing imageId', { id: 'x', kind: 'map' }, { imageId: '' }],
 		['a non-string imageId', { id: 'x', kind: 'map', imageId: 7 }, { imageId: '' }],
-		['a non-object defaultStyle', { id: 'x', kind: 'annotation', defaultStyle: 3 }, {}]
+		// Not a field this build knows any more, so it is carried whatever it is rather than repaired.
+		[
+			'a defaultStyle from an earlier build',
+			{ id: 'x', kind: 'annotation', defaultStyle: 3 },
+			{ unknownFields: { defaultStyle: 3 } }
+		]
 	])('survives %s', (_description, raw, expected) => {
 		expect(parseLayers([raw])[0]).toMatchObject(expected);
 	});
@@ -379,7 +390,7 @@ describe('writing the layers array', () => {
 	it('round-trips both kinds', () => {
 		const layers = [
 			mapLayer({ opacity: 0.3, visible: false }),
-			annotationLayer({ order: 1, defaultStyle: { fill: '#123456' } })
+			annotationLayer({ order: 1, unknownFields: { defaultStyle: { fill: '#123456' } } })
 		];
 
 		expect(parseLayers(serialiseLayers(layers))).toEqual(layers);

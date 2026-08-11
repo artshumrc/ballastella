@@ -21,8 +21,10 @@ import {
 } from './support/alignment-workspace.js';
 import {
 	annotationLayerId,
+	chooseLineStyle,
 	drawPin,
 	drawShape,
+	editAnnotationText,
 	hashesUnder,
 	projectJson,
 	readProjectFile,
@@ -434,9 +436,10 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 			[0.62, 0.45]
 		]);
 		await selectAnnotation(page);
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('Fort Amsterdam');
 		await page.getByTestId('annotation-title').blur();
-		await page.getByTestId('annotation-line-style').selectOption('dotted');
+		await chooseLineStyle(page, 'dotted');
 		await saved(page);
 
 		const before = await readProjectFile(page, `annotations/${layerId}.geojson`);
@@ -487,6 +490,7 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 
 		await drawPin(page, 0.4, 0.45);
 		await selectAnnotation(page);
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('Fort Amsterdam');
 		await page.getByTestId('annotation-title').blur();
 		await saved(page);
@@ -602,6 +606,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		const layerId = await startAnnotating(page);
 		await drawPin(page, 0.4, 0.45);
 		await selectAnnotation(page);
+		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('Trade route');
 		await page.getByTestId('annotation-title').blur();
 		await saved(page);

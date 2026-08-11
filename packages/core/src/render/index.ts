@@ -25,6 +25,7 @@ export {
 	type ReadCachedTile
 } from './base-map-tile-protocol.js';
 export {
+	annotationDrawKey,
 	annotationLayerIds,
 	drawLayerStack,
 	isDrawnMap,

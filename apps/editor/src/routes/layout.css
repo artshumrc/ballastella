@@ -5,6 +5,65 @@
 @plugin 'daisyui';
 
 /* ─────────────────────────────────────────────────────────────────────────────────────────
+   The ink of a Layer kind's line, in `LayerList.svelte`'s card header.
+
+   A Layer card's header carries a 10% wash of its kind's own colour, and the kind line on it — the
+   glyph and the words "Historical Map" / "Annotations" — is set in that colour, so the two kinds
+   differ before anything is read. `layers/layer-kind-style.ts` is where the pair is chosen and why —
+   and where everything else in a card takes it from; these are the same two tokens, mixed.
+
+   **The token itself cannot be that ink.** `accent` is a 77%-lightness teal in the stock light
+   theme and `info` a 74%-lightness blue, which is 1.9:1 and 2.2:1 against a `base-100` card.
+   A 0.65rem uppercase label wants 4.5:1 under WCAG 2.1 AA and an icon wants 3:1, so the raw tokens
+   carry neither — and a theme is free to choose a light accent again, so this is not a quirk of the
+   stock palette to be worked around once.
+
+   So the ink is the kind's hue mixed half-and-half with the theme's own text colour. `base-content`
+   flips with the theme, so one declaration is legible in both: in light it darkens the hue toward
+   near-black, in dark it lightens it toward near-white, and in both it keeps enough chroma to still
+   read as that kind's colour. All three inputs are theme tokens, so the generator still owns what
+   the colours are.
+
+   **Half, measured rather than guessed.** At a 60/40 mix the teal reached only 4.36:1 on its own
+   wash in the light theme — under the 4.5:1 this label size needs, and exactly the kind of near-miss
+   that shows up on a ratio meter and nowhere else. The sweep, across both kinds and both themes:
+
+       mix     light map   light ann    dark map   dark ann
+       60%        4.36        4.78        8.69        8.13
+       55%        4.93        5.36        8.96        8.44
+       50%        5.57        6.01        9.23        8.76
+       45%        6.31        6.75        9.51        9.09
+
+   50% is the first row where every cell has real margin, and margin is the point: the theme generator
+   can hand this a lighter accent than the stock one.
+
+   Here rather than in a `<style>` block because the classes are chosen by a helper function
+   (`kindInk`) rather than written literally in the markup, and Svelte's scoped CSS only rewrites
+   selectors it can see in the template. */
+
+/* The same treatment for the triangle on a Layer's problem band, and for the same reason: `warning`
+   is an 82%-lightness amber in the stock light theme, which is 1.6:1 on the band's own 15% wash —
+   an amber glyph on pale amber, effectively invisible. The sentence beside it is `base-content` and
+   carries the meaning at 16:1, so the icon is not *required* to understand the notice; it is still
+   meant to be seen, and 1.6:1 is not seen. Mixed half-and-half it clears 5:1 in both themes and
+   stays plainly amber.
+
+   A solid `alert-warning` would have got its contrast from daisyUI's own pairing, and that is what
+   the rest of the app uses for a notice that owns its own block. It is deliberately not used here:
+   a Layer card is 24rem wide and a solid amber band across it reads as an error in the application
+   rather than as work for the user, which is not what "this map still needs aligning" is. */
+
+:root {
+	--layer-kind-ink-map: color-mix(in oklab, var(--color-accent) 50%, var(--color-base-content));
+	--layer-kind-ink-annotation: color-mix(
+		in oklab,
+		var(--color-info) 50%,
+		var(--color-base-content)
+	);
+	--layer-problem-ink: color-mix(in oklab, var(--color-warning) 50%, var(--color-base-content));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
    Overlay points on a map pane.
 
    Global, and here rather than in a component, because these elements are created

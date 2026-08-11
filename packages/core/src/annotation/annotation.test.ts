@@ -6,15 +6,18 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { newAnnotationLayer, type SimpleStyle } from '../project/layer.js';
 import type { Bytes } from '../store/project-store.js';
 
 import {
+	ANNOTATION_COLORS,
 	DASHED_DASHARRAY,
+	DEFAULT_ANNOTATION_COLOR,
 	DOTTED_DASHARRAY,
 	MARKER_SIZES,
 	SIMPLESTYLE_DEFAULTS,
 	addAnnotation,
+	annotationAnchor,
+	annotationColorName,
 	dashArrayFor,
 	emptyCollection,
 	findAnnotation,
@@ -26,6 +29,7 @@ import {
 	setLineStyle,
 	setStyle,
 	setText,
+	styleForNewAnnotation,
 	simpleStyleViolations,
 	withLineStyle,
 	type AnnotationCollection,
@@ -94,8 +98,10 @@ describe('drawing (SPEC stories 57, 58, 59)', () => {
 	});
 
 	test('a new Annotation carries no style properties at all', () => {
-		// A criterion rather than an omission: precedence is what lets a Layer be restyled in bulk, and
-		// stamping defaults at creation time would break that on the first thing drawn (ADR-0009).
+		// **`newAnnotation` invents nothing**, which is still a criterion now that a drawn Annotation does
+		// start on a colour: the style comes from `styleForNewAnnotation` and is passed *in*, so there is
+		// exactly one place that decides what a fresh shape is drawn with. A default living here as well
+		// would be a second answer to that question, reachable by any caller that forgot the first.
 		const drawn = pin('a1');
 
 		expect(drawn.properties).toEqual({});
@@ -316,48 +322,163 @@ describe('reading somebody else’s document', () => {
 	});
 });
 
-describe('style precedence: properties → defaultStyle → simplestyle (ADR-0009)', () => {
-	const layerDefault: SimpleStyle = { stroke: '#112233', 'stroke-width': 5, fill: '#445566' };
-
-	test('a Layer defaultStyle reaches an Annotation with no properties of its own', () => {
-		const resolved = resolveStyle({}, layerDefault);
-
-		expect(resolved.stroke).toBe('#112233');
-		expect(resolved['stroke-width']).toBe(5);
-		expect(resolved.fill).toBe('#445566');
+describe('style resolution: properties → simplestyle (ADR-0009, as amended)', () => {
+	test('an Annotation with no properties of its own draws with simplestyle’s defaults', () => {
+		expect(resolveStyle({})).toMatchObject(SIMPLESTYLE_DEFAULTS);
+		expect(resolveStyle(undefined)).toMatchObject(SIMPLESTYLE_DEFAULTS);
 	});
 
-	test('a feature property overrides the Layer default', () => {
-		const resolved = resolveStyle({ stroke: '#ff0000' }, layerDefault);
-
-		expect(resolved.stroke).toBe('#ff0000');
+	test('a feature property is what it draws with', () => {
+		expect(resolveStyle({ stroke: '#ff0000' }).stroke).toBe('#ff0000');
 	});
 
-	test('overriding one property keeps the Layer’s others', () => {
+	test('setting one property leaves the rest at the spec’s own', () => {
 		// Per property, not per object. An object-level fallback would make setting one colour silently
-		// discard every other value the Layer carried.
-		const resolved = resolveStyle({ stroke: '#ff0000' }, layerDefault);
+		// discard every other value — the reason this was written a field at a time when there were two
+		// levels of fallback, and still the reason with one.
+		const resolved = resolveStyle({ stroke: '#ff0000' });
 
-		expect(resolved['stroke-width']).toBe(5);
-		expect(resolved.fill).toBe('#445566');
-	});
-
-	test('simplestyle’s own defaults are the last step', () => {
-		expect(resolveStyle({}, {})).toMatchObject(SIMPLESTYLE_DEFAULTS);
-		expect(resolveStyle(undefined, undefined)).toMatchObject(SIMPLESTYLE_DEFAULTS);
+		expect(resolved['stroke-width']).toBe(SIMPLESTYLE_DEFAULTS['stroke-width']);
+		expect(resolved.fill).toBe(SIMPLESTYLE_DEFAULTS.fill);
 	});
 
 	test('a zero opacity is honoured rather than falling through as falsy', () => {
 		// The bug a `??`-with-`||` implementation has, and the reason `pick` compares with `undefined`:
 		// 0 and '' are meaningful values here, and "fully transparent" is a thing a user chooses.
-		expect(resolveStyle({ 'fill-opacity': 0 }, { 'fill-opacity': 0.9 })['fill-opacity']).toBe(0);
-		expect(resolveStyle({}, { 'stroke-width': 0 })['stroke-width']).toBe(0);
+		expect(resolveStyle({ 'fill-opacity': 0 })['fill-opacity']).toBe(0);
+		expect(resolveStyle({ 'stroke-width': 0 })['stroke-width']).toBe(0);
+	});
+});
+
+describe('a new Annotation is drawn with the last one’s style (ADR-0009, as amended)', () => {
+	const at = (id: string, properties: Record<string, unknown>) => ({
+		id,
+		geometry: { type: 'Point' as const, coordinates: [0, 0] as [number, number] },
+		properties
 	});
 
-	test('a new Annotation Layer starts with an empty defaultStyle, so the spec’s defaults apply', () => {
-		const layer = newAnnotationLayer({ id: 'l1', name: 'Trade routes' });
+	// It used to carry nothing at all, which resolved to simplestyle's own defaults: `#555555` for a
+	// line and a fill, and `#7e7e7e` for a pin. Two different greys, and only one of them a colour the
+	// editor offers — so a freshly drawn pin reported a colour that is on no swatch. The palette's grey
+	// is written explicitly instead, and it is the same value as the spec's own for stroke and fill, so
+	// what changed is what the file *says* rather than what the first Annotation looks like.
+	test('the first Annotation in an empty Layer starts on the palette’s grey', () => {
+		const grey = {
+			'marker-color': DEFAULT_ANNOTATION_COLOR,
+			stroke: DEFAULT_ANNOTATION_COLOR,
+			fill: DEFAULT_ANNOTATION_COLOR
+		};
+		expect(styleForNewAnnotation({ annotations: [] })).toEqual(grey);
+		expect(styleForNewAnnotation(null)).toEqual(grey);
+	});
 
-		expect(resolveStyle({}, layer.defaultStyle)).toMatchObject(SIMPLESTYLE_DEFAULTS);
+	// The colours and nothing else: simplestyle has one default for each of these and this app does not
+	// contradict any of them, so writing them would be bytes that repeat the spec.
+	test('nothing but the colours is defaulted', () => {
+		const style = styleForNewAnnotation(null) as Record<string, unknown>;
+		expect(Object.keys(style).toSorted()).toEqual(['fill', 'marker-color', 'stroke']);
+	});
+
+	test('the next one takes the style of the last one drawn', () => {
+		const collection = {
+			annotations: [
+				at('a', { stroke: '#111111' }),
+				at('b', { stroke: '#ff0000', 'stroke-width': 4, 'stroke-dasharray': [8, 4] })
+			]
+		};
+
+		expect(styleForNewAnnotation(collection)).toEqual({
+			stroke: '#ff0000',
+			'stroke-width': 4,
+			'stroke-dasharray': [8, 4]
+		});
+	});
+
+	test('title, description and unknown properties are not carried onto the next one', () => {
+		// The bug this rules out is a content bug wearing a styling change's clothes: a scholar draws a
+		// second pin and finds it already titled with the first one's words.
+		const collection = {
+			annotations: [
+				at('a', {
+					stroke: '#ff0000',
+					title: 'The old mill',
+					description: 'Built 1780.',
+					unknownProperties: { source: 'a survey' }
+				})
+			]
+		};
+
+		expect(styleForNewAnnotation(collection)).toEqual({ stroke: '#ff0000' });
+	});
+
+	test('an Annotation made with it carries the style as its own properties', () => {
+		// Which is the whole of the amendment: the file says what each Annotation is drawn with, rather
+		// than a reader having to resolve it against something on the Layer.
+		const annotation = newAnnotation({
+			id: 'n1',
+			geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+			style: { stroke: '#ff0000' },
+			title: 'Fort'
+		});
+
+		expect(annotation.properties).toEqual({ stroke: '#ff0000', title: 'Fort' });
+		expect(resolveStyle(annotation.properties).stroke).toBe('#ff0000');
+	});
+});
+
+describe('where a popup points', () => {
+	const of = (geometry: unknown) => ({ id: 'a1', geometry, properties: {} }) as never;
+
+	test('a Point is its own coordinate', () => {
+		expect(annotationAnchor(of({ type: 'Point', coordinates: [4.9, 52.37] }))).toEqual({
+			lng: 4.9,
+			lat: 52.37
+		});
+	});
+
+	test('a line is the middle of it, not either end and not where a reader clicked', () => {
+		// The bug this rules out: a popup that follows the pointer along a coastline, so the same
+		// Annotation opened twice is in two places.
+		const anchor = annotationAnchor(
+			of({
+				type: 'LineString',
+				coordinates: [
+					[4, 52],
+					[6, 52],
+					[6, 54]
+				]
+			})
+		);
+
+		expect(anchor).toEqual({ lng: 5, lat: 53 });
+	});
+
+	test('a shape is the middle of its outer ring', () => {
+		const anchor = annotationAnchor(
+			of({
+				type: 'Polygon',
+				coordinates: [
+					[
+						[4, 52],
+						[6, 52],
+						[6, 54],
+						[4, 54],
+						[4, 52]
+					]
+				]
+			})
+		);
+
+		expect(anchor).toEqual({ lng: 5, lat: 53 });
+	});
+
+	test('a geometry this build cannot draw has none, so the caller falls back to the click', () => {
+		// Not an oversight: a `GeometryCollection` is carried whole and never interpreted, so the only
+		// true thing left about where it is, is where the reader touched it.
+		expect(
+			annotationAnchor(of({ type: 'foreign', declaredType: 'GeometryCollection', raw: {} }))
+		).toBeNull();
+		expect(annotationAnchor(of(null))).toBeNull();
 	});
 });
 
@@ -391,17 +512,18 @@ describe('solid, dashed, and dotted (SPEC story 61)', () => {
 		expect('stroke-dasharray' in back.annotations[0]!.properties).toBe(false);
 	});
 
-	test('a Layer’s default style takes the same rule, through the same function', () => {
-		// The Layer's `defaultStyle` is a bare `SimpleStyle` with no collection around it, so the
-		// Layers pane used to spell the rule out again where it stood — and a second statement of
-		// "solid is the property being absent" is where a `[0, 0]` eventually gets written.
+	test('a bare style takes the same rule, through the same function', () => {
+		// `withLineStyle` works on a `SimpleStyle` with no collection around it — which is what the
+		// Layers pane needed while a Layer had a default style, and what the style carried forward onto
+		// a newly drawn Annotation is. A second statement of "solid is the property being absent" is
+		// where a `[0, 0]` eventually gets written, so there is one.
 		const dashed = withLineStyle({ stroke: '#112233' }, 'dashed');
 		expect(dashed).toEqual({ stroke: '#112233', 'stroke-dasharray': [8, 4] });
 
 		const solid = withLineStyle(dashed, 'solid');
 		expect('stroke-dasharray' in solid).toBe(false);
-		// Everything else the Layer carried survives the change, which is what makes this a *default*
-		// style rather than a two-property one.
+		// Everything else the style carried survives the change, rather than the call replacing it with
+		// a two-property object.
 		expect(solid).toEqual({ stroke: '#112233' });
 		// And an unchanged style is returned as it was, so nothing writes a file that says the same.
 		expect(withLineStyle(solid, 'solid')).toBe(solid);
@@ -568,18 +690,20 @@ describe('simplestyle conformance, as a checkable claim', () => {
 });
 
 describe('the render copy', () => {
-	test('resolves each Annotation’s own style, so precedence reaches the renderer', () => {
+	test('resolves each Annotation’s style, so the renderer reads plain values', () => {
+		// Resolution reaches the render copy rather than the renderer, which is what lets the MapLibre
+		// layers read `['get', 'stroke']` and lets the editor and the published viewer agree.
 		const collection = setStyle(collectionOf(pin('a1'), pin('a2')), 'a2', { stroke: '#ff0000' });
 
-		const render = toRenderCollection(collection, { stroke: '#112233', 'stroke-width': 5 });
+		const render = toRenderCollection(collection);
 
 		expect(render.features[0]?.['properties']).toMatchObject({
-			stroke: '#112233',
-			'stroke-width': 5
+			stroke: SIMPLESTYLE_DEFAULTS.stroke,
+			'stroke-width': SIMPLESTYLE_DEFAULTS['stroke-width']
 		});
 		expect(render.features[1]?.['properties']).toMatchObject({
 			stroke: '#ff0000',
-			'stroke-width': 5
+			'stroke-width': SIMPLESTYLE_DEFAULTS['stroke-width']
 		});
 	});
 
@@ -590,7 +714,7 @@ describe('the render copy', () => {
 			'dotted'
 		);
 
-		const render = toRenderCollection(collection, {});
+		const render = toRenderCollection(collection);
 
 		expect(
 			render.features.map(
@@ -601,7 +725,7 @@ describe('the render copy', () => {
 	});
 
 	test('carries the Annotation id, so a click on the map can be traced back', () => {
-		const render = toRenderCollection(collectionOf(pin('a1')), {});
+		const render = toRenderCollection(collectionOf(pin('a1')));
 
 		expect((render.features[0]?.['properties'] as Record<string, unknown>)[ANNOTATION_ID_PROPERTY]) //
 			.toBe('a1');
@@ -613,7 +737,7 @@ describe('the render copy', () => {
 			description: '*not HTML yet*'
 		});
 
-		const properties = toRenderCollection(collection, {}).features[0]?.['properties'] as Record<
+		const properties = toRenderCollection(collection).features[0]?.['properties'] as Record<
 			string,
 			unknown
 		>;
@@ -640,7 +764,7 @@ describe('the render copy', () => {
 			)
 		);
 
-		expect(toRenderCollection(collection, {}).features).toEqual([]);
+		expect(toRenderCollection(collection).features).toEqual([]);
 		expect(collection.annotations).toHaveLength(2);
 	});
 
@@ -650,5 +774,56 @@ describe('the render copy', () => {
 		expect(written).not.toContain(LINE_STYLE_PROPERTY);
 		expect(written).not.toContain(ANNOTATION_ID_PROPERTY);
 		expect(written).not.toContain('ballastella:');
+	});
+});
+
+describe('the nine colours an Annotation can be', () => {
+	// A palette is a vocabulary, so what is worth asserting is the properties a later edit could quietly
+	// break — not the nine values, which are the definition and would only be restated here.
+
+	test('there are nine, and black, grey and white are among them', () => {
+		expect(ANNOTATION_COLORS).toHaveLength(9);
+		expect(ANNOTATION_COLORS.map((colour) => colour.name)).toEqual(
+			expect.arrayContaining(['Black', 'Grey', 'White'])
+		);
+	});
+
+	test('every colour is a #rrggbb value simplestyle accepts, and lowercase', () => {
+		// Lowercase matters: half this palette's job is being comparable to a value already in a file, and
+		// `#FFFFFF` and `#ffffff` are the same colour spelled two ways. The format claim goes through the
+		// app's own validator rather than a second regex, so the palette cannot drift from what ADR-0009
+		// will accept in a document.
+		for (const { value } of ANNOTATION_COLORS) {
+			expect(value).toBe(value.toLowerCase());
+			expect(simpleStyleViolations({ stroke: value, fill: value, 'marker-color': value })).toEqual(
+				[]
+			);
+		}
+	});
+
+	test('no two swatches are the same colour, and no two share a name', () => {
+		const values = ANNOTATION_COLORS.map((colour) => colour.value);
+		const names = ANNOTATION_COLORS.map((colour) => colour.name);
+		expect(new Set(values).size).toBe(values.length);
+		expect(new Set(names).size).toBe(names.length);
+	});
+
+	test('the grey a new Annotation starts on is in the palette, and is simplestyle’s own', () => {
+		// The coincidence that makes a freshly drawn shape land on a swatch instead of reporting a colour
+		// nobody was offered. If a future edit moves the palette's grey, this is what notices.
+		expect(annotationColorName(DEFAULT_ANNOTATION_COLOR)).toBe('Grey');
+		expect(DEFAULT_ANNOTATION_COLOR).toBe(SIMPLESTYLE_DEFAULTS.stroke);
+		expect(DEFAULT_ANNOTATION_COLOR).toBe(SIMPLESTYLE_DEFAULTS.fill);
+	});
+
+	test('a colour is named case-insensitively, and one from outside the palette is not named at all', () => {
+		// `null` is the answer the editor draws its "not one of the nine" swatch from, so it has to be a
+		// real answer rather than a fallback to the nearest colour.
+		expect(annotationColorName('#D32F2F')).toBe('Red');
+		expect(annotationColorName('#d32f2f')).toBe('Red');
+		expect(annotationColorName('#aa3311')).toBeNull();
+		// simplestyle's pin default is the grey that is *not* the palette's, which is the whole reason a
+		// new Annotation writes its colours explicitly.
+		expect(annotationColorName(SIMPLESTYLE_DEFAULTS['marker-color'])).toBeNull();
 	});
 });

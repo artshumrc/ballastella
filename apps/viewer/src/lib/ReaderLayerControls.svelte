@@ -170,7 +170,7 @@
 								<span>Opacity</span>
 								<input
 									type="range"
-									class="range max-w-40 range-sm"
+									class="range w-40 shrink-0 range-sm"
 									min="0"
 									max="1"
 									step="0.05"
@@ -179,7 +179,15 @@
 									data-testid="reader-layer-opacity"
 									oninput={(event) => opacity(layer, Number(event.currentTarget.value))}
 								/>
-								<span data-testid="reader-layer-opacity-value">
+								<!--
+									Fixed width and right-aligned, for the reason the editor's sliders are: the track
+									shared a flex line with the reading, so `9%` becoming `100%` squeezed the track and
+									moved the slider under the pointer dragging it. `100%` is as wide as this gets.
+								-->
+								<span
+									class="w-10 shrink-0 text-right tabular-nums"
+									data-testid="reader-layer-opacity-value"
+								>
 									{Math.round(layer.opacity * 100)}%
 								</span>
 							</label>

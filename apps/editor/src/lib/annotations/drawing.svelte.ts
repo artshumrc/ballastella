@@ -191,8 +191,13 @@ export class AnnotationDrawing {
 	 */
 	get status(): string {
 		const placed = this.vertices.length;
+		// **Nothing at all while selecting.** Clicking a shape to open it is what the map already does;
+		// a sentence saying so was boilerplate sitting under the tools on every screen that was not
+		// mid-gesture. The region stays in the DOM and empty, which is also what keeps it announceable:
+		// `aria-live` announces a *change of text in a region that is already there*, so the next real
+		// status is heard. There is nothing to announce about not drawing.
 		if (this.tool === 'select') {
-			return 'Select a pin, line, or shape on the map to edit it.';
+			return '';
 		}
 		if (this.tool === 'point') {
 			return 'Click the map, or press Enter on it, to place a pin.';

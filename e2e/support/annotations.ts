@@ -381,9 +381,27 @@ export async function clickAt(target: Locator, fx: number, fy: number): Promise<
 	await target.click({ position: { x: box.width * fx, y: box.height * fy } });
 }
 
-/** Choose a drawing tool. */
-export const chooseTool = (page: Page, tool: 'select' | 'point' | 'line' | 'polygon') =>
-	page.getByTestId(`annotation-tool-${tool}`).click();
+/**
+ * Choose a drawing tool.
+ *
+ * **Two clicks now, where the surface used to offer four equal buttons.** Selecting is the resting
+ * behaviour rather than a tool, so the three shapes live behind "New Annotation" and `select` is
+ * reached by leaving them ("Done"). Every test drives the tools through here, so the change to what
+ * a scholar presses is stated once.
+ */
+export async function chooseTool(
+	page: Page,
+	tool: 'select' | 'point' | 'line' | 'polygon'
+): Promise<void> {
+	const shapes = page.getByTestId('annotation-tools');
+	if (tool === 'select') {
+		if ((await shapes.count()) > 0) await page.getByTestId('annotation-tool-cancel').click();
+		await expect(page.getByTestId('annotation-new')).toBeVisible();
+		return;
+	}
+	if ((await shapes.count()) === 0) await page.getByTestId('annotation-new').click();
+	await page.getByTestId(`annotation-tool-${tool}`).click();
+}
 
 /**
  * Make sure the Annotation at `index` in the list is the selected one.
@@ -393,13 +411,80 @@ export const chooseTool = (page: Page, tool: 'select' | 'point' | 'line' | 'poly
  * drawing it. Clicking it unconditionally would therefore *deselect* it, and the editor and the
  * vertex handles would both vanish. That is not a hypothetical: it is what the first run of this
  * suite did, and eleven tests failed on it with the row still focused and looking selected.
+ *
+ * **Puts the drawing tools away first**, because the list stands aside while a shape is armed —
+ * somebody who has just pressed "New Annotation" is asking what to draw, not what is already here.
+ * Drawing leaves the tool in hand, so a test that draws and then reaches for a row arrives while the
+ * list is still out of the way.
  */
 export async function selectAnnotation(page: Page, index = 0): Promise<void> {
+	await chooseTool(page, 'select');
 	const row = page.getByTestId('annotation-row').nth(index);
 	await expect(row).toBeVisible();
 	if ((await row.getAttribute('aria-pressed')) !== 'true') await row.click();
 	await expect(row).toHaveAttribute('aria-pressed', 'true');
 	await expect(page.getByTestId('annotation-editor')).toBeVisible();
+}
+
+/**
+ * Put the selected Annotation's title and description into their fields.
+ *
+ * The panel shows them as **text** until the pencil is pressed, so every test that types into them
+ * goes through here. Idempotent: pressing the pencil again once the fields are open would be a
+ * click on whatever moved under it.
+ */
+export async function editAnnotationText(page: Page): Promise<void> {
+	const pencil = page.getByTestId('annotation-edit-text');
+	if ((await pencil.count()) > 0) await pencil.click();
+	await expect(page.getByTestId('annotation-title')).toBeVisible();
+}
+
+/** Choose the selected Annotation's line style. A radio group, so this is a click, not a select. */
+export async function chooseLineStyle(
+	page: Page,
+	style: 'solid' | 'dashed' | 'dotted'
+): Promise<void> {
+	await page.getByTestId(`annotation-line-style-${style}`).click();
+}
+
+/**
+ * The nine colours an Annotation can be, by the name each swatch carries. See `ColorPicker.svelte`.
+ *
+ * Spelled out here rather than imported from `@ballastella/core` **on purpose**: a test that took its
+ * expected value from the same constant the app draws from would pass if the palette were changed to
+ * nine shades of the same green. The hex is what lands in the file, so the hex is what the suite states.
+ */
+export const ANNOTATION_COLOR = {
+	black: '#000000',
+	grey: '#555555',
+	white: '#ffffff',
+	red: '#d32f2f',
+	orange: '#ef6c00',
+	yellow: '#fbc02d',
+	green: '#388e3c',
+	blue: '#1976d2',
+	purple: '#7b1fa2'
+} as const;
+
+/**
+ * Choose one of the nine colours for the pin, the line, or the fill.
+ *
+ * A click on a named swatch, not `fill()` on a colour well: the wells are gone, and the point of the
+ * palette is that there is no way to type `#aa3311` into this app any more.
+ *
+ * @param which the control — `annotation-marker-color`, `annotation-stroke`, or `annotation-fill`
+ * @returns the hex the app should now have written, so a caller can assert on it without restating it
+ */
+export async function chooseColour(
+	page: Page,
+	which: 'annotation-marker-color' | 'annotation-stroke' | 'annotation-fill',
+	colour: keyof typeof ANNOTATION_COLOR
+): Promise<string> {
+	await page.getByTestId(`${which}-${colour}`).click();
+	// The chosen swatch says so, so a caller that goes straight to the file is asserting on a choice the
+	// interface has actually taken rather than on a click that landed somewhere.
+	await expect(page.getByTestId(`${which}-${colour}`)).toHaveAttribute('data-chosen', 'true');
+	return ANNOTATION_COLOR[colour];
 }
 
 /** Draw a pin at a fraction across the pane, and wait for it to reach the file. */

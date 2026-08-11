@@ -37,3 +37,20 @@ v1 ships **emphasis and links**. Footnote syntax typed by a user degrades to lit
 ## Style precedence
 
 Feature `properties` override the annotation layer's default style (ADR-0002), which overrides simplestyle's own defaults. Stated explicitly because the alternative — stamping every default onto every feature at creation time — produces much larger files that cannot be restyled in bulk.
+
+### Amendment: a Layer has no default style; a new Annotation is drawn with the last one's
+
+The precedence above is reduced to one step. **Feature `properties` override simplestyle's own defaults, and there is nothing in between.** An annotation Layer no longer carries a `defaultStyle`, and nothing resolves against one.
+
+What replaces it is not a smaller version of it: when a scholar draws an Annotation, it is given the style of **the last Annotation drawn in that Layer** (`styleForNewAnnotation`), written onto it as ordinary `properties`. Pick a colour once and everything drawn after it is that colour — which is the outcome a Layer default was bought to produce, reached without asking anyone to hold a second concept.
+
+The reason is that the concept could not be made legible. A Layer default is invisible inheritance: the control said "this Layer's default style", the file said nothing on the feature, and the map showed a colour that came from neither place a user was looking. In the redesigned Layer card it also produced two style sections — one for the Layer, one for the selected Annotation — with the same line-style control in both, which is where this was found.
+
+**This reverses what the section above states, and the reversal is not free.** Three things are given up, and all three were the reasons for the original decision:
+
+- **Files are larger.** Every Annotation carries its own style block rather than inheriting one. This is the cost the original decision existed to avoid, and it is accepted: a Project's GeoJSON is measured in kilobytes, and the properties are exactly the ones simplestyle defines, so nothing about portability changes.
+- **A Layer can no longer be restyled in bulk.** Making every conjectural route in a Layer dashed is now one edit per Annotation. This is the real loss. If it comes back it should come back as an *action* — "apply this style to every Annotation in this Layer", which writes the properties — rather than as a default that is resolved at read time.
+- **The criterion that a newly drawn Annotation carries no style properties at all is withdrawn**, along with the test asserting it. It now carries whatever the previous one did, and an Annotation drawn into an empty Layer still carries nothing.
+
+**Existing Projects keep their bytes.** `defaultStyle` is no longer named by the Layer parser, so a Project written by an earlier build carries the field through `unknownFields` and writes it back untouched — no migration, and no file rewritten because it was opened (ADR-0010). Such a Layer's Annotations draw with simplestyle's defaults where they set nothing themselves, so a Project that relied on a Layer default does change appearance. That is accepted rather than migrated: stamping resolved styles onto features at open time would rewrite a document the user only looked at.
+

@@ -11,22 +11,99 @@
 	// There is nothing to trap focus in and nothing to reimplement.
 	//
 	// The list is an `<ol>`, so its structure *and* its order reach assistive technology from the
-	// markup rather than from a label somebody has to remember to update. The position is drawn beside
-	// each row as well, and `aria-hidden` there, because the `<ol>` already says it — announcing
-	// "1 of 2" twice per row is worse than not drawing it.
+	// markup rather than from a label somebody has to remember to update.
 	//
 	// **One row opens at a time, in place** (ticket 05). A Project is a stack of Layers and a Layer
 	// opens to reveal its contents — a Historical Map's alignment state and the button that aligns it,
 	// an Annotation Layer's tools and Annotations — which is one idea applied twice rather than two
-	// panels that have to be kept agreeing. What a *closed* row shows is chosen for the same reason:
-	// the name, the visibility toggle, the position controls, and whatever the Layer is warning about,
-	// because a map that needs aligning is the state a user has to be able to notice **without opening
-	// anything**.
+	// panels that have to be kept agreeing.
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+	// WHAT A CLOSED CARD SHOWS, AND WHY IT IS NOW SO LITTLE
+	//
+	// A closed row used to carry eleven controls: a drag handle, the position as "2/3", an
+	// Open button, a visibility toggle with the word "Show", the name as a bordered text field, Move
+	// up, Move down, Delete, the kind, the tiles badge, and the opacity slider with its percentage.
+	// Two consequences, both reported by the person this is for: the cards were hard to tell apart —
+	// three bordered text fields stacked in a column read as a form, not a stack — and the one thing a
+	// user actually scans for, *what this Layer is*, arrived tenth, as grey text under the name.
+	//
+	// So a closed card carries four things and a warning:
+	//
+	//   • **what kind of Layer it is** — an icon and the words, at the top, in the card's own tint
+	//   • **what it is called**, as text rather than a field
+	//   • **whether it is showing**, as the toggle
+	//   • **the way in**, as the chevron
+	//   • **whatever it is warning about**, as a band across the foot of the card — because a map that
+	//     needs aligning is the state a user has to be able to notice *without opening anything*
+	//
+	// Everything else — the name field, the opacity, where the tiles come from, the reorder buttons and
+	// the delete — is inside the open card. Nothing was removed from the screen; the closed card stopped
+	// being the place all of it lives at once.
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+	// THE TINT IS THE THING THAT MAKES TWO CARDS DIFFERENT
+	//
+	// The card is `base-100` on the sidebar's `base-300`, which is the arrangement that separates in
+	// *both* themes without a special case: daisyUI's scale runs 100% → 98% → 95% in light and 25% →
+	// 23% → 21% in dark, so a `base-100` card is the lighter surface either way. Before this, sidebar
+	// and card were both `base-100` with a `base-300` hairline — invisible in light, and in dark a
+	// border darker than either surface, which reads as a smudge rather than an edge. `ProjectScreen`
+	// owns the column and records the luminance steps that decided `base-300` over `base-200`.
+	//
+	// On top of that the header carries a tint of the Layer kind's own colour — `accent` for a
+	// Historical Map, `info` for Annotations — so that two cards of different kinds differ before a
+	// word has been read, and **everything else in that card is in the same colour**: its toggle, its
+	// opacity slider, and the buttons inside it, including the ones `ProjectScreen` supplies as
+	// snippets. Every one of those is a daisyUI token rather than a value, and they are all named in
+	// one table — `layer-kind-style.ts`, which is also where the choice of pair is argued and why it is
+	// a module rather than a const in here. The theme generator owns what the colours are; nothing here
+	// says anything but which token goes where (ADR-0016, ADR-0020).
+	//
+	// When the card is open, the tint stays on the header alone: the body is the card's own surface,
+	// which is what makes "this is the Layer" and "this is what is inside it" two regions rather than
+	// one long block of colour.
+	//
+	// **A hidden Layer has the colour drained out of its header** and says "Hidden" beside its kind. A
+	// colour that is only drained would reach nobody — a grey wash tells a screen reader nothing — so
+	// the word is there for the same reason every state in this app is a sentence somewhere: the
+	// toggle's own checked state carries it to assistive technology, and the word carries it to a
+	// sighted user who is scanning rather than reading.
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+	// ICONS
+	//
+	// Lucide, imported one glyph at a time (ADR-0016's amendment, and the note in the catalog entry).
+	// **No glyph is ever alone with meaning** (SPEC story 111): the kind icon sits beside the words
+	// "Historical Map", and every icon-only button carries its label in `sr-only` text. The two
+	// deliberate exceptions are the drag handle, which is `aria-hidden` because it is pointer-only and
+	// the move buttons are the contract, and the chevron, whose accessible name is the words "Open" and
+	// "Close" — those words were visible before, and what replaced them is a glyph whose meaning
+	// `aria-expanded` already carries. A tooltip is not an information channel here and there is none.
 
-	import type { AnnotationLayer, Layer, MapLayer } from '@ballastella/core';
+	import type { Layer, MapLayer } from '@ballastella/core';
 	import { tick, type Snippet } from 'svelte';
+	import { flip } from 'svelte/animate';
+	import { cubicOut } from 'svelte/easing';
+	import { prefersReducedMotion } from 'svelte/motion';
+
+	import ArrowDown from '@lucide/svelte/icons/arrow-down';
+	import ArrowUp from '@lucide/svelte/icons/arrow-up';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronUp from '@lucide/svelte/icons/chevron-up';
+	import CircleHelp from '@lucide/svelte/icons/circle-help';
+	import Cloud from '@lucide/svelte/icons/cloud';
+	import GripVertical from '@lucide/svelte/icons/grip-vertical';
+	import HardDrive from '@lucide/svelte/icons/hard-drive';
+	import MapIcon from '@lucide/svelte/icons/map';
+	import MapPin from '@lucide/svelte/icons/map-pin';
+	import Pencil from '@lucide/svelte/icons/pencil';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
 	import type { DrawnOutcome } from '@ballastella/core/render';
+
+	import { KIND_STYLE } from './layer-kind-style';
 
 	let {
 		layers,
@@ -99,37 +176,38 @@
 		 */
 		preparing?: Snippet;
 		/**
-		 * What is inside a Historical Map Layer, revealed when its row is open: whether it is aligned,
+		 * What is inside a Historical Map Layer, revealed when its card is open: whether it is aligned,
 		 * the button that aligns it, and where its tiles come from.
 		 *
-		 * A snippet, so the row stays the one place a Layer is described and the actions stay with the
+		 * A snippet, so the card stays the one place a Layer is described and the actions stay with the
 		 * screen that knows the routes and the Workspace's remote-origin records. Optional because a
 		 * Layer stack is also rendered where there is nothing to do to it.
 		 */
 		mapContents?: Snippet<[MapLayer]>;
 		/**
-		 * The way to act on what a **closed** row is warning about, drawn beside {@link outcomes}'
+		 * The way to act on what a **closed** card is warning about, drawn beside {@link outcomes}'
 		 * sentence for that Layer.
 		 *
-		 * A closed row carries the warning precisely so a map that needs aligning can be noticed without
+		 * A closed card carries the warning precisely so a map that needs aligning can be noticed without
 		 * opening anything — and a state worth noticing there is worth acting on there, rather than making
-		 * the user open the row to reach the control the sentence is about.
+		 * the user open the card to reach the control the sentence is about.
 		 *
 		 * A snippet for the same reason as {@link mapContents}, and the same reason sharpened: the thing to
 		 * do about a problem is a route or a Workspace fact, which the screen knows and the stack does not.
 		 * It is rendered for every refused Layer and decides for itself whether it has anything to offer —
-		 * the row does not know which refusals are actionable.
+		 * the card does not know which refusals are actionable.
 		 */
 		problemAction?: Snippet<[Layer]>;
 		/**
-		 * What is inside an Annotation Layer, revealed when its row is open: its drawing tools, its
+		 * What is inside an Annotation Layer, revealed when its card is open: its drawing tools, its
 		 * Annotations, and the selected one's editor.
 		 *
-		 * A snippet for the same reason as {@link mapContents}. It takes no separate "which Layer is
-		 * being drawn into" argument because there is no such second value — the Layer it is handed is
-		 * the one it draws into.
+		 * A snippet for the same reason as {@link mapContents}, and it takes **no argument at all**: the
+		 * Layer it is about is the open one, which is `openLayerId`, which the screen already has. It
+		 * was handed the Layer while an Annotation Layer carried a `defaultStyle`; since it no longer
+		 * does (ADR-0009, as amended) there was nothing left for the argument to say.
 		 */
-		annotationContents?: Snippet<[AnnotationLayer]>;
+		annotationContents?: Snippet<[]>;
 	} = $props();
 
 	/**
@@ -144,6 +222,30 @@
 	/** The Layer being dragged, or `''`. Also what makes the drop target visible. */
 	let dragging = $state('');
 	let over = $state('');
+
+	/**
+	 * The Layer whose name is being typed, or `''`.
+	 *
+	 * The name is text until somebody asks to change it, which is the whole reason the closed card
+	 * stopped reading as a form — three bordered fields in a 24rem column were most of why the cards
+	 * looked alike. The pencil that sets this is offered **only on the open card**: renaming is a
+	 * deliberate act, and a control that appears on hover is a control a touch user cannot find.
+	 *
+	 * Held here rather than by the screen because, unlike `openLayerId`, nothing outside this component
+	 * has any use for it — no Layer is drawn differently for being renamed.
+	 */
+	let renaming = $state('');
+
+	/**
+	 * The field that has just appeared, so the pencil can hand it the keyboard.
+	 *
+	 * `$state` unlike the button references below, which are deliberately not: there is one name field
+	 * on the screen at a time rather than one per Layer, so this is a `bind:this` on an element inside
+	 * an `{#if}` — a binding Svelte writes *and clears*, which it warns about on a plain `let` because
+	 * a stale node would be silently focused. Nothing renders from it, so making it reactive costs an
+	 * assignment and no re-render.
+	 */
+	let nameField = $state<HTMLInputElement | undefined>(undefined);
 
 	const describeMove = (name: string, toIndex: number): string =>
 		`${name || 'Untitled Layer'} moved to ${toIndex + 1} of ${layers.length}`;
@@ -163,7 +265,40 @@
 	 */
 	const upButton: Record<string, HTMLButtonElement | undefined> = {};
 	const downButton: Record<string, HTMLButtonElement | undefined> = {};
-	const deleteButton: Record<string, HTMLButtonElement | undefined> = {};
+	const disclosureButton: Record<string, HTMLButtonElement | undefined> = {};
+
+	/** Each Layer's card, so a drag can carry a picture of the card rather than of the handle. */
+	const card: Record<string, HTMLLIElement | undefined> = {};
+
+	/**
+	 * Drag the *card*, not the handle.
+	 *
+	 * The drag source has to stay the handle — a `draggable` ancestor claims pointer drags from every
+	 * control inside it, which is the defect recorded on the `<li>` below — and a browser's default drag
+	 * image is a picture of the source element. So the handle alone was what a user saw themselves
+	 * dragging: six grey dots, floating, with nothing to say which Layer they belonged to. In a stack of
+	 * cards that all differ by a line of text, that is the one moment the feedback matters most.
+	 *
+	 * `setDragImage` separates the two. The snapshot is taken **during this event**, before the
+	 * `opacity-50` that marks the card as being dragged reaches the DOM, so the ghost is the card at full
+	 * strength and the faded original stays behind it — which is the pairing that reads as "this one is
+	 * being moved" rather than as two half-drawn cards.
+	 *
+	 * The cursor keeps the grip it started with: the offset is measured from where in the card the
+	 * pointer actually was, so the ghost hangs off the handle exactly where the handle was grabbed
+	 * instead of snapping to a corner.
+	 *
+	 * Silently does nothing without a `dataTransfer` or a card — this runs only from a real `dragstart`,
+	 * so neither is expected to be missing, and a *drag* is the convenience rather than the contract
+	 * (ADR-0016): the move buttons are the path that must never fail, and losing the picture is not worth
+	 * throwing in a pointer handler over.
+	 */
+	const dragTheWholeCard = (event: DragEvent, id: string): void => {
+		const dragged = card[id];
+		if (!event.dataTransfer || !dragged) return;
+		const box = dragged.getBoundingClientRect();
+		event.dataTransfer.setDragImage(dragged, event.clientX - box.left, event.clientY - box.top);
+	};
 
 	/**
 	 * Delete a Layer, and leave the keyboard somewhere in the list.
@@ -174,8 +309,11 @@
 	 * CONTRIBUTING makes focus management a criterion of every change that adds UI, and a delete is where
 	 * it is most obviously owed.
 	 *
-	 * The row that takes this one's place, or the last row when the bottom Layer went — the same place a
-	 * user's eye is. Focus is only *taken* here because the element that had it no longer exists.
+	 * **The disclosure of the card that takes this one's place**, or of the last card when the bottom
+	 * Layer went — the same place a user's eye is, and now the only control a *closed* card offers that
+	 * leads anywhere. It used to be that card's own Delete button, which was next to the pointer for the
+	 * same reason and is no longer on a closed card at all. Focus is only *taken* here because the
+	 * element that had it no longer exists.
 	 */
 	const deleteByButton = async (id: string, index: number): Promise<void> => {
 		ondelete(id);
@@ -183,14 +321,14 @@
 		if (document.activeElement !== document.body) return;
 		const remaining = layers.filter((layer) => layer.id !== id);
 		const next = remaining[Math.min(index, remaining.length - 1)];
-		if (next) deleteButton[next.id]?.focus();
+		if (next) disclosureButton[next.id]?.focus();
 	};
 
 	/**
 	 * Move a Layer by button, and leave the keyboard on the Layer that moved.
 	 *
 	 * **Without this, story 53 gets exactly one keypress.** The `{#each}` is keyed by Layer id, so
-	 * Svelte *moves* the row's DOM node — and a focused element that is removed and reinserted is
+	 * Svelte *moves* the card's DOM node — and a focused element that is removed and reinserted is
 	 * blurred to `document.body`, whether or not the move reached the end of the stack. So a keyboard
 	 * user pressed "Move down" once and then had to Tab back in from the top of the document, past
 	 * MapLibre's own controls, for every further move. ADR-0016 makes the keyboard path the contract
@@ -221,6 +359,41 @@
 		(wanted && !wanted.disabled ? wanted : other)?.focus();
 	};
 
+	/** Start renaming a Layer, and put the keyboard in the field that has just appeared. */
+	const renameByButton = async (id: string): Promise<void> => {
+		renaming = id;
+		await tick();
+		nameField?.focus();
+		nameField?.select();
+	};
+
+	/**
+	 * Finish renaming: commit whatever was typed and put the name back to being text.
+	 *
+	 * `oncommit` is a no-op unless something is pending, because leaving a field nobody typed in must
+	 * not rewrite `project.json` with a fresh `updatedAt` (ADR-0010, ADR-0017).
+	 */
+	const finishRename = (): void => {
+		oncommit();
+		renaming = '';
+	};
+
+	/**
+	 * How long a card takes to slide to its new position.
+	 *
+	 * A move changes nothing under the pointer and nothing that has focus, so a card that teleports
+	 * leaves a sighted user to work out which of two identical-looking cards is the one they just moved.
+	 * The slide is what carries "this one, from there to here" — the same information the `aria-live`
+	 * region above carries in words, which is why both exist.
+	 *
+	 * Zero when the user has asked for less motion, which is the whole of respecting that here: the
+	 * reorder still happens, it simply arrives rather than travels.
+	 */
+	const moveAnimation = $derived({
+		duration: prefersReducedMotion.current ? 0 : 220,
+		easing: cubicOut
+	});
+
 	/**
 	 * How a Layer's kind reads. A kind this build has never heard of says so rather than pretending:
 	 * ADR-0014 expects a third one, and a Project carrying it is a Project this build can still
@@ -236,6 +409,58 @@
 				return `Not shown by this version (${layer.declaredKind || 'unknown kind'})`;
 		}
 	};
+
+	/** The glyph beside those words. Never instead of them. */
+	const kindIcon = (layer: Layer) => {
+		switch (layer.kind) {
+			case 'map':
+				return MapIcon;
+			case 'annotation':
+				return MapPin;
+			case 'foreign':
+				return CircleHelp;
+		}
+	};
+
+	/**
+	 * The wash across the card's header.
+	 *
+	 * A hidden Layer takes the drained wash whatever its kind — the tint is what says "this is on the
+	 * map", so a hidden card keeping it would be the one card whose colour lies.
+	 *
+	 * **Every one of these is an alpha wash over the card's own surface, and `bg-base-200` is not one.**
+	 * The drain was `bg-base-200` first, and in the dark theme `base-200` is exactly the sidebar's own
+	 * colour: a *collapsed* hidden card is nothing but its header, so it dissolved back into the column
+	 * — the precise defect this redesign set out to fix, reappearing for hidden Layers only. An ink wash
+	 * is measured from the surface it sits on instead, so it stays a shade off the card in both themes
+	 * however the theme orders its greys.
+	 */
+	const headerTint = (layer: Layer): string =>
+		layer.visible ? KIND_STYLE[layer.kind].tint : 'bg-base-content/5';
+
+	/**
+	 * The ink of the kind line — the glyph and the words together, because they are one label.
+	 *
+	 * A hidden Layer's kind line stays at full legibility rather than being dimmed with everything
+	 * else: the drain is carried by the header's wash going neutral and the name going 60%, and a
+	 * label nobody can read is not a subtler signal, only a worse one.
+	 */
+	const kindInk = (layer: Layer): string =>
+		layer.visible ? KIND_STYLE[layer.kind].ink : 'text-base-content/70';
+
+	/**
+	 * The card's own two form controls, in the kind's colour.
+	 *
+	 * daisyUI's `toggle-*` and `range-*` modifiers, which is the whole point of using them: they take
+	 * their fill and their contrasting knob from the token pair the theme defines, so a retheme moves
+	 * these with the tint rather than leaving two blue controls in a teal card.
+	 *
+	 * The toggle keeps its colour when the Layer is hidden and the slider keeps its colour always —
+	 * neither is drained. An unchecked toggle shows daisyUI's own off state whatever modifier it
+	 * carries, and the opacity slider is a control the Layer owns rather than a report of its state.
+	 */
+	const kindToggle = (layer: Layer): string => KIND_STYLE[layer.kind].toggle;
+	const kindRange = (layer: Layer): string => KIND_STYLE[layer.kind].range;
 </script>
 
 <section aria-labelledby="layer-stack-heading">
@@ -269,15 +494,18 @@
 	{:else}
 		<!--
 			An `<ol>`, so the list's structure and each Layer's position in the stack reach assistive
-			technology from the markup rather than from a label somebody has to remember to update. The
-			position is drawn as well, because "which Layer is third" is information a sighted user needs
-			too — as text, not as a list marker, since a marker does not render on a flex item.
+			technology from the markup rather than from a label somebody has to remember to update.
+
+			**The position is no longer drawn as "2/3".** It was `aria-hidden` because the `<ol>` already
+			says it, and what it gave a sighted user — a number beside a number — the order of the cards
+			gives them anyway. What a sighted user did need, and now has, is to be able to *follow* a card
+			that moves: see `moveAnimation`.
 		-->
 		<ol class="mt-2 flex flex-col gap-2" aria-label="Layers, top first">
 			{#if preparing}
 				<!--
 					The Historical Map being prepared, in the stack, above the Layers that are already in it
-					(ticket 06). A new map Layer is added at the top, so this is where the row it becomes will
+					(ticket 06). A new map Layer is added at the top, so this is where the card it becomes will
 					be, and the card does not move when the preparation finishes.
 
 					**It has no name field, no visibility toggle and no position controls**, because none of
@@ -285,27 +513,52 @@
 					`preparing` snippet in `ProjectScreen.svelte` for why it deliberately is not — so a rename
 					would have nowhere to go and a reorder nothing to reorder. What it carries is the two
 					things that are true of it: what is happening, and the way to stop it.
+
+					Dashed, and the one card without a tint: it is the shape of a Layer that is not one yet.
 				-->
-				<li class="rounded border border-dashed border-base-300 p-3" data-testid="preparing-layer">
+				<li
+					class="rounded-lg border border-dashed border-base-300 bg-base-100 p-3"
+					data-testid="preparing-layer"
+				>
 					{@render preparing()}
 				</li>
 			{/if}
 			{#each layers as layer, index (layer.id)}
 				{@const outcome = outcomes[layer.id]}
+				{@const open = openLayerId === layer.id}
+				{@const Icon = kindIcon(layer)}
 				<!--
-					**The whole row is the drop target; only the handle is the drag source.** It used to be
+					**The whole card is the drop target; only the handle is the drag source.** It used to be
 					`draggable="true"` on the `<li>` itself, and a pointer drag beginning anywhere inside a
 					draggable element is claimed by the drag machinery rather than by the control under the
 					cursor — so the opacity slider's thumb would not move and the name field could not be
 					selected across, both by mouse, on the platform ADR-0014 says authoring targets. No test
 					could see it: `fill()` sets `value` and dispatches `input` without ever pressing a button.
-					`draggable="false"` on the descendants does not help; Chromium still starts the row's drag.
+					`draggable="false"` on the descendants does not help; Chromium still starts the card's drag.
+
+					**What is dragged is nevertheless the card**, which is not the same question as what starts
+					the drag: a browser's drag image is a picture of the source element, so grabbing the handle
+					used to lift a picture of the handle — six grey dots with no Layer attached to them. See
+					`dragTheWholeCard`, which hands the browser the `<li>` instead. Making the header the drag
+					source would have done the same thing for free and was rejected for the reason above: the
+					name field is *in* the header, so its text could no longer be selected with the mouse.
 
 					The handle is `aria-hidden` because it is pointer-only and redundant: the move-up and
-					move-down buttons beside it are the contract, and the drag is the convenience (ADR-0016).
+					move-down buttons inside the open card are the contract, and the drag is the convenience
+					(ADR-0016). It is drawn faintly and comes up to full strength when the card is hovered or
+					holds focus — always present and always operable, never the thing your eye lands on first.
+
+					`animate:flip` is what makes a move followable; `overflow-hidden` is what keeps the
+					header's tint inside the card's rounded corners.
+
+					`data-drop-target` says whether a drop would land here — the same fact the `border-primary`
+					draws. It is written out as an attribute as well because a highlight that *flickers* is a
+					sequence of states rather than a state, and a test cannot watch a class over time without
+					reading the stylesheet's mind. See `ondragleave`.
 				-->
 				<li
-					class="rounded border border-base-300 p-3"
+					bind:this={card[layer.id]}
+					class="group overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm"
 					class:opacity-50={dragging === layer.id}
 					class:border-primary={over === layer.id && dragging !== layer.id}
 					data-testid="layer-row"
@@ -313,12 +566,28 @@
 					data-layer-kind={layer.kind}
 					data-layer-order={layer.order}
 					data-image-id={layer.kind === 'map' ? layer.imageId : undefined}
+					data-drop-target={over === layer.id && dragging !== layer.id ? 'true' : 'false'}
+					animate:flip={moveAnimation}
 					ondragover={(event) => {
 						// Without this the drop never fires: the default action of `dragover` is to refuse.
 						event.preventDefault();
 						over = layer.id;
 					}}
-					ondragleave={() => {
+					ondragleave={(event) => {
+						// **Only when the pointer has really left this card.** `dragleave` fires on every
+						// descendant and bubbles, so crossing from the card's padding onto the name, the kind
+						// icon or the toggle inside it delivers a leave *for the card* — which cleared the
+						// highlight until the next `dragover` put it back, once per element crossed. The card a
+						// drop is about flickered while a user held a Layer over it, worst exactly where they
+						// were aiming, because that is where the text and the icons are.
+						//
+						// `relatedTarget` is what the leave is *for* — the element the pointer entered — so a
+						// leave into this card's own subtree is not a leave at all. It is null when the pointer
+						// goes somewhere with no element to name, such as out of the window, and that is a real
+						// departure: the highlight has to go, or a drag abandoned outside the app leaves a card
+						// looking like a target for ever.
+						const entered = event.relatedTarget;
+						if (entered instanceof Node && event.currentTarget.contains(entered)) return;
 						if (over === layer.id) over = '';
 					}}
 					ondrop={(event) => {
@@ -331,189 +600,188 @@
 						move(id, layers[from]?.name ?? '', index);
 					}}
 				>
-					<div class="flex flex-wrap items-center gap-3">
+					<!-- The header: what this Layer is, what it is called, whether it is showing, the way in. -->
+					<!--
+						`data-testid`, because the wash is *shared*: the selected Annotation row inside the card
+						wears the same `tint`, and the browser suite asserts that by comparing the two computed
+						colours rather than by naming a token twice.
+					-->
+					<div
+						class="flex items-center gap-1.5 py-2 pr-2 pl-1 {headerTint(layer)}"
+						data-testid="layer-header"
+					>
 						<span
-							class="cursor-grab leading-none opacity-60 select-none"
+							class="cursor-grab leading-none opacity-30 transition-opacity select-none group-focus-within:opacity-70 group-hover:opacity-70"
 							draggable="true"
 							aria-hidden="true"
 							data-testid="layer-drag-handle"
 							ondragstart={(event) => {
 								dragging = layer.id;
 								event.dataTransfer?.setData('text/plain', layer.id);
+								dragTheWholeCard(event, layer.id);
 							}}
 							ondragend={() => {
 								dragging = '';
 								over = '';
 							}}
 						>
-							⠿
+							<GripVertical size={14} />
 						</span>
 
-						<span class="text-sm tabular-nums opacity-60" aria-hidden="true">
-							{index + 1}/{layers.length}
+						<span class={kindInk(layer)} aria-hidden="true">
+							<Icon size={18} strokeWidth={2} />
 						</span>
+
+						<div class="min-w-0 grow">
+							<div class="flex items-center gap-1.5 text-[0.65rem] leading-tight font-semibold">
+								<span class="truncate uppercase {kindInk(layer)}" data-testid="layer-kind"
+									>{kindLabel(layer)}</span
+								>
+								{#if !layer.visible}
+									<!--
+										The drained header says "not on the map" to a sighted user and nothing at all to a
+										screen reader, which is what the toggle's own state is for — and nothing at all to
+										somebody scanning a stack for the Layer that has gone missing, which is what this
+										word is for.
+									-->
+									<span class="text-base-content/70 uppercase" data-testid="layer-hidden"
+										>Hidden</span
+									>
+								{/if}
+							</div>
+
+							{#if renaming === layer.id && open}
+								<!--
+									Typing coalesces into one write and the edit is committed when it *ends* (ADR-0010,
+									ADR-0017). Enter finishes for the same reason blurring does — the field is the whole
+									interaction, so there is nothing else in it to move to.
+								-->
+								<input
+									bind:this={nameField}
+									class="input mt-0.5 w-full input-xs"
+									value={layer.name}
+									aria-label="Name of Layer {index + 1} of {layers.length}"
+									data-testid="layer-name"
+									oninput={(event) => ontypename(layer.id, event.currentTarget.value)}
+									onkeydown={(event) => {
+										if (event.key === 'Enter' || event.key === 'Escape') event.currentTarget.blur();
+									}}
+									onchange={() => oncommit()}
+									onblur={() => finishRename()}
+								/>
+							{:else}
+								<div
+									class="truncate text-sm leading-tight font-semibold"
+									class:opacity-60={!layer.visible}
+									data-testid="layer-name-text"
+								>
+									{layer.name || 'Untitled Layer'}
+								</div>
+							{/if}
+						</div>
+
+						{#if open && renaming !== layer.id}
+							<!--
+								Renaming, offered on the open card only. Its accessible name carries the Layer's own
+								name for the same reason every other control here does: four buttons called "Rename"
+								are four identical controls to a screen reader.
+							-->
+							<button
+								type="button"
+								class="btn btn-square btn-ghost btn-xs"
+								data-testid="layer-rename"
+								onclick={() => void renameByButton(layer.id)}
+							>
+								<Pencil size={14} aria-hidden="true" />
+								<span class="sr-only">Rename — {layer.name || 'Untitled Layer'}</span>
+							</button>
+						{/if}
+
+						<!--
+							ADR-0016 mandates the native checkbox for visibility; daisyUI's `toggle` is a class on
+							one. The word "Show" that used to sit beside it is gone from the card and lives on in
+							the accessible name, because the toggle is the one control here whose meaning a glyph
+							never carried in the first place — and the header it sits in is drained when it is off.
+						-->
+						<input
+							type="checkbox"
+							class="toggle shrink-0 toggle-sm {kindToggle(layer)}"
+							checked={layer.visible}
+							aria-label="Show {layer.name || 'Untitled Layer'} on the map"
+							data-testid="layer-visible"
+							onchange={(event) => onshow(layer.id, event.currentTarget.checked)}
+						/>
 
 						<!--
 							The disclosure, and it is a plain `<button>` with `aria-expanded` — ADR-0016's shape
-							for exactly this, so a screen reader is told the row can be opened and whether it is,
+							for exactly this, so a screen reader is told the card can be opened and whether it is,
 							with nothing reimplemented.
 
-							**A control of its own rather than the row's name being the trigger**, which is the
-							usual accordion shape and is not available here: the name is an editable `<input>`,
-							and a click that both put the caret in a field and opened a panel would make renaming
-							a Layer impossible without opening it.
+							**A control of its own rather than the card's name being the trigger.** The name is no
+							longer a field, so it *could* be the trigger now — but a header that both opens the card
+							and holds the toggle and the pencil is a target that does different things depending on
+							where in it you land, which is the opposite of what this redesign is for.
 
-							"Open"/"Close" as words rather than a chevron, per SPEC story 111 — and the Layer's
-							name in the accessible name, because four buttons all called "Open" are four
-							identical controls to a screen reader.
+							A chevron rather than the words "Open" and "Close": the words are the accessible name,
+							`aria-expanded` is the state, and the glyph points the way the card is about to move. It
+							is deliberately not an arrow — the two arrows in the open card move the *Layer*, and one
+							arrow that means "open" beside two that mean "move" is the confusion this avoids.
 						-->
 						<button
+							bind:this={disclosureButton[layer.id]}
 							type="button"
-							class="btn btn-sm"
-							aria-expanded={openLayerId === layer.id}
-							aria-controls={openLayerId === layer.id ? `layer-contents-${layer.id}` : undefined}
+							class="btn btn-square btn-ghost btn-sm"
+							aria-expanded={open}
+							aria-controls={open ? `layer-contents-${layer.id}` : undefined}
 							data-testid="layer-disclosure"
-							onclick={() => onopen(openLayerId === layer.id ? null : layer.id)}
+							onclick={() => onopen(open ? null : layer.id)}
 						>
-							{openLayerId === layer.id ? 'Close' : 'Open'}<span class="sr-only">
-								— {layer.name || 'Untitled Layer'}</span
+							{#if open}
+								<ChevronUp size={18} aria-hidden="true" />
+							{:else}
+								<ChevronDown size={18} aria-hidden="true" />
+							{/if}
+							<span class="sr-only"
+								>{open ? 'Close' : 'Open'} — {layer.name || 'Untitled Layer'}</span
 							>
 						</button>
-
-						<label class="flex items-center gap-2 text-sm">
-							<input
-								type="checkbox"
-								class="toggle toggle-sm"
-								checked={layer.visible}
-								data-testid="layer-visible"
-								onchange={(event) => onshow(layer.id, event.currentTarget.checked)}
-							/>
-							<span>Show <span class="sr-only">{layer.name || 'Untitled Layer'}</span></span>
-						</label>
-
-						<label class="floating-label grow">
-							<span>Layer name</span>
-							<!--
-								Typing coalesces into one write and the edit is committed when it *ends* — and
-								`oncommit` is a no-op unless something is pending, because tabbing through this
-								field must not rewrite `project.json` with a fresh `updatedAt` (ADR-0010, ADR-0017).
-							-->
-							<input
-								class="input w-full input-sm"
-								value={layer.name}
-								aria-label="Name of Layer {index + 1} of {layers.length}"
-								data-testid="layer-name"
-								oninput={(event) => ontypename(layer.id, event.currentTarget.value)}
-								onchange={() => oncommit()}
-								onblur={() => oncommit()}
-							/>
-						</label>
-
-						<div class="flex items-center gap-1">
-							<button
-								bind:this={upButton[layer.id]}
-								class="btn btn-sm"
-								disabled={index === 0}
-								data-testid="layer-move-up"
-								onclick={() => void moveByButton(layer.id, layer.name, index - 1, 'up')}
-							>
-								Move up<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
-							</button>
-							<button
-								bind:this={downButton[layer.id]}
-								class="btn btn-sm"
-								disabled={index === layers.length - 1}
-								data-testid="layer-move-down"
-								onclick={() => void moveByButton(layer.id, layer.name, index + 1, 'down')}
-							>
-								Move down<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
-							</button>
-							<!--
-								The Layer's name is in the accessible name for the same reason it is on the two
-								buttons beside it: "Delete" four times over is four identical controls to a screen
-								reader, and this is the one of them that cannot be shrugged off.
-							-->
-							<button
-								bind:this={deleteButton[layer.id]}
-								class="btn btn-ghost btn-sm"
-								data-testid="layer-delete"
-								onclick={() => void deleteByButton(layer.id, index)}
-							>
-								Delete<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
-							</button>
-						</div>
 					</div>
 
-					<div class="mt-2 flex flex-wrap items-center gap-4 text-sm">
-						<span class="opacity-70" data-testid="layer-kind">{kindLabel(layer)}</span>
-
-						{#if layer.kind === 'map'}
-							<!--
-								Whether this Layer's tiles are bytes in this Workspace or a URL somewhere else. Shown
-								here rather than only warned about at publish time, because it is what decides whether
-								a reader needs the network and whether the work survives the host disappearing — and by
-								then it is too late to be the first mention of it.
-
-								Read from `referencedImageIds`, which is what the folder says, rather than from the
-								Layer, which no longer claims anything about it (ADR-0023).
-							-->
-							{@const referenced = referencedImageIds.has(layer.imageId)}
-							<span
-								class="badge badge-sm"
-								class:badge-success={!referenced}
-								class:badge-warning={referenced}
-								data-testid="layer-image-mode"
-								data-image-mode={referenced ? 'referenced' : 'offline-copy'}
-							>
-								{referenced
-									? 'Remote reference — needs the network'
-									: 'Local copy — no network needed'}
-							</span>
-
-							<!-- ADR-0016 mandates the native range for opacity; there is nothing custom here. -->
-							<label class="flex items-center gap-2">
-								<span>Opacity</span>
-								<input
-									type="range"
-									class="range max-w-40 range-sm"
-									min="0"
-									max="1"
-									step="0.05"
-									value={layer.opacity}
-									aria-label="Opacity of {layer.name || 'Untitled Layer'}"
-									data-testid="layer-opacity"
-									oninput={(event) => ondragopacity(layer.id, Number(event.currentTarget.value))}
-									onchange={() => oncommit()}
-								/>
-								<!--
-									A `<span>`, not an `<output>`: `<output>` carries an implicit `role="status"`, and the
-									save indicator already owns that role on this page — a second one makes
-									`getByRole('status')` ambiguous, which is a hint that a screen-reader user would have
-									to disambiguate too. The value is already announced by the range's own label.
-								-->
-								<span data-testid="layer-opacity-value">{Math.round(layer.opacity * 100)}%</span>
-							</label>
-						{/if}
-
-						{#if outcome?.status === 'refused'}
-							<!--
-								The sentence and, next to it, whatever can be done about it — see
-								{@link problemAction}. Inside one wrapper so the control stays with the sentence it
-								answers when the row wraps at 24rem, instead of drifting onto a line under the
-								opacity slider.
-							-->
-							<span class="flex flex-wrap items-center gap-2">
-								<span class="text-warning" data-testid="layer-problem">{outcome.reason}</span>
-								{@render problemAction?.(layer)}
-							</span>
-						{/if}
-					</div>
-
-					{#if openLayerId === layer.id}
+					{#if outcome?.status === 'refused'}
 						<!--
-							What is inside this Layer (ticket 05). One row is open at a time, so this markup
+							The sentence and, next to it, whatever can be done about it — see {@link problemAction}.
+							A band across the foot of the card rather than a line of coloured text in a row of other
+							things, because this is the one thing a closed card says that is not simply a fact about
+							the Layer: it is work the user has to do.
+
+							**The sentence is `base-content` on a `warning` wash, not `warning`-coloured text.** The
+							warning token is an 82%-lightness amber in the stock light theme, so the amber sentence
+							this replaces was carrying about 1.7:1 against `base-100` — a colour that reads as
+							decoration to anyone looking and as nothing at all to anyone with a screen reader. It is
+							16:1 now. The triangle keeps the hue but not the token: amber on its own wash is 1.6:1, so
+							it takes the mixed ink `layout.css` defines, at 5:1.
+						-->
+						<div
+							class="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-warning/40 bg-warning/15 px-2.5 py-1.5 text-xs"
+						>
+							<TriangleAlert
+								size={14}
+								class="shrink-0 text-[var(--layer-problem-ink)]"
+								aria-hidden="true"
+							/>
+							<span data-testid="layer-problem">{outcome.reason}</span>
+							{@render problemAction?.(layer)}
+						</div>
+					{/if}
+
+					{#if open}
+						<!--
+							What is inside this Layer (ticket 05). One card is open at a time, so this markup
 							exists once on the screen however many Layers there are — which is why the ids and
 							the headings inside it can be fixed strings.
+
+							**Untinted, and that is the point of the tint above it**: the header says which Layer
+							this is, and everything below it is what can be done to that Layer.
 
 							The two kinds this build draws are supplied by the screen rather than built here —
 							see the snippets' own comments in `ProjectScreen.svelte` for why the Align link
@@ -522,14 +790,72 @@
 						-->
 						<div
 							id="layer-contents-{layer.id}"
-							class="mt-3 border-t border-base-300 pt-3"
+							class="flex flex-col gap-3 border-t border-base-300 px-3 py-3"
 							data-testid="layer-contents"
 							data-layer-id={layer.id}
 						>
 							{#if layer.kind === 'map'}
+								{@const referenced = referencedImageIds.has(layer.imageId)}
+								<!-- ADR-0016 mandates the native range for opacity; there is nothing custom here. -->
+								<label class="flex items-center gap-2 text-xs">
+									<span class="shrink-0">Opacity</span>
+									<input
+										type="range"
+										class="range grow range-xs {kindRange(layer)}"
+										min="0"
+										max="1"
+										step="0.05"
+										value={layer.opacity}
+										aria-label="Opacity of {layer.name || 'Untitled Layer'}"
+										data-testid="layer-opacity"
+										oninput={(event) => ondragopacity(layer.id, Number(event.currentTarget.value))}
+										onchange={() => oncommit()}
+									/>
+									<!--
+										A `<span>`, not an `<output>`: `<output>` carries an implicit `role="status"`, and the
+										save indicator already owns that role on this page — a second one makes
+										`getByRole('status')` ambiguous, which is a hint that a screen-reader user would have
+										to disambiguate too. The value is already announced by the range's own label.
+									-->
+									<span
+										class="w-9 shrink-0 text-right tabular-nums"
+										data-testid="layer-opacity-value">{Math.round(layer.opacity * 100)}%</span
+									>
+								</label>
+
+								<!--
+									Whether this Layer's tiles are bytes in this Workspace or a URL somewhere else. Shown
+									here rather than only warned about at publish time, because it is what decides whether
+									a reader needs the network and whether the work survives the host disappearing — and by
+									then it is too late to be the first mention of it.
+
+									**Inside the open card rather than on the closed one.** It is a fact about the Layer
+									and not work to be done, so it does not have to compete with the name for a closed
+									card's one line — and it sits directly above `mapContents`, which is where the library
+									it came from and the button that makes an offline copy already are.
+
+									Read from `referencedImageIds`, which is what the folder says, rather than from the
+									Layer, which no longer claims anything about it (ADR-0023).
+								-->
+								<span
+									class="badge gap-1.5 badge-sm"
+									class:badge-success={!referenced}
+									class:badge-warning={referenced}
+									data-testid="layer-image-mode"
+									data-image-mode={referenced ? 'referenced' : 'offline-copy'}
+								>
+									{#if referenced}
+										<Cloud size={12} aria-hidden="true" />
+										Remote reference — needs the network
+									{:else}
+										<HardDrive size={12} aria-hidden="true" />
+										Local copy — no network needed
+									{/if}
+								</span>
+
 								{@render mapContents?.(layer)}
 							{:else if layer.kind === 'annotation'}
-								{@render annotationContents?.(layer)}
+								{@render annotationContents?.()}
 							{:else}
 								<!--
 									ADR-0014: a Layer of a kind this version does not understand is kept, nameable
@@ -544,6 +870,61 @@
 									it, hide it, and move it in the stack.
 								</p>
 							{/if}
+
+							<!--
+								Where this Layer sits, and getting rid of it. **In the open card, and that is a
+								deliberate cost.** ADR-0016 makes the keyboard path the contract and the drag the
+								convenience, and this puts the contract one keypress further away than the drag — so
+								the words are on the buttons rather than left to a glyph, and the drag handle stays
+								faint. What is bought is that no arrow on a closed card can be mistaken for the
+								control that opens it, which is what a stack of near-identical cards was failing at.
+							-->
+							<div class="flex items-center gap-1 border-t border-base-300 pt-3">
+								<button
+									bind:this={upButton[layer.id]}
+									class="btn gap-1 btn-xs"
+									disabled={index === 0}
+									data-testid="layer-move-up"
+									onclick={() => void moveByButton(layer.id, layer.name, index - 1, 'up')}
+								>
+									<ArrowUp size={13} aria-hidden="true" />
+									Move up<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+								</button>
+								<button
+									bind:this={downButton[layer.id]}
+									class="btn gap-1 btn-xs"
+									disabled={index === layers.length - 1}
+									data-testid="layer-move-down"
+									onclick={() => void moveByButton(layer.id, layer.name, index + 1, 'down')}
+								>
+									<ArrowDown size={13} aria-hidden="true" />
+									Move down<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+								</button>
+								<span class="grow"></span>
+								<!--
+									The Layer's name is in the accessible name for the same reason it is on the two
+									buttons beside it: "Delete" four times over is four identical controls to a screen
+									reader, and this is the one of them that cannot be shrugged off.
+								-->
+								<!--
+									The trash is `error`-coloured and the word is not. `error` is a 71%-lightness red in
+									the stock light theme: 2.9:1 against the card, which is a small label's 4.5:1 missed
+									by a mile and a graphical object's 3:1 missed by a hair. The word carries the meaning
+									at full contrast, so the glyph repeats it rather than being the only way to know what
+									this button does — which is the one arrangement in which 2.9:1 is honestly
+									acceptable. It is deliberately not mixed toward `base-content` like the kind line and
+									the problem triangle: a Delete whose red has been diluted to pass a bar it does not
+									have to meet is a Delete that reads as ordinary.
+								-->
+								<button
+									class="btn gap-1 btn-ghost btn-xs"
+									data-testid="layer-delete"
+									onclick={() => void deleteByButton(layer.id, index)}
+								>
+									<Trash2 size={13} class="text-error" aria-hidden="true" />
+									Delete<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+								</button>
+							</div>
 						</div>
 					{/if}
 				</li>

@@ -692,6 +692,57 @@ const rowIds = (page: Page): Promise<(string | null)[]> =>
 		elements.map((element) => element.getAttribute('data-layer-id'))
 	);
 
+/** What the page recorded about each element handed to `setDragImage`. See {@link watchDragImages}. */
+interface DragImage {
+	/** The element's own `data-testid`, so "the card" and "the handle" are distinguishable. */
+	testid: string | null;
+	layerId: string | null;
+	/** The offset the ghost is held at, and the element's size, so the offset can be judged against it. */
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+interface DragWindow {
+	ballastellaDragImages: DragImage[];
+}
+
+/**
+ * Record every element the page asks the browser to draw as a drag ghost.
+ *
+ * A native drag image is painted by the browser outside the document, so there is nothing to assert
+ * about it from inside the page except the call that asked for it. Patching the prototype rather than
+ * one `DataTransfer` because the object is made by the browser for each drag and never reaches the
+ * test; `addInitScript` so the patch is in place before the app's first line runs.
+ *
+ * The original is still called, so this observes the behaviour instead of replacing it.
+ */
+async function watchDragImages(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const drawn: DragImage[] = [];
+		(window as unknown as DragWindow).ballastellaDragImages = drawn;
+		const original = DataTransfer.prototype.setDragImage;
+		DataTransfer.prototype.setDragImage = function (
+			this: DataTransfer,
+			image: Element,
+			x: number,
+			y: number
+		) {
+			const box = image.getBoundingClientRect();
+			drawn.push({
+				testid: image.getAttribute('data-testid'),
+				layerId: image.getAttribute('data-layer-id'),
+				x,
+				y,
+				width: box.width,
+				height: box.height
+			});
+			return original.call(this, image, x, y);
+		};
+	});
+}
+
 /**
  * Press Tab until `target` has focus, so "operable by keyboard" is asserted by *getting there* with
  * the keyboard rather than by calling `focus()` and pretending.
@@ -1188,20 +1239,27 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 	});
 
 	// **A real pointer drag, not `fill()`.** `fill()` sets `value` and dispatches `input`
-	// programmatically, so it cannot see the thing a user meets first: the row carries
-	// `draggable="true"` for the reorder, and a pointer drag beginning on a descendant of a draggable
-	// element can be claimed by the drag machinery instead of by the control under the cursor. A slider
-	// thumb that will not move puts story 51 out of reach by mouse, on the platform ADR-0014 says
-	// authoring targets — and every test in this file would still be green.
+	// programmatically, so it cannot see the thing a user meets first: a pointer drag beginning on a
+	// descendant of a `draggable` element can be claimed by the drag machinery instead of by the control
+	// under the cursor. A slider thumb that will not move puts story 51 out of reach by mouse, on the
+	// platform ADR-0014 says authoring targets — and every test in this file would still be green.
+	//
+	// The card is opened first, because that is where the slider is: the redesign left a closed card
+	// carrying the kind, the name, the toggle and the way in, and moved the opacity inside. **What this
+	// guards did not move with it.** The drag source is now the handle rather than the whole card, but
+	// the handle is in the *header* of the same `<li>` this slider is inside, so a `draggable` ancestor
+	// claiming the gesture is still exactly the failure available to be reintroduced — and now
+	// `setDragImage` reads the card during `dragstart` as well.
 	test('the slider can be dragged with the mouse, not only set programmatically', async ({
 		page
 	}) => {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
 		const layerId = (await rowIds(page))[0] as string;
-		await expect(page.getByTestId('layer-opacity-value')).toHaveText('100%');
+		const row = await openLayerRow(page, 0);
+		await expect(row.getByTestId('layer-opacity-value')).toHaveText('100%');
 
-		const slider = page.getByTestId('layer-opacity');
+		const slider = row.getByTestId('layer-opacity');
 		const box = await slider.boundingBox();
 		if (!box) throw new Error('the opacity slider has no box to drag in');
 		// From the thumb, which sits at the right-hand end while the Layer is fully opaque.
@@ -1471,6 +1529,94 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		);
 	});
 
+	// **What a user sees themselves dragging**, which is the half of a drag that no reorder assertion
+	// touches: the order came out right the whole time this was broken, and what was wrong was that the
+	// thing following the cursor was a picture of the six-dot handle rather than of the Layer.
+	//
+	// Asserted through `setDragImage`, because that is the only place the fact exists. A native drag
+	// ghost is painted by the browser outside the page — it is in no screenshot, in no DOM, and
+	// unreachable from the accessibility tree — so the observable contract is *which element was handed
+	// to the browser to draw*, and the offset that keeps it under the pointer.
+	test('drags a picture of the card, not of the handle', async ({ page }) => {
+		await watchDragImages(page);
+		const { annotationId } = await stackWithBothKinds(page);
+
+		await rows(page).nth(0).getByTestId('layer-drag-handle').dragTo(rows(page).nth(1));
+
+		const drawn = await page.evaluate(
+			() => (window as unknown as DragWindow).ballastellaDragImages
+		);
+		expect(drawn).toHaveLength(1);
+		const [image] = drawn as [DragImage];
+		// The card of the Layer that was grabbed, rather than the handle inside it or the whole list.
+		expect(image.testid).toBe('layer-row');
+		expect(image.layerId).toBe(annotationId);
+		// Held where it was picked up: the offset is inside the card, so the ghost hangs off the cursor
+		// at the handle rather than snapping to a corner. The handle is at the card's left edge, near the
+		// top, which is what makes these bounds tight enough to be worth asserting.
+		expect(image.x).toBeGreaterThanOrEqual(0);
+		expect(image.x).toBeLessThan(image.width / 2);
+		expect(image.y).toBeGreaterThanOrEqual(0);
+		expect(image.y).toBeLessThanOrEqual(image.height);
+	});
+
+	// **The drop target does not flicker while a Layer is held over it.**
+	//
+	// `dragleave` fires for every descendant and bubbles, so crossing from a card's padding onto the
+	// text or the icon inside it used to clear the highlight and the next `dragover` put it back — once
+	// per element crossed, on the part of the card a user is aiming at.
+	//
+	// Watched over time rather than asserted at the end, because the end state was never wrong: a single
+	// `toHaveAttribute` after the gesture passed throughout. A `MutationObserver` on the attribute is
+	// what makes the *number of changes* observable, which is what "flicker" is. Held over one card and
+	// moved across three of its own descendants; one turning-on is the whole of what should be recorded.
+	test('holding a Layer over a card highlights it once, without flickering', async ({ page }) => {
+		const { annotationId, mapId } = await stackWithBothKinds(page);
+
+		const target = rows(page).nth(1);
+		await expect(target).toHaveAttribute('data-layer-id', mapId);
+		await target.evaluate((element) => {
+			const seen: string[] = [];
+			(
+				window as unknown as { ballastellaDropTargetChanges: string[] }
+			).ballastellaDropTargetChanges = seen;
+			new MutationObserver(() => {
+				seen.push(element.getAttribute('data-drop-target') ?? 'missing');
+			}).observe(element, { attributeFilter: ['data-drop-target'] });
+		});
+
+		// A real drag, paused over three separate descendants of the one card: its kind line, its name,
+		// and its visibility toggle. `dragTo` would settle in the middle and cross nothing.
+		const handle = rows(page).nth(0).getByTestId('layer-drag-handle');
+		const grip = await handle.boundingBox();
+		if (!grip) throw new Error('the drag handle has no box to drag from');
+		await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+		await page.mouse.down();
+		for (const testid of ['layer-kind', 'layer-name-text', 'layer-visible']) {
+			const box = await target.getByTestId(testid).boundingBox();
+			if (!box) throw new Error(`${testid} has no box to drag over`);
+			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+		}
+		await expect(target).toHaveAttribute('data-drop-target', 'true');
+
+		const changes = await page.evaluate(
+			() =>
+				(window as unknown as { ballastellaDropTargetChanges: string[] })
+					.ballastellaDropTargetChanges
+		);
+		expect(
+			changes,
+			'the drop-target highlight changed more than once while the Layer was held over one card'
+		).toEqual(['true']);
+
+		// And the drop still lands, so this is a highlight that stopped flickering rather than a
+		// `dragleave` that stopped working.
+		await page.mouse.up();
+		await expect(rows(page).nth(0)).toHaveAttribute('data-layer-id', mapId);
+		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
+		await expect(target).toHaveAttribute('data-drop-target', 'false');
+	});
+
 	test('survives a reload', async ({ page }) => {
 		const { directory, annotationId, mapId } = await stackWithBothKinds(page);
 
@@ -1585,10 +1731,17 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 	// The name field's half of the same question as the opacity drag: `fill()` never presses a mouse
 	// button, so it cannot see a text input inside a `draggable` row where a drag-select is claimed by
 	// the drag machinery and the user cannot select a word to replace it (SPEC story 54).
+	//
+	// **This is now the sharpest version of that question, not a weaker one.** The field is reached by
+	// opening the card and pressing the pencil, and it appears in the header — the same header that holds
+	// the drag handle, a few pixels away. Making the header itself the drag source was considered for the
+	// reorder ghost and rejected on exactly this test's grounds.
 	test('a Layer’s name can be selected by dragging across it with the mouse', async ({ page }) => {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
-		const field = page.getByTestId('layer-name');
+		const row = await openLayerRow(page, 0);
+		await row.getByTestId('layer-rename').click();
+		const field = row.getByTestId('layer-name');
 		await expect(field).toHaveValue('la-floride.png');
 
 		const box = await field.boundingBox();

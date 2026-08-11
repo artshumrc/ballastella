@@ -546,6 +546,8 @@ test.describe('the fit happens once, on open', () => {
 
 		// 5. Drawing an Annotation. The Project's content genuinely grows, and the map must still not
 		//    move: a scholar placing a pin is looking at the place they are placing it.
+		// Two presses: drawing is behind "New Annotation" now, and selecting is the resting behaviour.
+		await page.getByTestId('annotation-new').click();
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(page.getByTestId('base-map-pane'), 0.5, 0.5);
 		await expect(page.getByRole('status')).toHaveText('Saved');

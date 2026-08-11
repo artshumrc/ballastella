@@ -349,12 +349,16 @@ export type {
 // popups through the very same `renderAnnotationPopup` (ADR-0019), which is what makes ticket 17's
 // assertion that the same payload is inert in a Published Site mean anything at all.
 export {
+	ANNOTATION_COLORS,
 	DASHED_DASHARRAY,
+	DEFAULT_ANNOTATION_COLOR,
 	DOTTED_DASHARRAY,
 	MARKER_SIZES,
 	SIMPLESTYLE_DEFAULTS,
 	SIMPLESTYLE_PROPERTIES,
 	addAnnotation,
+	annotationAnchor,
+	annotationColorName,
 	dashArrayFor,
 	emptyCollection,
 	findAnnotation,
@@ -368,6 +372,7 @@ export {
 	setStyle,
 	setText,
 	simpleStyleViolations,
+	styleForNewAnnotation,
 	type Annotation,
 	type AnnotationCollection,
 	type AnnotationGeometry,

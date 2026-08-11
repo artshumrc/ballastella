@@ -64,6 +64,7 @@
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import AddHistoricalMap from '$lib/historical-maps/AddHistoricalMap.svelte';
+	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
 	import LayerList from '$lib/layers/LayerList.svelte';
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
@@ -855,9 +856,26 @@
 				The sidebar is a **fixed column** and the map takes what is left, which is the whole of
 				"the map gets the larger share of the screen": a proportional sidebar grows with the
 				display, and on a large one that is a wall of controls beside a map that gained nothing.
+
+				**`base-300`, so that the Layer cards on it are objects.** A card is `base-100`, and
+				daisyUI's scale runs in opposite directions in the two themes — 100% → 98% → 95% in light,
+				25% → 23% → 21% in dark — so a `base-100` card on a deeper base is the lighter surface in
+				both. This column and the cards used to be the same `base-100` with a `base-300` hairline
+				between them, which is invisible in the light theme and, in the dark one, a border darker
+				than either surface: the boundary read as a smudge rather than an edge, and the cards were
+				reported as hard to tell apart in both themes.
+
+				`base-300` rather than `base-200`, measured rather than chosen: `base-200` puts a
+				1.06:1 luminance step between column and card in both themes and `base-300` puts 1.16:1 in
+				light and 1.12:1 in dark. Neither is text contrast — a surface boundary is carried by the
+				card's own border and shadow as well — but the stock light theme has 100% and 98% to work
+				with, and half of what little there is was not worth keeping. The divider is an ink wash
+				rather than `base-300`, which is now the column's own colour.
+
+				See the note at the top of `LayerList.svelte`, which owns the other half of this.
 			-->
 			<div
-				class="w-96 shrink-0 overflow-y-auto border-r border-base-300 p-4"
+				class="w-96 shrink-0 overflow-y-auto border-r border-base-content/10 bg-base-300 p-4"
 				data-testid="layer-sidebar"
 			>
 				<LayerList
@@ -1398,10 +1416,16 @@
 	The label and the test id are given by the caller because the two are not the same affordance: one
 	is the row's own action, the other is the answer to a sentence a few characters to its left, and a
 	single id on both would make every `getByTestId('align-historical-map')` in the suite ambiguous.
+
+	**The Historical Map's own colour, not `primary`.** Both places this is rendered are inside a map
+	Layer's card — the open card and the problem band on the closed one — and a card's buttons are the
+	card's colour, so that a control in a card belongs to the Layer above it rather than to the app
+	(`layer-kind-style.ts` argues the whole arrangement). It is `KIND_STYLE.map` unconditionally rather
+	than keyed off `layer.kind` because both call sites are already inside a `kind === 'map'` guard.
 -->
 {#snippet alignLink(layer: Layer, testid: string, label: string)}
 	<a
-		class="btn btn-primary btn-xs"
+		class="btn btn-xs {KIND_STYLE.map.btn}"
 		data-testid={testid}
 		href="{resolve('/align')}?p={encodeURIComponent(
 			session.openDirectory ?? ''
@@ -1500,21 +1524,20 @@
 
 <!--
 	What is inside an Annotation Layer, rendered by `LayerList` inside that Layer's open row: the
-	drawing tools, the Layer's default style, its Annotations, and the selected one's editor.
+	drawing tools, its Annotations, and the selected one's editor.
 
 	**A snippet passed down rather than markup inside `LayerList`**, because everything it needs is
 	reachable from here and from nowhere in the stack: the collection, the selection, the
 	`AnnotationDrawing` instance and every function that writes are `annotations`' — this screen holds
-	that one object — and `session.setLayerDefaultStyle` is the screen's own. `LayerList` would
-	otherwise take fourteen props it only forwards.
+	that one object. `LayerList` would otherwise take thirteen props it only forwards.
 
-	The Layer it is handed *is* `annotations.activeLayer`; both come from `openLayerId`, which is where
-	that identity is explained — in `annotation-editing.svelte.ts`, which ticket 06 carved this state
-	layer out into — and is the whole of what ticket 05 changed.
+	**The Layer itself is no longer passed in.** It was handed over for its `defaultStyle`, and a Layer
+	no longer has one (ADR-0009, as amended); the snippet still takes it because `LayerList` invokes it
+	with the Layer whose row is open, and it is `annotations.activeLayer` — both come from
+	`openLayerId`, which is where that identity is explained, in `annotation-editing.svelte.ts`.
 -->
-{#snippet annotationContents(layer: AnnotationLayer)}
+{#snippet annotationContents()}
 	<AnnotationLayerContents
-		{layer}
 		collection={annotations.activeCollection}
 		selectedId={annotations.selectedAnnotationId}
 		tool={drawing.tool}
@@ -1531,6 +1554,5 @@
 		onstyle={(style, options) => void annotations.styleSelected(style, options)}
 		onlinestyle={(line) => void annotations.lineStyleSelected(line)}
 		ondelete={() => void annotations.deleteSelected()}
-		onlayerstyle={(style, options) => void session.setLayerDefaultStyle(layer.id, style, options)}
 	/>
 {/snippet}

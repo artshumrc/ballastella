@@ -117,6 +117,20 @@ catalog:
   daisyui: ^5.7.16
   tailwindcss: ^4.3.3
 
+  # Icons, and they are not a second UI library. ADR-0016 bans a headless *component* library
+  # beside daisyUI — a thing that owns focus, keyboard handling and ARIA. `@lucide/svelte` owns
+  # none of that: each icon is a Svelte component rendering one `<svg>`, imported one at a time
+  # (`@lucide/svelte/icons/map`) so only the glyphs used are bundled. ISC, permissive, no
+  # compiled artefact — nothing THIRD-PARTY-NOTICES needs to record.
+  #
+  # A glyph is never alone with meaning (SPEC story 111): a kind icon sits beside the words
+  # "Historical Map", and an icon-only button keeps a visible or `sr-only` label. An icon that
+  # would need a tooltip to be understood is the wrong icon.
+  #
+  # `apps/editor` only. The published viewer's leanness is enforced by the dependency graph
+  # rather than by tree-shaking (ADR-0019), so a reader downloads none of this.
+  '@lucide/svelte': ^0.552.0
+
   # TypeScript. Held at ^6 rather than ^7: svelte-check and @sveltejs/kit peer on
   # `^5 || ^6`, and typescript-eslint on `<6.1.0`. Raise when they catch up.
   typescript: ~6.0.3

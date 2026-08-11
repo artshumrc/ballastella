@@ -149,6 +149,75 @@ export const SIMPLESTYLE_PROPERTIES: readonly string[] = [
 export const MARKER_SIZES: readonly string[] = ['small', 'medium', 'large'];
 
 /**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════
+ * THE NINE COLOURS AN ANNOTATION CAN BE
+ *
+ * **Nine literal hex values, and they are deliberately not theme tokens.** Every other colour in this
+ * project comes from daisyUI so that a retheme moves it (ADR-0016, ADR-0020); this one must not. A
+ * colour here is *written into the Annotation's own `properties`* and travels in the GeoJSON — it is
+ * content a scholar chose, in a portability document another tool will read (ADR-0002, ADR-0009). A
+ * value that followed the interface's theme would mean one thing in this app and something else in
+ * QGIS, and a Project would change colour because a reader flipped to dark mode. So these are
+ * constants, and this is the one place in the codebase where a hard-coded colour is correct.
+ *
+ * **Why a fixed palette at all.** simplestyle permits any `#RRGGBB`, and a native colour well offers
+ * all sixteen million of them — which asks a historian to be a designer, and produces Projects where
+ * nine routes are nine indistinguishable near-reds. Nine nameable colours are a vocabulary: they can
+ * be said out loud over a student's shoulder ("the blue route"), and ADR-0022 already treats *being
+ * sayable* as a design criterion.
+ *
+ * **The order is the palette's meaning**, so keep it: the editor draws these in one row of three
+ * groups of three, which makes the first group the neutrals, the second the warm colours and the third
+ * the cool ones. A scholar looking for "a grey" or "something warm" finds it by position instead of
+ * reading nine labels. Adding a tenth would cost that, which is a real reason to think twice rather
+ * than a decoration.
+ *
+ * **Grey is `#555555` on purpose**: it is simplestyle's own default for `stroke` and `fill`, so an
+ * Annotation drawn with default styling is already sitting on a swatch rather than reporting a colour
+ * the user was never offered. `styleForNewAnnotation` writes it explicitly for the same reason — see
+ * the note there about the pin, whose spec default is a *different* grey.
+ *
+ * Names are plain and lowercase-hex, because the name is what reaches a screen reader and the hex is
+ * what a `value` comparison sees — an `<input type="color">` normalises to lowercase, and half of this
+ * palette's job is being comparable to what is already in a file.
+ */
+export const ANNOTATION_COLORS: readonly { readonly name: string; readonly value: string }[] = [
+	{ name: 'Black', value: '#000000' },
+	{ name: 'Grey', value: '#555555' },
+	{ name: 'White', value: '#ffffff' },
+	{ name: 'Red', value: '#d32f2f' },
+	{ name: 'Orange', value: '#ef6c00' },
+	{ name: 'Yellow', value: '#fbc02d' },
+	{ name: 'Green', value: '#388e3c' },
+	{ name: 'Blue', value: '#1976d2' },
+	{ name: 'Purple', value: '#7b1fa2' }
+];
+
+/**
+ * The colour a newly drawn Annotation is given when the Layer has nothing to copy from.
+ *
+ * Grey, which is both the palette's neutral and simplestyle's own default for a line and a fill — so
+ * this changes what a new Annotation *says* rather than how the first one looks.
+ */
+export const DEFAULT_ANNOTATION_COLOR = '#555555';
+
+/**
+ * What this colour is called, or `null` if it is not one of the nine.
+ *
+ * `null` is a real answer rather than a failure: a file written by another tool, or by a future version
+ * of this one, may carry any `#RRGGBB` (ADR-0009 validates the *format*, never the value), and the
+ * editor has to be able to say "the colour this Annotation has is not one of the nine" instead of
+ * silently drawing it as the nearest one.
+ *
+ * Case-insensitive, because `#FFFFFF` and `#ffffff` are the same colour and only one of them is what a
+ * browser's colour input produces.
+ */
+export function annotationColorName(value: string): string | null {
+	const wanted = value.toLowerCase();
+	return ANNOTATION_COLORS.find((colour) => colour.value === wanted)?.name ?? null;
+}
+
+/**
  * A style with every value resolved: what a renderer paints with.
  *
  * `stroke-dasharray` stays optional, because **absent is the representation of solid** (ADR-0009) all
@@ -171,45 +240,33 @@ export interface ResolvedStyle {
 const pick = <T>(value: T | undefined, fallback: T): T => (value === undefined ? fallback : value);
 
 /**
- * One Annotation's effective style: **`properties` → Layer `defaultStyle` → simplestyle defaults**
- * (ADR-0009).
+ * One Annotation's effective style: **its own `properties` → simplestyle's defaults** (ADR-0009, as
+ * amended).
  *
- * Per property rather than per object, which is the whole of what "overrides" means here: an
- * Annotation that sets only `stroke` takes the Layer's `fill` and the spec's `stroke-width`. An
- * object-level fallback — "use the Layer's style if the Annotation has none" — would make setting one
- * colour silently discard every other value the Layer carried.
+ * **One level of fallback, where there used to be two.** A Layer carried a `defaultStyle` that sat
+ * between these, and it is gone: an Annotation's style is now written onto the Annotation when it is
+ * drawn, copied from the last one drawn in that Layer, so "everything in this Layer is blue" is a
+ * fact about each Annotation rather than an inheritance a reader has to be told about. The amendment
+ * in ADR-0009 records why that trade was taken and what it cost.
  *
- * The one place precedence is decided, so the editor and the published viewer cannot disagree about
+ * Still per property rather than per object: an Annotation that sets only `stroke` takes the spec's
+ * `stroke-width` rather than losing it.
+ *
+ * The one place a style is resolved, so the editor and the published viewer cannot disagree about
  * what a file looks like.
  */
-export function resolveStyle(
-	properties: AnnotationProperties | undefined,
-	layerDefault: SimpleStyle | undefined
-): ResolvedStyle {
+export function resolveStyle(properties: AnnotationProperties | undefined): ResolvedStyle {
 	const own = properties ?? {};
-	const layer = layerDefault ?? {};
-	const dash = pick(own['stroke-dasharray'], layer['stroke-dasharray']);
-	const markerSize = pick(own['marker-size'], layer['marker-size']);
-	const markerSymbol = pick(own['marker-symbol'], layer['marker-symbol']);
+	const dash = own['stroke-dasharray'];
+	const markerSize = own['marker-size'];
+	const markerSymbol = own['marker-symbol'];
 	return {
-		'marker-color': pick(
-			own['marker-color'],
-			pick(layer['marker-color'], SIMPLESTYLE_DEFAULTS['marker-color'])
-		),
-		stroke: pick(own.stroke, pick(layer.stroke, SIMPLESTYLE_DEFAULTS.stroke)),
-		'stroke-opacity': pick(
-			own['stroke-opacity'],
-			pick(layer['stroke-opacity'], SIMPLESTYLE_DEFAULTS['stroke-opacity'])
-		),
-		'stroke-width': pick(
-			own['stroke-width'],
-			pick(layer['stroke-width'], SIMPLESTYLE_DEFAULTS['stroke-width'])
-		),
-		fill: pick(own.fill, pick(layer.fill, SIMPLESTYLE_DEFAULTS.fill)),
-		'fill-opacity': pick(
-			own['fill-opacity'],
-			pick(layer['fill-opacity'], SIMPLESTYLE_DEFAULTS['fill-opacity'])
-		),
+		'marker-color': pick(own['marker-color'], SIMPLESTYLE_DEFAULTS['marker-color']),
+		stroke: pick(own.stroke, SIMPLESTYLE_DEFAULTS.stroke),
+		'stroke-opacity': pick(own['stroke-opacity'], SIMPLESTYLE_DEFAULTS['stroke-opacity']),
+		'stroke-width': pick(own['stroke-width'], SIMPLESTYLE_DEFAULTS['stroke-width']),
+		fill: pick(own.fill, SIMPLESTYLE_DEFAULTS.fill),
+		'fill-opacity': pick(own['fill-opacity'], SIMPLESTYLE_DEFAULTS['fill-opacity']),
 		// `exactOptionalPropertyTypes`: these three are absent rather than `undefined` when nothing in
 		// the chain set them, because absent is what "solid" and "no symbol" mean.
 		...(dash === undefined ? {} : { 'stroke-dasharray': dash }),
@@ -313,12 +370,119 @@ export function newAnnotation(fields: {
 	id: string;
 	geometry: AnnotationGeometry;
 	title?: string;
+	/** What it is drawn with — see {@link styleForNewAnnotation}. */
+	style?: SimpleStyle;
 }): Annotation {
 	return {
 		id: fields.id,
 		geometry: fields.geometry,
-		properties: fields.title === undefined || fields.title === '' ? {} : { title: fields.title }
+		properties: {
+			...(fields.style ?? {}),
+			...(fields.title === undefined || fields.title === '' ? {} : { title: fields.title })
+		}
 	};
+}
+
+/** The simplestyle property names, so style can be told from content. */
+const STYLE_NAMES = [
+	'marker-size',
+	'marker-symbol',
+	'marker-color',
+	'stroke',
+	'stroke-opacity',
+	'stroke-width',
+	'fill',
+	'fill-opacity',
+	'stroke-dasharray'
+] as const satisfies readonly (keyof SimpleStyle)[];
+
+/**
+ * The style a newly drawn Annotation should carry: **the last one drawn in this Layer**.
+ *
+ * This is what replaced a Layer's `defaultStyle` (ADR-0009, as amended). A scholar who makes every
+ * conjectural route in a Layer dashed does it by drawing one dashed and then drawing; nothing is
+ * named "default", nothing is inherited, and the file says plainly what each Annotation is drawn
+ * with. The cost is recorded in the ADR: style repeats per feature, and there is no longer a way to
+ * restyle a whole Layer in one action.
+ *
+ * **Style only** — `title`, `description`, and anything unknown the last Annotation carried stay
+ * with it. Copying a stranger's prose onto the next shape a user draws would be a content bug
+ * wearing a styling change's clothes.
+ *
+ * The *last* rather than the selected one, because "the most recent choice" is what a user is
+ * reaching for: draw a blue pin, draw another, and it is blue. Restyling an older Annotation does
+ * not change what the next one starts as, which is the one case where this and "the most recent
+ * choice I made" part company.
+ *
+ * **The first Annotation in a Layer starts on the palette's grey**, explicitly, rather than carrying no
+ * colour and leaning on simplestyle's defaults. Those defaults are two *different* greys — `#555555`
+ * for a line and a fill, `#7e7e7e` for a pin — so a fresh pin was the one shape in the app whose colour
+ * was not among the nine a scholar is offered, and the editor would have had to report a colour nobody
+ * chose. Writing it costs three properties in the file, which is the trade ADR-0009's amendment already
+ * took when it moved style onto each Annotation; the value is `DEFAULT_ANNOTATION_COLOR`, so the file
+ * and the swatch cannot drift apart.
+ *
+ * Only the colours are defaulted. `stroke-width`, the opacities and `marker-size` stay absent, because
+ * simplestyle has one default for each of those and nothing here contradicts it — writing them would be
+ * bytes that say what the spec already says.
+ */
+export function styleForNewAnnotation(
+	collection: AnnotationCollection | null | undefined
+): SimpleStyle {
+	const last = collection?.annotations.at(-1);
+	if (last === undefined) {
+		return {
+			'marker-color': DEFAULT_ANNOTATION_COLOR,
+			stroke: DEFAULT_ANNOTATION_COLOR,
+			fill: DEFAULT_ANNOTATION_COLOR
+		};
+	}
+	const style: Record<string, unknown> = {};
+	for (const name of STYLE_NAMES) {
+		const value = last.properties[name];
+		if (value !== undefined) style[name] = value;
+	}
+	return style as SimpleStyle;
+}
+
+/**
+ * Where an Annotation's popup should point: **the middle of the shape**, not wherever the pointer
+ * landed on it.
+ *
+ * A popup placed at the click follows the cursor around a long coastline, so the same Annotation
+ * opened twice appears in two places and nothing on screen says which shape the words belong to. The
+ * middle is stable — open it from the map, from the list, or from a keyboard, and it is in the same
+ * place — and it is what "this popup is about *that* shape" reads as.
+ *
+ * A Point is its own coordinate. A line and a shape use the centre of their bounding box rather than
+ * a true centroid: a centroid is more work, is outside the shape for a crescent or a horseshoe
+ * anyway, and this is a place to hang a label rather than a measurement.
+ *
+ * `null` for a geometry this build cannot draw, and for an empty one — the caller falls back to
+ * where the reader clicked, which is the only thing left that is true.
+ */
+export function annotationAnchor(annotation: Annotation): { lng: number; lat: number } | null {
+	const geometry = annotation.geometry;
+	if (geometry === null || geometry.type === 'foreign') return null;
+	const points: readonly (readonly [number, number])[] =
+		geometry.type === 'Point'
+			? [geometry.coordinates]
+			: geometry.type === 'LineString'
+				? geometry.coordinates
+				: (geometry.coordinates[0] ?? []);
+	if (points.length === 0) return null;
+
+	let west = Infinity;
+	let east = -Infinity;
+	let south = Infinity;
+	let north = -Infinity;
+	for (const [lng, lat] of points) {
+		west = Math.min(west, lng);
+		east = Math.max(east, lng);
+		south = Math.min(south, lat);
+		north = Math.max(north, lat);
+	}
+	return { lng: (west + east) / 2, lat: (south + north) / 2 };
 }
 
 /** Put an Annotation at the end of the collection, where a newly drawn one belongs. */
