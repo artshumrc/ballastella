@@ -1069,7 +1069,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 
 		// The badge is now an **observation of the Workspace's files** rather than a field of
 		// `project.json` (ADR-0023): the image directory has an `info.json` of ours, so the tiles are here.
-		const badge = page.getByTestId('layer-image-mode');
+		const badge = (await openLayerRow(page)).getByTestId('layer-image-mode');
 		await expect(badge).toHaveAttribute('data-image-mode', 'offline-copy');
 		await expect(badge).toContainText('Local copy');
 	});
@@ -1220,7 +1220,8 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		const layerId = (await rowIds(page))[0] as string;
 		const builtBefore = await stackBuilds(page);
 
-		await page.getByTestId('layer-opacity').fill('0.35');
+		// The slider is inside the open card since the Layers revision.
+		await (await openLayerRow(page)).getByTestId('layer-opacity').fill('0.35');
 
 		await expect(page.getByTestId('layer-opacity-value')).toHaveText('35%');
 		expect(await warpedOpacity(page, layerId)).toBeCloseTo(0.35, 5);
@@ -1288,8 +1289,19 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		await expect(rows(page)).toHaveCount(2);
 
 		await expect(rows(page).nth(0)).toHaveAttribute('data-layer-kind', 'annotation');
-		await expect(rows(page).nth(0).getByTestId('layer-opacity')).toHaveCount(0);
-		await expect(rows(page).nth(1).getByTestId('layer-opacity')).toHaveCount(1);
+
+		// ⚠ **Each row is asserted while its own card is open, and the absence is the reason.**
+		//
+		// Since the Layers revision the slider lives inside the card, and the disclosure is an
+		// accordion — `openLayerId` holds one id, so opening one row closes the other. A version that
+		// opened the map Layer and then asserted `toHaveCount(0)` on the annotation row would pass
+		// because that row had just been *collapsed*, which is true of every control on it and says
+		// nothing about kinds. The absence has to be read on an open card or it is not this test.
+		const annotation = await openLayerRow(page, rows(page).nth(0));
+		await expect(annotation.getByTestId('layer-opacity')).toHaveCount(0);
+
+		const map = await openLayerRow(page, rows(page).nth(1));
+		await expect(map.getByTestId('layer-opacity')).toHaveCount(1);
 	});
 });
 
@@ -1385,7 +1397,9 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 			above.indexOf(`ballastella-layer-${annotationId}-fill`)
 		);
 
-		await rows(page).nth(0).getByTestId('layer-move-down').click();
+		// Reorder buttons are inside the open card since the Layers revision. The card follows the
+		// Layer rather than the position, so it is still open after the move.
+		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
 		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 
@@ -1449,7 +1463,9 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 			above.indexOf(`ballastella-layer-${annotationId}-fill`)
 		);
 
-		await rows(page).nth(0).getByTestId('layer-move-down').click();
+		// Reorder buttons are inside the open card since the Layers revision. The card follows the
+		// Layer rather than the position, so it is still open after the move.
+		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
 		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 
@@ -1620,7 +1636,9 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 	test('survives a reload', async ({ page }) => {
 		const { directory, annotationId, mapId } = await stackWithBothKinds(page);
 
-		await rows(page).nth(0).getByTestId('layer-move-down').click();
+		// Reorder buttons are inside the open card since the Layers revision. The card follows the
+		// Layer rather than the position, so it is still open after the move.
+		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		await page.reload();
 		// Waited for, not assumed: a reload renders the hub frame before `?p=` has been read, so the
@@ -1653,9 +1671,14 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		expect(before).toHaveLength(2);
 		const projectBefore = await readProjectFile(page, directory, 'project.json');
 
-		await rows(page).nth(0).getByTestId('layer-name').fill('Trade routes');
-		await rows(page).nth(0).getByTestId('layer-name').blur();
-		await rows(page).nth(0).getByTestId('layer-move-down').click();
+		// Renaming starts at the pencil in an open card since the Layers revision.
+		const renaming = await openLayerRow(page, rows(page).nth(0));
+		await renaming.getByTestId('layer-rename').click();
+		await renaming.getByTestId('layer-name').fill('Trade routes');
+		await renaming.getByTestId('layer-name').blur();
+		// Reorder buttons are inside the open card since the Layers revision. The card follows the
+		// Layer rather than the position, so it is still open after the move.
+		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
 		await rows(page).nth(0).getByTestId('layer-visible').uncheck();
 		await page.getByTestId('layer-opacity').fill('0.4');
 		await expect(page.getByRole('status')).toHaveText('Saved');
@@ -1698,10 +1721,15 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		const alignmentFile = (await alignmentRefOf(page, directory)).split('/').at(-1) as string;
 		await countFileReads(page);
 
-		await page.getByTestId('layer-opacity').fill('0.4');
+		// The slider is inside the open card since the Layers revision; the rename below opens the same
+		// card again, which `openLayerRow` treats as already open.
+		await (await openLayerRow(page)).getByTestId('layer-opacity').fill('0.4');
 		await expect(page.getByTestId('layer-opacity-value')).toHaveText('40%');
-		await rows(page).nth(0).getByTestId('layer-name').fill('Trade routes');
-		await rows(page).nth(0).getByTestId('layer-name').blur();
+		// Renaming starts at the pencil in an open card since the Layers revision.
+		const renaming = await openLayerRow(page, rows(page).nth(0));
+		await renaming.getByTestId('layer-rename').click();
+		await renaming.getByTestId('layer-name').fill('Trade routes');
+		await renaming.getByTestId('layer-name').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		// Both Layers are still drawn, so nothing was skipped rather than re-read.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
@@ -1720,8 +1748,11 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		const alignmentRef = await alignmentRefOf(page, directory);
 		const alignmentBefore = await readProjectFile(page, '', alignmentRef);
 
-		await page.getByTestId('layer-name').fill('The 1625 plan');
-		await page.getByTestId('layer-name').blur();
+		// Renaming starts at the pencil in an open card since the Layers revision.
+		const renaming = await openLayerRow(page);
+		await renaming.getByTestId('layer-rename').click();
+		await renaming.getByTestId('layer-name').fill('The 1625 plan');
+		await renaming.getByTestId('layer-name').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		expect((await projectJson(page, directory)).layers[0].name).toBe('The 1625 plan');
@@ -1767,7 +1798,11 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await openLayers(page, directory);
 		const before = await readProjectFile(page, directory, 'project.json');
 
-		await page.getByTestId('layer-name').focus();
+		// The field exists only in an open card with the pencil pressed since the Layers revision, so
+		// getting to it is two gestures — neither of which may write, which is this test's whole claim.
+		const tabbing = await openLayerRow(page);
+		await tabbing.getByTestId('layer-rename').click();
+		await tabbing.getByTestId('layer-name').focus();
 		await page.keyboard.press('Tab');
 		await page.keyboard.press('Tab');
 		await page.keyboard.press('Tab');
@@ -1831,9 +1866,14 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 		await expect(foreign.getByTestId('align-historical-map')).toHaveCount(0);
 		await expect(foreign.getByTestId('annotation-tools')).toHaveCount(0);
 
-		await rows(page).nth(0).getByTestId('layer-name').fill('The cartouche');
-		await rows(page).nth(0).getByTestId('layer-name').blur();
-		await rows(page).nth(0).getByTestId('layer-move-down').click();
+		// Renaming starts at the pencil in an open card since the Layers revision.
+		const renamingForeign = await openLayerRow(page, rows(page).nth(0));
+		await renamingForeign.getByTestId('layer-rename').click();
+		await renamingForeign.getByTestId('layer-name').fill('The cartouche');
+		await renamingForeign.getByTestId('layer-name').blur();
+		// Reorder buttons are inside the open card since the Layers revision. The card follows the
+		// Layer rather than the position, so it is still open after the move.
+		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const written = await projectJson(page, directory);

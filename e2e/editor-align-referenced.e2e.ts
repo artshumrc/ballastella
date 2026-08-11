@@ -376,7 +376,9 @@ test('says on the Layer, in text, that this map needs the network', async ({ pag
 	// not-aligned state. Asserted by reading the accessible text rather than the `data-` attribute,
 	// because the attribute is for tests and the sentence is for the user; a version that kept the
 	// attribute and dropped the words would pass an attribute assertion.
-	const badge = layerRows(page).first().getByTestId('layer-image-mode');
+	// Inside the open card since the Layers revision, so the card is opened rather than the badge
+	// waited for on a collapsed row — where it is not in the DOM at all.
+	const badge = (await openLayerRow(page, layerRows(page).first())).getByTestId('layer-image-mode');
 	await expect(badge).toBeVisible();
 	await expect(badge).toHaveText(/needs the network/i);
 	await expect(badge).toHaveAttribute('data-image-mode', 'referenced');

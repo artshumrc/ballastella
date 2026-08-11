@@ -1086,7 +1086,9 @@ test.describe('a copied Historical Map, once it is copied', () => {
 			expect(watched.library, `${directory} went back to the library`).toEqual([]);
 			// The badge is read off the files, so both Projects agree that the tiles are here — which is the
 			// disagreement the deleted `imageMode` used to produce for every Project but the open one.
-			await expect(page.getByTestId('layer-image-mode')).toHaveAttribute(
+			//
+			// Inside the open card since the Layers revision, so each Project's card is opened in turn.
+			await expect((await openLayerRow(page)).getByTestId('layer-image-mode')).toHaveAttribute(
 				'data-image-mode',
 				'offline-copy'
 			);

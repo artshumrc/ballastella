@@ -535,7 +535,11 @@ test.describe('the fit happens once, on open', () => {
 
 		// 3. Renaming. Nothing about the geography changes, which is exactly why a refit here would be
 		//    the most baffling of the four.
-		await rows(page).nth(0).getByTestId('layer-name').fill('The pins, renamed');
+		// Renaming starts at the pencil in an open card since the Layers revision; the field is not on
+		// the collapsed row any more.
+		const renaming = await openLayerRow(page, rows(page).nth(0));
+		await renaming.getByTestId('layer-rename').click();
+		await renaming.getByTestId('layer-name').fill('The pins, renamed');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		await stillParked(page, 'after a Layer was renamed');
 

@@ -436,7 +436,10 @@ test.describe('adding a Historical Map from a file', () => {
 		// Then the row takes its place, at the same position, and the card is gone.
 		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 120_000 });
 		await expectNothingPreparing(page);
-		await expect(page.getByTestId('layer-row').first().getByTestId('layer-name')).toHaveValue(
+		// The name a *reader of the list* sees, which is what this test is about. `layer-name` is the
+		// rename field, and since the Layers revision it exists only in an open card with the pencil
+		// pressed — so asserting a value there would make this test about the rename flow instead.
+		await expect(page.getByTestId('layer-row').first().getByTestId('layer-name-text')).toHaveText(
 			'la-floride.png'
 		);
 	});

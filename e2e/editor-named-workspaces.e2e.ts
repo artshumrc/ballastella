@@ -2,6 +2,7 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { seedMapLayer } from './support/project-screen';
+import { openLayerRow } from './support/layers';
 import { recordSaveStates } from './support/saved';
 import {
 	closeWorkspaceSettings,
@@ -324,8 +325,11 @@ test.describe('switching Workspaces with work in flight', () => {
 		const states = await recordSaveStates(page);
 		await holdTheDebounce(page);
 
+		// The slider is inside the open card since the Layers revision.
+		const row = await openLayerRow(page);
+
 		// `input` without `change`: the drag is under way and the pointer has not been released.
-		await page.getByTestId('layer-opacity').evaluate((node) => {
+		await row.getByTestId('layer-opacity').evaluate((node) => {
 			(node as HTMLInputElement).value = '0.5';
 			node.dispatchEvent(new Event('input', { bubbles: true }));
 		});

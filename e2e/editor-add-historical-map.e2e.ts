@@ -243,7 +243,7 @@ test.describe('adding a Historical Map', () => {
 		await waitForStoredLayers(page, 1, 'amsterdam-1625');
 		const imageId = (await page.getByTestId('layer-row').first().getAttribute('data-image-id'))!;
 
-		await page.getByTestId('layer-delete').click();
+		await (await openLayerRow(page)).getByTestId('layer-delete').click();
 		await waitForStoredLayers(page, 0, 'amsterdam-1625');
 		await deleteStoredFile(page, `alignments/${imageId}.json`);
 

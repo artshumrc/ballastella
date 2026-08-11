@@ -564,7 +564,8 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		const layersBefore = (await projectJson(page)).layers;
 		expect(await stackOrder(page)).toContain(`ballastella-layer-${mapLayer}`);
 
-		await layerRows(page).nth(1).getByTestId('layer-delete').click();
+		// Delete is inside the open card since the Layers revision.
+		await (await openLayerRow(page, layerRows(page).nth(1))).getByTestId('layer-delete').click();
 		await expect(layerRows(page)).toHaveCount(1);
 		await saved(page);
 
@@ -613,7 +614,8 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		const before = await hashesUnder(page, 'annotations/');
 		const annotationId = (await storedAnnotations(page, layerId)).features[0]?.id as string;
 
-		await layerRows(page).first().getByTestId('layer-delete').click();
+		// Delete is inside the open card since the Layers revision.
+		await (await openLayerRow(page, layerRows(page).first())).getByTestId('layer-delete').click();
 		await expect(layerRows(page)).toHaveCount(0);
 		await saved(page);
 		expect(await hashesUnder(page, 'annotations/')).toEqual([]);
@@ -681,7 +683,8 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		await openLayers(page, 1);
 		const layerBefore = (await projectJson(page)).layers[0];
 
-		await layerRows(page).first().getByTestId('layer-delete').click();
+		// Delete is inside the open card since the Layers revision.
+		await (await openLayerRow(page, layerRows(page).first())).getByTestId('layer-delete').click();
 		await expect(layerRows(page)).toHaveCount(0);
 		await saved(page);
 		await undoButton(page).click();
@@ -762,7 +765,8 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		await saved(page);
 		const [top, bottom] = (await rowIds(page)) as [string, string];
 
-		await layerRows(page).nth(1).getByTestId('layer-delete').click();
+		// Delete is inside the open card since the Layers revision.
+		await (await openLayerRow(page, layerRows(page).nth(1))).getByTestId('layer-delete').click();
 		await expect(layerRows(page)).toHaveCount(1);
 		await saved(page);
 		const label = 'Undo delete of the Layer “Annotations 1”';
@@ -770,8 +774,11 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 
 		// Two edits that are not destructive, both of them written.
 		await layerRows(page).first().getByTestId('layer-visible').uncheck();
-		await layerRows(page).first().getByTestId('layer-name').fill('Trade routes');
-		await layerRows(page).first().getByTestId('layer-name').blur();
+		// Renaming starts at the pencil in an open card since the Layers revision.
+		const renaming = await openLayerRow(page, layerRows(page).first());
+		await renaming.getByTestId('layer-rename').click();
+		await renaming.getByTestId('layer-name').fill('Trade routes');
+		await renaming.getByTestId('layer-name').blur();
 		await saved(page);
 
 		// Still offered, still naming the deletion, and still able to carry it out.
@@ -848,7 +855,11 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		await saved(page);
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 
-		const name = layerRows(page).first().getByTestId('layer-name');
+		// The name is a text field only in an open card with the pencil pressed since the Layers
+		// revision — and a text field is precisely what this test needs Ctrl+Z to be caught by.
+		const renaming = await openLayerRow(page, layerRows(page).first());
+		await renaming.getByTestId('layer-rename').click();
+		const name = renaming.getByTestId('layer-name');
 		await name.click();
 		await name.press('Control+z');
 

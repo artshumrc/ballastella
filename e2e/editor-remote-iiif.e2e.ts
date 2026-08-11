@@ -466,8 +466,11 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// The user renames it, so a Layer that came back rebuilt rather than untouched is visible.
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
-		await page.getByTestId('layer-name').fill('The Florida coast, as drawn in 1657');
-		await page.getByTestId('layer-name').blur();
+		// Renaming starts at the pencil in an open card since the Layers revision.
+		const renaming = await openLayerRow(page);
+		await renaming.getByTestId('layer-rename').click();
+		await renaming.getByTestId('layer-name').fill('The Florida coast, as drawn in 1657');
+		await renaming.getByTestId('layer-name').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		const renamed = await readText(page, 'amsterdam-1625', 'project.json');
 
@@ -513,7 +516,8 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 
 		await page.goto('/?p=amsterdam-1625');
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
-		await page.getByTestId('layer-delete').click();
+		// Delete is inside the open card since the Layers revision.
+		await (await openLayerRow(page)).getByTestId('layer-delete').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		expect(
@@ -580,7 +584,8 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 
 		await page.goto('/?p=amsterdam-1625');
 		await expect(page.getByTestId('layer-sidebar')).toBeVisible();
-		await page.getByTestId('layer-delete').click();
+		// Delete is inside the open card since the Layers revision.
+		await (await openLayerRow(page)).getByTestId('layer-delete').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		await expect(page.getByRole('status')).toHaveText('Saved');
 		// Deleting a Layer never deletes a Historical Map or its Alignment (ADR-0023). Stated here
