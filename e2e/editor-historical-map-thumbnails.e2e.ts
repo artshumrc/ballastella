@@ -107,6 +107,22 @@ test('a Historical Map added from a file shows a picture that has actually decod
 			tabIndex: (element as HTMLImageElement).tabIndex
 		}))
 	).toEqual({ objectFit: 'contain', tabIndex: -1 });
+
+	// ⚠ **The laid-out box, at the hub's 96**, which is ADR-0030's default and the other half of the pair
+	// the picker asks for at 48. This neither weakens nor duplicates the `naturalWidth` assertion above:
+	// that one is about whether any bytes decoded and is deliberately blind to CSS.
+	//
+	// ⚠ **The `<img>`'s own height is deliberately not asserted**, here as in the picker's spec. Tailwind
+	// Preflight sets `img { max-width: 100%; height: auto }`, which beats the `height` attribute, so this
+	// element's height is always its width over the sheet's ratio — 96 / (175/125) — and never the box's
+	// side. `clientWidth` rather than `boundingBox()` so a transform anywhere above cannot make it
+	// fractional.
+	expect(
+		await picture.evaluate((element) => ({
+			box: [element.parentElement!.clientWidth, element.parentElement!.clientHeight],
+			picture: element.clientWidth
+		}))
+	).toEqual({ box: [96, 96], picture: 96 });
 });
 
 test('a Workspace-held map whose coarsest tile was never written keeps the glyph', async ({

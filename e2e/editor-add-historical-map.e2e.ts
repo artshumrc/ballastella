@@ -1,5 +1,5 @@
 import { expect, test } from './support/test.js';
-import { type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 
 import {
 	gradientPng,
@@ -668,6 +668,161 @@ test.describe('adding a map this Workspace already holds', () => {
 		// And nothing was written — no Layer, and no Alignment over a sheet of unknown size.
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
 		expect(await storedAlignment(page, 'damaged-record')).toBeNull();
+	});
+});
+
+test.describe('the picker’s pictures (ADR-0030, SPEC story 3)', () => {
+	/** One candidate row — the `<li>`, so the picture beside the button is inside it. */
+	const candidate = (within: Page | Locator, label: string) =>
+		within.getByTestId('workspace-map-row').filter({ hasText: label });
+
+	/**
+	 * What the browser actually decoded, in pixels, or `{ width: 0, height: 0 }` for an image with
+	 * nothing in it.
+	 *
+	 * ⚠ `naturalWidth` and not `toBeVisible()`, and not the `src` attribute either. An `<img>` that
+	 * 404s is visible and laid out at exactly its `width`/`height` attributes with no pixels in it, so
+	 * a visibility assertion passes over an empty box; and comparing `src` with a URL computed here
+	 * would compare the computation with itself and pass however wrong the arithmetic is.
+	 */
+	const decoded = (
+		within: Page | Locator,
+		label: string
+	): Promise<{ width: number; height: number }> =>
+		candidate(within, label)
+			.getByTestId('map-thumbnail-image')
+			.evaluate((element) => ({
+				width: (element as HTMLImageElement).naturalWidth,
+				height: (element as HTMLImageElement).naturalHeight
+			}))
+			.catch(() => ({ width: 0, height: 0 }));
+
+	/** A second Project, from which the first Project's map is a candidate rather than a Layer. */
+	async function secondProject(page: Page): Promise<void> {
+		await page.goto('/');
+		await createProject(page, 'Boston 1775');
+		await page.getByRole('link', { name: 'Boston 1775' }).click();
+		await openLayers(page, 'boston-1775');
+	}
+
+	test('a Workspace-held candidate shows a picture that has actually decoded', async ({ page }) => {
+		// The surface this matters most on: a scholar choosing which of several scans to add is
+		// otherwise choosing between folder names. Same component as the hub's, same tile, no new data.
+		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
+		// Waited out in full: `addHistoricalMapFromFile` returns when the preparing card has gone, which
+		// is the end of the whole add. A picture assertion made before the pyramid is described has
+		// nothing to resolve.
+		await addHistoricalMapFromFile(page, {
+			name: 'la-floride.png',
+			mimeType: 'image/png',
+			buffer: gradientPng(700, 500)
+		});
+		await waitForStoredLayers(page, 1, 'amsterdam-1625');
+		await secondProject(page);
+
+		// ⚠ `ensureAddHistoricalMapOpen` rather than a wait on the dialog appearing: see `settle` in
+		// `support/historical-maps.ts` for the window that made asking about this dialog flake.
+		const dialog = await ensureAddHistoricalMapOpen(page);
+		await expect(dialog.getByTestId('workspace-map')).toHaveCount(1);
+
+		// **700 × 500 reduces to 175 × 125**, worked out from ADR-0030's rule rather than from the code:
+		// the scale factors double until the sheet fits in one 256-pixel tile, so 1, 2, 4 — and the
+		// coarsest level is the whole sheet at a quarter size. A URL at any other scale factor names a
+		// tile the tiler never wrote, and this poll would sit on `{ width: 0, height: 0 }`.
+		await expect
+			.poll(() => decoded(page, 'la-floride.png'), { timeout: 20_000 })
+			.toEqual({ width: 175, height: 125 });
+
+		// Not a tab stop and never cropped, on the picture that actually arrived. The row already has
+		// its own action, and a picture that took focus would put a stop between a scholar and the
+		// button they are reaching for — a plain `<img>` reports `tabIndex` as -1.
+		const picture = candidate(page, 'la-floride.png').getByTestId('map-thumbnail-image');
+		await expect(picture).toHaveAttribute('alt', '');
+		expect(
+			await picture.evaluate((element) => ({
+				objectFit: getComputedStyle(element).objectFit,
+				tabIndex: (element as HTMLImageElement).tabIndex
+			}))
+		).toEqual({ objectFit: 'contain', tabIndex: -1 });
+
+		// ⚠ **The laid-out box, at the picker's 48 and not the hub's 96**, which nothing above can see:
+		// `naturalWidth` is intrinsic to the bytes and independent of every rule of CSS, and a picture
+		// drawn at the hub's size inside a 48-pixel `overflow-hidden` box is still visible.
+		//
+		// `clientWidth` and not `boundingBox()`, because the dialog animates in under a transform and its
+		// box is fractional for the first frames — 47.38 rather than 48. Layout is the claim here anyway.
+		//
+		// ⚠ **The `<img>`'s own height is deliberately not asserted.** Tailwind Preflight sets
+		// `img { max-width: 100%; height: auto }`, which beats the `height` attribute, so this element's
+		// height is always its width over the sheet's ratio — 48 / (175/125) — and never the box's side.
+		// What `size` decides, and all it decides here, is the box and the width that fills it.
+		expect(
+			await picture.evaluate((element) => ({
+				box: [element.parentElement!.clientWidth, element.parentElement!.clientHeight],
+				picture: element.clientWidth
+			}))
+		).toEqual({ box: [48, 48], picture: 48 });
+
+		// ⚠ **A sibling of the candidate's button, not a child of it**, which is the claim `tabIndex`
+		// above cannot make: a plain `<img>` reports -1 wherever it sits, nested inside a `<button>`
+		// included, so that half of the assertion is true of the design this ticket rejected as well.
+		await expect(candidate(page, 'la-floride.png').locator('button img')).toHaveCount(0);
+
+		// And the row still does what it did before the picture joined it: one press, one Layer, and the
+		// dialog gone. The picture is beside the button, so nothing about it is in the way of the click.
+		await dialog.getByTestId('workspace-map').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(1);
+		await expect.poll(() => addHistoricalMapIsOpen(page)).toBe(false);
+	});
+
+	test('a candidate whose picture cannot be resolved shows the glyph and no broken image', async ({
+		page
+	}) => {
+		// A pyramid whose `info.json` declares no `tiles`, so no tile side is known and ADR-0030 yields
+		// no URL rather than guessing 256: a service on 512-pixel tiles would otherwise get a URL at the
+		// wrong scale factor and a broken box instead of an honest blank.
+		await emptyProject(page, 'Amsterdam 1625', 'amsterdam-1625');
+		await writeStoredFile(
+			page,
+			'images/no-geometry/info.json',
+			JSON.stringify({
+				'@context': 'http://iiif.io/api/image/3/context.json',
+				id: 'https://unset.invalid/no-geometry',
+				type: 'ImageService3',
+				protocol: 'http://iiif.io/api/image',
+				profile: 'level0',
+				width: 700,
+				height: 500
+			})
+		);
+		// So the row can be found by a name rather than by a random image id (ADR-0015).
+		await writeStoredFile(
+			page,
+			'images/no-geometry/manifest.json',
+			JSON.stringify({ label: { none: ['Carte sans mesures'] } })
+		);
+
+		const dialog = await ensureAddHistoricalMapOpen(page);
+		const row = candidate(dialog, 'Carte sans mesures');
+		await expect(row).toHaveCount(1);
+
+		// No wait is needed before the negative half, and this is why: `thumbnail` is resolved
+		// synchronously by the domain listing, so it is already `null` on the first frame and
+		// `MapThumbnail`'s effect never starts a fetch. There is no frame in which a picture could have
+		// appeared. The positive claim below auto-waits and is the same claim anyway — glyph and `<img>`
+		// are the two branches of one `{#if}` — and the count is kept as explicit documentation.
+		const glyph = row.getByTestId('map-thumbnail-glyph');
+		await expect(glyph).toBeVisible();
+		await expect(row.getByTestId('map-thumbnail-image')).toHaveCount(0);
+
+		// ⚠ **And it fills the picker's 48-pixel box rather than being clipped by it, which is the one
+		// assertion in either spec that can see the `size` prop reach what it is for.** `toBeVisible`
+		// passes for a 96-pixel glyph drawn inside a 48-pixel `overflow-hidden` box, and the picture's own
+		// box cannot tell the difference either — Preflight's `max-width: 100%` clamps an oversized `<img>`
+		// straight back to the box, so the glyph is where a lost `size` actually shows.
+		expect(await glyph.evaluate((element) => [element.clientWidth, element.clientHeight])).toEqual([
+			48, 48
+		]);
 	});
 });
 

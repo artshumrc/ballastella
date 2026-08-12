@@ -605,7 +605,9 @@
 						<div class="card-body flex-row flex-wrap items-center justify-between gap-4">
 							<!-- A picture of the sheet, before the text and inside the same row (ADR-0030). It
 							     is what lets a scholar tell eleven scans of the same city apart without
-							     opening a Project, and it costs no bytes: it is the map's own coarsest tile. -->
+							     opening a Project, and it adds no bytes to the Workspace: it is the map's own
+							     coarsest tile. A referenced map's comes off its Library over the network, which
+							     ADR-0030 accepts and deliberately does not warn about. -->
 							<MapThumbnail {map} {fetchTile} />
 							<!-- `grow` so the picture and the name stay beside each other: the row is
 							     `justify-between`, and without it the free space would open up between them. -->

@@ -34,6 +34,8 @@
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 
+	import MapThumbnail from './MapThumbnail.svelte';
+
 	let {
 		session,
 		open = $bindable(false),
@@ -92,6 +94,13 @@
 	const available = $derived(
 		session.historicalMaps.filter((map) => session.mapLayerFor(map.imageId) === undefined)
 	);
+
+	/**
+	 * The ADR-0011 shim each row's picture reads its tile through (ADR-0030).
+	 *
+	 * One for the whole list, as on the hub: it is Workspace-rooted and takes no Project.
+	 */
+	const fetchTile = $derived(session.imageServiceFetch());
 
 	/** What a map is called in the list, never its hash where anything better is known. */
 	const nameOf = (map: WorkspaceHistoricalMap): string => map.label || map.imageId;
@@ -285,7 +294,23 @@
 				aria-label="Historical Maps in this Workspace"
 			>
 				{#each available as map (map.imageId)}
-					<li>
+					<!-- The row rather than the button, because the picture is beside the button: a picture
+					     of the wrong map would be worse than no picture, so an assertion about one has to be
+					     able to scope itself to the candidate it belongs to. -->
+					<li class="flex items-center gap-3" data-testid="workspace-map-row">
+						<!--
+							A picture of the sheet, before the text, exactly as the hub's card row has it
+							(ADR-0030) — this is the surface where recognising a sheet matters most, because a
+							scholar choosing between eleven scans is otherwise choosing between eleven folder
+							names.
+
+							**Beside the button and not inside it**, which is both halves of the rule: a `<div>`
+							is not phrasing content and so has no business inside a `<button>`, and the picture
+							stays a picture — no tab stop, no handler, nothing between a scholar and the control
+							they are reaching for. `48` rather than the hub's 96: these rows are a scrolling list
+							in a dialog, not cards.
+						-->
+						<MapThumbnail {map} {fetchTile} size={48} />
 						<!--
 							A real `<button>` per map, so Tab reaches each and Enter and Space activate it — the
 							same shape the canvas picker uses, and for the same reason (SPEC story 95). The size
@@ -294,7 +319,7 @@
 							choosing on.
 						-->
 						<button
-							class="btn h-auto w-full flex-col items-start gap-0 btn-ghost py-2"
+							class="btn h-auto grow flex-col items-start gap-0 btn-ghost py-2"
 							type="button"
 							data-testid="workspace-map"
 							data-image-id={map.imageId}

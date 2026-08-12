@@ -6,9 +6,14 @@
 	 * The picture of one Historical Map: its own coarsest pyramid tile, in a fixed box (ADR-0030).
 	 *
 	 * **Nothing is generated to make this work.** A level-0 pyramid's scale factors double until the
-	 * whole sheet fits inside one tile, so its coarsest level is already a whole-sheet derivative of at
-	 * most 256 × 256, and `listWorkspaceHistoricalMaps` has already worked out its URL. This component's
-	 * one job is turning that URL into pixels.
+	 * whole sheet fits inside one tile, so its coarsest level is already a whole-sheet derivative, and
+	 * `listWorkspaceHistoricalMaps` has already worked out its URL. This component's one job is turning
+	 * that URL into pixels.
+	 *
+	 * **The derivative is bounded by the tile side, which is the *service's* and not always ours.** A
+	 * Workspace-held map is on this app's 256, so its picture is at most 256 × 256. A Library declaring
+	 * 512- or 1024-pixel tiles yields a correspondingly larger one — still a single request and still not
+	 * the sheet, but do not read the 96-pixel box as a claim about how many bytes arrive.
 	 *
 	 * **Two sources and one element**, because where the bytes are is already answered by `map.tiles`. A
 	 * Workspace-held map's tile is read through the ADR-0011 shim and becomes an object URL here; a
@@ -23,7 +28,8 @@
 	 */
 	let {
 		map,
-		fetchTile
+		fetchTile,
+		size = 96
 	}: {
 		map: WorkspaceHistoricalMap;
 		/**
@@ -35,6 +41,14 @@
 		 * store at a virtual path is refused for the reason ADR-0011 gives.
 		 */
 		fetchTile: FetchFn;
+		/**
+		 * The box's side in pixels. ADR-0030's 96 by default, which is the hub card's.
+		 *
+		 * The picker's rows are laid out far more tightly than the hub's cards, so they ask for a smaller
+		 * box. A number rather than a class because it is also the `width`/`height` attributes and the
+		 * glyph's own size, all of which have to agree.
+		 */
+		size?: number;
 	} = $props();
 
 	/** The object URL the picture is drawn from, or `null` while there is none — which is the glyph. */
@@ -113,10 +127,10 @@
 	`object-contain` and never `object-cover`: a sheet's proportions are information, and a panoramic map
 	reduces to a legitimate sliver rather than being cropped into something wrong.
 
-	`max-h-full max-w-full` rather than a filled 96 px box, so nothing is ever upscaled without
-	qualification. `object-contain` alone only holds that promise for a source larger than the box, and
-	the coarsest level of a sheet smaller than one tile has scale factor 1 — a 60 × 40 scan would be
-	enlarged to fill 96 px and shown blurrier than it is.
+	`max-h-full max-w-full` rather than a filled box, so nothing is ever upscaled without qualification.
+	`object-contain` alone only holds that promise for a source larger than the box, and the coarsest
+	level of a sheet smaller than one tile has scale factor 1 — a 60 × 40 scan would be enlarged to fill
+	the box and shown blurrier than it is.
 
 	`alt=""` deliberately. The map's name is immediately adjacent, and there is no useful alternative
 	text for a picture of a map — "Thumbnail of …" would make a screen reader say the name twice. Not a
@@ -132,8 +146,8 @@
 	<img
 		src={from}
 		alt=""
-		width="96"
-		height="96"
+		width={size}
+		height={size}
 		loading={lazy ? 'lazy' : undefined}
 		class="max-h-full max-w-full object-contain"
 		data-testid="map-thumbnail-image"
@@ -142,16 +156,23 @@
 {/snippet}
 
 <!--
-	A leading child of the card's existing flex row, and the card stays a row: the picture joins the
-	facts already beside the name rather than turning the list into a gallery.
+	A leading child of a row that stays a row, at both call sites: the hub's cards and the picker's
+	candidate list. The picture joins the facts already beside the name rather than turning either list
+	into a gallery.
 
-	`shrink-0` and a fixed box, with `width` and `height` on the element itself, so a card does not
-	change shape as pictures resolve at wildly different times — clicking Delete on the right map must
-	not be a moving target.
+	`shrink-0` and a fixed box, with `width` and `height` on the element itself, so a row does not change
+	shape as pictures resolve at wildly different times — clicking Delete on the right map, or the right
+	candidate in the picker, must not be a moving target.
+
+	An inline `style` for the box because the side is a prop: Tailwind's JIT cannot consume a dynamic
+	arbitrary value, and a lookup table of size classes would be worse than this.
 -->
-<div class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden">
+<div
+	class="flex shrink-0 items-center justify-center overflow-hidden"
+	style="width: {size}px; height: {size}px"
+>
 	{#if shown === null}
-		<MapGlyph size={96} class="opacity-30" aria-hidden="true" data-testid="map-thumbnail-glyph" />
+		<MapGlyph {size} class="opacity-30" aria-hidden="true" data-testid="map-thumbnail-glyph" />
 	{:else}
 		{@render sheet(shown, tiles === 'referenced')}
 	{/if}
