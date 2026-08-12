@@ -1788,7 +1788,11 @@ export class EditorSession {
 			rights: fields.rights,
 			attribution: fields.attribution,
 			width: service.width,
-			height: service.height
+			height: service.height,
+			// The picture the hub will show beside this map's name is the single tile at the coarsest level
+			// of the Library's own pyramid, and which level that is follows from the sheet's pixels and this
+			// (ADR-0030). It is in hand only here, at the moment the service was read and accepted.
+			tileSize: service.tileSize
 		});
 		try {
 			await this.#autosave.commit(

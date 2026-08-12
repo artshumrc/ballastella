@@ -330,7 +330,10 @@ export async function listWorkspaceHistoricalMaps(
 					// A copied map's tiles are here, so it names no Library even though it still
 					// records where it came from.
 					library: tiles === 'referenced' ? libraryOf(remote?.service ?? '') : '',
-					thumbnail: tiles === 'in-workspace' ? await readWorkspaceThumbnail(store, imageId) : null,
+					thumbnail:
+						tiles === 'in-workspace'
+							? await readWorkspaceThumbnail(store, imageId)
+							: referencedThumbnail(remote),
 					...(await weigh(store, imageId, paths)),
 					usedBy: usersOf(usage, imageId),
 					mightBeUsedBy: usage.fromANewerVersion
@@ -683,6 +686,29 @@ async function readWorkspaceThumbnail(
 	return wholeImageDerivative(geometry.width, geometry.height, geometry.tileSize).url(
 		imageServiceId(imageId)
 	);
+}
+
+/**
+ * The URL of the coarsest tile of a referenced map's pyramid, on the Library's own server — or `null`
+ * when the record does not carry the geometry to name it (ADR-0030).
+ *
+ * **The same derivation as the Workspace-held case**, from the same function: one rule, two sources for
+ * its three inputs. That a tile at this address is actually servable is established at add time rather
+ * than assumed here — `createImagePane` requires the coarsest level to reduce the sheet to a single
+ * tile, `extendedTileset` synthesises that level for a service declaring none, and the probe fetches
+ * that exact tile before the resource is accepted.
+ *
+ * `service` is used verbatim: `referencedImage` has already put it through `canonicalServiceUri`, so
+ * re-normalising it here would be a second spelling of one address.
+ */
+function referencedThumbnail(record: ReferencedImage | null): string | null {
+	// A record that would not parse costs the picture along with the label, and `tileSize` is `0` for one
+	// written before the field existed — re-adding the map is the whole remedy (ADR-0030: no backfill,
+	// and nothing fetches `info.json` on open to repair it).
+	if (record === null) return null;
+	const { width, height, tileSize } = record;
+	if (width === 0 || height === 0 || tileSize === 0) return null;
+	return wholeImageDerivative(width, height, tileSize).url(record.service);
 }
 
 /**

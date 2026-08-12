@@ -64,12 +64,13 @@ async function seedReferencedMap(
 	store: MemoryProjectStore,
 	imageId: string,
 	label: string,
-	service = 'https://iiif.library.example/iiif/3/plan-1625'
+	service = 'https://iiif.library.example/iiif/3/plan-1625',
+	tileSize = 256
 ): Promise<void> {
 	await store.write(
 		referencedImagePath(imageId),
 		serialiseReferencedImage(
-			referencedImage({ imageId, service, label, width: 4000, height: 3000 })
+			referencedImage({ imageId, service, label, width: 4000, height: 3000, tileSize })
 		)
 	);
 }
@@ -292,11 +293,92 @@ describe('a Historical Map’s thumbnail', () => {
 		);
 	});
 
-	it('is nothing at all for a map referenced from a Library', async () => {
-		// A referenced map's picture comes from the Library's own server and is ticket 03. Until then it
-		// shows the same neutral glyph as a map whose picture cannot be resolved.
+	it('is the coarsest tile on the Library’s own server for a referenced map', async () => {
+		// One derivation for both tile locations, with two sources for its three inputs (ADR-0030): the
+		// sheet is 4000 × 3000 on 256-pixel tiles, so the scale factors run 1, 2, 4, 8, 16 and the whole
+		// sheet is one 250 × 188 tile. **Nothing is downloaded to make this**: it is a URL on the Library's
+		// server, and the add-time probe has already established that this exact tile is served.
 		const store = new MemoryProjectStore();
-		await seedReferencedMap(store, 'bbb2', 'Plan de Paris');
+		await seedReferencedMap(
+			store,
+			'bbb2',
+			'Plan de Paris',
+			'https://iiif.bnf.example/iiif/3/btv1b'
+		);
+
+		expect(await thumbnailOf(store, 'bbb2')).toBe(
+			'https://iiif.bnf.example/iiif/3/btv1b/0,0,4000,3000/250,188/0/default.jpg'
+		);
+	});
+
+	it('is at the scale factor the Library’s declared tile side makes coarsest', async () => {
+		// The same sheet on 512-pixel tiles fits in one tile a level sooner — coarsest factor 8, so
+		// 500 × 375. This is the reason `remote.json` records the tile side at all: a resolver that assumed
+		// this app's own 256 would name `250,188`, an address that service has no tile at, and the card
+		// would show a broken box instead of an honest glyph.
+		const store = new MemoryProjectStore();
+		await seedReferencedMap(
+			store,
+			'bbb2',
+			'Plan de Paris',
+			'https://iiif.bnf.example/iiif/3/btv1b',
+			512
+		);
+
+		expect(await thumbnailOf(store, 'bbb2')).toBe(
+			'https://iiif.bnf.example/iiif/3/btv1b/0,0,4000,3000/500,375/0/default.jpg'
+		);
+	});
+
+	it('is on the canonical spelling of the service, however the record spells it', async () => {
+		// Written raw rather than through `seedReferencedMap`, because that helper builds the record with
+		// `referencedImage()`, which canonicalises the address *before* the bytes are written — so a record
+		// seeded through it is byte-identical to the canonical case and this test would assert nothing.
+		// `parseReferencedImage` is what has to cope, and the trailing slash reaches it only from disk.
+		// Trimming slashes in the resolver would be a second answer to how a service is spelled, which is
+		// the defect `imagePaneSourceFor` exists to prevent for the tile base and the `info.json` URL.
+		const store = new MemoryProjectStore();
+		await store.write(
+			referencedImagePath('bbb2'),
+			serialiseJson({
+				service: 'https://iiif.bnf.example/iiif/3/btv1b/',
+				label: 'Plan de Paris',
+				width: 4000,
+				height: 3000,
+				tileSize: 256
+			})
+		);
+
+		expect(await thumbnailOf(store, 'bbb2')).toBe(
+			'https://iiif.bnf.example/iiif/3/btv1b/0,0,4000,3000/250,188/0/default.jpg'
+		);
+	});
+
+	it.each([
+		['no tileSize, as a record written before the field existed', { width: 4000, height: 3000 }],
+		['no dimensions', { tileSize: 256 }]
+	])('is nothing at all for a referenced map whose record carries %s', async (_what, geometry) => {
+		// **Never a guessed 256** (ADR-0030). Absent geometry means the glyph: a Library on 512-pixel tiles
+		// would get a URL at the wrong scale factor, and a broken box claims a failure where an honest
+		// blank says only that the picture is not available. Re-adding the map is the whole remedy, and
+		// nothing fetches `info.json` on open to repair the record.
+		const store = new MemoryProjectStore();
+		await store.write(
+			referencedImagePath('bbb2'),
+			serialiseJson({ service: 'https://iiif.bnf.example/iiif/3/btv1b', ...geometry })
+		);
+
+		const maps = await listWorkspaceHistoricalMaps(store);
+
+		// Still listed, and still with its Library named: this is the reclaim list.
+		expect(maps.map((map) => map.imageId)).toEqual(['bbb2']);
+		expect(maps[0]?.library).toBe('iiif.bnf.example');
+		expect(maps[0]?.thumbnail).toBeNull();
+	});
+
+	it('is nothing at all for a referenced map whose record will not parse', async () => {
+		const store = new MemoryProjectStore();
+		await store.write(referencedImagePath('bbb2'), new TextEncoder().encode('{ not json'));
 
 		expect(await thumbnailOf(store, 'bbb2')).toBeNull();
 	});
@@ -706,7 +788,8 @@ describe('partitionByOfflineCopy', () => {
 			imageId,
 			service: 'https://iiif.library.example/iiif/3/plan',
 			width: 100,
-			height: 100
+			height: 100,
+			tileSize: 256
 		});
 
 	it('calls an image with a pyramid of ours copied, and one without referenced', () => {

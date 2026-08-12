@@ -35,7 +35,8 @@ const record = () =>
 		rights: 'http://rightsstatements.org/vocab/NoC-US/1.0/',
 		attribution: 'Library of Congress, Geography and Map Division',
 		width: 2781,
-		height: 3622
+		height: 3622,
+		tileSize: 512
 	});
 
 /**
@@ -234,12 +235,31 @@ describe('the record beside a referenced image', () => {
 		// is long after the Manifest has been navigated away from. So they are written now.
 		expect(read.rights).toBe('http://rightsstatements.org/vocab/NoC-US/1.0/');
 		expect(read.attribution).toBe('Library of Congress, Geography and Map Division');
+		// The service's declared tile side, which is what makes the picture the hub shows beside this map's
+		// name namable at all (ADR-0030): with the sheet's pixels it says which power of two reduces the
+		// whole sheet to one tile. Nothing else in the Workspace records it for a referenced map.
+		expect(read.tileSize).toBe(512);
 	});
 
 	it('is tab indented with a trailing newline, like every other JSON this app writes', () => {
-		const text = new TextDecoder().decode(serialiseReferencedImage(record()));
-		expect(text.startsWith('{\n\t"service"')).toBe(true);
-		expect(text.endsWith('\n')).toBe(true);
+		// The whole document, member by member and in order. Exact rather than a prefix and a suffix: this
+		// is the file a colleague's build and a later version of this one both read, so which members it
+		// carries is the claim — and a looser assertion would go on passing over a `tileSize` that had
+		// stopped being written, which costs the picture silently.
+		expect(new TextDecoder().decode(serialiseReferencedImage(record()))).toBe(
+			`{
+\t"service": "${SERVICE}",
+\t"label": "A new map of Florida",
+\t"partOf": "https://www.loc.gov/item/2022594752/manifest.json",
+\t"canvas": "https://www.loc.gov/item/2022594752/canvas/1",
+\t"rights": "http://rightsstatements.org/vocab/NoC-US/1.0/",
+\t"attribution": "Library of Congress, Geography and Map Division",
+\t"width": 2781,
+\t"height": 3622,
+\t"tileSize": 512
+}
+`
+		);
 	});
 
 	it.each([
@@ -267,9 +287,10 @@ describe('the record beside a referenced image', () => {
 		// spellings are two Layers that cannot be told apart and an existing Alignment silently not
 		// found. See `canonicalServiceUri`, which is the one place that decides it.
 		for (const written of [SERVICE, `${SERVICE}/`, `${SERVICE}/info.json`]) {
-			expect(referencedImage({ imageId: 'x', service: written, width: 1, height: 1 }).service).toBe(
-				SERVICE
-			);
+			expect(
+				referencedImage({ imageId: 'x', service: written, width: 1, height: 1, tileSize: 256 })
+					.service
+			).toBe(SERVICE);
 		}
 	});
 
@@ -282,6 +303,29 @@ describe('the record beside a referenced image', () => {
 		expect(read.service).toBe(SERVICE);
 		expect(read.label).toBe('');
 		expect(read.width).toBe(0);
+	});
+
+	it.each([
+		['a record written before the field existed', undefined],
+		['a tileSize of the wrong type', '256'],
+		['a fractional one', 256.5],
+		['zero', 0],
+		['a negative one', -256]
+	])('reads %s as a tileSize of 0, and still hands back the map', (_what, tileSize) => {
+		// The same tolerance the dimensions get, and for the same reason: losing this costs the picture the
+		// hub shows and nothing else, so refusing the record over it would trade a glyph for a map a
+		// scholar can neither see nor delete. Only a bad service URI costs the map (ADR-0030: no backfill,
+		// re-adding is the remedy).
+		const read = parseReferencedImage(
+			new TextEncoder().encode(
+				JSON.stringify({ service: SERVICE, width: 2781, height: 3622, tileSize })
+			),
+			{ imageId: 'a8eb9e9cf936cc3d' }
+		);
+
+		expect(read.tileSize).toBe(0);
+		expect(read.service).toBe(SERVICE);
+		expect(read.width).toBe(2781);
 	});
 });
 
@@ -407,7 +451,8 @@ describe('a Historical Map that has been copied offline', () => {
 			imageId: 'ffff0000ffff0000',
 			service: 'https://digital.bodleian.ox.ac.uk/iiif/image/other',
 			width: 10,
-			height: 10
+			height: 10,
+			tileSize: 256
 		});
 
 	it('is told apart from a referenced one by the pyramid being there, and by nothing else', () => {

@@ -331,6 +331,10 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// 15), long after the Manifest has been navigated away from — so they are recorded now.
 		expect(record.rights).toBe('http://creativecommons.org/licenses/by/4.0/');
 		expect(record.attribution).toBe('Provided by the Example Library');
+		// The service's declared square tile side, in hand only at this moment and previously discarded.
+		// With the dimensions it is what names the picture the hub shows beside this map (ADR-0030); the
+		// scale factor it implies cannot be recovered from anything else in the Workspace.
+		expect(record.tileSize).toBe(256);
 
 		const project = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
 			layers: { kind: string; name: string; imageId: string }[];

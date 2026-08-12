@@ -10,8 +10,14 @@
 	 * most 256 × 256, and `listWorkspaceHistoricalMaps` has already worked out its URL. This component's
 	 * one job is turning that URL into pixels.
 	 *
+	 * **Two sources and one element**, because where the bytes are is already answered by `map.tiles`. A
+	 * Workspace-held map's tile is read through the ADR-0011 shim and becomes an object URL here; a
+	 * referenced map's picture is a plain URL on the Library's own server, which the element fetches
+	 * itself and lazily.
+	 *
 	 * **Loading, absent, and failed are one visual and there is no state machine.** The glyph fills the
-	 * box from the first frame and is replaced when an image decodes. Distinguishing "still arriving"
+	 * box from the first frame and is replaced when an image decodes, and a load that fails goes back to
+	 * it — so a Library that has gone away looks like an absence rather than like a bug in the tool. Distinguishing "still arriving"
 	 * from "not available" is deliberately out: for a Workspace-held map the wait is a single small read,
 	 * and a list that flickered through a skeleton per card would be worse than one that does not.
 	 */
@@ -44,12 +50,32 @@
 	const url = $derived(map.thumbnail);
 	const tiles = $derived(map.tiles);
 
+	/**
+	 * The source that failed to load, so the glyph stands in for it.
+	 *
+	 * A value rather than a boolean flag, and no effect to clear it: a new source is by definition one
+	 * that has not failed yet, so an Offline Copy completing — or a re-render carrying a different URL —
+	 * shows the picture again without anything having to remember to reset this.
+	 */
+	let failedSource = $state<string | null>(null);
+
+	/**
+	 * What the `<img>` is drawn from, or `null` for the glyph.
+	 *
+	 * ⚠ **The two tile locations reach the element by different mechanisms, and this is the whole of the
+	 * difference** (ADR-0030). A referenced map's picture is a plain URL on the Library's own server: it
+	 * goes straight into `src`, lazily, with no fetch and nothing to revoke. Routing it through the
+	 * ADR-0011 shim *would work* — the shim passes non-placeholder hosts to the network — and would
+	 * pointlessly buffer the bytes and discard the laziness.
+	 */
+	const source = $derived(tiles === 'referenced' ? url : picture);
+	const shown = $derived(source !== null && source !== failedSource ? source : null);
+
 	// Re-runs when either of those values changes, which is what an Offline Copy completing looks like
 	// from here: `tiles` moves to `in-workspace` and a URL appears where there was none.
 	$effect(() => {
-		// A referenced map's bytes are on a Library's server and are ticket 03's: its URL goes straight
-		// into the element, with `loading="lazy"`, and never through the shim. Until then it shows the
-		// glyph, which is the same thing a scholar sees when a picture cannot be resolved at all.
+		// Only a Workspace-held map's bytes come through the shim; a referenced map's URL needs no reading
+		// at all, so there is nothing for this effect to do for one.
 		if (url === null || tiles !== 'in-workspace') return;
 
 		let unmounted = false;
@@ -84,6 +110,38 @@
 </script>
 
 <!--
+	`object-contain` and never `object-cover`: a sheet's proportions are information, and a panoramic map
+	reduces to a legitimate sliver rather than being cropped into something wrong.
+
+	`max-h-full max-w-full` rather than a filled 96 px box, so nothing is ever upscaled without
+	qualification. `object-contain` alone only holds that promise for a source larger than the box, and
+	the coarsest level of a sheet smaller than one tile has scale factor 1 — a 60 × 40 scan would be
+	enlarged to fill 96 px and shown blurrier than it is.
+
+	`alt=""` deliberately. The map's name is immediately adjacent, and there is no useful alternative
+	text for a picture of a map — "Thumbnail of …" would make a screen reader say the name twice. Not a
+	link, not a button, no click handler and no `tabindex`: nothing here invites a click that leads
+	nowhere, and reaching Delete takes the keystrokes it took before.
+
+	⚠ **`loading="lazy"` for a referenced map only, and the asymmetry is deliberate.** It keeps requests
+	to the Libraries whose cards a scholar can actually see. For a Workspace-held map the bytes have
+	already been read by the time an object URL exists, so deferring the element saves nothing and would
+	imply a saving that does not exist.
+-->
+{#snippet sheet(from: string, lazy: boolean)}
+	<img
+		src={from}
+		alt=""
+		width="96"
+		height="96"
+		loading={lazy ? 'lazy' : undefined}
+		class="max-h-full max-w-full object-contain"
+		data-testid="map-thumbnail-image"
+		onerror={() => (failedSource = from)}
+	/>
+{/snippet}
+
+<!--
 	A leading child of the card's existing flex row, and the card stays a row: the picture joins the
 	facts already beside the name rather than turning the list into a gallery.
 
@@ -92,30 +150,9 @@
 	not be a moving target.
 -->
 <div class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden">
-	{#if picture === null}
+	{#if shown === null}
 		<MapGlyph size={96} class="opacity-30" aria-hidden="true" data-testid="map-thumbnail-glyph" />
 	{:else}
-		<!--
-			`object-contain` and never `object-cover`: a sheet's proportions are information, and a
-			panoramic map reduces to a legitimate sliver rather than being cropped into something wrong.
-
-			`max-h-full max-w-full` rather than a filled 96 px box, so nothing is ever upscaled without
-			qualification. `object-contain` alone only holds that promise for a source larger than the
-			box, and the coarsest level of a sheet smaller than one tile has scale factor 1 — a 60 × 40
-			scan would be enlarged to fill 96 px and shown blurrier than it is.
-
-			`alt=""` deliberately. The map's name is immediately adjacent, and there is no useful
-			alternative text for a picture of a map — "Thumbnail of …" would make a screen reader say the
-			name twice. Not a link, not a button, no click handler and no `tabindex`: nothing here invites
-			a click that leads nowhere, and reaching Delete takes the keystrokes it took before.
-		-->
-		<img
-			src={picture}
-			alt=""
-			width="96"
-			height="96"
-			class="max-h-full max-w-full object-contain"
-			data-testid="map-thumbnail-image"
-		/>
+		{@render sheet(shown, tiles === 'referenced')}
 	{/if}
 </div>

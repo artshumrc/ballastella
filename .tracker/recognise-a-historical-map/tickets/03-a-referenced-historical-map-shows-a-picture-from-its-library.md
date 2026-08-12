@@ -114,21 +114,21 @@ Covers SPEC stories **9, 10, 12, 19, 24, 31**.
 
 ## Acceptance criteria
 
-- [ ] `serialiseReferencedImage` writes `tileSize`, and `parseReferencedImage` reads it back; a
+- [x] `serialiseReferencedImage` writes `tileSize`, and `parseReferencedImage` reads it back; a
       round-trip preserves it.
-- [ ] A malformed or absent `tileSize` parses as `0` and does **not** throw — the map is still readable
+- [x] A malformed or absent `tileSize` parses as `0` and does **not** throw — the map is still readable
       and still listed.
-- [ ] Adding a Historical Map from a Library writes the service's declared tile side into `remote.json`.
-- [ ] `listWorkspaceHistoricalMaps` sets `thumbnail` to the coarsest-tile URL on the Library's canonical
+- [x] Adding a Historical Map from a Library writes the service's declared tile side into `remote.json`.
+- [x] `listWorkspaceHistoricalMaps` sets `thumbnail` to the coarsest-tile URL on the Library's canonical
       service URI for a referenced map, and `null` when `tileSize`, `width`, or `height` is `0`.
-- [ ] The existing test asserting `remote.json`'s exact serialised text is **extended** to cover the new
+- [x] The existing test asserting `remote.json`'s exact serialised text is **extended** to cover the new
       field, not loosened, and passes.
-- [ ] On the hub, a referenced Historical Map served by `library.test` shows a picture that has actually
+- [x] On the hub, a referenced Historical Map served by `library.test` shows a picture that has actually
       decoded: `naturalWidth > 0`.
-- [ ] A referenced Historical Map whose record has no `tileSize` shows the glyph and no broken image.
-- [ ] The referenced picture's element carries `loading="lazy"`; the Workspace-held one does not.
-- [ ] `pnpm precommit` passes.
-- [ ] A mutation record is written into this ticket.
+- [x] A referenced Historical Map whose record has no `tileSize` shows the glyph and no broken image.
+- [x] The referenced picture's element carries `loading="lazy"`; the Workspace-held one does not.
+- [x] `pnpm precommit` passes.
+- [x] A mutation record is written into this ticket (see below).
 
 ```sh
 pnpm --filter @ballastella/core test --project node -t "tileSize"
@@ -147,9 +147,9 @@ Success is exit code 0 from each. Read exit codes directly; no `grep`, and no `-
 
 | Criterion | Mutation | Result |
 | --- | --- | --- |
-| the referenced picture actually decoded | change the scale factor so the URL names a tile the fixture will not serve at that size | expect red |
-| geometry is read, not assumed | default `tileSize` to `PYRAMID_TILE_SIZE` when the record lacks it | expect red — the no-`tileSize` case must show the glyph, not a broken box |
-| the tile side reaches the record | stop passing the service's tile side at add time | expect red |
+| the referenced picture actually decoded | `referencedThumbnail` builds `wholeImageDerivative(width, height, tileSize * 2)`, so a 700 × 500 sheet on 256-pixel tiles is named at the scale factor a 512-tile service would have — `/0,0,700,500/350,250/…` | **red**, as required, and *not* by the request failing. `pnpm test:e2e editor-historical-map-thumbnails.e2e.ts` → *a Historical Map referenced from a Library shows a picture drawn from that Library* failed on both attempts at `.toEqual({ width: 175, height: 125 })` with `Received { height: 250, width: 350 }`, after `Timeout 20000ms exceeded while waiting on the predicate`. **The fixture host serves whatever size is asked for** (`requestedSize(url)` then `gradientPng(size.width, size.height)`, `e2e/support/iiif-hosts.ts`), so the wrong scale factor yielded real decodable bytes at the wrong size — a plausible-looking picture, not an empty box. `toBeVisible`, the `loading="lazy"` assertion, `naturalWidth > 0`, and any comparison of `src` against a locally computed string would all have stayed green: the exact `toEqual` on `naturalWidth`/`naturalHeight` is the only thing that goes red, which is why it must not be relaxed. The three other tests passed. |
+| geometry is read, not assumed | `referencedThumbnail` reads `record.tileSize \|\| PYRAMID_TILE_SIZE`, i.e. the 256 that is right for almost every Library | **red twice, in both seams.** `pnpm --filter @ballastella/core test --project node -t "thumbnail"` → 1 failed, 10 passed: *is nothing at all for a referenced map whose record carries no tileSize, as a record written before the field existed* — `Expected: null`, `Received: "https://iiif.bnf.example/iiif/3/btv1b/0,0,4000,3000/250,188/0/default.jpg"`. And `pnpm test:e2e editor-historical-map-thumbnails.e2e.ts` → *a referenced Historical Map whose record has no tile side keeps the glyph* failed on both attempts at `expect(glyph).toBeVisible()` — `element(s) not found`: the glyph had been replaced by an `<img>` pointing at a guessed address, which is the broken box the criterion forbids. Every record that does carry a tile side stayed green, which is the trap: the guess is right almost always. |
+| the tile side reaches the record | `addReferencedMap` writes `tileSize: 0` instead of `service.tileSize`, the state of this code before the ticket | **red**. `pnpm test:e2e editor-remote-iiif.e2e.ts -g "gives a referenced image the id Allmaps keys it on"` → failed on both attempts at `expect(record.tileSize).toBe(256)` — `Expected: 256`, `Received: 0`. Nothing else in that spec noticed, which is the point of asserting the field where the record is read back off disk: a record missing it parses, lists, aligns and copies exactly as before, and costs only the picture. |
 
 ⚠ **`loading="lazy"` will hang this assertion if the card is below the fold**, because the request never
 fires and the test waits on an image the browser has declined to fetch. The card being in the viewport
@@ -160,6 +160,17 @@ fail when someone adds a map to the fixture.
 ⚠ `toBeVisible()` passes for a broken image. Assert `naturalWidth`.
 
 ⚠ Asserting `src` against a computed string compares the computation with itself.
+
+**Remediation (post-review).** The test *"is on the canonical spelling of the service, however the record
+spells it"* was vacuous as first written: it seeded through the `seedReferencedMap` helper, which builds
+the record with `referencedImage()`, so `canonicalServiceUri` stripped the trailing slash *before the
+bytes were written* and the stored document was byte-identical to the canonical case at *"is the coarsest
+tile on the Library's own server"*. It now writes the raw document with `store.write`, so the
+non-canonical spelling reaches disk and `parseReferencedImage` is what has to cope. Proved:
+
+| Criterion | Mutation | Result |
+| --- | --- | --- |
+| the URL is on the spelling the *record* carries, not one re-normalised downstream | `canonicalServiceUri` stops trimming the trailing slash — its last `.replace(/\/$/, '')` deleted | **red, and red only in the intended test.** `pnpm --filter @ballastella/core test --project node -t "canonical spelling of the service"` → 2 failed: *is on the canonical spelling of the service, however the record spells it* — `Expected "…/btv1b/0,0,4000,3000/250,188/0/default.jpg"`, `Received "…/btv1b//0,0,4000,3000/250,188/0/default.jpg"`, the double slash — and, incidentally, `referenced-image.test.ts`'s own *uses the canonical spelling of the service, so one map is one address*. `pnpm --filter @ballastella/core test --project node -t "is the coarsest tile on the Library"` → 1 passed under the same mutation, which is the pairing that makes the new test non-vacuous: before the change no production edit could redden one without reddening the other. |
 
 ## Blocked by
 

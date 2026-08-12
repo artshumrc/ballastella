@@ -179,6 +179,18 @@ export type ReferencedImage = {
 	readonly attribution: string;
 	readonly width: number;
 	readonly height: number;
+	/**
+	 * The square tile side the service declares, in pixels. `0` when the record does not carry one.
+	 *
+	 * The one input a referenced map lacked for the picture the hub shows beside its name (ADR-0030):
+	 * which power of two is the coarsest scale factor — and therefore which single tile holds the whole
+	 * sheet — follows from the sheet's pixels and this. It is in hand at add time on the accepted
+	 * service and was previously discarded.
+	 *
+	 * **Provenance-grade rather than address-grade**: `0` costs the picture, and nothing else. Only a
+	 * bad service URI costs the map.
+	 */
+	readonly tileSize: number;
 };
 
 /** Everything a caller must say to record a referenced image. `id`s are never invented here. */
@@ -197,7 +209,8 @@ export const referencedImage = (fields: ReferencedImageFields): ReferencedImage 
 	rights: fields.rights ?? '',
 	attribution: fields.attribution ?? '',
 	width: fields.width,
-	height: fields.height
+	height: fields.height,
+	tileSize: fields.tileSize
 });
 
 /** The record's bytes. Tab indented with a trailing newline, like every other JSON this app writes. */
@@ -210,7 +223,8 @@ export const serialiseReferencedImage = (image: ReferencedImage): Bytes =>
 		rights: image.rights,
 		attribution: image.attribution,
 		width: image.width,
-		height: image.height
+		height: image.height,
+		tileSize: image.tileSize
 	});
 
 /**
@@ -284,7 +298,10 @@ export function parseReferencedImage(
 		rights: text(record['rights']),
 		attribution: text(record['attribution']),
 		width: positiveInteger(record['width']),
-		height: positiveInteger(record['height'])
+		height: positiveInteger(record['height']),
+		// Through the same tolerant helper as the dimensions, so a record written before this field
+		// existed reads as `0` — the map is still listed and still deletable, and it shows the glyph.
+		tileSize: positiveInteger(record['tileSize'])
 	});
 }
 

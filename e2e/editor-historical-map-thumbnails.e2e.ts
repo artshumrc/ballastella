@@ -4,6 +4,7 @@ import { type Page } from '@playwright/test';
 import { emptyWorkspace, gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { addHistoricalMapFromFile } from './support/historical-maps.js';
+import { installIiifHosts, service } from './support/iiif-hosts.js';
 import { seedFile } from './support/stored-file.js';
 
 /**
@@ -95,6 +96,11 @@ test('a Historical Map added from a file shows a picture that has actually decod
 	// anything that made it focusable would report 0.
 	const picture = card(page, 'la-floride.png').getByTestId('map-thumbnail-image');
 	await expect(picture).toHaveAttribute('alt', '');
+	// ⚠ **And no `loading="lazy"` here**, which is the asymmetry ADR-0030 chose rather than an omission:
+	// this map's bytes have already been read out of the Workspace by the time the object URL in `src`
+	// exists, so deferring the element saves nothing and would imply a saving that does not exist. The
+	// referenced case below asserts the other half.
+	expect(await picture.getAttribute('loading')).toBeNull();
 	expect(
 		await picture.evaluate((element) => ({
 			objectFit: getComputedStyle(element).objectFit,
@@ -147,14 +153,62 @@ test('a Workspace-held map whose coarsest tile was never written keeps the glyph
 	await expect(entry.getByTestId('map-thumbnail-image')).toHaveCount(0);
 });
 
-test('a Historical Map referenced from a Library shows the glyph and no broken image', async ({
+test('a Historical Map referenced from a Library shows a picture drawn from that Library', async ({
+	page
+}) => {
+	await installIiifHosts(page);
+	await page.goto('./');
+	await emptyWorkspace(page);
+	// A `remote.json` and no `info.json`: the tiles are on a Library's server, and so is the picture. The
+	// record carries the service's declared tile side because that is the one input this app cannot
+	// recover once the resource is out of reach, and without it there is no saying which scale factor is
+	// the coarsest.
+	await seedFile(
+		page,
+		'images/remote-one/remote.json',
+		JSON.stringify({
+			service: service('images.test', 'florida'),
+			label: 'Chart of the Florida coast',
+			width: 700,
+			height: 500,
+			tileSize: 256
+		})
+	);
+	await page.reload();
+
+	const entry = card(page, 'Chart of the Florida coast');
+	await expect(entry).toHaveCount(1);
+
+	// ⚠ **Scrolled into view on purpose.** The picture is `loading="lazy"`, so a card below the fold
+	// never fires its request and the poll below would sit on `{ width: 0, height: 0 }` until it timed
+	// out — a hang rather than a failure. This list is short today; a card being in the viewport must not
+	// depend on that staying true.
+	await entry.scrollIntoViewIfNeeded();
+
+	// **700 × 500 reduces to 175 × 125** on the 256-pixel tiles this service declares, worked out from
+	// ADR-0030's rule rather than from the code. The fixture host serves *whatever* size is asked for, so
+	// a wrong scale factor still yields a decodable picture — just one of the wrong size. That is why this
+	// compares `naturalWidth`/`naturalHeight` against exact numbers, and why it must **not** be relaxed to
+	// `naturalWidth > 0`: that form would pass over every scale factor there is. It looks over-specified
+	// and it is the whole test. One small request is all this is: nothing downloads the sheet.
+	await expect
+		.poll(() => decoded(page, 'Chart of the Florida coast'), { timeout: 20_000 })
+		.toEqual({ width: 175, height: 125 });
+
+	// The other half of ADR-0030's deliberate asymmetry: laziness is worth having for a URL on somebody
+	// else's server, so that opening a Workspace of referenced maps asks the Libraries only for the cards
+	// a scholar can see (SPEC story 19).
+	await expect(entry.getByTestId('map-thumbnail-image')).toHaveAttribute('loading', 'lazy');
+});
+
+test('a referenced Historical Map whose record has no tile side keeps the glyph', async ({
 	page
 }) => {
 	await page.goto('./');
 	await emptyWorkspace(page);
-	// A `remote.json` and no `info.json`: the tiles are on a Library's server. Its picture is ticket 03,
-	// and until then the same neutral glyph stands in that a map with no picture at all gets — so the
-	// list keeps its shape and nothing claims to have failed.
+	// A record written before `remote.json` carried the tile side, which is the population ADR-0030
+	// declines to backfill: re-adding the map is the whole remedy. Defaulting to 256 would be right often
+	// enough to be dangerous, and here it would be wrong — so the honest glyph, and no request at all.
 	await seedFile(
 		page,
 		'images/remote-one/remote.json',
@@ -169,9 +223,13 @@ test('a Historical Map referenced from a Library shows the glyph and no broken i
 
 	const entry = card(page, 'Plan de Paris');
 	await expect(entry).toHaveCount(1);
+
+	// No wait, and nothing to scroll into view: this record resolves to a `null` thumbnail, so no `<img>`
+	// is ever rendered and there is no request to outrun. Were one somehow built, the network fence would
+	// catch it at route time and fail the test at teardown however long the body slept.
 	await expect(entry.getByTestId('map-thumbnail-glyph')).toBeVisible();
 	// **No `<img>` at all**, which is what "no broken image" has to mean here: an element pointing at a
-	// Library this test never routed would be an empty box the assertion above could not tell from a
+	// Library this test never routed would be an empty box the glyph assertion could not tell from a
 	// picture. The network fence is the other half of the claim — a request to that host would fail the
 	// test rather than quietly 404.
 	await expect(entry.getByTestId('map-thumbnail-image')).toHaveCount(0);
