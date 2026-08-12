@@ -19,6 +19,7 @@
 		type LookupOutcome,
 		type Place
 	} from '@ballastella/core';
+	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 
 	let {
 		onchoose
@@ -26,6 +27,18 @@
 		/** A candidate was chosen. What that means is the caller's — here it is only the choice. */
 		onchoose: (place: Place) => void;
 	} = $props();
+
+	/**
+	 * The app's one connection signal, which reaches the notice as a parameter.
+	 *
+	 * ⚠ **It only ever takes a clause away.** `navigator.onLine` reports a link rather than
+	 * reachability, so with it false the notice drops its it-is-probably-the-service clause and gains
+	 * no claim that the scholar is offline — and **nothing here is disabled**, because disabling the
+	 * field would itself be a claim about their connection (ADR-0029). This is the one control in the
+	 * editor that cannot work without a connection, and it says so by failing and explaining rather
+	 * than by greying out.
+	 */
+	const installedApp = useInstalledApp();
 
 	let query = $state('');
 	/** The query the outcome below is about, which is not what is in the field a keystroke later. */
@@ -53,7 +66,11 @@
 	 * browser (see `places/notice.ts`).
 	 */
 	const announcement = $derived(
-		looking ? `Looking up “${asked}”…` : outcome === null ? '' : placeLookupNotice(outcome, asked)
+		looking
+			? `Looking up “${asked}”…`
+			: outcome === null
+				? ''
+				: placeLookupNotice(outcome, asked, installedApp.online)
 	);
 
 	async function submit(event: SubmitEvent): Promise<void> {

@@ -54,15 +54,51 @@ Read [`SPEC.md`](../SPEC.md) and [ADR-0029](../../../docs/adr/0029-place-lookup-
 
 ## Acceptance criteria
 
-- [ ] A `429` from the routed fixture host and a second submission inside one second both produce the **same** visible text, distinct from the other three outcomes.
-- [ ] A second lookup within one second **issues no request**, asserted by counting calls to the stubbed `fetch` in the domain package — not by inspecting the returned value.
-- [ ] A response the module cannot read produces `unanswered`, not a thrown error and not a fourth kind of message.
-- [ ] With the connection signal false, the `unanswered` text carries **no claim about whose fault it is**, and contains no assertion that the scholar is offline. Asserted on the string.
-- [ ] With the connection signal false, the search field is **still enabled**.
-- [ ] A unit test drives **every** row of the outcome-to-sentence table, plus one asserting that **no row overclaims** — following the existing test of that name beside `baseMapUnavailableNotice`.
-- [ ] A wording change in the domain function turns a browser test red, proving the sentence is shared rather than duplicated in the component.
-- [ ] All four outcomes are reachable and visible in the browser suite, each driven by the condition that causes it.
-- [ ] The mutation check is recorded per criterion. **Report any surviving mutation as green, with its reason.**
+- [x] A `429` from the routed fixture host and a second submission inside one second both produce the **same** visible text, distinct from the other three outcomes.
+- [x] A second lookup within one second **issues no request**, asserted by counting calls to the stubbed `fetch` in the domain package — not by inspecting the returned value.
+- [x] A response the module cannot read produces `unanswered`, not a thrown error and not a fourth kind of message.
+- [x] With the connection signal false, the `unanswered` text carries **no claim about whose fault it is**, and contains no assertion that the scholar is offline. Asserted on the string.
+- [x] With the connection signal false, the search field is **still enabled**.
+- [x] A unit test drives **every** row of the outcome-to-sentence table, plus one asserting that **no row overclaims** — following the existing test of that name beside `baseMapUnavailableNotice`.
+- [x] A wording change in the domain function turns a browser test red, proving the sentence is shared rather than duplicated in the component.
+- [x] All four outcomes are reachable and visible in the browser suite, each driven by the condition that causes it.
+- [x] The mutation check is recorded per criterion. **Report any surviving mutation as green, with its reason.**
+
+## The mutation record
+
+Every criterion below had its behaviour broken, the named test observed red, the mutation reverted,
+and the test observed green again.
+
+| Criterion | Mutation | Result |
+| --- | --- | --- |
+| A `429` and a second submission say the same thing | `429` no longer given `too-fast`, so it falls through to `unanswered` | red — `lookup.test.ts` and the browser's `says what a 429 says` |
+| A second lookup issues no request | the limiter consulted **after** the fetch, refusing on the way back | red — `urls` counted 2 where 1 was allowed |
+| A response the module cannot read is `unanswered` | `!Array.isArray(payload)` returns `none` | red — the domain row, and the browser test comparing it with the `503` sentence |
+| Offline, the text claims no fault | the `connected` branch hard-coded to the connected wording | red — `drops the it-is-probably-them clause`, and the browser's offline test |
+| Offline, the text asserts nothing about the connection | the offline row given a “you appear to be offline” clause | red — `never claims a thing it cannot know`, and the browser's offline test |
+| Offline, the field is still enabled | `disabled={!installedApp.online}` on the field; then on the submit button; then `readonly` on the field | red — **on `toBeEnabled()` / `toBeEditable()` themselves**, see the note below |
+| Offline, the text carries the it-is-not-you beat | `Nothing you did caused this` dropped from `unanswered` | red — `blames nothing about the scholar’s own work`, which drives both connection states |
+| Every row driven, and no row overclaims | `too-fast` returned the `unanswered` sentence, in each of the two connection states | red — `gives the four outcomes four different sentences` (offline collapse) and `names the remedy the scholar can actually take` (both) |
+| No row overclaims: the *claim*, not the word | `unanswered` given “the service replied with nothing” | red — `never claims a thing it cannot know`. ⚠ Green under the guard as first written, which banned the word *answered* rather than the claim |
+| The pace the app names is the pace it keeps | the sentence hard-coded to “one search every 2 seconds” while `PLACE_LOOKUP_MIN_INTERVAL_MS` stayed 1000 | red — `names the remedy the scholar can actually take`, which reads the interval back out of the sentence |
+| The shared limiter is what a caller with none gets | `options.limiter ?? createLookupRateLimiter()`, so each call gets its own | red — `paces a caller that brings no limiter of its own` |
+| All four outcomes are reachable and visible in the browser | the `too-fast` outcome given no rendering path in the search component | red — `says all four things` and `refuses a second search inside a second, and says what a 429 says` |
+| A wording change turns a browser test red | `wait a moment and search again` → `pause briefly and try once more`, in the domain function only | red — the browser's `says all four things` |
+
+⚠ **One assertion was vacuous at first and is now load-bearing.** The offline test asserted
+`toBeEnabled()` *after* searching, and every way of disabling the control — `disabled` on the field,
+`disabled` on the submit button, `readonly` on the field — turned the test red **before** that
+assertion was ever reached, by making the lookup fail to run at all. The test then said "a disabled
+field breaks searching", which is true but is not the claim; a disabled control that still submitted
+would have passed. The assertions now run immediately after the connection is cut and before the
+search, and the first mutation above fails on `toBeEnabled()` itself.
+
+⚠ **And they wait for the signal to have landed.** `context.setOffline(true)` resolves before the
+renderer has dispatched `offline` and `installedApp.online` has flipped, while `toBeEnabled()` polls
+until true — so the disabling mutations could have been satisfied on the pre-offline state, passing
+for a reason nothing asserted. The test now waits for `base-map-offline`, which the same signal
+renders, before it asserts anything about the field. All three disabling mutations were re-run
+against that and each is red on the assertion itself.
 
 ```sh
 pnpm --filter @ballastella/core exec vitest run src/places

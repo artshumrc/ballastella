@@ -43,6 +43,8 @@ export type PlaceLookupService = {
 	queries(): string[];
 	/** Answer everything from here on with this body and status, instead of the fixture. */
 	answerWith(body: string, status?: number): void;
+	/** Go back to answering with the committed fixture, as this service began. */
+	answerFromFixture(): Promise<void>;
 };
 
 /**
@@ -74,6 +76,10 @@ export async function routePlaceLookup(target: Pick<Page, 'route'>): Promise<Pla
 		answerWith: (next, nextStatus = 200) => {
 			body = next;
 			status = nextStatus;
+		},
+		answerFromFixture: async () => {
+			body = await placeFixture();
+			status = 200;
 		}
 	};
 }

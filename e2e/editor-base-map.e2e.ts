@@ -1363,11 +1363,73 @@ function expectDrawnOver(inner: Box, outer: Box): void {
 	expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width);
 }
 
-/** Submit a query, with no pointer anywhere in it. */
+/**
+ * The gap the lookup's own limiter refuses inside, stated here rather than imported.
+ *
+ * A test taking its number from the constant the application paces itself by would go on passing if
+ * that constant were changed to a minute — which is the same reason `ANNOTATION_COLOR` spells its hex
+ * out in `support/annotations.ts`. One second is the service's published limit.
+ */
+const ONE_SECOND = 1_000;
+
+/** When the last query in this test went out, so `findPlace` can leave the limiter satisfied. */
+let lastSubmitAt = 0;
+
+/**
+ * Submit a query, with no pointer anywhere in it.
+ *
+ * ⚠ **Waits out the limiter first.** Two searches inside one second are refused without a request now
+ * (ADR-0029), so a test doing two lookups back to back would be measuring the limiter rather than
+ * whatever it meant to. The test that *is* about the limiter submits without this — see it below.
+ */
 async function findPlace(page: Page, query: string): Promise<void> {
+	const since = Date.now() - lastSubmitAt;
+	if (since < ONE_SECOND) await page.waitForTimeout(ONE_SECOND - since);
+	await submitQuery(page, query);
+}
+
+/**
+ * Submit, whatever the limiter would say about it. Only the limiter's own test wants this.
+ *
+ * The stamp is taken **after** the press, which is what makes the wait in `findPlace` enough: the
+ * request goes out during it, so a second measured from here is never shorter than the second the
+ * page is measuring.
+ */
+async function submitQuery(page: Page, query: string): Promise<void> {
 	await searchField(page).fill(query);
 	await searchField(page).press('Enter');
+	lastSubmitAt = Date.now();
 }
+
+/** Submit `query` and read what the status line settles on for it. */
+async function outcomeFor(page: Page, query: string): Promise<string> {
+	await findPlace(page, query);
+	return await outcomeAbout(page, query);
+}
+
+/**
+ * What the status line settles on for a query already submitted — the limiter's test, and only it.
+ *
+ * ⚠ **Composed with {@link settledStatus} rather than reading the node itself**, which is the fence
+ * that helper's header states. It adds the one condition of its own: the sentence has to be about
+ * **this** query, because a lookup that has not started yet leaves the previous outcome on screen and
+ * every sentence in the table names its own search. Waiting for the query first admits the in-flight
+ * `Looking up “…”…` line, and `settledStatus` then waits that out — so what comes back is this
+ * query's outcome and never the progress line.
+ */
+async function outcomeAbout(page: Page, query: string): Promise<string> {
+	await expect(searchStatus(page)).toContainText(query);
+	return await settledStatus(page);
+}
+
+/**
+ * One sentence with the search taken out of it, so two outcomes about different queries compare.
+ *
+ * Every row names its own query, and two rows that must say the *same thing* — a `429` and this
+ * application's own refusal, a body that could not be read and a service that did not answer — can
+ * only be compared once that difference is removed.
+ */
+const withoutQuery = (said: string, query: string): string => said.split(query).join('…');
 
 /** Where the map is now. */
 const centre = (page: Page) =>
@@ -1386,6 +1448,8 @@ async function expectFramedOn(page: Page, place: { lng: number; lat: number }): 
 
 test.describe('finding a place', () => {
 	test.beforeEach(async ({ context }) => {
+		// Each test gets its own page and therefore its own limiter, so nothing is owed from the last.
+		lastSubmitAt = 0;
 		await routeBaseMapArchive(context);
 	});
 
@@ -1490,6 +1554,130 @@ test.describe('finding a place', () => {
 
 		await expect(searchStatus(page)).toBeVisible();
 		await expect(candidates(page)).toHaveCount(0);
+	});
+
+	test('says all four things, each driven by the condition that causes it', async ({
+		page,
+		context
+	}) => {
+		// ⚠ **Every sentence here is composed in `@ballastella/core`**, and the strings asserted below
+		// are that function's own words. Mutation: change the wording of any row in `placeLookupNotice`
+		// and this test goes red — which is what "the sentence is shared rather than duplicated in the
+		// component" means, and the only way to find out that it has been re-typed into the template.
+		const service = await routePlaceLookup(context);
+		await openPane(page);
+
+		const found = await outcomeFor(page, AMBIGUOUS_QUERY);
+		expect(found).toContain('10 places match');
+
+		service.answerWith('[]');
+		const matchedNothing = await outcomeFor(page, 'Nowhere at all');
+		expect(matchedNothing).toContain('spelling');
+
+		service.answerWith('', 503);
+		const unanswered = await outcomeFor(page, 'Leiden');
+		expect(unanswered).toContain('could not be looked up');
+
+		// A fork pointed at something that is not a geocoder, which the module cannot read: it folds
+		// into *did not answer* rather than becoming a fifth message about response schemas, because
+		// that sentence reaches the instance operator and not the person reading it (ADR-0029).
+		service.answerWith('{"error":"unknown parameter"}');
+		const unreadable = await outcomeFor(page, 'Utrecht');
+		expect(withoutQuery(unreadable, 'Utrecht')).toBe(withoutQuery(unanswered, 'Leiden'));
+
+		service.answerWith('', 429);
+		const tooFast = await outcomeFor(page, 'Delft');
+		expect(tooFast).toContain('wait a moment and search again');
+
+		// Four rows, four sentences, with the query taken out so what is compared is the wording. Both
+		// empty-handed outcomes end in no candidates, so nothing about the *list* can tell them apart.
+		const said = [found, matchedNothing, unanswered, tooFast].map((text, index) =>
+			withoutQuery(text, [AMBIGUOUS_QUERY, 'Nowhere at all', 'Leiden', 'Delft'][index]!)
+		);
+		expect(new Set(said).size).toBe(4);
+		await expect(searchStatus(page)).toBeVisible();
+		await expect(candidates(page)).toHaveCount(0);
+	});
+
+	test('refuses a second search inside a second, and says what a 429 says', async ({
+		page,
+		context
+	}) => {
+		// The client-side refusal and the server's own `429` are one outcome and one sentence: the
+		// remedy is identical and which side counted is not a fact a scholar can act on (ADR-0029).
+		const service = await routePlaceLookup(context);
+		await openPane(page);
+
+		service.answerWith('', 429);
+		const refusedByService = await outcomeFor(page, 'Delft');
+
+		// Now the limiter's own refusal, with the fixture answering again so that nothing but the pace
+		// decides the outcome. ⚠ **No `findPlace` here**: that helper waits the limiter out, and this is
+		// the one test that must not.
+		await service.answerFromFixture();
+		const before = service.count();
+		// The first is paced, so it is the one that goes out; the second follows it immediately, which
+		// is the gesture — a scholar pressing Enter twice, or an autocomplete somebody has built.
+		await findPlace(page, 'Boston');
+		await submitQuery(page, 'Cambridge');
+		const refusedHere = await outcomeAbout(page, 'Cambridge');
+
+		expect(withoutQuery(refusedHere, 'Cambridge')).toBe(withoutQuery(refusedByService, 'Delft'));
+		// ⚠ **The request count, not the sentence.** A limiter that asked the service and then reported
+		// *too fast* would satisfy every assertion about the text above, and would be exactly the
+		// violation the limiter exists to prevent — the service's policy is about requests.
+		expect(service.count() - before, 'the refused search still went out').toBe(1);
+		await expect(candidates(page)).toHaveCount(0);
+
+		// And it is a moment's pause rather than a dead field: the same query works a second later.
+		await findPlace(page, 'Cambridge');
+		await expect(candidates(page)).toHaveCount(10);
+	});
+
+	test('never says whose fault it is when the browser reports no connection, and stays enabled', async ({
+		page,
+		context
+	}) => {
+		// SPEC stories 17 and 18. `navigator.onLine` reports a link rather than reachability and is
+		// false-positive in both directions, so it may take a claim away and may never add one.
+		const service = await routePlaceLookup(context);
+		await openPane(page);
+
+		service.answerWith('', 503);
+		const connected = await outcomeFor(page, 'Leiden');
+		expect(connected).toContain('usually the lookup service');
+
+		await context.setOffline(true);
+
+		// ⚠ **Wait for the signal to have landed before asserting on it.** `setOffline` resolves before
+		// the renderer has dispatched `offline` and `installedApp.online` has flipped, and `toBeEnabled`
+		// polls until true — so against a `disabled={!installedApp.online}` mutation the first poll can
+		// succeed on the state from *before* the connection was cut, and the test passes for a reason
+		// nothing here asserts. This alert is rendered by that same signal, so it standing on screen is
+		// the proof that the flip has happened.
+		await expect(page.getByTestId('base-map-offline')).toBeVisible();
+
+		// **Nothing is disabled**, asserted *before* the search rather than after it. Greying a control
+		// out is itself a claim about the connection, and this is the one control in an offline-capable
+		// editor that cannot work — it says so by failing and explaining rather than by refusing to be
+		// typed in. ⚠ Asserted first because a search is not a substitute for the assertion: a disabled
+		// field or button makes the lookup below fail to run at all, which reads as a broken test rather
+		// than as the claim it is.
+		await expect(searchField(page)).toBeEnabled();
+		await expect(searchField(page)).toBeEditable();
+		await expect(page.getByTestId('place-search-submit')).toBeEnabled();
+
+		const cut = await outcomeFor(page, 'Utrecht');
+
+		// ⚠ **Asserted on the string.** The clause blaming a server in another country is gone, and
+		// nothing has taken its place: telling somebody their wifi is off on the strength of this signal
+		// is making a claim it cannot support.
+		expect(cut).not.toContain('usually the lookup service');
+		expect(cut).not.toMatch(/offline|your connection|your wi-?fi|your internet/i);
+		// What survives is the part that is true either way — it is still visible, and still says the
+		// scholar's work is untouched.
+		await expect(searchStatus(page)).toBeVisible();
+		expect(cut).toContain('Nothing in your Workspace is affected');
 	});
 
 	test('reaches and chooses every candidate from the keyboard alone', async ({ page, context }) => {

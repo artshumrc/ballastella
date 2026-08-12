@@ -14,12 +14,16 @@
 // swaps the service is looking at a fence that was a **consequence of this service** and may be
 // re-opened deliberately, rather than at a rule whose reason has been lost.
 //
+// The rate limiter below is what holds that fence up on the implementer's own machine: an
+// autocomplete built on top of this visibly does not work, the first time it is tried, without
+// anybody having to read this comment.
+//
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // OUTCOMES ARE VALUES
 //
 // Nothing here throws. A caller that had to wrap this in a `try` would be a caller deciding what a
 // failed lookup means, in a component, next to the one that got it right — which is how "no results
-// for Boston Common" comes to be shown for a request that never left the building. The three
+// for Boston Common" comes to be shown for a request that never left the building. The four
 // outcomes are told apart by evidence and rendered by `placeLookupNotice`.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
@@ -30,6 +34,59 @@ import { PLACE_SERVICE } from './service';
 /** How long a lookup waits before calling the service unanswered. A person is watching a field. */
 export const PLACE_LOOKUP_TIMEOUT_MS = 10_000;
 
+/** The shortest gap between two requests. The default service's policy: one a second, absolutely. */
+export const PLACE_LOOKUP_MIN_INTERVAL_MS = 1_000;
+
+/**
+ * What decides whether a request may go out at all.
+ *
+ * **Per tab**, because that is what a module holding a timestamp can honestly be, and ADR-0029
+ * accepts the hole: two tabs can exceed one request a second, and a scholar with two tabs open is
+ * not the abuse case the service's policy is written against. Closing it would need coordination
+ * between tabs, which is a great deal of machinery for a case that is not the problem.
+ */
+export interface LookupRateLimiter {
+	/** Whether a request may go out now — and, when it may, that it is going out. */
+	admit(): boolean;
+}
+
+/**
+ * A limiter refusing a second request inside {@link PLACE_LOOKUP_MIN_INTERVAL_MS}.
+ *
+ * @param now the clock, injected for the same reason `fetch` is: a test asserting that a request was
+ *   refused should not have to spend a real second to do it.
+ */
+export function createLookupRateLimiter(now: () => number = Date.now): LookupRateLimiter {
+	let issuedAt: number | null = null;
+	return {
+		admit() {
+			const at = now();
+			if (issuedAt !== null && at - issuedAt < PLACE_LOOKUP_MIN_INTERVAL_MS) return false;
+			issuedAt = at;
+			return true;
+		}
+	};
+}
+
+/** The one every surface shares, so two search fields in a tab cannot each have their own second. */
+let sharedLimiter = createLookupRateLimiter();
+
+/**
+ * Stand another limiter in for the shared one, and hand back the restore.
+ *
+ * ⚠ **The seam a test of the *default* path needs.** The shared limiter is module state paced by the
+ * real clock, so without this the only way to watch it refuse anything is to make two calls inside a
+ * real second — an assertion about a rate limiter that a garbage collection pause can turn red — and
+ * whatever second a test left on it would go on pacing the next test that reached the default.
+ */
+export function withSharedLookupRateLimiter(limiter: LookupRateLimiter): () => void {
+	const previous = sharedLimiter;
+	sharedLimiter = limiter;
+	return () => {
+		sharedLimiter = previous;
+	};
+}
+
 export interface LookUpPlacesOptions {
 	/** How the request is made. Injected so tests hand it an answer rather than reach a service. */
 	readonly fetch?: FetchFn;
@@ -37,13 +94,22 @@ export interface LookUpPlacesOptions {
 	readonly service?: PlaceService;
 	/** How long to wait for an answer. Defaults to {@link PLACE_LOOKUP_TIMEOUT_MS}. */
 	readonly timeoutMs?: number;
+	/**
+	 * What paces the requests. Defaults to the one this tab shares between its surfaces.
+	 *
+	 * **Package-internal.** `LookupRateLimiter` is deliberately not exported from `places/index.ts`,
+	 * so nothing outside this package can build a value for it: the pace is the service's policy and
+	 * not a consumer's choice. The tests in this directory are the only callers that pass one.
+	 */
+	readonly limiter?: LookupRateLimiter;
 }
 
 /**
  * Ask the configured service about a **submitted** query.
  *
  * A blank query is answered `none` without a request: there is nothing to ask about, and asking
- * would spend one of the service's requests to be told so.
+ * would spend one of the service's requests to be told so — which is also why it is answered before
+ * the limiter is consulted, rather than counting against a second that had a real search in it.
  */
 export async function lookUpPlaces(
 	query: string,
@@ -51,6 +117,10 @@ export async function lookUpPlaces(
 ): Promise<LookupOutcome> {
 	const asked = query.trim();
 	if (asked === '') return { kind: 'none' };
+
+	// Refused here, before anything is built: `too-fast` means **no request went out**, which is the
+	// whole of what makes this a limiter rather than a message about one.
+	if (!(options.limiter ?? sharedLimiter).admit()) return { kind: 'too-fast' };
 
 	const service = options.service ?? PLACE_SERVICE;
 	const request = options.fetch ?? ((input, init) => fetch(input, init));
@@ -60,9 +130,10 @@ export async function lookUpPlaces(
 	let payload: unknown;
 	try {
 		const response = await request(service.searchUrl(asked), { signal: abort.signal });
-		// Every status that is not a success is *did not answer*, including a `429`. That is a
-		// simplification this slice can afford and the rate limiter removes: ADR-0029 gives `429` its
-		// own outcome, with a remedy the scholar can act on.
+		// The service saying we asked too often, which is the same fact our own limiter produces and
+		// therefore the same outcome and the same sentence. Everything else that is not a success is
+		// *did not answer*: a scholar can do nothing about a `500` and nothing about a `403`.
+		if (response.status === 429) return { kind: 'too-fast' };
 		if (!response.ok) return { kind: 'unanswered' };
 		payload = await response.json();
 	} catch {

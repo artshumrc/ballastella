@@ -26,15 +26,16 @@ export interface Place {
  * request never left the building is the inversion `nothing-fails-silently` story 10 forbids. They
  * are told apart here, and by two different sentences in `placeLookupNotice`.
  *
- * Three members, because this is what the lookup can currently produce. ADR-0029 describes a fourth
- * — *too many searches, too fast* — which arrives with the rate limiter; declaring it before
- * anything emits it is the mistake `overlay-points.ts` records, a kind that is styled, promised, and
- * never produced.
+ * `too-fast` is the one failure with a remedy the scholar can act on, and it is deliberately **one**
+ * member for two causes: a `429` from the service and a refusal by this application's own limiter
+ * are the same fact to the person waiting, and giving them separate wordings would be two sentences
+ * saying "wait a moment" (ADR-0029).
  */
 export type LookupOutcome =
 	| { readonly kind: 'places'; readonly places: readonly Place[] }
 	| { readonly kind: 'none' }
-	| { readonly kind: 'unanswered' };
+	| { readonly kind: 'unanswered' }
+	| { readonly kind: 'too-fast' };
 
 /** Who the place data belongs to, as visible text beside the candidates (SPEC story 22). */
 export interface PlaceAttribution {
