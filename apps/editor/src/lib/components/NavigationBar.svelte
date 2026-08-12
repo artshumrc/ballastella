@@ -28,6 +28,15 @@
 
 	import { resolve } from '$app/paths';
 	import { otherTheme } from '@ballastella/core';
+	// Every one `aria-hidden`: each sits beside its own label, and an icon that names itself as well
+	// is the same word twice for a screen reader — and would change the accessible name the tests and
+	// a user's own "click the button called…" both go by (SPEC story 111).
+	import AppWindow from '@lucide/svelte/icons/app-window';
+	import Folder from '@lucide/svelte/icons/folder';
+	import FolderOpen from '@lucide/svelte/icons/folder-open';
+	import FolderSearch from '@lucide/svelte/icons/folder-search';
+	import Plus from '@lucide/svelte/icons/plus';
+	import Settings from '@lucide/svelte/icons/settings';
 
 	import UndoControl from '$lib/undo/UndoControl.svelte';
 	import { theme } from '$lib/theme.svelte';
@@ -54,6 +63,9 @@
 	 * anything, and from ticket 14 a Review Workspace is browser-backed too.
 	 */
 	const workspaceName = $derived(storage === null ? 'Starting…' : storage.name);
+
+	/** Whether the folder Workspace cannot be reached, which is what turns "choose" into "locate again". */
+	const unreachable = $derived(session?.status === 'unreachable');
 
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
 	let settingsOpen = $state(false);
@@ -107,6 +119,46 @@
 		await storage.openWorkspace(name);
 		announcement = `Switched to the Workspace “${name}”.`;
 	}
+
+	/**
+	 * Say what a folder action did.
+	 *
+	 * The three folder actions report nothing of their own: `chooseFolder` returns silently when the
+	 * picker is dismissed, and puts a refusal on `storage.problem` rather than throwing. So the
+	 * announcement is made from what the Workspace *is* afterwards, which is the only thing that is
+	 * true in every one of those cases.
+	 */
+	async function changeBacking(act: () => Promise<void>): Promise<void> {
+		if (!storage) return;
+		const was = storage.backing;
+		const wasFolder = storage.folderName;
+		await act();
+		// A refusal is not announced from here. `storage.problem` already renders as a `role="alert"`
+		// through `WorkspaceRecovery`, which is on every screen this bar is; saying it again in the
+		// live region is the same sentence twice for a screen-reader user, and a second `alert` on the
+		// page for anyone querying by role.
+		if (!storage.problem && (storage.backing !== was || storage.folderName !== wasFolder)) {
+			announcement =
+				storage.backing === 'folder'
+					? `Your Workspace is now the folder “${storage.folderName}”.`
+					: `Your Workspace is now “${storage.workspaceName}”, in this browser's storage.`;
+		}
+		// Otherwise nothing changed — a dismissed picker, a permission prompt declined — and saying
+		// "your Workspace is now…" would announce something the user did not do.
+	}
+
+	const chooseFolder = () =>
+		changeBacking(async () => {
+			await storage?.chooseFolder();
+		});
+	const reopenFolder = () =>
+		changeBacking(async () => {
+			await storage?.reopenFolder();
+		});
+	const useBrowserStorage = () =>
+		changeBacking(async () => {
+			await storage?.useBrowserStorage();
+		});
 
 	async function createWorkspace(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
@@ -168,26 +220,34 @@
 					<li>
 						<button
 							type="button"
-							class="block truncate"
 							data-testid="switch-workspace"
 							data-workspace={name}
 							aria-current={storage.isOpen(name) ? 'true' : undefined}
 							onclick={() => fromMenu(() => void switchWorkspace(name))}
 						>
-							{name}
+							<!-- A browser window, because that is where these are: the user needs to know their
+							     work is in the browser rather than among their own files, and never that the
+							     mechanism underneath is called OPFS. -->
+							<AppWindow size={16} aria-hidden="true" class="shrink-0" />
 							<!--
+								The name and what is true of it in **one** truncating span, so they stay next to
+								each other: as separate flex children the name's `truncate` takes the free space
+								and shunts "(open)" to the far edge of the menu, where it reads as a column
+								heading rather than as part of the line it belongs to.
+
 								Which of these is somebody else's work in a throwaway Workspace, in **words**
 								rather than as a tint or an icon (workspace-and-layers SPEC story 111). Review copies stay in the
 								list rather than being filtered out of it: a teacher marking thirty submissions
 								moves between them, and two students' conflicting Alignments of the same sheet
 								never meet precisely because each is in its own Workspace (ADR-0024).
 							-->
-							{#if storage.reviewWorkspaces.includes(name)}
-								<span class="opacity-70">(review copy)</span>
-							{/if}
-							{#if storage.isOpen(name)}
-								<span class="opacity-70">(open)</span>
-							{/if}
+							<!-- `&nbsp;` and not a literal space: Svelte strips whitespace at the start of an
+							     element, so `<span> (open)</span>` renders as "My Workspace(open)". -->
+							<span class="truncate">
+								{name}{#if storage.reviewWorkspaces.includes(name)}<span class="opacity-70"
+										>&nbsp;(review copy)</span
+									>{/if}{#if storage.isOpen(name)}<span class="opacity-70">&nbsp;(open)</span>{/if}
+							</span>
 						</button>
 					</li>
 				{/each}
@@ -196,9 +256,12 @@
 					     is a different backing, and showing it as a sibling would suggest it can be deleted
 					     from settings alongside them, which it cannot. -->
 					<li>
-						<span class="opacity-70"
-							>{storage.folderName || 'A folder on this computer'} (open)</span
-						>
+						<span class="opacity-70">
+							<Folder size={16} aria-hidden="true" class="shrink-0" />
+							<span class="truncate">
+								{storage.folderName || 'A folder on this computer'} (open)
+							</span>
+						</span>
 					</li>
 				{/if}
 				<li>
@@ -214,15 +277,80 @@
 								queueMicrotask(() => newNameField?.focus());
 							})}
 					>
+						<Plus size={16} aria-hidden="true" class="shrink-0" />
 						New Workspace…
 					</button>
 				</li>
+				<!--
+					A Workspace folder on the user's own disk, offered here rather than only in settings.
+
+					⚠ **Only where the browser has the picker at all.** `canChooseFolder` is the File System
+					Access API's presence, which Firefox and iOS Safari do not have — and ADR-0001 makes a
+					folder Workspace a capability upgrade and never a gate, so a browser without it must not
+					be shown a route it cannot take.
+
+					These are real clicks, which is what `showDirectoryPicker()` and `requestPermission()`
+					need: called without transient user activation they fail silently (ADR-0012).
+				-->
+				{#if storage.canChooseFolder || storage.backing === 'folder'}
+					<li class="menu-title">Folder on this computer</li>
+					{#if storage.backing === 'folder'}
+						{#if unreachable}
+							<!-- ADR-0008: a folder that has moved, been renamed, or been unplugged is a normal
+							     state, and locating it again is the recovery. -->
+							<li>
+								<button
+									type="button"
+									data-testid="locate-workspace-folder"
+									onclick={() => fromMenu(() => void chooseFolder())}
+								>
+									<FolderSearch size={16} aria-hidden="true" class="shrink-0" />
+									Locate Workspace folder again…
+								</button>
+							</li>
+						{/if}
+						<li>
+							<button
+								type="button"
+								data-testid="use-browser-storage"
+								onclick={() => fromMenu(() => void useBrowserStorage())}
+							>
+								<AppWindow size={16} aria-hidden="true" class="shrink-0" />
+								Use browser storage instead
+							</button>
+						</li>
+					{:else}
+						{#if storage.reopenable}
+							<li>
+								<button
+									type="button"
+									data-testid="reopen-workspace-folder"
+									onclick={() => fromMenu(() => void reopenFolder())}
+								>
+									<FolderOpen size={16} aria-hidden="true" class="shrink-0" />
+									<span class="truncate">Reopen “{storage.reopenable}”</span>
+								</button>
+							</li>
+						{/if}
+						<li>
+							<button
+								type="button"
+								data-testid="choose-workspace-folder"
+								onclick={() => fromMenu(() => void chooseFolder())}
+							>
+								<Folder size={16} aria-hidden="true" class="shrink-0" />
+								Choose Workspace folder…
+							</button>
+						</li>
+					{/if}
+				{/if}
 				<li>
 					<button
 						type="button"
 						data-testid="open-workspace-settings"
 						onclick={() => fromMenu(() => (settingsOpen = true))}
 					>
+						<Settings size={16} aria-hidden="true" class="shrink-0" />
 						Workspace settings…
 					</button>
 				</li>

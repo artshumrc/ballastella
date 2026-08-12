@@ -123,7 +123,9 @@
 	style="position-anchor: --{id}"
 	ontoggle={(event) => (open = (event as ToggleEvent).newState === 'open')}
 >
-	<ul class="menu w-56 p-0">
+	<!-- Wide enough for an item's icon and its label on one line: at `w-56` "Choose Workspace
+	     folder…" wrapped, and a wrapped item in a list of one-line items reads as two items. -->
+	<ul class="menu w-64 p-0">
 		{@render children()}
 	</ul>
 </div>
@@ -139,7 +141,19 @@
 		top: 5rem;
 		left: 1rem;
 		margin: 0;
-		position-area: bottom span-right;
-		margin-top: 0.25rem;
+	}
+
+	/*
+		⚠ **The fallback's insets have to be given back.** `position-area` does not replace `top`/`left`,
+		it changes what they resolve against: the area box rather than the viewport. Left in place, they
+		offset the menu a further 5rem down and 1rem right of the button it is supposed to sit under —
+		which is not a near miss but the menu adrift in the middle of the screen.
+	*/
+	@supports (position-area: bottom span-right) {
+		.menu-popover {
+			inset: auto;
+			position-area: bottom span-right;
+			margin-top: 0.25rem;
+		}
 	}
 </style>

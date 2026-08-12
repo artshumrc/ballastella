@@ -148,80 +148,85 @@
 	}
 </script>
 
-<ModalDialog bind:open title="Workspace settings">
-	<section>
-		<h3 class="font-semibold">Where your work is stored</h3>
-		{#if storage.backing === 'folder'}
-			<p class="mt-2 max-w-prose text-sm">
-				Your Workspace is the folder <code data-testid="settings-folder-name"
-					>{storage.folderName}</code
-				>. Every Project in it is a real directory of real files, so you can back it up, sync it, or
-				commit it to git without this tool's help.
-			</p>
-		{:else}
-			<p class="mt-2 max-w-prose text-sm">
-				Your Workspace is <code data-testid="settings-workspace-name">{storage.workspaceName}</code
-				>, kept in this browser's own private storage. Your work is kept between visits, but you
-				cannot see the files, and another browser cannot.
-			</p>
-		{/if}
-
-		<div class="mt-3 flex flex-wrap gap-2">
-			{#if storage.backing === 'folder'}
-				{#if unreachable}
-					<!-- ADR-0008: a folder that has been moved, renamed, or deleted is a normal state, and
-					     locating it again is the recovery. -->
-					<button class="btn btn-primary btn-sm" onclick={() => storage.chooseFolder()}>
-						Locate Workspace folder again
-					</button>
-				{/if}
-				<button class="btn btn-sm" onclick={() => storage.useBrowserStorage()}>
-					Use browser storage instead
-				</button>
-			{:else if storage.canChooseFolder}
-				{#if storage.reopenable}
-					<!-- Must be a real click or keypress: `requestPermission()` needs transient user
-					     activation, and called automatically on load it fails silently (ADR-0012). -->
-					<button
-						class="btn btn-primary btn-sm"
-						data-testid="settings-reopen-folder"
-						onclick={() => storage.reopenFolder()}
-					>
-						Reopen “{storage.reopenable}”
-					</button>
-				{/if}
-				<button
-					class="btn btn-sm"
-					data-testid="settings-choose-folder"
-					onclick={() => storage.chooseFolder()}
-				>
-					Choose Workspace folder…
-				</button>
-			{/if}
-		</div>
-
-		{#if storage.backing === 'browser' && storage.reopenable}
-			<p class="mt-3 max-w-prose text-sm opacity-70">
-				Your browser asks permission for <code>{storage.reopenable}</code> each time you return, because
-				granting a folder is a decision it will not make for you. Installing Ballastella as an application
-				is what stops it asking.
-			</p>
-		{/if}
-
-		{#if storage.problem}
-			<!-- Never a silent fall back: a Workspace that quietly became browser storage again looks,
-			     from the user's side, exactly like the tool having lost their folder. -->
-			<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
-				<h4 class="font-semibold">Your Workspace folder was not opened</h4>
-				<p>{storage.problem}</p>
-				<button class="btn btn-sm" onclick={() => storage.chooseFolder()}>
-					Choose a folder again
-				</button>
-			</div>
-		{/if}
-	</section>
-
+<ModalDialog bind:open title="Workspace settings" wide>
 	<!--
+		One bordered block per question, so the answer to each is bounded rather than run together with
+		the next. Each carries one line of explanation and its controls: the reasoning behind these
+		choices is in the comments here and in the ADRs, which is where a reader goes for it — a user
+		opening this dialog wants to know what their Workspace is and what they may do to it.
+	-->
+	<div class="flex flex-col gap-4">
+		<section class="rounded-box border border-base-300 p-4">
+			<h3 class="font-semibold">Where your work is stored</h3>
+			{#if storage.backing === 'folder'}
+				<p class="mt-1 text-sm opacity-70">
+					A folder on this computer: <code data-testid="settings-folder-name"
+						>{storage.folderName}</code
+					>. Real files you can back up, sync, or commit yourself.
+				</p>
+			{:else}
+				<p class="mt-1 text-sm opacity-70">
+					This browser's own storage: <code data-testid="settings-workspace-name"
+						>{storage.workspaceName}</code
+					>. Kept between visits, but not visible as files and not shared with another browser.
+				</p>
+			{/if}
+
+			<div class="mt-3 flex flex-wrap gap-2">
+				{#if storage.backing === 'folder'}
+					{#if unreachable}
+						<!-- ADR-0008: a folder that has been moved, renamed, or deleted is a normal state, and
+					     locating it again is the recovery. -->
+						<button class="btn btn-primary btn-sm" onclick={() => storage.chooseFolder()}>
+							Locate Workspace folder again
+						</button>
+					{/if}
+					<button class="btn btn-sm" onclick={() => storage.useBrowserStorage()}>
+						Use browser storage instead
+					</button>
+				{:else if storage.canChooseFolder}
+					{#if storage.reopenable}
+						<!-- Must be a real click or keypress: `requestPermission()` needs transient user
+					     activation, and called automatically on load it fails silently (ADR-0012). -->
+						<button
+							class="btn btn-primary btn-sm"
+							data-testid="settings-reopen-folder"
+							onclick={() => storage.reopenFolder()}
+						>
+							Reopen “{storage.reopenable}”
+						</button>
+					{/if}
+					<button
+						class="btn btn-sm"
+						data-testid="settings-choose-folder"
+						onclick={() => storage.chooseFolder()}
+					>
+						Choose Workspace folder…
+					</button>
+				{/if}
+			</div>
+
+			{#if storage.backing === 'browser' && storage.reopenable}
+				<p class="mt-3 text-sm opacity-70">
+					This browser asks permission for <code>{storage.reopenable}</code> on every visit. Installing
+					Ballastella is what stops it asking.
+				</p>
+			{/if}
+
+			{#if storage.problem}
+				<!-- Never a silent fall back: a Workspace that quietly became browser storage again looks,
+			     from the user's side, exactly like the tool having lost their folder. -->
+				<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
+					<h4 class="font-semibold">Your Workspace folder was not opened</h4>
+					<p>{storage.problem}</p>
+					<button class="btn btn-sm" onclick={() => storage.chooseFolder()}>
+						Choose a folder again
+					</button>
+				</div>
+			{/if}
+		</section>
+
+		<!--
 		What the browser said about keeping this storage (ADR-0024).
 
 		A refusal is **said**, not swallowed: without the grant everything in browser storage is
@@ -229,32 +234,29 @@
 		Workspace there is. Only the refusal gets an alert — reporting a grant that loudly would be
 		three lines of reassurance nobody asked for.
 	-->
-	<section class="mt-6">
-		<h3 class="font-semibold">Whether this browser will keep your work</h3>
-		{#if storage.persistence === 'granted'}
-			<p class="mt-2 max-w-prose text-sm" data-testid="persistence-granted">
-				This browser has agreed to keep Ballastella's storage, so your work will not be cleared to
-				make room for other sites.
-			</p>
-		{:else if storage.persistence === 'refused'}
-			<div role="alert" class="mt-2 alert flex-col items-start alert-warning">
-				<p data-testid="persistence-refused">
-					This browser has not agreed to keep Ballastella's storage, so it may clear your Workspace
-					if the disk runs low. Installing Ballastella as an application usually changes that; a
-					Workspace folder on your own disk is not affected at all.
+		<section class="rounded-box border border-base-300 p-4">
+			<h3 class="font-semibold">Whether this browser will keep your work</h3>
+			{#if storage.persistence === 'granted'}
+				<p class="mt-1 text-sm opacity-70" data-testid="persistence-granted">
+					Kept. This browser will not clear your Workspace to make room for other sites.
 				</p>
-			</div>
-		{:else if storage.persistence === 'unsupported'}
-			<p class="mt-2 max-w-prose text-sm opacity-70" data-testid="persistence-unsupported">
-				This browser does not say whether it will keep Ballastella's storage. Keeping a backup, or a
-				Workspace folder on your own disk, is the answer to that.
-			</p>
-		{:else}
-			<p class="mt-2 max-w-prose text-sm opacity-70">Asking this browser…</p>
-		{/if}
-	</section>
+			{:else if storage.persistence === 'refused'}
+				<div role="alert" class="mt-2 alert flex-col items-start alert-warning">
+					<p data-testid="persistence-refused">
+						Not kept: this browser may clear your Workspace if the disk runs low. Installing
+						Ballastella usually changes that, and a folder Workspace is unaffected.
+					</p>
+				</div>
+			{:else if storage.persistence === 'unsupported'}
+				<p class="mt-1 text-sm opacity-70" data-testid="persistence-unsupported">
+					This browser will not say. Keep a backup, or use a folder Workspace.
+				</p>
+			{:else}
+				<p class="mt-1 text-sm opacity-70">Asking this browser…</p>
+			{/if}
+		</section>
 
-	<!--
+		<!--
 		Unsaved changes belonging to a Workspace this browser no longer lists (ticket 20).
 
 		⚠ **Reported and never swept up.** A replay only ever looks at the Workspace being opened, so
@@ -275,89 +277,80 @@
 		The Workspace is named the way the user knows it (`workspaceKeyLabel`), never by the internal
 		journal key — a scholar has never seen `opfs:`.
 	-->
-	{#if storage.orphanedJournals.length > 0}
-		<section class="mt-6" aria-live="polite">
-			<h3 class="font-semibold">Unsaved changes with nowhere to go</h3>
-			<div class="mt-2 alert flex-col items-start alert-warning">
-				<p data-testid="orphaned-journals">
-					Ballastella is still holding unsaved changes for {storage.orphanedJournals.length === 1
-						? 'a Workspace'
-						: 'Workspaces'} it cannot find here: {storage.orphanedJournals
-						.map((key) => workspaceKeyLabel(key))
-						.join(', ')}. If that is a Workspace folder you have not opened yet, open it and the
-					changes are put back. If it is gone for good, you can throw the changes away.
-				</p>
-				{#each storage.orphanedJournals as key (key)}
-					<button
-						class="btn btn-sm"
-						data-testid="discard-orphaned-journal"
-						onclick={() => {
-							const dropped = storage.discardOrphanedJournal(key);
-							// Named separately because they are separate things: an unsaved edit waiting to be
-							// put back, and a standing instruction to *delete* a Project. Summed, a Workspace
-							// holding only the second was reported as "1 unsaved change", which is false in
-							// both nouns — and hid the one of the two a user would most want to know had gone.
-							const parts = [
-								...(dropped.edits > 0
-									? [`${dropped.edits} unsaved ${dropped.edits === 1 ? 'change' : 'changes'}`]
-									: []),
-								...(dropped.deletions > 0
-									? [
-											`${dropped.deletions} unfinished ${dropped.deletions === 1 ? 'deletion' : 'deletions'}`
-										]
-									: [])
-							];
-							// ⚠ **The empty arm is not decoration and is not dead.** The button renders only for
-							// a key in `orphanedJournals`, which is built as the union of the Workspaces holding
-							// journal entries and those holding deletion notes — so a count of zero takes a
-							// second tab having cleared them between this list being built and this click. Rare,
-							// reachable, and the one wording that must not come out of it is "Threw away 0
-							// unsaved changes", which reads as a failure of the button rather than as somebody
-							// else having got there first.
-							outcome =
-								parts.length > 0
-									? `Threw away ${parts.join(' and ')} held for “${workspaceKeyLabel(key)}”. Nothing in any Workspace was touched.`
-									: `There was nothing left to throw away for “${workspaceKeyLabel(key)}” — something else had already cleared it. Nothing in any Workspace was touched.`;
-						}}
-					>
-						Throw away the changes for {workspaceKeyLabel(key)}
-					</button>
-				{/each}
-			</div>
-		</section>
-	{/if}
+		{#if storage.orphanedJournals.length > 0}
+			<section class="rounded-box border border-base-300 p-4" aria-live="polite">
+				<h3 class="font-semibold">Unsaved changes with nowhere to go</h3>
+				<div class="mt-2 alert flex-col items-start alert-warning">
+					<p data-testid="orphaned-journals">
+						Held for {storage.orphanedJournals.length === 1 ? 'a Workspace' : 'Workspaces'} not listed
+						here: {storage.orphanedJournals.map((key) => workspaceKeyLabel(key)).join(', ')}. Open
+						that Workspace and the changes go back into it; if it is gone for good, throw them away.
+					</p>
+					{#each storage.orphanedJournals as key (key)}
+						<button
+							class="btn btn-sm"
+							data-testid="discard-orphaned-journal"
+							onclick={() => {
+								const dropped = storage.discardOrphanedJournal(key);
+								// Named separately because they are separate things: an unsaved edit waiting to be
+								// put back, and a standing instruction to *delete* a Project. Summed, a Workspace
+								// holding only the second was reported as "1 unsaved change", which is false in
+								// both nouns — and hid the one of the two a user would most want to know had gone.
+								const parts = [
+									...(dropped.edits > 0
+										? [`${dropped.edits} unsaved ${dropped.edits === 1 ? 'change' : 'changes'}`]
+										: []),
+									...(dropped.deletions > 0
+										? [
+												`${dropped.deletions} unfinished ${dropped.deletions === 1 ? 'deletion' : 'deletions'}`
+											]
+										: [])
+								];
+								// ⚠ **The empty arm is not decoration and is not dead.** The button renders only for
+								// a key in `orphanedJournals`, which is built as the union of the Workspaces holding
+								// journal entries and those holding deletion notes — so a count of zero takes a
+								// second tab having cleared them between this list being built and this click. Rare,
+								// reachable, and the one wording that must not come out of it is "Threw away 0
+								// unsaved changes", which reads as a failure of the button rather than as somebody
+								// else having got there first.
+								outcome =
+									parts.length > 0
+										? `Threw away ${parts.join(' and ')} held for “${workspaceKeyLabel(key)}”. Nothing in any Workspace was touched.`
+										: `There was nothing left to throw away for “${workspaceKeyLabel(key)}” — something else had already cleared it. Nothing in any Workspace was touched.`;
+							}}
+						>
+							Throw away the changes for {workspaceKeyLabel(key)}
+						</button>
+					{/each}
+				</div>
+			</section>
+		{/if}
 
-	<!--
+		<!--
 		The offer the sentence above has been making since ticket 12, reachable from here (SPEC story 6,
 		ADR-0012). Here rather than in a banner: the permission and persistence questions are asked on
 		this screen, and installing is the answer to both.
 	-->
-	<section class="mt-6">
-		<h3 class="font-semibold">Ballastella as an installed application</h3>
-		<InstallOffer />
-	</section>
+		<section class="rounded-box border border-base-300 p-4">
+			<h3 class="font-semibold">Ballastella as an installed application</h3>
+			<InstallOffer />
+		</section>
 
-	<!--
+		<!--
 		Backing up and restoring (ADR-0024). Every explanation is visible text rather than a tooltip
 		(story 111), and both outcomes are in an `aria-live` region so a screen-reader user is told what
 		a sighted one can see (story 112).
 	-->
-	<section class="mt-6">
-		<h3 class="font-semibold">Backing up and restoring</h3>
-		<p class="mt-2 max-w-prose text-sm">
-			A backup is one <code>.tar</code> file holding this whole Workspace — every Project, every Historical
-			Map, every Alignment. It is how you move your work to another computer, and on browsers with no
-			folder access it is the only way your work leaves this one.
-		</p>
-		<p class="mt-2 max-w-prose text-sm opacity-70">
-			Restoring always makes a <em>new</em> Workspace and switches to it. It never overwrites and never
-			merges, so recovering from damage cannot destroy what you are recovering from — you can look at
-			both and decide. A backup holds your work rather than a website, so a restored Workspace needs publishing
-			again before it is one.
-		</p>
+		<section class="rounded-box border border-base-300 p-4">
+			<h3 class="font-semibold">Backing up and restoring</h3>
+			<p class="mt-1 text-sm opacity-70">
+				One <code>.tar</code> file holding this whole Workspace. Restoring always makes a
+				<em>new</em>
+				Workspace and switches to it — it never overwrites and never merges.
+			</p>
 
-		{#if storage.review !== null}
-			<!--
+			{#if storage.review !== null}
+				<!--
 				ADR-0024: a review copy is never backed up. Said in visible text rather than left as a
 				disabled button with no explanation (workspace-and-layers SPEC story 111) — an archive of somebody else's work
 				sitting in the user's Downloads folder is indistinguishable from a backup of their own,
@@ -365,90 +358,92 @@
 				`WorkspaceStorage.backUp` refuses it as well, because a guard that lives only in markup is
 				one route away from being absent.
 			-->
-			<p class="mt-3 max-w-prose text-sm text-warning" data-testid="no-backup-in-review">
-				This is a review copy of somebody else's Project, so it is not backed up. Go back to your
-				own Workspace to back that one up. Restoring a backup still works from here, and lands in a
-				new Workspace of your own.
-			</p>
-		{/if}
-
-		<div class="mt-3 flex flex-wrap gap-2">
-			{#if storage.review === null}
-				<button
-					class="btn btn-primary btn-sm"
-					data-testid="back-up-workspace"
-					disabled={transfer !== null}
-					onclick={() => backUp()}
-				>
-					Back up “{storage.name}”
-				</button>
+				<p class="mt-3 text-sm text-warning" data-testid="no-backup-in-review">
+					This is a review copy of somebody else's Project, so it is not backed up. Restoring still
+					works, and lands in a new Workspace of your own.
+				</p>
 			{/if}
-			<button
-				class="btn btn-sm"
-				data-testid="restore-workspace"
-				disabled={transfer !== null}
-				onclick={() => restoreInput?.click()}
-			>
-				Restore from a backup…
-			</button>
-			<!--
+
+			<div class="mt-3 flex flex-wrap gap-2">
+				{#if storage.review === null}
+					<button
+						class="btn btn-primary btn-sm"
+						data-testid="back-up-workspace"
+						disabled={transfer !== null}
+						onclick={() => backUp()}
+					>
+						Back up “{storage.name}”
+					</button>
+				{/if}
+				<button
+					class="btn btn-sm"
+					data-testid="restore-workspace"
+					disabled={transfer !== null}
+					onclick={() => restoreInput?.click()}
+				>
+					Restore from a backup…
+				</button>
+				<!--
 				Off-screen rather than `hidden`: a `display: none` input is not focusable and some
 				assistive technology skips it entirely, and Playwright's `setInputFiles` needs it in the
 				accessibility tree to be found by role at all.
 			-->
-			<input
-				bind:this={restoreInput}
-				accept=".tar,application/x-tar"
-				aria-label="Choose a backup file to restore"
-				class="sr-only"
-				data-testid="restore-file"
-				onchange={restore}
-				type="file"
-			/>
-		</div>
-
-		{#if transfer}
-			<p class="mt-3 text-sm" data-testid="transfer-progress">{transfer.label}</p>
-		{/if}
-		<p aria-live="polite" class="mt-3 max-w-prose text-sm" data-testid="transfer-outcome">
-			{transferOutcome}
-		</p>
-		{#if transferProblem}
-			<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
-				<p data-testid="transfer-problem">{transferProblem}</p>
+				<input
+					bind:this={restoreInput}
+					accept=".tar,application/x-tar"
+					aria-label="Choose a backup file to restore"
+					class="sr-only"
+					data-testid="restore-file"
+					onchange={restore}
+					type="file"
+				/>
 			</div>
-		{/if}
-	</section>
 
-	<section class="mt-6">
-		<h3 class="font-semibold">Your Workspaces</h3>
-		<p class="mt-2 max-w-prose text-sm opacity-70">
-			Browser storage holds as many Workspaces as you like, each with its own Projects, Historical
-			Maps, and Alignments. Switch between them from the Workspace button on the bar.
-		</p>
-		{#if deletable.length === 0}
-			<p class="mt-3 text-sm opacity-70" data-testid="no-other-workspaces">
-				There are no other Workspaces to delete. The one you are in cannot be deleted from inside
-				itself.
+			{#if transfer}
+				<p class="mt-3 text-sm" data-testid="transfer-progress">{transfer.label}</p>
+			{/if}
+			<p aria-live="polite" class="mt-3 text-sm" data-testid="transfer-outcome">
+				{transferOutcome}
 			</p>
-		{:else}
-			<ul class="mt-3 flex flex-col gap-2">
-				{#each deletable as name (name)}
-					<li class="flex items-center justify-between gap-3">
-						<span class="text-sm">{name}</span>
-						<button
-							class="btn btn-outline btn-sm btn-warning"
-							data-testid="delete-workspace"
-							onclick={() => askToDelete(name)}
-						>
-							Delete “{name}”…
-						</button>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-		<p aria-live="polite" class="mt-3 text-sm" data-testid="workspace-delete-outcome">{outcome}</p>
-	</section>
+			{#if transferProblem}
+				<div role="alert" class="mt-3 alert flex-col items-start alert-warning">
+					<p data-testid="transfer-problem">{transferProblem}</p>
+				</div>
+			{/if}
+		</section>
+
+		<section class="rounded-box border border-base-300 p-4">
+			<h3 class="font-semibold">Your Workspaces</h3>
+			<p class="mt-1 text-sm opacity-70">
+				Switch between them from the Workspace button on the bar. Deleting one takes its Projects,
+				Historical Maps, and Alignments with it.
+			</p>
+			{#if deletable.length === 0}
+				<p class="mt-3 text-sm opacity-70" data-testid="no-other-workspaces">
+					There are no other Workspaces to delete. The one you are in cannot be deleted from inside
+					itself.
+				</p>
+			{:else}
+				<ul class="mt-3 flex flex-col gap-2">
+					{#each deletable as name (name)}
+						<li class="flex items-center justify-between gap-3">
+							<span class="text-sm">{name}</span>
+							<button
+								class="btn btn-outline btn-sm btn-warning"
+								data-testid="delete-workspace"
+								onclick={() => askToDelete(name)}
+							>
+								Delete “{name}”…
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			<p aria-live="polite" class="mt-3 text-sm" data-testid="workspace-delete-outcome">
+				{outcome}
+			</p>
+		</section>
+	</div>
 
 	{#snippet actions()}
 		<button class="btn" data-testid="close-workspace-settings" onclick={() => (open = false)}>
