@@ -765,6 +765,15 @@ async function tabTo(page: Page, target: Locator, what: string): Promise<void> {
 	throw new Error(`“${what}” could not be reached with the keyboard`);
 }
 
+/**
+ * The one map Layer's row, addressed by kind.
+ *
+ * Opacity belongs to map Layers only, and it now lives inside the card — so a test that reorders, or
+ * that adds an Annotation Layer on top, cannot reach the slider through `nth(0)`. Two tests waited
+ * sixty seconds for a control that was never coming before this existed.
+ */
+const mapRow = (page: Page) => page.locator('[data-testid="layer-row"][data-layer-kind="map"]');
+
 const projectJson = async (page: Page, directory: string) =>
 	JSON.parse(await readProjectFile(page, directory, 'project.json'));
 
@@ -1235,7 +1244,10 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1', {
 			timeout: STACK_READY_MS
 		});
-		await expect(page.getByTestId('layer-opacity-value')).toHaveText('35%');
+		// Which card is open is display state and does not survive a reload (ADR-0002), so the readout
+		// is reached by opening the card again. The *opacity* surviving is the claim; the card being
+		// open is not, and asserting the readout on a collapsed row would confuse the two.
+		await expect((await openLayerRow(page)).getByTestId('layer-opacity-value')).toHaveText('35%');
 		expect(await warpedOpacity(page, layerId)).toBeCloseTo(0.35, 5);
 	});
 
@@ -1420,7 +1432,10 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		// because the measured cost of the two together is closer to that than to the ordinary test.
 		test.setTimeout(90_000);
 		const { annotationId, mapId } = await stackWithBothKinds(page);
-		const moveDown = rows(page).nth(0).getByTestId('layer-move-down');
+		// Reorder buttons live inside the open card since the Layers revision, so the card is opened
+		// before the Tab walk — they are not in the DOM to be tabbed to otherwise. Opening is itself a
+		// keyboard-operable step (the disclosure is a plain `<button>`), so "by keyboard alone" holds.
+		const moveDown = (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down');
 
 		await page.keyboard.press('Tab');
 		await tabTo(page, moveDown, 'Move down');
@@ -1484,7 +1499,10 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		page
 	}) => {
 		const { annotationId, mapId } = await stackWithBothKinds(page);
-		const moveDown = rows(page).nth(0).getByTestId('layer-move-down');
+		// Opened first: the reorder buttons are inside the card since the Layers revision. The open card
+		// follows the *Layer*, not the position, which is what lets the second keypress below land
+		// without a Tab.
+		const moveDown = (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down');
 
 		await page.keyboard.press('Tab');
 		await tabTo(page, moveDown, 'Move down');
@@ -1515,7 +1533,8 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		await expect(rows(page)).toHaveCount(3);
 		const [top] = (await rowIds(page)) as [string, string, string];
 
-		const moveDown = rows(page).nth(0).getByTestId('layer-move-down');
+		// Opened first: the reorder buttons are inside the card since the Layers revision.
+		const moveDown = (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down');
 		await page.keyboard.press('Tab');
 		await tabTo(page, moveDown, 'Move down');
 		await page.keyboard.press('Enter');
@@ -1680,7 +1699,9 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		// Layer rather than the position, so it is still open after the move.
 		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
 		await rows(page).nth(0).getByTestId('layer-visible').uncheck();
-		await page.getByTestId('layer-opacity').fill('0.4');
+		// The slider is inside the open card since the Layers revision, and only a map Layer has one —
+		// so the card is found by kind rather than by position, which the move above has just changed.
+		await (await openLayerRow(page, mapRow(page))).getByTestId('layer-opacity').fill('0.4');
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
 		const after = [
@@ -1721,9 +1742,10 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		const alignmentFile = (await alignmentRefOf(page, directory)).split('/').at(-1) as string;
 		await countFileReads(page);
 
-		// The slider is inside the open card since the Layers revision; the rename below opens the same
-		// card again, which `openLayerRow` treats as already open.
-		await (await openLayerRow(page)).getByTestId('layer-opacity').fill('0.4');
+		// The slider is inside the open card since the Layers revision, and only a map Layer has one.
+		// **By kind, not by position**: this test puts an Annotation Layer on top, so row 0 has no
+		// slider at all and opening it waits for a control that is never coming.
+		await (await openLayerRow(page, mapRow(page))).getByTestId('layer-opacity').fill('0.4');
 		await expect(page.getByTestId('layer-opacity-value')).toHaveText('40%');
 		// Renaming starts at the pencil in an open card since the Layers revision.
 		const renaming = await openLayerRow(page, rows(page).nth(0));
@@ -1984,8 +2006,19 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 
 		// Each row's name field says where in the stack it is, because "Layer name" three times over
 		// is three identical controls to a screen reader.
-		await expect(page.getByLabel('Name of Layer 1 of 2')).toHaveCount(1);
-		await expect(page.getByLabel('Name of Layer 2 of 2')).toHaveCount(1);
+		//
+		// **One row at a time, because the field is behind the pencil in an open card and the
+		// disclosure is an accordion** (`openLayerId` holds one id). Both labels cannot be in the
+		// document at once, so asserting them together would be asserting something the design does
+		// not do. The *positions* they name are still checked for both rows at once — that is the
+		// `<ol>`/`<li>` structure above, which is where position properly comes from.
+		const first = await openLayerRow(page, rows(page).nth(0));
+		await first.getByTestId('layer-rename').click();
+		await expect(first.getByTestId('layer-name')).toHaveAccessibleName('Name of Layer 1 of 2');
+
+		const second = await openLayerRow(page, rows(page).nth(1));
+		await second.getByTestId('layer-rename').click();
+		await expect(second.getByTestId('layer-name')).toHaveAccessibleName('Name of Layer 2 of 2');
 	});
 
 	test('every control of every Layer is reachable with the keyboard', async ({ page }) => {
@@ -1994,34 +2027,73 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(2);
 
-		// Every control of both rows, in document order. The reorder button that would run off the end
-		// of the stack is `disabled` and so out of the tab order on purpose — "the top Layer cannot go
-		// higher" is a disabled button, which is why the two rows have different lists.
-		const walk: [number, string][] = [
-			// Ticket 05's disclosure, first in each row: it is a plain `<button>` precisely so that opening
-			// a Layer needs nothing added to make it keyboard-operable.
-			[0, 'layer-disclosure'],
-			[0, 'layer-visible'],
-			[0, 'layer-name'],
-			[0, 'layer-move-down'],
-			// Ticket 11's delete, which is the one control here that cannot be shrugged off — so it has to
-			// be on the keyboard path, and the undo that makes it safe has one of its own.
-			[0, 'layer-delete'],
-			[1, 'layer-disclosure'],
-			[1, 'layer-visible'],
-			[1, 'layer-name'],
-			[1, 'layer-move-up'],
-			[1, 'layer-delete'],
-			[1, 'layer-opacity']
+		// ═════════════════════════════════════════════════════════════════════════════════════════
+		// REACHABLE **PER OPEN CARD** — a decision of 2026-08-11, not an accident of this rewrite.
+		//
+		// This walk used to be one flat list across both rows, and the Layers revision made that
+		// impossible rather than merely wrong: the in-card controls exist only while their card is
+		// open, and the disclosure is an accordion (`openLayerId` holds one id), so both rows' cards
+		// are never in the tab order at the same time.
+		//
+		// So reordering by keyboard now costs an extra step that reordering by pointer does not — a
+		// mouse user drags `layer-drag-handle` on the *collapsed* row, and that handle is a
+		// `<span draggable aria-hidden>` with no key handling, so there is no keyboard path on a
+		// closed row at all. **That asymmetry was put to a human and accepted**: keyboard users
+		// expand, pointer users drag. It is written here because a version of this test that quietly
+		// added an `openLayerRow` call would weaken SPEC story 96 without anybody deciding to.
+		//
+		// What the story still requires, and what is asserted below: every control is *reachable*
+		// with the keyboard, the disclosure that opens a card included — it is a plain `<button>`
+		// precisely so that opening a Layer needs nothing added to be keyboard-operable.
+		// ═════════════════════════════════════════════════════════════════════════════════════════
+
+		/**
+		 * What a closed row offers, in document order. Reachable without opening anything.
+		 *
+		 * The disclosure is **last** because it is last in the markup — `layer-visible` is at
+		 * `LayerList.svelte:711` and the disclosure at `:736` — and because the walk then leaves focus
+		 * exactly where the `Enter` below needs it. Listing it first put focus on a checkbox, where
+		 * `Enter` does nothing and the card stayed shut.
+		 */
+		const onTheRow = ['layer-visible', 'layer-disclosure'];
+
+		/**
+		 * What each row's open card offers, in document order.
+		 *
+		 * Per row, because the reorder button that would run off the end of the stack is `disabled`
+		 * and so out of the tab order on purpose — "the top Layer cannot go higher" is a disabled
+		 * button. `layer-rename` rather than `layer-name`: the field is behind the pencil since the
+		 * revision, and the pencil is the control the keyboard has to reach.
+		 */
+		const inTheCard: string[][] = [
+			// Ticket 11's delete, which is the one control here that cannot be shrugged off — so it has
+			// to be on the keyboard path, and the undo that makes it safe has one of its own.
+			['layer-rename', 'layer-move-down', 'layer-delete'],
+			['layer-rename', 'layer-move-up', 'layer-delete', 'layer-opacity']
 		];
 
-		await page.keyboard.press('Tab');
-		for (const [row, control] of walk) {
-			await tabTo(page, rows(page).nth(row).getByTestId(control), `row ${row} ${control}`);
+		for (const [index, card] of inTheCard.entries()) {
+			const row = rows(page).nth(index);
+
+			// The closed row first, from the top of the document each time: this is a fresh walk, not a
+			// continuation of the previous row's.
+			await page.keyboard.press('Tab');
+			for (const control of onTheRow) {
+				await tabTo(page, row.getByTestId(control), `row ${index} ${control}`);
+			}
+
+			// Opened *with the keyboard*, from the disclosure the walk has just reached — which is the
+			// whole of the extra step, and it is asserted rather than assumed.
+			await page.keyboard.press('Enter');
+			await expect(row.getByTestId('layer-disclosure')).toHaveAttribute('aria-expanded', 'true');
+
+			for (const control of card) {
+				await tabTo(page, row.getByTestId(control), `row ${index} ${control}`);
+			}
+			// Reaching the last one means every one before it was on the way, in order; asserting it
+			// explicitly is what makes the loop above a claim rather than a walk.
+			await expect(row.getByTestId(card.at(-1) as string)).toBeFocused();
 		}
-		// Reaching the last one means every one before it was on the way, in order; asserting it
-		// explicitly is what makes the loop above a claim rather than a walk.
-		await expect(rows(page).nth(1).getByTestId('layer-opacity')).toBeFocused();
 	});
 });
 
@@ -2029,9 +2101,21 @@ test.describe('the Layer list reaches assistive technology (SPEC story 96)', () 
 // ONE LAYER OPENS AT A TIME (ticket 05)
 //
 // A Project is a stack of Layers and a Layer opens to reveal what is inside it. What a *closed* row
-// still shows is the load-bearing half: the name, the visibility toggle, the position controls, and
-// whatever the Layer is warning about — because "this Historical Map needs aligning" is the state a
-// scholar has to be able to notice **without opening anything**.
+// still shows is the load-bearing half: the name, the visibility toggle, and whatever the Layer is
+// warning about — because "this Historical Map needs aligning" is the state a scholar has to be able
+// to notice **without opening anything**.
+//
+// ⚠ **The position controls used to be on that list and are not any more.** The Layers revision moved
+// `layer-move-up` and `layer-move-down` inside the card, which leaves reordering asymmetric: a pointer
+// user drags `layer-drag-handle` on the closed row, while a keyboard user opens the card first — the
+// handle is a `<span draggable aria-hidden>` with no key handling, so there is no keyboard path on a
+// closed row at all.
+//
+// **That asymmetry was put to a human and accepted on 2026-08-11**: keyboard users expand, pointer
+// users drag. It is written here because this paragraph said the opposite for a while, and prose that
+// contradicts the code is worse than no prose — the next reader believes it. SPEC story 96 is
+// therefore read as *reachable per open card*, and `every control of every Layer is reachable with the
+// keyboard` says so in its own comment rather than encoding it by accident.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 
 test.describe('one Layer opens at a time (ticket 05)', () => {
