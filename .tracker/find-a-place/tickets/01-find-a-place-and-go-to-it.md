@@ -94,18 +94,51 @@ export type LookupOutcome =
 
 ## Acceptance criteria
 
-- [ ] On the Project screen, submitting a place name shows candidates from the committed fixture, and choosing one frames the map on that candidate's bounds.
-- [ ] The same works on the alignment screen, **asserted there** rather than assumed from the shared component.
-- [ ] **Typing without submitting issues zero requests**, asserted by **counting requests made while typing** — not by asserting the candidate list is empty. **Mutate this specifically:** wire the field to fire on input, confirm the test goes red, and restore. A test that only checks for an empty list passes against a debounced implementation, which is the violation.
-- [ ] A query matching nothing and a service that does not answer produce **different visible text**, asserted by comparing the two strings — not by asserting either list is empty. **Mutate this specifically:** make both render the same sentence and confirm red.
-- [ ] Every candidate is reachable and choosable by keyboard alone, asserted without a pointer.
-- [ ] The outcome is announced, with the mechanism chosen deliberately and the reason stated in code.
-- [ ] The service's attribution is visible while candidates are shown, and absent when they are not.
-- [ ] No marker is drawn at the found point.
-- [ ] The pane holds no extra layout open when no search is in progress.
-- [ ] A fixture holding a real multi-candidate response is committed under `e2e/fixtures/`.
-- [ ] No source file outside the new configuration module names the service host. (Not yet enforced by a script — slice 4 does that. Check it by hand and say you did.)
-- [ ] The mutation check is recorded per criterion. **Report any surviving mutation as green, with its reason.**
+- [x] On the Project screen, submitting a place name shows candidates from the committed fixture, and choosing one frames the map on that candidate's bounds.
+- [x] The same works on the alignment screen, **asserted there** rather than assumed from the shared component.
+- [x] **Typing without submitting issues zero requests**, asserted by **counting requests made while typing** — not by asserting the candidate list is empty. **Mutate this specifically:** wire the field to fire on input, confirm the test goes red, and restore. A test that only checks for an empty list passes against a debounced implementation, which is the violation.
+- [x] A query matching nothing and a service that does not answer produce **different visible text**, asserted by comparing the two strings — not by asserting either list is empty. **Mutate this specifically:** make both render the same sentence and confirm red.
+- [x] Every candidate is reachable and choosable by keyboard alone, asserted without a pointer.
+- [x] The outcome is announced, with the mechanism chosen deliberately and the reason stated in code.
+- [x] The service's attribution is visible while candidates are shown, and absent when they are not.
+- [x] No marker is drawn at the found point.
+- [x] The pane holds no extra layout open when no search is in progress.
+- [x] A fixture holding a real multi-candidate response is committed under `e2e/fixtures/`.
+- [x] No source file outside the new configuration module names the service host. (Not yet enforced by a script — slice 4 does that. Check it by hand and say you did.)
+- [x] The mutation check is recorded per criterion. **Report any surviving mutation as green, with its reason.**
+
+## The mutation record
+
+Every row was run: the mutation applied, the named test observed red, the mutation reverted, the
+test observed green again. ⚠ **Two of them survived the first time round** and are marked; both are
+now load-bearing, and what made each of them vacuous is written at the test itself so the next
+person does not re-introduce it.
+
+| Criterion | Mutation | Result |
+| --- | --- | --- |
+| Candidates shown, and the chosen one framed (Project screen) | `frameOnPlace` made a no-op | red |
+| The same on the alignment screen | the same no-op — the test drives the alignment route itself | red |
+| Typing issues zero requests | `oninput` on the field calling the same submit as the form | red (11 requests counted while typing) |
+| The two empty-handed outcomes say different things | `placeLookupNotice` returns the `unanswered` sentence for `none` too | ⚠ **survived at first**, now red |
+| Every candidate reachable by keyboard | each candidate `<button>` replaced by a `<div>` with the same click handler | red |
+| The outcome is announced | `aria-live="polite"` → `"off"` | red |
+| Attribution shown with the candidates and not otherwise | the candidate block's guard relaxed, making the credit permanent chrome | red |
+| No marker at the found point | `new Marker().setLngLat(place.point)` added in `frameOnPlace` | red |
+| No layout held open | `absolute` dropped from the search surface's wrapper in `PlaceSearch.svelte` | ⚠ **survived at first**, now red |
+| `none` does not overclaim | the sentence restored to "The lookup service answered…" | red (`notice.test.ts`) |
+| The fixture is a real multi-candidate response | not mutable — `e2e/fixtures/places/springfield.json` is a captured response with ten candidates | n/a |
+| No module outside `places/service.ts` names the service host | not mutable until slice 4's scan exists — checked by hand: `grep -rn nominatim` over the tree hits `service.ts` alone, and `catalog.ts`'s `openstreetmap.org/copyright` is the Base Map's own tile credit rather than the lookup host | n/a |
+
+**Why the two survived, and what fixed each.**
+
+- *The two sentences.* Both reads of `place-search-status` could be satisfied by the in-flight
+  `Looking up “<query>”…`, which is visible and carries the query — so the comparison could be a
+  progress string against itself. Every read now goes through `settledStatus`, which waits the node
+  out of that state first.
+- *No layout held open.* The canvas box was compared before and after a search, but the pane sits
+  inside an `overflow-hidden` parent, so a search surface that took flow would overflow the pane
+  rather than shrink the canvas — the box never moved either way. The test now measures the surface
+  **against the pane**: out of flow it is drawn over the map, in flow it is pushed below it.
 
 ```sh
 pnpm --filter @ballastella/core exec vitest run src/places

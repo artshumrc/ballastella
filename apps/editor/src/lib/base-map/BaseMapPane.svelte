@@ -22,13 +22,15 @@
 		applyOpeningFit,
 		BASE_MAP_SOURCE_ID,
 		baseMapStyle,
+		openingViewFit,
 		resolveBaseMap,
 		type Alignment,
 		type Annotation,
 		type DistortionView,
 		type FetchFn,
 		type HistoricalMapSource,
-		type OpeningViewFit
+		type OpeningViewFit,
+		type Place
 	} from '@ballastella/core';
 	// The browser-only render layer, on a subpath of its own because this barrel's own is Node-safe
 	// and this is not — see the note at the bottom of `packages/core/src/index.ts`.
@@ -57,6 +59,7 @@
 	import { warpedAddressOf } from '$lib/alignment/map-source.svelte.js';
 	import { exposeLayerStackToBrowserTests } from '$lib/layers/browser-test-handle';
 	import { createOverlayPointLayer, type OverlayPointLayer } from '$lib/overlay/overlay-points';
+	import PlaceSearch from '$lib/places/PlaceSearch.svelte';
 	import { theme } from '$lib/theme.svelte';
 	import { exposeWarpedLayerToBrowserTests } from '$lib/warped/browser-test-handle';
 
@@ -471,6 +474,24 @@
 	$effect(() => {
 		fitted = applyOpeningFit(map, openingFit, fitted);
 	});
+
+	/**
+	 * Frame the pane on a Place the scholar chose (ADR-0029).
+	 *
+	 * **The same fit, with the same padding and the same maximum zoom** as the one a Project opens
+	 * with, so a city fills the pane and a house address frames tight with no zoom heuristic anywhere
+	 * in the feature. Re-deriving either constant here would be a second copy of the numbers.
+	 *
+	 * `fitted` is not consulted and not written: this is a fit the scholar asked for by clicking, and
+	 * the identity guard exists for the *automatic* one — choosing the same candidate twice, having
+	 * panned away, must frame twice.
+	 *
+	 * **Nothing is drawn at the point** — the framing is the answer. ADR-0029 says why, and the marker
+	 * count in `editor-base-map.e2e.ts` is what holds it.
+	 */
+	const frameOnPlace = (place: Place): void => {
+		applyOpeningFit(map, openingViewFit(place.bounds), null);
+	};
 
 	// Built once per map. The points themselves are updated by the effect below, so that moving one
 	// Control Point does not tear down and rebuild every element — and with them every drag in
@@ -905,4 +926,14 @@
 	(canvas order, negation against the image pane's testid) is the kind of selector that passes until
 	the layout moves.
 -->
-<div bind:this={container} class="h-full w-full" data-testid="base-map-pane"></div>
+<!--
+	The search surface is inside this pane rather than beside it at each call site, and that is what
+	gives both editor screens the feature from one component: `ProjectScreen` and `AlignmentWorkspace`
+	both render this pane, and a scholar hunting the modern half of a Control Point wants "go to
+	Boston" at least as much as an annotator does (ADR-0029). It positions itself against this
+	wrapper, so it costs the map no height.
+-->
+<div class="relative h-full w-full">
+	<div bind:this={container} class="h-full w-full" data-testid="base-map-pane"></div>
+	<PlaceSearch onchoose={frameOnPlace} />
+</div>

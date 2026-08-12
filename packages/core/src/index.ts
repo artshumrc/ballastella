@@ -620,6 +620,7 @@ export {
 } from './undo/undo.js';
 
 export * from './base-map';
+export * from './places';
 export * from './theme';
 
 // NOTE: `src/render/` is deliberately **not** re-exported here. It is reached as

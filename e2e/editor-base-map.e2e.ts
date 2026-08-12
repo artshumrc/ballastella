@@ -1,6 +1,7 @@
 import { expect, test } from './support/test.js';
-import { type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 
+import { start as startAlignment } from './support/alignment-workspace.js';
 import { unavailableNotice } from './support/base-map-notice.js';
 import {
 	baseMapTileDirectory,
@@ -10,6 +11,7 @@ import {
 	routeBaseMapArchive,
 	routePartialBaseMapArchive
 } from './support/editor-deployment';
+import { AMBIGUOUS_QUERY, routePlaceLookup } from './support/places.js';
 
 // SPEC Seam 2: the running app in a real browser, with real MapLibre and real OPFS. There is
 // deliberately no map-abstraction layer to test against — inventing one purely to enable testing
@@ -1301,6 +1303,303 @@ test.describe('making a Project available offline', () => {
 
 		await openProjectScreen(page);
 		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'no');
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// FINDING A PLACE AND GOING TO IT (ADR-0029, SPEC stories 1–5 and 20–23)
+//
+// The pane is shared, so this is one component on two screens, and both are driven here rather than
+// one being assumed from the other.
+//
+// **Two of these assertions pass vacuously if written naively**, and each says at its site what it
+// was mutated with:
+//
+//   - "typing issues zero requests" is asserted by *counting requests while typing*. A test that
+//     only checked the candidate list was empty would pass against a debounced implementation, which
+//     is precisely the violation.
+//   - "the two empty-handed outcomes say different things" is asserted by comparing the two
+//     sentences. Both outcomes end in no candidates, so a test that checked either list was empty
+//     would pass whichever one was produced.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Where the fixture's candidates are, read off the committed response rather than invented. */
+const MASSACHUSETTS = { lng: -72.5466223, lat: 42.11297795 };
+const MISSOURI = { lng: -93.2958593, lat: 37.1828864 };
+
+const searchField = (page: Page) => page.getByTestId('place-search-query');
+const candidates = (page: Page) => page.getByTestId('place-candidate');
+const searchStatus = (page: Page) => page.getByTestId('place-search-status');
+
+/**
+ * What the status line says **once the lookup it is about has settled**.
+ *
+ * ⚠ **Every read of that node has to go through here.** While a lookup is in flight the same node
+ * says `Looking up “<query>”…` — visible, and carrying the query — so a bare `toContainText(query)`
+ * or a `textContent()` can be satisfied by the progress line and never see an outcome at all. That
+ * is not a hypothetical: it is what let the two-sentences test below pass a mutation.
+ */
+async function settledStatus(page: Page): Promise<string> {
+	await expect(searchStatus(page)).not.toHaveText(/^$|Looking up/);
+	return (await searchStatus(page).textContent()) ?? '';
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+/** One element's box, or a failure rather than a `null` that would compare equal to another. */
+async function boxOf(locator: Locator): Promise<Box> {
+	const box = await locator.boundingBox();
+	expect(box, 'the element has no box at all').not.toBeNull();
+	return box as Box;
+}
+
+/** `inner` is drawn over `outer` rather than taking room of its own beside it. */
+function expectDrawnOver(inner: Box, outer: Box): void {
+	expect(inner.y, 'drawn below the map rather than over it').toBeGreaterThanOrEqual(outer.y);
+	expect(inner.y + inner.height, 'reaches past the bottom of the map').toBeLessThanOrEqual(
+		outer.y + outer.height
+	);
+	expect(inner.x).toBeGreaterThanOrEqual(outer.x);
+	expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width);
+}
+
+/** Submit a query, with no pointer anywhere in it. */
+async function findPlace(page: Page, query: string): Promise<void> {
+	await searchField(page).fill(query);
+	await searchField(page).press('Enter');
+}
+
+/** Where the map is now. */
+const centre = (page: Page) =>
+	page.evaluate(() => ({
+		lng: window.ballastellaBaseMap?.getCenter().lng ?? 0,
+		lat: window.ballastellaBaseMap?.getCenter().lat ?? 0
+	}));
+
+/** The map is framed on `place`, within a fraction of a degree of its box's own centre. */
+async function expectFramedOn(page: Page, place: { lng: number; lat: number }): Promise<void> {
+	await expect
+		.poll(async () => (await centre(page)).lat, { timeout: 15_000 })
+		.toBeCloseTo(place.lat, 1);
+	expect((await centre(page)).lng).toBeCloseTo(place.lng, 1);
+}
+
+test.describe('finding a place', () => {
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
+	});
+
+	test('shows the candidates a query matched, and frames the map on the one chosen', async ({
+		page,
+		context
+	}) => {
+		const service = await routePlaceLookup(context);
+		await openPane(page);
+
+		// Amsterdam, where this deployment's catalog opens — so the move below is unmistakable.
+		expect((await centre(page)).lng).toBeCloseTo(4.9041, 2);
+
+		await findPlace(page, AMBIGUOUS_QUERY);
+
+		// Ten real candidates from one captured response. **They are shown, not taken**: a Pin in the
+		// wrong Springfield is indistinguishable from a Pin in the right one, so the top hit is never
+		// chosen on the scholar's behalf.
+		await expect(candidates(page)).toHaveCount(10);
+		await expect(candidates(page).first()).toContainText('Sangamon County, Illinois');
+		expect(service.queries()).toEqual([AMBIGUOUS_QUERY]);
+
+		await candidates(page).filter({ hasText: 'Hampden County' }).click();
+
+		await expectFramedOn(page, MASSACHUSETTS);
+		// **No marker.** The framing is the answer; a marker at the found point would be a thing on
+		// screen with no meaning, indistinguishable at a glance from an Annotation the scholar made.
+		//
+		// ⚠ Asserted on **every marker on the pane**, not only on the overlay-point kinds this app
+		// draws: a bare `new Marker()` dropped at the found point is the mutation, and a locator
+		// keyed to `data-testid` would not see one.
+		await expect(page.locator('[data-testid="base-map-pane"] .maplibregl-marker')).toHaveCount(0);
+		await expect(page.locator('[data-testid^="pane-overlay-point-"]')).toHaveCount(0);
+	});
+
+	test('works on the alignment screen too, where the same pane is rendered', async ({
+		page,
+		context
+	}) => {
+		// **Asserted here rather than assumed from the shared component.** Excluding either screen
+		// would mean actively suppressing the feature on a screen that renders the same pane, and a
+		// scholar hunting the modern half of a Control Point wants this at least as much as an
+		// annotator does (SPEC story 5).
+		await routePlaceLookup(context);
+		await startAlignment(page);
+
+		await findPlace(page, AMBIGUOUS_QUERY);
+		await expect(candidates(page)).toHaveCount(10);
+		await candidates(page).filter({ hasText: 'Greene County' }).click();
+
+		await expectFramedOn(page, MISSOURI);
+	});
+
+	test('issues no request at all while a query is being typed', async ({ page, context }) => {
+		// ⚠ **Counted, not inferred from an empty list.** Mutation: an `oninput` on the field calling
+		// the same submit as the form. The candidate list then fills while typing, and every
+		// list-shaped assertion in this file stays green — this one goes red on the first keystroke,
+		// which is the whole reason it counts.
+		const service = await routePlaceLookup(context);
+		await openPane(page);
+
+		await searchField(page).pressSequentially(AMBIGUOUS_QUERY, { delay: 60 });
+		// Long enough that a debounce of any plausible length would have fired.
+		await page.waitForTimeout(1_500);
+
+		expect(service.count(), 'a request was issued while typing').toBe(0);
+		await expect(candidates(page)).toHaveCount(0);
+
+		// And the submit does issue exactly one, so the zero above is not a broken field.
+		await searchField(page).press('Enter');
+		await expect(candidates(page)).toHaveCount(10);
+		expect(service.count()).toBe(1);
+	});
+
+	test('says something different for a query that matched nothing and a service that did not answer', async ({
+		page,
+		context
+	}) => {
+		// ⚠ **The two sentences are compared.** Mutation: make `placeLookupNotice` return the same
+		// string for `none` and `unanswered`. Both outcomes end in no candidates, so a test asserting
+		// an empty list passes whichever one was produced — and the failure it lets through is being
+		// told to check a spelling when the request never left the building.
+		const service = await routePlaceLookup(context);
+		await openPane(page);
+
+		//
+		// ⚠ **Both reads go through `settledStatus`**, which is what makes the comparison mean
+		// anything: the in-flight `Looking up “Nowhere at all”…` is visible in this same node and
+		// carries the query, so reading it directly satisfies "visible" and "names the query" and can
+		// capture the progress line as one of the two sentences — under which the mutation above
+		// survives green.
+		service.answerWith('[]');
+		await findPlace(page, 'Nowhere at all');
+		const matchedNothing = await settledStatus(page);
+		await expect(searchStatus(page)).toBeVisible();
+		expect(matchedNothing).toContain('Nowhere at all');
+
+		// The same query, so the only thing that differs is what the service did.
+		service.answerWith('', 503);
+		await findPlace(page, 'Nowhere at all');
+		await expect.poll(() => settledStatus(page)).not.toBe(matchedNothing);
+
+		await expect(searchStatus(page)).toBeVisible();
+		await expect(candidates(page)).toHaveCount(0);
+	});
+
+	test('reaches and chooses every candidate from the keyboard alone', async ({ page, context }) => {
+		// SPEC stories 20 and 21. A list of results is precisely the control that ships mouse-only, so
+		// there is no `click` anywhere in this test.
+		await routePlaceLookup(context);
+		await openPane(page);
+
+		await searchField(page).focus();
+		await page.keyboard.type(AMBIGUOUS_QUERY);
+		await page.keyboard.press('Enter');
+		await expect(candidates(page)).toHaveCount(10);
+		const total = await candidates(page).count();
+
+		// Field → the submit button → the candidates, in the order they are read out.
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('place-search-submit')).toBeFocused();
+		for (let index = 0; index < total; index += 1) {
+			await page.keyboard.press('Tab');
+			await expect(candidates(page).nth(index)).toBeFocused();
+		}
+
+		// Back up to the third and take it, which is the disambiguation the fixture exists for. From
+		// the last candidate, so the walk is the list's own length rather than a number written down.
+		const wanted = 2;
+		for (let index = total - 1; index > wanted; index -= 1) {
+			await page.keyboard.press('Shift+Tab');
+		}
+		await expect(candidates(page).nth(wanted)).toContainText('Greene County');
+		await expect(candidates(page).nth(wanted)).toBeFocused();
+		await page.keyboard.press('Enter');
+
+		await expectFramedOn(page, MISSOURI);
+	});
+
+	test('announces the outcome in a live region rather than only drawing it', async ({
+		page,
+		context
+	}) => {
+		await routePlaceLookup(context);
+		await openPane(page);
+
+		// `aria-live` with `aria-atomic`, and specifically not `role="status"` — the save indicator
+		// owns that role on this screen, and a second one would make it ambiguous for a screen reader
+		// exactly as it does for `getByRole`.
+		await expect(searchStatus(page)).toHaveAttribute('aria-live', 'polite');
+		await expect(searchStatus(page)).toHaveAttribute('aria-atomic', 'true');
+		await expect(searchStatus(page)).not.toHaveAttribute('role', 'status');
+
+		await findPlace(page, AMBIGUOUS_QUERY);
+
+		await expect(searchStatus(page)).toContainText('10 places match');
+		await expect(searchStatus(page)).toContainText(AMBIGUOUS_QUERY);
+	});
+
+	test('shows the lookup’s own attribution while its candidates are, and not otherwise', async ({
+		page,
+		context
+	}) => {
+		const attribution = page.getByTestId('place-attribution');
+		const service = await routePlaceLookup(context);
+		await openPane(page);
+
+		// Not permanent chrome: nothing of the service's is on screen before it has answered.
+		await expect(attribution).toHaveCount(0);
+
+		await findPlace(page, AMBIGUOUS_QUERY);
+		await expect(attribution).toBeVisible();
+		// Visible text, and the lookup's own credit — not the Base Map catalog's, which says nothing
+		// about where these candidates came from (ADR-0029).
+		await expect(attribution).toContainText('OpenStreetMap contributors');
+
+		// And gone with the candidates it credits: a search that matches nothing puts no data of the
+		// service's on screen, so there is nothing left for the credit to be about.
+		service.answerWith('[]');
+		await findPlace(page, 'Nowhere at all');
+		await expect(candidates(page)).toHaveCount(0);
+		await expect(attribution).toHaveCount(0);
+	});
+
+	test('holds no layout open when nobody is searching', async ({ page, context }) => {
+		// SPEC story 23: a two-pane authoring screen keeps its room for the work.
+		//
+		// ⚠ **The surface is measured against the pane, not against itself.** Mutation: drop `absolute`
+		// from the wrapper in `PlaceSearch.svelte`. Comparing the map's own box before and after a
+		// search survives that — the field is inside an `overflow-hidden` parent, so a surface that
+		// takes flow overflows the pane instead of shrinking the canvas, and the canvas box never
+		// moves. What does move is where the field sits: out of flow it is drawn *over* the map, and
+		// in flow it is pushed below the pane entirely.
+		await routePlaceLookup(context);
+		await openPane(page);
+
+		const pane = page.getByTestId('base-map-pane');
+		const room = await boxOf(page.getByTestId('project-map'));
+		const resting = await boxOf(pane);
+
+		// The pane still has the whole of the room the screen gave it.
+		expect(resting).toEqual(room);
+		await expect(page.getByTestId('place-candidates')).toHaveCount(0);
+		await expect(searchStatus(page)).toHaveText('');
+		expectDrawnOver(await boxOf(searchField(page)), resting);
+
+		await findPlace(page, AMBIGUOUS_QUERY);
+		await expect(candidates(page)).toHaveCount(10);
+
+		// And with ten candidates and a credit on screen, the pane is the size it was and all of it
+		// is still over the map.
+		expect(await boxOf(pane)).toEqual(resting);
+		expectDrawnOver(await boxOf(searchField(page)), resting);
+		expectDrawnOver(await boxOf(candidates(page).first()), resting);
 	});
 });
 
