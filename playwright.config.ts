@@ -1,9 +1,7 @@
-import { createHash } from 'node:crypto';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import { defineConfig, devices } from '@playwright/test';
 import process from 'node:process';
+
+import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
 
 // Seam 2 (SPEC, Testing Decisions): the running app in a real browser, with real MapLibre,
 // real OpenSeadragon, and real OPFS. Deliberately no map-abstraction layer — inventing one
@@ -25,19 +23,9 @@ import process from 'node:process';
 // Hashing the repo root gives every checkout its own stable pair, so `reuseExistingServer` goes back
 // to being what it is for — a fast second run in the same tree — instead of a trap. Override with
 // `BALLASTELLA_E2E_PORT` when you need a known port (a debugger, a proxy, CI logs).
-const repoRoot = path.dirname(fileURLToPath(import.meta.url));
-
-/** A stable port pair in the IANA ephemeral-safe range 20000–39998, unique per checkout path. */
-const basePort = (() => {
-	const override = Number(process.env.BALLASTELLA_E2E_PORT);
-	if (Number.isInteger(override) && override > 1023 && override < 65535) return override;
-	const digest = createHash('sha256').update(repoRoot).digest();
-	// Even, so `basePort + 1` cannot collide with a neighbouring checkout's `basePort`.
-	return 20000 + (digest.readUInt32BE(0) % 10000) * 2;
-})();
-
-const editorPort = basePort;
-const viewerPort = basePort + 1;
+//
+// The derivation itself is `scripts/e2e-port.mjs`, because `scripts/e2e.mjs` frees these same ports
+// before handing off and a second copy of the arithmetic would drift.
 
 /**
  * Free the port, make sure both builds are current, then serve.

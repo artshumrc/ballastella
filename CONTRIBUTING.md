@@ -58,6 +58,8 @@ but no `build`.
 | `pnpm test`                          | the above, plus `scripts/` (`node --test`)     |
 | `pnpm --filter @ballastella/core test` | core tests only                              |
 | `pnpm test:e2e`                      | browser tests (Playwright, headless Chromium)  |
+| `pnpm dev:clean`                     | stop dev servers by port, never by name pattern |
+| `pnpm precommit`                     | lint, check, test and e2e in one gate          |
 | `pnpm lint`                          | lint, format check, and the source fences      |
 | `pnpm check:deployment`              | refuse development-only deployment settings   |
 | `pnpm check:places`                  | ask the configured lookup service whether it still answers (hand-run, reaches the network) |
@@ -224,103 +226,3 @@ particular function was called is not.
 There are two seams and no others: an in-memory `ProjectStore` for application logic, and
 Playwright against headless Chromium for the running app. There is deliberately no
 map-abstraction layer — Playwright drives real MapLibre.
-
-### A green test is not evidence until you have watched it go red
-
-Every ticket reviewed in this project so far — all of `ballastella-v1` and, at the time of writing,
-eight of eight in `workspace-and-layers` — reported all its acceptance criteria passing and still had
-substantive defects. Several criteria passed **vacuously**: delete the code under test and the test
-stays green. Three of those were data loss.
-
-So the mutation check is part of writing a test, not a review step someone else performs. Break the
-behaviour, watch the assertion fail, restore it. Record what you broke and what went red, because
-that record is the only evidence anyone has that the assertion is load-bearing.
-
-Two patterns from real examples here, both of which passed review reading:
-
-- **Assert on the thing, not on the page.** An offline test proved the Base Map drew by calling
-  `queryRenderedFeatures()` over the whole map — which the Project's own Annotation Layer satisfied.
-  The cached Base Map could be blank and the assertion stayed green. Filtering for the Base Map's own
-  layers (`roads_`, `water`) is what made the claim real.
-- **A resource nobody requests cannot prove it was cached.** An assertion that no console complaint
-  named `base-map/` was the only proof glyphs still shipped — but with no archive, MapLibre never
-  requests a glyph range, so nothing complained and nothing was proved. The fix was to fetch the
-  glyph and the sprite directly.
-
-**An assertion that a name is *absent* earns its place when a plausible one-line change would make
-it appear again — and not otherwise.** These read as decoration once whatever they named has been
-deleted, and the temptation is to remove them as vacuous. That is the wrong test. What makes a check
-vacuous is having no reachable path to red, not having a subject that has gone: `expect(cached).not
-.toMatch(/\.wasm$/)` still fails the day someone widens a precache filter, whether or not any `.wasm`
-exists today. Conversely, an assertion no edit could turn red should go, and go in the same commit
-that made it so. Apply one reading to every site of the shape at once; the worked example, with all
-five of this repo's, is in `e2e/editor-pwa.e2e.ts`.
-
-**Fences need a positive control.** This repo has shipped a fence that printed its success message
-unconditionally. `scripts/check-alignment-writers.mjs` and `scripts/check-workspace-rooted-paths.mjs`
-show the shape: a `KNOWN_BAD` specimen per pattern, asserted to be caught before the real scan runs,
-so a pattern that has stopped matching fails the fence instead of passing it. Write the escape out,
-watch it pass, then close it.
-
-### When the browser suite is red
-
-**Read it as real.** For most of this epic it flaked at roughly one run in three and the settled
-advice was to re-run; ticket 17 measured ten consecutive runs, classified every failure, and found no
-contention at all. There were no browser crashes, and every remaining failure had a nameable cause —
-including one genuine application bug, a Workspace walk that raised when a directory was deleted
-underneath it. The measured rate and the method are in `playwright.config.ts`'s `workers` comment,
-with a date. A red run is now evidence about your change until you have shown otherwise.
-
-Two things the suite does for you that it did not before:
-
-- **A retried test is printed, and the rate is a budget.** `retries: 1` applies everywhere, and
-  `scripts/retry-budget.mjs` fails the run when more than 0.5% of tests passed only on a second
-  attempt — one test in 398. Green after a retry is data, not success. Its positive control is
-  `e2e/editor-retry-budget-control.e2e.ts`; the two commands are in that file's header.
-  ⚠ **`--reporter=…` replaces the reporter list and disables the budget.** `--reporter=line` is an
-  ordinary thing to type and it turns the fence off silently. Write
-  `--reporter=line,./scripts/retry-budget.mjs` if you want both. CI passes no `--reporter`.
-- **A retried test keeps a trace.** `trace: 'on-first-retry'`, so
-  `pnpm exec playwright show-trace test-results/…/trace.zip` shows the DOM at the moment it went
-  wrong. That is how the export-button failure above was identified, after four implementers had
-  filed it as contention.
-
-Before reporting a failure as a known flake, prove it:
-
-```sh
-pnpm flake:check --against main e2e/editor-pwa.e2e.ts
-```
-
-That re-runs the spec alone and then against the merge-base in a throwaway worktree, and prints
-`REAL` / `PRE-EXISTING` / `SUSPECT` / `CONSISTENT WITH FLAKE`. Doing this by hand is what people
-skip when they are tired, and the cost of skipping it is shipping a regression labelled "known
-flake". Someone who did it properly found a defect the suite had been red on for three commits.
-
-**Wait for what happened, not for what is on screen.** The largest single source of the historical
-flake was helpers returning as soon as a row was visible and then reloading the page, which takes the
-Workspace as it is *on disk* — and `project.json` is written on a 400 ms debounce (ADR-0017 rule 2).
-`e2e/support/saved.ts` holds the two honest waits. In particular, **do not wait for the save
-indicator to read "Saved"**: its sequence is `saved → unsaved → saving → saved`, so "Saved" is also
-what it says before the save begins, and `SaveIndicator.svelte` deliberately lags it by 400 ms so it
-does not strobe. A transient state cannot be caught by polling for it at all; record it with a
-`MutationObserver` and assert the sequence.
-
-**And since ticket 20 a reload no longer loses a pending write, which changes what a green reload
-proves.** An edit inside its debounce window is copied synchronously to a write-ahead journal
-(ADR-0017 rule 3) and put back at the next startup, so `page.reload()` is no longer a way to assert
-that something reached the Workspace *by the route under test* — it may have arrived by the replay.
-A test about a write should assert the file, in place, without reloading. A test about the journal
-should say so and should provoke a real navigation rather than dispatching `pagehide`: the dispatched
-version was green while the user's case was losing the edit 8 times out of 8, which is the sharpest
-example this repository has of a test that could not see the bug it was named after. If a spec needs
-a Workspace with no journalled edits in it, clear the `ballastella.journal.` keys the way
-`editor-workspace.e2e.ts` does.
-
-**The browser suite runs against `apps/*/build`, so development mode is not covered by it.** That is
-the right default — the shipped Published Site is prerendered static files with no server (ADR-0006),
-so the build is what a Reader gets. But it left `vite dev` as the one configuration nothing exercised,
-and it broke: a dependency resolving to its CommonJS build under SSR made every route of both apps
-answer 500 while lint, typecheck, the unit suite, the browser suite and both bundle fences stayed
-green. `pnpm check:dev` is the floor under that — it boots each app's dev server and asserts the root
-route answers 200. It is a boot check on purpose; what a page then *does* belongs in the browser suite,
-against the build that ships.

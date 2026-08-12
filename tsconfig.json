@@ -12,6 +12,9 @@
 		"types": ["node"],
 		"strict": true,
 		"noEmit": true,
+		// The Playwright config imports `scripts/e2e-port.mjs`, which is plain JS like the rest of
+		// `scripts/`. Inference is enough here; `checkJs` stays off so those scripts are not typechecked.
+		"allowJs": true,
 		"verbatimModuleSyntax": true,
 		"isolatedModules": true,
 		"esModuleInterop": true,
