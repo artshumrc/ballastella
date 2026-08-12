@@ -198,11 +198,18 @@ describe('listWorkspaceHistoricalMaps', () => {
 		// Not "nothing is read": the Projects' documents are how used-by is answered, and one small
 		// record per map is how it is named. What must never be opened is the pyramid — a tile or the
 		// `info.json` that describes it.
-		expect(read.mock.calls.map(([path]) => path).sort()).toEqual([
-			'amsterdam-1625/project.json',
-			imageManifestPath('aaa1'),
-			referencedImagePath('bbb2')
-		]);
+		expect(read.mock.calls.map(([path]) => path).sort()).toEqual(
+			[
+				'amsterdam-1625/project.json',
+				// The `info.json`, for the picture the hub shows beside the name (ADR-0030): the pyramid's
+				// *description*, which is three numbers, and never one of the tiles it describes. Extended
+				// rather than loosened to a subset match — this list is the claim, and a subset match would
+				// go on passing over a version of this that opened a tile.
+				imageInfoPath('aaa1'),
+				imageManifestPath('aaa1'),
+				referencedImagePath('bbb2')
+			].sort()
+		);
 		// And it did weigh them, so this is not passing because nothing happened.
 		expect(maps.every((map) => map.bytes > 0)).toBe(true);
 	});
@@ -212,6 +219,112 @@ describe('listWorkspaceHistoricalMaps', () => {
 		await store.write('images/half/0,0,256,256/256,256/0/default.jpg', bytes(4096));
 
 		expect(await listWorkspaceHistoricalMaps(store)).toEqual([]);
+	});
+});
+
+/**
+ * ADR-0030: the picture beside each name is the single tile at the coarsest level of the pyramid the
+ * map already has. Nothing is generated, so the whole of the resolver is string building over three
+ * numbers read out of a stored `info.json` — which is why it is asserted here and not in a browser.
+ *
+ * The 1200 × 851 sheet is the ADR's own worked example: its coarsest level is scale factor 8, so the
+ * whole sheet is one 150 × 107 tile.
+ */
+describe('a Historical Map’s thumbnail', () => {
+	/** A Workspace-held map whose `info.json` really carries geometry, and its manifest. */
+	async function seedPyramid(
+		store: MemoryProjectStore,
+		imageId: string,
+		geometry: { width: number; height: number; tileSize?: number },
+		stampedId?: string
+	): Promise<void> {
+		const document = buildImageInfo({ imageId, ...geometry });
+		await store.write(
+			imageInfoPath(imageId),
+			serialiseJson(stampedId === undefined ? document : { ...document, id: stampedId })
+		);
+		await store.write(
+			imageManifestPath(imageId),
+			serialiseJson(buildImageManifest({ imageId, label: imageId, info: document }))
+		);
+		await store.write(tilePath(imageId), bytes(4096));
+	}
+
+	const thumbnailOf = async (store: MemoryProjectStore, imageId: string) =>
+		(await listWorkspaceHistoricalMaps(store)).find((map) => map.imageId === imageId)?.thumbnail;
+
+	it('is the coarsest tile of a Workspace-held map’s own pyramid', async () => {
+		const store = new MemoryProjectStore();
+		await seedPyramid(store, 'aaa1', { width: 1200, height: 851 });
+
+		expect(await thumbnailOf(store, 'aaa1')).toBe(
+			'https://unset.invalid/aaa1/0,0,1200,851/150,107/0/default.jpg'
+		);
+	});
+
+	it('is at the scale factor the declared tile side makes coarsest, not this build’s own', async () => {
+		// The same sheet on 512-pixel tiles fits in one tile a level sooner, so its whole-sheet
+		// derivative is 300 × 213. A resolver that defaulted the tile side to 256 would name
+		// `150,107` — a tile that pyramid does not contain — and the card would show a broken box.
+		const store = new MemoryProjectStore();
+		await seedPyramid(store, 'aaa1', { width: 1200, height: 851, tileSize: 512 });
+
+		expect(await thumbnailOf(store, 'aaa1')).toBe(
+			'https://unset.invalid/aaa1/0,0,1200,851/300,213/0/default.jpg'
+		);
+	});
+
+	it('is on the placeholder host even when the info.json carries a stamped published address', async () => {
+		// ⚠ The reason only geometry is taken from the document. After an opt-in canonical stamp `id`
+		// holds the published address, which the ADR-0011 shim does not route — so a URL built on it
+		// would send the editor to the internet for a picture of a file it is already holding, working
+		// or broken according to whether the site happens to be live.
+		const store = new MemoryProjectStore();
+		await seedPyramid(
+			store,
+			'aaa1',
+			{ width: 1200, height: 851 },
+			'https://example.test/published/aaa1'
+		);
+
+		expect(await thumbnailOf(store, 'aaa1')).toBe(
+			'https://unset.invalid/aaa1/0,0,1200,851/150,107/0/default.jpg'
+		);
+	});
+
+	it('is nothing at all for a map referenced from a Library', async () => {
+		// A referenced map's picture comes from the Library's own server and is ticket 03. Until then it
+		// shows the same neutral glyph as a map whose picture cannot be resolved.
+		const store = new MemoryProjectStore();
+		await seedReferencedMap(store, 'bbb2', 'Plan de Paris');
+
+		expect(await thumbnailOf(store, 'bbb2')).toBeNull();
+	});
+
+	it('is the Workspace’s own tile once an Offline Copy has been made, though the citation stays', async () => {
+		// The picture follows `tileLocation`, so completing an Offline Copy switches the source from the
+		// Library to the Workspace with no code that knows it happened.
+		const store = new MemoryProjectStore();
+		await seedPyramid(store, 'ccc3', { width: 1200, height: 851 });
+		await seedReferencedMap(store, 'ccc3', 'Copied');
+
+		expect(await thumbnailOf(store, 'ccc3')).toBe(
+			'https://unset.invalid/ccc3/0,0,1200,851/150,107/0/default.jpg'
+		);
+	});
+
+	it('is nothing when the info.json will not yield geometry, and the map is still listed', async () => {
+		// `null` is the only failure representation there is: no error field, no reason string. What the
+		// user must not lose is the map — this is the reclaim list, and a map whose records are damaged is
+		// one they most need to be able to see and delete.
+		const store = new MemoryProjectStore();
+		await store.write(imageInfoPath('aaa1'), new TextEncoder().encode('{ not json'));
+		await store.write(imageInfoPath('bbb2'), serialiseJson({ id: 'https://unset.invalid/bbb2' }));
+
+		const maps = await listWorkspaceHistoricalMaps(store);
+
+		expect(maps.map((map) => map.imageId)).toEqual(['aaa1', 'bbb2']);
+		expect(maps.map((map) => map.thumbnail)).toEqual([null, null]);
 	});
 });
 

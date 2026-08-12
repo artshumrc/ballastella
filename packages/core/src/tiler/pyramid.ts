@@ -218,6 +218,38 @@ export function imageSizeFromInfo(info: unknown): { width: number; height: numbe
 	return { width, height };
 }
 
+/**
+ * Everything needed to name the coarsest tile of a stored pyramid: the sheet's pixels and the tile
+ * side its `info.json` declares. `null` when the document does not carry all three.
+ *
+ * **Beside {@link imageSizeFromInfo} rather than replacing it** (ADR-0030). That function returns two
+ * facts on purpose — the starter Alignment it serves wants a Resource Mask and no tile geometry, so it
+ * stays readable against any `info.json` this build or a later one wrote. A thumbnail needs a third
+ * fact, and a reader that demands more is a stricter reader; folding the two together would make the
+ * Alignment path refuse a document it can perfectly well use.
+ *
+ * **`tileSize` is read and never defaulted to {@link PYRAMID_TILE_SIZE}.** 256 is what this app writes
+ * and would be right almost always, which is exactly what makes assuming it dangerous: a pyramid on
+ * another tile side yields a coarsest scale factor of a different power of two, so the URL would name a
+ * tile nothing ever wrote and the card would show a broken box instead of an honest blank.
+ */
+export function imageGeometryFromInfo(
+	info: unknown
+): { width: number; height: number; tileSize: number } | null {
+	const size = imageSizeFromInfo(info);
+	if (size === null) return null;
+	const { tiles } = info as { tiles?: unknown };
+	if (!Array.isArray(tiles)) return null;
+	const first: unknown = tiles[0];
+	if (typeof first !== 'object' || first === null) return null;
+	// `Number.isInteger` is the whole of the runtime check — it is false for a string, for `undefined`
+	// and for a fraction alike — so the declared `number` is an assumption it verifies, and the default
+	// is what makes an absent member fail the same way a zero does.
+	const { width: tileSize = 0 } = first as { width?: number };
+	if (!Number.isInteger(tileSize) || tileSize < 1) return null;
+	return { ...size, tileSize };
+}
+
 /** Tab-indented with a trailing newline, matching this project's other JSON writer. */
 export const serialiseJson = (value: unknown): Uint8Array<ArrayBuffer> =>
 	new TextEncoder().encode(`${JSON.stringify(value, null, '\t')}\n`);

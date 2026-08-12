@@ -8,6 +8,7 @@ import {
 	IMAGE_SERVICE_PLACEHOLDER_ORIGIN,
 	PYRAMID_TILE_SIZE,
 	buildImageInfo,
+	imageGeometryFromInfo,
 	imageSizeFromInfo,
 	planPyramid,
 	pyramidScaleFactors,
@@ -291,6 +292,58 @@ describe('imageSizeFromInfo', () => {
 			{ width: Number.POSITIVE_INFINITY, height: 500 }
 		]) {
 			expect(imageSizeFromInfo(info), JSON.stringify(info) ?? 'undefined').toBeNull();
+		}
+	});
+});
+
+describe('imageGeometryFromInfo', () => {
+	it('reads the dimensions and the tile side out of an info.json this build wrote', () => {
+		const info = buildImageInfo({ imageId: 'abc123', width: 700, height: 500 });
+		expect(imageGeometryFromInfo(info)).toEqual({ width: 700, height: 500, tileSize: 256 });
+	});
+
+	it('reads the tile side the document declares rather than this build’s own', () => {
+		// The whole reason this reader exists (ADR-0030). A pyramid on 512-pixel tiles has a different
+		// coarsest scale factor, so a reader that assumed 256 would name a tile nothing ever wrote.
+		const info = buildImageInfo({ imageId: 'abc123', width: 700, height: 500, tileSize: 512 });
+		expect(imageGeometryFromInfo(info)).toEqual({ width: 700, height: 500, tileSize: 512 });
+	});
+
+	it('reads a document carrying members this build has never heard of', () => {
+		expect(
+			imageGeometryFromInfo({
+				width: 12,
+				height: 9,
+				tiles: [{ width: 8, height: 8, scaleFactors: [1, 2], somethingNew: true }],
+				somethingNew: true
+			})
+		).toEqual({ width: 12, height: 9, tileSize: 8 });
+	});
+
+	it('refuses a document that does not carry all three as positive whole numbers', () => {
+		// Each of these costs a picture and nothing else. A guessed tile side would cost a broken box on
+		// a card, which is worse than an honest blank: the sheet's own proportions are the thing a
+		// scholar is recognising.
+		const tiles = [{ width: 256, height: 256, scaleFactors: [1] }];
+		for (const info of [
+			null,
+			undefined,
+			'{"width":700,"height":500}',
+			{},
+			{ width: 700, height: 500 },
+			{ width: 700, height: 500, tiles: [] },
+			{ width: 700, height: 500, tiles: {} },
+			{ width: 700, height: 500, tiles: [null] },
+			{ width: 700, height: 500, tiles: [{ height: 256 }] },
+			{ width: 700, height: 500, tiles: [{ width: '256' }] },
+			{ width: 700, height: 500, tiles: [{ width: 0 }] },
+			{ width: 700, height: 500, tiles: [{ width: -256 }] },
+			{ width: 700, height: 500, tiles: [{ width: 256.5 }] },
+			{ width: 700, height: 500, tiles: [{ width: Number.NaN }] },
+			{ width: 0, height: 500, tiles },
+			{ width: 700, tiles }
+		]) {
+			expect(imageGeometryFromInfo(info), JSON.stringify(info) ?? 'undefined').toBeNull();
 		}
 	});
 });

@@ -13,9 +13,9 @@ before any ticket, and it is the reference for every "why is it like that" quest
 
 ## Current status
 
-Overall status: `Not Started`
+Overall status: `In Progress`
 
-Current ticket: none.
+Current tickets: 02 and 03, in parallel.
 
 Last updated: 2026-08-12.
 
@@ -120,7 +120,7 @@ the one with no network in it.
 
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
-| 01 | [01-a-workspace-held-historical-map-shows-its-picture.md](./tickets/01-a-workspace-held-historical-map-shows-its-picture.md) | Not Started | — |
-| 02 | [02-the-picker-shows-the-same-pictures.md](./tickets/02-the-picker-shows-the-same-pictures.md) | Not Started | 01 |
-| 03 | [03-a-referenced-historical-map-shows-a-picture-from-its-library.md](./tickets/03-a-referenced-historical-map-shows-a-picture-from-its-library.md) | Not Started | 01 |
+| 01 | [01-a-workspace-held-historical-map-shows-its-picture.md](./tickets/01-a-workspace-held-historical-map-shows-its-picture.md) | Completed | — |
+| 02 | [02-the-picker-shows-the-same-pictures.md](./tickets/02-the-picker-shows-the-same-pictures.md) | In Progress | 01 |
+| 03 | [03-a-referenced-historical-map-shows-a-picture-from-its-library.md](./tickets/03-a-referenced-historical-map-shows-a-picture-from-its-library.md) | In Progress | 01 |
 | 04 | [04-an-offline-copy-moves-the-picture-into-the-workspace.md](./tickets/04-an-offline-copy-moves-the-picture-into-the-workspace.md) | Not Started | 03 |

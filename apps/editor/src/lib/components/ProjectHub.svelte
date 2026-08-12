@@ -8,6 +8,7 @@
 	} from '@ballastella/core';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
+	import MapThumbnail from '../historical-maps/MapThumbnail.svelte';
 	import PublishDialog from '../publish/PublishDialog.svelte';
 	import { useWorkspaceHost } from '../workspace-storage.svelte.js';
 	import ModalDialog from './ModalDialog.svelte';
@@ -194,6 +195,14 @@
 	// from `unusedHistoricalMapBytes`; two reductions spelling it out separately is how one screen ends
 	// up quoting two totals for one Workspace.
 	const unused = $derived(unusedHistoricalMaps(session.historicalMaps));
+
+	/**
+	 * The ADR-0011 shim each card's picture reads its tile through (ADR-0030).
+	 *
+	 * One for the whole list rather than one per card: it is Workspace-rooted and takes no Project, so
+	 * every map's bytes come out of the same instance.
+	 */
+	const fetchTile = $derived(session.imageServiceFetch());
 
 	/** Where a map's tiles are, in the words the list uses. Visible text, never a colour or a title. */
 	const whereTilesAre = (map: WorkspaceHistoricalMap): string =>
@@ -594,7 +603,13 @@
 				{#each session.historicalMaps as map (map.imageId)}
 					<li class="card bg-base-100 card-border" data-testid="historical-map">
 						<div class="card-body flex-row flex-wrap items-center justify-between gap-4">
-							<div>
+							<!-- A picture of the sheet, before the text and inside the same row (ADR-0030). It
+							     is what lets a scholar tell eleven scans of the same city apart without
+							     opening a Project, and it costs no bytes: it is the map's own coarsest tile. -->
+							<MapThumbnail {map} {fetchTile} />
+							<!-- `grow` so the picture and the name stay beside each other: the row is
+							     `justify-between`, and without it the free space would open up between them. -->
+							<div class="grow">
 								<h3 class="text-lg font-medium">{map.label || map.imageId}</h3>
 								<!-- Visible text rather than a tooltip or a badge colour (SPEC story 111): where
 								     the tiles are is the fact that decides whether this map works on a train. -->

@@ -37,14 +37,17 @@
 // `workspace-size.ts` states the discipline in full and it applies unchanged: an offline copy's pyramid is
 // tens of thousands of tiles, `ProjectStore#size` answers from directory metadata for free, and a
 // total assembled with `read` would be the slowest thing in the application while returning exactly
-// the same number. Nothing below reads a tile or an `info.json`.
+// the same number. **Nothing below reads a tile.**
 //
-// It does read two kinds of small document, and the difference is a per-*map* cost rather than a
+// It does read three kinds of small document, and the difference is a per-*map* cost rather than a
 // per-*file* one: every `project.json`, because "which Projects use this map" is a fact about the
-// Layer stacks and there is nowhere else it lives; and one `manifest.json` or `remote.json` per map,
+// Layer stacks and there is nowhere else it lives; one `manifest.json` or `remote.json` per map,
 // because an image id is a random identifier (ADR-0015) and a reclaim list naming maps after hashes
-// would be unusable. {@link unusedHistoricalMapBytes}, which publishing calls on every plan, skips the
-// labels entirely and weighs only the directories of maps nothing uses — usually none of them.
+// would be unusable; and one `info.json` per Workspace-held map, for the picture the hub shows beside
+// each name (ADR-0030) — the pyramid's *description*, which is three numbers, and never one of the
+// tiles it describes. {@link unusedHistoricalMapBytes}, which publishing calls on every plan, skips the
+// labels and the pictures entirely and weighs only the directories of maps nothing uses — usually none
+// of them.
 //
 // **What this does cost, stated plainly.** Each public question below walks for itself. On a publish
 // plan that is `list('')` twice — once for `workspaceSize` and once for the usage read — and
@@ -62,7 +65,8 @@ import {
 	referencedImagePath,
 	type ReferencedImage
 } from '../remote-iiif/referenced-image.js';
-import { readImageLabel } from '../tiler/image-manifest.js';
+import { readImageLabel, wholeImageDerivative } from '../tiler/image-manifest.js';
+import { imageGeometryFromInfo, imageServiceId } from '../tiler/pyramid.js';
 import { topLevelSegment, type ProjectStore, type StorePath } from '../store/project-store.js';
 import {
 	IMAGE_DIRECTORY,
@@ -130,6 +134,16 @@ export interface WorkspaceHistoricalMap {
 	 * referenced map's tiles stay on, which is exactly what this is.
 	 */
 	readonly library: string;
+	/**
+	 * The picture of the sheet the hub shows beside the name, or `null` when there is none to show.
+	 *
+	 * The single tile at the coarsest level of the map's pyramid, which a level-0 pyramid ends in by
+	 * construction, so **nothing is generated and no file is written** (ADR-0030). `null` is the only
+	 * failure representation: there is no reason string and no second discriminator, because **how the
+	 * URL has to be fetched is already answered by {@link tiles} on this same record** — a
+	 * Workspace-held map's bytes come through the ADR-0011 shim, a referenced map's over the network.
+	 */
+	readonly thumbnail: string | null;
 	/** Everything deleting this map would reclaim: its pyramid, its records, and its Alignment. */
 	readonly bytes: number;
 	/** How many files that was. "3 files" and "31 000 files" are different news. */
@@ -316,6 +330,7 @@ export async function listWorkspaceHistoricalMaps(
 					// A copied map's tiles are here, so it names no Library even though it still
 					// records where it came from.
 					library: tiles === 'referenced' ? libraryOf(remote?.service ?? '') : '',
+					thumbnail: tiles === 'in-workspace' ? await readWorkspaceThumbnail(store, imageId) : null,
 					...(await weigh(store, imageId, paths)),
 					usedBy: usersOf(usage, imageId),
 					mightBeUsedBy: usage.fromANewerVersion
@@ -635,6 +650,39 @@ async function readManifestLabel(
 	} catch {
 		return '';
 	}
+}
+
+/**
+ * The URL of the coarsest tile of a Workspace-held map's pyramid — the picture of the sheet — or
+ * `null` when its `info.json` will not yield the geometry to name it (ADR-0030).
+ *
+ * ⚠ **The base is always `imageServiceId(imageId)`, and never the `id` field of the document just
+ * read.** After an opt-in canonical stamp that field holds the *published* address, which the ADR-0011
+ * shim does not route — so a URL built on it would send the editor to the internet for a picture of a
+ * file it is holding, working or broken according to whether the site happens to be live. Only
+ * `width`, `height` and `tiles[0].width` are taken from the document.
+ *
+ * `null` and never a guess: {@link imageGeometryFromInfo} explains why defaulting the tile side would
+ * produce a URL at the wrong scale factor and a broken box rather than an honest blank.
+ */
+async function readWorkspaceThumbnail(
+	store: Pick<ProjectStore, 'read'>,
+	imageId: string
+): Promise<string | null> {
+	let info: unknown;
+	try {
+		info = JSON.parse(new TextDecoder().decode(await store.read(imageInfoPath(imageId))));
+	} catch {
+		// A document that cannot be read or will not parse costs the picture and nothing else: this is
+		// the reclaim list, and a map whose records are damaged is one a user most needs to see.
+		return null;
+	}
+
+	const geometry = imageGeometryFromInfo(info);
+	if (geometry === null) return null;
+	return wholeImageDerivative(geometry.width, geometry.height, geometry.tileSize).url(
+		imageServiceId(imageId)
+	);
 }
 
 /**
