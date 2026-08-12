@@ -35,6 +35,39 @@ async function placeFixture(): Promise<string> {
 	return readFile(fixture, 'utf8');
 }
 
+/**
+ * The committed fixture's first candidate, **moved to a point a test already knows**.
+ *
+ * ⚠ **What the byte-identity claim needs, and the only reason it is honest.** A Pin placed from a
+ * lookup is asserted byte-identical to one drawn by hand with the same title, and two files whose
+ * coordinates differ cannot be compared byte for byte at all — so the hand-drawn Pin goes first, its
+ * written coordinates are read back out of OPFS, and the service is made to answer with exactly
+ * those. Anything left over from the real capture is still the real capture's: this moves a
+ * candidate, it does not invent one.
+ *
+ * The bounding box is a small one around the point rather than the fixture's, so the framing that
+ * follows the placement lands on the Pin instead of on Illinois.
+ */
+export async function candidateAt(point: {
+	readonly lng: number;
+	readonly lat: number;
+}): Promise<string> {
+	const [first] = JSON.parse(await placeFixture()) as Record<string, unknown>[];
+	return JSON.stringify([
+		{
+			...first,
+			lat: String(point.lat),
+			lon: String(point.lng),
+			boundingbox: [
+				String(point.lat - 0.01),
+				String(point.lat + 0.01),
+				String(point.lng - 0.01),
+				String(point.lng + 0.01)
+			]
+		}
+	]);
+}
+
 /** The routed service: what it has been asked, and what it answers next. */
 export type PlaceLookupService = {
 	/** How many lookups have been requested. The measurement "typing issues no request" rests on. */

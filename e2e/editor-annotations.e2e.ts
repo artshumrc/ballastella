@@ -19,9 +19,13 @@
 // for.
 
 import { expect, test } from './support/test.js';
-import { type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { openLayerRow } from './support/layers.js';
+import { AMBIGUOUS_QUERY, candidateAt, routePlaceLookup } from './support/places.js';
+// The one test that needs a warped sheet over the Base Map borrows the alignment suite's ground
+// rather than growing a second PNG encoder — see the header of `support/alignment-workspace.ts`.
+import { makePairs, start as startAlignment } from './support/alignment-workspace.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -42,11 +46,13 @@ import {
 	hashesUnder,
 	openLayers,
 	PROJECT_NAME,
+	readProjectFile,
 	reopenLayers,
 	selectAnnotation,
 	paintProperty,
 	projectJson,
 	waitForPaintedAnnotations,
+	waitForStack,
 	startAnnotating,
 	storedAnnotations,
 	watchAnnotationWrites,
@@ -541,7 +547,13 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await page.getByTestId('annotation-description').blur();
 		await expect(page.getByRole('status')).toHaveText('Saved');
 
-		// Clicking the Annotation on the map is what a reader does, and it is the same popup.
+		// Clicking the Annotation on the map is what a reader does, and it is the same popup. **With
+		// nothing selected**, which is the state a reader is in: a selected Annotation carries its
+		// drag handle on top of itself, and the handle is a drag target rather than a way into the
+		// popup. That was true before and invisible, because the handle was drawn in the wrong place
+		// (see the note in `layout.css`).
+		await page.getByTestId('annotation-row').click();
+		await expect(page.getByTestId('pane-overlay-point-annotation-vertex')).toHaveCount(0);
 		await clickAt(baseMap(page), 0.4, 0.4);
 
 		const popup = page.locator('.maplibregl-popup');
@@ -781,8 +793,9 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		// the whole document rather than of a named surface.
 		const failures = watchFailures(page);
 		await withPayload(page);
+		// The reader's path, with nothing selected — the sibling test above takes the same one, and for
+		// the reason given there: a selected Annotation's drag handle sits on top of it.
 		await chooseTool(page, 'select');
-		await selectAnnotation(page);
 		await clickAt(baseMap(page), 0.5, 0.5);
 		await expect(page.locator('.maplibregl-popup')).toBeVisible();
 
@@ -841,8 +854,9 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		const layerId = await withPayload(page);
 		const before = await hashesUnder(page, 'annotations/');
 
+		// Selected *by the click on the map*, with nothing selected before it — see the popup test above
+		// for why the click is not made on top of a drag handle.
 		await chooseTool(page, 'select');
-		await selectAnnotation(page);
 		await clickAt(baseMap(page), 0.5, 0.5);
 		await expect(page.locator('.maplibregl-popup')).toBeVisible();
 		// Tab out of the title field, which is the shape ticket 02 got wrong: a blur must not rewrite.
@@ -1811,5 +1825,464 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		);
 
 		expect(failures).toEqual([]);
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// PLACING A PIN AT A PLACE (ADR-0029, SPEC stories 6–14)
+//
+// The gesture this epic exists for: look up an address, watch the Pin land in the middle of a river,
+// and drag it onto the quay. **The lookup is the cheap step and the correction is the scholarship**,
+// so nothing here treats the service's answer as authoritative and nothing records that it was
+// consulted.
+//
+// Three of these are counted or compared rather than looked at, and each says at its site what it
+// was mutated with:
+//
+//   - **exactly one store write per placement**, counted through `ballastellaAnnotationWrites`. The
+//     obvious construction — add the Annotation, then set its title — is two commits and violates
+//     ADR-0017 rule 1, and every assertion about the *file* passes against it.
+//   - **byte-identical to a hand-drawn Pin** with the same title, compared as text rather than as a
+//     parsed object, so a provenance property, a reordered `properties` bag, or a different style
+//     would all fail it.
+//   - **the search surface is the one slice 1 built**, asserted by driving the shared component's own
+//     wording and attribution through this surface.
+//
+// The lookup is routed to the committed fixture in every one of them; nothing here reaches a network.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+test.describe('placing a Pin at a Place', () => {
+	/** The fixture's Springfield, Massachusetts — its point, which is what a Pin is placed at. */
+	const HAMPDEN = { lng: -72.5886727, lat: 42.1018764 };
+	/** The box the same candidate carries, which frames the camera and never reaches the file. */
+	const HAMPDEN_BOX = { west: -72.6221576, south: 42.0637364, east: -72.471087, north: 42.1622195 };
+	/** Part of its display name, which must reach the candidate list and never the file. */
+	const HAMPDEN_NAME = 'Hampden County';
+
+	/** The search that places a Pin: the one inside the open Annotation Layer, not the pane's. */
+	const pinSearch = (page: Page): Locator => page.getByTestId('annotation-place-search');
+
+	/**
+	 * Look a place up from the Annotation Layer's own search and take one of the candidates.
+	 *
+	 * ⚠ **Scoped to that surface throughout.** Two of these searches are on the Project screen at once
+	 * — the pane's, which only moves the camera, and this one — so an unscoped `getByTestId` would be
+	 * ambiguous, and a test that reached the pane's by accident would assert that placing a Pin places
+	 * no Pin.
+	 *
+	 * ⚠ **Waited out on the file, not on the save indicator.** By the time a Layer is open the
+	 * indicator already reads `Saved`, so a `toHaveText('Saved')` here is satisfied by the write
+	 * *before* this one (`support/saved.ts` says so in as many words) and every caller would then read
+	 * the file too early. The Pin's title in that Layer's document is the placement itself arriving.
+	 */
+	async function placeFrom(
+		page: Page,
+		query: string,
+		candidate: string,
+		layerId: string
+	): Promise<void> {
+		const surface = pinSearch(page);
+		await surface.getByTestId('place-search-query').fill(query);
+		await surface.getByTestId('place-search-query').press('Enter');
+		await surface.getByTestId('place-candidate').filter({ hasText: candidate }).click();
+		await expect.poll(() => layerText(page, layerId)).toContain(`"title": "${query}"`);
+	}
+
+	/**
+	 * A Layer's document as text, or `''` while it has none.
+	 *
+	 * A Layer added a moment ago has no `.geojson` at all until something is written into it, and an
+	 * absent file is what {@link placeFrom} is waiting out rather than a failure — `readProjectFile`
+	 * throws for a caller whose next line would fail anyway, which is not this one.
+	 */
+	async function layerText(page: Page, layerId: string): Promise<string> {
+		try {
+			return await readProjectFile(page, `annotations/${layerId}.geojson`);
+		} catch {
+			return '';
+		}
+	}
+
+	/** Whether the camera is still moving, so a handle's position is not yet a place to click. */
+	const stillMoving = (page: Page) =>
+		page.evaluate(
+			() => (window as unknown as StackWindow).ballastellaLayerStack?.map.isMoving() ?? false
+		);
+
+	/** Where the Base Map is looking now. */
+	const centre = (page: Page) =>
+		page.evaluate(() => {
+			const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
+			return map ? map.getCenter() : { lng: 0, lat: 0 };
+		});
+
+	test('drops a Pin at the candidate’s point, frames the map on it, and selects it', async ({
+		page
+	}) => {
+		const failures = watchFailures(page);
+		await routePlaceLookup(page);
+		const layerId = await startAnnotating(page);
+
+		// Amsterdam, where `startAnnotating` leaves the map — so the move is unmistakable, and a Pin
+		// that landed off screen would be visible as one.
+		expect((await centre(page)).lng).toBeCloseTo(4.9, 1);
+
+		await placeFrom(page, AMBIGUOUS_QUERY, HAMPDEN_NAME, layerId);
+
+		// **A `Point`, asserted on geometry type and coordinates.** A bounding box reaching the file —
+		// as a Polygon, or as a `bbox` beside the geometry — fails this: the box is the axis-aligned
+		// rectangle around a place and not its shape, and a rectangle labelled *Paris* takes in
+		// Boulogne (ADR-0029).
+		const stored = await storedAnnotations(page, layerId);
+		expect(stored.features).toHaveLength(1);
+		expect(stored.features[0]?.geometry?.type).toBe('Point');
+		expect(stored.features[0]?.geometry?.coordinates).toEqual([HAMPDEN.lng, HAMPDEN.lat]);
+
+		// **Placing always frames.** A scholar looking at Amsterdam who picks a Boston address must not
+		// get a Pin off screen — invisible, unverifiable, and uncorrectable, when correcting it is the
+		// entire point of the feature.
+		await expect
+			.poll(async () => (await centre(page)).lat, { timeout: 15_000 })
+			.toBeCloseTo(HAMPDEN.lat, 1);
+		expect((await centre(page)).lng).toBeCloseTo(HAMPDEN.lng, 1);
+
+		// ⚠ **Framed on the candidate's box, not centred on its point.** The centre alone cannot tell
+		// those apart — for this candidate they are 0.011° apart, well inside any tolerance a moving
+		// camera allows — so a `setCenter(place.point)` at whatever zoom the map already had would
+		// satisfy everything above. ADR-0029 is explicit that framing goes through the opening-view fit
+		// with its padding and maximum zoom, and that **no zoom heuristic exists anywhere in the
+		// feature**: a city fills the pane and a house address frames tight.
+		//
+		// Asserted where a scholar sees it — the box projected into the pane — rather than against a
+		// zoom number, which would be this test computing the fit for itself.
+		//
+		// **Mutation:** replace `frameOnPlace(place)` in `ProjectScreen.placeAtPlace` with a
+		// `setCenter(place.point)`. Everything above stays green; both halves of this go red.
+		await expect.poll(() => stillMoving(page)).toBe(false);
+		const pane = await baseMap(page).boundingBox();
+		if (!pane) throw new Error('the pane has no box');
+		const corners = await page.evaluate((box) => {
+			const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
+			const at = (lngLat: [number, number]) => map?.project(lngLat) ?? { x: -1, y: -1 };
+			return { southWest: at([box.west, box.south]), northEast: at([box.east, box.north]) };
+		}, HAMPDEN_BOX);
+		// The whole box is on screen, which is what the fit's padding guarantees.
+		for (const corner of [corners.southWest, corners.northEast]) {
+			expect(corner.x).toBeGreaterThan(0);
+			expect(corner.x).toBeLessThan(pane.width);
+			expect(corner.y).toBeGreaterThan(0);
+			expect(corner.y).toBeLessThan(pane.height);
+		}
+		// And it fills the pane along one axis, which is what makes it a fit rather than a jump: at the
+		// zoom a Project opens on, this box would be a smudge a few pixels across.
+		const across = Math.abs(corners.northEast.x - corners.southWest.x) / pane.width;
+		const down = Math.abs(corners.northEast.y - corners.southWest.y) / pane.height;
+		expect(Math.max(across, down)).toBeGreaterThan(0.5);
+
+		// **Selected on placement**, exactly as a drawn one is, so retitling it does not begin with
+		// hunting for it. Asserted on the editor and on the row's own pressed state rather than on a
+		// highlight.
+		await expect(page.getByTestId('annotation-editor')).toBeVisible();
+		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-pressed', 'true');
+		// And its vertex handle is on the map, which is the affordance the correction is made with.
+		await expect(page.getByTestId('pane-overlay-point-annotation-vertex')).toHaveCount(1);
+
+		expect(failures).toEqual([]);
+	});
+
+	test('titles it with what the scholar typed, and records nothing about the lookup', async ({
+		page
+	}) => {
+		await routePlaceLookup(page);
+		const layerId = await startAnnotating(page);
+
+		await placeFrom(page, AMBIGUOUS_QUERY, HAMPDEN_NAME, layerId);
+
+		// ⚠ **Asserted against the written bytes rather than against the field.** The title is what a
+		// scholar publishes, and a field that shows the query while the file holds the service's postal
+		// address is exactly the failure this criterion is about.
+		const written = await readProjectFile(page, `annotations/${layerId}.geojson`);
+		const stored = JSON.parse(written) as { features: { properties: Record<string, unknown> }[] };
+		expect(stored.features[0]?.properties?.['title']).toBe(AMBIGUOUS_QUERY);
+
+		// **Not the service's display name**, which for this candidate is
+		// `Springfield, Hampden County, Massachusetts, United States` — a pre-fill people delete every
+		// time is worse than an empty field, because now they must notice it.
+		expect(written).not.toContain(HAMPDEN_NAME);
+
+		// **No property naming a service, a query, a status, or an origin** (ADR-0029). Asserted as
+		// "every property is one simplestyle defines" rather than as a list of names not to use: a
+		// provenance stamp nobody thought of is still caught.
+		expect(
+			Object.keys(stored.features[0]?.properties ?? {}).filter((key) => !SIMPLESTYLE_NAMES.has(key))
+		).toEqual([]);
+		// And nothing of the box, the response, or the search survives anywhere in the document.
+		expect(written).not.toMatch(/boundingbox|bbox|place_id|osm_|licence|nominatim/i);
+	});
+
+	test('produces a Pin byte-identical to one drawn by hand and given the same title', async ({
+		page
+	}) => {
+		// ⚠ **The epic's central claim, and it is directly checkable.** Both Pins are produced through
+		// the interface and the two written files are compared **as text**, so a provenance property, a
+		// `properties` bag in a different order, or a style that did not inherit the same way all fail
+		// this — none of which a parsed `toMatchObject` would see.
+		//
+		// **Mutation:** give the placed Pin any extra property at all (`newAnnotation` with a
+		// `ballastella:source`), or build it outside `#addDrawn` so it takes no inherited style. Either
+		// leaves every other test in this block green and turns this one red.
+		const service = await routePlaceLookup(page);
+		const drawnLayer = await startAnnotating(page);
+
+		// The hand-drawn half: an ordinary pin, titled through the editor exactly as a scholar would.
+		await drawPin(page, 0.45, 0.45);
+		await chooseTool(page, 'select');
+		await selectAnnotation(page);
+		await editAnnotationText(page);
+		await page.getByTestId('annotation-title').fill(AMBIGUOUS_QUERY);
+		await page.getByTestId('annotation-title').blur();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		const drawn = await storedAnnotations(page, drawnLayer);
+		const at = drawn.features[0]?.geometry?.coordinates as [number, number];
+		expect(at).toHaveLength(2);
+
+		// ⚠ **The service is made to answer at the drawn Pin's own coordinates**, which is what lets
+		// two files be compared byte for byte at all — see `candidateAt` in `support/places.ts`. It is
+		// still the committed capture, moved.
+		service.answerWith(await candidateAt({ lng: at[0], lat: at[1] }));
+
+		// A second Annotation Layer, so the placed Pin is the only thing in its file and the two
+		// documents are comparable whole.
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByTestId('layer-row')).toHaveCount(2);
+		// ⚠ **The new Layer is the one on top.** `addLayer` puts it at the head of the stack, so it is
+		// the *first* Annotation Layer in `project.json` and not the last — read as the second one, this
+		// test compared the hand-drawn file with itself and was green against every mutation. The index-1
+		// read is the wait for the second Layer to have reached the file, which is written atomically.
+		await annotationLayerId(page, 1);
+		const placedLayer = await annotationLayerId(page, 0);
+		expect(placedLayer).not.toBe(drawnLayer);
+		await openLayerRow(
+			page,
+			page.locator(`[data-testid="layer-row"][data-layer-id="${placedLayer}"]`)
+		);
+
+		await placeFrom(page, AMBIGUOUS_QUERY, 'Springfield', placedLayer);
+
+		const drawnText = await readProjectFile(page, `annotations/${drawnLayer}.geojson`);
+		const placedText = await readProjectFile(page, `annotations/${placedLayer}.geojson`);
+
+		// The one difference that cannot be removed is the identifier, which is a fresh UUID per
+		// Annotation and is fresh for a hand-drawn one too. Everything else — every byte — is compared.
+		const idOf = (text: string) =>
+			(JSON.parse(text) as { features: { id: string }[] }).features[0]!.id;
+		expect(placedText.split(idOf(placedText)).join('<id>')) //
+			.toBe(drawnText.split(idOf(drawnText)).join('<id>'));
+		// Not vacuous: the comparison above is of a document that really holds the Pin and its title.
+		expect(placedText).toContain(`"title": "${AMBIGUOUS_QUERY}"`);
+		expect(placedText).toContain('"Point"');
+	});
+
+	test('costs exactly one store write, which is what makes it one gesture', async ({ page }) => {
+		// ⚠ **Counted, not inferred from the file.** The obvious construction — add the Annotation, then
+		// set its title — leaves exactly the same bytes on disk and is two commits, which ADR-0017
+		// rule 1 forbids and this repository asserts by counting.
+		//
+		// **Mutation:** in `AnnotationEditing.placePin`, follow `#addDrawn` with
+		// `commitAnnotations(setText(…))`. Every other assertion in this block stays green; this one
+		// goes to 2.
+		//
+		// ⚠ **A second split does not move the count at all, so the count is not what catches it.**
+		// `typeText` is rule 2's *coalesced* path and `recordAnnotationWrite` deliberately records
+		// nothing for a debounced write, so `#addDrawn` followed by `typeText({ title })` leaves the
+		// count at 1 forever — and the only witness is that the write that *was* counted went out
+		// **untitled**, 400 ms before the title did. That is caught here by comparing the counted
+		// write's own size against the document the title finally arrived in: one gesture means the
+		// write that was counted is the document that was kept.
+		//
+		// **Mutation:** `#addDrawn(…)` then `await this.typeText({ title })`. The count stays at 1 and
+		// the sizes differ by the length of the `title` property.
+		//
+		// No clock is involved in either direction: the title is *waited for* in the file rather than
+		// read at a moment, so a split has landed its second write before the comparison is made.
+		await routePlaceLookup(page);
+		const layerId = await startAnnotating(page);
+		await watchAnnotationWrites(page);
+
+		const surface = pinSearch(page);
+		await surface.getByTestId('place-search-query').fill(AMBIGUOUS_QUERY);
+		await surface.getByTestId('place-search-query').press('Enter');
+		await surface.getByTestId('place-candidate').filter({ hasText: HAMPDEN_NAME }).click();
+
+		await expect.poll(() => layerText(page, layerId)).toContain(`"title": "${AMBIGUOUS_QUERY}"`);
+		const writes = await annotationWrites(page);
+		expect(writes).toHaveLength(1);
+		expect(writes[0]?.bytes).toBe(new TextEncoder().encode(await layerText(page, layerId)).length);
+
+		// And still one once everything has settled: nothing was queued behind it.
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		await page.waitForTimeout(1_000);
+		expect(await annotationWrites(page)).toHaveLength(1);
+	});
+
+	test('takes the style the last Annotation was drawn with, as a drawn one would', async ({
+		page
+	}) => {
+		// SPEC story 14: lookup and drawing must not produce visibly different objects. Asserted by
+		// making the difference visible first — a colour nobody would get by accident — and then placing.
+		await routePlaceLookup(page);
+		const layerId = await startAnnotating(page);
+
+		await drawPin(page, 0.4, 0.4);
+		await chooseTool(page, 'select');
+		await selectAnnotation(page);
+		const blue = await chooseColour(page, 'annotation-marker-color', 'blue');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		await placeFrom(page, AMBIGUOUS_QUERY, HAMPDEN_NAME, layerId);
+
+		const stored = await storedAnnotations(page, layerId);
+		expect(stored.features).toHaveLength(2);
+		expect(stored.features[1]?.properties?.['marker-color']).toBe(blue);
+	});
+
+	test('uses the search surface slice 1 built, not a copy of it', async ({ page }) => {
+		// ⚠ **Asserted by driving the shared component's own behaviour through this surface**: the
+		// candidate list, the attribution that appears only while candidates are shown, and the outcome
+		// sentence — which is composed in `@ballastella/core` and is the same one the Base Map pane
+		// shows.
+		//
+		// **Mutation:** change any wording in `PlaceSearch.svelte` or in `placeLookupNotice`, and both
+		// this and `editor-base-map.e2e.ts`'s "says all four things" go red together. A forked copy
+		// would move only one of them.
+		await routePlaceLookup(page);
+		const layerId = await startAnnotating(page);
+		const surface = pinSearch(page);
+
+		// The same field, the same button, the same list, inside the open Annotation Layer. **Its own
+		// name**, because two searches on one screen may not both be called "Find a place" when only
+		// one of them writes to the scholar's file — the words are the caller's and everything else is
+		// the component's.
+		await expect(surface.getByRole('button', { name: 'Find a place and pin it' })).toBeVisible();
+		await expect(surface.getByTestId('place-attribution')).toHaveCount(0);
+
+		await surface.getByTestId('place-search-query').fill(AMBIGUOUS_QUERY);
+		await surface.getByTestId('place-search-query').press('Enter');
+
+		await expect(surface.getByTestId('place-candidate')).toHaveCount(10);
+		await expect(surface.getByTestId('place-search-status')).toContainText('10 places match');
+		// Whose data it is, on screen exactly while that data is — and gone once the Pin is placed,
+		// because nothing on screen is then OSM's (ADR-0029).
+		await expect(surface.getByTestId('place-attribution')).toContainText('OpenStreetMap');
+
+		await surface.getByTestId('place-candidate').filter({ hasText: HAMPDEN_NAME }).click();
+		await expect.poll(() => layerText(page, layerId)).toContain(`"title": "${AMBIGUOUS_QUERY}"`);
+		await expect(surface.getByTestId('place-candidate')).toHaveCount(10);
+
+		// And the pane's own search is still there, still navigation-only — it dropped nothing — and
+		// still called what it does, which is the other half of two searches on one screen.
+		const paneSearch = page.getByTestId('base-map-place-search');
+		await expect(paneSearch.getByTestId('place-search-query')).toBeVisible();
+		await expect(paneSearch.getByRole('button', { name: 'Find a place', exact: true })) //
+			.toBeVisible();
+	});
+
+	test('leaves the Pin draggable and arrow-key movable under a Historical Map', async ({
+		page
+	}) => {
+		// ⚠ **The stakeholder's actual gesture**, and the reason this one pays for a real pyramid and a
+		// real solve: the Pin lands in the middle of a river and is dragged onto the quay *while reading
+		// against a Historical Map layered over the Base Map*. Vertex handles are DOM `<button>`s on
+		// MapLibre `Marker`s, which sit above the WebGL canvas the warped sheet is drawn into — so this
+		// asserts that the correction needs no new code rather than assuming it.
+		test.setTimeout(180_000);
+		const service = await routePlaceLookup(page);
+
+		await startAlignment(page);
+		await makePairs(page, 3);
+		await expect(page.getByRole('status')).toHaveText('Saved');
+
+		await openLayers(page);
+		// The Historical Map is drawn over the Base Map. Read off the stack's own count, so a sheet that
+		// silently failed to draw would fail here rather than further down as a missing handle.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
+
+		await page.getByTestId('add-annotation-layer').click();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		const layerId = await annotationLayerId(page);
+		await openLayerRow(page, page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`));
+		await waitForStack(page);
+
+		// ⚠ **The lookup answers where the sheet is.** The Project opened framed on the Historical Map
+		// (ADR-0026), so this is the one candidate that leaves the sheet under the Pin — and the whole
+		// criterion is that the correction is made *against* the Historical Map. A Pin placed in
+		// Massachusetts would be dragged over an empty Base Map, which asserts something else.
+		const onTheSheet = await centre(page);
+		service.answerWith(await candidateAt(onTheSheet));
+
+		await placeFrom(page, AMBIGUOUS_QUERY, 'Springfield', layerId);
+		// Both Layers are still drawn: placing a Pin did not take the sheet off the map.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+
+		const handle = page.getByTestId('pane-overlay-point-annotation-vertex');
+		await expect(handle).toHaveCount(1);
+		// ⚠ **Wait for the framing to land before taking hold of the handle.** Placing moves the camera,
+		// and a `boundingBox()` read while it is still moving names a spot the Pin is about to leave —
+		// so the drag below would begin on empty map, move nothing, and be reported as a Pin that cannot
+		// be corrected. Waited on rather than tolerated: that failure is in the direction that hides a
+		// defect.
+		await expect
+			.poll(async () => (await centre(page)).lat, { timeout: 15_000 }) //
+			.toBeCloseTo(onTheSheet.lat, 1);
+		await expect.poll(() => stillMoving(page)).toBe(false);
+
+		const placed = (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates;
+
+		// Dragged — immediately, with no reselection and no redraw, which is the "one gesture rather
+		// than a delete and a redraw" of SPEC story 9.
+		const box = await handle.boundingBox();
+		if (!box) throw new Error('the vertex handle has no box');
+		// ⚠ **The handle is drawn where the Pin is** — asserted because it was not. A CSS `rotate` on
+		// the handle composes *before* the `transform` MapLibre positions a `Marker` with, so the
+		// translation was rotated with it and the handle was drawn over the sidebar (`layout.css`).
+		// Every existing drag test survived that, because a drag begins wherever the handle happens to
+		// be and the coordinate it writes is still right; this compares the handle's own box against
+		// where the renderer projects the written coordinate, which is the claim that was false.
+		const pane = await baseMap(page).boundingBox();
+		if (!pane) throw new Error('the pane has no box');
+		const at = placed as [number, number];
+		const projected = await page.evaluate(
+			(lngLat) =>
+				(window as unknown as StackWindow).ballastellaLayerStack?.map.project(
+					lngLat as [number, number]
+				) ?? { x: -1, y: -1 },
+			at
+		);
+		expect(box.x + box.width / 2).toBeCloseTo(pane.x + projected.x, 0);
+		expect(box.y + box.height / 2).toBeCloseTo(pane.y + projected.y, 0);
+
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await page.mouse.down();
+		for (const dx of [10, 20, 30]) {
+			await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dx);
+		}
+		await page.mouse.up();
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		// Polled on the **file**, because the save indicator was already reading `Saved` from the
+		// placement: a single read here would be satisfied by the bytes the drag was supposed to change.
+		await expect
+			.poll(async () => (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates)
+			.not.toEqual(placed);
+		const dragged = (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates;
+
+		// And by keyboard, because a precise correction should not need a steady hand on a trackpad
+		// (SPEC story 11).
+		await handle.focus();
+		await page.keyboard.press('ArrowRight');
+		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect
+			.poll(async () => (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates)
+			.not.toEqual(dragged);
 	});
 });

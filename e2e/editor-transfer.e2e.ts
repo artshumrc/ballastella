@@ -830,10 +830,16 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 
 		// **Pan the map**, with a real pointer drag, and land somewhere else. Nothing about a review
 		// copy is read-only (ADR-0024), and the map is the first thing a reader touches.
+		//
+		// ⚠ **Not from the middle of the pane.** The Project opens framed on its own content, which here
+		// is one Pin, so the middle of the pane is exactly where that Pin is — and the row clicked above
+		// selected it, which puts its draggable vertex handle there. A drag begun on the handle moves the
+		// Annotation rather than the map, which is what a vertex handle is for. A quarter of the way up
+		// is empty geography, and panning is what is being asserted.
 		const pane = page.getByTestId('base-map-pane');
 		const box = await pane.boundingBox();
 		if (!box) throw new Error('the map pane has no box to drag');
-		const from: [number, number] = [box.x + box.width / 2, box.y + box.height / 2];
+		const from: [number, number] = [box.x + box.width / 2, box.y + box.height / 4];
 		const here = (): Promise<[number, number]> =>
 			page.evaluate(() => {
 				const map = (

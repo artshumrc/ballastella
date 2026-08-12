@@ -280,6 +280,25 @@ export class AnnotationEditing {
 	}
 
 	/**
+	 * Drop a Pin at a Place the scholar looked up, titled with what they typed (ADR-0029).
+	 *
+	 * **Through {@link #addDrawn}, not around it**, so style inheritance, the selection, and the write
+	 * path are the ones the suite already asserts rather than a second implementation of each. The
+	 * result is an ordinary Annotation: nothing here records that a lookup was involved, and a Pin
+	 * placed this way is byte-identical to one drawn by hand and given the same title.
+	 *
+	 * **The title travels with the creation**, which is why {@link #addDrawn} takes one. Adding the
+	 * Annotation and then setting its title would be two commits for one gesture — ADR-0017 rule 1,
+	 * which this repository asserts by counting writes.
+	 *
+	 * The camera is the page's: placing always frames, and it frames through the same opening-view fit
+	 * everything else uses.
+	 */
+	async placePin(point: GeoPoint, title: string): Promise<void> {
+		await this.#addDrawn({ type: 'Point', coordinates: [point.lng, point.lat] }, title);
+	}
+
+	/**
 	 * Put a finished geometry in the Layer as a new Annotation, and select it so it can be titled.
 	 *
 	 * **It is drawn with the last one's style** (ADR-0009, as amended). That is the whole of what
@@ -287,12 +306,18 @@ export class AnnotationEditing {
 	 * colour, without a control named "default" and without anything being inherited at read time.
 	 * `styleForNewAnnotation` is in `core` so the rule is stated once, beside the resolution it
 	 * replaced.
+	 *
+	 * @param title what it is called, for a caller that already knows — without one no `title`
+	 *   property is written at all, which is what a shape drawn on the map is. **One write either
+	 *   way**: a creation followed by a retitle is two, and {@link placePin} exists in the shape it
+	 *   does because of it.
 	 */
-	async #addDrawn(geometry: AnnotationGeometry): Promise<void> {
+	async #addDrawn(geometry: AnnotationGeometry, title?: string): Promise<void> {
 		const collection = this.#activeCollection ?? { annotations: [] };
 		const annotation = newAnnotation({
 			id: crypto.randomUUID(),
 			geometry,
+			title,
 			style: styleForNewAnnotation(collection)
 		});
 		this.selectedAnnotationId = annotation.id;

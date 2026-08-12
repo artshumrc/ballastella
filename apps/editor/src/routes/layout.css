@@ -192,59 +192,66 @@
 }
 
 /* ─── An Annotation's vertices (ticket 10) ────────────────────────────────────────────────
-   The same two affordances the Resource Mask has, on the Base Map, and diamond rather than square
-   or round so that a third editable kind on a map is still tellable apart at a glance. A vertex is
-   focusable and arrow-key movable for the reason the other two are: it is the same object to a
-   keyboard, which is why `terra-draw` — which edits inside a WebGL layer and cannot be focused at
-   all — is not what draws these. */
-.pane-overlay-point-annotation-vertex,
-.pane-overlay-point-annotation-edge {
+   The Resource Mask's corner affordance, on the Base Map, and diamond rather than square or round
+   so that a third editable kind on a map is still tellable apart at a glance. A vertex is focusable
+   and arrow-key movable for the reason the other two are: it is the same object to a keyboard,
+   which is why `terra-draw` — which edits inside a WebGL layer and cannot be focused at all — is
+   not what draws these.
+
+   There is one kind here and not two: `overlay-points.ts` records why no `annotation-edge` exists,
+   and a style for a kind nothing emits is the same promise the type stopped making.
+
+   ⚠ **The diamond is drawn by a pseudo-element, and the handle's own box is never rotated.**
+   CSS's individual `rotate` property composes *before* `transform`, and `transform` is what
+   MapLibre writes a `Marker`'s position into — so `rotate: 45deg` here rotated that translation
+   with it, and the further a vertex was from the top-left of the pane the further its handle was
+   drawn from the vertex it names. Measured at 334 px when it should have been 668: over the
+   sidebar, on top of the Annotation list.
+
+   It survived a whole ticket's browser suite because **a drag begins wherever the handle is**: the
+   specs took the element's own bounding box, dragged that, and the coordinate the app wrote was
+   correct. So a containment check is not enough either — `editor-annotations.e2e.ts` compares the
+   handle's box against `map.project()` of the coordinate on disk, which is the claim that was
+   false. */
+.pane-overlay-point-annotation-vertex {
 	pointer-events: auto;
+	position: relative;
 	display: grid;
 	place-items: center;
 	padding: 0;
 	line-height: 1;
 	cursor: grab;
+	/* Big enough to hold the rotated square below: the element is the hit box and the focus ring, so
+	   the diamond has to fit *inside* it or its four tips are neither clickable nor ringed. */
+	width: 21px;
+	height: 21px;
+	border: none;
+	/* Square, so the focus ring is a box around the diamond rather than the base rule's circle. */
+	border-radius: 0;
+	background: none;
+}
+
+.pane-overlay-point-annotation-vertex::before {
+	content: '';
+	position: absolute;
+	/* Inset by half of what turning a square 45° adds to its bounding box, so the tips land on the
+	   handle's own edges. */
+	inset: 3.1px;
+	/* Behind the ordinal and in front of the map: the marker's own `transform` makes this element a
+	   stacking context, so a negative index cannot fall through to the canvas. */
+	z-index: -1;
 	rotate: 45deg;
+	border: 2px solid var(--color-base-100);
 	border-radius: 3px;
+	background: var(--color-primary);
 	box-shadow: 0 1px 3px oklch(0 0 0 / 0.4);
 }
 
-.pane-overlay-point-annotation-vertex {
-	width: 15px;
-	height: 15px;
-	border: 2px solid var(--color-base-100);
-	background: var(--color-primary);
-}
-
-/* The midpoint of an edge, carrying a `+`: activating it adds a vertex there. Hollow, so it reads
-   as "somewhere a vertex could be" rather than as one that is already there. The glyph is
-   counter-rotated, or the `+` arrives as an ×. */
-.pane-overlay-point-annotation-edge {
-	width: 13px;
-	height: 13px;
-	border: 2px dashed var(--color-primary);
-	background: var(--color-base-100);
-	color: var(--color-primary);
-	font-size: 10px;
-	font-weight: 700;
-	opacity: 0.7;
-	rotate: 0deg;
-	border-radius: 9999px;
-}
-
-.pane-overlay-point-annotation-edge:hover,
-.pane-overlay-point-annotation-edge:focus-visible {
-	opacity: 1;
-}
-
-.pane-overlay-point-annotation-vertex:active,
-.pane-overlay-point-annotation-edge:active {
+.pane-overlay-point-annotation-vertex:active {
 	cursor: grabbing;
 }
 
-.pane-overlay-point-annotation-vertex:focus-visible,
-.pane-overlay-point-annotation-edge:focus-visible {
+.pane-overlay-point-annotation-vertex:focus-visible {
 	outline: 3px solid var(--color-secondary);
 	outline-offset: 3px;
 }

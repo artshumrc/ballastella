@@ -1,9 +1,14 @@
 <script lang="ts">
 	// The place search surface: a field, and the candidates it found (SPEC stories 1–4, 20–23).
 	//
-	// **Built once for two consumers.** This is navigation — choosing a candidate moves the camera —
-	// and the Annotation Layer's use of it adds only what happens when a candidate is chosen. So the
-	// field and the list are here, and nothing about placing an Annotation is.
+	// **Built once for two consumers.** The Base Map pane uses it to move the camera; the Annotation
+	// Layer surface uses it to move the camera *and* drop a Pin. The whole of that difference is what
+	// each caller does in `onchoose` — so the field and the list are here, and nothing about placing
+	// an Annotation is.
+	//
+	// **It takes no room of its own and positions nothing.** The pane draws it over the map and the
+	// Layer's card puts it in the flow beside the drawing tools, which is the caller's question: a
+	// surface that positioned itself absolutely could only ever live over a map.
 	//
 	// ⚠ **Submit-only. Typing issues no request**, and there is deliberately no `oninput`, no debounce
 	// and no timer anywhere in this file. `lookup.ts` carries the whole argument for why that fence is
@@ -22,11 +27,38 @@
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 
 	let {
+		label = 'Find a place',
+		testid,
 		onchoose
 	}: {
-		/** A candidate was chosen. What that means is the caller's — here it is only the choice. */
-		onchoose: (place: Place) => void;
+		/**
+		 * What this search is called — the field's label, and the words on the button.
+		 *
+		 * ⚠ **Because two of these are on the Project screen at once**, and one of them writes to the
+		 * scholar's file. Identical names would leave a screen-reader or voice-control user choosing
+		 * between two "Find a place" buttons with nothing saying which one drops a Pin.
+		 */
+		label?: string;
+		/** Test id for the whole surface, so a spec can say which of the two searches it means. */
+		testid?: string;
+		/**
+		 * A candidate was chosen. What that means is the caller's — here it is only the choice.
+		 *
+		 * `query` is **what the scholar submitted**, which the Annotation Layer's use makes the Pin's
+		 * title (ADR-0029). Not `place.name`, which for Boston Common is `Boston Common, Boston,
+		 * Suffolk County, Massachusetts, 02108, United States` — a pre-fill people delete every time is
+		 * worse than an empty field. It is handed over from here because this is where it was typed.
+		 */
+		onchoose: (place: Place, query: string) => void;
 	} = $props();
+
+	/**
+	 * The field's id, unique per instance.
+	 *
+	 * Two of these are on the Project screen at once — the pane's and the open Annotation Layer's — so
+	 * a hardcoded id would put the same `for` on two labels and point both at the first field.
+	 */
+	const fieldId = $props.id();
 
 	/**
 	 * The app's one connection signal, which reaches the notice as a parameter.
@@ -88,19 +120,19 @@
 </script>
 
 <!--
-	Absolutely positioned over the pane, like MapLibre's own controls, so **nothing here holds layout
-	open**: a two-pane authoring screen keeps its room for the work (SPEC story 23), and the candidate
-	list exists only while there are candidates.
+	**Nothing here holds layout open**: a two-pane authoring screen keeps its room for the work (SPEC
+	story 23), and the candidate list exists only while there are candidates. Where this sits is the
+	caller's — see the header.
 -->
-<div class="absolute top-2 left-2 z-10 w-72 max-w-[calc(100%-1rem)]">
+<div class="w-full" data-testid={testid}>
 	<form class="join w-full" onsubmit={submit}>
 		<!--
 			The label is off screen and the button carries the same words on it, so the surface names
 			itself to everyone: a bare field over a map says nothing about what it searches.
 		-->
-		<label class="sr-only" for="place-search-query">Find a place</label>
+		<label class="sr-only" for={fieldId}>{label}</label>
 		<input
-			id="place-search-query"
+			id={fieldId}
 			type="search"
 			class="input join-item w-full bg-base-100 input-sm"
 			placeholder="Place name"
@@ -113,7 +145,7 @@
 			class="btn join-item btn-primary btn-sm"
 			data-testid="place-search-submit"
 		>
-			Find a place
+			{label}
 		</button>
 	</form>
 
@@ -136,7 +168,7 @@
 						type="button"
 						class="text-left text-sm"
 						data-testid="place-candidate"
-						onclick={() => onchoose(place)}
+						onclick={() => onchoose(place, asked)}
 					>
 						{place.name}
 					</button>

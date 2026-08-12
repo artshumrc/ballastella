@@ -4,6 +4,16 @@ export type AnnotationWrite = {
 	path: string;
 	/** How many Annotations the written document carried. */
 	annotations: number;
+	/**
+	 * How many bytes it was.
+	 *
+	 * ⚠ **Which write was counted, and not merely how many there were.** Ticket 03's "placing costs
+	 * one store write" has a second failure the count alone cannot see: a creation followed by a
+	 * *debounced* retitle records nothing for the second write, so the count stays at 1 while the
+	 * gesture cost two. The size says whether the write that was counted is the document that was
+	 * kept.
+	 */
+	bytes: number;
 };
 
 declare global {
@@ -27,10 +37,10 @@ declare global {
  * Note that an Annotation Layer's document reached the store. Called after the write resolves, so an
  * attempt the store refused is deliberately absent — the criterion is about writes that happened.
  */
-export function recordAnnotationWrite(path: string, annotations: number): void {
+export function recordAnnotationWrite(path: string, annotations: number, bytes: number): void {
 	// Only ever appended to a list somebody else created: the suite assigns an empty array before it
 	// starts watching, which also gives it a way to clear the log between navigations. Absent means
 	// nobody is watching.
 	if (typeof window === 'undefined') return;
-	window.ballastellaAnnotationWrites?.push({ path, annotations });
+	window.ballastellaAnnotationWrites?.push({ path, annotations, bytes });
 }

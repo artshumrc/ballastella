@@ -488,10 +488,15 @@
 	 *
 	 * **Nothing is drawn at the point** — the framing is the answer. ADR-0029 says why, and the marker
 	 * count in `editor-base-map.e2e.ts` is what holds it.
+	 *
+	 * **Exported, because the Annotation Layer's search is in the sidebar** and its choice both frames
+	 * and writes a Pin: the page carries out the placement and asks the pane for the camera, the way
+	 * `ImagePane` is asked to fit its image. A second fit prop beside {@link openingFit} would be this
+	 * function again, and would put the box-to-fit translation the pane owns at the call site too.
 	 */
-	const frameOnPlace = (place: Place): void => {
+	export function frameOnPlace(place: Place): void {
 		applyOpeningFit(map, openingViewFit(place.bounds), null);
-	};
+	}
 
 	// Built once per map. The points themselves are updated by the effect below, so that moving one
 	// Control Point does not tear down and rebuild every element — and with them every drag in
@@ -930,10 +935,18 @@
 	The search surface is inside this pane rather than beside it at each call site, and that is what
 	gives both editor screens the feature from one component: `ProjectScreen` and `AlignmentWorkspace`
 	both render this pane, and a scholar hunting the modern half of a Control Point wants "go to
-	Boston" at least as much as an annotator does (ADR-0029). It positions itself against this
-	wrapper, so it costs the map no height.
+	Boston" at least as much as an annotator does (ADR-0029). **This one navigates and places
+	nothing**; placing lives on the Annotation Layer surface, where there is always a Layer to draw
+	into.
+
+	Absolutely positioned here, like MapLibre's own controls, so it costs the map no height — and so
+	that the same component can sit in the flow of a sidebar card, which is where the other one is.
+	It is named after the surface it is on, so a test can say which of the two searches on the Project
+	screen it means.
 -->
 <div class="relative h-full w-full">
 	<div bind:this={container} class="h-full w-full" data-testid="base-map-pane"></div>
-	<PlaceSearch onchoose={frameOnPlace} />
+	<div class="absolute top-2 left-2 z-10 w-72 max-w-[calc(100%-1rem)]">
+		<PlaceSearch testid="base-map-place-search" onchoose={frameOnPlace} />
+	</div>
 </div>

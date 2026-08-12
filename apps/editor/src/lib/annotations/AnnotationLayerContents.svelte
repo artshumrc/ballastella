@@ -16,9 +16,15 @@
 	// for its `defaultStyle`, and a Layer no longer has one (ADR-0009, as amended) — style lives on
 	// each Annotation, put there when it is drawn.
 
-	import { type Annotation, type AnnotationCollection, type LineStyle } from '@ballastella/core';
+	import {
+		type Annotation,
+		type AnnotationCollection,
+		type LineStyle,
+		type Place
+	} from '@ballastella/core';
 
 	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
+	import PlaceSearch from '$lib/places/PlaceSearch.svelte';
 
 	import AnnotationEditor from './AnnotationEditor.svelte';
 	import AnnotationTools from './AnnotationTools.svelte';
@@ -33,6 +39,7 @@
 		drawing,
 		canFinish,
 		onchoosetool,
+		onplace,
 		onfinish,
 		oncancel,
 		onundovertex,
@@ -50,6 +57,12 @@
 		drawing: boolean;
 		canFinish: boolean;
 		onchoosetool: (tool: AnnotationTool) => void;
+		/**
+		 * A Place was chosen: frame the map on it and drop a Pin there, titled `query`.
+		 *
+		 * Both halves are the page's, because framing is the map pane's business and the Pin is a write.
+		 */
+		onplace: (place: Place, query: string) => void;
 		onfinish: () => void;
 		oncancel: () => void;
 		onundovertex: () => void;
@@ -139,6 +152,24 @@
 		{onfinish}
 		{oncancel}
 		{onundovertex}
+	/>
+
+	<!--
+		Looking a place up and dropping a Pin on it, **beside the drawing tools** (ADR-0029). That is
+		structural rather than aesthetic: `LayerList` invokes its `annotationContents` snippet only for
+		a Layer that is both an Annotation Layer and open, so a control here inherits "there is always a
+		Layer to draw into" for free. Anywhere else it would have to answer "which Layer does this Pin
+		go into?", which has no good answer when a Project has zero Annotation Layers, or three.
+
+		**The same component the Base Map pane draws over the map**, which is what makes the candidate
+		list, the attribution, the four outcomes and the keyboard reach of all of them one implementation
+		rather than two. The whole of this surface's difference is `onchoose` — and its name, because
+		both are on screen at once and only this one writes to the scholar's file.
+	-->
+	<PlaceSearch
+		testid="annotation-place-search"
+		label="Find a place and pin it"
+		onchoose={onplace}
 	/>
 
 	{#if choosing}

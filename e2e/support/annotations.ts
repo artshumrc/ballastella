@@ -35,6 +35,8 @@ export interface StackMap {
 		options?: unknown
 	): { layer: { id: string }; properties: Record<string, unknown> }[];
 	getCenter(): { lng: number; lat: number };
+	/** Where a place on the earth lands in the pane, in CSS pixels from its top-left corner. */
+	project(lngLat: [number, number]): { x: number; y: number };
 	setCenter(lngLat: [number, number]): void;
 	setZoom(zoom: number): void;
 	once(event: string, listener: () => void): unknown;
@@ -52,7 +54,7 @@ export type StackWindow = { ballastellaLayerStack?: { map: StackMap; builds: num
 
 declare global {
 	interface Window {
-		ballastellaAnnotationWrites?: { path: string; annotations: number }[];
+		ballastellaAnnotationWrites?: { path: string; annotations: number; bytes: number }[];
 	}
 }
 

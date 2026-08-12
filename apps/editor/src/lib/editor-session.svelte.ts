@@ -2934,7 +2934,7 @@ export class EditorSession {
 			this.saveError = '';
 			// After the write resolved, so an attempt the store refused is not counted as one that
 			// happened. This is what lets the vertex test assert the number of writes.
-			recordAnnotationWrite(path, collection.annotations.length);
+			recordAnnotationWrite(path, collection.annotations.length, bytes.length);
 		} catch (cause) {
 			this.saveError = cause instanceof Error ? cause.message : String(cause);
 		}

@@ -48,7 +48,8 @@
 		type BaseMapCacheSize,
 		type BaseMapEntry,
 		type OpeningViewFit,
-		type OpeningViewOutcome
+		type OpeningViewOutcome,
+		type Place
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome, ReadCachedTile } from '@ballastella/core/render';
 	import { untrack } from 'svelte';
@@ -448,6 +449,30 @@
 
 	/** The gesture in progress, read by the window's Escape handler and by the pane. */
 	const drawing = annotations.drawing;
+
+	/** The Base Map pane, for the one thing this screen asks of its camera. */
+	let baseMapPane = $state<BaseMapPane | undefined>();
+
+	/**
+	 * A Place was chosen on the open Annotation Layer: **frame the map on it, and drop a Pin there.**
+	 *
+	 * **Placing always frames** (ADR-0029). A scholar looking at Amsterdam who picks a Boston address
+	 * would otherwise get a Pin off screen — invisible, unverifiable, and uncorrectable, when
+	 * correcting it is the entire point of the feature.
+	 *
+	 * The framing uses the Place's bounding box and the Pin uses its point, which is the whole of the
+	 * rule that **the box reaches the camera and never the file**: a rectangle labelled *Paris* takes
+	 * in Boulogne, and a polygon in a document where Annotations are the scholarly claim would be
+	 * confidently wrong. Which box becomes which camera is the pane's — this screen hands it the
+	 * Place, exactly as the pane's own search does, so the fit is written once.
+	 *
+	 * The title is `query` — what they typed — and not `place.name`, which is the service's postal
+	 * address for the thing.
+	 */
+	async function placeAtPlace(place: Place, query: string): Promise<void> {
+		baseMapPane?.frameOnPlace(place);
+		await annotations.placePin(place.point, query);
+	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Making this Project available offline (ADR-0025, SPEC stories 6, 70–73)
@@ -1139,6 +1164,7 @@
 
 				<div class="min-h-0 grow overflow-hidden" data-testid="project-map">
 					<BaseMapPane
+						bind:this={baseMapPane}
 						entryId={resolution.entry.id}
 						{cachedBaseMap}
 						layers={drawn}
@@ -1545,6 +1571,7 @@
 		drawing={drawing.drawing}
 		canFinish={drawing.canFinish}
 		onchoosetool={(tool) => drawing.choose(tool)}
+		onplace={(place, query) => void placeAtPlace(place, query)}
 		onfinish={() => void annotations.finishShape()}
 		oncancel={() => drawing.cancel()}
 		onundovertex={() => drawing.undoVertex()}
