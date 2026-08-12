@@ -8,11 +8,11 @@ Scope, user stories, and the testing approach are in [SPEC.md](./SPEC.md). The d
 
 ## Current status
 
-Overall status: `Not Started`
+Overall status: `In Progress`
 
-Current ticket: none — 01 is ready and nothing blocks it.
+Current ticket: 01 — the tracer bullet.
 
-Last updated: 2026-08-11.
+Last updated: 2026-08-12.
 
 ## What is already decided — do not re-derive it
 
@@ -46,7 +46,7 @@ Agreed with the repository owner before the spec was written, and **no new seam 
 
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
-| 01 | [01-find-a-place-and-go-to-it.md](./tickets/01-find-a-place-and-go-to-it.md) | Not Started | — |
+| 01 | [01-find-a-place-and-go-to-it.md](./tickets/01-find-a-place-and-go-to-it.md) | In Progress | — |
 | 02 | [02-a-failed-lookup-says-which-failure-it-was.md](./tickets/02-a-failed-lookup-says-which-failure-it-was.md) | Not Started | 01 |
 | 03 | [03-place-a-pin-at-a-place.md](./tickets/03-place-a-pin-at-a-place.md) | Not Started | 01 |
 | 04 | [04-a-fork-can-repoint-the-lookup-and-check-it.md](./tickets/04-a-fork-can-repoint-the-lookup-and-check-it.md) | Not Started | 01 |
