@@ -129,6 +129,18 @@ jobs:
           if ! pnpm check:deployment; then
             echo "::warning title=Borrowed Base Map archive::This deployment's Base Map reads an archive it does not control. It works, and it rests on somebody else's bandwidth with no promise to this site. See docs/hosting.md and ADR-0025."
           fi
+          # The lookup cannot hang off the `if` above: that half warns and exits 0 by design
+          # (ADR-0029), so an exit-code-conditioned annotation is structurally unreachable for it —
+          # masked today by the Base Map's failure, and silent from the day the archive is
+          # provisioned, while the lookup is still borrowed.
+          #
+          # So it asks the check instead. The marker is printed only when the configured service is
+          # one this deployment does not run, which keeps the annotation a fact rather than a claim:
+          # a fork that provisions its own geocoder gets no annotation, and edits no workflow to get
+          # that — `packages/core/src/places/service.ts` remains the one file a repoint touches.
+          if node scripts/check-place-service.mjs --deployment | grep -qF '::borrowed-lookup-service::'; then
+            echo "::warning title=Borrowed place lookup service::This deployment's place search asks a geocoder it does not run. The use is within that service's published policy, and it is somebody else's hardware with no promise to this site. Unlike the archive above this does not fail the check: repointing it means running a planet-scale geocoder. See docs/hosting.md and ADR-0029."
+          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:

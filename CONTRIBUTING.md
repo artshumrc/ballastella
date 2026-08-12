@@ -60,6 +60,7 @@ but no `build`.
 | `pnpm test:e2e`                      | browser tests (Playwright, headless Chromium)  |
 | `pnpm lint`                          | lint, format check, and the source fences      |
 | `pnpm check:deployment`              | refuse development-only deployment settings   |
+| `pnpm check:places`                  | ask the configured lookup service whether it still answers (hand-run, reaches the network) |
 | `pnpm check:dev`                     | both apps answer their root route under `vite dev` |
 | `pnpm check`                         | Svelte and TypeScript checks                   |
 | `pnpm format`                        | rewrite formatting in place                    |
@@ -96,7 +97,7 @@ Everything above the deployment build in `ci.yml` runs against the *ordinary* bu
 what the specs drive. CI therefore produces the deployment artifact last and checks it, so the shape
 that actually ships is not the one shape nothing looks at.
 
-## Three rules the toolchain enforces for you
+## Five rules the toolchain enforces for you
 
 **`apps/viewer` must never depend on `terra-draw` or the tiler**
 ([ADR-0019](docs/adr/0019-minimal-pnpm-monorepo.md)). The viewer is a separate build so that
@@ -146,9 +147,31 @@ this deployment and fails only on the fork, where nobody is looking. Tests are e
 browser suite asserts that the switcher offers exactly this deployment's catalog, which it can
 only do by naming it.
 
-The same script's `--deployment` mode, exposed as `pnpm check:deployment`, refuses
-`demo-bucket.protomaps.com` and names the catalog entries and remedy. The demo URL is an explicit
-temporary development exception under ADR-0025, never production configuration.
+The same script's `--deployment` mode refuses an archive on a host this deployment does not control,
+naming the catalog entries and the remedy. That URL is an explicit temporary development exception
+under ADR-0025, never production configuration.
+
+**No module outside `packages/core/src/places/service.ts` may name the place lookup service's
+host.** The same property for the same reason, and `scripts/check-place-service.mjs` runs in
+`pnpm lint` to hold it ([ADR-0029](docs/adr/0029-place-lookup-is-a-warned-service-that-leaves-nothing-behind.md)).
+It scans for **the address**, not the service's name: `lookup.ts` quotes that service's autocomplete
+policy by name, and a fence firing on documentation offers "delete the explanation" as its remedy.
+
+Its `--deployment` mode **warns and exits 0** while the borrowed default is configured, where the
+Base Map check *fails*. That asymmetry is argued in ADR-0029 and is not an oversight; the short of
+it is that the remedies are not comparable, and it is written out on `BORROWED_SERVICES` in the
+script for anyone tempted to tighten it. `pnpm check:deployment` is the composite that runs both,
+and it runs **every** check whatever the one before it said, because a short-circuit here would
+print the Base Map's failure and silently never reach the lookup at all. The Pages workflow raises
+that warning as an annotation on every deploy, unconditionally — hung off the composite's exit code
+it would go silent the day the archive is provisioned.
+
+`pnpm check:places` is the exception to the network rule above, and the only one in this repository
+that reaches a service: it issues one query and reports whether the answer still carries the fields
+`readPlace` reads. **It is in no gate** — not `pnpm lint`, not `pnpm test`, not CI — because a
+committed fixture goes on passing after reality has moved, and a check in a gate hands a stranger's
+uptime the power to turn this repository red. `scripts/check-place-service.test.mjs` asserts it stays
+out of all three.
 
 ## Dependency versions
 

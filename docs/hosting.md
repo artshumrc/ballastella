@@ -81,8 +81,10 @@ Then run:
 pnpm check:deployment
 ```
 
-It passes once the catalog reads an archive on a host the check does not recognise as borrowed, and
-fails while it does not. It is deliberately *not* part of `pnpm lint` — see
+That command runs every deployment check there is, so it also reports on the place lookup below; the
+archive is the half that blocks. It passes once the catalog reads an archive on a host the check does
+not recognise as borrowed, and fails while it does not. It is deliberately *not* part of `pnpm lint`
+— see
 [CONTRIBUTING.md](../CONTRIBUTING.md) — because this repository's own deployment knowingly runs on
 the borrowed archive for want of a hosting budget
 ([ADR-0025](adr/0025-no-base-map-ships-offline-is-per-project-and-opt-in.md)).
@@ -90,7 +92,55 @@ the borrowed archive for want of a hosting budget
 You can also add entries, relabel them, or offer several archives; the switcher in both apps reads
 whatever the catalog holds.
 
-### 5. Keeping up with upstream
+### 5. Decide about the place lookup
+
+The editor's search box — type a place name, and the map goes there or drops a Pin — asks a
+geocoding service. Out of the box that is
+[Nominatim](https://operations.osmfoundation.org/policies/nominatim/), OpenStreetMap's own, and it
+is **borrowed** in exactly the sense the Base Map archive above is: keyless, working, and somebody
+else's hardware with no promise to you.
+
+To point at a service you run, edit **one file** —
+[`packages/core/src/places/service.ts`](../packages/core/src/places/service.ts) — and change
+`PLACE_SERVICE`. Its URL and its attribution sit in the same value deliberately, so repointing the
+service moves the credit shown beside the candidate list with it; a fork that changed the archive
+and not the lookup would otherwise display one organisation's credit over another's data. Nothing
+else in the repository needs to know: `scripts/check-place-service.mjs` fails `pnpm lint` if any
+module outside that file names the service's host
+([ADR-0029](adr/0029-place-lookup-is-a-warned-service-that-leaves-nothing-behind.md)).
+
+One caveat on "one file". A service running the same software as the default answers the same
+document, and the address is the whole change. A service answering a *different* document also needs
+`readPlace` in `packages/core/src/places/lookup.ts` taught to read it — the four fields the
+application depends on are a display name, a latitude, a longitude, and a bounding box.
+
+**`pnpm check:deployment` warns about the default service and does not fail on it**, which is the
+opposite of what it does about a borrowed Base Map archive. That difference is deliberate. Repointing
+an archive means putting a file in a bucket you control, which an instructor can do in an afternoon.
+Repointing this means running a planet-scale geocoder: a planet import is days of compute, hundreds
+of gigabytes, and permanent replication of the diffs after it. Almost nobody forking this repository
+can do that, and a check that fails with a remedy nobody can take is a check people learn to route
+around — taking the Base Map check standing beside it down with it, which *is* satisfiable and is the
+one that must stay sharp.
+
+Using the default is not a violation. Nominatim's usage policy permits this use and names its
+conditions, and the application meets them: searches happen on submit and never as you type, no more
+than one a second, with attribution displayed while candidates are on screen.
+
+To find out whether the service you configured actually answers:
+
+```sh
+pnpm check:places
+```
+
+It issues **one** query and reports whether the answer still carries the fields the application
+reads. It is the only **check** in this repository that reaches the network — `pnpm test:e2e`
+downloads a browser before it runs, and nothing else goes out — and it is deliberately in
+no gate — not `pnpm lint`, not `pnpm test`, not CI — because a check in a gate hands a stranger's
+uptime the power to turn your repository red. Run it by hand after repointing, and again if search
+stops working.
+
+### 6. Keeping up with upstream
 
 Pull from this repository and push; the workflow redeploys. The editor is a PWA with an explicit
 update prompt, so a user with the old version open is told rather than silently switched
@@ -206,6 +256,13 @@ case the folder later goes to Pages.
   a warning on every deploy rather than blocking. That is a recorded human decision
   ([ADR-0025](adr/0025-no-base-map-ships-offline-is-per-project-and-opt-in.md)), not an oversight,
   and a fork inherits it until it repoints the catalog.
+- **This repository's own deployment uses a borrowed place lookup service** (part 1, step 5). The
+  editor's search box asks OpenStreetMap's Nominatim, which no deployment here runs.
+  `pnpm check:deployment` **warns** about it and does not fail, unlike the archive above, and the
+  Pages workflow annotates every deploy with that warning. Why it warns rather than fails is part 1,
+  step 5, and [ADR-0029](adr/0029-place-lookup-is-a-warned-service-that-leaves-nothing-behind.md). The use is
+  within that service's published policy, and a fork inherits it until it repoints
+  `packages/core/src/places/service.ts`.
 - **Publishing a single Project standalone** is not implemented. The Workspace is the site; a
   per-Project output is a deferred second mode (ADR-0008).
 - **Pretty per-Project URLs** (`/amsterdam-1625/` rather than `?p=amsterdam-1625`) are deferred, and

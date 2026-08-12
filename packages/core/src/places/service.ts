@@ -11,11 +11,11 @@ import type { PlaceService } from './place';
 // │                                                                                       │
 // │ So: change this file, and nothing else. No other module may name the service host.     │
 // │                                                                                       │
-// │ ⚠ **That last sentence is asserted by nobody yet.** `base-map/catalog.ts` has           │
-// │ `scripts/check-base-map-catalog.mjs` failing `pnpm lint` on any module that names an    │
-// │ entry; the equivalent containment scan for this host is ticket 04's and is not written,  │
-// │ so at present the property is held by hand — and by the tests, which drive every lookup  │
-// │ function from a service that is not this one.                                           │
+// │ `scripts/check-place-service.mjs` fails `pnpm lint` on any module outside this one that │
+// │ names the host, which is what makes that a property rather than a hope. It scans for    │
+// │ **the address** and not the service's name: `lookup.ts` quotes the default service's    │
+// │ policy by name, and a fence that failed on documentation would offer "delete the        │
+// │ paragraph" as its remedy (ADR-0029).                                                    │
 // │                                                                                       │
 // │ ⚠ **The address is here; the response *shape* is read in `lookup.ts`.** A fork running  │
 // │ its own instance of the same software changes this line only, which is the case         │
@@ -34,11 +34,12 @@ import type { PlaceService } from './place';
  *
  * A deployment that wants a lookup it controls should point this at its own service, which is a
  * change to this value and nothing else. ADR-0029 has `pnpm check:deployment` **warn and stay
- * green** about this one, unlike the Base Map archive it refuses outright — the asymmetry being
- * that repointing an archive is putting a file in a bucket, while repointing this means running a
- * planet-scale geocoder, and a check that fails with a remedy nobody can take is one people learn
- * to route around. ⚠ **That warning is not written yet** (ticket 04), so at present nothing in the
- * deployment check mentions this dependency at all.
+ * green** about this one, unlike the Base Map archive it refuses outright; the argument for that
+ * asymmetry is in the ADR and on `BORROWED_SERVICES` in `scripts/check-place-service.mjs`, and it
+ * is about the remedy rather than about the dependency being acceptable.
+ * `scripts/check-place-service.mjs --deployment` prints that warning, and
+ * `pnpm check:places` asks this service by hand whether it still answers the shape `lookup.ts`
+ * reads — the one thing in this repository permitted to reach the network, and in no gate.
  *
  * `jsonv2` is asked for by name rather than taken as a default, because the fields read in
  * `lookup.ts` — `display_name`, `lat`, `lon`, `boundingbox` — are that format's.

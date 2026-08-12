@@ -159,10 +159,10 @@ export async function lookUpPlaces(
 /**
  * One result as a {@link Place}, or `null` when it is not one.
  *
- * ⚠ **These four fields are the whole of what this application depends on**, and they are what the
- * hand-run service check will ask the live service about when it exists (ticket 04, not yet
- * written — a fixture is a snapshot of an assumption, and nothing here notices when the service's
- * shape moves under it). The service answers a great deal more —
+ * ⚠ **These four fields are the whole of what this application depends on**, and they are what
+ * `pnpm check:places` asks the live service about — a fixture is a snapshot of an assumption, and
+ * nothing in the suite notices when the service's shape moves under it. The service answers a great
+ * deal more —
  * `place_id`, `osm_type`, `importance`, `licence` — and none of it is read, because none of it
  * survives into a Project.
  *

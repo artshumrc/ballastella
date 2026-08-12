@@ -1,4 +1,6 @@
-// `pnpm check:deployment` against **this repository's own catalog**, in the ordinary loop.
+// `check-base-map-catalog.mjs --deployment` against **this repository's own catalog**, in the
+// ordinary loop. That check is one half of what `pnpm check:deployment` now composes; the composite
+// itself, and the lookup service beside it, are `check-place-service.test.mjs`'s.
 //
 // ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 // │ THE GAP THIS CLOSES: A CHECK NOBODY RUNS IS A CHECK THAT HAS ALREADY ROTTED.               │
