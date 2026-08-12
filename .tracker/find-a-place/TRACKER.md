@@ -10,8 +10,8 @@ Scope, user stories, and the testing approach are in [SPEC.md](./SPEC.md). The d
 
 Overall status: `In Progress`
 
-Current ticket: 02. 01 landed, so 02, 03 and 04 are all unblocked; they are being taken one at a
-time rather than in parallel, because all three touch the same lookup module and search surface.
+Current ticket: 03. 01 and 02 landed; 03 and 04 remain. They are being taken one at a time rather
+than in parallel, because all of them touch the same lookup module and search surface.
 
 Last updated: 2026-08-12.
 
@@ -48,8 +48,8 @@ Agreed with the repository owner before the spec was written, and **no new seam 
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
 | 01 | [01-find-a-place-and-go-to-it.md](./tickets/01-find-a-place-and-go-to-it.md) | Completed | — |
-| 02 | [02-a-failed-lookup-says-which-failure-it-was.md](./tickets/02-a-failed-lookup-says-which-failure-it-was.md) | In Progress | 01 |
-| 03 | [03-place-a-pin-at-a-place.md](./tickets/03-place-a-pin-at-a-place.md) | Not Started | 01 |
+| 02 | [02-a-failed-lookup-says-which-failure-it-was.md](./tickets/02-a-failed-lookup-says-which-failure-it-was.md) | Completed | 01 |
+| 03 | [03-place-a-pin-at-a-place.md](./tickets/03-place-a-pin-at-a-place.md) | In Progress | 01 |
 | 04 | [04-a-fork-can-repoint-the-lookup-and-check-it.md](./tickets/04-a-fork-can-repoint-the-lookup-and-check-it.md) | Not Started | 01 |
 
 ## Ordering
