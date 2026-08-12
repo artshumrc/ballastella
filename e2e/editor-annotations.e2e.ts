@@ -2178,7 +2178,12 @@ test.describe('placing a Pin at a Place', () => {
 
 		await surface.getByTestId('place-candidate').filter({ hasText: HAMPDEN_NAME }).click();
 		await expect.poll(() => layerText(page, layerId)).toContain(`"title": "${AMBIGUOUS_QUERY}"`);
-		await expect(surface.getByTestId('place-candidate')).toHaveCount(10);
+
+		// Put away once the Pin is placed, so it holds no row of a two-pane sidebar open through the
+		// gestures that follow.
+		await expect(surface.getByTestId('place-candidate')).toHaveCount(0);
+		await expect(surface.getByTestId('place-attribution')).toHaveCount(0);
+		await expect(surface.getByTestId('place-search-status')).toHaveText('');
 
 		// And the pane's own search is still there, still navigation-only — it dropped nothing — and
 		// still called what it does, which is the other half of two searches on one screen.

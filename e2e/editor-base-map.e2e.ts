@@ -1789,6 +1789,31 @@ test.describe('finding a place', () => {
 		expectDrawnOver(await boxOf(searchField(page)), resting);
 		expectDrawnOver(await boxOf(candidates(page).first()), resting);
 	});
+
+	test('puts the candidate list away once a candidate has been chosen', async ({
+		page,
+		context
+	}) => {
+		// **Mutation:** drop the `outcome = null` from `choose` in `PlaceSearch.svelte`. Every other
+		// assertion in this file stays green — none of them looks at the list after a candidate has
+		// been taken.
+		await routePlaceLookup(context);
+		await openPane(page);
+
+		await findPlace(page, AMBIGUOUS_QUERY);
+		await expect(candidates(page)).toHaveCount(10);
+		await candidates(page).filter({ hasText: 'Hampden County' }).click();
+
+		await expectFramedOn(page, MASSACHUSETTS);
+		await expect(candidates(page)).toHaveCount(0);
+		// The credit goes with the data it credits, and the sentence with the list it instructs.
+		await expect(page.getByTestId('place-attribution')).toHaveCount(0);
+		await expect(searchStatus(page)).toHaveText('');
+
+		// Searching again still works, so the list was put away rather than broken.
+		await findPlace(page, AMBIGUOUS_QUERY);
+		await expect(candidates(page)).toHaveCount(10);
+	});
 });
 
 test.describe('the theme', () => {

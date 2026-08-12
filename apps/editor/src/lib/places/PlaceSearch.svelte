@@ -105,6 +105,16 @@
 				: placeLookupNotice(outcome, asked, installedApp.online)
 	);
 
+	/**
+	 * Hand the candidate over and put the list away: its sentence reads *Choose one to move the map to
+	 * it*, which is a stale instruction once there is nothing left to choose. A lookup already in
+	 * flight is not cancelled — its answer replacing this is a second question being honoured.
+	 */
+	function choose(place: Place): void {
+		onchoose(place, asked);
+		outcome = null;
+	}
+
 	async function submit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		const wanted = query.trim();
@@ -168,7 +178,7 @@
 						type="button"
 						class="text-left text-sm"
 						data-testid="place-candidate"
-						onclick={() => onchoose(place, asked)}
+						onclick={() => choose(place)}
 					>
 						{place.name}
 					</button>
