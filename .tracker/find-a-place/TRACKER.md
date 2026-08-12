@@ -8,12 +8,41 @@ Scope, user stories, and the testing approach are in [SPEC.md](./SPEC.md). The d
 
 ## Current status
 
-Overall status: `In Progress`
+Overall status: `Completed`
 
-Current ticket: 04, the last one. 01, 02 and 03 landed, taken one at a time rather than in parallel
-because all of them touch the same lookup module and search surface.
+Current ticket: none. All four landed, taken one at a time rather than in parallel because all of
+them touch the same lookup module and search surface. Each was reviewed on both axes by read-only
+subagents before it was committed, and each review found real defects — see "What the reviews
+caught" below, which is the part worth reading before the next epic.
 
 Last updated: 2026-08-12.
+
+## What the reviews caught
+
+Sixteen for sixteen held again: **every one of the four tickets was reported green by its
+implementer and had a real defect found afterwards.** The pattern across all four was the same, and
+it was not "the code is wrong" — the code was almost always right. It was **tests that could not go
+red**:
+
+- **01** — the `none`-vs-`unanswered` test read the status node while `Looking up “…”` was still
+  showing, so it could compare a progress string with itself; and "holds no layout open" compared
+  the map canvas box before and after, which cannot move because the pane sits in an
+  `overflow-hidden` parent. Both were the criteria the ticket had singled out for mutation.
+- **02** — the no-overclaim guard banned the *word* "answered" rather than the *claim*, which
+  outlawed honest prose while leaving "the service replied with nothing" green. It also dictated a
+  sentence rewrite, which is a test writing the product's words.
+- **03** — the one-store-write assertion was a race against the 400 ms debounce; framing was
+  asserted as a camera *move*, so a `setCenter` at the existing zoom would have passed. And the
+  remediation's own fix briefly made the epic's central byte-identity claim compare a file with
+  itself, because `addLayer` prepends and it read index 1.
+- **04** — the scan's positive control was built from live configuration, so a fork crediting its
+  own geocoder would have had `pnpm lint` fail while blaming the fence; and the first fix for the
+  deploy warning annotated unconditionally, which would have told that same fork it had borrowed a
+  service.
+
+The lesson to carry forward: **an implementer's mutation check is necessary and not sufficient.**
+Three of these four survived a mutation sweep that was honestly run — because the mutation was
+applied to the code and the test stayed green for a reason nobody had thought to look for.
 
 ## What is already decided — do not re-derive it
 
@@ -50,7 +79,7 @@ Agreed with the repository owner before the spec was written, and **no new seam 
 | 01 | [01-find-a-place-and-go-to-it.md](./tickets/01-find-a-place-and-go-to-it.md) | Completed | — |
 | 02 | [02-a-failed-lookup-says-which-failure-it-was.md](./tickets/02-a-failed-lookup-says-which-failure-it-was.md) | Completed | 01 |
 | 03 | [03-place-a-pin-at-a-place.md](./tickets/03-place-a-pin-at-a-place.md) | Completed | 01 |
-| 04 | [04-a-fork-can-repoint-the-lookup-and-check-it.md](./tickets/04-a-fork-can-repoint-the-lookup-and-check-it.md) | In Progress | 01 |
+| 04 | [04-a-fork-can-repoint-the-lookup-and-check-it.md](./tickets/04-a-fork-can-repoint-the-lookup-and-check-it.md) | Completed | 01 |
 
 ## Ordering
 
