@@ -402,8 +402,17 @@
 			<span class="max-w-[14rem] truncate font-medium" data-testid="remote-name">
 				{describeRemote(storage.remote)}
 			</span>
+			<!--
+				Named when the name is known (story 32). A GitHub App sign-in has just been through a
+				redirect the scholar cannot see the result of, so *as whom* is the fact they most need
+				back; a pasted token has no name attached and says what it always said.
+			-->
 			<span class="opacity-70" data-testid="remote-credential">
-				{storage.signedIn ? 'Signed in to GitHub' : 'Not signed in'}
+				{storage.signedIn
+					? storage.identity
+						? `Signed in to GitHub as ${storage.identity}`
+						: 'Signed in to GitHub'
+					: 'Not signed in'}
 			</span>
 		</div>
 	{/if}

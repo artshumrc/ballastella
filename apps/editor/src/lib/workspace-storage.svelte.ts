@@ -32,7 +32,25 @@ import {
 	closedWhileReviewing,
 	readRemoteBinding,
 	readRemoteRights,
+	GITHUB_API_ORIGIN,
+	GITHUB_APP,
+	SIGN_IN_STATE_KEY,
+	authorizeUrl,
+	clearGrantRecord,
+	exchangeAuthorizationCode,
+	isGitHubAppConfigured,
+	isGrantFresh,
+	newSignInState,
+	readGrantRecord,
+	refreshGitHubToken,
+	signInAgainMessage,
+	verifySignInState,
+	writeGrantRecord,
+	GitHubSignInError,
+	type CredentialStorage,
 	type CredentialStore,
+	type GitHubTokenGrant,
+	type SignInCallback,
 	type JournalStorage,
 	type OpenedBundle,
 	type ProjectStore,
@@ -57,6 +75,69 @@ import {
 	type TransferState
 } from './editor-session.svelte.js';
 import { saveFile } from './save-file.js';
+
+// ── The GitHub App sign-in's browser-side pieces (ticket 10, ADR-0031) ────────────────────────
+
+/**
+ * Where the `state` and the grant record are kept: `sessionStorage`, or nothing at all.
+ *
+ * A browser that will not give us storage degrades to *no App session*, which is the pasted-token
+ * path — the same direction `browserCredentialStore` falls in, and for the same reason. Memory is
+ * not a substitute here: the whole point of the record is to survive the redirect, and a redirect
+ * is precisely what empties a variable.
+ */
+const signInStorage = (): CredentialStorage => {
+	try {
+		if (typeof sessionStorage === 'undefined') return nowhere;
+		void sessionStorage.length;
+		return sessionStorage;
+	} catch {
+		return nowhere;
+	}
+};
+
+/** Where the query string the sign-in left from waits, so the open Project survives the redirect. */
+const SIGN_IN_RETURN_KEY = 'ballastella.github-sign-in-return';
+
+/** A storage that holds nothing, for a browser that will not give us one. */
+const nowhere: CredentialStorage = {
+	getItem: () => null,
+	setItem: () => {},
+	removeItem: () => {}
+};
+
+/**
+ * The address GitHub redirects back to: this page, with nothing on it.
+ *
+ * ⚠ **Search and hash are stripped, and that is required rather than tidy.** A GitHub App matches
+ * the callback against the URL registered on the App itself, so a `?p=amsterdam-1625` left on the
+ * end is a redirect URI GitHub refuses outright. The open Project is not lost by this —
+ * `beginGitHubSignIn` stashes the query string and `+page.svelte` puts it back on return.
+ *
+ * Composed from `origin` and `pathname` rather than by emptying a `URL`, which the Svelte lint rule
+ * about mutable `URL` instances refuses — and which would be a needless object either way.
+ */
+const callbackUri = (): string => `${globalThis.location.origin}${globalThis.location.pathname}`;
+
+/**
+ * Whose credential this is, or `''` when GitHub will not say.
+ *
+ * A failure here is deliberately not a failed sign-in: the token works, the publish will work, and
+ * the only thing missing is a name on the bar. Refusing the whole sign-in over it would turn a
+ * cosmetic outage into an unusable app.
+ */
+const readGitHubLogin = async (token: string): Promise<string> => {
+	try {
+		const response = await fetch(`${GITHUB_API_ORIGIN}/user`, {
+			headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` }
+		});
+		if (!response.ok) return '';
+		const body = (await response.json()) as { login?: unknown };
+		return typeof body.login === 'string' ? body.login : '';
+	} catch {
+		return '';
+	}
+};
 
 /**
  * What the browser will say about its storage, for the pre-restore quota check.
@@ -1021,6 +1102,146 @@ export class WorkspaceStorage {
 	/** Forget the credential, so this machine can be handed to somebody (story 37). */
 	signOut(): void {
 		this.#credentials.clear();
+		clearGrantRecord(signInStorage());
+		this.identity = '';
+		this.#refreshCredential();
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE GITHUB APP SIGN-IN (ticket 10, ADR-0031)
+	//
+	// The second acquisition path behind the same credential interface. Everything below this class
+	// — `bindWorkspaceToRemote`, `readRemoteRights`, the publish engine — receives an opaque bearer
+	// string and cannot tell which door it came through. That is the rule ADR-0031 states and the
+	// reason none of this lives any lower: the flow is the *UI's* business, and the token is not.
+
+	/** Whether to offer the button at all: false in a fork that has not registered its own App. */
+	readonly signInWithGitHubOffered = isGitHubAppConfigured(GITHUB_APP);
+
+	/**
+	 * The GitHub account the held credential belongs to, or `''`.
+	 *
+	 * Read once, on the App path, from `GET /user`. **Not read for a pasted token**, and that is not
+	 * a branch on the auth method below the interface — it is that the App flow has just been through
+	 * a redirect the user cannot see the result of, so it has something to show them that a paste
+	 * (which they typed, for an account they were looking at) does not.
+	 */
+	identity = $state('');
+
+	/**
+	 * Send the user to GitHub to authorise, remembering a `state` to check them back in with.
+	 *
+	 * The `state` goes to session storage before the redirect, because after it this tab is gone.
+	 */
+	beginGitHubSignIn(): void {
+		const state = newSignInState();
+		try {
+			sessionStorage.setItem(SIGN_IN_STATE_KEY, state);
+			// The Project the scholar was looking at. `callbackUri` has to strip it — a GitHub App
+			// matches the callback against the URL registered on the App, so any query string at all is
+			// a redirect URI GitHub refuses — so it is stashed here and put back on return.
+			sessionStorage.setItem(SIGN_IN_RETURN_KEY, globalThis.location.search);
+		} catch {
+			// A browser that will not hold the state cannot complete a sign-in that must verify it, so
+			// this is left to fail on return with the "this tab did not start a sign-in" refusal rather
+			// than being turned into a redirect that can only end badly.
+		}
+		globalThis.location.assign(
+			authorizeUrl({ app: GITHUB_APP, redirectUri: callbackUri(), state })
+		);
+	}
+
+	/**
+	 * Finish a sign-in the user has just come back from, or refuse it.
+	 *
+	 * ⚠ **The `state` is consumed whatever happens.** A callback that has been judged once must not be
+	 * judgeable again — leaving it in place would let a reload of the callback URL re-run the exchange,
+	 * and leaving it in place after a *mismatch* would let an attacker's second attempt find a state
+	 * this tab really did generate.
+	 *
+	 * @throws GitHubSignInError when the state does not match, or the exchange is refused
+	 */
+	async completeGitHubSignIn(callback: SignInCallback): Promise<void> {
+		const storage = signInStorage();
+		const stored = storage.getItem(SIGN_IN_STATE_KEY);
+		storage.removeItem(SIGN_IN_STATE_KEY);
+
+		const refusal = verifySignInState(callback.state, stored);
+		// ⚠ Nothing is stored on a refusal — not the code, not a token, not a partial record. The
+		// credential store is left exactly as it was, so a scholar already signed in by paste stays
+		// signed in and a forged callback changes nothing at all.
+		if (refusal !== '') throw new GitHubSignInError(refusal);
+
+		const grant = await exchangeAuthorizationCode({
+			app: GITHUB_APP,
+			code: callback.code,
+			redirectUri: callbackUri()
+		});
+		this.#keepGrant(grant);
+		this.identity = await readGitHubLogin(grant.token);
+		writeGrantRecord(storage, grant);
+	}
+
+	/**
+	 * Make sure the held credential will still be good when work starts — **before** it starts.
+	 *
+	 * Story 33, and the ticket's rule: *"An expired token surfaces as 'sign in again', never as a
+	 * publish that fails partway through — check before starting, not during."* A pasted token has no
+	 * grant record and is therefore left alone, which is not a branch on the auth method so much as
+	 * the absence of anything to check: there is no expiry to read and no refresh token to spend.
+	 *
+	 * @throws GitHubSignInError when the sign-in has expired and could not be renewed
+	 */
+	async ensureCredentialFresh(): Promise<void> {
+		const storage = signInStorage();
+		const grant = readGrantRecord(storage);
+		if (grant === null || isGrantFresh(grant, Date.now())) return;
+
+		if (grant.refreshToken === '') {
+			this.#endExpiredSession();
+			throw new GitHubSignInError(signInAgainMessage());
+		}
+		try {
+			const renewed = await refreshGitHubToken({
+				app: GITHUB_APP,
+				refreshToken: grant.refreshToken
+			});
+			this.#keepGrant(renewed);
+			writeGrantRecord(storage, renewed);
+		} catch {
+			// Whatever went wrong — a spent refresh token, a broker that is down, one that was never
+			// deployed — the remedy a scholar can take is the same one, so it is the only thing said.
+			this.#endExpiredSession();
+			throw new GitHubSignInError(signInAgainMessage());
+		}
+	}
+
+	/**
+	 * The query string the sign-in left from, consumed so a later reload cannot replay it.
+	 *
+	 * `''` when there is nothing to put back, which is the ordinary case of signing in from the hub.
+	 */
+	consumeSignInReturn(): string {
+		try {
+			const search = sessionStorage.getItem(SIGN_IN_RETURN_KEY) ?? '';
+			sessionStorage.removeItem(SIGN_IN_RETURN_KEY);
+			return search;
+		} catch {
+			return '';
+		}
+	}
+
+	/** Hold a grant's token as *the* credential, which is all anything below this class ever sees. */
+	#keepGrant(grant: GitHubTokenGrant): void {
+		this.#credentials.write(grant.token);
+		this.#refreshCredential();
+	}
+
+	/** Drop a sign-in that has run out, so every screen renders the not-signed-in state. */
+	#endExpiredSession(): void {
+		this.#credentials.clear();
+		clearGrantRecord(signInStorage());
+		this.identity = '';
 		this.#refreshCredential();
 	}
 

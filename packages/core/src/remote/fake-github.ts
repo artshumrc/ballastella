@@ -36,6 +36,7 @@
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './github-api.js';
+import { GITHUB_AUTHORIZE_URL } from './github-sign-in.js';
 
 /** One entry of a tree listing, as `GET /git/trees/{ref}?recursive=1` reports it. */
 export type FakeTreeEntry = {
@@ -68,6 +69,32 @@ export type FakeGitHubOptions = {
 	 * through untouched (ADR-0033) and a listing filtered to blobs would drop it silently.
 	 */
 	readonly submodules?: Readonly<Record<string, string>>;
+	/**
+	 * Turn on the GitHub App sign-in surface: the authorize redirect, and the broker's two endpoints.
+	 *
+	 * ⚠ **The broker is faked *here*, in the one fake, and not in a second module.** It is not GitHub,
+	 * but ADR-0031 makes it a pass-through — it answers *GitHub's token JSON verbatim* — so what it
+	 * says is GitHub's answer, and modelling it anywhere else would be a second fake free to disagree
+	 * with this one about whether a code is spent or a token has expired. That is precisely the
+	 * failure ticket 01 exists to prevent, and the one `e2e/support/github-hosts.ts` records having
+	 * already had once.
+	 *
+	 * Omit it and none of those three addresses are served, which is what every spec written before
+	 * ticket 10 expects.
+	 */
+	readonly signIn?: FakeSignInOptions;
+};
+
+/** The App and the broker a {@link FakeGitHub} answers as, when it answers as one at all. */
+export type FakeSignInOptions = {
+	/** The broker's origin, matching the `GitHubApp` the code under test was configured with. */
+	readonly brokerOrigin: string;
+	/** The client ID the authorize URL and both broker calls must carry, or they are refused. */
+	readonly clientId: string;
+	/** The account a completed sign-in is as, reported by `GET /user`. */
+	readonly login?: string;
+	/** How long an issued token lasts. GitHub's user-to-server token is eight hours. */
+	readonly tokenLifetimeSeconds?: number;
 };
 
 /** What the repository reports about the caller's rights, at `GET /repos/{owner}/{repo}`. */
@@ -149,6 +176,39 @@ export interface FakeGitHub {
 	pagesEnabled: boolean;
 
 	rateLimit: FakeRateLimit;
+
+	// ── The GitHub App sign-in, present whether or not `signIn` was asked for ──────────────────
+	//
+	// The knobs exist unconditionally so a spec can read them without narrowing a type; what `signIn`
+	// decides is whether the three addresses are *served*.
+
+	/** The account `GET /user` reports. Only ever asked with a credential. */
+	login: string;
+
+	/**
+	 * Refuse the code-for-token exchange, in GitHub's own shape: `{ error, error_description }`.
+	 *
+	 * ⚠ GitHub answers a refused exchange **in the body**, and historically with a 200, which is why
+	 * this is modelled as a body rather than a status. A fake that answered 400 would let an engine
+	 * that only checks `response.ok` pass.
+	 */
+	refuseExchange: boolean;
+
+	/** Refuse the refresh endpoint the same way: the refresh token has expired or been revoked. */
+	refuseRefresh: boolean;
+
+	/**
+	 * Age every token this fake has issued, as eight hours passing would.
+	 *
+	 * The API then answers 401 to them, which is what an expired user-to-server token does. Separate
+	 * from {@link rejectCredential}, which refuses *every* credential including a pasted one — this
+	 * refuses only what this fake handed out, so a spec can expire an App sign-in and leave a pasted
+	 * token working in the same browser.
+	 */
+	expireIssuedTokens(): void;
+
+	/** Every authorisation code this fake has issued, in order, so a spec can replay or forge one. */
+	readonly issuedCodes: string[];
 }
 
 /** A tree object: the flat `path → blob` map the API's own tree parameter describes. */
@@ -242,7 +302,31 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		rateLimit: {
 			remaining: DEFAULT_HOURLY_REQUESTS,
 			reset: Math.floor(Date.now() / 1000) + 3600
-		} as FakeRateLimit
+		} as FakeRateLimit,
+		login: options.signIn?.login ?? 'ada',
+		refuseExchange: false,
+		refuseRefresh: false
+	};
+
+	// ── The GitHub App sign-in's own state ────────────────────────────────────────────────────
+	//
+	// Codes are single-use, because a spent code is the refusal a scholar actually meets: going back
+	// to a callback page that is still open in another tab replays one every time.
+
+	/** Authorisation codes this fake has issued: code → the redirect it was issued for, and whether
+	 *  it has been spent. */
+	const codes = new Map<string, { redirectUri: string; spent: boolean }>();
+	/** Bearer tokens this fake has issued, and whether each has been aged past its expiry. */
+	const issuedTokens = new Map<string, { expired: boolean }>();
+	/** Refresh tokens, each pointing at nothing but its own right to mint a new bearer token. */
+	const refreshTokens = new Set<string>();
+	const issuedCodes: string[] = [];
+	let issued = 0;
+
+	/** A value no test needs to predict, but which is stable and readable when one fails. */
+	const nextValue = (prefix: string): string => {
+		issued += 1;
+		return `${prefix}_${issued.toString().padStart(4, '0')}`;
 	};
 
 	const storeTree = async (entries: StoredTree): Promise<string> => {
@@ -383,6 +467,13 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	): Promise<Response> => {
 		const path = decodePath(url.pathname);
 		if (path === null) return notFound(`${url.pathname} is not a path this fake implements.`);
+
+		// `GET /user` — whose credential this is, which is the identity the bar shows after a sign-in
+		// (story 32). Authenticated, because an anonymous caller has no identity to report.
+		if (path.length === 1 && path[0] === 'user' && method === 'GET') {
+			return credentialed ? json({ login: state.login }) : problem(401, 'Requires authentication');
+		}
+
 		const [scope, owner, repository, ...rest] = path;
 		if (scope !== 'repos' || owner !== options.owner || repository !== options.repository) {
 			return notFound(`${url.pathname} is not a path this fake implements.`);
@@ -642,9 +733,119 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		return new Response(bytes, { status: 200, headers: headers() });
 	};
 
+	// ── The sign-in surface: GitHub's authorize screen, and the broker's two endpoints ────────────
+
+	const signIn = options.signIn;
+
+	/** A token grant in GitHub's own shape, which is what the broker passes back verbatim. */
+	const grant = (): Response => {
+		const token = nextValue('ghu');
+		const refresh = nextValue('ghr');
+		issuedTokens.set(token, { expired: false });
+		refreshTokens.add(refresh);
+		return json({
+			access_token: token,
+			token_type: 'bearer',
+			expires_in: signIn?.tokenLifetimeSeconds ?? 8 * 3600,
+			refresh_token: refresh,
+			refresh_token_expires_in: 6 * 30 * 24 * 3600
+		});
+	};
+
+	/**
+	 * GitHub's authorisation screen, which here answers the redirect a user pressing "Authorize"
+	 * would produce.
+	 *
+	 * The `state` is echoed back **exactly as it arrived and never checked**, because GitHub does not
+	 * check it either — it is the client's own value, and verifying it is the client's whole job. A
+	 * fake that validated it would make the mismatch and absence cases unreachable, which are two of
+	 * this ticket's acceptance criteria.
+	 */
+	const answerAuthorize = (url: URL): Response => {
+		const redirectUri = url.searchParams.get('redirect_uri') ?? '';
+		if (signIn === undefined || url.searchParams.get('client_id') !== signIn.clientId) {
+			return new Response('404: Not Found', { status: 404, headers: headers() });
+		}
+		if (redirectUri === '') return problem(400, 'redirect_uri is required');
+
+		const code = nextValue('code');
+		codes.set(code, { redirectUri, spent: false });
+		issuedCodes.push(code);
+		const back = new URL(redirectUri);
+		back.searchParams.set('code', code);
+		back.searchParams.set('state', url.searchParams.get('state') ?? '');
+		return new Response(null, {
+			status: 302,
+			headers: { ...headers(), location: back.toString() }
+		});
+	};
+
+	/** `{ error, error_description }`, which is how a refusal arrives — in the body, with a 200. */
+	const oauthError = (error: string, description: string): Response =>
+		json({ error, error_description: description });
+
+	/** `POST {broker}/github/token` and `POST {broker}/github/refresh` (ADR-0031's contract). */
+	const answerBroker = async (
+		url: URL,
+		method: string,
+		body: () => Promise<Record<string, unknown>>
+	): Promise<Response> => {
+		if (signIn === undefined) return notFound(`${url.origin} is not a host this fake implements.`);
+		if (method !== 'POST') return problem(405, 'Method Not Allowed');
+
+		const sent = await body();
+		// The secret is looked up **by `client_id`**, so a request naming an App this broker holds no
+		// secret for is refused rather than served with somebody else's.
+		if (sent.client_id !== signIn.clientId) {
+			return oauthError('invalid_client', 'No client secret is held for that client_id.');
+		}
+
+		if (url.pathname === '/github/token') {
+			if (state.refuseExchange) {
+				return oauthError('bad_verification_code', 'The code passed is incorrect or expired.');
+			}
+			const code = typeof sent.code === 'string' ? sent.code : '';
+			const held = codes.get(code);
+			if (held === undefined || held.spent) {
+				return oauthError('bad_verification_code', 'The code passed is incorrect or expired.');
+			}
+			// GitHub requires the exchange to name the same address the authorisation did.
+			if (sent.redirect_uri !== held.redirectUri) {
+				return oauthError('redirect_uri_mismatch', 'The redirect_uri is not associated with it.');
+			}
+			held.spent = true;
+			return grant();
+		}
+
+		if (url.pathname === '/github/refresh') {
+			const refresh = typeof sent.refresh_token === 'string' ? sent.refresh_token : '';
+			if (state.refuseRefresh || !refreshTokens.has(refresh)) {
+				return oauthError('bad_refresh_token', 'The refresh token passed is incorrect or expired.');
+			}
+			refreshTokens.delete(refresh);
+			return grant();
+		}
+
+		return notFound(`${url.pathname} is not a path this broker implements.`);
+	};
+
+	/** The bearer string a request carries, or `''`. */
+	const tokenOf = (request: Request): string =>
+		/^\s*(?:bearer|token)\s+(\S+)/i.exec(request.headers.get('authorization') ?? '')?.[1] ?? '';
+
 	const fetchFn: FetchFn = async (input, init) => {
 		const request = new Request(input, init);
 		const url = new URL(request.url);
+
+		if (signIn !== undefined) {
+			if (url.origin === signIn.brokerOrigin) {
+				return answerBroker(url, request.method.toUpperCase(), async () => {
+					const text = await request.text();
+					return text === '' ? {} : (JSON.parse(text) as Record<string, unknown>);
+				});
+			}
+			if (url.href.split('?')[0] === GITHUB_AUTHORIZE_URL) return answerAuthorize(url);
+		}
 
 		// The raw host is deliberately not covered: a public repository's bytes are read there with no
 		// credential at all, and a fake that demanded one would hide a Clone sending a token it has no
@@ -664,6 +865,13 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		// play. Whether a token is any *good* is a question only GitHub can answer; this is the answer
 		// it gives, in its own words.
 		if (state.rejectCredential && bearsToken(request)) return problem(401, 'Bad credentials');
+
+		// An expired user-to-server token, which GitHub refuses in exactly the same words as a revoked
+		// one — the client cannot tell them apart, and this ticket's answer to both is "sign in again".
+		// Only tokens *this fake issued* are aged, so a pasted token in the same browser is untouched.
+		if (issuedTokens.get(tokenOf(request))?.expired === true) {
+			return problem(401, 'Bad credentials');
+		}
 
 		// Read lazily: a request with no body must not be made to have one, and a router branch that
 		// never reads the body must not fail on a malformed one it was never going to look at.
@@ -748,6 +956,28 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		},
 		set rateLimit(value) {
 			state.rateLimit = value;
-		}
+		},
+		get login() {
+			return state.login;
+		},
+		set login(value) {
+			state.login = value;
+		},
+		get refuseExchange() {
+			return state.refuseExchange;
+		},
+		set refuseExchange(value) {
+			state.refuseExchange = value;
+		},
+		get refuseRefresh() {
+			return state.refuseRefresh;
+		},
+		set refuseRefresh(value) {
+			state.refuseRefresh = value;
+		},
+		expireIssuedTokens() {
+			for (const held of issuedTokens.values()) held.expired = true;
+		},
+		issuedCodes
 	};
 }
