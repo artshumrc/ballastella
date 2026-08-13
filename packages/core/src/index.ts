@@ -328,6 +328,22 @@ export {
 	type ViewerBundleFile
 } from './publish/viewer-bundle.js';
 
+// Publishing to a Remote (ADR-0031, ADR-0032, ADR-0033). The name git gives a file's bytes, which
+// is what makes an incremental publish, a conflict refusal, and a resumed Clone possible at all.
+export { gitBlobSha } from './remote/blob-sha.js';
+// The fake GitHub every test in that epic drives: one fake eleven tickets share cannot disagree
+// with itself, and eleven private ones can.
+export {
+	GITHUB_API_ORIGIN,
+	GITHUB_RAW_ORIGIN,
+	createFakeGitHub,
+	type FakeGitHub,
+	type FakeGitHubOptions,
+	type FakeRateLimit,
+	type FakeRepositoryPermissions,
+	type FakeTreeEntry
+} from './remote/fake-github.js';
+
 export {
 	ROUND_TRIP_TOLERANCE_PX,
 	WINDOW_TILE_ZOOM,

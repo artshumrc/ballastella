@@ -1,0 +1,596 @@
+// The one GitHub every test in this epic talks to.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// WHY THIS IS ONE MODULE, WRITTEN BEFORE ITS FIRST CONSUMER
+//
+// `e2e/support/iiif-hosts.ts` is the same module written *after* the fact: three specs had grown
+// their own IIIF hosts, byte-identical in two of the three and subtly different in the third, so a
+// spec asserting a service's behaviour was asserting the behaviour of *its copy* of that service —
+// and two specs could disagree about what a level 0 host does while both stayed green. Eleven
+// tickets are about to need a GitHub. This is that module built in advance rather than extracted
+// from the wreckage afterwards.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// IT IS NOT A MOCK
+//
+// It stores real bytes, computes **real** git blob SHAs through {@link gitBlobSha}, and its trees
+// are readable back as `path → bytes`. That is what lets a test assert *what arrived at the Remote*
+// rather than which calls were made — the distinction SPEC's testing decisions rest on, because
+// every failure mode here is silent and plausible: a truncated tree yields a commit missing most of
+// a pyramid, an off-by-one in the owned namespace deletes a `CNAME`, and a test counting requests
+// passes over both.
+//
+// Tree and commit identifiers are content-addressed hashes of a serialisation of their own, **not**
+// git's object hashes — git frames those differently, and nothing in this epic re-derives one.
+// Blob SHAs are the only identifiers anything computes on both sides of the wire, and those are
+// exact.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// EVERYTHING UNIMPLEMENTED IS A 404
+//
+// A fake that answers vacuously is worse than no fake: the engine passes here and fails against
+// GitHub, which is the one place nobody is watching. So the router recognises exactly the requests
+// this epic makes and refuses everything else — an unknown path with a 404, and a *known* path
+// carrying a field this fake does not model (`base_tree`) with a 400 that says so.
+
+import type { FetchFn } from '../injection/store-image-fetch.js';
+import { gitBlobSha } from './blob-sha.js';
+
+/** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
+export const GITHUB_API_ORIGIN = 'https://api.github.com';
+
+/** Where a public repository's bytes are read from, unauthenticated, by Clone and Review. */
+export const GITHUB_RAW_ORIGIN = 'https://raw.githubusercontent.com';
+
+/** One entry of a tree listing, as `GET /git/trees/{ref}?recursive=1` reports it. */
+export type FakeTreeEntry = {
+	readonly path: string;
+	readonly mode: string;
+	readonly type: 'blob' | 'tree';
+	readonly sha: string;
+	/** Blobs only, as on the real endpoint. */
+	readonly size?: number;
+};
+
+export type FakeGitHubOptions = {
+	readonly owner: string;
+	readonly repository: string;
+	/** The branch the starting tree is committed on, and the one `files()` reads. */
+	readonly branch?: string;
+	/**
+	 * What the repository already holds, committed as its first commit.
+	 *
+	 * **Omit it for an empty repository** — no commit, no ref at all, so `GET /git/trees/{branch}`
+	 * is a 404 and the first publish has to create the ref rather than move it.
+	 */
+	readonly tree?: Readonly<Record<string, string | Uint8Array>>;
+};
+
+/** What the repository reports about the caller's rights, at `GET /repos/{owner}/{repo}`. */
+export type FakeRepositoryPermissions = { push: boolean; admin: boolean };
+
+/** The hourly budget, as the two headers the browser is allowed to read report it. */
+export type FakeRateLimit = {
+	remaining: number;
+	/** Unix seconds, as GitHub sends it. */
+	reset: number;
+};
+
+export interface FakeGitHub {
+	/** Hand this to the code under test in place of the page's own `fetch`. */
+	readonly fetch: FetchFn;
+
+	/**
+	 * How many `POST /git/blobs` calls have arrived, counting those {@link refuseWrites} turned away.
+	 *
+	 * It measures what the engine sent, not what the store accepted, so a test can assert *"the second
+	 * publish uploaded nothing"* without asserting a call order — which would pass over an engine that
+	 * uploaded everything in a different sequence — and can assert that a refusal stopped the uploads
+	 * rather than merely failed them.
+	 */
+	readonly blobPosts: number;
+
+	/** Every file the branch's current commit holds, path → a copy of its bytes, sorted by path. */
+	files(branch?: string): Map<string, Uint8Array>;
+
+	/** The branch's current commit, or `null` when the repository is empty. */
+	head(branch?: string): string | null;
+
+	/** The commit chain from `head` back through its parents, newest first. */
+	history(branch?: string): string[];
+
+	/**
+	 * Cut every tree listing short after this many entries and report `truncated: true`.
+	 *
+	 * The real endpoint truncates at 100 000 entries or 7 MB **and still answers 200**, which is
+	 * why proceeding is a commit missing most of a Workspace rather than an error.
+	 */
+	truncateAfter: number | null;
+
+	/**
+	 * Answer 403 to every write to the git database — blobs, trees, commits, and refs alike.
+	 *
+	 * That is the whole set, because that is what a token without `contents: write` meets: the
+	 * refusal does not wait for the ref to move, and an engine that discovers it there has already
+	 * uploaded a pyramid.
+	 */
+	refuseWrites: boolean;
+
+	/** What `GET /repos/{owner}/{repo}` reports. Independent of {@link refuseWrites} on purpose. */
+	permissions: FakeRepositoryPermissions;
+
+	/** Whether Pages is on. `POST /pages` answers 409 when it is, and turns it on when it is not. */
+	pagesEnabled: boolean;
+
+	rateLimit: FakeRateLimit;
+}
+
+/** A tree object: the flat `path → blob` map the API's own tree parameter describes. */
+type StoredTree = ReadonlyMap<string, { readonly sha: string; readonly mode: string }>;
+
+type StoredCommit = {
+	readonly message: string;
+	readonly tree: string;
+	readonly parents: readonly string[];
+};
+
+const encoder = new TextEncoder();
+
+/**
+ * A content-addressed identifier of the right shape for a tree or a commit.
+ *
+ * Not git's own — see the header. It goes through {@link gitBlobSha} rather than a second call to
+ * `crypto.subtle` so that this module has exactly one hash in it.
+ */
+const objectId = (serialised: string): Promise<string> => gitBlobSha(encoder.encode(serialised));
+
+const serialiseTree = (tree: StoredTree): string =>
+	[...tree]
+		.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+		.map(([path, entry]) => `${entry.mode} ${path}\0${entry.sha}`)
+		.join('\n');
+
+const serialiseCommit = (commit: StoredCommit): string =>
+	`tree ${commit.tree}\n${commit.parents.map((parent) => `parent ${parent}\n`).join('')}\n${commit.message}`;
+
+const byPath = (left: { path: string }, right: { path: string }): number =>
+	left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
+
+// `Uint8Array<ArrayBuffer>` throughout, not the `ArrayBufferLike` default: a `Response` body will
+// not take a view onto a `SharedArrayBuffer`, and this is where the bytes go out.
+const bytesOf = (content: string | Uint8Array): Uint8Array<ArrayBuffer> =>
+	typeof content === 'string' ? encoder.encode(content) : new Uint8Array(content);
+
+/** Base64 as the blob endpoint takes it. `atob` ignores the line breaks GitHub's clients insert. */
+const decodeBase64 = (content: string): Uint8Array<ArrayBuffer> =>
+	Uint8Array.from(atob(content), (character) => character.charCodeAt(0));
+
+/** The modes a blob entry may carry. A tree posted with any other is a 422 on the real endpoint. */
+const BLOB_MODES = new Set(['100644', '100755', '120000']);
+
+/**
+ * The segments of a path, or `null` when it does not decode.
+ *
+ * A stray `%` is a `URIError` out of `decodeURIComponent`, and a {@link FetchFn} is a `fetch` drop-in:
+ * it resolves with a `Response` or the caller's error handling never runs. GitHub answers 404.
+ */
+const decodePath = (pathname: string): string[] | null => {
+	try {
+		return pathname.split('/').filter(Boolean).map(decodeURIComponent);
+	} catch {
+		return null;
+	}
+};
+
+/** GitHub takes either spelling of the credential, and this fake looks no closer than that. */
+const bearsToken = (request: Request): boolean =>
+	/^\s*(?:bearer|token)\s+\S+/i.test(request.headers.get('authorization') ?? '');
+
+const DEFAULT_HOURLY_REQUESTS = 5000;
+
+/**
+ * An in-memory GitHub answering the requests this epic makes, behind a {@link FetchFn}.
+ *
+ * Async because seeding the starting tree computes real blob SHAs.
+ */
+export async function createFakeGitHub(options: FakeGitHubOptions): Promise<FakeGitHub> {
+	const defaultBranch = options.branch ?? 'main';
+
+	const blobs = new Map<string, Uint8Array<ArrayBuffer>>();
+	const trees = new Map<string, StoredTree>();
+	const commits = new Map<string, StoredCommit>();
+	const refs = new Map<string, string>();
+
+	let blobPosts = 0;
+
+	const state = {
+		truncateAfter: null as number | null,
+		refuseWrites: false,
+		permissions: { push: true, admin: true } as FakeRepositoryPermissions,
+		pagesEnabled: false,
+		rateLimit: {
+			remaining: DEFAULT_HOURLY_REQUESTS,
+			reset: Math.floor(Date.now() / 1000) + 3600
+		} as FakeRateLimit
+	};
+
+	const storeTree = async (entries: StoredTree): Promise<string> => {
+		const sha = await objectId(serialiseTree(entries));
+		trees.set(sha, entries);
+		return sha;
+	};
+
+	const storeCommit = async (commit: StoredCommit): Promise<string> => {
+		const sha = await objectId(serialiseCommit(commit));
+		commits.set(sha, commit);
+		return sha;
+	};
+
+	if (options.tree) {
+		const entries = new Map<string, { sha: string; mode: string }>();
+		for (const [path, content] of Object.entries(options.tree)) {
+			const bytes = bytesOf(content);
+			const sha = await gitBlobSha(bytes);
+			blobs.set(sha, bytes);
+			entries.set(path, { sha, mode: '100644' });
+		}
+		const tree = await storeTree(entries);
+		refs.set(defaultBranch, await storeCommit({ message: 'Initial commit', tree, parents: [] }));
+	}
+
+	const treeAt = (branch: string): StoredTree | null => {
+		const at = refs.get(branch);
+		const commit = at === undefined ? undefined : commits.get(at);
+		return commit === undefined ? null : (trees.get(commit.tree) ?? null);
+	};
+
+	/**
+	 * The tree a `{ref}` names: a branch, a commit, or a tree, in that order.
+	 *
+	 * The real endpoint takes all three, and an engine that hands it a commit SHA — which a resumed
+	 * Clone reasonably might — must not meet a fake that only knows branch names.
+	 */
+	const resolveTree = (ref: string): StoredTree | null => {
+		const branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+		if (refs.has(branch)) return treeAt(branch);
+		const commit = commits.get(ref);
+		if (commit) return trees.get(commit.tree) ?? null;
+		return trees.get(ref) ?? null;
+	};
+
+	/** The listing, with the directory entries a real recursive listing carries. */
+	const listing = async (tree: StoredTree): Promise<FakeTreeEntry[]> => {
+		const directories = new Set<string>();
+		for (const path of tree.keys()) {
+			const segments = path.split('/');
+			for (let depth = 1; depth < segments.length; depth += 1) {
+				directories.add(segments.slice(0, depth).join('/'));
+			}
+		}
+
+		const entries: FakeTreeEntry[] = [...tree].map(([path, entry]) => ({
+			path,
+			mode: entry.mode,
+			type: 'blob' as const,
+			sha: entry.sha,
+			size: blobs.get(entry.sha)?.byteLength ?? 0
+		}));
+
+		for (const directory of directories) {
+			const prefix = `${directory}/`;
+			// Keyed relative to the directory, the way the subtree object itself is: keyed by full path
+			// instead, `images` and `images/one` can hash alike, and a repository whose files all sit
+			// under one directory gives that directory the root tree's own SHA.
+			const under = new Map(
+				[...tree]
+					.filter(([path]) => path.startsWith(prefix))
+					.map(([path, entry]) => [path.slice(prefix.length), entry] as const)
+			);
+			// Registered, not merely named: a listing hands these SHAs out, and `GET /git/trees/{sha}`
+			// for one the fake just advertised has to resolve rather than 404.
+			entries.push({ path: directory, mode: '040000', type: 'tree', sha: await storeTree(under) });
+		}
+
+		return entries.sort(byPath);
+	};
+
+	/**
+	 * On **every** response, including refusals and the raw host.
+	 *
+	 * The engine reads its remaining budget as it goes, and it can read these at all only because
+	 * `api.github.com` names them in `access-control-expose-headers` — so a response that carried
+	 * none would be a budget that silently stopped being tracked.
+	 */
+	const headers = (): Record<string, string> => ({
+		'X-RateLimit-Remaining': String(state.rateLimit.remaining),
+		'X-RateLimit-Reset': String(state.rateLimit.reset)
+	});
+
+	const json = (body: unknown, status = 200): Response =>
+		new Response(JSON.stringify(body), {
+			status,
+			headers: { ...headers(), 'content-type': 'application/json' }
+		});
+
+	const problem = (status: number, message: string): Response => json({ message }, status);
+	const notFound = (message = 'Not Found') => problem(404, message);
+
+	const answerApi = async (
+		url: URL,
+		method: string,
+		body: () => Promise<Record<string, unknown>>
+	): Promise<Response> => {
+		const path = decodePath(url.pathname);
+		if (path === null) return notFound(`${url.pathname} is not a path this fake implements.`);
+		const [scope, owner, repository, ...rest] = path;
+		if (scope !== 'repos' || owner !== options.owner || repository !== options.repository) {
+			return notFound(`${url.pathname} is not a path this fake implements.`);
+		}
+
+		const write = (answer: () => Promise<Response>): Promise<Response> =>
+			state.refuseWrites
+				? Promise.resolve(problem(403, 'Resource not accessible by personal access token'))
+				: answer();
+
+		if (rest.length === 0 && method === 'GET') {
+			return json({ permissions: { ...state.permissions } });
+		}
+
+		if (rest[0] === 'pages' && rest.length === 1 && method === 'POST') {
+			if (state.pagesEnabled) return problem(409, 'GitHub Pages is already enabled for this repo.');
+			const { source } = (await body()) as { source?: { branch?: string; path?: string } };
+			if (typeof source?.branch !== 'string' || typeof source.path !== 'string') {
+				return problem(400, 'Enabling Pages needs a source branch and path.');
+			}
+			state.pagesEnabled = true;
+			return json({ source }, 201);
+		}
+
+		if (rest[0] !== 'git') return notFound(`${url.pathname} is not a path this fake implements.`);
+
+		if (rest[1] === 'trees' && rest.length > 2 && method === 'GET') {
+			const tree = resolveTree(rest.slice(2).join('/'));
+			if (tree === null) return notFound('Not Found');
+
+			const recursive = url.searchParams.get('recursive');
+			// A listing that is not recursive holds the top level only, which is how an engine that
+			// forgot the parameter comes to publish a Workspace it believes has three files in it.
+			const entries = (await listing(tree)).filter(
+				(entry) => recursive !== null || !entry.path.includes('/')
+			);
+			const limit = state.truncateAfter;
+			const cut = limit !== null && limit < entries.length ? limit : null;
+
+			return json({
+				sha: await objectId(serialiseTree(tree)),
+				tree: cut === null ? entries : entries.slice(0, cut),
+				truncated: cut !== null
+			});
+		}
+
+		if (rest[1] === 'blobs' && rest.length === 2 && method === 'POST') {
+			// Counted before the refusal, not after it: the counter measures what the engine *sent*,
+			// and `refuseWrites` exists to prove an engine stops sending once it meets a 403 — which a
+			// counter that only counted accepted posts would read as zero either way.
+			blobPosts += 1;
+			return write(async () => {
+				const { content, encoding } = (await body()) as { content?: string; encoding?: string };
+				if (typeof content !== 'string' || encoding !== 'base64') {
+					return problem(400, 'This fake takes blob content as base64 and nothing else.');
+				}
+				const bytes = decodeBase64(content);
+				const sha = await gitBlobSha(bytes);
+				blobs.set(sha, bytes);
+				return json({ sha }, 201);
+			});
+		}
+
+		if (rest[1] === 'trees' && rest.length === 2 && method === 'POST') {
+			return write(async () => {
+				const posted = await body();
+				if ('base_tree' in posted) {
+					// Refused rather than ignored: a `base_tree` silently dropped is a commit that keeps
+					// every path the caller meant to delete, which is the failure the owned-namespace
+					// rules exist to prevent and one no assertion on the resulting tree would explain.
+					return problem(400, 'This fake does not implement base_tree; post the whole tree.');
+				}
+				const given = posted.tree;
+				if (!Array.isArray(given)) return problem(400, 'A tree needs a tree array.');
+
+				const entries = new Map<string, { sha: string; mode: string }>();
+				for (const { path, mode, type, sha } of given as Record<string, unknown>[]) {
+					if (type !== 'blob') {
+						return problem(400, 'This fake takes blob entries only; post paths, not subtrees.');
+					}
+					// Path and mode are checked for the same reason `base_tree` is refused: taken on
+					// trust, a missing mode is stored as `undefined` and serialised as the string
+					// "undefined", so the tree hashes to something no repository could hold.
+					if (typeof path !== 'string' || path === '') {
+						return problem(422, 'Every tree entry needs a path.');
+					}
+					if (typeof mode !== 'string' || !BLOB_MODES.has(mode)) {
+						return problem(422, `${path} carries no file mode this repository takes.`);
+					}
+					if (typeof sha !== 'string' || !blobs.has(sha)) {
+						return problem(422, `${String(sha)} is not a blob this repository holds.`);
+					}
+					entries.set(path, { sha, mode });
+				}
+				return json({ sha: await storeTree(entries) }, 201);
+			});
+		}
+
+		if (rest[1] === 'commits' && rest.length === 2 && method === 'POST') {
+			return write(async () => {
+				const { message, tree, parents } = (await body()) as {
+					message?: string;
+					tree?: string;
+					parents?: string[];
+				};
+				if (typeof tree !== 'string' || !trees.has(tree)) {
+					return problem(422, `${tree} is not a tree this repository holds.`);
+				}
+				const chain = parents ?? [];
+				const orphan = chain.find((parent) => !commits.has(parent));
+				if (orphan !== undefined) {
+					return problem(422, `${orphan} is not a commit this repository holds.`);
+				}
+				const sha = await storeCommit({ message: message ?? '', tree, parents: chain });
+				return json({ sha }, 201);
+			});
+		}
+
+		if (rest[1] === 'refs' && rest.length === 2 && method === 'POST') {
+			return write(async () => {
+				const { ref, sha } = (await body()) as { ref?: string; sha?: string };
+				if (typeof ref !== 'string' || !ref.startsWith('refs/heads/')) {
+					return problem(422, 'This fake holds branches only, so a ref is refs/heads/<branch>.');
+				}
+				if (typeof sha !== 'string' || !commits.has(sha)) {
+					return problem(422, `${sha} is not a commit this repository holds.`);
+				}
+				const branch = ref.slice('refs/heads/'.length);
+				if (refs.has(branch)) return problem(422, 'Reference already exists');
+				refs.set(branch, sha);
+				return json({ ref, object: { sha } }, 201);
+			});
+		}
+
+		if (rest[1] === 'refs' && rest[2] === 'heads' && rest.length > 3 && method === 'PATCH') {
+			return write(async () => {
+				const branch = rest.slice(3).join('/');
+				const { sha } = (await body()) as { sha?: string };
+				if (!refs.has(branch)) return problem(422, 'Reference does not exist');
+				if (typeof sha !== 'string' || !commits.has(sha)) {
+					return problem(422, `${sha} is not a commit this repository holds.`);
+				}
+				// Any move is accepted and `force` is ignored on purpose. Conflict detection in this
+				// epic is manifest-based (ADR-0033) — the engine compares the Remote's blob SHAs
+				// against what it last published and refuses before it ever gets here — so a
+				// fast-forward check at this endpoint would refuse pushes the engine means to make and
+				// would test a rule nothing in the product relies on.
+				refs.set(branch, sha);
+				return json({ ref: `refs/heads/${branch}`, object: { sha } });
+			});
+		}
+
+		return notFound(`${url.pathname} is not a path this fake implements.`);
+	};
+
+	/**
+	 * `raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}` — the unauthenticated read half.
+	 *
+	 * It spends none of the hourly budget, because it is not the API and does not share its ceiling.
+	 */
+	const answerRaw = (url: URL): Response => {
+		const path = decodePath(url.pathname);
+		if (path === null) return notFound(`${url.pathname} is not a path this fake implements.`);
+		const [owner, repository, ref, ...rest] = path;
+		if (
+			owner !== options.owner ||
+			repository !== options.repository ||
+			ref === undefined ||
+			rest.length === 0
+		) {
+			return notFound(`${url.pathname} is not a path this fake implements.`);
+		}
+
+		const tree = resolveTree(ref);
+		const entry = tree?.get(rest.join('/'));
+		const bytes = entry && blobs.get(entry.sha);
+		if (!bytes) return new Response('404: Not Found', { status: 404, headers: headers() });
+
+		return new Response(bytes, { status: 200, headers: headers() });
+	};
+
+	const fetchFn: FetchFn = async (input, init) => {
+		const request = new Request(input, init);
+		const url = new URL(request.url);
+
+		// The raw host is deliberately not covered: a public repository's bytes are read there with no
+		// credential at all, and a fake that demanded one would hide a Clone sending a token it has no
+		// business sending.
+		if (url.origin === GITHUB_RAW_ORIGIN) return answerRaw(url);
+		if (url.origin !== GITHUB_API_ORIGIN) {
+			return notFound(`${url.origin} is not a host this fake implements.`);
+		}
+
+		// Whether the credential is any *good* is not modelled — only that one was sent. An engine that
+		// forgets the header meets GitHub's own answer here rather than a fake that waves it through.
+		if (!bearsToken(request)) return problem(401, 'Requires authentication');
+
+		if (state.rateLimit.remaining <= 0) {
+			return problem(403, 'API rate limit exceeded');
+		}
+		state.rateLimit.remaining -= 1;
+
+		// Read lazily: a request with no body must not be made to have one, and a router branch that
+		// never reads the body must not fail on a malformed one it was never going to look at.
+		return answerApi(url, request.method.toUpperCase(), async () => {
+			const text = await request.text();
+			return text === '' ? {} : (JSON.parse(text) as Record<string, unknown>);
+		});
+	};
+
+	return {
+		fetch: fetchFn,
+		get blobPosts() {
+			return blobPosts;
+		},
+		files(branch = defaultBranch) {
+			const sorted = [...(treeAt(branch) ?? [])].sort(([left], [right]) =>
+				left < right ? -1 : left > right ? 1 : 0
+			);
+			const files = new Map<string, Uint8Array>();
+			for (const [path, entry] of sorted) {
+				const bytes = blobs.get(entry.sha);
+				// Copied: a caller that decodes a tile in place would otherwise rewrite the object
+				// store under every later read, and the corruption would surface as a wrong assertion
+				// in some other test.
+				if (bytes) files.set(path, new Uint8Array(bytes));
+			}
+			return files;
+		},
+		head(branch = defaultBranch) {
+			return refs.get(branch) ?? null;
+		},
+		history(branch = defaultBranch) {
+			const chain: string[] = [];
+			// First-parent only. Nothing in this epic merges, so a commit never has a second parent.
+			for (let at = refs.get(branch); at !== undefined; at = commits.get(at)?.parents[0]) {
+				chain.push(at);
+			}
+			return chain;
+		},
+		get truncateAfter() {
+			return state.truncateAfter;
+		},
+		set truncateAfter(value) {
+			state.truncateAfter = value;
+		},
+		get refuseWrites() {
+			return state.refuseWrites;
+		},
+		set refuseWrites(value) {
+			state.refuseWrites = value;
+		},
+		get permissions() {
+			return state.permissions;
+		},
+		set permissions(value) {
+			state.permissions = value;
+		},
+		get pagesEnabled() {
+			return state.pagesEnabled;
+		},
+		set pagesEnabled(value) {
+			state.pagesEnabled = value;
+		},
+		get rateLimit() {
+			return state.rateLimit;
+		},
+		set rateLimit(value) {
+			state.rateLimit = value;
+		}
+	};
+}

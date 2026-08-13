@@ -20,7 +20,7 @@ mirrors an owned namespace and preserves the rest), with amendment banners on AD
 
 Overall status: `In Progress`
 
-Current ticket: 01
+Current ticket: 02
 
 Last updated: 2026-08-12
 
@@ -49,7 +49,7 @@ docs, and nothing else.
 
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
-| 01 | [01-a-fake-github-and-blob-shas-that-agree-with-git.md](./tickets/01-a-fake-github-and-blob-shas-that-agree-with-git.md) | In Progress | — |
+| 01 | [01-a-fake-github-and-blob-shas-that-agree-with-git.md](./tickets/01-a-fake-github-and-blob-shas-that-agree-with-git.md) | Completed | — |
 | 02 | [02-a-workspace-becomes-a-commit.md](./tickets/02-a-workspace-becomes-a-commit.md) | Not Started | 01 |
 | 03 | [03-a-workspace-is-bound-to-a-remote.md](./tickets/03-a-workspace-is-bound-to-a-remote.md) | Not Started | 02 |
 | 04 | [04-publish-from-the-navigation-bar.md](./tickets/04-publish-from-the-navigation-bar.md) | Not Started | 03 |

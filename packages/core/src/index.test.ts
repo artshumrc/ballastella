@@ -111,3 +111,18 @@ it('resolves and exposes the Base Map surface from the package entry point', () 
 	expect(typeof core.baseMapStyle).toBe('function');
 	expect(core.BASE_MAP_CATALOG.entries.length).toBeGreaterThan(0);
 });
+
+// The blob SHA and the fake GitHub, reachable through the same barrel (ADR-0032). The fake is test
+// material in `src/` on the precedent of the store conformance suite and the directory-handle
+// fixture, and it is here rather than in each spec so that eleven tickets share one GitHub instead
+// of writing eleven that can disagree with each other.
+it('exposes the git blob SHA and the fake GitHub', () => {
+	expect(Object.keys(core)).toEqual(
+		expect.arrayContaining([
+			'GITHUB_API_ORIGIN',
+			'GITHUB_RAW_ORIGIN',
+			'createFakeGitHub',
+			'gitBlobSha'
+		])
+	);
+});
