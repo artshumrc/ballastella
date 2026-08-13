@@ -386,6 +386,17 @@ export {
 	type CloneRefusal,
 	type WorkspaceClone
 } from './remote/clone-from-remote.js';
+// Reviewing one Project out of a public repository (ADR-0024, ADR-0031). The Clone's sibling and
+// the bundle's: it needs no credential either, and what it makes is a throwaway Workspace that is
+// unbound and unpublishable.
+export {
+	ReviewRefusedError,
+	reviewFromRemote,
+	type ReviewFromRemoteOptions,
+	type ReviewReference,
+	type ReviewRefusal,
+	type ReviewedProject
+} from './remote/review-from-remote.js';
 // Which repository a Workspace publishes to, and the credential that may push there (ADR-0032,
 // ADR-0033). The rights check and the Pages enablement happen the moment a scholar names one, so
 // that "you cannot push here" is not discovered after four thousand tiles have gone.

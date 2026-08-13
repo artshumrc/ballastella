@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import {
 		describeBytes,
+		parseRemoteReference,
 		unusedHistoricalMaps,
 		type ProjectSummary,
 		type WorkspaceHistoricalMap
@@ -73,6 +74,72 @@
 	 * back on. Same shape as {@link cacheStatusLine} below, for the same reason and the same rule.
 	 */
 	let bundleNoticeLine: HTMLElement | null = $state(null);
+
+	/**
+	 * The "review a Project from a Remote" dialog (SPEC story 50, ADR-0031).
+	 *
+	 * ⚠ **Beside the bundle's button and not beside Clone's, because it is the bundle's operation.**
+	 * A Clone makes a Workspace of the user's own that they may go on working in, which is why it
+	 * lives in the Remote dialog with the binding. This makes a *review copy*, from a link somebody
+	 * sent — the same throwaway, unbound, unpublishable Workspace `open-bundle` makes, differing only
+	 * in where the bytes come from — so it is offered where the reader already looks for "somebody
+	 * sent me a Project", and it is absent inside a review copy for the identical reason.
+	 *
+	 * The two fields are the two halves of what a colleague sends: the repository, and **which
+	 * Project in it**, because a Remote holds a whole Workspace and the unit here is one Project.
+	 */
+	let reviewingRemote = $state(false);
+	let reviewRepository = $state('');
+	let reviewProject = $state('');
+	/** Why the last Review did not happen, or `''`. Every refusal has left nothing behind. */
+	let reviewError = $state('');
+	/** Whether a Review is running, so the button cannot be pressed twice. */
+	let reviewBusy = $state(false);
+
+	const startReviewingRemote = () => {
+		reviewRepository = '';
+		reviewProject = '';
+		reviewError = '';
+		bundleNotice = '';
+		reviewingRemote = true;
+	};
+
+	const cancelReviewingRemote = () => {
+		if (reviewBusy) return;
+		reviewingRemote = false;
+		reviewError = '';
+	};
+
+	/**
+	 * Download the named Project into a new review copy and switch to it.
+	 *
+	 * Nothing here decides where it goes or what it may do: `reviewFrom` makes the Workspace, marks
+	 * it, and discards the whole thing if anything goes wrong — so a Review that is turned away leaves
+	 * the user exactly where they were with everything they had. The notice is shared with the
+	 * bundle's, because both sentences describe the same thing: which review copy you are now in.
+	 */
+	const runReviewRemote = async () => {
+		if (reviewBusy || !storage) return;
+		const reference = parseRemoteReference(reviewRepository);
+		if (reference === null) {
+			reviewError =
+				`“${reviewRepository.trim()}” is not a repository address. It looks like ` +
+				`“owner/repository” — the two parts after github.com in your browser's address bar — and ` +
+				`the whole of that address works too.`;
+			return;
+		}
+		reviewError = '';
+		reviewBusy = true;
+		try {
+			bundleNotice = (await storage.reviewFrom({ ...reference, project: reviewProject.trim() }))
+				.notice;
+			reviewingRemote = false;
+		} catch (cause) {
+			reviewError = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			reviewBusy = false;
+		}
+	};
 
 	/**
 	 * What being on — or off — the Front Page means, in the words the user reads beside the control.
@@ -398,6 +465,15 @@
 			{#if review === null}
 				<button class="btn" data-testid="open-bundle" onclick={startOpeningBundle}>
 					Open a Project someone sent me…
+				</button>
+				<!--
+					The same operation from a Remote rather than from a file (SPEC story 50). Absent inside
+					a review copy for the reason above and one more: a reviewer who follows a second link
+					from inside the first would accumulate review copies, which is the mental model
+					ADR-0024 exists to prevent.
+				-->
+				<button class="btn" data-testid="review-remote" onclick={startReviewingRemote}>
+					Review a Project from GitHub…
 				</button>
 			{/if}
 			<button class="btn btn-primary" onclick={startCreating}>New Project</button>
@@ -860,6 +936,82 @@
 			disabled={!chosen?.length}
 		>
 			{bundleBusy ? 'Opening…' : 'Open in a review copy'}
+		</button>
+	{/snippet}
+</ModalDialog>
+
+<ModalDialog
+	bind:open={
+		() => reviewingRemote, (open) => (open ? (reviewingRemote = true) : cancelReviewingRemote())
+	}
+	title="Review a Project from GitHub"
+	restoreFocusTo={() => bundleNoticeLine}
+>
+	<label class="floating-label">
+		<span>Repository</span>
+		<input
+			class="input w-full"
+			data-testid="review-repository-field"
+			placeholder="owner/repository"
+			autocomplete="off"
+			spellcheck="false"
+			bind:value={reviewRepository}
+		/>
+	</label>
+	<label class="floating-label mt-4">
+		<span>Project folder</span>
+		<!-- A Project's identity is its folder rather than its display name (ADR-0008), and the folder
+		     is the part after the address in the link a colleague sends. Said plainly below, because a
+		     scholar who was told "look at my Amsterdam one" has been given the other name. -->
+		<input
+			class="input w-full"
+			data-testid="review-project-field"
+			placeholder="amsterdam-1625"
+			autocomplete="off"
+			spellcheck="false"
+			bind:value={reviewProject}
+		/>
+	</label>
+	<p class="mt-3 text-sm opacity-70" data-testid="review-remote-consequence">
+		This opens into a separate <strong>review copy</strong> — a throwaway Workspace holding only that
+		Project and the Historical Maps and Alignments it uses. It has to be a public repository, and you
+		do not need a GitHub account or a token. Nothing in this Workspace is changed, nothing from the review
+		copy can be brought back into it, and a review copy is never published.
+	</p>
+	{#if storage?.transfer && reviewBusy}
+		<!-- Per-file progress, announced: a Historical Map's pyramid is thousands of files over real
+		     minutes, and this is one of the places a scholar waits on something they cannot see
+		     (workspace-and-layers SPEC story 96). `role="status"` so it reaches assistive technology
+		     without interrupting — the hub's own live region is `aria-live="polite"` and this dialog is
+		     over it, so there is exactly one status role on screen. -->
+		<p role="status" class="mt-3 text-sm" data-testid="review-progress">
+			{storage.transfer.files} of {storage.transfer.totalFiles} files downloaded from
+			{storage.transfer.subject}.
+		</p>
+	{/if}
+	{#if reviewError}
+		<!-- The refusals: no such public repository, no Project by that name, a truncated file list,
+		     no room to hold it, bytes that are not the ones the file list named, or ADR-0010's Project
+		     from a newer version. Each one has left no review copy behind. -->
+		<div role="alert" class="mt-4 alert flex-col items-start alert-error">
+			<p data-testid="review-error">{reviewError}</p>
+		</div>
+	{/if}
+	{#snippet actions()}
+		<button class="btn" onclick={cancelReviewingRemote}>Cancel</button>
+		<!-- `aria-disabled` for the *busy* half rather than `disabled`, which leaves the tab order the
+		     moment it is pressed and drops a keyboard user's focus to `<body>` for the length of the
+		     download (WCAG 2.4.3). `disabled` is still right for the empty fields, which have never
+		     been pressed. -->
+		<button
+			class="btn btn-primary"
+			class:btn-disabled={reviewBusy}
+			aria-disabled={reviewBusy}
+			data-testid="confirm-review-remote"
+			onclick={() => !reviewBusy && runReviewRemote()}
+			disabled={reviewRepository.trim() === '' || reviewProject.trim() === ''}
+		>
+			{reviewBusy ? 'Downloading…' : 'Open in a review copy'}
 		</button>
 	{/snippet}
 </ModalDialog>
