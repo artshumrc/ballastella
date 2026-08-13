@@ -155,7 +155,7 @@ docs, and nothing else.
 | 08 | [08-review-a-project-from-a-remote.md](./tickets/08-review-a-project-from-a-remote.md) | Completed | 07 |
 | 09 | [09-the-front-page-leads-back-to-the-editor.md](./tickets/09-the-front-page-leads-back-to-the-editor.md) | Not Started | 06, 08 |
 | 10 | [10-a-github-app-and-the-broker.md](./tickets/10-a-github-app-and-the-broker.md) | Completed | 03 |
-| 11 | [11-the-jekyll-fence-follows-the-publish.md](./tickets/11-the-jekyll-fence-follows-the-publish.md) | Not Started | 04 |
+| 11 | [11-the-jekyll-fence-follows-the-publish.md](./tickets/11-the-jekyll-fence-follows-the-publish.md) | Completed | 04 |
 
 Tickets 06, 07, and 10 are independent of one another once 03 lands, and 06 needs only 02 — three parallel
 branches after the engine and the binding are in.

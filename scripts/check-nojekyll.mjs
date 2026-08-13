@@ -11,17 +11,15 @@
 // The file is an empty marker in `static/`, which is the least noticeable thing a repository can
 // contain: nothing imports it, no type mentions it, and deleting it breaks no build, no test, and
 // no lint. It would be removed as "an empty file nobody explained" and everything here would stay
-// green — because the failure is not ours. It happens on somebody else's host, in a repository we
-// do not hold, to a Reader who sees a blank page.
+// green — because the failure is not ours. It happens on somebody else's host, to a Reader who sees
+// a blank page.
 //
 // This deployment does not even exercise it: `.github/workflows/pages.yml` uploads an artifact and
 // `actions/deploy-pages` never runs Jekyll, so the editor's own site is fine with or without the
-// file. **The site that needs it is the author's.** Publishing writes `.nojekyll` into the user's
-// Workspace beside `index.html` and `_app/` (`VIEWER_FILE_PATHS`), and that folder is pushed to a
-// repository of their own with no workflow of ours in it — the default branch deploy, where Jekyll
-// runs. So the one deployment that proves this file is the one we never see.
+// file. **The site that needs it is the author's** — their Remote, served by the default branch
+// deploy, where Jekyll runs.
 //
-// So there are two links, and they are carried by different mechanisms on purpose.
+// So there are three links, carried by different mechanisms on purpose.
 //
 //   1. **The editor's own build** ships the marker from `apps/editor/static/`, for a forker who
 //      chooses a branch deploy over `pages.yml`. Checked here, against built output rather than
@@ -34,10 +32,17 @@
 //      under `vite preview`, which serves no dotfiles, and the same on any static host that hides
 //      them. See the note on `JEKYLL_OFF_MARKER_FILE` in `publish/publish.ts`.
 //
-// Link 2 is asserted where it lives — `publish.test.ts` checks `VIEWER_FILE_PATHS` against what
-// `publishSite` actually wrote, in both directions, so the marker cannot be dropped from either side
-// without a red test. This script does not re-assert it, but it does check that the constant still
-// says `.nojekyll`, because everything downstream is spelled from it.
+//   3. **Every commit a Publish writes** carries the marker at the tree root, authored by
+//      `planRemotePublish` whether or not the Workspace holds one. This is the end of the chain: the
+//      repository that needs the file is one this code now writes to, so it is the last point at
+//      which the property can be checked at all.
+//
+// Links 2 and 3 are asserted where they live, against what was actually written — `publish.test.ts`
+// checks `VIEWER_FILE_PATHS` against what `publishSite` wrote, and `publish-to-remote.test.ts` reads
+// the marker out of *every* commit a publish sent to the fake GitHub, with a commit that publish did
+// not write as its control. This script re-asserts neither, because neither is visible to a script:
+// it checks that the constant still says `.nojekyll` and that the publish engine still spells its
+// file from that constant, because everything downstream is spelled from that name.
 //
 // **It also refuses the arrangement that broke**: a marker inside the staged viewer bundle means
 // somebody has put it back in `apps/viewer/static/`, and publishing is fetching it again.
@@ -83,6 +88,7 @@ const MARKER = markerName(repoRoot);
 
 const editorBuild = path.join(repoRoot, 'apps/editor/build');
 const bundleIndex = path.join(repoRoot, 'apps/editor/static/viewer-bundle/bundle.json');
+const publishEngine = 'packages/core/src/remote/publish-to-remote.ts';
 
 const problems = [];
 
@@ -125,6 +131,26 @@ if (!existsSync(bundleIndex)) {
 	}
 }
 
+// Link 3: the engine that publishes to a Remote authors the marker into every commit. What that
+// commit *held* is a runtime fact, asserted against the fake in `publish-to-remote.test.ts`; what a
+// script can see is that the engine still names the constant at all. It stops naming it the moment
+// the block that writes it goes — the import would be unused, and the next hand to tidy that removes
+// the last mention.
+if (!existsSync(path.join(repoRoot, publishEngine))) {
+	problems.push(`${publishEngine} does not exist, so this check could not run.`);
+} else if (
+	!readFileSync(path.join(repoRoot, publishEngine), 'utf8').includes('JEKYLL_OFF_MARKER')
+) {
+	problems.push(
+		`${publishEngine} no longer names JEKYLL_OFF_MARKER, so a Publish may be sending commits\n` +
+			`  with no ${MARKER} in them.\n` +
+			`  Every commit a Publish writes must carry it at the tree root, whether or not the\n` +
+			`  Workspace holds one — the Remote is served by a branch deploy, which runs Jekyll, and\n` +
+			`  a Reader would meet a blank page.\n` +
+			`  See the ${MARKER} assertions in packages/core/src/remote/publish-to-remote.test.ts.`
+	);
+}
+
 if (problems.length > 0) {
 	console.error(
 		`\n${MARKER} is not arranged as it has to be:\n\n` +
@@ -135,5 +161,6 @@ if (problems.length > 0) {
 }
 
 console.log(
-	`OK: ${MARKER} ships in the editor's build, and publishing authors it rather than fetching it.`
+	`OK: ${MARKER} ships in the editor's build, publishing authors it rather than fetching it, and ` +
+		`the engine that publishes to a Remote still spells it from the constant.`
 );

@@ -228,6 +228,18 @@ describe('the fake GitHub', () => {
 			]);
 		});
 
+		it('reads an earlier commit’s files, not only the ones that survived to the head', async () => {
+			// A property claimed of *every* commit — `.nojekyll` in each one a publish writes — cannot
+			// be asked of the branch alone, because the branch is one commit.
+			const first = await commitThrough(github, { 'a.txt': utf8('a') });
+			await commitThrough(github, { 'b.txt': utf8('b') });
+
+			expect([[...github.files(first.commit).keys()], [...github.files().keys()]]).toEqual([
+				['a.txt'],
+				['b.txt']
+			]);
+		});
+
 		it('answers the branch ref with the commit a publish has to parent onto', async () => {
 			const { commit } = await commitThrough(github, { 'a.txt': utf8('a') });
 

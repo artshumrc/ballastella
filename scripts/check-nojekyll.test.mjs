@@ -33,7 +33,8 @@ const checkPath = path.join(repoRoot, 'scripts/check-nojekyll.mjs');
  * A tree shaped like a built repository.
  *
  * @param defect one of `'editor'` (no marker in the editor's build), `'staged'` (the marker back
- *   inside the viewer bundle), `'constant'` (the exported name gone), or `null` for a sound tree.
+ *   inside the viewer bundle), `'constant'` (the exported name gone), `'engine'` (the Remote publish
+ *   engine no longer naming the marker), or `null` for a sound tree.
  */
 function fixture(defect) {
 	const root = mkdtempSync(path.join(tmpdir(), 'nojekyll-'));
@@ -57,6 +58,16 @@ function fixture(defect) {
 		files.push({ path: '.nojekyll', source: 'viewer-bundle/.nojekyll', bytes: 0 });
 	}
 	write('apps/editor/static/viewer-bundle/bundle.json', JSON.stringify({ version: 'v', files }));
+
+	// The engine a Publish runs. The defect is the one that would actually happen: the block that
+	// authors the marker is deleted, and with it the last mention of the constant.
+	write(
+		'packages/core/src/remote/publish-to-remote.ts',
+		defect === 'engine'
+			? 'export const publishToRemote = async () => {};\n'
+			: "import { JEKYLL_OFF_MARKER } from '../transfer/viewer-files.js';\n" +
+					'export const publishToRemote = async () => JEKYLL_OFF_MARKER;\n'
+	);
 
 	return root;
 }
@@ -110,13 +121,36 @@ test('a renamed constant is refused rather than silently looked past', () => {
 	});
 });
 
+test('a Publish engine that no longer writes the marker is refused', () => {
+	// Link 3, and the end of the chain: the Remote is served by a branch deploy, so a commit without
+	// the marker is a blank page on the scholar's own address.
+	withFixture('engine', ({ status, output }) => {
+		assert.equal(status, 1);
+		assert.match(output, /publish-to-remote\.ts no longer names JEKYLL_OFF_MARKER/);
+	});
+});
+
+// Each of the three links reports its own absence with the same "could not run", so both tests below
+// name the file: matching the phrase alone, they would pass on any of the three going missing.
+test('a missing Publish engine is a failure, not a pass', () => {
+	const root = fixture(null);
+	try {
+		rmSync(path.join(root, 'packages/core/src/remote/publish-to-remote.ts'), { force: true });
+		const { status, output } = run(root);
+		assert.equal(status, 1);
+		assert.match(output, /publish-to-remote\.ts does not exist, so this check could not run/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test('a missing build is a failure, not a pass', () => {
 	const root = fixture(null);
 	try {
 		rmSync(path.join(root, 'apps/editor/build'), { recursive: true, force: true });
 		const { status, output } = run(root);
 		assert.equal(status, 1);
-		assert.match(output, /could not run/);
+		assert.match(output, /apps\/editor\/build does not exist, so this check could not run/);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

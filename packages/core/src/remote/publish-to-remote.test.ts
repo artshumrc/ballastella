@@ -1265,3 +1265,57 @@ describe('a publish that would overwrite another machine', () => {
 		});
 	});
 });
+
+// SPEC's `.nojekyll` decision asserted from the outside rather than trusted: *written by every
+// publish, unconditionally*. The chain `scripts/check-nojekyll.mjs` follows ends here — in a
+// repository this code writes to — so this is the last point at which the property can be checked at
+// all. Its absence is a blank page on a scholar's own domain with the reason only in a browser
+// console (story 61), and nothing in this repository's own deployment would ever show it.
+describe('the Jekyll marker every publish writes', () => {
+	/** A commit's root entries, which is the only place a branch deploy reads `.nojekyll` from. */
+	const rootPaths = (github: FakeGitHub, commit: string): string[] =>
+		[...github.files(commit).keys()].filter((path) => !path.includes('/'));
+
+	it('is at the root of every commit a publish writes, and of no commit it did not', async () => {
+		const store = await smallWorkspace();
+		// The case the engine authors one for: nothing in the Workspace is called this.
+		expect(await store.list('')).not.toContain('.nojekyll');
+		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+		const ancestor = github.head() ?? '';
+
+		const first = await publish(store, github);
+		// The manifest a real second publish carries: without it the conflict check has no record of
+		// this Remote and refuses, which is ticket 05's behaviour and not this test's subject.
+		const second = await publish(store, github, first.manifest);
+
+		expect(github.history()).toEqual([second.commit, first.commit, ancestor]);
+		expect([rootPaths(github, first.commit), rootPaths(github, second.commit)]).toEqual([
+			['.nojekyll', 'README.md', 'ballastella-site.json', 'index.html'],
+			['.nojekyll', 'README.md', 'ballastella-site.json', 'index.html']
+		]);
+		expect(github.files(first.commit).get('.nojekyll')?.byteLength).toBe(0);
+		// ⚠ The positive control. A reader that answered the same for every commit would satisfy the
+		// two assertions above, and a fence that cannot fail is `exit 0` spelled at length. The
+		// ancestor is a commit this code did not write, and the same reader says it has no marker.
+		expect(rootPaths(github, ancestor)).toEqual(['README.md']);
+	});
+
+	it('is planned once when the Workspace already holds one, rather than twice', async () => {
+		// ⚠ Asserted on the **plan**, because the commit cannot answer this: a tree is a map, so a
+		// second entry for the same path is gone before any reader of it can see one. The plan's file
+		// list is what the upload loop walks and what the tree is built from, so a duplicate there is a
+		// second read of the file and a second entry posted to `POST /git/trees` for the same path.
+		const store = await seeded({ '.nojekyll': '', 'index.html': '<!doctype html>' });
+		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+
+		const plan = await planRemotePublish(store, {
+			token: TOKEN,
+			remote: REMOTE,
+			fetch: github.fetch
+		});
+
+		expect(plan.files.map((file) => file.path)).toEqual(['.nojekyll', 'index.html']);
+		// And it is the Workspace's own file rather than an authored one standing beside it.
+		expect(plan.files.map((file) => file.authored)).toEqual([false, false]);
+	});
+});
