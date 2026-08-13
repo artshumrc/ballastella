@@ -123,6 +123,25 @@ export interface FakeGitHub {
 	 */
 	refuseWrites: boolean;
 
+	/**
+	 * Answer 401 `Bad credentials` to every API request that carries a credential.
+	 *
+	 * An expired or revoked token, which is a different failure from {@link refuseWrites}: that one
+	 * is a good token without a permission, and this one is a token GitHub will not look at. Requests
+	 * carrying **no** credential are unaffected, as on the real API — a public repository's metadata
+	 * and file list stay readable, which is what Clone and Review depend on.
+	 */
+	rejectCredential: boolean;
+
+	/**
+	 * Answer 403 to `POST /pages`: a token with `contents: write` and no `pages: write`.
+	 *
+	 * Separate from {@link refuseWrites} because Pages enablement is a different permission from the
+	 * git database's, and the common token a scholar makes by hand has the second and not the first —
+	 * so a repository fills with correct files and serves nothing (story 6).
+	 */
+	refusePages: boolean;
+
 	/** What `GET /repos/{owner}/{repo}` reports. Independent of {@link refuseWrites} on purpose. */
 	permissions: FakeRepositoryPermissions;
 
@@ -216,6 +235,8 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	const state = {
 		truncateAfter: null as number | null,
 		refuseWrites: false,
+		rejectCredential: false,
+		refusePages: false,
 		permissions: { push: true, admin: true } as FakeRepositoryPermissions,
 		pagesEnabled: false,
 		rateLimit: {
@@ -342,6 +363,18 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	const problem = (status: number, message: string): Response => json({ message }, status);
 	const notFound = (message = 'Not Found') => problem(404, message);
 
+	/**
+	 * What a read of the git database answers for a ref it cannot resolve.
+	 *
+	 * ⚠ **A repository with no commits answers 409 `Git Repository is empty.`, not 404**, and the
+	 * difference decides whether a first publish to a repository the scholar created a moment ago
+	 * works at all: read as an ordinary failure it stops the publish at plan time, with a message
+	 * about a repository that is perfectly fine. A repository that has branches but not this one is
+	 * the 404 it always was.
+	 */
+	const emptyOrMissing = (ref: string): Response =>
+		refs.size === 0 ? problem(409, 'Git Repository is empty.') : notFound(`${ref} is not a ref.`);
+
 	const answerApi = async (
 		url: URL,
 		method: string,
@@ -377,19 +410,43 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			);
 
 		if (rest.length === 0 && method === 'GET') {
-			return json({ permissions: { ...state.permissions } });
+			// ⚠ **`permissions` is on an authenticated read and on no other**, because it reports what
+			// *this caller* may do and an anonymous read of a public repository has no caller to report
+			// on. A fake that sent it regardless would answer "you may push" to a request carrying no
+			// token at all, which is the one field deciding whether the scholar is told the credential
+			// cannot push (ADR-0033).
+			return json(credentialed ? { permissions: { ...state.permissions } } : {});
 		}
 
 		if (rest[0] === 'pages' && rest.length === 1 && method === 'POST') {
 			// Outside `write`, which is the git database's own switch: `refuseWrites` models a token
 			// without `contents: write`, and Pages enablement turns on a different permission entirely.
 			return authenticated(async () => {
+				// Authorisation before validation, as on the real endpoint: a token without
+				// `pages: write` is refused whatever state the repository is in.
+				if (state.refusePages) {
+					return problem(403, 'Resource not accessible by personal access token');
+				}
 				if (state.pagesEnabled) {
 					return problem(409, 'GitHub Pages is already enabled for this repo.');
 				}
 				const { source } = (await body()) as { source?: { branch?: string; path?: string } };
 				if (typeof source?.branch !== 'string' || typeof source.path !== 'string') {
 					return problem(400, 'Enabling Pages needs a source branch and path.');
+				}
+				// ⚠ **A source branch that does not exist is a 422, not a 403.** A repository created at
+				// `github.com/new` with no README has no branches at all, and that is precisely the
+				// repository the "create it yourself" link hands a scholar back from. Modelled because
+				// the two failures need opposite sentences: one is a permission to grant, and the other
+				// is a branch that appears by itself at the first publish.
+				if (!refs.has(source.branch)) {
+					return json(
+						{
+							message: 'Validation Failed',
+							errors: [{ resource: 'PagesSourceHash', field: 'source', code: 'invalid' }]
+						},
+						422
+					);
 				}
 				state.pagesEnabled = true;
 				return json({ source }, 201);
@@ -406,15 +463,18 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			// SHA and the ref would not move at all.
 			const branch = rest.slice(3).join('/');
 			const at = refs.get(branch);
-			// 404, as the real endpoint answers for a branch that does not exist, which is how an empty
-			// repository is told apart: the first publish creates the ref rather than moving it.
-			if (at === undefined) return notFound('Not Found');
+			// An empty repository and a missing branch are **different statuses**, and both mean the
+			// first publish creates the ref rather than moving it. A repository with no branches at all
+			// answers 409 `Git Repository is empty.` — the one `github.com/new` makes with no README —
+			// and one that has branches but not this one answers 404.
+			if (at === undefined) return emptyOrMissing(branch);
 			return json({ ref: `refs/heads/${branch}`, object: { sha: at, type: 'commit' } });
 		}
 
 		if (rest[1] === 'trees' && rest.length > 2 && method === 'GET') {
-			const tree = resolveTree(rest.slice(2).join('/'));
-			if (tree === null) return notFound('Not Found');
+			const ref = rest.slice(2).join('/');
+			const tree = resolveTree(ref);
+			if (tree === null) return emptyOrMissing(ref);
 
 			const recursive = url.searchParams.get('recursive');
 			// A listing that is not recursive holds the top level only, which is how an engine that
@@ -599,6 +659,12 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		}
 		state.rateLimit.remaining -= 1;
 
+		// A token GitHub will not look at, refused wherever it is sent — and only where one *was*
+		// sent, so an anonymous read of a public repository still works while a revoked token is in
+		// play. Whether a token is any *good* is a question only GitHub can answer; this is the answer
+		// it gives, in its own words.
+		if (state.rejectCredential && bearsToken(request)) return problem(401, 'Bad credentials');
+
 		// Read lazily: a request with no body must not be made to have one, and a router branch that
 		// never reads the body must not fail on a malformed one it was never going to look at.
 		return answerApi(url, request.method.toUpperCase(), bearsToken(request), async () => {
@@ -652,6 +718,18 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		},
 		set refuseWrites(value) {
 			state.refuseWrites = value;
+		},
+		get rejectCredential() {
+			return state.rejectCredential;
+		},
+		set rejectCredential(value) {
+			state.rejectCredential = value;
+		},
+		get refusePages() {
+			return state.refusePages;
+		},
+		set refusePages(value) {
+			state.refusePages = value;
 		},
 		get permissions() {
 			return state.permissions;

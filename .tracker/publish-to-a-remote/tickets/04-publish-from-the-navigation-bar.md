@@ -117,6 +117,32 @@ pnpm lint
 
 Success: `editor-publish` passes including the new cases. Run by spec name, not file:line.
 
+## Carried over from ticket 03: a stale "Signed in to GitHub"
+
+**Recorded here rather than fixed there, and it must not survive this ticket silently.**
+
+`readRemoteRights` runs at exactly two moments — binding, and signing in — so what the bar means by
+"Signed in to GitHub" is *a credential is held*, never *a credential still works*. A token that has
+since expired, been revoked, or had its repository access withdrawn reads "Signed in to GitHub"
+indefinitely. In ticket 03 that costs nothing: nothing publishes, so the worst outcome is a label.
+
+This ticket is where it starts costing something, because the Publish control's states are settled
+here and two of them are read off that same fact. "Bound, credential" is the state that leads
+straight to an upload, and a credential that GitHub will no longer accept turns it into a refusal
+discovered after the dialog has opened — or, on a large Workspace, after tiles have gone.
+
+Decide it deliberately, and write down which was chosen:
+
+- re-check the rights when the publish dialog opens, so the state is read from GitHub rather than
+  from what was true an hour ago; or
+- leave the label alone and make the *refusal* carry it — a 401 during a publish says the sign-in has
+  expired, offers the paste, and clears the credential rather than reporting "GitHub refused this
+  publish".
+
+What is not acceptable is the third outcome, which is what happens if nobody looks: the bar says
+signed in, Publish is offered, and the scholar learns otherwise from a message about a repository
+that is perfectly fine.
+
 ## Blocked by
 
 - Ticket 03

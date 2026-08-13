@@ -21,6 +21,7 @@ import {
 import { describeBytes } from '../project/workspace-size.js';
 import { hoistedImageId, isReservedDirectoryName, toDirectoryName } from '../project/workspace.js';
 import { REFERENCED_IMAGE_FILE } from '../remote-iiif/referenced-image.js';
+import { REMOTE_BINDING_PATH } from '../remote/remote-binding.js';
 import type { Bytes, ProjectStore, StorePath } from '../store/project-store.js';
 import {
 	BundleRejectedError,
@@ -388,6 +389,20 @@ async function drainInto(
 		}
 
 		assertSafeBundlePath(header.name);
+
+		// ⚠ **An opened bundle arrives unbound** (SPEC story 42, ADR-0032), and the drop is explicit
+		// here as it is on the restore path rather than left to follow from where a bundle's entries
+		// happen to land. Structurally a root `remote.json` would go inside the Project's own directory
+		// and could never reach the Workspace root, so today this changes no behaviour — but "no route
+		// exists" is a property of the hoisting rules rather than a rule anybody stated, and the two
+		// arrival paths saying the same thing in the same words is what keeps it true. The root entry
+		// only: `images/<id>/remote.json` is a referenced IIIF image's own document (ADR-0007) and is
+		// exactly the file a Project with a referenced Historical Map needs to be readable at all.
+		if (header.name === REMOTE_BINDING_PATH) {
+			await body.cancel();
+			continue;
+		}
+
 		const content = await collect(body);
 
 		if (header.name === PROJECT_FILE_NAME) {

@@ -38,6 +38,7 @@ import { topLevelSegment, type Bytes, type ProjectStore } from '../store/project
 import { JEKYLL_OFF_MARKER, isViewerFile } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN } from './github-api.js';
+import { REMOTE_BINDING_PATH } from './remote-binding.js';
 
 /**
  * The most files a publish will put in one commit.
@@ -215,14 +216,6 @@ const COMMIT_MESSAGE = 'Publish from Ballastella';
 const OWNED_DIRECTORIES = [`${IMAGE_DIRECTORY}/`, `${ALIGNMENT_DIRECTORY}/`];
 
 /**
- * The Workspace's binding document, which is inside the published tree deliberately (ADR-0033).
- *
- * Named and never read here: ticket 03 owns what is in it. What matters to a publish is only that
- * the path is ours, so a Workspace that has been unbound does not leave a stale one on the Remote.
- */
-const REMOTE_BINDING_NAME = 'remote.json';
-
-/**
  * Every top-level directory **the Remote** holds a `project.json` in.
  *
  * ⚠ **The Remote's tree, never the local Workspace's.** That is the whole of how a Project deleted
@@ -251,7 +244,9 @@ function remoteProjectDirectories(paths: Iterable<string>): Set<string> {
  */
 function isOwnedPath(path: string, remoteProjects: ReadonlySet<string>): boolean {
 	if (isViewerFile(path)) return true;
-	if (path === REMOTE_BINDING_NAME) return true;
+	// The binding document is inside the published tree deliberately (ADR-0033), so it is ours to
+	// replace and ours to remove: a Workspace that has been unbound must not leave a stale one there.
+	if (path === REMOTE_BINDING_PATH) return true;
 	if (OWNED_DIRECTORIES.some((directory) => path.startsWith(directory))) return true;
 	return path.includes('/') && remoteProjects.has(topLevelSegment(path));
 }
@@ -383,6 +378,11 @@ function encodeBase64(bytes: Uint8Array): string {
  */
 async function readHead(api: RemoteApi, remote: RemoteRepository): Promise<string | null> {
 	const response = await api.call(`/git/ref/heads/${branchPath(remote.branch)}`);
+	// ⚠ **409 `Git Repository is empty.` is how GitHub reports a repository with no commits**, and it
+	// is not 404. That is the repository `github.com/new` makes when the scholar leaves the README
+	// unticked — the sequence ticket 03's "create the repository" link walks them through — so read as
+	// an ordinary refusal it kills the *first* publish, the one publish nobody can have got wrong yet.
+	if (response.status === 409) return null;
 	if (response.status === 404) {
 		// ⚠ GitHub answers 404 for a repository that does not exist *and* for one the credential
 		// cannot see, so a typo'd name and a revoked token look exactly like an empty repository here.
@@ -597,38 +597,56 @@ export async function publishToRemote(
 		resetAt: plan.requestsResetAt
 	});
 
-	const uploads = blobsToUpload(plan.files);
+	// ⚠ **The publish pass is authoritative; the plan is a forecast.** This editor autosaves
+	// continuously and a pyramid upload runs for minutes, so a file the plan hashed can be different
+	// bytes by the time it is sent — and deciding what to upload from the plan's `onRemote` flag, then
+	// committing the plan's SHA, fails two silent ways. Either the old blob is not on the Remote and
+	// `POST /git/trees` 422s *after every blob has been uploaded*, or the old blob **is** there from a
+	// previous publish, the commit succeeds, and the Published Site serves the pre-edit content while
+	// the publish reports success. So every file is re-read here, hashed again, and the tree is built
+	// from what was actually sent.
+	const held = new Set([
+		...plan.files.filter((file) => file.onRemote).map((file) => file.sha),
+		...plan.preserved.map((entry) => entry.sha)
+	]);
+	// The plan's count is what the user was shown before pressing the button, so it stays the
+	// denominator. A file edited mid-publish can push the numerator past it, and "10 of 9" is a worse
+	// answer to a scholar than a forecast that turned out one short.
+	const forecast = blobsToUpload(plan.files).length;
 	let sent = 0;
+	const total = () => Math.max(forecast, sent);
 	const report = () =>
 		options.onProgress?.({
 			files: sent,
-			totalFiles: uploads.length,
+			totalFiles: total(),
 			requestsRemaining: api.budget.remaining
 		});
 
 	report();
-	for (const file of uploads) {
+	const entries: RemoteTreeEntry[] = [...plan.preserved];
+	for (const file of plan.files) {
 		const bytes = file.authored ? EMPTY_FILE : await store.read(file.path);
-		const response = await api.call('/git/blobs', {
-			method: 'POST',
-			body: JSON.stringify({ content: encodeBase64(bytes), encoding: 'base64' })
-		});
-		// No retry loop. A budget that has run out is not a transient failure, and hammering it is how
-		// a scholar's token gets a secondary rate limit on top of the one they already met.
-		if (!response.ok) throw await failureFrom(response, api, 'blobs', sent, uploads.length);
-		sent += 1;
-		report();
+		const computed = await gitBlobSha(bytes);
+		let sha = computed;
+		if (!held.has(computed)) {
+			const response = await api.call('/git/blobs', {
+				method: 'POST',
+				body: JSON.stringify({ content: encodeBase64(bytes), encoding: 'base64' })
+			});
+			// No retry loop. A budget that has run out is not a transient failure, and hammering it is
+			// how a scholar's token gets a secondary rate limit on top of the one they already met.
+			if (!response.ok) throw await failureFrom(response, api, 'blobs', sent, total());
+			// The name GitHub gave the object it stored is what the tree has to point at.
+			sha = await shaOf(response);
+			// Both, so a second path holding the same bytes is still one `POST /git/blobs` between them
+			// (ADR-0033's request budget) whichever spelling of the SHA it is recognised by.
+			held.add(computed);
+			held.add(sha);
+			sent += 1;
+			report();
+		}
+		entries.push({ path: file.path, sha, mode: BLOB_MODE, bytes: bytes.byteLength });
 	}
-
-	const entries: RemoteTreeEntry[] = [
-		...plan.preserved,
-		...plan.files.map((file) => ({
-			path: file.path,
-			sha: file.sha,
-			mode: BLOB_MODE,
-			bytes: file.bytes
-		}))
-	];
 
 	// The whole tree, never a `base_tree`. An incremental tree posted against the Remote's own would
 	// keep every path this publish means to delete — a deleted Project's pyramid still counted
@@ -645,7 +663,7 @@ export async function publishToRemote(
 			}))
 		})
 	});
-	if (!tree.ok) throw await failureFrom(tree, api, 'tree', sent, uploads.length);
+	if (!tree.ok) throw await failureFrom(tree, api, 'tree', sent, total());
 
 	const commit = await api.call('/git/commits', {
 		method: 'POST',
@@ -657,7 +675,7 @@ export async function publishToRemote(
 			parents: plan.head === null ? [] : [plan.head]
 		})
 	});
-	if (!commit.ok) throw await failureFrom(commit, api, 'commit', sent, uploads.length);
+	if (!commit.ok) throw await failureFrom(commit, api, 'commit', sent, total());
 	const commitSha = await shaOf(commit);
 
 	// The one moment anything becomes visible. An empty repository has no ref and gets one created.
@@ -671,7 +689,7 @@ export async function publishToRemote(
 					method: 'PATCH',
 					body: JSON.stringify({ sha: commitSha, force: false })
 				});
-	if (!moved.ok) throw await failureFrom(moved, api, 'ref', sent, uploads.length);
+	if (!moved.ok) throw await failureFrom(moved, api, 'ref', sent, total());
 
 	return {
 		commit: commitSha,

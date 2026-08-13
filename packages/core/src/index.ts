@@ -361,6 +361,45 @@ export {
 	type RemoteRepository,
 	type RemoteTreeEntry
 } from './remote/publish-to-remote.js';
+// Which repository a Workspace publishes to, and the credential that may push there (ADR-0032,
+// ADR-0033). The rights check and the Pages enablement happen the moment a scholar names one, so
+// that "you cannot push here" is not discovered after four thousand tiles have gone.
+export {
+	RemoteBindRefusedError,
+	bindWorkspaceToRemote,
+	enableRemotePages,
+	readRemoteRights,
+	type BindRemoteOptions,
+	type RemoteBindOutcome,
+	type RemoteBindRefusal,
+	type RemotePagesOutcome,
+	type RemoteReference,
+	type RemoteRights
+} from './remote/bind-remote.js';
+export {
+	DEFAULT_REMOTE_BRANCH,
+	REMOTE_BINDING_FORMAT_VERSION,
+	REMOTE_BINDING_PATH,
+	clearRemoteBinding,
+	describeRemote,
+	parseRemoteBinding,
+	parseRemoteReference,
+	readRemoteBinding,
+	serialiseRemoteBinding,
+	writeRemoteBinding,
+	type RemoteBinding
+} from './remote/remote-binding.js';
+// The credential lives behind this interface, outside `ProjectStore`, and is never reachable through
+// it: a token in the Workspace would be backed up, journalled, and published (ADR-0033). The two
+// implementations behind `browserCredentialStore` and the storage shape they take are deliberately
+// not here — the app composes the sealed store and asks it three questions, and ticket 10's
+// broker-exchanged token has to be a swap underneath rather than a second surface above.
+export {
+	browserCredentialStore,
+	closedWhileReviewing,
+	describeTokenProblem,
+	type CredentialStore
+} from './remote/credential-store.js';
 
 export {
 	ROUND_TRIP_TOLERANCE_PX,

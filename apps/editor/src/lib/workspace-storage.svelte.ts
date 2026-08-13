@@ -26,9 +26,20 @@ import {
 	discardJournal,
 	journalledWorkspaces,
 	workspacesWithDeletions,
+	bindWorkspaceToRemote,
+	browserCredentialStore,
+	clearRemoteBinding,
+	closedWhileReviewing,
+	readRemoteBinding,
+	readRemoteRights,
+	type CredentialStore,
 	type JournalStorage,
 	type OpenedBundle,
 	type ProjectStore,
+	type RemoteBindOutcome,
+	type RemoteBinding,
+	type RemoteReference,
+	type RemoteRights,
 	type RestoreDestination,
 	type ReviewDestination,
 	type ReviewMark,
@@ -64,8 +75,23 @@ const estimateStorage = async (): Promise<{ quota?: number; usage?: number } | n
 	return navigator.storage.estimate();
 };
 
-/** Where the Workspace is: browser-managed storage, or a folder the user can see. */
-export type WorkspaceBacking = 'browser' | 'folder';
+/**
+ * Where a Workspace can be: browser-managed storage, or a folder the user can see.
+ *
+ * ⚠ **Two members, and a Remote is not a third** (ADR-0032). A Workspace bound to a repository is
+ * still browser-backed or folder-backed; the binding is orthogonal and lives in a document at the
+ * Workspace root. A third member would mean a new case in `#adopt`, the journal keys, the switcher,
+ * `reopenable`, `canChooseFolder`, and `discard` — six sites where a mistake in the journal key is
+ * silent.
+ *
+ * **A value rather than only a type, so the rule is assertable.** A union written out as a type
+ * alias cannot be checked against itself — a test naming its two members is a test of what the test
+ * says — whereas this list is a thing a test can count, and every assignment in the app narrows
+ * against it. A third member either fails that test or fails to compile at each of the six sites.
+ */
+export const WORKSPACE_BACKINGS = ['browser', 'folder'] as const;
+
+export type WorkspaceBacking = (typeof WORKSPACE_BACKINGS)[number];
 
 /**
  * Which named Workspace browser storage was last opened in, kept across visits.
@@ -197,6 +223,28 @@ export class WorkspaceStorage {
 	 */
 	reviewWorkspaces = $state<string[]>([]);
 	/**
+	 * The repository this Workspace publishes to, or `null` when it is bound to nothing (ADR-0032).
+	 *
+	 * Read off the Workspace itself on every switch, exactly as {@link review} is and for the same
+	 * reason: the binding is a fact about the Workspace rather than about this tab, so it survives a
+	 * reload, travels into a folder on disk, and comes back out of a Clone.
+	 *
+	 * **Orthogonal to {@link backing}.** A Workspace in browser storage and a Workspace in a folder
+	 * may each have one, and nothing on this path asks which — `WorkspaceBacking` stays a two-member
+	 * union and gains no third member (ADR-0032).
+	 */
+	remote = $state<RemoteBinding | null>(null);
+	/**
+	 * Whether a push credential is held right now.
+	 *
+	 * Mirrored into reactive state rather than read from {@link #credentials} in the markup, because
+	 * the store is deliberately not reactive — it is an interface over web storage, and ticket 10
+	 * puts a second implementation behind it. Refreshed wherever either half of the answer can
+	 * change: a sign-in, a sign-out, and **every switch**, since the store is sealed inside a Review
+	 * Workspace and unsealed on the way out of one.
+	 */
+	signedIn = $state(false);
+	/**
 	 * The Workspace of the user's own to go back to, which is the banner's first exit.
 	 *
 	 * Never a Review Workspace — see {@link OWN_WORKSPACE_KEY}. An exit that led into another review
@@ -272,6 +320,23 @@ export class WorkspaceStorage {
 	 */
 	readonly #journalStorage: JournalStorage | null = browserJournalStorage();
 	/**
+	 * The push credential, sealed while a Review Workspace is open (ADR-0033, story 40).
+	 *
+	 * ⚠ **Not on the `EditorSession` and not in the `ProjectStore`.** A token inside the Workspace
+	 * would be walked by `exportWorkspaceTar` into a Backup the user mails to a colleague, copied
+	 * into the write-ahead journal, and uploaded by the first Publish. It is here, behind an
+	 * interface, so that ticket 10's broker-exchanged token is a swap rather than a second path.
+	 *
+	 * The seal is a wrapper rather than a check at each caller, because it has to hold for code
+	 * written later that never saw the rule: while a review copy is open this answers `null` to every
+	 * read and writes nothing, so a teacher opening a student's submission cannot reach their own
+	 * credential from inside it by any route.
+	 */
+	readonly #credentials: CredentialStore = closedWhileReviewing(
+		() => this.review !== null,
+		browserCredentialStore()
+	);
+	/**
 	 * Resolves once the arriving Workspace's journalled edits have been put back (ticket 20).
 	 *
 	 * ⚠ **Every read of a Project waits on this, and that is a correctness requirement rather than
@@ -336,6 +401,10 @@ export class WorkspaceStorage {
 			// banner would be absent on exactly the screen they most need it on.
 			.then(async () => {
 				this.review = await this.#markOf(this.session.store);
+				// Both facts about the arriving Workspace, read in the same breath as the mark and for
+				// the same reason: the first load never goes through `#adopt`, so a binding read only
+				// there would be missing on exactly the screen a reload lands on.
+				await this.#readRemote(this.session.store);
 				// And, when it turns out to be one of the user's own, it is the Workspace the banner's
 				// first exit goes back to. `#adopt` records that on every switch, but the Workspace a
 				// visit *starts* in never goes through it — so without this line a user who opened a
@@ -880,6 +949,94 @@ export class WorkspaceStorage {
 		refuseInsideReview(this.name, this.review, verb);
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE REMOTE, AND THE CREDENTIAL THAT MAY PUSH TO IT (ticket 03, ADR-0032, ADR-0033)
+	//
+	// Nothing here publishes; that is ticket 04. What this half delivers is that the app knows which
+	// repository this Workspace belongs to, knows whether it may write there, and holds a credential
+	// for the length of the tab.
+
+	/** Read the arriving Workspace's binding, and re-answer whether a credential is readable. */
+	async #readRemote(store: ProjectStore): Promise<void> {
+		// Never throws — an unreadable or absent `remote.json` is *unbound*, which is the safe
+		// direction here: the cost is binding again, and the cost the other way is a Publish button
+		// aimed at an address nobody checked.
+		this.remote = await readRemoteBinding(store);
+		this.#refreshCredential();
+	}
+
+	#refreshCredential(): void {
+		this.signedIn = this.#credentials.read() !== null;
+	}
+
+	/**
+	 * The credential a publish would use, or `null`. Always `null` inside a Review Workspace.
+	 *
+	 * A getter rather than reactive state: the token itself is never rendered, and holding a copy in
+	 * `$state` would put it somewhere a component could show it by accident.
+	 */
+	get credential(): string | null {
+		return this.#credentials.read();
+	}
+
+	/**
+	 * Bind this Workspace to a repository, and keep the credential **only if that worked**.
+	 *
+	 * The order is what makes "a rejected token is not stored" true: `bindWorkspaceToRemote` asks
+	 * GitHub before it writes anything, so a refusal leaves the Workspace unbound and this method
+	 * returns before the credential is written anywhere at all.
+	 *
+	 * @throws ReviewWorkspaceError for a review copy, RemoteBindRefusedError for GitHub's refusals
+	 */
+	async bindRemote(remote: RemoteReference, token: string): Promise<RemoteBindOutcome> {
+		const outcome = await bindWorkspaceToRemote(this.session.store, this.name, { token, remote });
+		this.#credentials.write(token);
+		this.remote = outcome.binding;
+		this.#refreshCredential();
+		return outcome;
+	}
+
+	/**
+	 * Supply a credential for the Remote this Workspace is already bound to (stories 30, 31).
+	 *
+	 * Validated against that repository rather than merely kept, so a mistyped paste is caught here
+	 * and not at the first Publish. Answers what it found out about the rights, which the screen says
+	 * out loud — the credential that reaches a repository and cannot push to it is the one worth
+	 * knowing about before four thousand tiles have gone.
+	 */
+	async signIn(token: string): Promise<RemoteRights> {
+		const binding = this.remote;
+		if (binding === null) {
+			throw new Error(
+				`“${this.name}” is not bound to a repository yet, so there is nothing to sign in to. ` +
+					`Bind it to one first.`
+			);
+		}
+		const rights = await readRemoteRights({ token, remote: binding });
+		this.#credentials.write(token);
+		this.#refreshCredential();
+		return rights;
+	}
+
+	/** Forget the credential, so this machine can be handed to somebody (story 37). */
+	signOut(): void {
+		this.#credentials.clear();
+		this.#refreshCredential();
+	}
+
+	/**
+	 * Forget which repository this Workspace publishes to.
+	 *
+	 * **Nothing on the Remote is touched.** Unbinding is this machine forgetting an address, never a
+	 * deletion of a published site — a scholar who unbinds and binds again is where they were, and
+	 * their Reader never saw anything happen. The credential is left alone too: it belongs to a GitHub
+	 * account rather than to this Workspace, and signing out is its own button.
+	 */
+	async unbindRemote(): Promise<void> {
+		await clearRemoteBinding(this.session.store);
+		this.remote = null;
+	}
+
 	/** A brand new browser-storage Workspace near `preferred`, and the way to throw it away. */
 	async #makeRestoreDestination(preferred: string): Promise<RestoreDestination> {
 		// `createOpfsWorkspace` rather than `ensureOpfsWorkspace`: it suffixes a taken name rather than
@@ -953,6 +1110,12 @@ export class WorkspaceStorage {
 		// A folder Workspace is never a review copy: a bundle only ever opens into browser storage, so
 		// there is no such file to ask a folder store for.
 		this.review = backing === 'folder' ? null : await this.#markOf(store);
+		// ⚠ **No branch on backing here, and that is the rule rather than an omission** (ADR-0032). A
+		// folder Workspace and a browser one may each be bound; the review mark is forced `null` for a
+		// folder above because a bundle only ever opens into browser storage, and no equivalent
+		// argument exists for a binding. Read after the mark, so the seal on the credential store is
+		// already answering for the arriving Workspace.
+		await this.#readRemote(store);
 
 		// Before `this.session` is published, so the route effect that re-runs on the swap waits for
 		// the arriving Workspace's replay rather than reading a Project out from under it.

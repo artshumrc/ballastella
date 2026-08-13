@@ -27,11 +27,12 @@
 	// be a throwaway Review Workspace, which is a thing a user must never be in doubt about.
 
 	import { resolve } from '$app/paths';
-	import { otherTheme } from '@ballastella/core';
+	import { describeRemote, otherTheme } from '@ballastella/core';
 	// Every one `aria-hidden`: each sits beside its own label, and an icon that names itself as well
 	// is the same word twice for a screen reader — and would change the accessible name the tests and
 	// a user's own "click the button called…" both go by (SPEC story 111).
 	import AppWindow from '@lucide/svelte/icons/app-window';
+	import Cloud from '@lucide/svelte/icons/cloud';
 	import Folder from '@lucide/svelte/icons/folder';
 	import FolderOpen from '@lucide/svelte/icons/folder-open';
 	import FolderSearch from '@lucide/svelte/icons/folder-search';
@@ -44,6 +45,7 @@
 
 	import MenuPopover from './MenuPopover.svelte';
 	import { pageChrome } from './page-chrome.svelte.js';
+	import RemoteSettings from './RemoteSettings.svelte';
 	import SaveIndicator from './SaveIndicator.svelte';
 	import WorkspaceSettings from './WorkspaceSettings.svelte';
 
@@ -69,6 +71,7 @@
 
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
 	let settingsOpen = $state(false);
+	let remoteOpen = $state(false);
 	/** The new-Workspace field, or `null` when it is not being asked for. */
 	let newName = $state<string | null>(null);
 	let newNameField = $state<HTMLInputElement | undefined>();
@@ -344,6 +347,28 @@
 						</li>
 					{/if}
 				{/if}
+				<!--
+					Where this Workspace publishes (ticket 03, ADR-0032).
+
+					⚠ **In the menu and nowhere else until it is bound.** A scholar who never publishes must
+					never meet a sign-in prompt (SPEC story 38), so nothing about GitHub is on the bar, on
+					the hub, or on any screen until they have opened this and named a repository. A menu
+					item behind a button they chose to press is not a prompt.
+
+					**Offered inside a review copy too, rather than hidden.** The refusal lives in
+					`packages/core` — a Review Workspace cannot be bound by any route — and the dialog says
+					why in words. An absent control explains nothing and teaches nobody the rule.
+				-->
+				<li>
+					<button
+						type="button"
+						data-testid="open-remote-settings"
+						onclick={() => fromMenu(() => (remoteOpen = true))}
+					>
+						<Cloud size={16} aria-hidden="true" class="shrink-0" />
+						Remote repository…
+					</button>
+				</li>
 				<li>
 					<button
 						type="button"
@@ -357,6 +382,31 @@
 			</MenuPopover>
 		{/if}
 	</div>
+
+	<!--
+		1a. Where this Workspace publishes, and whether anything may push there (SPEC story 36).
+
+		⚠ **Absent entirely until the Workspace is bound**, which is the whole of story 38: a scholar
+		who never publishes is never shown a sign-in prompt, so a first visit has no GitHub affordance
+		anywhere on the bar. Once bound, both facts are here because they answer one question —
+		*where will the button send my work, and as whom* — and separating them is how a scholar comes
+		to be sure of one and wrong about the other.
+
+		"Signed in" is read from the credential store rather than from anything remembered here, so it
+		says what is **true**: the store is sealed while a Review Workspace is open (ADR-0033, story
+		40), and a token that cannot be read is a token this bar must not claim to hold.
+	-->
+	{#if storage?.remote}
+		<div class="flex items-center gap-2 text-sm" data-testid="remote-identity">
+			<span class="opacity-70">Remote:</span>
+			<span class="max-w-[14rem] truncate font-medium" data-testid="remote-name">
+				{describeRemote(storage.remote)}
+			</span>
+			<span class="opacity-70" data-testid="remote-credential">
+				{storage.signedIn ? 'Signed in to GitHub' : 'Not signed in'}
+			</span>
+		</div>
+	{/if}
 
 	{#if newName !== null && storage !== null}
 		<!-- Inline on the bar rather than in a dialog: it is one field and one button, and a modal for
@@ -523,4 +573,5 @@
 -->
 {#if storage !== null}
 	<WorkspaceSettings bind:open={settingsOpen} {storage} />
+	<RemoteSettings bind:open={remoteOpen} {storage} />
 {/if}

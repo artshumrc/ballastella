@@ -10,6 +10,7 @@ import {
 	serialiseReviewMark
 } from '../project/review-workspace.js';
 import { Workspace } from '../project/workspace.js';
+import { REMOTE_BINDING_PATH, readRemoteBinding } from '../remote/remote-binding.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import { toWorkspaceName } from '../store/opfs-workspaces.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
@@ -1221,5 +1222,50 @@ describe('a Review Workspace is never backed up', () => {
 		const backup = await exportWorkspaceTar(seed(twoProjectsOneMap()), 'My Workspace');
 
 		expect(backup.totalFiles).toBe(Object.keys(twoProjectsOneMap()).length);
+	});
+});
+
+// SPEC story 41, ADR-0032. `remote.json` is *inside* the published tree deliberately, so a Backup
+// taken from a bound Workspace carries it — and a scholar restoring one is somebody recovering from
+// something having gone wrong. Handing them a Publish button aimed at their live, cited address at
+// that exact moment is the failure this drops the binding to avoid.
+describe('a restored Backup arrives unbound', () => {
+	const bound = () =>
+		seed({
+			'amsterdam-1625/project.json': projectJson(),
+			[REMOTE_BINDING_PATH]:
+				'{"formatVersion":1,"owner":"ada","repository":"atlas","branch":"main"}'
+		});
+
+	it('carries the binding in the archive, because a Backup is a faithful copy', async () => {
+		const entries = await unpackTar(await archiveOf(bound(), 'Marking 2026'), { strict: true });
+
+		expect(entries.map((entry) => entry.header.name)).toContain(
+			`Marking 2026/${REMOTE_BINDING_PATH}`
+		);
+	});
+
+	it('drops it on the way in, so the restored Workspace is bound to nothing', async () => {
+		const there = destination();
+
+		await restoreWorkspaceTar(streamOf(await archiveOf(bound(), 'Marking 2026')), there.open);
+
+		expect(await readRemoteBinding(there.store)).toBeNull();
+		expect(await there.store.list('')).toEqual(['amsterdam-1625/project.json']);
+	});
+
+	// Counted nowhere and reported nowhere: `declined` is about work that was in the archive and is
+	// not in the Workspace, and a binding is neither. A restore that said "1 entry was not restored"
+	// about it would send a scholar looking for scholarship that never went missing.
+	it('does not report it as a file, or as something declined', async () => {
+		const there = destination();
+
+		const restored = await restoreWorkspaceTar(
+			streamOf(await archiveOf(bound(), 'Marking 2026')),
+			there.open
+		);
+
+		expect(restored.totalFiles).toBe(1);
+		expect(restored.declined).toEqual([]);
 	});
 });

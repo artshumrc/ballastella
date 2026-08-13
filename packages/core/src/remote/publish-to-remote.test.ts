@@ -192,6 +192,69 @@ describe('a second publish', () => {
 		expect(decode(github.files().get('README.md') ?? EMPTY)).toBe('# Atlas\n');
 	});
 
+	// ⚠ **A file edited between the plan and the upload is the ordinary case, not a race to shrug at.**
+	// This editor autosaves continuously and a pyramid upload runs for minutes. Committed under its
+	// plan-time SHA the failure is silent in both directions: the blob is not on the Remote and
+	// `POST /git/trees` 422s after every byte has been sent, or — worse, and what this test provokes —
+	// the *old* blob is there from the first publish, the commit succeeds, and the site serves the
+	// pre-edit content while the publish reports success.
+	it('commits the bytes it actually sent when a file changes during the publish', async () => {
+		const store = await smallWorkspace();
+		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+		await publish(store, github);
+
+		const plan = await planRemotePublish(store, {
+			token: TOKEN,
+			remote: REMOTE,
+			fetch: github.fetch
+		});
+		// The edit lands after the plan has hashed the file and before the publish reads it — which is
+		// what the autosave the scholar cannot see does.
+		await store.write(
+			'amsterdam-1625/annotations/notes.json',
+			encode('{"type":"FeatureCollection","features":[{"id":"typed-while-uploading"}]}')
+		);
+		await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+
+		expect(decode(github.files().get('amsterdam-1625/annotations/notes.json') ?? EMPTY)).toBe(
+			'{"type":"FeatureCollection","features":[{"id":"typed-while-uploading"}]}'
+		);
+	});
+
+	it('uploads a file the plan thought unchanged when its bytes have moved on', async () => {
+		// The other half: the plan marked this path `onRemote`, so an engine reading the plan's flag
+		// never re-reads it at all. Provoked with a store that answers different bytes on the second
+		// read of the path, which is what a save between the two passes amounts to.
+		const store = await seeded({ 'index.html': '<!doctype html>' });
+		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+		await publish(store, github);
+
+		const posted = github.blobPosts;
+		const read = store.read.bind(store);
+		let readsOfIndex = 0;
+		vi.spyOn(store, 'read').mockImplementation(async (path) => {
+			if (path !== 'index.html') return read(path);
+			readsOfIndex += 1;
+			// The plan sees what the Remote already holds; the publish sees the save that happened in
+			// between.
+			return readsOfIndex > 1 ? encode('<!doctype html><title>Atlas</title>') : read(path);
+		});
+
+		const plan = await planRemotePublish(store, {
+			token: TOKEN,
+			remote: REMOTE,
+			fetch: github.fetch
+		});
+		await publishToRemote(store, { token: TOKEN, remote: REMOTE, plan, fetch: github.fetch });
+
+		expect(plan.uploads).toBe(0);
+
+		expect(github.blobPosts - posted).toBe(1);
+		expect(decode(github.files().get('index.html') ?? EMPTY)).toBe(
+			'<!doctype html><title>Atlas</title>'
+		);
+	});
+
 	it('posts one blob for two paths holding the same bytes', async () => {
 		// Every blank pyramid tile is byte-identical to every other, so this is the ordinary case for a
 		// Historical Map with margins — and a blob posted twice spends two of the one hourly budget
@@ -329,6 +392,23 @@ describe('the refusals, both of which cost the Remote nothing', () => {
 		await expect(refusal).rejects.toThrow(RemotePublishRefusedError);
 		await expect(refusal).rejects.toThrow(/ada\/atals/);
 		expect(github.blobPosts).toBe(0);
+	});
+
+	// ⚠ **A repository with no commits answers 409 `Git Repository is empty.`, not 404**, and reading
+	// that as an ordinary refusal kills the *first* publish to a repository the scholar created a
+	// moment ago — which is precisely the repository the "create it yourself" link in ticket 03 hands
+	// them back from, and the only publish that cannot have gone wrong yet.
+	it('plans a first publish to a repository with no commits rather than refusing it', async () => {
+		const store = await smallWorkspace();
+		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
+
+		const plan = await planRemotePublish(store, {
+			token: TOKEN,
+			remote: REMOTE,
+			fetch: github.fetch
+		});
+
+		expect([plan.head, plan.uploads, plan.preserved]).toEqual([null, 9, []]);
 	});
 
 	it('refuses a Workspace of more files than a publish can list, quoting both numbers', async () => {

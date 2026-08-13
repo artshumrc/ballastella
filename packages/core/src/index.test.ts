@@ -140,3 +140,24 @@ it('exposes the publish engine and its refusals', () => {
 		])
 	);
 });
+
+// The binding and the credential, reachable through the same barrel: the editor is the only caller
+// of both, and it imports nothing from `packages/core` except this file. The credential store is
+// here rather than in the app so that the one rule ADR-0033 states about it — sealed while a Review
+// Workspace is open — has a test seam the app has not got.
+it('exposes the Remote binding and the credential store', () => {
+	expect(Object.keys(core)).toEqual(
+		expect.arrayContaining([
+			'REMOTE_BINDING_PATH',
+			'bindWorkspaceToRemote',
+			'browserCredentialStore',
+			'clearRemoteBinding',
+			'closedWhileReviewing',
+			'describeRemote',
+			'describeTokenProblem',
+			'parseRemoteReference',
+			'readRemoteBinding',
+			'writeRemoteBinding'
+		])
+	);
+});

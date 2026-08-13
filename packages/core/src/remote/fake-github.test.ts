@@ -295,6 +295,16 @@ describe('the fake GitHub', () => {
 			expect(await response.json()).toEqual({ permissions: { push: false, admin: false } });
 		});
 
+		// ⚠ **The field that decides whether the scholar is told the credential cannot push.** GitHub
+		// reports what *this caller* may do, so an anonymous read of a public repository carries no
+		// `permissions` at all — and a fake that sent one anyway would answer "you may push" to a
+		// request that sent no token.
+		it('says nothing about rights to a read carrying no credential', async () => {
+			const response = await github.fetch(repository);
+
+			expect([response.status, await response.json()]).toEqual([200, {}]);
+		});
+
 		it('answers 409 from the Pages endpoint when Pages is already enabled', async () => {
 			github.pagesEnabled = true;
 
@@ -319,18 +329,74 @@ describe('the fake GitHub', () => {
 			expect([first.status, second.status, github.pagesEnabled]).toEqual([201, 409, true]);
 		});
 
-		it('has no ref at all when the repository is empty', async () => {
+		// ⚠ **409, not 404**, and the status is the whole point of the test. A repository made at
+		// `github.com/new` with no README has no commits, which is exactly what the "create it
+		// yourself" link hands a scholar back from — and a publish that read this as an ordinary
+		// failure would die at plan time on the one flow this epic walks a beginner through.
+		it('answers 409 “Git Repository is empty.” for a repository with no commits', async () => {
 			const empty = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
 			const response = await call(empty, `${repository}/git/trees/main?recursive=1`);
 			const ref = await call(empty, `${repository}/git/ref/heads/main`);
 
 			expect([response.status, ref.status, empty.head(), empty.history()]).toEqual([
-				404,
-				404,
+				409,
+				409,
 				null,
 				[]
 			]);
+			expect(await ref.json()).toEqual({ message: 'Git Repository is empty.' });
+		});
+
+		// The other half of the pair: a repository that *has* branches and not this one is a 404, and
+		// an engine that treated the two alike would plan a full upload against a typo'd branch.
+		it('answers 404 for a branch a repository with commits does not have', async () => {
+			const ref = await call(github, `${repository}/git/ref/heads/no-such-branch`);
+			expect(ref.status).toBe(404);
+		});
+
+		it('refuses Pages when the source branch does not exist yet, with a 422', async () => {
+			const empty = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
+
+			const response = await call(empty, `${repository}/pages`, {
+				method: 'POST',
+				body: JSON.stringify({ source: { branch: 'main', path: '/' } })
+			});
+
+			expect([response.status, empty.pagesEnabled]).toEqual([422, false]);
+		});
+
+		it('refuses Pages with a 403 for a token that has no Pages permission', async () => {
+			github.refusePages = true;
+
+			const response = await call(github, `${repository}/pages`, {
+				method: 'POST',
+				body: JSON.stringify({ source: { branch: 'main', path: '/' } })
+			});
+
+			expect([response.status, github.pagesEnabled]).toEqual([403, false]);
+		});
+
+		it('answers 401 to a credential it will not accept, wherever it is sent', async () => {
+			github.rejectCredential = true;
+
+			const metadata = await call(github, repository);
+			const pages = await call(github, `${repository}/pages`, {
+				method: 'POST',
+				body: JSON.stringify({ source: { branch: 'main', path: '/' } })
+			});
+
+			expect([metadata.status, pages.status]).toEqual([401, 401]);
+		});
+
+		// A revoked token in the tab does not close a public repository to a reader who sends none,
+		// which is the flow a student with no GitHub account is promised (SPEC, Import).
+		it('still answers an unauthenticated read while a credential is being rejected', async () => {
+			github.rejectCredential = true;
+
+			const response = await github.fetch(`${repository}/git/trees/main?recursive=1`);
+
+			expect(response.status).toBe(200);
 		});
 
 		it('takes its first commit through a created ref', async () => {

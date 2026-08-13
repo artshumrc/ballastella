@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ProjectFormatTooNewError } from '../project/project-file.js';
 import { readReviewMark, REVIEW_MARK_PATH } from '../project/review-workspace.js';
+import { readRemoteBinding } from '../remote/remote-binding.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { Bytes, StorePath } from '../store/project-store.js';
 import { exportProjectBundle } from './export-project-bundle.js';
@@ -340,6 +341,81 @@ describe('a bundle opens into a Review Workspace', () => {
 			directory: 'amsterdam-1625',
 			openedAt: '2026-08-08T09:00:00.000Z'
 		});
+	});
+
+	// SPEC story 42, ADR-0032. **Structural rather than filtered**, and worth an assertion for exactly
+	// that reason: a bundle's entries all land under the Project's own directory or in the shared
+	// pool, so there is no route by which a colleague's `remote.json` could reach this Workspace's
+	// root — and a Review Workspace can never be bound afterwards either (`writeRemoteBinding`). A
+	// bundle that could point a Publish button at somebody else's repository from this machine is what
+	// nothing here does.
+	it('leaves the review copy bound to nothing (story 42)', async () => {
+		const source = seed({
+			...twoProjectsTwoMaps(),
+			'remote.json': '{"formatVersion":1,"owner":"ada","repository":"atlas","branch":"main"}'
+		});
+		const into = destination();
+
+		await openProjectBundle(streamOf(await bundleOf(source, 'amsterdam-1625')), into.open, {
+			fileName: 'amsterdam-1625.project.tar'
+		});
+
+		expect(await readRemoteBinding(into.store)).toBeNull();
+	});
+
+	// ⚠ **Hand-built, because the round trip above can only prove that *our exporter* writes none.**
+	// A bundle is a file that has travelled: it comes out of somebody else's build, or out of a fork,
+	// and nothing in the format stops it carrying a `remote.json` at its root. Acceptance criterion 11
+	// is about what a Review Workspace *arrives* as, so it is the arrival that has to drop it — the
+	// same explicit drop `restoreWorkspaceTar` makes, in the same words.
+	it('drops a remote.json a hand-built bundle carries at its root (story 42)', async () => {
+		const into = destination();
+
+		const opened = await openProjectBundle(
+			streamOf(
+				await handBuiltFrom({
+					'project.json': projectJson({ layers: [] }),
+					'remote.json': '{"formatVersion":1,"owner":"ada","repository":"atlas","branch":"main"}'
+				})
+			),
+			into.open,
+			{ fileName: 'amsterdam-1625.project.tar' }
+		);
+
+		expect(await readRemoteBinding(into.store)).toBeNull();
+		// Nowhere else either: written inside the Project's directory it would be a document the
+		// Workspace never asked for, and counted as delivered it would be a transfer reporting a file
+		// it had dropped.
+		expect(
+			[...into.store.snapshot().keys()].filter((path) => path.endsWith('remote.json'))
+		).toEqual([]);
+		expect(opened.totalFiles).toBe(1);
+	});
+
+	// The other `remote.json` in this codebase, which a bundle absolutely must carry: a referenced
+	// IIIF image's own document (ADR-0007). Dropped along with the binding, a Project whose Historical
+	// Map lives on somebody else's server would be refused on the way in as unreadable.
+	it('keeps a referenced image’s own remote.json, which is a different file entirely', async () => {
+		const into = destination();
+
+		await openProjectBundle(
+			streamOf(
+				await handBuiltFrom({
+					'project.json': projectJson({
+						layers: [
+							{ id: 'l1', name: 'Blaeu', visible: true, order: 0, kind: 'map', imageId: 'blaeu' }
+						]
+					}),
+					'images/blaeu/remote.json': '{"formatVersion":1,"id":"https://example.invalid/blaeu"}'
+				})
+			),
+			into.open,
+			{ fileName: 'blaeu.project.tar' }
+		);
+
+		expect(decode(await into.store.read('images/blaeu/remote.json' as StorePath))).toBe(
+			'{"formatVersion":1,"id":"https://example.invalid/blaeu"}'
+		);
 	});
 
 	// ⚠ The order is the design. A mark written last would leave an interrupted open looking exactly
