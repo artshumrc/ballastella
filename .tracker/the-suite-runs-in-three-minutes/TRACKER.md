@@ -14,7 +14,14 @@ Scope, the seam boundaries, and the measured baseline are in [SPEC.md](./SPEC.md
 
 Overall status: `In Progress`
 
-Current ticket: 01 complete; 02–05 unblocked.
+Current ticket: 01 and 02 complete; 03, 04, 05, 06, 08, 09, 10 and 12 unblocked.
+
+Ticket 02 moved the component seam out of Vitest's browser mode and into Node against `happy-dom`. The
+13 ported claims all held there — none went back to Seam 2 — and a fourteenth was added: the
+disabled-focus divergence, re-asked inside the suite against the real component so the seam cannot
+quietly stop deserving the two claims that turn on it. Measured over three runs each: **tests
+1.04–1.08s → 0.09–0.11s, wall clock 2.88–3.04s → 2.34–2.40s**, and no browser process at any point.
+`@testing-library/jest-dom` is a new dependency, matchers only.
 
 Groundwork, verified and measured under ticket 01:
 
@@ -63,7 +70,7 @@ Tickets 01–05 are groundwork and instrumentation; 06–14 are the migration, o
 | Number | Filename                                                       | Status      | Depends On                         |
 | ------ | -------------------------------------------------------------- | ----------- | ---------------------------------- |
 | 01     | 01-land-the-scheduling-and-recorded-workspace-groundwork.md      | Completed   | —                                  |
-| 02     | 02-move-the-component-seam-into-node.md                          | Not Started | 01                                 |
+| 02     | 02-move-the-component-seam-into-node.md                          | Completed   | 01                                 |
 | 03     | 03-profile-seam-2-by-cost-per-test.md                            | Not Started | 01                                 |
 | 04     | 04-fence-the-size-of-seam-2.md                                   | Not Started | 01                                 |
 | 05     | 05-record-the-two-pre-existing-faults.md                         | Not Started | 01                                 |
