@@ -18,9 +18,9 @@ mirrors an owned namespace and preserves the rest), with amendment banners on AD
 
 ## Current Status
 
-Overall status: `In Progress`
+Overall status: `Completed`
 
-Current ticket: 05, 08 and 11, in parallel
+Current ticket: — all eleven are complete
 
 Last updated: 2026-08-13
 
@@ -153,7 +153,7 @@ docs, and nothing else.
 | 06 | [06-a-project-chooses-whether-it-is-on-the-front-page.md](./tickets/06-a-project-chooses-whether-it-is-on-the-front-page.md) | Completed | 02 |
 | 07 | [07-clone-a-workspace-from-a-remote.md](./tickets/07-clone-a-workspace-from-a-remote.md) | Completed | 03 |
 | 08 | [08-review-a-project-from-a-remote.md](./tickets/08-review-a-project-from-a-remote.md) | Completed | 07 |
-| 09 | [09-the-front-page-leads-back-to-the-editor.md](./tickets/09-the-front-page-leads-back-to-the-editor.md) | Not Started | 06, 08 |
+| 09 | [09-the-front-page-leads-back-to-the-editor.md](./tickets/09-the-front-page-leads-back-to-the-editor.md) | Completed | 06, 08 |
 | 10 | [10-a-github-app-and-the-broker.md](./tickets/10-a-github-app-and-the-broker.md) | Completed | 03 |
 | 11 | [11-the-jekyll-fence-follows-the-publish.md](./tickets/11-the-jekyll-fence-follows-the-publish.md) | Completed | 04 |
 
