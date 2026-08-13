@@ -537,24 +537,33 @@
 								find it. `disabled` for a Project this build cannot read, because setting the field
 								means writing `project.json` and ADR-0010 forbids that for one from the future — the
 								same reason Rename and Duplicate are disabled beside it.
+
+								⚠ **A two-way binding, not `checked={…}`.** The box has to show what `project.json`
+								says, and a one-way `checked` shows what the user clicked: a write refused by quota
+								or by the filesystem would leave the box flipped, the file untouched, and the caution
+								beneath it describing the other state — a control contradicting itself about the one
+								thing this ticket asks it to be trusted on. The setter goes through the session, whose
+								refresh re-reads the Workspace, so what the box settles on is the file's answer
+								whether the write landed or not.
 							-->
 							<label class="mt-2 flex w-fit items-center gap-2 text-sm">
 								<input
 									type="checkbox"
 									class="toggle toggle-sm"
-									data-testid="on-front-page"
-									checked={project.onFrontPage}
+									data-testid="on-front-page-{project.directory}"
+									bind:checked={
+										() => project.onFrontPage,
+										(onFrontPage) => session.setProjectOnFrontPage(project.directory, onFrontPage)
+									}
 									disabled={project.problem !== null}
 									aria-describedby="front-page-note-{project.directory}"
-									onchange={(event) =>
-										session.setProjectOnFrontPage(project.directory, event.currentTarget.checked)}
 								/>
 								On the front page<span class="sr-only"> — {project.name}</span>
 							</label>
 							<p
 								id="front-page-note-{project.directory}"
 								class="mt-1 max-w-prose text-sm opacity-70"
-								data-testid="front-page-note"
+								data-testid="front-page-note-{project.directory}"
 							>
 								{frontPageNote(project)}
 							</p>

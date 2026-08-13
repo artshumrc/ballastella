@@ -872,6 +872,21 @@ export function publishedSiteStaleness(
 			(entry) => entry.directory === project.directory && entry.name !== project.name
 		)
 	);
+	// ⚠ **A Front Page choice the site has not been told about is drift, the same as a rename**
+	// (ADR-0032). Taking a Project off writes `project.json` and nothing else; until the site is
+	// published again its Front Page still offers the Project to every Reader who arrives. Said in
+	// both directions and separately, because the direction is the whole point of the sentence: the
+	// author needs to know *which* answer the live site is still giving.
+	const stillListed = current.projects.filter(
+		(project) =>
+			!project.onFrontPage &&
+			site.projects.some((entry) => entry.directory === project.directory && entry.onFrontPage)
+	);
+	const notListedYet = current.projects.filter(
+		(project) =>
+			project.onFrontPage &&
+			site.projects.some((entry) => entry.directory === project.directory && !entry.onFrontPage)
+	);
 	const staleViewer = site.viewerVersion !== current.viewerVersion;
 
 	const reasons = [
@@ -883,6 +898,12 @@ export function publishedSiteStaleness(
 			: '',
 		renamed.length > 0
 			? `${renamed.map((project) => `“${project.name}”`).join(', ')} ${renamed.length === 1 ? 'is' : 'are'} listed under an older name`
+			: '',
+		stillListed.length > 0
+			? `${stillListed.map((project) => `“${project.name}”`).join(', ')} ${stillListed.length === 1 ? 'is' : 'are'} still on its front page`
+			: '',
+		notListedYet.length > 0
+			? `${notListedYet.map((project) => `“${project.name}”`).join(', ')} ${notListedYet.length === 1 ? 'is' : 'are'} not on its front page yet`
 			: '',
 		staleViewer ? 'and it carries an older version of the viewer' : ''
 	].filter(Boolean);

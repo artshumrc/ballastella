@@ -111,25 +111,34 @@ test.describe('choosing whether a Project is on the Front Page', () => {
 		page
 	}) => {
 		await freshWorkspace(page);
-		const toggle = page.getByTestId('on-front-page');
+		// Per directory, like the note's `id` beside it: the hub lists every Project, so a testid that
+		// is only per-row is ambiguous the moment a Workspace holds two.
+		const toggle = page.getByTestId(`on-front-page-${PROJECT_DIRECTORY}`);
 
 		// On by default, and written as *absence* — so a new Project's manifest is byte-identical to one
 		// from a build that had never heard of the choice, and a Workspace in git gains no diff.
 		await expect(toggle).toBeChecked();
 		expect(JSON.parse(await projectFile(page))).not.toHaveProperty('onFrontPage');
+		const before = JSON.parse(await projectFile(page)).updatedAt;
 
 		await toggle.uncheck();
 		await expect.poll(async () => JSON.parse(await projectFile(page)).onFrontPage).toBe(false);
 
+		// ⚠ **`updatedAt` is untouched.** The hub is ordered by it and publishing writes the Front Page in
+		// that order, so stamping here would move the row out from under the cursor that just clicked it
+		// and reorder the site — which ADR-0032 leaves alone.
+		expect(JSON.parse(await projectFile(page)).updatedAt).toBe(before);
+
 		// The reload is the assertion: the control reads `project.json` rather than remembering, so what
 		// comes back is what is on disk.
 		await page.reload();
-		await expect(page.getByTestId('on-front-page')).not.toBeChecked();
+		await expect(toggle).not.toBeChecked();
 
-		await page.getByTestId('on-front-page').check();
+		await toggle.check();
 		await expect.poll(async () => 'onFrontPage' in JSON.parse(await projectFile(page))).toBe(false);
 		await page.reload();
-		await expect(page.getByTestId('on-front-page')).toBeChecked();
+		await expect(toggle).toBeChecked();
+		expect(JSON.parse(await projectFile(page)).updatedAt).toBe(before);
 	});
 
 	/**
@@ -147,7 +156,7 @@ test.describe('choosing whether a Project is on the Front Page', () => {
 	}) => {
 		await freshWorkspace(page);
 		const toggle = page.getByRole('checkbox', { name: `On the front page — ${PROJECT_NAME}` });
-		const note = page.getByTestId('front-page-note');
+		const note = page.getByTestId(`front-page-note-${PROJECT_DIRECTORY}`);
 
 		// The caution is the control's accessible *description*, not merely a paragraph nearby: a screen
 		// reader user is given it along with the control instead of having to go looking.

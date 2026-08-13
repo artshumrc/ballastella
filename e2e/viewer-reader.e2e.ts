@@ -591,6 +591,36 @@ test.describe('a Published Site a Reader arrives at', () => {
 		}
 	});
 
+	/**
+	 * An empty Front Page says which empty it is (ADR-0032).
+	 *
+	 * "This site has no Projects on it yet" is true of a site nothing has been published to, and reads
+	 * as *the files are missing* — so an author who took every Project off their Front Page would go
+	 * looking for work that is exactly where they left it. The other sentence names what they did and
+	 * repeats what the editor's control promised: the Projects are here, and a link still opens one.
+	 */
+	test('tells an author whose Projects are all off the Front Page what they are looking at', async ({
+		page
+	}) => {
+		site = await published({
+			'ballastella-site.json': siteRecord([
+				{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: false }
+			]),
+			...projectFiles()
+		});
+
+		await page.goto(site.sites[0]!.url);
+
+		const empty = page.getByTestId('none-on-front-page');
+		await expect(empty).toContainText('None of this site’s Projects are on the front page');
+		await expect(empty).toContainText('still published');
+		await expect(page.getByTestId('published-projects')).toHaveCount(0);
+
+		// And the Project itself is untouched by the wording: still there, still opening.
+		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+	});
+
 	test('reads everything through the HTTP store, and makes no request that could change a byte', async ({
 		page
 	}) => {

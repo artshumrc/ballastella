@@ -934,7 +934,22 @@
 		{:else if site === null}
 			<p class="mt-8">Looking for the Projects on this site…</p>
 		{:else if frontPage.length === 0}
-			<p class="mt-8">This site has no Projects on it yet.</p>
+			<!--
+				Two different facts, and they must not share a sentence (ADR-0032). "No Projects on it yet"
+				is true of a site nothing has been published to, and reads as *the files are missing* — which
+				would send the author of a site whose Projects are all off the Front Page looking for work
+				that is exactly where they left it. The second sentence says what that author did, and
+				repeats the one thing the editor's control promised them: the Projects are still here, and a
+				link still opens one.
+			-->
+			{#if site.projects.length === 0}
+				<p class="mt-8">This site has no Projects on it yet.</p>
+			{:else}
+				<p class="mt-8 max-w-prose" data-testid="none-on-front-page">
+					None of this site’s Projects are on the front page. They are still published — anyone with
+					a link to one can open it.
+				</p>
+			{/if}
 		{:else}
 			<ul class="mt-8 flex flex-col gap-3" data-testid="published-projects">
 				{#each frontPage as project (project.directory)}

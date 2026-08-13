@@ -163,6 +163,42 @@ export class ProjectFileUnreadableError extends Error {
 }
 
 /**
+ * The Front Page choice a `project.json` records, from the field's raw value (ADR-0032).
+ *
+ * Only a literal `false` takes a Project off the Front Page. Absence is the default and the
+ * pre-ADR-0032 behaviour, and a value of some other shape is a file somebody else's build wrote —
+ * reading it as "not listed" would take a Project off a site over a field this parser could not make
+ * sense of, which is the destructive direction.
+ *
+ * One implementation, so that {@link parseProjectFile} and {@link readOnFrontPage} cannot come to
+ * different answers about the same file — the disagreement `readBaseMapId` exists to prevent.
+ */
+const onFrontPageOf = (value: unknown): boolean => value !== false;
+
+/**
+ * The Front Page choice out of bytes this build may not be able to parse as a `project.json`.
+ *
+ * ⚠ **Read rather than assumed, and that is the whole point.** `onFrontPage` is version-independent
+ * by construction — the argument for not bumping `CURRENT_FORMAT_VERSION` for it (ADR-0010,
+ * ADR-0032) — so a manifest from a newer build still says plainly what its author chose. Assuming
+ * the default for one this build cannot otherwise read would put a Project its author took off the
+ * Front Page back onto a public site, which is the one direction the format contract's tolerance
+ * does not already guard.
+ *
+ * Bytes that are not a JSON object at all are on the Front Page, which is what an absent field means.
+ */
+export function readOnFrontPage(bytes: Uint8Array): boolean {
+	let raw: unknown;
+	try {
+		raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+	} catch {
+		return true;
+	}
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return true;
+	return onFrontPageOf((raw as Record<string, unknown>).onFrontPage);
+}
+
+/**
  * Parse `project.json`.
  *
  * Reads only. Nothing here writes, and nothing calls for a write: merely looking at last
@@ -219,11 +255,7 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		// else's build may have written, and one bad field must not make a Project unopenable.
 		canonicalUrl:
 			typeof canonicalUrl === 'string' && canonicalUrl.trim() !== '' ? canonicalUrl : null,
-		// Only a literal `false` takes a Project off the Front Page. Absence is the default and the
-		// pre-ADR-0032 behaviour, and a value of some other shape is a file somebody else's build wrote
-		// — reading it as "not listed" would take a Project off a site over a field this parser could
-		// not make sense of, which is the destructive direction.
-		onFrontPage: onFrontPage !== false,
+		onFrontPage: onFrontPageOf(onFrontPage),
 		unknownFields
 	};
 }

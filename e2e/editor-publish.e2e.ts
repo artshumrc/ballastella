@@ -149,13 +149,16 @@ const sha256 = (base64: string) =>
 /** A Project with a Historical Map, an Alignment, an Annotation Layer, and a pyramid. */
 const projectFiles = (
 	directory: string,
-	fields: { name: string; referenced?: boolean }
+	fields: { name: string; referenced?: boolean; onFrontPage?: boolean }
 ): Record<string, string> => ({
 	[`${directory}/project.json`]: `${JSON.stringify(
 		{
 			formatVersion: 1,
 			name: fields.name,
 			updatedAt: '2026-01-02T03:04:05.000Z',
+			// Left out unless a test asks for it, which is the shape every `project.json` written before
+			// ADR-0032 has and the shape that means "on the front page".
+			...(fields.onFrontPage === undefined ? {} : { onFrontPage: fields.onFrontPage }),
 			layers: [
 				{
 					id: 'l1',
@@ -406,6 +409,37 @@ test.describe('publishing a Workspace', () => {
 		// No pyramid was duplicated: the tile exists exactly once in the whole Workspace.
 		const tile = sha256(before['images/aaa/0,0,256,256/256,256/0/default.jpg']!);
 		expect(Object.values(after).filter((base64) => sha256(base64) === tile)).toHaveLength(1);
+	});
+
+	/**
+	 * ⚠ **Two different numbers, and the dialog has to say both** (ADR-0032).
+	 *
+	 * `PublishPlan.projects` is every Project the site will carry, listed or not, so reporting its
+	 * length as what the site "will list" describes a Front Page the author did not ask for — and the
+	 * announcement afterwards repeats the same count from the record. Both sentences are asserted here
+	 * because they are two strings, built from two objects, saying one fact.
+	 */
+	test('says how many Projects the site carries and how many its front page lists', async ({
+		page
+	}) => {
+		await openWorkspace(page, {
+			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
+			...projectFiles('boston-1775', { name: 'Boston 1775', onFrontPage: false })
+		});
+
+		const dialog = await openPublishDialog(page);
+		await expect(dialog.getByTestId('publish-projects')).toContainText(
+			'The site will carry 2 Projects, 1 of them on the front page.'
+		);
+
+		await dialog.getByRole('checkbox').uncheck();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+
+		await expect(page.getByTestId('publish-status')).toContainText(
+			'carrying 2 Projects, 1 of them on the front page.',
+			{ timeout: 30_000 }
+		);
 	});
 
 	test('states the Base Map’s size before adding it, and adds those files only when asked', async ({

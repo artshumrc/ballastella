@@ -360,23 +360,81 @@ describe('Workspace', () => {
 			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(true);
 		});
 
-		// Every other file of the Project, and every other field of the manifest: the choice decides one
-		// list and touches nothing else, which is the whole of what the control promises the user.
-		it('changes nothing else about the Project', async () => {
+		/**
+		 * Every other file of the Project, and every other field of the manifest: the choice decides one
+		 * list and touches nothing else, which is the whole of what the control promises the user.
+		 *
+		 * ⚠ **`toEqual`, not `toMatchObject`, and the clock has moved.** `updatedAt` is what the hub is
+		 * sorted by and what publishing writes the Front Page in the order of, so a stamp here jumps the
+		 * row to the top under the cursor that just clicked it and reorders the site — which ADR-0032
+		 * leaves alone. A `toMatchObject` assertion passes straight through that, which is how it was
+		 * missed; naming the whole object is what makes the absence of a stamp an assertion.
+		 */
+		it('changes nothing else about the Project, not even when it was last touched', async () => {
 			await store.write(
 				'p/project.json',
-				new TextEncoder().encode('{"formatVersion":1,"name":"Old","baseMap":"protomaps-light"}')
+				new TextEncoder().encode(
+					'{"formatVersion":1,"name":"Old","updatedAt":"2026-01-01T00:00:00.000Z",' +
+						'"baseMap":"protomaps-light"}'
+				)
 			);
 			await store.write('p/annotations/a.geojson', new TextEncoder().encode('{"w":1}'));
+			clock = new Date('2026-09-09T09:09:09.000Z');
 
 			await workspace.setProjectOnFrontPage('p', false);
 
-			expect(await readJson(store, 'p/project.json')).toMatchObject({
+			expect(await readJson(store, 'p/project.json')).toEqual({
+				formatVersion: 1,
 				name: 'Old',
+				updatedAt: '2026-01-01T00:00:00.000Z',
+				layers: [],
 				baseMap: 'protomaps-light',
 				onFrontPage: false
 			});
+			expect((await workspace.listProjects())[0]?.updatedAt).toBe('2026-01-01T00:00:00.000Z');
 			expect(await store.list('p/')).toEqual(['p/annotations/a.geojson', 'p/project.json']);
+		});
+
+		/**
+		 * ⚠ **A Project this build cannot parse still gets to say where it belongs** (ADR-0032).
+		 *
+		 * The reason `CURRENT_FORMAT_VERSION` was not bumped for this field is that the field is
+		 * version-independent: a manifest from a newer build says `"onFrontPage": false` in the same
+		 * plain way, and this build can read that one key whatever it makes of the rest. Defaulting it
+		 * to `true` reverses the author's choice in the *disclosure* direction — the Project is put back
+		 * onto a public Front Page — and disclosure is the one direction ADR-0010's tolerance does not
+		 * already guard, because everywhere else the safe answer is "show it".
+		 */
+		it('honours the choice in a manifest this build cannot otherwise read', async () => {
+			await store.write(
+				'from-the-future/project.json',
+				new TextEncoder().encode('{"formatVersion":99,"name":"Later","onFrontPage":false}')
+			);
+
+			expect(await workspace.listProjects()).toEqual([
+				{
+					directory: 'from-the-future',
+					name: 'from-the-future',
+					updatedAt: '',
+					onFrontPage: false,
+					problem: 'format-too-new'
+				}
+			]);
+		});
+
+		// Nothing readable to go on is the one case that defaults, and it defaults to listed — the same
+		// answer an absent field gets, because a Project we cannot open is not one we can claim its
+		// author took off the list.
+		it('leaves a manifest that is not JSON at all on the Front Page', async () => {
+			await store.write('broken/project.json', new TextEncoder().encode('{ not json'));
+
+			expect((await workspace.listProjects())[0]).toEqual({
+				directory: 'broken',
+				name: 'broken',
+				updatedAt: '',
+				onFrontPage: true,
+				problem: 'unreadable'
+			});
 		});
 
 		// A copy is the author's own Project again, so it arrives wherever the original was: a duplicate

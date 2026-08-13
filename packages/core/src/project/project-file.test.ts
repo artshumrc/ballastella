@@ -257,6 +257,33 @@ describe('the Front Page choice (ADR-0032)', () => {
 		).toBe(false);
 	});
 
+	/**
+	 * ⚠ **The bytes, not the model.** "Written back untouched" is a claim about what lands on disk, and
+	 * a Workspace kept in git or Dropbox is where it is cashed: reading a Project taken off the Front
+	 * Page and writing it straight back must produce the same file, or every such Project gains a diff
+	 * — and a sync client a rewrite to push — the moment anything opens it.
+	 *
+	 * Spelled out rather than round-tripped from a model, so the key's position and the file's
+	 * formatting are pinned too. It sits last, after `baseMap` and any `canonicalUrl`.
+	 */
+	it('re-serialises a Project off the Front Page to the very same bytes', () => {
+		const onDisk = new TextEncoder().encode(
+			[
+				'{',
+				'\t"formatVersion": 1,',
+				'\t"name": "Amsterdam 1625",',
+				'\t"updatedAt": "2026-01-01T00:00:00.000Z",',
+				'\t"layers": [],',
+				'\t"baseMap": null,',
+				'\t"onFrontPage": false',
+				'}',
+				''
+			].join('\n')
+		);
+
+		expect(serialiseProjectFile(parseProjectFile(onDisk))).toEqual(onDisk);
+	});
+
 	it('survives a round trip through this build, without also lodging in unknownFields', () => {
 		const off = parseProjectFile(withChoice(false));
 

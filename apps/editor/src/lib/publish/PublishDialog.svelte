@@ -16,6 +16,7 @@
 		describeBytes,
 		publishedSiteStaleness,
 		type PublishPlan,
+		type PublishedProject,
 		type PublishedSite
 	} from '@ballastella/core';
 
@@ -142,13 +143,32 @@
 		progress ? `Publishing: ${progress.files} of ${progress.totalFiles} files.` : ''
 	);
 
+	/**
+	 * How many Projects a site carries, and how many of them its Front Page lists (ADR-0032).
+	 *
+	 * ⚠ **Two numbers, because `projects` is every Project the site carries, listed or not.** Reporting
+	 * only the length as a count of what the site "will list" was true before the Front Page choice
+	 * existed and is false now: a Workspace of five Projects with two taken off publishes five and
+	 * lists three. Saying "5" would overstate the Front Page; saying "3" would understate what is about
+	 * to be written to a public host, which is the more dangerous of the two errors.
+	 */
+	const describeProjects = (projects: readonly PublishedProject[]): string => {
+		if (projects.length === 0) return 'no Projects';
+		const listed = projects.filter((project) => project.onFrontPage).length;
+		const carried = projects.length === 1 ? '1 Project' : `${projects.length} Projects`;
+		if (listed === projects.length) {
+			return `${carried}, ${projects.length === 1 ? 'on' : 'all on'} the front page`;
+		}
+		if (listed === 0) return `${carried}, none of them on the front page`;
+		return `${carried}, ${listed} of them on the front page`;
+	};
+
 	/** What happened, announced once the dialog has closed and the region outside it is live again. */
 	const result = $derived.by(() => {
 		if (published) {
-			const projects = published.site.projects.length;
 			return (
-				`Published: ${published.files} files written into your Workspace, listing ` +
-				`${projects === 1 ? '1 Project' : `${projects} Projects`}.` +
+				`Published: ${published.files} files written into your Workspace, carrying ` +
+				`${describeProjects(published.site.projects)}.` +
 				(published.stamped > 0
 					? ` ${published.stamped === 1 ? '1 Historical Map' : `${published.stamped} Historical Maps`} ` +
 						`stamped for ${canonicalUrl.trim()}.`
@@ -214,11 +234,9 @@
 			<strong>{plan.files.length} files, {describeBytes(plan.bytes)}</strong>. Your Historical Maps
 			are not copied — publishing adds a website to the folder you already have.
 		</p>
-		<p class="mt-2 text-sm opacity-80">
-			The site will list
-			{plan.projects.length === 1 ? '1 Project' : `${plan.projects.length} Projects`}. Push the
-			folder to GitHub Pages, or upload it to any web host; it works at a web address of its own and
-			in a subfolder alike.
+		<p class="mt-2 text-sm opacity-80" data-testid="publish-projects">
+			The site will carry {describeProjects(plan.projects)}. Push the folder to GitHub Pages, or
+			upload it to any web host; it works at a web address of its own and in a subfolder alike.
 		</p>
 
 		<label class="mt-4 flex items-start gap-3">

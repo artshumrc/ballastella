@@ -776,11 +776,11 @@ describe('telling the author a Published Site is behind', () => {
 		baseMapAssetsBundled: false,
 		baseMapCaches: []
 	};
-	const summary = (directory: string, name: string) => ({
+	const summary = (directory: string, name: string, onFrontPage = true) => ({
 		directory,
 		name,
 		updatedAt: '2026-01-01T00:00:00.000Z',
-		onFrontPage: true,
+		onFrontPage,
 		problem: null
 	});
 
@@ -817,6 +817,38 @@ describe('telling the author a Published Site is behind', () => {
 				projects: [summary('amsterdam-1625', 'Amsterdam, 1625')]
 			})
 		).toContain('an older name');
+	});
+
+	/**
+	 * ⚠ **A Front Page choice the site has not been told about is drift, like a rename** (ADR-0032).
+	 *
+	 * Taking a Project off writes `project.json` and nothing more; until the Workspace is published
+	 * again the live site's Front Page still offers it to every Reader who arrives. Without this the
+	 * banner stays empty and the toggle looks live when it is not — the one failure that would make a
+	 * scholar believe they had taken something down.
+	 */
+	it('names a Project the site’s front page still lists', () => {
+		const notice = publishedSiteStaleness(site, {
+			viewerVersion: 'v1',
+			projects: [summary('amsterdam-1625', 'Amsterdam 1625', false)]
+		});
+
+		expect(notice).toContain('Amsterdam 1625');
+		expect(notice).toContain('still on its front page');
+	});
+
+	// And the other way: put back on, and the published site does not list it yet. Said separately,
+	// because which answer the live site is still giving is the whole content of the sentence.
+	it('names a Project the site’s front page does not list yet', () => {
+		const notice = publishedSiteStaleness(
+			{
+				...site,
+				projects: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: false }]
+			},
+			{ viewerVersion: 'v1', projects: [summary('amsterdam-1625', 'Amsterdam 1625')] }
+		);
+
+		expect(notice).toContain('not on its front page yet');
 	});
 
 	it('notices an older viewer even when the Project list agrees', () => {
@@ -1065,6 +1097,21 @@ describe('the site record a Reader’s page is drawn from', () => {
 		);
 
 		expect(record.projects.map((project) => project.onFrontPage)).toEqual([false, true]);
+	});
+
+	// Only a literal `false` takes a Project off the Front Page here too, for the reason the tolerant
+	// reader exists: an entry of some other shape is a record this build did not write, and reading it
+	// as "not listed" would empty a Reader's Front Page over a value nothing here understands.
+	it.each([
+		['a string', '"no"'],
+		['a number', '0'],
+		['null', 'null']
+	])('lists a Project whose front-page choice is %s, rather than guessing', (_what, json) => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(`{"projects":[{"directory":"a","name":"A","onFrontPage":${json}}]}`)
+		);
+
+		expect(record.projects.map((project) => project.onFrontPage)).toEqual([true]);
 	});
 
 	it('drops a Project entry with no folder, which is the one field ?p= needs', () => {
