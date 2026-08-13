@@ -331,11 +331,10 @@ export {
 // Publishing to a Remote (ADR-0031, ADR-0032, ADR-0033). The name git gives a file's bytes, which
 // is what makes an incremental publish, a conflict refusal, and a resumed Clone possible at all.
 export { gitBlobSha } from './remote/blob-sha.js';
+export { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './remote/github-api.js';
 // The fake GitHub every test in that epic drives: one fake eleven tickets share cannot disagree
 // with itself, and eleven private ones can.
 export {
-	GITHUB_API_ORIGIN,
-	GITHUB_RAW_ORIGIN,
 	createFakeGitHub,
 	type FakeGitHub,
 	type FakeGitHubOptions,
@@ -343,6 +342,25 @@ export {
 	type FakeRepositoryPermissions,
 	type FakeTreeEntry
 } from './remote/fake-github.js';
+// The publish engine: the Workspace becomes one tree, one commit, and one ref move (ADR-0033).
+// Editor-only — a Published Site publishes nothing — but here rather than in the app because the
+// owned-namespace rules, the incremental upload, and the three budgets are where this epic's silent
+// failures live, and all of them are assertable with no browser.
+export {
+	MAX_PUBLISHED_FILES,
+	RemotePublishFailedError,
+	RemotePublishRateLimitedError,
+	RemotePublishRefusedError,
+	planRemotePublish,
+	publishToRemote,
+	type PlannedRemoteFile,
+	type PublishToRemoteOptions,
+	type RemotePublishOptions,
+	type RemotePublishPlan,
+	type RemotePublishWarning,
+	type RemoteRepository,
+	type RemoteTreeEntry
+} from './remote/publish-to-remote.js';
 
 export {
 	ROUND_TRIP_TOLERANCE_PX,

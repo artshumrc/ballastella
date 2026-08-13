@@ -20,9 +20,33 @@ mirrors an owned namespace and preserves the rest), with amendment banners on AD
 
 Overall status: `In Progress`
 
-Current ticket: 02
+Current ticket: 03 and 06, in parallel
 
 Last updated: 2026-08-12
+
+## Open question for a human: a rate-limited publish cannot be resumed
+
+Raised by ticket 02's review, and left open deliberately rather than decided in an implementation ticket.
+
+SPEC says "Exhaustion mid-publish stops legibly, naming the reset time, and **the manifest makes the
+resumption cheap**." The engine cannot do that, and no ticket in this epic makes it able to. Blobs
+uploaded before the stop are loose objects in no tree, and the ref never moved, so the next plan — built
+from the tree at the branch's head — cannot see them. `plan.files` is deterministic and sorted, so the
+next attempt re-posts the same first N paths and stops in the same place. **A Workspace whose first
+publish needs more than one hour's budget never converges.** The manifest does not help: it is local, and
+it is written only after a *successful* publish.
+
+Ticket 02 was remediated to stop *claiming* resumption in its two rate-limit messages, which is the
+honest fix within its scope. The underlying capability is still absent. Three ways out, none chosen:
+
+1. Accept it, and say so where a scholar meets it — a first publish above ~5 000 new files needs a
+   Workspace small enough to fit one hour's budget.
+2. Have a stopped publish return what it sent so a later attempt can skip it. This is a change to
+   `RemotePublishRateLimitedError` and to what the manifest means, and it touches ticket 05.
+3. Move the ref to a partial commit so the uploaded blobs are reachable — which contradicts story 16
+   ("nothing on my published site changes until the upload has finished") and should probably be refused.
+
+Nothing downstream is blocked on this: tickets 03–11 are unaffected either way.
 
 ## Sequencing, and why it is risk-ordered
 
@@ -50,7 +74,7 @@ docs, and nothing else.
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
 | 01 | [01-a-fake-github-and-blob-shas-that-agree-with-git.md](./tickets/01-a-fake-github-and-blob-shas-that-agree-with-git.md) | Completed | — |
-| 02 | [02-a-workspace-becomes-a-commit.md](./tickets/02-a-workspace-becomes-a-commit.md) | Not Started | 01 |
+| 02 | [02-a-workspace-becomes-a-commit.md](./tickets/02-a-workspace-becomes-a-commit.md) | Completed | 01 |
 | 03 | [03-a-workspace-is-bound-to-a-remote.md](./tickets/03-a-workspace-is-bound-to-a-remote.md) | Not Started | 02 |
 | 04 | [04-publish-from-the-navigation-bar.md](./tickets/04-publish-from-the-navigation-bar.md) | Not Started | 03 |
 | 05 | [05-a-publish-refuses-to-overwrite-another-machine.md](./tickets/05-a-publish-refuses-to-overwrite-another-machine.md) | Not Started | 04 |

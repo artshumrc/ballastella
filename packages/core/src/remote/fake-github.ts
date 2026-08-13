@@ -35,18 +35,14 @@
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
 import { gitBlobSha } from './blob-sha.js';
-
-/** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
-export const GITHUB_API_ORIGIN = 'https://api.github.com';
-
-/** Where a public repository's bytes are read from, unauthenticated, by Clone and Review. */
-export const GITHUB_RAW_ORIGIN = 'https://raw.githubusercontent.com';
+import { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './github-api.js';
 
 /** One entry of a tree listing, as `GET /git/trees/{ref}?recursive=1` reports it. */
 export type FakeTreeEntry = {
 	readonly path: string;
 	readonly mode: string;
-	readonly type: 'blob' | 'tree';
+	/** `commit` is a gitlink: a submodule, pointing at a commit in another repository. */
+	readonly type: 'blob' | 'tree' | 'commit';
 	readonly sha: string;
 	/** Blobs only, as on the real endpoint. */
 	readonly size?: number;
@@ -64,6 +60,14 @@ export type FakeGitHubOptions = {
 	 * is a 404 and the first publish has to create the ref rather than move it.
 	 */
 	readonly tree?: Readonly<Record<string, string | Uint8Array>>;
+	/**
+	 * Submodules the repository already holds: path → the commit SHA the gitlink points at.
+	 *
+	 * A gitlink has no bytes anywhere in this repository, so it never appears in {@link FakeGitHub.files}
+	 * — read it back through {@link FakeGitHub.gitlinks}. It is here because a publish must carry one
+	 * through untouched (ADR-0033) and a listing filtered to blobs would drop it silently.
+	 */
+	readonly submodules?: Readonly<Record<string, string>>;
 };
 
 /** What the repository reports about the caller's rights, at `GET /repos/{owner}/{repo}`. */
@@ -92,6 +96,9 @@ export interface FakeGitHub {
 
 	/** Every file the branch's current commit holds, path → a copy of its bytes, sorted by path. */
 	files(branch?: string): Map<string, Uint8Array>;
+
+	/** Every submodule the branch's current commit holds, path → the commit SHA it points at. */
+	gitlinks(branch?: string): Map<string, string>;
 
 	/** The branch's current commit, or `null` when the repository is empty. */
 	head(branch?: string): string | null;
@@ -168,6 +175,9 @@ const decodeBase64 = (content: string): Uint8Array<ArrayBuffer> =>
 /** The modes a blob entry may carry. A tree posted with any other is a 422 on the real endpoint. */
 const BLOB_MODES = new Set(['100644', '100755', '120000']);
 
+/** The one mode a gitlink carries, and the only thing that tells a submodule from a file in a tree. */
+const GITLINK_MODE = '160000';
+
 /**
  * The segments of a path, or `null` when it does not decode.
  *
@@ -226,13 +236,16 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		return sha;
 	};
 
-	if (options.tree) {
+	if (options.tree || options.submodules) {
 		const entries = new Map<string, { sha: string; mode: string }>();
-		for (const [path, content] of Object.entries(options.tree)) {
+		for (const [path, content] of Object.entries(options.tree ?? {})) {
 			const bytes = bytesOf(content);
 			const sha = await gitBlobSha(bytes);
 			blobs.set(sha, bytes);
 			entries.set(path, { sha, mode: '100644' });
+		}
+		for (const [path, sha] of Object.entries(options.submodules ?? {})) {
+			entries.set(path, { sha, mode: GITLINK_MODE });
 		}
 		const tree = await storeTree(entries);
 		refs.set(defaultBranch, await storeCommit({ message: 'Initial commit', tree, parents: [] }));
@@ -243,6 +256,14 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		const commit = at === undefined ? undefined : commits.get(at);
 		return commit === undefined ? null : (trees.get(commit.tree) ?? null);
 	};
+
+	/** The branch's tree as path-ordered pairs, which is how both readers below hand it out. */
+	const sortedTree = (
+		branch: string
+	): [string, { readonly sha: string; readonly mode: string }][] =>
+		[...(treeAt(branch) ?? [])].sort(([left], [right]) =>
+			left < right ? -1 : left > right ? 1 : 0
+		);
 
 	/**
 	 * The tree a `{ref}` names: a branch, a commit, or a tree, in that order.
@@ -268,13 +289,19 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			}
 		}
 
-		const entries: FakeTreeEntry[] = [...tree].map(([path, entry]) => ({
-			path,
-			mode: entry.mode,
-			type: 'blob' as const,
-			sha: entry.sha,
-			size: blobs.get(entry.sha)?.byteLength ?? 0
-		}));
+		// A gitlink is told from a file by its mode and by nothing else, and it carries no size: there
+		// are no bytes for it here, because they live in another repository entirely.
+		const entries: FakeTreeEntry[] = [...tree].map(([path, entry]) =>
+			entry.mode === GITLINK_MODE
+				? { path, mode: entry.mode, type: 'commit' as const, sha: entry.sha }
+				: {
+						path,
+						mode: entry.mode,
+						type: 'blob' as const,
+						sha: entry.sha,
+						size: blobs.get(entry.sha)?.byteLength ?? 0
+					}
+		);
 
 		for (const directory of directories) {
 			const prefix = `${directory}/`;
@@ -318,6 +345,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	const answerApi = async (
 		url: URL,
 		method: string,
+		credentialed: boolean,
 		body: () => Promise<Record<string, unknown>>
 	): Promise<Response> => {
 		const path = decodePath(url.pathname);
@@ -327,26 +355,62 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			return notFound(`${url.pathname} is not a path this fake implements.`);
 		}
 
+		/**
+		 * A credential is demanded of writes and of nothing else, which is what GitHub does.
+		 *
+		 * **The reads below are answered unauthenticated on purpose.** A public repository's file list
+		 * and its metadata are readable with no credential at all, and this epic depends on that: Clone
+		 * and Review are unauthenticated operations (SPEC, "Import: two operations, both
+		 * unauthenticated"), so a fake that demanded a token everywhere would refuse the very flow a
+		 * student with no GitHub account is promised. Whether the credential is any *good* is still not
+		 * modelled — only that one was sent, which is enough to catch an engine that forgets the header
+		 * on a write.
+		 */
+		const authenticated = (answer: () => Promise<Response>): Promise<Response> =>
+			credentialed ? answer() : Promise.resolve(problem(401, 'Requires authentication'));
+
 		const write = (answer: () => Promise<Response>): Promise<Response> =>
-			state.refuseWrites
-				? Promise.resolve(problem(403, 'Resource not accessible by personal access token'))
-				: answer();
+			authenticated(() =>
+				state.refuseWrites
+					? Promise.resolve(problem(403, 'Resource not accessible by personal access token'))
+					: answer()
+			);
 
 		if (rest.length === 0 && method === 'GET') {
 			return json({ permissions: { ...state.permissions } });
 		}
 
 		if (rest[0] === 'pages' && rest.length === 1 && method === 'POST') {
-			if (state.pagesEnabled) return problem(409, 'GitHub Pages is already enabled for this repo.');
-			const { source } = (await body()) as { source?: { branch?: string; path?: string } };
-			if (typeof source?.branch !== 'string' || typeof source.path !== 'string') {
-				return problem(400, 'Enabling Pages needs a source branch and path.');
-			}
-			state.pagesEnabled = true;
-			return json({ source }, 201);
+			// Outside `write`, which is the git database's own switch: `refuseWrites` models a token
+			// without `contents: write`, and Pages enablement turns on a different permission entirely.
+			return authenticated(async () => {
+				if (state.pagesEnabled) {
+					return problem(409, 'GitHub Pages is already enabled for this repo.');
+				}
+				const { source } = (await body()) as { source?: { branch?: string; path?: string } };
+				if (typeof source?.branch !== 'string' || typeof source.path !== 'string') {
+					return problem(400, 'Enabling Pages needs a source branch and path.');
+				}
+				state.pagesEnabled = true;
+				return json({ source }, 201);
+			});
 		}
 
 		if (rest[0] !== 'git') return notFound(`${url.pathname} is not a path this fake implements.`);
+
+		if (rest[1] === 'ref' && rest[2] === 'heads' && rest.length > 3 && method === 'GET') {
+			// Where a publish starts: the branch's current commit, which becomes the parent of the one
+			// it writes. Without it a publish can only commit an orphan, which is a force push over
+			// whatever the scholar did on github.com — and, because a commit here is content-addressed
+			// over tree, parents, and message, an unchanged Workspace would produce the *same* commit
+			// SHA and the ref would not move at all.
+			const branch = rest.slice(3).join('/');
+			const at = refs.get(branch);
+			// 404, as the real endpoint answers for a branch that does not exist, which is how an empty
+			// repository is told apart: the first publish creates the ref rather than moving it.
+			if (at === undefined) return notFound('Not Found');
+			return json({ ref: `refs/heads/${branch}`, object: { sha: at, type: 'commit' } });
+		}
 
 		if (rest[1] === 'trees' && rest.length > 2 && method === 'GET') {
 			const tree = resolveTree(rest.slice(2).join('/'));
@@ -399,14 +463,29 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 				const entries = new Map<string, { sha: string; mode: string }>();
 				for (const { path, mode, type, sha } of given as Record<string, unknown>[]) {
-					if (type !== 'blob') {
-						return problem(400, 'This fake takes blob entries only; post paths, not subtrees.');
+					if (type !== 'blob' && type !== 'commit') {
+						return problem(
+							400,
+							'This fake takes blob and gitlink entries; post paths, not subtrees.'
+						);
 					}
 					// Path and mode are checked for the same reason `base_tree` is refused: taken on
 					// trust, a missing mode is stored as `undefined` and serialised as the string
 					// "undefined", so the tree hashes to something no repository could hold.
 					if (typeof path !== 'string' || path === '') {
 						return problem(422, 'Every tree entry needs a path.');
+					}
+					if (type === 'commit') {
+						// The commit a gitlink names lives in another repository, so there is nothing here
+						// to check it against — only that it is a mode and a SHA of the right shape.
+						if (mode !== GITLINK_MODE) {
+							return problem(422, `${path} is a gitlink and must carry mode ${GITLINK_MODE}.`);
+						}
+						if (typeof sha !== 'string' || sha === '') {
+							return problem(422, `${path} names no commit for its submodule.`);
+						}
+						entries.set(path, { sha, mode });
+						continue;
 					}
 					if (typeof mode !== 'string' || !BLOB_MODES.has(mode)) {
 						return problem(422, `${path} carries no file mode this repository takes.`);
@@ -515,10 +594,6 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			return notFound(`${url.origin} is not a host this fake implements.`);
 		}
 
-		// Whether the credential is any *good* is not modelled — only that one was sent. An engine that
-		// forgets the header meets GitHub's own answer here rather than a fake that waves it through.
-		if (!bearsToken(request)) return problem(401, 'Requires authentication');
-
 		if (state.rateLimit.remaining <= 0) {
 			return problem(403, 'API rate limit exceeded');
 		}
@@ -526,7 +601,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 		// Read lazily: a request with no body must not be made to have one, and a router branch that
 		// never reads the body must not fail on a malformed one it was never going to look at.
-		return answerApi(url, request.method.toUpperCase(), async () => {
+		return answerApi(url, request.method.toUpperCase(), bearsToken(request), async () => {
 			const text = await request.text();
 			return text === '' ? {} : (JSON.parse(text) as Record<string, unknown>);
 		});
@@ -538,11 +613,8 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			return blobPosts;
 		},
 		files(branch = defaultBranch) {
-			const sorted = [...(treeAt(branch) ?? [])].sort(([left], [right]) =>
-				left < right ? -1 : left > right ? 1 : 0
-			);
 			const files = new Map<string, Uint8Array>();
-			for (const [path, entry] of sorted) {
+			for (const [path, entry] of sortedTree(branch)) {
 				const bytes = blobs.get(entry.sha);
 				// Copied: a caller that decodes a tile in place would otherwise rewrite the object
 				// store under every later read, and the corruption would surface as a wrong assertion
@@ -550,6 +622,13 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 				if (bytes) files.set(path, new Uint8Array(bytes));
 			}
 			return files;
+		},
+		gitlinks(branch = defaultBranch) {
+			const links = new Map<string, string>();
+			for (const [path, entry] of sortedTree(branch)) {
+				if (entry.mode === GITLINK_MODE) links.set(path, entry.sha);
+			}
+			return links;
 		},
 		head(branch = defaultBranch) {
 			return refs.get(branch) ?? null;

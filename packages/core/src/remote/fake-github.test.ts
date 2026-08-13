@@ -1,13 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { gitBlobSha } from './blob-sha.js';
-import {
-	GITHUB_API_ORIGIN,
-	GITHUB_RAW_ORIGIN,
-	createFakeGitHub,
-	type FakeGitHub,
-	type FakeTreeEntry
-} from './fake-github.js';
+import { createFakeGitHub, type FakeGitHub, type FakeTreeEntry } from './fake-github.js';
+import { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './github-api.js';
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
@@ -24,10 +19,11 @@ const base64 = (bytes: Uint8Array) => {
 const repository = `${GITHUB_API_ORIGIN}/repos/ada/atlas`;
 
 /**
- * An API call carrying a token, because the fake answers 401 without one.
+ * An API call carrying a token, because the fake answers 401 to a write without one.
  *
- * The raw host is called through `github.fetch` directly throughout: reading a public repository
- * takes no credential, and a test that sent one there would hide a Clone doing the same.
+ * Reads are answered unauthenticated — a public repository needs no credential — and the raw host is
+ * called through `github.fetch` directly throughout, since a test that sent a token there would hide
+ * a Clone doing the same.
  */
 const call = (github: FakeGitHub, url: string, init: RequestInit = {}) =>
 	github.fetch(url, { ...init, headers: { Authorization: 'Bearer ghp_a-token' } });
@@ -219,6 +215,17 @@ describe('the fake GitHub', () => {
 			]);
 		});
 
+		it('answers the branch ref with the commit a publish has to parent onto', async () => {
+			const { commit } = await commitThrough(github, { 'a.txt': utf8('a') });
+
+			const response = await call(github, `${repository}/git/ref/heads/main`);
+
+			expect(await response.json()).toEqual({
+				ref: 'refs/heads/main',
+				object: { sha: commit, type: 'commit' }
+			});
+		});
+
 		it('leaves the published tree alone until the ref moves', async () => {
 			const before = github.head();
 
@@ -316,8 +323,14 @@ describe('the fake GitHub', () => {
 			const empty = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
 			const response = await call(empty, `${repository}/git/trees/main?recursive=1`);
+			const ref = await call(empty, `${repository}/git/ref/heads/main`);
 
-			expect([response.status, empty.head(), empty.history()]).toEqual([404, null, []]);
+			expect([response.status, ref.status, empty.head(), empty.history()]).toEqual([
+				404,
+				404,
+				null,
+				[]
+			]);
 		});
 
 		it('takes its first commit through a created ref', async () => {
@@ -356,6 +369,20 @@ describe('the fake GitHub', () => {
 			});
 
 			expect(response.status).toBe(401);
+		});
+
+		// A public repository's file list is readable with no credential, and this epic depends on it:
+		// Clone and Review are unauthenticated (SPEC, "Import: two operations, both unauthenticated"),
+		// so a student with no GitHub account can open an instructor's Workspace. Pinned here rather
+		// than in the ticket that needs it, because a gate that crept back would be found there.
+		it('lists a public repository’s tree with no token at all', async () => {
+			const response = await github.fetch(`${repository}/git/trees/main?recursive=1`);
+			const { tree } = (await response.json()) as { tree: FakeTreeEntry[] };
+
+			expect([response.status, tree.map((entry) => entry.path)]).toEqual([
+				200,
+				['CNAME', 'README.md']
+			]);
 		});
 
 		it('reads the raw host with no token at all', async () => {

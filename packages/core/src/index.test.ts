@@ -126,3 +126,17 @@ it('exposes the git blob SHA and the fake GitHub', () => {
 		])
 	);
 });
+
+// The publish engine, reachable through the same barrel because the navigation bar drives it
+// (ADR-0032). It adds no dependency: paths, byte counts, JSON, and an injected `fetch`.
+it('exposes the publish engine and its refusals', () => {
+	expect(Object.keys(core)).toEqual(
+		expect.arrayContaining([
+			'MAX_PUBLISHED_FILES',
+			'RemotePublishRateLimitedError',
+			'RemotePublishRefusedError',
+			'planRemotePublish',
+			'publishToRemote'
+		])
+	);
+});
