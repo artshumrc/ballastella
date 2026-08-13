@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices, type ReporterDescription } from '@playwright/test';
 import process from 'node:process';
 
 import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
@@ -60,6 +60,11 @@ const serveStatic = (app: string, port: number) => ({
 	reuseExistingServer: false,
 	timeout: 120_000
 });
+
+const reporter: ReporterDescription[] = process.env.CI
+	? [['github'], ['html', { open: 'never' }], ['./scripts/retry-budget.mjs']]
+	: [['list'], ['./scripts/retry-budget.mjs']];
+if (process.env.BALLASTELLA_E2E_PROFILE) reporter.push(['./scripts/cost-profile.mjs']);
 
 export default defineConfig({
 	testDir: './e2e',
@@ -203,10 +208,12 @@ export default defineConfig({
 	// nothing fails. Playwright offers no way to pin a reporter against that, so it is stated here
 	// rather than defended against. Spell it `--reporter=line,./scripts/retry-budget.mjs` when you
 	// want both. CI passes no `--reporter`, so CI always has the budget.
+	//
+	// The cost profiler is *appended* to that list for the same reason, rather than being something a
+	// caller selects with `--reporter`: `pnpm test:e2e --profile` sets the environment variable below,
+	// and a profiled run therefore gives exactly the verdict the gate gives.
 	retries: 1,
-	reporter: process.env.CI
-		? [['github'], ['html', { open: 'never' }], ['./scripts/retry-budget.mjs']]
-		: [['list'], ['./scripts/retry-budget.mjs']],
+	reporter,
 	use: {
 		...devices['Desktop Chrome'],
 		// A retried test is one nobody has explained yet, so the second attempt keeps everything

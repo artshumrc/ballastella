@@ -14,7 +14,30 @@ Scope, the seam boundaries, and the measured baseline are in [SPEC.md](./SPEC.md
 
 Overall status: `In Progress`
 
-Current ticket: 01 and 02 complete; 03, 04, 05, 06, 08, 09, 10 and 12 unblocked.
+Current ticket: 01, 02 and 03 complete; 04, 05, 06, 08, 09, 10, 11, 12 and 13 unblocked.
+
+Ticket 03 added the cost profile. **[COST-PROFILE.md](./COST-PROFILE.md) is the measured per-spec table
+every later ticket targets by**, regenerated with one command:
+
+```bash
+pnpm test:e2e --profile
+```
+
+It appends `scripts/cost-profile.mjs` to the reporter list rather than replacing it — never spell this
+`--reporter=…`, which drops the retry budget — and ranks by **worker-seconds**, the time a worker spent
+inside a test summed over its attempts, because that is what moving a claim to another seam removes.
+
+⚠ **Three of the spec's four known figures were wrong, and the priority order changes.** Measured over
+the full run — 668 tests counted, plus the one deliberate skip, which costs a worker nothing and is
+kept out of the denominator: the whole-suite average is **4.49 worker-seconds per test, not ~1**;
+`editor-annotations` is **9.63, not ~11.8**; `viewer-reader` is **4.14, not ~2.5** — it is the third most
+expensive file in the suite rather than a cheap one, and it is also the one the spec protects.
+`editor-layers` at **10.19** is the figure that came closest to holding. Specs the spec's table never
+named cost as much per test as `editor-annotations` does or more: `editor-align-referenced` (10.34),
+`editor-undo` (9.15) and `editor-alignment-refinement` (9.04), with `editor-offline-copy` (7.94) and
+`editor-alignment` (6.34) behind them. The map-free remote family is confirmed cheap —
+`editor-clone-remote` 1.06, `editor-review-remote` 2.07, `editor-remote-binding` 2.60 and
+`editor-github-signin` 2.69 per test, 166.3 worker-seconds for 78 tests — which is ticket 13's answer.
 
 Ticket 02 moved the component seam out of Vitest's browser mode and into Node against `happy-dom`. The
 13 ported claims all held there — none went back to Seam 2 — and a fourteenth was added: the
@@ -59,6 +82,26 @@ apart in configuration terms, so the difference is load rather than a regression
 recorded zero retries, which is what a contention-bound run does not usually manage. Treat the
 configuration saving as real but the absolute number as ±2 minutes until ticket 03 profiles per test.
 
+### Ticket 03's verification run — 2026-08-13, same 20-core box, not otherwise idle
+
+| Command | Result |
+| ------- | ------ |
+| `pnpm test:e2e --profile` | **13m 05s wall**, 669 tests: 666 passed, 1 failed, 1 flaky, 1 skipped; 2998.6 worker-seconds over the 668 that ran |
+| `pnpm test:e2e` (no profiler, back to back) | **15m 50s wall**, same 669 tests and the same verdict: 665 passed, 1 failed, 2 flaky, 1 skipped |
+| `BALLASTELLA_E2E_RETRY_CONTROL=1 BALLASTELLA_E2E_RETRY_BUDGET=0 pnpm test:e2e --profile e2e/editor-retry-budget-control.e2e.ts` | exit 1, "retry budget exceeded" — the fence still fires with the profiler attached |
+| the same with `BALLASTELLA_E2E_RETRY_BUDGET=1` | exit 0 — so the failure above was the budget's and not the test's |
+
+**The profiled run was the faster of the two**, which is the answer to "does profiling change what it
+measures": the reporter's cost is a map write per test, and the ~2¾-minute spread between two runs
+minutes apart is this shared box's load. ⚠ It is also the honest size of the noise in every wall time
+in this epic — **worker-seconds are the number to compare across tickets, and that is why the profile
+reports them.**
+
+`editor-remote-binding` › "shows no sign-in affordance anywhere" failed in both runs — the fault the
+spec calls deterministic and ticket 01's run saw pass. The flake did not hold still: the unprofiled run
+had two and the profiled run one, and only the profiled run's was the `viewer-reader` notice test the
+spec names. Ticket 05 has the reconciliation.
+
 Last updated: 2026-08-13
 
 ## Ledger
@@ -71,7 +114,7 @@ Tickets 01–05 are groundwork and instrumentation; 06–14 are the migration, o
 | ------ | -------------------------------------------------------------- | ----------- | ---------------------------------- |
 | 01     | 01-land-the-scheduling-and-recorded-workspace-groundwork.md      | Completed   | —                                  |
 | 02     | 02-move-the-component-seam-into-node.md                          | Completed   | 01                                 |
-| 03     | 03-profile-seam-2-by-cost-per-test.md                            | Not Started | 01                                 |
+| 03     | 03-profile-seam-2-by-cost-per-test.md                            | Completed   | 01                                 |
 | 04     | 04-fence-the-size-of-seam-2.md                                   | Not Started | 01                                 |
 | 05     | 05-record-the-two-pre-existing-faults.md                         | Not Started | 01                                 |
 | 06     | 06-rehouse-the-annotation-document-claims.md                     | Not Started | 01                                 |

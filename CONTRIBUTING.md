@@ -58,6 +58,7 @@ but no `build`.
 | `pnpm test`                          | the above, plus `scripts/` (`node --test`)     |
 | `pnpm --filter @ballastella/core test` | core tests only                              |
 | `pnpm test:e2e`                      | browser tests (Playwright, headless Chromium)  |
+| `pnpm test:e2e --profile`            | the same run, plus a worker-seconds-per-test table of every spec |
 | `pnpm dev:clean`                     | stop dev servers by port, never by name pattern |
 | `pnpm precommit`                     | lint, check, test and e2e in one gate          |
 | `pnpm lint`                          | lint, format check, and the source fences      |
