@@ -841,12 +841,22 @@ describe('the Jekyll marker every publish writes', () => {
 		expect(rootPaths(github, ancestor)).toEqual(['README.md']);
 	});
 
-	it('is written once when the Workspace already holds one, rather than twice', async () => {
+	it('is planned once when the Workspace already holds one, rather than twice', async () => {
+		// ⚠ Asserted on the **plan**, because the commit cannot answer this: a tree is a map, so a
+		// second entry for the same path is gone before any reader of it can see one. The plan's file
+		// list is what the upload loop walks and what the tree is built from, so a duplicate there is a
+		// second read of the file and a second entry posted to `POST /git/trees` for the same path.
 		const store = await seeded({ '.nojekyll': '', 'index.html': '<!doctype html>' });
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
 
-		const { commit } = await publish(store, github);
+		const plan = await planRemotePublish(store, {
+			token: TOKEN,
+			remote: REMOTE,
+			fetch: github.fetch
+		});
 
-		expect(rootPaths(github, commit)).toEqual(['.nojekyll', 'index.html']);
+		expect(plan.files.map((file) => file.path)).toEqual(['.nojekyll', 'index.html']);
+		// And it is the Workspace's own file rather than an authored one standing beside it.
+		expect(plan.files.map((file) => file.authored)).toEqual([false, false]);
 	});
 });

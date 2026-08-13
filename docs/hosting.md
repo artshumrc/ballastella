@@ -243,8 +243,8 @@ reason to keep the fork current.
 
 Your Workspace is a folder on your computer holding your Projects. To **Publish** is to send that
 folder's files to its **Remote** — the one GitHub repository the Workspace is bound to — so that the
-site at that address becomes your work as it now stands. There is no `git` to learn and nothing to
-install: the editor talks to GitHub from the browser.
+**Published Site** at that address becomes your work as it now stands. There is no `git` to learn and
+nothing to install: the editor talks to GitHub from the browser.
 
 Publishing **adds** files to that same folder and copies none of your data, not one tile
 ([ADR-0006](adr/0006-the-project-directory-is-the-published-site.md)). It is never automatic: your
@@ -272,27 +272,57 @@ One repository for the whole Workspace, not one per Project.
 
 ### 2. Bind your Workspace to it
 
-In the editor: **Workspace menu → Remote repository…**. Paste the repository's address and give the
-editor a credential — *Sign in with GitHub* if this instance offers it (part 1, step 6), or a
-fine-grained personal access token with **Contents: Read and write** and **Pages: Read and write**.
+In the editor: **Workspace menu → Remote repository…**. Paste the repository's address, and give the
+editor a credential.
 
-Binding checks that the credential can actually write to that repository before it keeps anything, so
-a mistyped address or a token without the rights is refused there and then rather than half way
-through an upload. A Workspace has at most one Remote, and the binding is recorded in a `remote.json`
-in the Workspace itself, so it travels with the folder — copy the Workspace to another machine and it
-still knows where it publishes.
+**A pasted token always works, on any instance.** Make a fine-grained personal access token on
+GitHub — **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate
+new token**, or go straight to
+[github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)
+([GitHub's own instructions](https://docs.github.com/en/authentication/keeping-your-account-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)).
+Four things on that form matter:
+
+- **Resource owner.** The account or organisation that owns the repository you made in step 1. If
+  you created it under an organisation and leave this as your own account, you will get a token that
+  cannot see it — and the symptom is a repository that appears not to exist.
+- **Repository access.** Choose *Only select repositories*, and select that one repository.
+- **Permissions → Repository permissions.** Two rows in a long list: set **Contents** to *Read and
+  write*, and **Pages** to *Read and write*. Everything else can stay at *No access*.
+- **Expiration.** Whatever you are comfortable with. When it expires, publishing says so and you make
+  another one.
+
+Copy the token on the screen that follows — that is the only time GitHub shows it — and paste it into
+the dialog.
+
+**There may also be a *Sign in with GitHub* button, and its being there does not mean it works.** The
+button appears whenever the instance has App values configured, and an unmodified fork ships
+placeholders, so on most instances the button is on screen, GitHub is never reached, and the attempt
+fails with a sentence telling you to paste a token instead. Only an instance that registered its own
+GitHub App and deployed a broker can complete that sign-in (part 1, step 6). If you do not know which
+kind of instance you are on, paste a token: it is the same publish either way.
+
+**The credential is forgotten when you close the tab.** It is kept in the browser tab's own storage,
+never in your Workspace — a token in the Workspace would leave your machine inside the next publish,
+or inside an archive you sent a colleague. Reloading the page keeps it; closing the tab, or coming
+back tomorrow, means pasting it again.
+
+The **binding** is the part that persists. Binding checks that the credential can actually write to
+that repository before it keeps anything, so a mistyped address or a token without the rights is
+refused there and then rather than half way through an upload. A Workspace has at most one Remote,
+and the binding is recorded in a `remote.json` in the Workspace itself, so it travels with the folder
+— copy the Workspace to another machine and it still knows where it publishes, and still asks you for
+a credential.
 
 ### 3. Press Publish
 
 **Publish…**, on the navigation bar. The dialog tells you how many files and how many bytes it is
-about to send, how many Projects the site will carry and how many of those the Front Page lists, and
-warns you about anything that would make the site disappoint a Reader — a Project that references
+about to send, how many Projects the Published Site will carry and how many of those the Front Page
+lists, and warns you about anything that would disappoint a Reader — a Project that references
 images from a Library, for instance, which a Reader with no network will not see.
 
 The editor writes the read-only viewer, the Front Page, and `.nojekyll` in beside your Projects, and
-sends the whole Workspace as a single commit. Nothing at the published address changes until that
-commit lands, so a publish that fails half way through leaves the site exactly as the last one left
-it.
+sends the whole Workspace as a single commit. Nothing on your **Published Site** changes until that
+commit lands, so a publish that fails half way through leaves it exactly as the last one left it.
 
 Afterwards your Workspace holds these entries beside your Projects:
 
@@ -310,21 +340,27 @@ workspace/
 You can delete every one of them and each Project directory is still complete and readable, in
 standard formats, with no proprietary index left behind.
 
-### 4. Turn Pages on, if the editor could not
+### 4. Turn Pages on by hand
 
-Binding asks GitHub to turn Pages on for you, and where your credential allows it that is the end of
-the matter. It cannot always: a token without **Pages: Read and write** may not, and a repository with
-nothing in it yet has no branch for Pages to serve from. The editor says which happened, in words, and
-what to click.
+**Following the steps above, you will do this yourself.** Binding asks GitHub to turn Pages on for
+you, but binding happens in step 2, when the repository is still the empty one step 1 told you to
+make — and GitHub cannot point Pages at a branch that does not exist yet. So the request is refused,
+and the editor says so in words and tells you what to click. The automatic path is for the case where
+the repository already has a branch: binding a second machine, or re-binding, to a repository you have
+published from before.
 
-By hand it is one setting, done once: **Settings → Pages → Source → Deploy from a branch**, branch
-`main`, folder `/ (root)`.
+The editor asks GitHub that question only at the moment of binding. Re-opening **Workspace menu →
+Remote repository…** afterwards offers to unbind, not to try Pages again, so there is nothing to press
+a second time — do it on GitHub.
+
+Once your first publish has landed, it is one setting, done once: **Settings → Pages → Source →
+Deploy from a branch**, branch `main`, folder `/ (root)`.
 
 Here you *do* want the branch deploy, because the site is already built — what was sent is the
 website. There is nothing to compile.
 
-Your site is then at `https://<your-name>.github.io/<your-repository>/`, and a single Project is at
-`…/?p=amsterdam-1625`. Those URLs are stable and citable; send them to anyone.
+Your Published Site is then at `https://<your-name>.github.io/<your-repository>/`, and a single
+Project is at `…/?p=amsterdam-1625`. Those URLs are stable and citable; send them to anyone.
 
 ### 5. Publish again whenever you like
 
@@ -335,20 +371,34 @@ A Project deleted from your Workspace is removed from the Remote, with the tiles
 you put in the repository yourself and the editor knows nothing about — a `CNAME`, a `README.md`, a
 `docs/` folder — are left alone
 ([ADR-0033](adr/0033-a-publish-mirrors-an-owned-namespace.md)). This is the
-one-repository-per-semester workflow: set hosting up once, publish all term.
+one-repository-per-semester workflow: set hosting up once, publish all term. The one thing you do
+repeat is the credential — it goes when the tab closes, so a publish in a fresh tab asks you to paste
+your token again (step 2). The Remote, the Pages setting, and everything already on the Published
+Site are untouched by that.
 
-### The first publish is the slow one
+### The hourly request budget, and the publish it will not fit
 
 GitHub allows an account **5 000 requests an hour**, and a publish spends roughly one on every file it
-has not sent before. A freshly tiled Historical Map is thousands of tiles, so **a first publish of one
-can take more than an hour** — the editor tells you before it starts if the budget will not cover the
-upload.
+has not sent before, plus a few to write the commit. This is a ceiling rather than a throttle: a
+publish that fits inside it runs at full speed and is done in minutes, and every publish after the
+first sends only what changed and takes seconds.
 
-If the budget does run out, publishing stops and names the time it resets. Publishing again after that
-starts the upload from the beginning, so a Workspace whose first publish needs more than one hour's
-worth of requests is best published in stages: add and publish one Historical Map at a time.
+What it is not is something to wait out. If the budget runs out part way through, publishing **stops**
+and names the time it resets; nothing has been published, because the branch has not moved and your
+Published Site is exactly as it was. **Publishing again starts the upload from the beginning.**
+Nothing resumes: what was sent before the stop is in no commit, so the next attempt cannot see it and
+sends it again. A publish therefore either finishes inside one hour's budget or it does not finish at
+all — and the editor tells you which before it sends a byte.
 
-Every publish after the first sends only what changed, and takes seconds.
+Publishing in stages — adding and publishing part of your work at a time — helps only where each
+stage fits inside the budget on its own.
+
+**There is a case that has no answer today.** The smallest thing you can add is one Historical Map,
+and a freshly tiled one is thousands of tiles: an image at the largest size the editor will take is
+roughly 11 000 of them. A single Historical Map that large is more than one hour's budget in one
+indivisible step, and no order of publishing makes it smaller — so **a Workspace holding one may not
+be publishable to GitHub at all as things stand.** This is a known, recorded gap awaiting a decision
+rather than something to work around; see "Known gaps" below.
 
 ### The three limits, and what drives each
 
@@ -411,10 +461,15 @@ is inert everywhere else — harmless, and worth keeping in case the folder late
   step 5, and [ADR-0029](adr/0029-place-lookup-is-a-warned-service-that-leaves-nothing-behind.md). The use is
   within that service's published policy, and a fork inherits it until it repoints
   `packages/core/src/places/service.ts`.
-- **A publish stopped by the hourly request budget starts again from the beginning** (part 2, "The
-  first publish is the slow one"). What was uploaded before the stop is in no commit, so the next
-  attempt sends it again — which is why a Workspace whose first publish needs more than one hour's
-  worth of requests has to be published in stages.
+- **A publish stopped by the hourly request budget starts again from the beginning, and a large
+  Historical Map may therefore not be publishable at all** (part 2, "The hourly request budget").
+  What was uploaded before the stop is in no commit, so the next attempt sends it again and nothing
+  resumes. Publishing in stages is the remedy where the work divides into stages that each fit inside
+  5 000 requests; a single freshly tiled Historical Map is roughly 11 000 tiles at the largest size
+  the editor accepts, does not divide, and has no path to a GitHub Remote today. That is an open
+  question awaiting a human decision in this epic's tracker, not an oversight — and the alternative,
+  moving the branch to a half-uploaded commit, would break the promise that a Published Site never
+  changes until a publish has wholly arrived.
 - **Publishing a single Project standalone** is not implemented. The Workspace is the site; a
   per-Project output is a deferred second mode (ADR-0008).
 - **Pretty per-Project URLs** (`/amsterdam-1625/` rather than `?p=amsterdam-1625`) are deferred, and

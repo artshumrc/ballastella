@@ -130,13 +130,15 @@ test('a Publish engine that no longer writes the marker is refused', () => {
 	});
 });
 
+// Each of the three links reports its own absence with the same "could not run", so both tests below
+// name the file: matching the phrase alone, they would pass on any of the three going missing.
 test('a missing Publish engine is a failure, not a pass', () => {
 	const root = fixture(null);
 	try {
 		rmSync(path.join(root, 'packages/core/src/remote/publish-to-remote.ts'), { force: true });
 		const { status, output } = run(root);
 		assert.equal(status, 1);
-		assert.match(output, /could not run/);
+		assert.match(output, /publish-to-remote\.ts does not exist, so this check could not run/);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -148,7 +150,7 @@ test('a missing build is a failure, not a pass', () => {
 		rmSync(path.join(root, 'apps/editor/build'), { recursive: true, force: true });
 		const { status, output } = run(root);
 		assert.equal(status, 1);
-		assert.match(output, /could not run/);
+		assert.match(output, /apps\/editor\/build does not exist, so this check could not run/);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
