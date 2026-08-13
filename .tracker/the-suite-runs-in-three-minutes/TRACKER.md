@@ -12,11 +12,11 @@ Scope, the seam boundaries, and the measured baseline are in [SPEC.md](./SPEC.md
 
 ## Current Status
 
-Overall status: `Not Started`
+Overall status: `In Progress`
 
-Current ticket: none — the ledger is empty pending ticket authoring.
+Current ticket: 01 complete; 02–05 unblocked.
 
-Groundwork already merged into the working tree before this epic was written, and measured:
+Groundwork, verified and measured under ticket 01:
 
 - `fullyParallel: true`, and the obsolete "eight workers bought 19%" note corrected in place with a re-measurement (4 workers 314s, 10 workers 206s on a heavy 156-test sample).
 - `workers` overridable by environment; the default stays 4 for the shared-machine reason, which the benchmark never was.
@@ -28,6 +28,30 @@ Groundwork already merged into the working tree before this epic was written, an
 
 Two faults predating this epic are recorded in the spec and are **not** in scope here: a deterministic failure in `editor-remote-binding` on `main`, and a habitual flake in `viewer-reader`.
 
+### Ticket 01's verification run — 2026-08-13, same 20-core box, not otherwise idle
+
+| Command                                             | Result                                                 |
+| --------------------------------------------------- | ------------------------------------------------------ |
+| `pnpm precommit lint check test`                     | exit 0 — lint 15.9s, check 10.5s, test 14.4s, total 40.8s |
+| `pnpm test:e2e`                                      | **12m 54s wall**, 669 tests, 4 workers: 667 passed, 1 failed, 1 skipped, 0 retried |
+| `pnpm test:e2e editor-alignment-refinement.e2e.ts` after `rm snapshot-*.json` | 21 passed in 40.1s, recording remade with no intervention |
+| the same again after a tiler edit and rebuild        | 21 passed in 34.7s, a **second** `snapshot-alignment-*.json` written under the new fingerprint |
+| `BALLASTELLA_E2E_WORKERS=10 pnpm test:e2e editor-layers.e2e.ts` | "Running 36 tests using 10 workers", 36 passed in 1.3m |
+
+The one skip is `editor-retry-budget-control.e2e.ts`'s deliberately skipped control test, not a quarantine.
+
+⚠ **The observed failure profile was not the "1 failed, 1 flaky" the spec predicts, and the two halves
+swapped.** `editor-remote-binding` › "a first visit › shows no sign-in affordance anywhere" **passed**,
+in 378ms, having been described as deterministic; the failure was `viewer-reader` › "takes the notice
+down by itself when the map's own record answers again", which failed its retry rather than passing on
+it. Ticket 05 writes both faults up and now has a third observation to reconcile: neither fault is as
+stable as the spec records. Nothing else was red.
+
+⚠ **12m 54s against the 10m 55s recorded above.** Both are wall times on a shared box measured minutes
+apart in configuration terms, so the difference is load rather than a regression — the retry budget
+recorded zero retries, which is what a contention-bound run does not usually manage. Treat the
+configuration saving as real but the absolute number as ±2 minutes until ticket 03 profiles per test.
+
 Last updated: 2026-08-13
 
 ## Ledger
@@ -38,7 +62,7 @@ Tickets 01–05 are groundwork and instrumentation; 06–14 are the migration, o
 
 | Number | Filename                                                       | Status      | Depends On                         |
 | ------ | -------------------------------------------------------------- | ----------- | ---------------------------------- |
-| 01     | 01-land-the-scheduling-and-recorded-workspace-groundwork.md      | Not Started | —                                  |
+| 01     | 01-land-the-scheduling-and-recorded-workspace-groundwork.md      | Completed   | —                                  |
 | 02     | 02-move-the-component-seam-into-node.md                          | Not Started | 01                                 |
 | 03     | 03-profile-seam-2-by-cost-per-test.md                            | Not Started | 01                                 |
 | 04     | 04-fence-the-size-of-seam-2.md                                   | Not Started | 01                                 |
