@@ -361,6 +361,17 @@ export {
 	type RemoteRepository,
 	type RemoteTreeEntry
 } from './remote/publish-to-remote.js';
+// Cloning a published Workspace back out of a public repository (ADR-0031, ADR-0032). The one
+// operation in this epic that needs no credential at all, which is what lets a student with no
+// GitHub account seed a Workspace from their instructor's Remote.
+export {
+	CloneRefusedError,
+	cloneFromRemote,
+	type CloneFromRemoteOptions,
+	type CloneReference,
+	type CloneRefusal,
+	type WorkspaceClone
+} from './remote/clone-from-remote.js';
 // Which repository a Workspace publishes to, and the credential that may push there (ADR-0032,
 // ADR-0033). The rights check and the Pages enablement happen the moment a scholar names one, so
 // that "you cannot push here" is not discovered after four thousand tiles have gone.

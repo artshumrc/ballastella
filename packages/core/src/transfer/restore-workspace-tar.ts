@@ -468,8 +468,13 @@ async function drainInto(
  * Exactly the shape `listProjects` matches (ADR-0008), because "what makes a Project appear on the
  * hub" is the only question the write-last rule is about. A `project.json` deeper in the tree is an
  * ordinary file with an unlucky name and is written with the rest.
+ *
+ * Exported for `remote/clone-from-remote.ts`, which fills a new Workspace from a different source of
+ * bytes under the same discipline. Shared rather than copied because a second spelling that drifted
+ * would put a Project on the hub before its Layers had landed — which is the failure the write-last
+ * rule exists to prevent, and one that looks like the tool having eaten somebody's work.
  */
-function isProjectManifest(path: string): boolean {
+export function isProjectManifest(path: string): boolean {
 	const segments = path.split('/');
 	return segments.length === 2 && segments[1] === PROJECT_FILE_NAME;
 }

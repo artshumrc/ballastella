@@ -28,12 +28,14 @@
 //      module reopens the hole completely, and reads as a cast rather than as the decision it is.
 //
 // What neither layer can see is a path computed at *runtime* from data — an archive entry's own
-// path, or a journal entry's. There are exactly **three** of those, and none is fenced: all three
-// are routed, calling `writeAlignmentBytes` like everybody else.
+// path, a git tree entry's, or a journal entry's. There are exactly **four** of those, and none is
+// fenced: all four are routed, calling `writeAlignmentBytes` like everybody else.
 //
 //   - `packages/core/src/transfer/restore-workspace-tar.ts` — a Workspace backup coming back in.
 //   - `packages/core/src/transfer/open-project-bundle.ts` — a handoff bundle being opened into a
 //     Review Workspace (ticket 14).
+//   - `packages/core/src/remote/clone-from-remote.ts` — a published Workspace downloaded out of a
+//     public repository, where the path is an entry in somebody else's git tree.
 //   - `packages/core/src/autosave/replay.ts` — an unsaved change being put back from the
 //     write-ahead journal at startup. Its own comment says so at the branch: "the path is runtime
 //     data, so neither `WritablePath` nor the fence can see it."
@@ -48,7 +50,7 @@
 // grep -rn "await writeAlignmentBytes(" --include=*.ts packages apps | grep -v "\.test\."
 // ```
 //
-// Four lines today. Three of them are this list. The fourth is
+// Five lines today. Four of them are this list. The fifth is
 // `EditorSession.restoreAlignmentChangedElsewhere`, which passes an **image id** rather than a path —
 // so `writeAlignmentBytes` builds the path itself and both layers do see it. Any other line is a new
 // runtime-path writer and belongs above.

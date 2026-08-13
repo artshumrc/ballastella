@@ -43,6 +43,9 @@ import type { BrowserContext, Page, Route } from './test.js';
 /** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
 
+/** Where a public repository's bytes are read from, unauthenticated, by Clone and Review. */
+export const GITHUB_RAW_ORIGIN = 'https://raw.githubusercontent.com';
+
 export type FakeRepository = {
 	readonly owner: string;
 	readonly name: string;
@@ -52,6 +55,21 @@ export type FakeRepository = {
 	readonly pagesEnabled?: boolean;
 	/** Answer 403 to `POST /pages`: a token with `contents: write` and no `pages: write`. */
 	readonly refusePages?: boolean;
+	/**
+	 * What the repository already holds, committed as its first commit.
+	 *
+	 * A published Workspace, for a spec that clones one. Defaults to a bare `README.md`, which is
+	 * what every publishing spec wants: a repository with a `main` branch for a Pages source to name,
+	 * and nothing else in it.
+	 */
+	readonly files?: Readonly<Record<string, string>>;
+	/**
+	 * Cut every tree listing short after this many entries and report `truncated: true`.
+	 *
+	 * The real endpoint truncates at 100 000 entries **and still answers 200**, which is why
+	 * proceeding is a silent half-Workspace rather than an error.
+	 */
+	readonly truncateAfter?: number;
 };
 
 export type GitHubHostsOptions = {
@@ -65,8 +83,17 @@ export type GitHubHostsOptions = {
 export type GitHubHosts = {
 	/** Every API path that was requested, in order. */
 	readonly requests: string[];
+	/** Every `raw.githubusercontent.com` path that was requested, in order. */
+	readonly rawRequests: string[];
 	/** Whether Pages is on for `owner/name`. */
 	pagesOn(owner: string, name: string): boolean;
+	/**
+	 * How many byte reads `owner/name` has answered, refusals included.
+	 *
+	 * The fake's own counter rather than a length of {@link rawRequests}, so a spec asserting that a
+	 * resumed Clone re-downloaded nothing is asserting the same number the domain tests assert.
+	 */
+	rawGets(owner: string, name: string): number;
 };
 
 const key = (owner: string, name: string): string => `${owner}/${name}`;
@@ -80,7 +107,11 @@ const notFound = (route: Route): Promise<void> =>
 	});
 
 /**
- * Serve `api.github.com` from memory, and answer what was asked.
+ * Serve `api.github.com` and `raw.githubusercontent.com` from memory, and answer what was asked.
+ *
+ * Two hosts and deliberately not a third: `codeload.github.com` is routed nowhere, so a Clone that
+ * reached for the tarball endpoint would meet the network fence's `net::ERR_BLOCKED_BY_CLIENT`
+ * rather than quietly working in a test and failing in a browser (ADR-0031).
  *
  * @param target a `Page` for an ordinary spec, or a `BrowserContext` where a service worker is in
  *   play — see the header
@@ -90,6 +121,7 @@ export async function routeGitHubHosts(
 	options: GitHubHostsOptions = {}
 ): Promise<GitHubHosts> {
 	const requests: string[] = [];
+	const rawRequests: string[] = [];
 	const fakes = new Map<string, FakeGitHub>();
 
 	for (const repository of options.repositories ?? []) {
@@ -99,12 +131,13 @@ export async function routeGitHubHosts(
 		const fake = await createFakeGitHub({
 			owner: repository.owner,
 			repository: repository.name,
-			tree: { 'README.md': '# Atlas\n' }
+			tree: repository.files ?? { 'README.md': '# Atlas\n' }
 		});
 		fake.permissions = { push: repository.push ?? true, admin: false };
 		fake.pagesEnabled = repository.pagesEnabled ?? false;
 		fake.refusePages = repository.refusePages ?? false;
 		fake.rejectCredential = options.rejectCredential ?? false;
+		fake.truncateAfter = repository.truncateAfter ?? null;
 		fakes.set(key(repository.owner, repository.name), fake);
 	}
 
@@ -133,8 +166,33 @@ export async function routeGitHubHosts(
 		});
 	});
 
+	// ⚠ **The raw host is a second route into the *same* fakes, never a second store of bytes.** A
+	// Clone's file list comes from the API and its bytes come from here, and the two agreeing is the
+	// whole of what makes a resumed Clone's blob-SHA comparison mean anything — a separate byte source
+	// could serve content whose SHA the tree never named, and every assertion would still pass.
+	//
+	// It carries no credential and none is demanded: reading a public repository is anonymous, which
+	// is what a Clone depends on (ADR-0031, SPEC "Import: two operations, both unauthenticated").
+	await target.route(`${GITHUB_RAW_ORIGIN}/**`, async (route) => {
+		const url = new URL(route.request().url());
+		rawRequests.push(url.pathname);
+
+		const [owner, name] = url.pathname.split('/').filter(Boolean);
+		const fake = owner && name ? fakes.get(key(owner, name)) : undefined;
+		if (!fake) return notFound(route);
+
+		const response = await fake.fetch(route.request().url());
+		await route.fulfill({
+			status: response.status,
+			headers: Object.fromEntries(response.headers),
+			body: Buffer.from(await response.arrayBuffer())
+		});
+	});
+
 	return {
 		requests,
-		pagesOn: (owner, name) => fakes.get(key(owner, name))?.pagesEnabled ?? false
+		rawRequests,
+		pagesOn: (owner, name) => fakes.get(key(owner, name))?.pagesEnabled ?? false,
+		rawGets: (owner, name) => fakes.get(key(owner, name))?.rawGets ?? 0
 	};
 }
