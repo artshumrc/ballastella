@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { GitHubCallbackRefusedError, readSignInCallback } from '@ballastella/core';
 	import ProjectHub from '$lib/components/ProjectHub.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import ProjectScreen from '$lib/project/ProjectScreen.svelte';
-	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
+	import { useWorkspaceHost, type WorkspaceStorage } from '$lib/workspace-storage.svelte.js';
 
 	// One prerendered page; the Project is selected client-side from `?p=` (ADR-0008). That is
 	// what keeps the static adapter honest: no SPA fallback file, no per-Project artefact to
@@ -41,6 +44,101 @@
 		void ready.then(() => current.open(directory));
 	});
 
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE GITHUB SIGN-IN COMES BACK HERE (ticket 10, ADR-0031)
+	//
+	// GitHub redirects to the editor's one prerendered route with `?code=` and `?state=`, arriving on
+	// the same route `?p=` already addresses. There is nowhere else it could land: a GitHub App's
+	// callback URL is registered per App, this app has one page, and a static host has no server to
+	// receive it.
+	//
+	// ⚠ **Read inside an effect, which is the prerender guard.** SvelteKit throws on
+	// `url.searchParams` while prerendering — a query parameter cannot be baked into a static file
+	// (ADR-0008) — and this is the same rule `pageTitle` below documents. An effect never runs on the
+	// server, and `storage` is `null` until the layout's effect has run, which is exactly the "in a
+	// browser now" condition every other read on this page waits for.
+
+	/** What the sign-in did, in the words the user should see. Its own state so it can be announced. */
+	let signInOutcome = $state('');
+	/** Why it did not happen. Separate, so a refusal can be an alert rather than a status. */
+	let signInProblem = $state('');
+
+	$effect(() => {
+		const current = storage;
+		if (!current) return;
+		const callback = readSignInCallback(page.url.searchParams);
+		if (callback === null) return;
+		// A rejection here has nowhere else to go: an unhandled one is a sign-in that reports neither
+		// success nor a reason, which is the state this screen exists to make impossible.
+		void finishSignIn(current, callback).catch((cause: unknown) => {
+			signInProblem = cause instanceof Error ? cause.message : String(cause);
+		});
+	});
+
+	/**
+	 * Take the reply off the address bar, then judge it.
+	 *
+	 * ⚠ **The parameters are stripped in both directions, and before the exchange is awaited.** A code
+	 * left in the bar is one a reload replays, a bookmark preserves, and a screenshot leaks; a refused
+	 * `state` left in the bar is one that re-refuses on every reload.
+	 *
+	 * ⚠ **The stashed `?p=` is consumed straight away and put back only once the `state` has
+	 * verified.** It has to be consumed either way, or a later reload restores it into an unrelated
+	 * navigation — but a callback this tab did not ask for must not be able to choose which Project
+	 * the tab lands on, so the address it goes back to carries nothing until the reply is known to be
+	 * this tab's. Every other refusal — GitHub's own, a broker that is down — *is* this tab's sign-in,
+	 * and the scholar is put back where they were with the reason on screen.
+	 */
+	async function finishSignIn(
+		current: WorkspaceStorage,
+		callback: Parameters<WorkspaceStorage['completeGitHubSignIn']>[0]
+	): Promise<void> {
+		signInOutcome = '';
+		signInProblem = '';
+		const returning = current.consumeSignInReturn();
+		await strip('');
+
+		try {
+			await current.completeGitHubSignIn(callback);
+			signInOutcome = current.identity
+				? `Signed in to GitHub as ${current.identity}. Your sign-in is forgotten when this tab closes.`
+				: 'Signed in to GitHub. Your sign-in is forgotten when this tab closes.';
+			await strip(returning);
+		} catch (cause) {
+			signInProblem = cause instanceof Error ? cause.message : String(cause);
+			if (!(cause instanceof GitHubCallbackRefusedError)) await strip(returning);
+		}
+	}
+
+	/**
+	 * Replace the address with this app's own root and the given query string.
+	 *
+	 * ⚠ **`goto` rather than `replaceState`.** This runs from an effect on the first render after the
+	 * redirect, which is before SvelteKit's router has finished initialising — `replaceState` throws
+	 * there, and the whole callback was silently lost. `goto` waits for the router, and
+	 * `replaceState: true` keeps the callback URL out of the history so Back does not return to it.
+	 *
+	 * A rejected `goto` is caught and the address rewritten through the History API instead, because
+	 * the one outcome that is not allowed here is the parameters staying where they are.
+	 */
+	async function strip(query: string): Promise<void> {
+		// `resolve()` is used, but the rule only recognises it as the whole argument — and the query
+		// string that carries the open Project back has to be appended to it. Same exemption, and the
+		// same reason, as the `github.com` link in `RemoteSettings.svelte`.
+		const address = `${resolve('/')}${query}`;
+		try {
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(address, { replaceState: true, noScroll: true, keepFocus: true });
+		} catch {
+			try {
+				globalThis.history.replaceState(globalThis.history.state, '', address);
+			} catch {
+				// Nothing further can be done about the address bar, and the sign-in itself still has an
+				// answer to report — which is better than throwing that answer away over the URL.
+			}
+		}
+	}
+
 	/**
 	 * The hub, or the Project by name. Falls back to the folder until `project.json` is read.
 	 *
@@ -64,6 +162,23 @@
 	apart, and `?p=amsterdam-1625` is not visible on a tab strip.
 -->
 <svelte:head><title>{pageTitle}</title></svelte:head>
+
+<!--
+	What the GitHub sign-in did, on the screen it comes back to. Rendered above every branch below
+	because the redirect can land on the hub or on a Project, and the answer is the same either way.
+
+	`aria-live="polite"` for the outcome and `role="alert"` for the refusal, which is CONTRIBUTING's
+	mandated split: a status is announced when the reader gets to it, and a refusal is inserted at the
+	moment its text first exists, which a polite region does not reliably announce.
+-->
+{#if signInOutcome}
+	<p aria-live="polite" class="p-4 text-sm" data-testid="sign-in-outcome">{signInOutcome}</p>
+{/if}
+{#if signInProblem}
+	<div role="alert" class="m-4 alert flex-col items-start alert-warning">
+		<p data-testid="sign-in-problem">{signInProblem}</p>
+	</div>
+{/if}
 
 {#if host.unsupported}
 	<main class="mx-auto max-w-4xl p-8">

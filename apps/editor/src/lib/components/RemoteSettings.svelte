@@ -103,6 +103,27 @@
 		if (!open) reset();
 	});
 
+	/**
+	 * Check the held sign-in has life left in it, the moment this dialog is opened.
+	 *
+	 * ⚠ **Expiry is answered *before* work starts, never during it** (SPEC story 33). A GitHub App's
+	 * user token lasts eight hours, and a publish that met the end of one partway through would leave
+	 * blobs in no tree and a ref that never moved. `ensureCredentialFresh` renews it through the
+	 * broker where it can and clears it where it cannot, so every screen then renders the
+	 * not-signed-in state and the remedy is the button already on this one.
+	 *
+	 * This is the same call ticket 04's Publish makes before it starts, and it is here as well
+	 * because this is the screen a scholar comes to when they suspect their sign-in has gone.
+	 *
+	 * An `$effect` rather than a `$derived`: it is a request, not a value.
+	 */
+	$effect(() => {
+		if (!open) return;
+		void storage.ensureCredentialFresh().catch((cause: unknown) => {
+			problem = cause instanceof Error ? cause.message : String(cause);
+		});
+	});
+
 	async function bind(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		reset();
@@ -169,6 +190,18 @@
 		} finally {
 			working = false;
 		}
+	}
+
+	/**
+	 * Leave for GitHub, or say why this browser cannot.
+	 *
+	 * A browser that will not hold the `state` cannot finish a sign-in it starts, so the refusal is
+	 * shown here — beside the paste, which needs no storage of that kind — rather than after a trip
+	 * to GitHub and an authorisation that would then be thrown away.
+	 */
+	function beginSignIn(): void {
+		reset();
+		problem = storage.beginGitHubSignIn();
 	}
 
 	function signOut(): void {
@@ -335,12 +368,27 @@
 			machine can be handed to somebody" became unreachable, and the token stayed in the tab for
 			the rest of the session.
 
-			It also reads the seal correctly for a Review Workspace, without asking about one: the
-			credential store answers `null` while a review copy is open (ADR-0033, story 40), so
-			`signedIn` is false and a review copy is unbound, and this whole section is therefore absent
-			from one — *because* the seal holds rather than because a condition remembered to say so.
+			`signedIn` reads the seal without asking about a review copy: the credential store answers
+			`null` while one is open (ADR-0033, story 40), so a section gated on it alone would be absent
+			from a review copy *because* the seal holds rather than because a condition remembered to
+			say so. That stops being enough the moment a condition that does not read the seal is added
+			beside it — see the next note.
 		-->
-		{#if storage.signedIn || bound}
+		<!--
+			⚠ **`signInWithGitHubOffered` is the third condition, and it is what makes the front door
+			reachable at all.** Gated on "signed in or bound" alone, the only way to a sign-in was to
+			bind first — which needs a pasted token — so the GitHub button would have been unreachable
+			by exactly the scholar it exists for. It stays absent in a fork with no App, where there is
+			nothing to reach.
+
+			⚠ **And `review === null` is the fourth, because the third is a constant.** The paragraph
+			above is true of `signedIn` and of `bound`, both of which read the seal — but
+			`signInWithGitHubOffered` answers a question about the *deployment*, so on its own it put
+			this whole section, sign-in button included, on the screen a student's submission is open
+			on. A section that renders "because the seal holds" has to be gated on something the seal
+			moves.
+		-->
+		{#if storage.review === null && (storage.signedIn || bound || storage.signInWithGitHubOffered)}
 			<section class="rounded-box border border-base-300 p-4">
 				<h3 class="font-semibold">Your GitHub sign-in</h3>
 				{#if storage.signedIn}
@@ -354,9 +402,37 @@
 						</button>
 					</div>
 				{:else}
-					<p class="mt-1 text-sm opacity-70">
-						Not signed in, so nothing can be published yet. Paste a token to sign in again.
-					</p>
+					<p class="mt-1 text-sm opacity-70">Not signed in, so nothing can be published yet.</p>
+					{#if storage.signInWithGitHubOffered}
+						<!--
+							The nicer front door (SPEC stories 32, 56). Offered first because it is the shorter
+							path — press, authorise on GitHub's own screen, come back — and the paste is kept
+							below it rather than replaced, because a fork with no App of its own has nothing
+							else (ADR-0031).
+
+							⚠ **Absent entirely when no App is configured**, which is what
+							`signInWithGitHubOffered` answers. A button that redirects to an authorize URL with
+							no client ID behind it is worse than no button: it takes the scholar to GitHub to be
+							refused there, about a thing they cannot fix.
+						-->
+						<div class="mt-3 flex flex-col gap-1">
+							<button
+								class="btn w-fit btn-primary btn-sm"
+								data-testid="sign-in-with-github"
+								disabled={working}
+								onclick={() => beginSignIn()}
+							>
+								Sign in with GitHub
+							</button>
+							<p class="text-sm opacity-70">
+								This takes you to GitHub, where you choose which repositories Ballastella may touch,
+								and brings you back. Nothing is kept on this computer beyond this tab.
+							</p>
+						</div>
+						<p class="mt-3 text-sm opacity-70">Or paste a token instead:</p>
+					{:else}
+						<p class="mt-1 text-sm opacity-70">Paste a token to sign in again.</p>
+					{/if}
 					<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void signIn(event)}>
 						<div class="flex flex-col gap-1">
 							<label class="text-sm font-medium" for={signInTokenId}>Personal access token</label>

@@ -42,6 +42,12 @@ import {
 	type FakeGitHub,
 	type FakeRateLimit
 } from '../../packages/core/src/remote/fake-github.js';
+import {
+	GITHUB_APP,
+	isGitHubAppConfigured,
+	type GitHubApp
+} from '../../packages/core/src/remote/github-app.js';
+import { GITHUB_AUTHORIZE_URL } from '../../packages/core/src/remote/github-sign-in.js';
 import type { BrowserContext, Page, Route } from './test.js';
 
 /** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
@@ -83,6 +89,36 @@ export type GitHubHostsOptions = {
 	readonly repositories?: readonly FakeRepository[];
 	/** Answer 401 to every credentialed request: an expired or revoked token. */
 	readonly rejectCredential?: boolean;
+	/**
+	 * Serve the GitHub App sign-in as well: GitHub's authorize screen, and the broker's two endpoints.
+	 *
+	 * ⚠ **The addresses come from `GITHUB_APP`, because the app under test is built with them.** The
+	 * browser's own `beginGitHubSignIn` reads that module, so a spec that routed a pair of its own
+	 * would be intercepting addresses nothing requests — and the fence
+	 * (`scripts/check-github-broker.mjs`) refuses a spec that writes either value down, for the same
+	 * reason the place-lookup fence refuses one that names its host.
+	 *
+	 * Left out, none of those three addresses are served and the network fence aborts any request to
+	 * them, which is the fence working: no spec reaches `github.com` or a real broker.
+	 *
+	 * The surface is served by the **first repository's** fake, so that a token it issues is one that
+	 * repository's API honours. Every spec driving sign-in has exactly one repository.
+	 */
+	readonly signIn?: boolean;
+	/**
+	 * Serve GitHub's authorize screen, but let every request to the broker fail to connect.
+	 *
+	 * ⚠ **This is the state this deployment ships in**, and it is not the same as `signIn: false`.
+	 * GitHub is real and answers; the broker's host is reserved by RFC 2606 and resolves nowhere
+	 * (`github-app.ts`), so a scholar gets all the way through the redirect and meets the failure at
+	 * the exchange. What must come out of that is a sentence naming the token-paste path, and a paste
+	 * that then binds and publishes exactly as it always did (ADR-0031's first consequence).
+	 */
+	readonly brokerUnreachable?: boolean;
+	/** How long an issued token lasts. Short values are how a spec reaches expiry without waiting. */
+	readonly tokenLifetimeSeconds?: number;
+	/** The account a completed sign-in is as, reported by `GET /user`. */
+	readonly login?: string;
 };
 
 /**
@@ -123,7 +159,20 @@ export type GitHubHosts = {
 	 * resumed Clone re-downloaded nothing is asserting the same number the domain tests assert.
 	 */
 	rawGets(owner: string, name: string): number;
+	/** Age every token the sign-in issued, as eight hours passing would. */
+	expireSignIn(): void;
+	/** Refuse the broker's refresh endpoint, so an expired sign-in cannot be renewed. */
+	refuseRefresh(): void;
 };
+
+/**
+ * The App the app under test is built with, re-exported so a spec need never write it down.
+ *
+ * Taking it from here is what keeps `scripts/check-github-broker.mjs` green: a spec that spelled the
+ * broker's host out would be a second place to change on a repoint, which is the whole property that
+ * fence exists to hold.
+ */
+export const SIGN_IN_APP: GitHubApp = GITHUB_APP;
 
 const key = (owner: string, name: string): string => `${owner}/${name}`;
 
@@ -153,6 +202,10 @@ export async function routeGitHubHosts(
 	const rawRequests: string[] = [];
 	const fakes = new Map<string, FakeGitHub>();
 
+	// The sign-in surface hangs off the first repository's fake, so a token it issues is one that
+	// repository's API honours — see `GitHubHostsOptions.signIn`.
+	let primary: FakeGitHub | null = null;
+
 	for (const repository of options.repositories ?? []) {
 		// A starting tree, so the repository has the `main` branch a Pages source names. A fake made
 		// without one is a repository with no commits at all, which GitHub answers 409 and 422 about —
@@ -160,8 +213,19 @@ export async function routeGitHubHosts(
 		const fake = await createFakeGitHub({
 			owner: repository.owner,
 			repository: repository.name,
-			tree: repository.files ?? { 'README.md': '# Atlas\n' }
+			tree: repository.files ?? { 'README.md': '# Atlas\n' },
+			...(options.signIn === true && primary === null
+				? {
+						signIn: {
+							brokerOrigin: SIGN_IN_APP.brokerOrigin,
+							clientId: SIGN_IN_APP.clientId,
+							login: options.login ?? repository.owner,
+							tokenLifetimeSeconds: options.tokenLifetimeSeconds
+						}
+					}
+				: {})
 		});
+		primary ??= fake;
 		fake.permissions = { push: repository.push ?? true, admin: false };
 		fake.pagesEnabled = repository.pagesEnabled ?? false;
 		fake.refusePages = repository.refusePages ?? false;
@@ -171,13 +235,65 @@ export async function routeGitHubHosts(
 		fakes.set(key(repository.owner, repository.name), fake);
 	}
 
+	if (options.signIn === true && primary !== null) {
+		// ⚠ **A fork with no App configured must not be routed at all.** `SIGN_IN_APP` is this
+		// checkout's `GITHUB_APP`, and a fork that turns the front door off by emptying both values
+		// (`github-app.ts`) would reduce the glob below to `'/**'` — which matches every request the
+		// page makes, so this module would silently become the whole network. Said out loud instead:
+		// the sign-in surface cannot be served where there is no App for it to be.
+		if (!isGitHubAppConfigured(SIGN_IN_APP)) {
+			throw new Error(
+				'This checkout has no GitHub App configured, so the sign-in surface cannot be served and ' +
+					'no spec can drive it. See packages/core/src/remote/github-app.ts.'
+			);
+		}
+		const signInFake = primary;
+
+		/** Forward a request into the fake and send back exactly what it answered. */
+		const forward = async (route: Route): Promise<void> => {
+			const request = route.request();
+			requests.push(new URL(request.url()).pathname);
+			const method = request.method();
+			const response = await signInFake.fetch(request.url(), {
+				method,
+				headers: await request.allHeaders(),
+				body: method === 'GET' || method === 'HEAD' ? undefined : (request.postData() ?? undefined)
+			});
+			await route.fulfill({
+				status: response.status,
+				headers: Object.fromEntries(response.headers),
+				body: Buffer.from(await response.arrayBuffer())
+			});
+		};
+
+		// GitHub's authorisation screen. The fake answers the 302 a user pressing "Authorize" produces,
+		// so the browser follows it straight back to the callback — which is the whole round trip, with
+		// no page on `github.com` ever being fetched.
+		await target.route(`${GITHUB_AUTHORIZE_URL}*`, forward);
+		// The broker's two endpoints, and nothing else on that origin (ADR-0031). Recorded before it
+		// fails when the broker is unreachable, so a spec can tell "tried and could not" from
+		// "never went near it".
+		await target.route(`${SIGN_IN_APP.brokerOrigin}/**`, async (route) => {
+			if (options.brokerUnreachable !== true) return forward(route);
+			requests.push(new URL(route.request().url()).pathname);
+			await route.abort('connectionfailed');
+		});
+	}
+
 	await target.route(`${GITHUB_API_ORIGIN}/**`, async (route) => {
 		const request = route.request();
 		const url = new URL(request.url());
 		requests.push(url.pathname);
 
 		const [scope, owner, name] = url.pathname.split('/').filter(Boolean);
-		const fake = scope === 'repos' && owner && name ? fakes.get(key(owner, name)) : undefined;
+		// `GET /user` is about the credential rather than about a repository, so it goes to the fake
+		// holding the sign-in — the same one that issued the token being presented.
+		const fake =
+			scope === 'user'
+				? (primary ?? undefined)
+				: scope === 'repos' && owner && name
+					? fakes.get(key(owner, name))
+					: undefined;
 		// ⚠ GitHub answers 404 for a repository that does not exist **and** for one the credential
 		// cannot see, which is why the app's refusal names both.
 		if (!fake) return notFound(route);
@@ -231,6 +347,10 @@ export async function routeGitHubHosts(
 		},
 		blobPosts: () => [...fakes.values()].reduce((sum, fake) => sum + fake.blobPosts, 0),
 		head: (owner, name) => fakes.get(key(owner, name))?.head() ?? null,
-		rawGets: (owner, name) => fakes.get(key(owner, name))?.rawGets ?? 0
+		rawGets: (owner, name) => fakes.get(key(owner, name))?.rawGets ?? 0,
+		expireSignIn: () => primary?.expireIssuedTokens(),
+		refuseRefresh: () => {
+			if (primary !== null) primary.refuseRefresh = true;
+		}
 	};
 }

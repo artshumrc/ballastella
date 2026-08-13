@@ -140,7 +140,92 @@ no gate — not `pnpm lint`, not `pnpm test`, not CI — because a check in a ga
 uptime the power to turn your repository red. Run it by hand after repointing, and again if search
 stops working.
 
-### 6. Keeping up with upstream
+### 6. Decide about the GitHub sign-in
+
+Publishing needs a GitHub credential, and there are two ways for a scholar to give the editor one.
+
+**The paste always works, and needs nothing from you.** A scholar makes a fine-grained personal
+access token on GitHub, pastes it into the Remote dialog, and publishes. No server is involved, no
+configuration, and no account of yours. **If you do nothing at all in this section, this is your
+fork's whole authentication and everything still works** — the publish path, its speed, and where the
+data goes are identical either way.
+
+**The nicer front door** is a button: press *Sign in with GitHub*, authorise on GitHub's own screen,
+choose which repositories the app may touch, and come back signed in. This is the one part of
+Ballastella that needs a server, and it needs one for a single reason:
+`github.com/login/oauth/access_token` sends no CORS headers, so a browser cannot exchange an
+authorisation code for a token by itself. Every other request — the file list, every blob, the
+commit, every byte of a Clone — goes from the browser straight to `api.github.com`, which does
+([ADR-0031](adr/0031-the-broker-exchanges-a-code-never-data.md)).
+
+That server is called the **broker**, and it does that exchange and nothing else. **No repository
+data ever passes through it.** Its code and its deployment live in a separate repository and are not
+part of this one.
+
+#### What ships today
+
+**Neither value is real, and no broker is deployed.** The two placeholders point at
+`github-broker.example.org` — a domain [RFC 2606](https://www.rfc-editor.org/rfc/rfc2606) reserves so
+that nobody can ever register it. So on an unmodified fork the sign-in button is offered, GitHub is
+never reached, and the attempt fails with a sentence telling the scholar to paste a token instead. A
+real-looking address on a domain somebody could buy was deliberately avoided: the danger is not that
+sign-in breaks, it is that one day it silently starts working, to a stranger's server.
+
+#### Turning it on for your fork
+
+**You cannot borrow anyone else's App.** A GitHub App's callback URL is registered *on the App*, so
+an App registered for one address will not redirect to yours. A fork at a different address needs its
+own App and its own client ID — and until it has them, the pasted token is the whole of its auth.
+
+1. Register a GitHub App on your account or organisation. Set its **callback URL** to the address
+   your editor is served from — the same URL you would type into a browser to open it, spelled the
+   same way. The editor sends the address the browser is actually at, so if people reach it as
+   `…/editor/index.html` that is what GitHub is asked to match, and a callback registered as
+   `…/editor/` will be refused with `redirect_uri_mismatch`. Give it **Contents: Read and write** and
+   **Pages: Read and write**, and enable user-to-server tokens with expiry.
+2. Deploy a broker that implements the two endpoints below, holding your App's client **secret**.
+   The contract is fixed so the two repositories cannot drift:
+
+   ```
+   POST {broker}/github/token    { client_id, code, redirect_uri }  → GitHub's token JSON verbatim,
+                                                                      or { error, error_description }
+   POST {broker}/github/refresh  { client_id, refresh_token }       → the same shape
+   ```
+
+   It looks the secret up **by `client_id`** and validates the request's `Origin` against an
+   allowlist stored beside that secret, which is what lets one deployment serve several unrelated
+   projects without any of them minting tokens against another's App. It logs no code, no token, and
+   no secret.
+3. Edit **one file** —
+   [`packages/core/src/remote/github-app.ts`](../packages/core/src/remote/github-app.ts) — and set
+   the two values on `GITHUB_APP`:
+
+   ```ts
+   export const GITHUB_APP: GitHubApp = {
+   	brokerOrigin: 'https://broker.your-institution.edu',
+   	clientId: 'Iv1.your-real-client-id'
+   };
+   ```
+
+   **Neither is a secret.** A client ID is public by design — it travels in the authorize URL, in
+   front of the user. The client secret never leaves your broker.
+
+Nothing else in the repository needs to know: `scripts/check-github-broker.mjs` fails `pnpm lint` if
+any module outside that file names your broker's host or your client ID, which is what keeps
+"repoint it in one edit" true rather than merely intended.
+
+#### Turning it off
+
+Set both values to the empty string. The button disappears entirely — rather than sitting there
+leading somewhere that cannot work — and the pasted token becomes your fork's whole auth again.
+`pnpm lint` then reports `NO GITHUB APP CONFIGURED` instead of a containment scan, which is a
+deliberately different line: a fence with nothing to look for must not print the same success message
+as a fence that looked and found nothing.
+
+Set **both, or neither**. A broker with no client ID has nothing to look a secret up by, and a client
+ID with no broker has nowhere to exchange a code, so `pnpm lint` refuses a half-configured pair.
+
+### 7. Keeping up with upstream
 
 Pull from this repository and push; the workflow redeploys. The editor is a PWA with an explicit
 update prompt, so a user with the old version open is told rather than silently switched

@@ -340,6 +340,7 @@ export {
 	type FakeGitHubOptions,
 	type FakeRateLimit,
 	type FakeRepositoryPermissions,
+	type FakeSignInOptions,
 	type FakeTreeEntry
 } from './remote/fake-github.js';
 // The publish engine: the Workspace becomes one tree, one commit, and one ref move (ADR-0033).
@@ -422,8 +423,36 @@ export {
 	browserCredentialStore,
 	closedWhileReviewing,
 	describeTokenProblem,
+	type CredentialStorage,
 	type CredentialStore
 } from './remote/credential-store.js';
+// The second acquisition path behind that same interface (ticket 10, ADR-0031): a GitHub App token
+// obtained by redirect and exchanged through the broker. **The engine never learns which door a
+// token came through** — what is exported here is used by the UI layer alone, and everything below
+// it still receives an opaque bearer string.
+export { GITHUB_APP, isGitHubAppConfigured, type GitHubApp } from './remote/github-app.js';
+export {
+	CREDENTIAL_FRESHNESS_MARGIN_MS,
+	GITHUB_APP_SESSION_KEY,
+	GITHUB_AUTHORIZE_URL,
+	GitHubCallbackRefusedError,
+	GitHubSignInError,
+	SIGN_IN_STATE_KEY,
+	authorizeUrl,
+	clearGrantRecord,
+	describeCallbackRefusal,
+	exchangeAuthorizationCode,
+	isGrantFresh,
+	newSignInState,
+	readGrantRecord,
+	readSignInCallback,
+	refreshGitHubToken,
+	signInAgainMessage,
+	verifySignInState,
+	writeGrantRecord,
+	type GitHubTokenGrant,
+	type SignInCallback
+} from './remote/github-sign-in.js';
 
 export {
 	ROUND_TRIP_TOLERANCE_PX,
