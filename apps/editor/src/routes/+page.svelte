@@ -140,13 +140,18 @@
 
 	$effect(() => {
 		if (!storage) return;
-		const link = readReturnLink(page.url.searchParams);
-		if (link === null) return;
-		returnLink = link;
-		// ⚠ **Stripped as the offer is raised, not after it is answered.** A parameter left in the bar
-		// is one a reload replays and a bookmark preserves — so somebody who followed a link once, said
-		// no, and came back to the tab later would be asked again by their own history.
-		void strip(withoutReturnLink(page.url.searchParams));
+		const parameters = page.url.searchParams;
+		// ⚠ **A parameter is stripped whether or not it parsed.** `?clone=ada/../../orgs` raises no
+		// offer, but left in the bar it is replayed by a reload, kept by a bookmark, and shared by
+		// whoever copies the address — which is the replay this stripping exists to prevent, and a
+		// link nobody in this repository wrote is the last one to leave lying around. So the presence
+		// of the parameter decides, and `readReturnLink` decides only whether there is an offer.
+		if (!parameters.has('clone') && !parameters.has('review')) return;
+		returnLink = readReturnLink(parameters);
+		// ⚠ **Stripped as the offer is raised, not after it is answered.** Somebody who followed a link
+		// once, said no, and came back to the tab later would otherwise be asked again by their own
+		// history.
+		void strip(withoutReturnLink(parameters));
 	});
 
 	/**
@@ -227,7 +232,17 @@
 	<ReturnLinkOffer
 		{storage}
 		link={returnLink}
-		ondismiss={() => {
+		ondismiss={(reason) => {
+			// ⚠ **Turning down a Review takes its `?p=` with it.** The review link's Project is named in
+			// the parameter that addresses one (ADR-0008), and before the Review has run this Workspace
+			// has no such Project — so dismissing the offer alone would leave the visitor looking at
+			// “There is no Project called “amsterdam-1625” in this Workspace”, with the one thing on the
+			// page that explained where that name came from now gone. Declining a link leaves the editor
+			// as the visitor found it, which is its own hub.
+			//
+			// Not after the Review has run: by then `?p=` names a Project that is here, and it is the
+			// one the visitor came to read.
+			if (reason === 'declined' && returnLink?.kind === 'review') void strip('');
 			returnLink = null;
 		}}
 	/>
@@ -274,6 +289,6 @@
 		the Project's own name is the heading, and it is inside the screen.
 	-->
 	<main class="h-full">
-		<ProjectScreen {session} {storage} {openDirectory} />
+		<ProjectScreen {session} {storage} {openDirectory} offerAbove={returnLink !== null} />
 	</main>
 {/if}

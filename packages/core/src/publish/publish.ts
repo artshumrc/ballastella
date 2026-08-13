@@ -326,11 +326,42 @@ function parseEditorUrl(value: unknown): string {
 		return '';
 	}
 	if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+	if (!reachableByAReader(url.hostname)) return '';
+	// Credentials belong to whoever typed them and to nothing else. They would otherwise travel into
+	// the record and out again as an `href` rendered on the author's own domain.
+	url.username = '';
+	url.password = '';
 	// A query or a fragment on the instance address is somebody's open Project or scroll position,
 	// which is not part of where the editor lives and would fight the link's own query string.
 	url.search = '';
 	url.hash = '';
 	return url.href.endsWith('/') ? url.href : `${url.href}/`;
+}
+
+/**
+ * Whether an address means anything on a machine that is not the one that published the site.
+ *
+ * ⚠ **This looks like an odd refusal until you know what gets recorded.** The editor stamps its own
+ * `location.origin`, so an author who publishes to GitHub Pages from `pnpm dev` records
+ * `http://localhost:5173/`, and every Reader's Front Page then offers them a live "Open this
+ * Workspace in Ballastella" pointing at *their own* port 5173 — a dead link, or whatever unrelated
+ * thing is running there. A single-label name (`http://atlas/`) is the same failure by way of
+ * somebody's intranet: it resolves on the author's network and nowhere else. Nothing in the publish
+ * dialog shows the address or offers to override it, so the refusal has to be here.
+ *
+ * Refusing produces `''`, which is the record's no-instance state: no link, no error, no guess at a
+ * canonical deployment — exactly the degradation the field is designed around, and better than an
+ * address whose only reachable meaning is on the wrong computer.
+ */
+function reachableByAReader(hostname: string): boolean {
+	const host = hostname.toLowerCase();
+	// `URL` brackets an IPv6 host and normalises every spelling of loopback to `[::1]`.
+	if (host.startsWith('[')) return host !== '[::1]';
+	// RFC 6761: `localhost` and anything under it are the local machine by definition.
+	if (host === 'localhost' || host.endsWith('.localhost')) return false;
+	// 127.0.0.0/8, which `URL` has already normalised to four dotted parts.
+	if (host.startsWith('127.')) return false;
+	return host.includes('.');
 }
 
 /**

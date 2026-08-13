@@ -30,6 +30,11 @@ export function resolveDeploymentAsset(path: string): string {
  *
  * Absolute, unlike everything else this module produces, because it is the one address that has to
  * mean something on **another origin**: the Published Site is a different host under ADR-0032.
+ *
+ * ⚠ **This is `location.origin`, which is often not an address a Reader could reach** — a `pnpm dev`
+ * server, or an instance inside an institution's network. Publishing does not record such an address:
+ * `parseEditorUrl` in `packages/core/src/publish/publish.ts` refuses loopback and single-label hosts,
+ * where the reasoning is written out, and the site degrades to carrying no return link at all.
  */
 export function deploymentRoot(): string {
 	return `${assetPrefix()}/`;

@@ -33,7 +33,19 @@
 		storage,
 		link,
 		ondismiss
-	}: { storage: WorkspaceStorage; link: ReturnLink; ondismiss: () => void } = $props();
+	}: {
+		storage: WorkspaceStorage;
+		link: ReturnLink;
+		/**
+		 * Take this offer off the page — `'declined'` when it was turned down having done nothing, and
+		 * `'finished'` when what it offered has already happened.
+		 *
+		 * The two are not interchangeable to the page underneath: a declined Review leaves a `?p=`
+		 * naming a Project this Workspace has not got, and a finished one leaves a `?p=` naming the
+		 * Project the visitor came to read. The route acts on the difference.
+		 */
+		ondismiss: (reason: 'declined' | 'finished') => void;
+	} = $props();
 
 	/** What the operation did, in the words the user should see, or `''`. */
 	let outcome = $state('');
@@ -81,7 +93,11 @@
 >
 	{#if outcome}
 		<p data-testid="return-link-outcome">{outcome}</p>
-		<button class="btn mt-3 btn-sm" data-testid="dismiss-return-link" onclick={() => ondismiss()}>
+		<button
+			class="btn mt-3 btn-sm"
+			data-testid="dismiss-return-link"
+			onclick={() => ondismiss('finished')}
+		>
 			Close
 		</button>
 	{:else}
@@ -137,7 +153,7 @@
 				class:btn-disabled={busy}
 				aria-disabled={busy}
 				data-testid="dismiss-return-link"
-				onclick={() => !busy && ondismiss()}
+				onclick={() => !busy && ondismiss('declined')}
 			>
 				No thanks
 			</button>

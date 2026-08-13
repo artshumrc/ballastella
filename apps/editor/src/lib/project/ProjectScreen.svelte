@@ -77,12 +77,19 @@
 	let {
 		session,
 		storage,
-		openDirectory
+		openDirectory,
+		offerAbove = false
 	}: {
 		session: EditorSession;
 		storage: WorkspaceStorage;
 		/** The Project's folder, from `?p=` (ADR-0008). Never `null` where this is mounted. */
 		openDirectory: string;
+		/**
+		 * Whether the route is rendering something above this screen that speaks for itself.
+		 *
+		 * Only the announcement order depends on it; see the `projectProblem` branch below.
+		 */
+		offerAbove?: boolean;
 	} = $props();
 
 	/** Nothing to show, and a reason worth naming, rather than a screen that says "Opening…" for ever. */
@@ -796,7 +803,20 @@
 		<p class="mt-6"><a class="btn btn-sm" href={resolve('/')}>Back to all Projects</a></p>
 	</div>
 {:else if session.projectProblem}
-	<div role="alert" class="m-4 alert flex-col items-start alert-warning">
+	<!--
+		⚠ **Assertive, unless the route is already saying something above it.** A `?p=` naming a Project
+		this Workspace has not got is ordinarily a dead end and an alert is right for it. But a Reader
+		following "Review this Project in Ballastella" lands on exactly that screen *with the offer to
+		fetch it rendered above* — and an assertive region interrupts a polite one whatever the DOM
+		order, so a screen-reader user heard the error before the invitation that answers it. Polite
+		here puts the two announcements in the order they are read in.
+	-->
+	<div
+		role={offerAbove ? undefined : 'alert'}
+		aria-live={offerAbove ? 'polite' : undefined}
+		data-testid="project-problem"
+		class="m-4 alert flex-col items-start alert-warning"
+	>
 		<h2 class="font-semibold">
 			{session.projectProblem.kind === 'missing'
 				? 'Project not found'

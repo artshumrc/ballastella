@@ -516,6 +516,24 @@ describe('publishing', () => {
 		expect(site.editorUrl).toBe('');
 	});
 
+	/**
+	 * ⚠ **An address only the publishing machine can reach is not recorded at all.** The editor stamps
+	 * its own origin, so an author publishing to GitHub Pages out of `pnpm dev` would otherwise record
+	 * `http://localhost:5173/` — and every Reader's Front Page would offer a live link into whatever
+	 * is running on *their own* port 5173. Nothing in the publish dialog shows the address or offers
+	 * to override it, so the record refuses it, and the site degrades to the no-instance state the
+	 * test above describes.
+	 */
+	it.each([['http://localhost:5173/'], ['http://127.0.0.1:5173/'], ['http://atlas/ballastella/']])(
+		'records nothing for %s, which no Reader could reach',
+		async (editorUrl) => {
+			const site = await publish({ editorUrl });
+
+			expect(parsePublishedSite(await store.read('ballastella-site.json'))).toEqual(site);
+			expect(site.editorUrl).toBe('');
+		}
+	);
+
 	it('writes the site record last, so an interrupted publish leaves a site that works', async () => {
 		const order: string[] = [];
 		vi.spyOn(store, 'write').mockImplementation(async function (
@@ -1212,6 +1230,50 @@ describe('the site record a Reader’s page is drawn from', () => {
 		);
 
 		expect(record.editorUrl).toBe('');
+	});
+
+	// Credentials are whoever typed them, not where the editor lives, and this address is rendered as
+	// a link on the author's own domain.
+	it('takes any credentials off the instance address', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(
+				JSON.stringify({ projects: [], editorUrl: 'https://ada:hunter2@maps.example.edu/' })
+			)
+		);
+
+		expect(record.editorUrl).toBe('https://maps.example.edu/');
+	});
+
+	/**
+	 * ⚠ **An address only the machine that published the site can reach is refused, not rendered.**
+	 * The link would be live and would go somewhere — to whatever is on *the Reader's* port 5173, or
+	 * to a machine on somebody else's network — which is worse than the no-link state a record with no
+	 * instance already produces. The write side refuses the same addresses; see the publishing tests.
+	 */
+	it.each([
+		['http://localhost:5173/'],
+		['http://127.0.0.1:5173/'],
+		['http://[::1]:5173/'],
+		['http://atlas/ballastella/']
+	])('reads no instance address out of %s, which no Reader could reach', (given) => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(JSON.stringify({ projects: [], editorUrl: given }))
+		);
+
+		expect(record.editorUrl).toBe('');
+	});
+
+	// The rule is about reachability and nothing else: an ordinary host keeps its port, and a public
+	// IPv6 literal is not loopback.
+	it.each([
+		['https://maps.example.edu:8443/ballastella/', 'https://maps.example.edu:8443/ballastella/'],
+		['http://[2001:db8::1]/', 'http://[2001:db8::1]/']
+	])('reads %s back as the instance address', (given, expected) => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(JSON.stringify({ projects: [], editorUrl: given }))
+		);
+
+		expect(record.editorUrl).toBe(expected);
 	});
 
 	it('drops a Project entry with no folder, which is the one field ?p= needs', () => {

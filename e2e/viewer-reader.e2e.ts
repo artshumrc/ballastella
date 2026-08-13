@@ -690,15 +690,22 @@ test.describe('a Published Site a Reader arrives at', () => {
 	test('says nothing about an editor when the site does not record one', async ({ page }) => {
 		site = await published({
 			...oneProject(),
+			// ⚠ **A binding the page must not go looking for.** The site records no instance, so there is
+			// no link to build and the repository's name is of no use — and this file is here precisely
+			// so that "no extra request" is a claim about the wire rather than about a missing fixture.
 			'remote.json': asJson({ formatVersion: 1, owner: 'ada', repository: 'atlas' })
 		});
 		const seen = watch(page);
+		const served = site.sites[0]!;
 
-		await page.goto(site.sites[0]!.url);
+		await page.goto(served.url);
 
 		await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
 		await expect(page.getByRole('link', { name: /in Ballastella$/ })).toHaveCount(0);
 		await expect(page.getByTestId('site-problem')).toHaveCount(0);
+		// Every site published before ticket 09 is in this state, and the binding is a whole extra
+		// round trip on the Front Page of every one of them.
+		expect(served.requests.filter((asked) => asked.endsWith('/remote.json'))).toEqual([]);
 		expect(seen.failures).toEqual([]);
 	});
 

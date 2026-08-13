@@ -485,13 +485,25 @@ test.describe('arriving on a link from a Published Site', () => {
 	// ⚠ Both halves of the reference are interpolated into a GitHub API path, and `ada/../../orgs`
 	// retargets every request the engine makes. A link nobody in this repository wrote offers nothing
 	// at all rather than being repaired into something.
-	test('offers nothing for a link that does not name a repository', async ({ page }) => {
+	//
+	// ⚠ **And it comes off the address anyway.** A parameter that raised no offer is still one a
+	// reload replays, a bookmark keeps, and whoever copies the address passes on — which is the whole
+	// reason the good ones are stripped. Refusing it on screen and leaving it in the bar would make
+	// the invariant hold only for links that parsed.
+	test('offers nothing for a link that does not name a repository, and keeps none of it', async ({
+		page
+	}) => {
 		await start(page);
 
 		for (const reference of ['ada', 'ada/../../orgs', 'ada atlas']) {
 			await page.goto(`${HUB}?clone=${encodeURIComponent(reference)}`);
 			await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
 			await expect(offer(page)).toHaveCount(0);
+			await expect
+				.poll(() => new URL(page.url()).searchParams.get('clone'), {
+					message: `?clone=${reference} left in the address bar`
+				})
+				.toBeNull();
 		}
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
 	});
