@@ -31,6 +31,21 @@
 // no Pages build at all — so a Clone works on a repository published thirty seconds ago.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// THE OWNED NAMESPACE, AND NOT THE REPOSITORY
+//
+// A Clone downloads what {@link isOwnedPath} calls ours and nothing else, so a `CNAME`, a
+// `README.md`, a `LICENSE`, `.github/workflows/**` and a `docs/` folder are left where they are.
+//
+// ⚠ **That is a rule about *publishing*, applied here because a Clone is where the hazard starts.**
+// Anything this downloads becomes ordinary Workspace content, and `planRemotePublish` sends every
+// Workspace file — so a file dragged in from outside the namespace is authored content of every
+// later publish. The student who clones an instructor's repository, rebinds to their own and
+// presses Publish would find their own `CNAME` overwritten with the instructor's domain and their
+// `README.md` replaced (SPEC story 17). That is exactly the "full mirror" ADR-0033 rejected,
+// arriving through the Clone rather than through the namespace rule — so the predicate is imported
+// rather than restated, and there is no second copy of it to drift.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 // RESTORE'S SEMANTICS, WITH A DIFFERENT SOURCE OF BYTES
 //
 // A new named Workspace, filled, switched to. Never a merge into an existing Workspace and never an
@@ -44,8 +59,10 @@
 // Historical Map — so throwing the partial Workspace away would make every interruption cost the
 // whole download again. What makes keeping it safe is {@link cloneFromRemote}'s resume: every file
 // already present whose blob SHA matches the tree's is skipped, so running it again against the same
-// destination finishes the job rather than repeating it. Both refusals happen *before* the
-// destination is opened, so a refused Clone still leaves nothing behind at all.
+// destination finishes the job rather than repeating it. Every refusal but `'incomplete'` happens
+// *before* the destination is opened, so those leave nothing behind at all — and what makes the one
+// exception safe is that the binding is written last: an interrupted Clone is an unbound Workspace,
+// which no publish will act on.
 
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
 import { ALIGNMENT_DIRECTORY } from '../alignment/alignment.js';
@@ -59,6 +76,7 @@ import type { EstimateStorage, OpenRestoreDestination } from '../transfer/restor
 import type { TransferProgressListener } from '../transfer/transfer.js';
 import { gitBlobSha } from './blob-sha.js';
 import { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './github-api.js';
+import { isOwnedPath, remoteProjectDirectories } from './publish-to-remote.js';
 import {
 	DEFAULT_REMOTE_BRANCH,
 	REMOTE_BINDING_FORMAT_VERSION,
@@ -85,15 +103,38 @@ export type CloneRefusal =
 	| 'truncated'
 	/** There is not enough room in the browser's storage to hold it. */
 	| 'insufficient-quota'
+	/**
+	 * A file the tree listed could not be fetched, or arrived as bytes the tree did not name.
+	 *
+	 * The one refusal that happens **after** bytes have been written, because it is the only one that
+	 * needs a file. It says something different about what is left behind — see {@link
+	 * CloneRefusedError}.
+	 */
+	| 'incomplete'
 	/** Anything else GitHub said, or a request that never got an answer. */
 	| 'refused';
+
+/** What a refusal leaves on this computer, which is the half of the sentence a user acts on. */
+type CloneRemains = 'nothing' | 'partial';
 
 /** A Clone that will not happen, with a message for the person who asked for it. */
 export class CloneRefusedError extends Error {
 	readonly refusal: CloneRefusal;
 
-	constructor(refusal: CloneRefusal, message: string) {
-		super(`${message} Nothing has been downloaded.`);
+	/**
+	 * @param remains defaults to `'nothing'`, which every refusal raised before the destination is
+	 *   opened leaves — that is most of them, and the order in {@link cloneFromRemote} is what makes
+	 *   it true rather than a claim made here.
+	 */
+	constructor(refusal: CloneRefusal, message: string, remains: CloneRemains = 'nothing') {
+		super(
+			`${message} ${
+				remains === 'nothing'
+					? 'Nothing has been downloaded.'
+					: 'The Workspace it was filling has been left in place with the files that had ' +
+						'already arrived, and nothing else on this computer has been changed.'
+			}`
+		);
 		this.name = 'CloneRefusedError';
 		this.refusal = refusal;
 	}
@@ -148,6 +189,11 @@ type CloneEntry = {
  *
  * Per segment, so the path structure survives, and encoded, because a `#` in a file name is a
  * fragment that silently truncates the request into one for a different file.
+ *
+ * ⚠ **Not for a branch on the API host**, where the ref is one path parameter and a `/` in it would
+ * address a different endpoint — see {@link readCloneTree}. It is right for a branch on the raw
+ * host, whose URL is literally `{owner}/{repository}/{branch}/{path}` and which resolves a branch
+ * name containing a slash across those segments itself.
  */
 const urlPath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
 
@@ -161,7 +207,9 @@ const urlPath = (path: string): string => path.split('/').map(encodeURIComponent
  * 3. **The destination is opened** — and only now does anything exist that could be left behind.
  * 4. **Every file is fetched and written**, skipping what is already here with the right bytes.
  * 5. **Manifests last**, so a Project appears on the hub only once it is whole.
- * 6. **The binding is written** for the repository the user named.
+ * 6. **The binding is written** for the repository the user named — last of all, so that an
+ *    interrupted Clone leaves an unbound Workspace. See the write site for why that is a rule and
+ *    not an accident of ordering.
  *
  * @param open makes the Workspace to fill; see {@link OpenRestoreDestination}. Hand it one that
  *   creates a new Workspace for a first Clone, or one that reopens a partly-filled Workspace to
@@ -199,9 +247,12 @@ export async function cloneFromRemote(
 	let downloaded = 0;
 	let skipped = 0;
 	let bytes = 0;
+	// Declined files counted too, because progress is "how many of the listed files are dealt with"
+	// rather than "how many arrived": leaving them out ends the count below the total the same call
+	// reports, on a Clone that finished and said so.
 	const report = (path: string | null): void =>
 		options.onProgress?.({
-			files: downloaded + skipped,
+			files: downloaded + skipped + declined.length,
 			totalFiles: entries.length,
 			bytes,
 			totalBytes,
@@ -220,7 +271,28 @@ export async function cloneFromRemote(
 			report(entry.path);
 			continue;
 		}
-		const content = await source.read(entry.path);
+		// ⚠ A file listed and then unreadable — deleted between the listing and the fetch, or a branch
+		// moved under it — arrives here as the HTTP store's own error, which says nothing about
+		// cloning and reaches the dialog as a raw sentence. Given the shape every other refusal here
+		// has, so that what the user sees is a refusal rather than a stack trace's first line.
+		let content: Bytes;
+		try {
+			content = await source.read(entry.path);
+		} catch (cause) {
+			throw new CloneRefusedError(
+				'incomplete',
+				missingFileMessage(remote, entry.path, cause),
+				'partial'
+			);
+		}
+		// ⚠ **The bytes are checked against the SHA they were listed with.** It is the same hash the
+		// resume above turns on, over bytes already in memory, so it costs a Clone almost nothing —
+		// and without it a proxy or a cache serving a rewritten copy produces a Workspace that is
+		// silently wrong *and* whose files the resume will then skip for ever, because a later run
+		// compares them against nothing.
+		if ((await gitBlobSha(content)) !== entry.sha) {
+			throw new CloneRefusedError('incomplete', corruptFileMessage(remote, entry.path), 'partial');
+		}
 		if ((await writeCloned(destination.store, entry.path, content)) === 'declined') {
 			declined.push(entry.path);
 			report(entry.path);
@@ -246,12 +318,16 @@ export async function cloneFromRemote(
 		repository: remote.repository,
 		branch
 	};
+	// ⚠ **Last, after every file, and the position is load-bearing rather than tidy.** An interrupted
+	// Clone must be left *unbound*, because a bound Workspace is one the Publish button acts on and a
+	// partly filled one is missing owned-namespace paths that a publish would then delete from the
+	// Remote — the whole of somebody's site, taken down by a Clone that was stopped half way. Writing
+	// it earlier, to let a resume read its own Remote back, would reintroduce exactly that: a resume
+	// wants the binding, and the binding is what makes the incomplete Workspace dangerous. Pinned by
+	// "an interrupted Clone leaves the Workspace unbound" in `clone-from-remote.test.ts`.
 	await writeRemoteBinding(destination.store, destination.name, binding);
 
-	const projects = manifests
-		.map((entry) => entry.path)
-		.filter((path) => !declined.includes(path))
-		.map((path) => path.slice(0, -PROJECT_FILE_NAME.length - 1));
+	const projects = manifests.map((entry) => entry.path.slice(0, -PROJECT_FILE_NAME.length - 1));
 
 	return {
 		workspaceName: destination.name,
@@ -284,9 +360,13 @@ async function readCloneTree(
 	fetchFn: FetchFn | undefined
 ): Promise<CloneEntry[]> {
 	const request = fetchFn ?? ((input: string, init?: RequestInit) => fetch(input, init));
+	// ⚠ The branch is **one** encoded path parameter here, unlike on the raw host. `/git/trees/{ref}`
+	// takes a single segment, so a branch of `feature/x` spelled per segment would ask for
+	// `/git/trees/feature/x` — a path this endpoint does not have at all, and one whose failure says
+	// nothing about branches.
 	const url =
 		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
-		`/git/trees/${urlPath(remote.branch)}?recursive=1`;
+		`/git/trees/${encodeURIComponent(remote.branch)}?recursive=1`;
 
 	let response: Response;
 	try {
@@ -325,21 +405,33 @@ async function readCloneTree(
 		throw new CloneRefusedError('truncated', truncatedMessage(files, remote));
 	}
 
-	return listed.flatMap<CloneEntry>((entry) =>
-		// Blobs only. A `tree` entry is a directory, implied by the paths beneath it; a `commit` entry
-		// is a gitlink, whose bytes live in another repository and cannot be fetched from this one.
-		entry.type === 'blob' && typeof entry.path === 'string' && typeof entry.sha === 'string'
-			? // The binding is written from what the user named rather than downloaded — see
-				// {@link cloneFromRemote} — so it is not part of the file list at all.
-				entry.path === REMOTE_BINDING_PATH
-				? []
-				: [
-						{
-							path: entry.path as StorePath,
-							sha: entry.sha,
-							bytes: typeof entry.size === 'number' ? entry.size : 0
-						}
-					]
+	// Blobs only. A `tree` entry is a directory, implied by the paths beneath it; a `commit` entry is
+	// a gitlink, whose bytes live in another repository and cannot be fetched from this one.
+	const blobs: { path: string; sha: string; bytes: number }[] = [];
+	for (const entry of listed) {
+		if (entry.type !== 'blob') continue;
+		if (typeof entry.path !== 'string' || typeof entry.sha !== 'string') continue;
+		blobs.push({
+			path: entry.path,
+			sha: entry.sha,
+			bytes: typeof entry.size === 'number' ? entry.size : 0
+		});
+	}
+
+	// ⚠ **The namespace rule, asked of the Remote's own tree** — the same question and the same
+	// answer a publish to this repository would give (ADR-0033), because it is the same function.
+	// Everything outside it is the publisher's own work on their own repository: a `README.md` they
+	// wrote on github.com, a `CNAME` carrying their cited address, the workflow that deploys their
+	// Pages site. Downloaded, all of it would become *this* Workspace's content and be published as
+	// the cloner's own — see this module's header.
+	const projects = remoteProjectDirectories(blobs.map((entry) => entry.path));
+
+	return blobs.flatMap<CloneEntry>((entry) =>
+		// The binding is written from what the user named rather than downloaded — see
+		// {@link cloneFromRemote} — so it is not part of the file list at all, even though a publish
+		// owns it.
+		entry.path !== REMOTE_BINDING_PATH && isOwnedPath(entry.path, projects)
+			? [{ ...entry, path: entry.path as StorePath }]
 			: []
 	);
 }
@@ -478,6 +570,24 @@ function truncatedMessage(listed: number, remote: CloneReference): string {
 
 function refusedMessage(remote: CloneReference, detail: string): string {
 	return `GitHub refused to list ${describeRemote(remote)}: ${detail}.`;
+}
+
+function missingFileMessage(remote: CloneReference, path: string, cause: unknown): string {
+	const detail = cause instanceof Error ? cause.message : String(cause);
+	return (
+		`${describeRemote(remote)} listed ${path}, but it could not be downloaded: ${detail}. A file ` +
+		`can be deleted, or a branch moved, while a Clone is running — so this one has stopped rather ` +
+		`than hand you a Workspace with a file silently missing. Cloning again starts a fresh copy.`
+	);
+}
+
+function corruptFileMessage(remote: CloneReference, path: string): string {
+	return (
+		`${path} arrived from ${describeRemote(remote)} as different bytes from the ones its file list ` +
+		`named, so this Clone has stopped rather than keep a file it cannot vouch for. Something ` +
+		`between this browser and GitHub — a proxy, or a cache — served a rewritten copy. Cloning ` +
+		`again starts a fresh copy.`
+	);
 }
 
 function unreachableMessage(remote: CloneReference, cause: unknown): string {

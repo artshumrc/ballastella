@@ -2,7 +2,7 @@ import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
-import { expectWorkspaceNamed, openWorkspaceMenu } from './support/workspace';
+import { expectWorkspaceNamed, openWorkspaceMenu, switchToWorkspace } from './support/workspace';
 
 /**
  * Cloning a Workspace out of a public repository (ticket 07, ADR-0031, ADR-0032).
@@ -16,6 +16,8 @@ import { expectWorkspaceNamed, openWorkspaceMenu } from './support/workspace';
  *     switches to, with the Workspace it came from left exactly as it was;
  *   - the Project in it lists on the hub, opens, and draws — so the Historical Map, the Alignment
  *     and the Annotations all really landed, in a store the app reads through its own code;
+ *   - only the **owned namespace** arrives, so the publisher's `README.md`, `CNAME` and workflow do
+ *     not become the cloner's own content and are not published as theirs later (ADR-0033);
  *   - the result is **bound**, which the bar and `remote.json` both say;
  *   - none of it needs a credential, and none is sent — asserted against a GitHub that answers 401
  *     to anything carrying one;
@@ -78,15 +80,23 @@ const PROJECT_JSON = `${JSON.stringify(
 const WAREHOUSES = '{"type":"FeatureCollection","features":[]}';
 
 /**
+ * What the publisher's repository holds that is **not** the Workspace (ADR-0033).
+ *
+ * The scholar's own work on their own repository: the address they cite in print, the licence, the
+ * workflow that deploys their site. A publish leaves every one of them alone and so does a Clone —
+ * anything downloaded becomes the cloner's Workspace content, and their first publish would push it
+ * into their own repository as though they had written it (SPEC story 17).
+ */
+const OUTSIDE_NAMESPACE = ['README.md', 'CNAME', 'LICENSE', '.github/workflows/pages.yml'];
+
+/**
  * The whole repository, as a publish leaves it.
  *
- * `README.md` is the scholar's own, outside the owned namespace; `remote.json` names a **different**
- * repository, as a fork's published binding would, so a Clone that copied it down rather than
- * writing its own would be caught by the binding assertions below.
+ * `remote.json` names a **different** repository, as a fork's published binding would, so a Clone
+ * that copied it down rather than writing its own would be caught by the binding assertions below.
  */
 const PUBLISHED: Record<string, string> = {
 	'.nojekyll': '',
-	'README.md': '# Atlas\n',
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'someone-else', repository: 'fork' }),
 	'amsterdam-1625/project.json': PROJECT_JSON,
@@ -94,11 +104,14 @@ const PUBLISHED: Record<string, string> = {
 	// alignment-write-is-the-fixture: the Alignment as it sits on the Remote, seeded into the fake GitHub rather than into any Workspace — the Clone under test is what writes it, through `writeAlignmentBytes`
 	'alignments/amsterdam-1625.json': '{"type":"Annotation","id":"amsterdam-1625"}',
 	'images/amsterdam-1625/info.json': '{"width":4096,"height":3072}',
-	'images/amsterdam-1625/0,0,256,256/256,256/0/default.jpg': 'stands in for a tile'
+	'images/amsterdam-1625/0,0,256,256/256,256/0/default.jpg': 'stands in for a tile',
+	...Object.fromEntries(OUTSIDE_NAMESPACE.map((path) => [path, `${path}, the scholar's own\n`]))
 };
 
-/** Everything above except the binding, which a Clone writes rather than downloads. */
-const DOWNLOADED = Object.keys(PUBLISHED).filter((path) => path !== 'remote.json');
+/** Everything a Clone brings down: the owned namespace, less the binding it writes for itself. */
+const DOWNLOADED = Object.keys(PUBLISHED).filter(
+	(path) => path !== 'remote.json' && !OUTSIDE_NAMESPACE.includes(path)
+);
 
 // The hub draws a Base Map from an archive on somebody else's host, and every spec here is behind
 // the default-deny network fence. On the `context`, so a request through a service worker is covered.
@@ -191,8 +204,9 @@ test.describe('cloning a published Workspace', () => {
 		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas']);
 
 		const stored = await everyByteOf(page, 'atlas');
-		// Every file the Remote held, plus the binding this Clone wrote.
+		// The owned namespace, plus the binding this Clone wrote — and nothing of the publisher's own.
 		expect(Object.keys(stored).sort()).toEqual([...DOWNLOADED, 'remote.json'].sort());
+		for (const path of OUTSIDE_NAMESPACE) expect(Object.keys(stored)).not.toContain(path);
 		expect(stored['images/amsterdam-1625/info.json']).toBe('{"width":4096,"height":3072}');
 		expect(stored['alignments/amsterdam-1625.json']).toBe(
 			'{"type":"Annotation","id":"amsterdam-1625"}'
@@ -344,6 +358,33 @@ test.describe('what a Clone never does', () => {
 		// And nothing of the Remote's leaked into it — no binding, no pyramid. Indexed rather than
 		// `toHaveProperty`, which reads the dot in the key as a path separator.
 		expect(mine['remote.json']).toBeUndefined();
+	});
+
+	test('goes on saying what it did after the dialog is closed and the Workspace changed', async ({
+		page
+	}) => {
+		// The dialog is mounted for the page's life, so nothing but this clears what it last said —
+		// and “Cloned ada/atlas into a new Workspace called “atlas”” read as a report about whatever
+		// Workspace the user had moved to by the time they opened it again.
+		await start(page);
+
+		await clone(page);
+		await expect(outcome(page)).toContainText('Cloned');
+		await page.getByTestId('close-remote-settings').click();
+		await switchToWorkspace(page, DEFAULT_WORKSPACE);
+
+		await openRemoteSettings(page);
+		await expect(outcome(page)).toHaveText('');
+		await expect(problem(page)).toHaveCount(0);
+		await page.getByTestId('close-remote-settings').click();
+
+		// The refusal too, which is the half a stale reading of would send somebody chasing a fault
+		// that has already been fixed.
+		await clone(page, 'not a repository');
+		await expect(problem(page)).toBeVisible();
+		await page.getByTestId('close-remote-settings').click();
+		await openRemoteSettings(page);
+		await expect(problem(page)).toHaveCount(0);
 	});
 
 	test('a second Clone of the same repository gets its own name, not the first one', async ({

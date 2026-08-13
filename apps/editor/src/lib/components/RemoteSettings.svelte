@@ -89,6 +89,20 @@
 		notices = [];
 	}
 
+	/**
+	 * Forget what the dialog last said, once it is closed.
+	 *
+	 * ⚠ **This component is mounted for the page's life, so nothing else clears a notice.** Without
+	 * this, “Cloned ada/atlas into a new Workspace called “atlas”” is still on screen the next time
+	 * anybody opens the dialog — including after switching to a Workspace it has nothing to say
+	 * about. Closing is the right moment for the Workspace case too: this is a modal, so the only
+	 * Workspace change that can happen while it is open is a Clone's own, and that message is about
+	 * the Workspace the user has just been moved into and must survive the switch.
+	 */
+	$effect(() => {
+		if (!open) reset();
+	});
+
 	async function bind(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		reset();

@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import type { FetchFn } from '../injection/store-image-fetch.js';
 import { MemoryProjectStore } from '../store/memory-project-store.js';
 import type { ProjectStore, StorePath } from '../store/project-store.js';
 import type { RestoreDestination } from '../transfer/restore-workspace-tar.js';
@@ -21,16 +22,31 @@ const OWNER = 'ada';
 const REPOSITORY = 'atlas';
 
 /**
- * A published Workspace as a publish leaves it on the Remote: the viewer's files, the Jekyll marker,
- * one Project with a Historical Map and an Alignment, plus two paths a Clone must treat specially.
+ * What the publisher's own repository holds that is **not** the Workspace (ADR-0033).
  *
- * `README.md` is outside the owned namespace — something the scholar added on github.com — and
- * `remote.json` names a **different** repository, as a fork's published binding would, so a Clone
- * that copied it down instead of writing its own would be caught.
+ * A `README.md` and a `LICENSE` they wrote on github.com, the `CNAME` carrying the address they cite
+ * in print, the workflow that deploys their Pages site, and a folder of their own prose. A publish
+ * to this repository would leave every one of them alone, and so must the Clone — anything brought
+ * down here becomes the cloner's Workspace content and is published as theirs.
+ */
+const OUTSIDE_NAMESPACE = [
+	'README.md',
+	'LICENSE',
+	'CNAME',
+	'.github/workflows/pages.yml',
+	'docs/how-to-cite.md'
+];
+
+/**
+ * A published Workspace as a publish leaves it on the Remote: the viewer's files, the Jekyll marker,
+ * one Project with a Historical Map and an Alignment, plus the paths a Clone must treat specially.
+ *
+ * {@link OUTSIDE_NAMESPACE} is the scholar's own; `remote.json` names a **different** repository, as
+ * a fork's published binding would, so a Clone that copied it down instead of writing its own would
+ * be caught.
  */
 const PUBLISHED: Record<string, string> = {
 	'.nojekyll': '',
-	'README.md': '# Atlas\n',
 	'index.html': '<!doctype html><title>Atlas</title>',
 	'_app/app.js': 'export const start = () => {};',
 	'remote.json': JSON.stringify({ formatVersion: 1, owner: 'someone-else', repository: 'fork' }),
@@ -40,11 +56,16 @@ const PUBLISHED: Record<string, string> = {
 	'images/map-1/0/0/0.jpg': 'tile-zero-bytes',
 	'images/map-1/0/0/1.jpg': 'tile-one-bytes',
 	// alignment-write-is-the-fixture: the Alignment as it sits on the Remote, seeded into the fake GitHub rather than into any store — the Clone under test is what writes it, through `writeAlignmentBytes`
-	'alignments/map-1.json': '{"formatVersion":1,"controlPoints":[]}'
+	'alignments/map-1.json': '{"formatVersion":1,"controlPoints":[]}',
+	...Object.fromEntries(OUTSIDE_NAMESPACE.map((path) => [path, `${path}, the scholar's own\n`]))
 };
 
-/** Everything above except the binding, which a Clone writes rather than downloads. */
-const DOWNLOADED = Object.keys(PUBLISHED).filter((path) => path !== 'remote.json');
+/**
+ * Everything a Clone brings down: the owned namespace, less the binding it writes for itself.
+ */
+const DOWNLOADED = Object.keys(PUBLISHED).filter(
+	(path) => path !== 'remote.json' && !OUTSIDE_NAMESPACE.includes(path)
+);
 
 const github = (tree: Record<string, string> = PUBLISHED): Promise<FakeGitHub> =>
 	createFakeGitHub({ owner: OWNER, repository: REPOSITORY, tree });
@@ -71,8 +92,20 @@ function destinationFor(store: ProjectStore, name = REPOSITORY) {
 const text = async (store: ProjectStore, path: string): Promise<string> =>
 	new TextDecoder().decode(await store.read(path as StorePath));
 
+/**
+ * `fake.fetch`, with one file on the raw host answered by hand.
+ *
+ * The tree listing is left alone, so the file is still *named* and only its bytes go wrong — which
+ * is the only way a Clone fails after it has started, and the only way to reach the state the
+ * write-last binding rule is about.
+ */
+function rawAnswer(fake: FakeGitHub, path: string, answer: () => Response): FetchFn {
+	return (input, init) =>
+		String(input).endsWith(`/${path}`) ? Promise.resolve(answer()) : fake.fetch(input, init);
+}
+
 describe('cloneFromRemote', () => {
-	it('fills a new Workspace with everything the Remote holds', async () => {
+	it('fills a new Workspace with the Workspace the Remote holds', async () => {
 		const fake = await github();
 		const destination = destinationFor(new MemoryProjectStore());
 
@@ -94,6 +127,28 @@ describe('cloneFromRemote', () => {
 		expect(result.downloadedFiles).toBe(DOWNLOADED.length);
 		expect(result.skippedFiles).toBe(0);
 		expect(result.declined).toEqual([]);
+	});
+
+	it('downloads only the owned namespace, leaving the publisher’s own files behind', async () => {
+		// ⚠ **The rule that keeps story 17 true, and the reason it is enforced *here*.** Everything a
+		// Clone writes is Workspace content, and a publish sends every Workspace file — so a `CNAME` or
+		// a `README.md` picked up from somebody else's repository would be pushed into the cloner's own
+		// as authored content the first time they publish, overwriting the address they cite in print.
+		// ADR-0033 rejected the full mirror for exactly this; a mirroring Clone reintroduces it.
+		const fake = await github();
+		const destination = destinationFor(new MemoryProjectStore());
+
+		const result = await cloneFromRemote(destination.open, {
+			remote: { owner: OWNER, repository: REPOSITORY },
+			fetch: fake.fetch
+		});
+
+		const arrived = await destination.store.list('');
+		for (const path of OUTSIDE_NAMESPACE) expect(arrived).not.toContain(path);
+		// Not merely unwritten: never asked for, so a Clone of a repository with a large `docs/` folder
+		// does not spend the download on it either.
+		expect(fake.rawGets).toBe(DOWNLOADED.length);
+		expect(result.totalFiles).toBe(DOWNLOADED.length);
 	});
 
 	it('reads the bytes from raw.githubusercontent.com, one request per file', async () => {
@@ -199,6 +254,35 @@ describe('cloneFromRemote', () => {
 			expect(fake.rawGets).toBe(afterFirst);
 		});
 
+		it('keeps an Alignment already here, counts it in progress, and says so', async () => {
+			// ⚠ ADR-0023's safe direction: Control Points somebody has already placed are never replaced
+			// by a download. The file is *declined* rather than skipped — it was fetched and then not
+			// written — so it belongs to neither counter, and leaving it out of progress ends a finished
+			// Clone one short of the total it reports in the same call.
+			const fake = await github();
+			const store = new MemoryProjectStore();
+			const mine = '{"formatVersion":1,"controlPoints":[{"id":"a"}]}';
+			// alignment-write-is-the-fixture: the Alignment already in the Workspace is the specimen the Clone has to decline — planted as bytes so that what is under test is `writeCloned`'s refusal to replace it
+			await store.write('alignments/map-1.json', new TextEncoder().encode(mine));
+			const seen: { files: number; totalFiles: number }[] = [];
+
+			const result = await cloneFromRemote(destinationFor(store).open, {
+				remote: { owner: OWNER, repository: REPOSITORY },
+				fetch: fake.fetch,
+				onProgress: ({ files, totalFiles }) => seen.push({ files, totalFiles })
+			});
+
+			expect(result.declined).toEqual(['alignments/map-1.json']);
+			expect(result.downloadedFiles).toBe(DOWNLOADED.length - 1);
+			expect(result.skippedFiles).toBe(0);
+			expect(await text(store, 'alignments/map-1.json')).toBe(mine);
+			expect(seen.at(-1)).toEqual({ files: DOWNLOADED.length, totalFiles: DOWNLOADED.length });
+			// Reported rather than swallowed: a transfer that quietly delivers less than it was given is
+			// the failure `restore-workspace-tar.ts` was rewritten to escape.
+			expect(result.notice).toContain('alignments/map-1.json');
+			expect(result.notice).toContain('already had one for the same Historical Map');
+		});
+
 		it('re-fetches a file whose bytes here differ from the Remote', async () => {
 			// The skip is by blob SHA rather than by presence, which is the difference between resuming
 			// and quietly keeping a truncated file forever.
@@ -214,6 +298,97 @@ describe('cloneFromRemote', () => {
 			expect(await text(store, 'images/map-1/0/0/0.jpg')).toBe('tile-zero-bytes');
 			expect(fake.rawGets).toBe(DOWNLOADED.length);
 		});
+	});
+
+	describe('a Clone that stops part way', () => {
+		/** A Clone that meets a file the tree named and the raw host will not serve. */
+		const interrupted = (fake: FakeGitHub, store: ProjectStore) =>
+			cloneFromRemote(destinationFor(store).open, {
+				remote: { owner: OWNER, repository: REPOSITORY },
+				fetch: rawAnswer(
+					fake,
+					'images/map-1/0/0/1.jpg',
+					() => new Response('Not Found', { status: 404 })
+				)
+			});
+
+		it('leaves the Workspace unbound', async () => {
+			// ⚠ **The invariant, asserted rather than left to the order of the code.** A partly filled
+			// Workspace that was *bound* is one the Publish button acts on, and publishing it would
+			// delete from the Remote every owned-namespace path the Clone had not yet fetched — a
+			// scholar's whole site taken down by a Clone somebody interrupted. The binding is therefore
+			// written after the last file, and this is what says so: a later change moving it earlier —
+			// to let a resume read its own Remote back, say — fails here rather than silently.
+			const fake = await github();
+			const store = new MemoryProjectStore();
+
+			await expect(interrupted(fake, store)).rejects.toMatchObject({ name: 'CloneRefusedError' });
+
+			expect(await store.list('')).not.toContain('remote.json');
+			await expect(store.read('remote.json' as StorePath)).rejects.toThrow();
+			// And what did arrive is still here, which is the other half of the same design: the files
+			// are kept so a resume is cheap, and only the binding is withheld.
+			expect(await text(store, 'images/map-1/0/0/0.jpg')).toBe('tile-zero-bytes');
+		});
+
+		it('refuses in its own words when a listed file cannot be downloaded', async () => {
+			// A file deleted between the listing and the fetch is `PathNotFoundError` out of the HTTP
+			// store, whose sentence is about a store path and says nothing about cloning. The dialog
+			// renders whatever it is handed, so the shape has to be right here.
+			const fake = await github();
+			const error = await interrupted(fake, new MemoryProjectStore()).catch(
+				(cause: unknown) => cause
+			);
+
+			expect(error).toBeInstanceOf(CloneRefusedError);
+			expect((error as CloneRefusedError).refusal).toBe('incomplete');
+			expect((error as Error).message).toContain('images/map-1/0/0/1.jpg');
+			// And it does **not** claim nothing was downloaded, because by now something was.
+			expect((error as Error).message).not.toContain('Nothing has been downloaded.');
+			expect((error as Error).message).toContain('left in place');
+		});
+
+		it('refuses bytes that are not the ones the tree named', async () => {
+			// The blob SHA the listing gives is checked against what arrived, which costs one hash of
+			// bytes already in memory. Unchecked, a proxy serving a rewritten copy makes a Workspace
+			// that is silently wrong and that a later resume then skips for ever.
+			const fake = await github();
+			const store = new MemoryProjectStore();
+
+			const error = await cloneFromRemote(destinationFor(store).open, {
+				remote: { owner: OWNER, repository: REPOSITORY },
+				fetch: rawAnswer(
+					fake,
+					'images/map-1/info.json',
+					() => new Response('{"width":1,"height":1}', { status: 200 })
+				)
+			}).catch((cause: unknown) => cause);
+
+			expect(error).toBeInstanceOf(CloneRefusedError);
+			expect((error as CloneRefusedError).refusal).toBe('incomplete');
+			expect((error as Error).message).toContain('images/map-1/info.json');
+			// Refused rather than written: the wrong bytes are not in the Workspace at all.
+			expect(await store.list('')).not.toContain('images/map-1/info.json');
+		});
+	});
+
+	it('asks for the branch as one path segment, not as several', async () => {
+		// `/git/trees/{ref}` takes a single parameter. A branch of `feature/x` spelled per segment asks
+		// for `/git/trees/feature/x`, which is a different address entirely — latent while the branch
+		// is always `main`, and `CloneReference.branch` is in the type.
+		const fake = await github();
+		const asked: string[] = [];
+		const watched: FetchFn = (input, init) => {
+			asked.push(String(input));
+			return fake.fetch(input, init);
+		};
+
+		await cloneFromRemote(destinationFor(new MemoryProjectStore()).open, {
+			remote: { owner: OWNER, repository: REPOSITORY, branch: 'feature/x' },
+			fetch: watched
+		}).catch(() => undefined);
+
+		expect(asked[0]).toContain('/git/trees/feature%2Fx?recursive=1');
 	});
 
 	describe('refusals, all of them before a byte is written', () => {
