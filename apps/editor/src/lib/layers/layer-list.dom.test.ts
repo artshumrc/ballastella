@@ -15,17 +15,26 @@
 // localStorage" are still `e2e/`'s, because each is a claim about the application's real
 // dependencies and asserting it here would assert it against the props this file passes in.
 // The sentence itself is `ProjectScreen`'s — see the note on {@link NOT_ALIGNED}.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// THIS RUNS IN NODE, AGAINST A DOM IMPLEMENTATION
+//
+// It used to run in vitest's browser mode. `vitest.config.ts` carries the argument for the move and
+// the record of what this DOM implementation was probed for before any of these claims were trusted
+// — the first test below is the probe that mattered most, re-asked here against the real component
+// so that it cannot quietly stop being true.
+//
+// **Everything is addressed by position and read straight off the document.** There is no locator
+// object and no component-testing library: `mount` is Svelte's own, and a query is
+// `document.querySelectorAll`. That is the whole seam's machinery.
 
-/// <reference types="@vitest/browser/matchers" />
-
-import { page } from '@vitest/browser/context';
 import type { Layer } from '@ballastella/core';
 // `@ballastella/core/render` rather than the barrel: everything under `src/render/` is browser-only
 // and the barrel is not, which the barrel's own note explains. `LayerList.svelte` imports it from
 // exactly here.
 import type { DrawnOutcome } from '@ballastella/core/render';
-import { describe, expect, test, vi } from 'vitest';
-import { render } from 'vitest-browser-svelte';
+import { flushSync, mount, tick, unmount } from 'svelte';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import LayerList from './LayerList.svelte';
 import LayerListHarness from './LayerListHarness.svelte';
@@ -72,6 +81,27 @@ const handlers = () => ({
 });
 
 /**
+ * Whatever was mounted, so it can be taken down again.
+ *
+ * The document survives from test to test in one file, so a component left mounted would be found
+ * by the next test's `querySelectorAll` and counted — which turns "there is one open card" into a
+ * claim about how many tests have run so far.
+ */
+let mounted: Record<string, unknown> | undefined;
+
+afterEach(() => {
+	if (mounted) unmount(mounted);
+	mounted = undefined;
+	document.body.innerHTML = '';
+});
+
+/** Remember what was mounted so {@link afterEach} can take it down, and let its effects run. */
+const shown = (component: Record<string, unknown>): void => {
+	mounted = component;
+	flushSync();
+};
+
+/**
  * `LayerList` alone, with a fixed `openLayerId` and callbacks that do nothing.
  *
  * For claims about what the component *renders* given a state. A claim about what it does after a
@@ -82,104 +112,179 @@ const stack = (options: {
 	outcomes?: Readonly<Record<string, DrawnOutcome>>;
 	openLayerId?: string | null;
 	referencedImageIds?: ReadonlySet<string>;
-}) =>
-	render(LayerList, {
-		layers: options.layers,
-		outcomes: options.outcomes ?? {},
-		referencedImageIds: options.referencedImageIds ?? new Set<string>(),
-		openLayerId: options.openLayerId ?? null,
-		...handlers()
-	});
+}): void =>
+	shown(
+		mount(LayerList, {
+			target: document.body,
+			props: {
+				layers: options.layers,
+				outcomes: options.outcomes ?? {},
+				referencedImageIds: options.referencedImageIds ?? new Set<string>(),
+				openLayerId: options.openLayerId ?? null,
+				...handlers()
+			}
+		})
+	);
 
 /**
  * `LayerList` under a parent that really reorders and really opens rows.
  *
- * `LayerListHarness.svelte` carries the argument for why this is a component rather than a
- * `rerender` call; the short version is that `moveByButton` restores focus one microtask after
- * `onmove`, so a parent that updates late tests the wrong thing.
+ * `LayerListHarness.svelte` carries the argument for why this is a component rather than a props
+ * assignment from the test body; the short version is that `moveByButton` restores focus one
+ * microtask after `onmove`, so a parent that updates late tests the wrong thing.
  */
 const liveStack = (options: {
 	layers: readonly Layer[];
 	outcomes?: Readonly<Record<string, DrawnOutcome>>;
 	onmove?: (id: string, toIndex: number) => void;
-}) =>
-	render(LayerListHarness, {
-		layers: options.layers,
-		outcomes: options.outcomes ?? {},
-		...(options.onmove ? { onmove: options.onmove } : {})
-	});
+}): void =>
+	shown(
+		mount(LayerListHarness, {
+			target: document.body,
+			props: {
+				layers: options.layers,
+				outcomes: options.outcomes ?? {},
+				...(options.onmove ? { onmove: options.onmove } : {})
+			}
+		})
+	);
 
-/** The disclosure of the row at `at`, addressed by position. */
-const disclosure = (at: number) => page.getByTestId('layer-disclosure').nth(at);
+/** Every element carrying a `data-testid`, in document order. */
+const all = (testId: string): HTMLElement[] => [
+	...document.querySelectorAll<HTMLElement>(`[data-testid="${testId}"]`)
+];
 
 /**
- * Open a row by its disclosure, the way a user does.
+ * The one element carrying a `data-testid`, or `null` when there is none.
  *
- * ⚠ **`nth`, never a locator held from `.all()`.** A locator taken out of `.all()` is bound to the
- * element's *accessible name*, and this button's name is "Open — Notes" before the click and
- * "Close — Notes" after it — so a held locator stops matching the moment it does its job, and the
- * failure reads as "cannot find element" on a row that is plainly open.
+ * Deliberately `null` rather than a throw, because "there is no such element" is the assertion in
+ * several tests below and `not.toBeInTheDocument()` is how it is spelled.
  */
+const one = (testId: string): HTMLElement | null =>
+	document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+
+/**
+ * The `at`th element carrying a `data-testid`, which must exist.
+ *
+ * ⚠ **Position, never a handle held across an interaction.** In browser mode this rule was about a
+ * locator binding to an accessible name — the disclosure is called "Open — Notes" before its click
+ * and "Close — Notes" after it, so a held locator stopped matching the moment it did its job and
+ * failed as "cannot find element" on a row that was plainly open. In Node the trap is worse rather
+ * than gone: the `{#each}` is keyed, so a reorder *moves* the node and an element held in a `const`
+ * goes on answering questions from its old position without any error at all.
+ */
+const nth = (testId: string, at: number): HTMLElement => {
+	const found = all(testId)[at];
+	if (!found) throw new Error(`no [data-testid="${testId}"] at position ${at}`);
+	return found;
+};
+
+/** The disclosure of the row at `at`, addressed by position. */
+const disclosure = (at: number) => nth('layer-disclosure', at);
+
+/**
+ * Let Svelte finish, including the microtask `moveByButton` and `deleteByButton` wait on.
+ *
+ * Two ticks rather than one: the first lets the reorder reach the DOM, the second lets the focus
+ * restoration that runs *after* that reorder happen.
+ */
+const settle = async (): Promise<void> => {
+	await tick();
+	await tick();
+};
+
+/**
+ * Press a control the way a pointer does: focus it, then click it.
+ *
+ * The focus is not decoration. `moveByButton` refuses to move the keyboard if something other than
+ * the button that was pressed holds it, so a bare `click()` — which moves focus nowhere in a DOM
+ * implementation, and would in a browser — would exercise the `document.body` branch of that guard
+ * instead of the one a user reaches.
+ */
+const press = async (element: HTMLElement): Promise<void> => {
+	element.focus();
+	element.click();
+	await settle();
+};
+
+/** Open a row by its disclosure, the way a user does. */
 const openRow = async (at: number): Promise<void> => {
-	await disclosure(at).click();
-	await expect.element(disclosure(at)).toHaveAttribute('aria-expanded', 'true');
+	await press(disclosure(at));
+	expect(disclosure(at)).toHaveAttribute('aria-expanded', 'true');
 };
 
 /** The Layer ids in rendered order, top first. */
-const renderedOrder = async (): Promise<(string | null)[]> =>
-	Promise.all(
-		(await page.getByTestId('layer-row').all()).map((row) =>
-			row.element().getAttribute('data-layer-id')
-		)
-	);
+const renderedOrder = (): (string | null)[] =>
+	all('layer-row').map((row) => row.getAttribute('data-layer-id'));
+
+describe('the DOM implementation this seam trusts', () => {
+	// ⚠ **The probe, not a test of the application** — and it is here rather than in a throwaway
+	// script because two claims below turn on it. `moveByButton` hands the keyboard "the other half
+	// of the same control" only because the half that was pressed is `disabled` and a browser
+	// refuses to focus a disabled element. A DOM implementation that allowed it would make those
+	// claims pass here for a reason no browser has, and they would have to go back to `e2e/` — where
+	// the browser is real rather than nearly real — rather than be worked around.
+	test('refuses to focus a disabled control, as a browser does', async () => {
+		liveStack({
+			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')]
+		});
+		await openRow(0);
+
+		// The top Layer cannot go higher, so this is the disabled half.
+		const up = nth('layer-move-up', 0) as HTMLButtonElement;
+		expect(up.disabled).toBe(true);
+
+		const before = document.activeElement;
+		up.focus();
+		expect(document.activeElement).toBe(before);
+		expect(up).not.toHaveFocus();
+	});
+});
 
 describe('a closed row stays useful (ticket 05)', () => {
-	test('says what is wrong with a Layer as text, not as a colour', async () => {
-		await stack({
+	test('says what is wrong with a Layer as text, not as a colour', () => {
+		stack({
 			layers: [mapLayer('l-map', 'La Floride')],
 			outcomes: { 'l-map': { status: 'refused', reason: NOT_ALIGNED } }
 		});
 
-		const row = page.getByTestId('layer-row');
 		// The row is still closed: a user has to be able to notice a map needs aligning without
 		// opening anything, which is the whole contract a closed card carries.
-		await expect
-			.element(row.getByTestId('layer-disclosure'))
-			.toHaveAttribute('aria-expanded', 'false');
+		expect(disclosure(0)).toHaveAttribute('aria-expanded', 'false');
 		// **`toHaveTextContent`, because a `class:text-warning` contributes no characters.** An
 		// implementation that coloured the row instead of saying anything satisfies a `toBeVisible`
 		// and fails this, which is the distinction the criterion is about.
-		await expect.element(row.getByTestId('layer-problem')).toHaveTextContent(NOT_ALIGNED);
+		expect(one('layer-problem')).toHaveTextContent(NOT_ALIGNED);
 	});
 
-	test('says nothing about a Layer that drew', async () => {
-		await stack({
+	test('says nothing about a Layer that drew', () => {
+		stack({
 			layers: [mapLayer('l-map', 'La Floride')],
 			outcomes: { 'l-map': { status: 'drawn' } }
 		});
 
-		await expect.element(page.getByTestId('layer-name-text')).toHaveTextContent('La Floride');
+		expect(one('layer-name-text')).toHaveTextContent('La Floride');
 		// The negative control for the test above: a component that rendered the band unconditionally
 		// would pass that one and fail this, and "the map is fine" is the commonest state there is.
-		await expect.element(page.getByTestId('layer-problem')).not.toBeInTheDocument();
+		expect(one('layer-problem')).not.toBeInTheDocument();
 	});
 
-	test('an outcome it was given for no Layer in the stack says nothing at all', async () => {
+	test('an outcome it was given for no Layer in the stack says nothing at all', () => {
 		// A stale outcome for a deleted Layer is a real state — the stack is rebuilt asynchronously —
 		// and the row it names is gone, so there is nothing to attach the sentence to.
-		await stack({
+		stack({
 			layers: [mapLayer('l-map', 'La Floride')],
 			outcomes: { 'l-gone': { status: 'refused', reason: NOT_ALIGNED } }
 		});
 
-		await expect.element(page.getByTestId('layer-row')).toBeInTheDocument();
-		await expect.element(page.getByTestId('layer-problem')).not.toBeInTheDocument();
+		expect(one('layer-row')).toBeInTheDocument();
+		expect(one('layer-problem')).not.toBeInTheDocument();
 	});
 });
 
 describe('one Layer is open at a time', () => {
-	test('renders the contents of the open Layer and of no other', async () => {
-		await stack({
+	test('renders the contents of the open Layer and of no other', () => {
+		stack({
 			layers: [mapLayer('l-map', 'La Floride'), annotationLayer('l-notes', 'Notes')],
 			openLayerId: 'l-map'
 		});
@@ -187,69 +292,73 @@ describe('one Layer is open at a time', () => {
 		// **Counted as well as attributed.** `aria-expanded` is the promise made to a screen reader
 		// and the count is the promise made to the eye; an implementation that rendered both and hid
 		// one with CSS would satisfy only the first.
-		await expect.element(page.getByTestId('layer-contents')).toBeInTheDocument();
-		expect(await page.getByTestId('layer-contents').all()).toHaveLength(1);
+		expect(all('layer-contents')).toHaveLength(1);
 
-		await expect.element(disclosure(0)).toHaveAttribute('aria-expanded', 'true');
-		await expect.element(disclosure(1)).toHaveAttribute('aria-expanded', 'false');
+		expect(disclosure(0)).toHaveAttribute('aria-expanded', 'true');
+		expect(disclosure(1)).toHaveAttribute('aria-expanded', 'false');
 	});
 
-	test('opens nothing when nothing is open', async () => {
-		await stack({
+	test('opens nothing when nothing is open', () => {
+		stack({
 			layers: [mapLayer('l-map', 'La Floride'), annotationLayer('l-notes', 'Notes')],
 			openLayerId: null
 		});
 
 		// The sidebar arrives as a list of Layers: nothing opens itself.
-		expect(await page.getByTestId('layer-contents').all()).toHaveLength(0);
-		expect(await page.getByTestId('layer-row').all()).toHaveLength(2);
+		expect(all('layer-contents')).toHaveLength(0);
+		expect(all('layer-row')).toHaveLength(2);
 	});
 
 	test('asks the screen to open a row rather than opening it itself', async () => {
 		const spies = handlers();
-		await render(LayerList, {
-			layers: [mapLayer('l-map', 'La Floride')],
-			outcomes: {},
-			referencedImageIds: new Set<string>(),
-			openLayerId: null,
-			...spies
-		});
+		shown(
+			mount(LayerList, {
+				target: document.body,
+				props: {
+					layers: [mapLayer('l-map', 'La Floride')],
+					outcomes: {},
+					referencedImageIds: new Set<string>(),
+					openLayerId: null,
+					...spies
+				}
+			})
+		);
 
-		await page.getByTestId('layer-disclosure').click();
+		await press(disclosure(0));
 
 		// Which Layer is open is `ProjectScreen`'s, because for an Annotation Layer it is also the
 		// Layer being drawn into — a copy held here would be a second thing that could disagree. So
 		// the component's job at this click is to report it, and this is that claim.
 		expect(spies.onopen).toHaveBeenCalledWith('l-map');
-		expect(await page.getByTestId('layer-contents').all()).toHaveLength(0);
+		expect(all('layer-contents')).toHaveLength(0);
 	});
 });
 
 describe('an empty stack', () => {
-	test('says so rather than rendering an empty list', async () => {
-		await stack({ layers: [] });
+	test('says so rather than rendering an empty list', () => {
+		stack({ layers: [] });
 
-		await expect.element(page.getByTestId('no-layers')).toBeInTheDocument();
-		expect(await page.getByTestId('layer-row').all()).toHaveLength(0);
+		expect(one('no-layers')).toBeInTheDocument();
+		expect(all('layer-row')).toHaveLength(0);
 	});
 });
 
 describe('the list reaches assistive technology (SPEC story 96)', () => {
-	test('is an ordered list whose structure and order come from the markup', async () => {
-		await liveStack({
+	test('is an ordered list whose structure and order come from the markup', () => {
+		liveStack({
 			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')]
 		});
 
-		const list = page.getByRole('list', { name: 'Layers, top first' });
-		await expect.element(list).toBeInTheDocument();
 		// An `<ol>`, so position in the stack comes out of the markup rather than out of a label
-		// somebody has to remember to update.
-		expect(list.element().tagName).toBe('OL');
-		expect(await list.getByRole('listitem').all()).toHaveLength(2);
+		// somebody has to remember to update — and the list is named, so it is findable among the
+		// other lists on the Project screen.
+		const list = document.querySelector('ol');
+		expect(list).toHaveAccessibleName('Layers, top first');
+		expect(list?.querySelectorAll(':scope > li')).toHaveLength(2);
 	});
 
 	test('each name field says where in the stack its Layer is', async () => {
-		await liveStack({
+		liveStack({
 			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')]
 		});
 
@@ -259,22 +368,18 @@ describe('the list reaches assistive technology (SPEC story 96)', () => {
 		// for both rows at once by the `<ol>`/`<li>` structure above, which is where position properly
 		// comes from.
 		await openRow(0);
-		await page.getByTestId('layer-rename').click();
-		await expect
-			.element(page.getByTestId('layer-name'))
-			.toHaveAccessibleName('Name of Layer 1 of 2');
+		await press(nth('layer-rename', 0));
+		expect(one('layer-name')).toHaveAccessibleName('Name of Layer 1 of 2');
 
 		await openRow(1);
-		await page.getByTestId('layer-rename').click();
-		await expect
-			.element(page.getByTestId('layer-name'))
-			.toHaveAccessibleName('Name of Layer 2 of 2');
+		await press(nth('layer-rename', 0));
+		expect(one('layer-name')).toHaveAccessibleName('Name of Layer 2 of 2');
 	});
 });
 
 describe('opacity is a map Layer’s and no other kind’s (SPEC story 51)', () => {
 	test('is absent from an open Annotation Layer and present on an open map Layer', async () => {
-		await liveStack({
+		liveStack({
 			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')]
 		});
 
@@ -284,10 +389,10 @@ describe('opacity is a map Layer’s and no other kind’s (SPEC story 51)', () 
 		// had just been *collapsed* — which is true of every control on it and says nothing about
 		// kinds.
 		await openRow(0);
-		expect(await page.getByTestId('layer-opacity').all()).toHaveLength(0);
+		expect(all('layer-opacity')).toHaveLength(0);
 
 		await openRow(1);
-		expect(await page.getByTestId('layer-opacity').all()).toHaveLength(1);
+		expect(all('layer-opacity')).toHaveLength(1);
 	});
 });
 
@@ -302,7 +407,7 @@ describe('reordering leaves the keyboard where it can move again (SPEC story 53)
 	 */
 	test('moves a Layer down and announces where it went', async () => {
 		const moves: [string, number][] = [];
-		await liveStack({
+		liveStack({
 			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')],
 			onmove: (id, toIndex) => moves.push([id, toIndex])
 		});
@@ -310,34 +415,33 @@ describe('reordering leaves the keyboard where it can move again (SPEC story 53)
 		// The reorder buttons live inside the open card, so the card is opened first — itself a
 		// keyboard-operable step, since the disclosure is a plain `<button>`.
 		await openRow(0);
-		await page.getByTestId('layer-move-down').click();
+		await press(nth('layer-move-down', 0));
 
 		expect(moves).toEqual([['l-notes', 1]]);
-		expect(await renderedOrder()).toEqual(['l-map', 'l-notes']);
+		expect(renderedOrder()).toEqual(['l-map', 'l-notes']);
 		// Announced, because a move changes nothing near the pointer and nothing that has focus.
-		await expect
-			.element(page.getByTestId('layer-move-status'))
-			.toHaveTextContent('moved to 2 of 2');
+		expect(one('layer-move-status')).toHaveTextContent('moved to 2 of 2');
 	});
 
 	test('hands the keyboard the other half of the control at the end of the stack', async () => {
-		await liveStack({
+		liveStack({
 			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')]
 		});
 
 		await openRow(0);
-		await page.getByTestId('layer-move-down').click();
+		await press(nth('layer-move-down', 0));
 
 		// At the bottom of the stack "Move down" is a disabled button — "this Layer cannot go lower"
 		// is information a screen reader gets free from the markup — so the keyboard is handed the
-		// other half of the same control rather than the document body.
-		await expect.element(page.getByTestId('layer-move-up')).toHaveFocus();
+		// other half of the same control rather than the document body. The first test in this file
+		// is why that sentence can be asserted here at all.
+		expect(one('layer-move-up')).toHaveFocus();
 	});
 
 	test('keeps the keyboard on the same button when the move does not reach an end', async () => {
 		// Away from the ends, where the button that was pressed is still enabled: the case that is
 		// about Svelte moving a keyed node rather than about `disabled`.
-		await liveStack({
+		liveStack({
 			layers: [
 				annotationLayer('l-top', 'Top'),
 				annotationLayer('l-middle', 'Middle'),
@@ -346,13 +450,13 @@ describe('reordering leaves the keyboard where it can move again (SPEC story 53)
 		});
 
 		await openRow(0);
-		await page.getByTestId('layer-move-down').click();
+		await press(nth('layer-move-down', 0));
 
-		expect(await renderedOrder()).toEqual(['l-middle', 'l-top', 'l-map']);
-		await expect.element(page.getByTestId('layer-move-down')).toHaveFocus();
+		expect(renderedOrder()).toEqual(['l-middle', 'l-top', 'l-map']);
+		expect(one('layer-move-down')).toHaveFocus();
 
 		// And it really is operable from there: one more press, no Tab, and the Layer moves again.
-		await page.getByTestId('layer-move-down').click();
-		expect(await renderedOrder()).toEqual(['l-middle', 'l-map', 'l-top']);
+		await press(nth('layer-move-down', 0));
+		expect(renderedOrder()).toEqual(['l-middle', 'l-map', 'l-top']);
 	});
 });

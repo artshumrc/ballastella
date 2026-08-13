@@ -1,9 +1,8 @@
-import { playwright } from '@vitest/browser-playwright';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 
-// The editor's two seams below Playwright: `editor` for code with no DOM, `editor-browser` for
-// components rendered in a real browser.
+// The editor's two seams below Playwright: `editor` for code with no DOM, `editor-dom` for
+// components rendered into a DOM implementation. Both run in Node; nothing here starts a browser.
 //
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // WHY THERE IS A SECOND PROJECT, AND WHAT IT IS EXPLICITLY NOT FOR
@@ -25,6 +24,62 @@ import { defineConfig } from 'vitest/config';
 // mock — which is the vacuous green this repository's testing decisions exist to prevent. The
 // division is: **what the interface itself does** belongs here; **what the application does when
 // its real dependencies are underneath it** stays in `e2e/`.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// ⚠ IT RUNS IN NODE, NOT IN A BROWSER, AND THE THIRD OPTION IS NOT ON THE TABLE
+//
+// The first cut of this project was vitest's browser mode, on the Chromium provider `packages/core`
+// already used, because that was the shortest path from the configuration that existed. It was the
+// wrong shape: a component rendered against props touches no OPFS, no WebGL and no service worker,
+// so a browser process per run bought nothing but a scaled-down copy of the cost `e2e/` charges.
+// `packages/core`'s browser project has a subject only a real engine has — OPFS, and Firefox's is a
+// different implementation of it, which is SPEC story 4. Nothing of that argument reaches here.
+//
+// So a DOM implementation is a **fake**, and this repository's standing rule is that a fake agreeing
+// with itself is not a test. The boundary is therefore drawn by where the fake is known to diverge,
+// and where it is insufficient the claim goes back to `e2e/` — **never to a browser-mode component
+// tier**, which would be a fake with a browser attached: most of Seam 2's cost and less of its
+// truth.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// WHAT THIS DOM IMPLEMENTATION WAS ASKED, AND WHAT IT ANSWERED
+//
+// Probed directly on 2026-08-13, against both happy-dom 20.11 and jsdom 30.0, before any claim was
+// ported. Each of these decides whether an existing assertion can be made here at all.
+//
+// 1. **`focus()` on a `disabled` button.** Both refuse it: `document.activeElement` does not move,
+//    and a `click()` on a disabled button dispatches no listener. This is the one that mattered
+//    most — "at the bottom of the stack Move down is disabled, so the keyboard is handed the other
+//    half of the same control" is asserted below and turns entirely on it. Had it been allowed, that
+//    claim would have gone back to `e2e/`. Re-probed inside this project, against the real component
+//    rather than a fragment, by `layer-list.dom.test.ts`'s first test.
+// 2. **Accessible-name computation**, as `toHaveAccessibleName` uses it. `aria-label` on an
+//    `<input>`, the `sr-only` text content of a `<button>`, and `aria-label` on the `<ol>` all
+//    compute correctly. It is `dom-accessibility-api`'s *approximation* of an accessibility tree,
+//    not one — see the catalog entry. Good enough for a name; not good enough to be an accessibility
+//    claim's only home.
+// 3. **Focus after a keyed node moves** — the behaviour `moveByButton` exists for. The keyed
+//    `{#each}` really moves the node, the focused element really is blurred to `document.body` by
+//    the move, and the restoration really lands. This is asserted three ways below.
+//
+// Known-absent and therefore off limits here, rather than worked around:
+//
+// - **No layout.** No `offsetWidth`, no scroll geometry, no visibility derived from paint. Any
+//   "does not widen the page" or "is readable inside the viewport" claim stays in `e2e/`.
+// - **No real hit testing.** A `click()` here reaches a hidden or covered element that a user could
+//   not reach, so "this control is actually clickable" is not a question this seam can answer.
+// - **No paint.** The computed-colour comparisons in `e2e/` — the selected Annotation row wearing
+//   the card's own tint — cannot move here.
+//
+// `happy-dom` over `jsdom` on speed, both having answered the three probes identically.
+//
+// **What the move cost and bought**, measured three runs each on the same machine, same 13 claims
+// plus the probe: browser mode ran its tests in 1.04–1.08s inside a 2.88–3.04s wall clock; Node runs
+// them in 0.09–0.11s inside a 2.34–2.40s wall clock. Ten times cheaper in the tests themselves and
+// about 20% off the wall clock, which is the honest figure — a run this small is mostly Vite
+// transforming, and the transform is now the floor rather than the browser. The saving that matters
+// is per-test rather than per-run: this is the seam the rest of the epic moves claims *into*, and it
+// no longer takes a browser process to add one.
 //
 // Concretely, these belong here — a row's text for an unaligned Layer, which control holds focus
 // after a delete, what a live region says, whether a dialog is a real `<dialog>`. These do not —
@@ -108,10 +163,10 @@ export default defineConfig({
 					name: 'editor',
 					environment: 'node',
 					include: ['src/**/*.test.ts', 'vitest-setup/**/*.test.ts'],
-					// `.browser.test.ts` is the other project's, and without this exclusion the node
+					// `.dom.test.ts` is the other project's, and without this exclusion the DOM-less
 					// project would try to render a component into a DOM it does not have — failing with
 					// `document is not defined`, which reads as a broken test rather than a misrouted one.
-					exclude: ['src/**/*.browser.test.ts', 'vitest-setup/**/*.browser.test.ts'],
+					exclude: ['src/**/*.dom.test.ts', 'vitest-setup/**/*.dom.test.ts'],
 					expect: { requireAssertions: true },
 					// No test may reach the network (the standing rule; see the setup file's own header).
 					setupFiles: ['./vitest-setup/refuse-network.ts']
@@ -119,28 +174,37 @@ export default defineConfig({
 			},
 			{
 				plugins: [svelte()],
-				// ⚠ **Not tuning — see the identical block in `packages/core/vitest.config.ts`.** Vite
-				// re-optimizes dependencies during a browser-mode run and then reloads, which vitest
-				// itself warns can hang the run; that cost a measured forty minutes there and went down
-				// as unexplained flake. Every dependency a component test pulls in belongs here, and
-				// **adding one to a component test means adding it here**.
-				optimizeDeps: { include: ['@lucide/svelte', 'dompurify', 'marked'] },
+				// ⚠ **Not tuning — this is what makes every assertion below mean anything, and it is
+				// spelled differently here from the project above.** Measured on this configuration
+				// with a post-`enforce` transform probe: under `environment: 'happy-dom'` vitest
+				// transforms in vite's **`client`** environment, not `ssr`, so the plugin already sees
+				// `consumer: 'client'` and `LayerList.svelte` emits `svelte/internal/client` with
+				// nothing asked of it. What is *not* free is how `svelte`'s own public modules
+				// resolve: its export map is `worker` / `browser` / `default`, and without this line
+				// `import { mount } from 'svelte'` gets the server build, which throws
+				// `mount(...) is not available on the server`. All fourteen tests fail without it and
+				// pass with it.
+				//
+				// A top-level `resolve` is correct **here and wrong in the project above**, whose own
+				// note records that for `environment: 'node'` the same setting lands on the `client`
+				// environment and reaches nothing. The two projects transform in different vite
+				// environments, so they configure the same fact in different places; neither spelling
+				// works for the other, and both were measured rather than reasoned about.
+				// The list *replaces* vite's defaults rather than adding to them, so `browser` alone
+				// would drop `module` and the dev/prod condition and resolve other packages wrongly:
+				// vite's own defaults have to be spelled out alongside it.
+				resolve: { conditions: ['module', 'browser', 'development|production'] },
+				// **No `optimizeDeps.include`, deliberately.** `packages/core`'s browser project needs
+				// one because Vite re-optimizes dependencies *during* a browser-mode run and then
+				// reloads, which cost a measured forty minutes there. That failure mode is browser
+				// mode's; running in Node is an escape from it rather than an inheritance of it, and a
+				// list copied here would be a workaround for a problem this project does not have.
 				test: {
-					name: 'editor-browser',
-					include: ['src/**/*.browser.test.ts'],
+					name: 'editor-dom',
+					environment: 'happy-dom',
+					include: ['src/**/*.dom.test.ts'],
 					expect: { requireAssertions: true },
-					setupFiles: ['./vitest-setup/refuse-network.ts'],
-					browser: {
-						enabled: true,
-						headless: true,
-						provider: playwright(),
-						// Chromium alone, unlike `core`'s browser project. That one runs two engines
-						// because SPEC story 4 is a claim about OPFS across browsers and Firefox is a
-						// different implementation of it. Nothing here touches storage: these tests render
-						// components, and Svelte's own output is not a per-engine question worth doubling
-						// every local run for.
-						instances: [{ browser: 'chromium' }]
-					}
+					setupFiles: ['./vitest-setup/refuse-network.ts', './vitest-setup/dom-matchers.ts']
 				}
 			}
 		]

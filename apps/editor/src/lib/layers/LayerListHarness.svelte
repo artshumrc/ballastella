@@ -2,7 +2,7 @@
 	// A parent for `LayerList` in component tests. **Not shipped and not imported by the app.**
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
-	// WHY A REAL COMPONENT RATHER THAN `rerender({ layers })` FROM THE TEST
+	// WHY A REAL COMPONENT RATHER THAN REPLACING `layers` FROM THE TEST BODY
 	//
 	// `LayerList` does not reorder anything. It calls `onmove` and waits for the stack to come back
 	// changed — and then, one microtask later, restores the keyboard to the button that moved
@@ -11,10 +11,10 @@
 	// That `await tick()` is the whole reason this file exists. In the running application the
 	// parent's `$state` is updated *synchronously* inside `onmove`, so by the time the tick resolves
 	// the keyed `{#each}` has already moved the node and the focus restoration finds the button in
-	// its new place. A test that instead awaited the click and then called `rerender` would reorder
-	// **after** that microtask had already passed, so focus restoration would run against the old
-	// order — and the test would report a focus bug that the application does not have, or worse,
-	// pass for a reason that has nothing to do with the behaviour.
+	// its new place. A test that instead awaited the click and then assigned a new `layers` array
+	// would reorder **after** that microtask had already passed, so focus restoration would run
+	// against the old order — and the test would report a focus bug that the application does not
+	// have, or worse, pass for a reason that has nothing to do with the behaviour.
 	//
 	// So the harness is the smallest honest parent: `$state` layers, reordered in place by `onmove`.
 	// `moveLayer` is `core`'s own — the ordering rules are its (ADR-0002) and have their own unit

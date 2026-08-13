@@ -237,7 +237,8 @@ Nothing new is under test. What changes is where existing claims are asserted:
 | `editor-alignment-refinement` alone, before → after | 2m 25s → **33s** |
 | Seam 2 fixed startup floor, warm build | ~5s |
 | First 13 component tests, in browser mode | **993ms** |
-| Same, expected in Node with a DOM implementation | to be measured by the converting ticket |
+| Same, re-measured in browser mode beside the Node run (ticket 02) | 1.04–1.08s of tests in a 2.88–3.04s wall clock |
+| Same 13 claims plus a divergence probe, in Node against happy-dom | **0.09–0.11s of tests in a 2.34–2.40s wall clock** |
 
 ### Three estimates that were wrong, and how
 

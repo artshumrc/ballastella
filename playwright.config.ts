@@ -142,9 +142,10 @@ export default defineConfig({
 	// for when the machine is actually yours, and is worth the 1.5× then.
 	//
 	// Real speed is still not in this number — it is in not asking Playwright for work that belongs
-	// one seam down. A Vitest browser test costs ~12ms against ~4.6s here, because it exercises a
-	// module rather than booting the built app and software-rasterising MapLibre. `apps/editor` has a
-	// `editor-browser` project for exactly that since 2026-08-13.
+	// one seam down. A Vitest component test costs ~7ms against ~4.6s here — its fourteen tests run
+	// in ~0.10s total, in Node with no browser at all — because it exercises a module rather than
+	// booting the built app and software-rasterising MapLibre. `apps/editor` has an `editor-dom`
+	// project for exactly that since 2026-08-13.
 	workers: Number(process.env.BALLASTELLA_E2E_WORKERS) || 4,
 
 	// ═════════════════════════════════════════════════════════════════════════════════════════════

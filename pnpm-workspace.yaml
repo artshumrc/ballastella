@@ -25,33 +25,36 @@ catalog:
   '@vitest/browser-playwright': ^4.1.10
   playwright: ^1.62.1
 
-  # `@vitest/browser` arrives underneath `@vitest/browser-playwright` either way; it is declared
-  # because a test that imports `@vitest/browser/context` for its locators is importing it directly,
-  # and pnpm's isolated `node_modules` exists to stop that working by accident — the same argument
-  # the `dompurify` entry below records. Without it here, `vitest` resolves the import and
-  # `svelte-check` does not, which is a type error in a green test.
-  '@vitest/browser': ^4.1.10
+  # The DOM `apps/editor`'s component project renders into, in Node (Seam 1c).
+  #
+  # **Why a DOM implementation and not a browser.** Until this app had a DOM at all, every assertion
+  # about a *rendered* row, dialog, focus order or `aria-live` announcement had nowhere to go but the
+  # Playwright suite at roughly four seconds each — which is the whole reason this repository had 675
+  # browser tests. The first cut of the seam used vitest's browser mode; a component rendered against
+  # props touches no OPFS, no WebGL and no service worker, so the Chromium process was paying for
+  # nothing. This replaces it.
+  #
+  # **Why this is not a UI dependency under ADR-0016.** That ADR bans a headless component library
+  # beside daisyUI — a thing that owns focus, keyboard handling and ARIA in the shipped product.
+  # Neither of these ships in anything: both are `devDependencies` of one workspace package, and
+  # rendering is Svelte's own `mount`, with no component-testing library between the test and the
+  # component.
+  #
+  # `happy-dom` over `jsdom` on speed; the divergence probes that decided it are recorded in
+  # `apps/editor/vitest.config.ts`, which is also where anything this implementation gets wrong is
+  # written down.
+  happy-dom: ^20.0.0
 
-  # Rendering a Svelte component in a real browser, for `apps/editor`'s component project.
+  # The DOM matchers that came free with browser mode and do not come free in Node —
+  # `toBeInTheDocument`, `toHaveTextContent`, `toHaveFocus`, `toHaveAccessibleName`. Assertions
+  # about a rendered element, not a renderer: nothing here mounts a component.
   #
-  # **Why this is not a second UI dependency under ADR-0016.** That ADR bans a headless component
-  # library beside daisyUI — a thing that owns focus, keyboard handling and ARIA in the shipped
-  # product. This ships in nothing: it is `devDependencies` of one workspace package and its whole
-  # surface is `render(Component, props)` plus the locators vitest's browser mode already provides.
-  #
-  # **Why it exists at all.** Until now `apps/editor` had `environment: 'node'` and no DOM, so every
-  # assertion about a *rendered* row, dialog, focus order or `aria-live` announcement had nowhere to
-  # go but the Playwright suite at roughly four seconds each. That is the whole reason this
-  # repository had 675 browser tests: not because 675 things need a built app and a real map, but
-  # because there was no seam between a class with no DOM and the entire application.
-  #
-  # ⚠ **A component test is not a substitute for a Playwright test about the same feature**, and
-  # the line is ADR-0019's: this seam renders one component against props and fakes. It cannot see
-  # MapLibre, OPFS, the service worker, or a static site served at two base paths, and a claim about
-  # any of those asserted here would be asserted against a mock. It is for the interface's own
-  # behaviour — what a row says when a Layer is unaligned, which control takes focus after a delete,
-  # what a live region announces.
-  vitest-browser-svelte: ^3.0.0
+  # ⚠ `toHaveAccessibleName` is `dom-accessibility-api`'s **computation** of what a real
+  # accessibility tree would yield, not an accessibility tree. Good enough for "this field is named
+  # *Name of Layer 1 of 2*"; not good enough to be the only place an accessibility claim is
+  # asserted, which is why the keyboard-and-announcement coverage in `e2e/` is thinned and not
+  # emptied.
+  '@testing-library/jest-dom': ^6.9.0
 
   # IIIF. Exact, no range specifier: pre-1.0, and a bump is a migration event.
   # `@allmaps/types` is type-only. It is listed here because `@allmaps/iiif-parser`
