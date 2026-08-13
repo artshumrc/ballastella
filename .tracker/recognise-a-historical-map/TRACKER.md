@@ -13,11 +13,35 @@ before any ticket, and it is the reference for every "why is it like that" quest
 
 ## Current status
 
-Overall status: `In Progress`
+Overall status: `Completed`
 
-Current tickets: 02 and 03, in parallel.
+Current ticket: none. All four are committed.
 
 Last updated: 2026-08-12.
+
+## What review found after each ticket reported green
+
+Recorded because the pattern held for the fourth epic running: every ticket passed its own gates and every
+ticket still had a defect a second pass found.
+
+- **01** — the picture was revoked and re-fetched on every hub refresh, because the effect keyed off the
+  listing record's *identity* rather than the `thumbnail`/`tiles` values. Measured, not inferred. Also two
+  silent guards with no assertion behind them: deleting `if (!response.ok) return;` passed the whole repo,
+  and `object-cover` — the thing ADR-0030 argues hardest against — was caught by nothing.
+- **02** — the `size` prop had no coverage, and the ticket-03 merge would have silently reverted it: git
+  resolves a line edit against a deleted-and-recreated `<img>` with no conflict marker. A reviewer
+  reproduced the loss and both picker tests still passed.
+- **03** — one test could not go red: the "canonical spelling however the record spells it" case ran its
+  record through `referencedImage()`, which strips the trailing slash *before writing*, so the stored bytes
+  were identical to the canonical case. Its mutation record also credited the fixture with refusing a
+  wrongly-scaled tile, which it does not — it serves any size asked for.
+- **04** — the mutation record claimed coverage the test cannot have (mutation 2 cannot fail on the Library
+  assertion, because `tileLocation` answers `'in-workspace'` on `info.json` alone).
+
+**A fourth vacuous shape, not in the three this tracker predicted: a `-t` filter that selects the wrong
+tests still exits 0.** It appeared twice — ticket 03 caught it on itself and renamed its tests; ticket 04's
+`-t "offline copy"` selected three unrelated tests because vitest's `-t` is case-sensitive and the domain
+term is "Offline Copy". Its command is now `-t "citation stays"`, which selects the two both-files cases.
 
 ## What is already decided — do not re-derive it
 
@@ -123,4 +147,4 @@ the one with no network in it.
 | 01 | [01-a-workspace-held-historical-map-shows-its-picture.md](./tickets/01-a-workspace-held-historical-map-shows-its-picture.md) | Completed | — |
 | 02 | [02-the-picker-shows-the-same-pictures.md](./tickets/02-the-picker-shows-the-same-pictures.md) | Completed | 01 |
 | 03 | [03-a-referenced-historical-map-shows-a-picture-from-its-library.md](./tickets/03-a-referenced-historical-map-shows-a-picture-from-its-library.md) | Completed | 01 |
-| 04 | [04-an-offline-copy-moves-the-picture-into-the-workspace.md](./tickets/04-an-offline-copy-moves-the-picture-into-the-workspace.md) | In Progress | 03 |
+| 04 | [04-an-offline-copy-moves-the-picture-into-the-workspace.md](./tickets/04-an-offline-copy-moves-the-picture-into-the-workspace.md) | Completed | 03 |

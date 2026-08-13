@@ -70,21 +70,28 @@ Covers SPEC stories **13, 14**.
 
 ## Acceptance criteria
 
-- [ ] After an Offline Copy of a referenced Historical Map completes, the hub's picture for that map is
+- [x] After an Offline Copy of a referenced Historical Map completes, the hub's picture for that map is
       served from the Workspace — its `src` is a `blob:` URL, or no request reaches the Library's host.
-- [ ] The picture is still one that has actually decoded: `naturalWidth > 0`.
-- [ ] `remote.json` still exists for that map after the copy.
-- [ ] The element no longer carries `loading="lazy"`.
-- [ ] No production code was added or changed by this ticket; the diff is tests only. If that is not
-      true, the deviation is written into this ticket with its reason.
-- [ ] `pnpm precommit` passes.
-- [ ] A mutation record is written into this ticket.
+      **Both**, measured before and after the copy with the same instrument.
+- [x] The picture is still one that has actually decoded: `naturalWidth > 0`. Asserted as the exact
+      175 × 125 the coarsest level of a 700 × 500 sheet on 256-pixel tiles is, which is the same
+      picture the Library served — the continuity the contract asks for.
+- [x] `remote.json` still exists for that map after the copy.
+- [x] The element no longer carries `loading="lazy"`.
+- [x] No production code was added or changed by this ticket; the diff is tests only.
+- [x] `pnpm precommit` passes.
+- [x] A mutation record is written into this ticket.
 
 ```sh
 pnpm test:e2e editor-offline-copy.e2e.ts
 
-# The resolver's both-files case, if not already covered by ticket 01's node tests.
-pnpm --filter @ballastella/core test --project node -t "offline copy"
+# The resolver's both-files case, which ticket 01 already covers.
+#
+# ⚠ **Not `-t "offline copy"`.** Vitest's `-t` is a case-sensitive regex, and the two tests wanted here
+# spell the domain term "Offline Copy" as CONTEXT.md requires — so that filter selects three unrelated
+# tests in `referenced-image.test.ts` and `index.test.ts` and exits 0 having run none of the coverage it
+# names. A filter that matches nothing, or the wrong thing, still exits 0.
+pnpm --filter @ballastella/core test --project node -t "citation stays"
 
 pnpm precommit
 ```
@@ -95,8 +102,60 @@ Success is exit code 0 from each. Read exit codes directly; no `grep`, and no `-
 
 | Criterion | Mutation | Result |
 | --- | --- | --- |
-| the source really moved into the Workspace | make `tileLocation` answer `'referenced'` when both files are present | expect red — **green means the assertion is "a picture is shown", which passes either way** |
-| the citation survives | delete `remote.json` when a copy completes | expect red |
+| the source really moved into the Workspace | make `tileLocation` answer `'referenced'` when both files are present | **red**, as expected |
+| the citation survives | delete `remote.json` when a copy completes | **red**, as expected |
+
+**Mutation 1** — `tileLocation` reordered to `if (files.remoteJson) return 'referenced'`.
+`editor-offline-copy.e2e.ts` "shows the hub's picture of it from the Workspace instead of from the
+library" failed on the post-copy state, and the diff is the whole point of the ticket:
+
+```
+  Object {
+    "decoded": Object { "height": 125, "width": 175 },
+-   "loading": null,
+-   "src": StringMatching /^blob:/,
++   "loading": "lazy",
++   "src": "https://images.test/iiif/3/florida/0,0,700,500/175,125/0/default.jpg",
+  }
+```
+
+⚠ **`decoded` is identical on both sides.** The picture that arrived under the mutation is the same
+175 × 125 sheet, decoded, laid out, and visibly correct — so every assertion of the form "a picture is
+shown", "the element is visible", or even `naturalWidth > 0` alone stays green under it. What went red
+is the source and the laziness, which is why the criterion had to name them.
+
+Node cover as well: `historical-maps.test.ts` "is this Workspace once a copy has been made, though the
+citation stays" (`'referenced'` where `'in-workspace'` was expected) and "is the Workspace's own tile
+once an Offline Copy has been made, though the citation stays" (the Library's URL where the
+Workspace's was expected).
+
+**Mutation 2** — `makeOfflineCopy` deleting `referencedImagePath(result.imageId)` just before
+`report('done')`. The same test failed on the citation, on both the attempt and the retry: `readJson` of
+`images/<id>/remote.json` rejected with `NotFoundError`.
+
+⚠ **And only there** — the picture itself stays on the Workspace tile under this mutation, so the
+`expect(afterCopy.library).toEqual([])` assertion cannot go red for it. `tileLocation` answers
+`'in-workspace'` on `info.json` alone, and with the record deleted there is no `ReferencedImage` left to
+build a Library URL from. The criterion is covered by the `remote.json` read and by nothing else, which
+is worth knowing before anyone trims that read as redundant.
+
+### Deviation from "the expected code change is zero"
+
+**None.** The flip fell out for free exactly as the ticket predicted: `git diff --stat` for this ticket
+is `e2e/editor-offline-copy.e2e.ts | 107 +++++` and nothing else. No production file was touched, and
+no branch was added anywhere.
+
+### One finding, about the acceptance command rather than the behaviour
+
+`pnpm --filter @ballastella/core test --project node -t "offline copy"` selects **3** tests, and none
+of them is the resolver's both-files case. Vitest's `-t` is a case-sensitive regex, and the resolver
+test is named "…once an **Offline Copy** has been made" with the domain term capitalised as CONTEXT.md
+requires. The command therefore exits 0 over `referenced-image.test.ts` and `index.test.ts` instead.
+Nothing was added to the node tests, because the both-files case **is** already covered — by
+`historical-maps.test.ts`'s "is this Workspace once a copy has been made, though the citation stays"
+and "is the Workspace's own tile once an Offline Copy has been made, though the citation stays", both
+of which mutation 1 turned red above. Renaming a test of ticket 01's to suit a filter string was left
+alone as the worse of the two fixes.
 
 ⚠ **This is the ticket most likely to pass vacuously**, because the visible outcome is identical before
 and after the change it is testing. An assertion that does not name `blob:` or count requests to the

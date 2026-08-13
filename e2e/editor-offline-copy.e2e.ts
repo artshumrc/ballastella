@@ -307,6 +307,40 @@ function watchRequests(page: Page): {
 }
 
 /**
+ * The hub's picture of the one Historical Map in the Workspace, or `null` while there is no `<img>`.
+ *
+ * `src` verbatim rather than reduced to a scheme, so the caller can say *which* source it came from —
+ * the whole of what this ticket is about. `naturalWidth`/`naturalHeight` rather than a bounding box:
+ * the element is laid out at its attribute dimensions whether or not any bytes arrived, so its box
+ * says nothing about whether the picture is there (ADR-0030).
+ */
+const hubPicture = (
+	page: Page
+): Promise<{
+	src: string;
+	loading: string | null;
+	decoded: { width: number; height: number };
+} | null> =>
+	page
+		.getByTestId('historical-map')
+		.getByTestId('map-thumbnail-image')
+		.evaluate((element) => {
+			const image = element as HTMLImageElement;
+			return {
+				src: image.getAttribute('src') ?? '',
+				loading: image.getAttribute('loading'),
+				decoded: { width: image.naturalWidth, height: image.naturalHeight }
+			};
+		})
+		// ⚠ Absence only. A strict-mode violation — two cards, which SPEC story 20 is expressly about —
+		// must not be reported as "no picture arrived": that reads as a feature failure when the truth is
+		// an ambiguous locator, and the poll would spend its whole timeout on the wrong diagnosis.
+		.catch((error: unknown) => {
+			if (error instanceof Error && error.message.includes('strict mode violation')) throw error;
+			return null;
+		});
+
+/**
  * Open the Layers pane and wait until the one map Layer is drawn and carrying tiles.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────
@@ -918,6 +952,85 @@ test.describe('a copied Historical Map, once it is copied', () => {
 		// shim would ask for, and it is a DNS failure rather than a picture.
 		expect(afterCopy.placeholder).toEqual([]);
 		afterCopy.stop();
+	});
+
+	test('shows the hub’s picture of it from the Workspace instead of from the library', async ({
+		page
+	}) => {
+		// SPEC stories 13 and 14, and **no code makes this happen**: the copy writes a pyramid into the
+		// image directory and leaves the `remote.json`, so `tileLocation` starts answering
+		// `'in-workspace'` for that map and ADR-0030's resolver follows it. What is asserted here is that
+		// it really did.
+		//
+		// ⚠ **"A picture is shown" is true before and after the copy and proves nothing.** The picture is
+		// deliberately *identical* — same box, same fit, same 175 × 125 decoded from a 700 × 500 sheet on
+		// 256-pixel tiles — so the two halves below are distinguished only by where the bytes came from:
+		// a URL on the library's own host against an object URL over bytes read out of the Workspace, and
+		// a request to the library against none at all. Measured twice with the same instrument, for the
+		// reason the warped assertion above is: an empty list of intercepted requests is the easiest thing
+		// in this repository to pass vacuously.
+		await installIiifHosts(page, { manifestCanvases: singleCanvas });
+		await openNewProject(page);
+		await addReferenced(page, 'images.test');
+		const imageId = generateId(service('images.test', 'florida'));
+
+		// ── The control. Referenced, the picture is a plain URL on the library's server, fetched by the
+		// element itself and lazily, and the listener really does see the request.
+		const beforeCopy = watchRequests(page);
+		await page.getByRole('link', { name: 'Back to all Projects' }).click();
+		await expect(page.getByTestId('historical-map')).toHaveCount(1);
+		// The picture is `loading="lazy"` while it comes from the library, so a card below the fold would
+		// never fire its request and the poll would sit on a decoded 0 × 0 until it timed out.
+		await page.getByTestId('map-thumbnail-image').scrollIntoViewIfNeeded();
+		await expect
+			.poll(() => hubPicture(page), { timeout: 20_000 })
+			.toEqual({
+				src: expect.stringMatching(/^https:\/\/images\.test\//),
+				loading: 'lazy',
+				decoded: { width: 175, height: 125 }
+			});
+		expect(beforeCopy.library.length).toBeGreaterThan(0);
+		beforeCopy.stop();
+
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expectReferencedLayer(page);
+		await openMirrorDialog(page);
+		await page.getByTestId('offline-copy-start').click();
+		await expect(page.getByTestId('offline-copy-done')).toContainText(
+			'offline copy in this Project',
+			{ timeout: 60_000 }
+		);
+		// Nothing to dismiss: the dialog closes itself on success, and this notice is on the Project
+		// screen behind it — so the way back to the hub is not blocked by a modal.
+
+		// ── And the claim, on the same hub with the same instrument: the picture is now an object URL
+		// over bytes read out of the Workspace, and nothing was asked of the library to draw it.
+		const afterCopy = watchRequests(page);
+		await page.getByRole('link', { name: 'Back to all Projects' }).click();
+		await expect(page.getByTestId('historical-map')).toHaveCount(1);
+		// `blob:` is the assertion the ticket turns on. `loading` is gone with it — ADR-0030's deliberate
+		// asymmetry, and the one *observable* difference between the two code paths — and the decoded size
+		// is unchanged, which is the continuity a scholar is promised: only the network dependency went.
+		await expect
+			.poll(() => hubPicture(page), { timeout: 20_000 })
+			.toEqual({
+				src: expect.stringMatching(/^blob:/),
+				loading: null,
+				decoded: { width: 175, height: 125 }
+			});
+		expect(afterCopy.library).toEqual([]);
+		// Nor did it escape to the ADR-0004 placeholder the pyramid is addressed at: that is what a
+		// picture built without the ADR-0011 shim would ask for, and it is a DNS failure rather than a
+		// tile.
+		expect(afterCopy.placeholder).toEqual([]);
+		afterCopy.stop();
+
+		// And the citation survived the copy. `remote.json` is what the map is cited from (ADR-0007), and
+		// the flip above is a *reading* of the two files rather than a rewrite of them — a copy that
+		// deleted it would show the same picture and lose the provenance.
+		expect(await readJson(page, '', `images/${imageId}/remote.json`)).toMatchObject({
+			service: service('images.test', 'florida')
+		});
 	});
 
 	test('survives a reload with the network switched off, drawing from the Project', async ({
