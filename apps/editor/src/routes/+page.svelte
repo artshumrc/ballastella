@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { readSignInCallback } from '@ballastella/core';
+	import { GitHubCallbackRefusedError, readSignInCallback } from '@ballastella/core';
 	import ProjectHub from '$lib/components/ProjectHub.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import ProjectScreen from '$lib/project/ProjectScreen.svelte';
@@ -68,18 +68,26 @@
 		if (!current) return;
 		const callback = readSignInCallback(page.url.searchParams);
 		if (callback === null) return;
-		void finishSignIn(current, callback);
+		// A rejection here has nowhere else to go: an unhandled one is a sign-in that reports neither
+		// success nor a reason, which is the state this screen exists to make impossible.
+		void finishSignIn(current, callback).catch((cause: unknown) => {
+			signInProblem = cause instanceof Error ? cause.message : String(cause);
+		});
 	});
 
 	/**
-	 * Judge the callback, then take it off the address bar whatever the verdict.
+	 * Take the reply off the address bar, then judge it.
 	 *
 	 * ⚠ **The parameters are stripped in both directions, and before the exchange is awaited.** A code
 	 * left in the bar is one a reload replays, a bookmark preserves, and a screenshot leaks; a refused
-	 * `state` left in the bar is one that re-refuses on every reload. The open Project is put back
-	 * from where `beginGitHubSignIn` stashed it, because the callback URL cannot carry it — GitHub
-	 * matches the redirect against the address registered on the App, so `?p=` cannot be on the end
-	 * of it.
+	 * `state` left in the bar is one that re-refuses on every reload.
+	 *
+	 * ⚠ **The stashed `?p=` is consumed straight away and put back only once the `state` has
+	 * verified.** It has to be consumed either way, or a later reload restores it into an unrelated
+	 * navigation — but a callback this tab did not ask for must not be able to choose which Project
+	 * the tab lands on, so the address it goes back to carries nothing until the reply is known to be
+	 * this tab's. Every other refusal — GitHub's own, a broker that is down — *is* this tab's sign-in,
+	 * and the scholar is put back where they were with the reason on screen.
 	 */
 	async function finishSignIn(
 		current: WorkspaceStorage,
@@ -88,27 +96,46 @@
 		signInOutcome = '';
 		signInProblem = '';
 		const returning = current.consumeSignInReturn();
-		// ⚠ **`goto` rather than `replaceState`.** This runs from an effect on the first render after
-		// the redirect, which is before SvelteKit's router has finished initialising — `replaceState`
-		// throws there, and the whole callback was silently lost. `goto` waits for the router, and
-		// `replaceState: true` keeps the callback URL out of the history so Back does not return to it.
-		// `resolve()` is used, but the rule only recognises it as the whole argument — and the query
-		// string that carries the open Project back has to be appended to it. Same exemption, and the
-		// same reason, as the `github.com` link in `RemoteSettings.svelte`.
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		await goto(`${resolve('/')}${returning}`, {
-			replaceState: true,
-			noScroll: true,
-			keepFocus: true
-		});
+		await strip('');
 
 		try {
 			await current.completeGitHubSignIn(callback);
 			signInOutcome = current.identity
 				? `Signed in to GitHub as ${current.identity}. Your sign-in is forgotten when this tab closes.`
 				: 'Signed in to GitHub. Your sign-in is forgotten when this tab closes.';
+			await strip(returning);
 		} catch (cause) {
 			signInProblem = cause instanceof Error ? cause.message : String(cause);
+			if (!(cause instanceof GitHubCallbackRefusedError)) await strip(returning);
+		}
+	}
+
+	/**
+	 * Replace the address with this app's own root and the given query string.
+	 *
+	 * ⚠ **`goto` rather than `replaceState`.** This runs from an effect on the first render after the
+	 * redirect, which is before SvelteKit's router has finished initialising — `replaceState` throws
+	 * there, and the whole callback was silently lost. `goto` waits for the router, and
+	 * `replaceState: true` keeps the callback URL out of the history so Back does not return to it.
+	 *
+	 * A rejected `goto` is caught and the address rewritten through the History API instead, because
+	 * the one outcome that is not allowed here is the parameters staying where they are.
+	 */
+	async function strip(query: string): Promise<void> {
+		// `resolve()` is used, but the rule only recognises it as the whole argument — and the query
+		// string that carries the open Project back has to be appended to it. Same exemption, and the
+		// same reason, as the `github.com` link in `RemoteSettings.svelte`.
+		const address = `${resolve('/')}${query}`;
+		try {
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(address, { replaceState: true, noScroll: true, keepFocus: true });
+		} catch {
+			try {
+				globalThis.history.replaceState(globalThis.history.state, '', address);
+			} catch {
+				// Nothing further can be done about the address bar, and the sign-in itself still has an
+				// answer to report — which is better than throwing that answer away over the URL.
+			}
 		}
 	}
 

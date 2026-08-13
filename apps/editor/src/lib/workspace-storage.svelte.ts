@@ -37,6 +37,7 @@ import {
 	SIGN_IN_STATE_KEY,
 	authorizeUrl,
 	clearGrantRecord,
+	describeCallbackRefusal,
 	exchangeAuthorizationCode,
 	isGitHubAppConfigured,
 	isGrantFresh,
@@ -46,6 +47,7 @@ import {
 	signInAgainMessage,
 	verifySignInState,
 	writeGrantRecord,
+	GitHubCallbackRefusedError,
 	GitHubSignInError,
 	type CredentialStorage,
 	type CredentialStore,
@@ -99,12 +101,48 @@ const signInStorage = (): CredentialStorage => {
 /** Where the query string the sign-in left from waits, so the open Project survives the redirect. */
 const SIGN_IN_RETURN_KEY = 'ballastella.github-sign-in-return';
 
+/**
+ * Where the address the authorisation named waits, to be sent again at the exchange.
+ *
+ * ⚠ **The exchange must name the same `redirect_uri` the authorisation did, byte for byte**, or
+ * GitHub answers `redirect_uri_mismatch` and every sign-in fails. Recomputing it on return does not
+ * give the same string: by then the callback's parameters have been taken off the bar by a
+ * navigation to the app's own resolved root, which normalises a pathname a deployment may well have
+ * been reached by (`…/editor/index.html` becomes `…/editor/`). So the string that went out is kept,
+ * and the string that went out is what comes back.
+ */
+const SIGN_IN_REDIRECT_KEY = 'ballastella.github-sign-in-redirect';
+
 /** A storage that holds nothing, for a browser that will not give us one. */
 const nowhere: CredentialStorage = {
 	getItem: () => null,
 	setItem: () => {},
 	removeItem: () => {}
 };
+
+/**
+ * The sign-in's grant record, behind the same seal as the credential itself (story 40, ADR-0024).
+ *
+ * ⚠ **The record holds the refresh token, which outlives the eight-hour access token and can mint
+ * more of them.** So it falls under the rule the credential does, and under it harder: while a
+ * teacher has a submission open, the record may not be read, may not be written, and — the part only
+ * a seal at the storage can prevent — may not be *spent against the broker*, which would be a
+ * request leaving somebody else's Project carrying the reader's own secret. Sealed here rather than
+ * at each call site for the reason `closedWhileReviewing` gives about the credential: the rule has
+ * to hold for code written later that never saw it.
+ *
+ * The `state` and the stashed query string are deliberately **not** sealed. Neither is a credential,
+ * and the sign-in a scholar starts is refused inside a review copy by the seal below it anyway.
+ */
+const sealedSignInStorage = (reviewing: () => boolean): CredentialStorage => ({
+	getItem: (key) => (reviewing() ? null : signInStorage().getItem(key)),
+	setItem: (key, value) => {
+		if (!reviewing()) signInStorage().setItem(key, value);
+	},
+	removeItem: (key) => {
+		if (!reviewing()) signInStorage().removeItem(key);
+	}
+});
 
 /**
  * The address GitHub redirects back to: this page, with nothing on it.
@@ -417,6 +455,8 @@ export class WorkspaceStorage {
 		() => this.review !== null,
 		browserCredentialStore()
 	);
+	/** The grant record's storage, sealed by the same question — see {@link sealedSignInStorage}. */
+	readonly #grants: CredentialStorage = sealedSignInStorage(() => this.review !== null);
 	/**
 	 * Resolves once the arriving Workspace's journalled edits have been put back (ticket 20).
 	 *
@@ -1071,9 +1111,8 @@ export class WorkspaceStorage {
 	 */
 	async bindRemote(remote: RemoteReference, token: string): Promise<RemoteBindOutcome> {
 		const outcome = await bindWorkspaceToRemote(this.session.store, this.name, { token, remote });
-		this.#credentials.write(token);
+		this.#keepPasted(token);
 		this.remote = outcome.binding;
-		this.#refreshCredential();
 		return outcome;
 	}
 
@@ -1094,15 +1133,28 @@ export class WorkspaceStorage {
 			);
 		}
 		const rights = await readRemoteRights({ token, remote: binding });
-		this.#credentials.write(token);
-		this.#refreshCredential();
+		this.#keepPasted(token);
 		return rights;
+	}
+
+	/**
+	 * Hold a pasted token, and throw away any App session it replaces.
+	 *
+	 * ⚠ **The grant record has to go, or the pasted token is destroyed by it.** The record is about a
+	 * token that is no longer held; left behind, the next freshness check reads an expired grant,
+	 * fails to renew it, and clears the credential — which is now the working token the scholar
+	 * pasted a moment ago, reported to them as "your GitHub sign-in has expired".
+	 */
+	#keepPasted(token: string): void {
+		this.#credentials.write(token);
+		clearGrantRecord(this.#grants);
+		this.#refreshCredential();
 	}
 
 	/** Forget the credential, so this machine can be handed to somebody (story 37). */
 	signOut(): void {
 		this.#credentials.clear();
-		clearGrantRecord(signInStorage());
+		clearGrantRecord(this.#grants);
 		this.identity = '';
 		this.#refreshCredential();
 	}
@@ -1129,26 +1181,43 @@ export class WorkspaceStorage {
 	identity = $state('');
 
 	/**
-	 * Send the user to GitHub to authorise, remembering a `state` to check them back in with.
+	 * Send the user to GitHub to authorise, or say why this browser cannot start a sign-in.
 	 *
-	 * The `state` goes to session storage before the redirect, because after it this tab is gone.
+	 * Answers `''` when the redirect is under way, and the sentence to show when it is not.
+	 *
+	 * ⚠ **The redirect happens only once the `state` is known to have been kept, and the check is a
+	 * read-back rather than the absence of a throw.** A browser with storage blocked hands back a
+	 * storage that quietly holds nothing, so a sign-in begun there would send the scholar to GitHub,
+	 * make them authorise, and refuse them on return for a reason they cannot act on. Refusing here
+	 * costs a sentence and leaves the paste, which needs no storage of that kind, on the same screen.
 	 */
-	beginGitHubSignIn(): void {
+	beginGitHubSignIn(): string {
 		const state = newSignInState();
+		// Captured **before** the redirect and kept, because the exchange has to name this same string
+		// and cannot recompute it — see {@link SIGN_IN_REDIRECT_KEY}.
+		const redirectUri = callbackUri();
+		const storage = signInStorage();
 		try {
-			sessionStorage.setItem(SIGN_IN_STATE_KEY, state);
+			storage.setItem(SIGN_IN_STATE_KEY, state);
+			storage.setItem(SIGN_IN_REDIRECT_KEY, redirectUri);
 			// The Project the scholar was looking at. `callbackUri` has to strip it — a GitHub App
 			// matches the callback against the URL registered on the App, so any query string at all is
 			// a redirect URI GitHub refuses — so it is stashed here and put back on return.
-			sessionStorage.setItem(SIGN_IN_RETURN_KEY, globalThis.location.search);
+			storage.setItem(SIGN_IN_RETURN_KEY, globalThis.location.search);
 		} catch {
-			// A browser that will not hold the state cannot complete a sign-in that must verify it, so
-			// this is left to fail on return with the "this tab did not start a sign-in" refusal rather
-			// than being turned into a redirect that can only end badly.
+			// Quota, or a storage that throws from every property. Either way the read-back below is
+			// what decides, so there is nothing to do here.
 		}
-		globalThis.location.assign(
-			authorizeUrl({ app: GITHUB_APP, redirectUri: callbackUri(), state })
-		);
+		if (storage.getItem(SIGN_IN_STATE_KEY) !== state) {
+			return (
+				`This browser will not let this page remember the sign-in it would be starting, so going ` +
+				`to GitHub could only end in the reply being refused when you came back. It is usually a ` +
+				`setting blocking storage for this site. Paste a personal access token below instead — ` +
+				`that path needs none of this.`
+			);
+		}
+		globalThis.location.assign(authorizeUrl({ app: GITHUB_APP, redirectUri, state }));
+		return '';
 	}
 
 	/**
@@ -1159,27 +1228,53 @@ export class WorkspaceStorage {
 	 * and leaving it in place after a *mismatch* would let an attacker's second attempt find a state
 	 * this tab really did generate.
 	 *
-	 * @throws GitHubSignInError when the state does not match, or the exchange is refused
+	 * @throws GitHubCallbackRefusedError when the state does not match or is absent
+	 * @throws GitHubSignInError when GitHub refused, or the exchange did
 	 */
 	async completeGitHubSignIn(callback: SignInCallback): Promise<void> {
 		const storage = signInStorage();
 		const stored = storage.getItem(SIGN_IN_STATE_KEY);
+		const redirectUri = storage.getItem(SIGN_IN_REDIRECT_KEY) ?? callbackUri();
 		storage.removeItem(SIGN_IN_STATE_KEY);
+		storage.removeItem(SIGN_IN_REDIRECT_KEY);
 
 		const refusal = verifySignInState(callback.state, stored);
 		// ⚠ Nothing is stored on a refusal — not the code, not a token, not a partial record. The
 		// credential store is left exactly as it was, so a scholar already signed in by paste stays
 		// signed in and a forged callback changes nothing at all.
-		if (refusal !== '') throw new GitHubSignInError(refusal);
+		if (refusal !== '') throw new GitHubCallbackRefusedError(refusal);
+
+		// GitHub's own answer, read before the code is spent: a scholar who pressed Cancel comes back
+		// with `error=access_denied`, the real `state`, and **no code**, and exchanging the empty string
+		// would tell them their code was incorrect or expired for a thing they chose on purpose.
+		const declined = describeCallbackRefusal(callback);
+		if (declined !== '') throw new GitHubSignInError(declined);
+
+		// ⚠ **Not from inside somebody else's Project.** The credential and the grant record are both
+		// sealed while a review copy is open (story 40), so an exchange here could only end in a token
+		// that was thrown away and a screen claiming a sign-in that is not held — and the exchange
+		// itself is a request leaving a submission. Refused before the code goes anywhere.
+		if (this.review !== null) {
+			throw new GitHubSignInError(
+				`A review copy of somebody else's Project is open, so nothing has been signed in to. No ` +
+					`GitHub sign-in is readable or writable while one is — go back to your own Workspace ` +
+					`and sign in there.`
+			);
+		}
 
 		const grant = await exchangeAuthorizationCode({
 			app: GITHUB_APP,
 			code: callback.code,
-			redirectUri: callbackUri()
+			redirectUri
 		});
+		// ⚠ **The record is written beside the credential with nothing between them that can throw.**
+		// A credential held with no record beside it reads exactly like a pasted token — no expiry to
+		// check and no refresh token to spend — so an eight-hour App token would then be carried into a
+		// publish that meets its end partway through, which is the one outcome story 33 forbids.
+		// `readGitHubLogin`, which can fail and is only a name on the bar, comes after both.
+		writeGrantRecord(this.#grants, grant);
 		this.#keepGrant(grant);
 		this.identity = await readGitHubLogin(grant.token);
-		writeGrantRecord(storage, grant);
 	}
 
 	/**
@@ -1190,12 +1285,25 @@ export class WorkspaceStorage {
 	 * grant record and is therefore left alone, which is not a branch on the auth method so much as
 	 * the absence of anything to check: there is no expiry to read and no refresh token to spend.
 	 *
+	 * Nothing at all happens inside a review copy: the record is sealed there, so this reads no grant,
+	 * spends no refresh token, and reaches no broker from inside somebody else's Project.
+	 *
 	 * @throws GitHubSignInError when the sign-in has expired and could not be renewed
 	 */
 	async ensureCredentialFresh(): Promise<void> {
-		const storage = signInStorage();
-		const grant = readGrantRecord(storage);
-		if (grant === null || isGrantFresh(grant, Date.now())) return;
+		const grant = readGrantRecord(this.#grants);
+		if (grant === null) return;
+
+		// ⚠ **A record is only about the credential it names.** Held ones can disagree: a scholar whose
+		// App sign-in ran out pastes a personal access token, and the record left behind still describes
+		// the token that is gone. Acted on, it would refuse a refresh and then clear "the expired
+		// credential" — which is by then the working token they pasted a moment ago, reported to them
+		// as an expiry. A record naming anything other than what is held is a leftover, and goes.
+		if (grant.token !== this.#credentials.read()) {
+			clearGrantRecord(this.#grants);
+			return;
+		}
+		if (isGrantFresh(grant, Date.now())) return;
 
 		if (grant.refreshToken === '') {
 			this.#endExpiredSession();
@@ -1206,8 +1314,8 @@ export class WorkspaceStorage {
 				app: GITHUB_APP,
 				refreshToken: grant.refreshToken
 			});
+			writeGrantRecord(this.#grants, renewed);
 			this.#keepGrant(renewed);
-			writeGrantRecord(storage, renewed);
 		} catch {
 			// Whatever went wrong — a spent refresh token, a broker that is down, one that was never
 			// deployed — the remedy a scholar can take is the same one, so it is the only thing said.
@@ -1222,13 +1330,10 @@ export class WorkspaceStorage {
 	 * `''` when there is nothing to put back, which is the ordinary case of signing in from the hub.
 	 */
 	consumeSignInReturn(): string {
-		try {
-			const search = sessionStorage.getItem(SIGN_IN_RETURN_KEY) ?? '';
-			sessionStorage.removeItem(SIGN_IN_RETURN_KEY);
-			return search;
-		} catch {
-			return '';
-		}
+		const storage = signInStorage();
+		const search = storage.getItem(SIGN_IN_RETURN_KEY) ?? '';
+		storage.removeItem(SIGN_IN_RETURN_KEY);
+		return search;
 	}
 
 	/** Hold a grant's token as *the* credential, which is all anything below this class ever sees. */
@@ -1240,7 +1345,7 @@ export class WorkspaceStorage {
 	/** Drop a sign-in that has run out, so every screen renders the not-signed-in state. */
 	#endExpiredSession(): void {
 		this.#credentials.clear();
-		clearGrantRecord(signInStorage());
+		clearGrantRecord(this.#grants);
 		this.identity = '';
 		this.#refreshCredential();
 	}

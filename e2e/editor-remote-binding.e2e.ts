@@ -1,10 +1,11 @@
 import { DEFAULT_WORKSPACE, expect, test, type Page } from './support/test.js';
 
-import { packTar } from 'modern-tar';
 import { readFile } from 'node:fs/promises';
 
+import { whereverTheTokenIs } from './support/credential-scan.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { routeGitHubHosts } from './support/github-hosts.js';
+import { oneProjectBundle } from './support/project-bundle.js';
 import {
 	closeWorkspaceSettings,
 	expectWorkspaceNamed,
@@ -87,80 +88,6 @@ async function bind(page: Page, repository = REMOTE, token = TOKEN): Promise<voi
 	await page.getByTestId('remote-repository-field').fill(repository);
 	await page.getByTestId('remote-token-field').fill(token);
 	await page.getByTestId('bind-remote').click();
-}
-
-/**
- * Everywhere in this browser that holds the token, read behind the app's back.
- *
- * ⚠ **This is ADR-0033's rule made into an assertion.** `export-workspace-tar.ts` walks the
- * `ProjectStore` and hands the result to the user as a file they mail to a colleague; the
- * write-ahead journal copies edits into `localStorage`; a Publish uploads the Workspace. So the one
- * place a credential may be is `sessionStorage`, and a test that only checked "signing in works"
- * would pass just as happily with the token in any of the other three.
- *
- * **IndexedDB is scanned too, because SPEC "Out of scope" item 9 names it by name** — *no credential
- * in `localStorage` or IndexedDB* — and it is the obvious place a later "remember me" would reach
- * for. `indexedDB.databases()` exists in Chromium, which is the only project this spec runs under.
- */
-async function whereverTheTokenIs(page: Page, token: string): Promise<string[]> {
-	return page.evaluate(async (secret) => {
-		const found: string[] = [];
-		const scan = (storage: Storage, label: string) => {
-			for (let at = 0; at < storage.length; at += 1) {
-				const key = storage.key(at);
-				if (key !== null && (storage.getItem(key) ?? '').includes(secret)) {
-					found.push(`${label}:${key}`);
-				}
-			}
-		};
-		scan(localStorage, 'localStorage');
-		scan(sessionStorage, 'sessionStorage');
-
-		const walk = async (handle: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
-			for await (const [name, entry] of handle.entries()) {
-				if (entry.kind === 'directory') {
-					await walk(entry as FileSystemDirectoryHandle, `${prefix}${name}/`);
-					continue;
-				}
-				const text = await (await (entry as FileSystemFileHandle).getFile()).text();
-				if (text.includes(secret)) found.push(`workspace:${prefix}${name}`);
-			}
-		};
-		await walk(await navigator.storage.getDirectory(), '');
-
-		/** Anything a record could hold that a string could hide in. Depth-bounded, not clever. */
-		const holds = (value: unknown, depth = 0): boolean => {
-			if (typeof value === 'string') return value.includes(secret);
-			if (depth > 8 || value === null || typeof value !== 'object') return false;
-			if (Array.isArray(value)) return value.some((item) => holds(item, depth + 1));
-			return Object.values(value as Record<string, unknown>).some((item) => holds(item, depth + 1));
-		};
-		const settle = <T>(request: IDBRequest<T>): Promise<T | null> =>
-			new Promise((resolve) => {
-				request.onsuccess = () => resolve(request.result);
-				request.onerror = () => resolve(null);
-			});
-
-		for (const { name } of await indexedDB.databases()) {
-			if (name === undefined) continue;
-			const open = indexedDB.open(name);
-			const database = await settle(open as IDBRequest<IDBDatabase>);
-			if (database === null) continue;
-			for (const store of database.objectStoreNames) {
-				const records = await settle(
-					database.transaction(store, 'readonly').objectStore(store).getAll()
-				);
-				// The keys as well as the values: a token used as a key is still a token in IndexedDB.
-				const keys = await settle(
-					database.transaction(store, 'readonly').objectStore(store).getAllKeys()
-				);
-				if (holds(records) || holds(keys)) found.push(`indexedDB:${name}/${store}`);
-			}
-			database.close();
-		}
-
-		return found.sort();
-	}, token);
 }
 
 /** `remote.json` as the Workspace holds it, or `null`. */
@@ -514,32 +441,6 @@ test.describe('a restored Backup', () => {
 // opening a submission must not reach the teacher's own credential. The refusals themselves live in
 // `packages/core`; what is asserted here is that the screens say so.
 test.describe('a Review Workspace', () => {
-	/** A one-Project bundle: `project.json` at the root, which is what a bundle is. */
-	async function bundle(): Promise<{ name: string; mimeType: string; buffer: Buffer }> {
-		const encode = (text: string) => new TextEncoder().encode(text);
-		const files: Record<string, string> = {
-			'project.json': `${JSON.stringify({
-				formatVersion: 1,
-				name: 'Amsterdam 1625',
-				updatedAt: '2025-03-04T11:22:33.000Z',
-				layers: [],
-				baseMap: 'protomaps-light'
-			})}\n`
-		};
-		return {
-			name: 'amsterdam-1625.project.tar',
-			mimeType: 'application/x-tar',
-			buffer: Buffer.from(
-				await packTar(
-					Object.entries(files).map(([name, text]) => ({
-						header: { name, size: encode(text).length, type: 'file' as const },
-						body: encode(text)
-					}))
-				)
-			)
-		};
-	}
-
 	test('arrives unbound, and reads no credential while it is open (stories 40, 42)', async ({
 		page
 	}) => {
@@ -552,7 +453,7 @@ test.describe('a Review Workspace', () => {
 		await page
 			.getByRole('dialog', { name: 'Open a Project someone sent me' })
 			.getByLabel('Project bundle')
-			.setInputFiles(await bundle());
+			.setInputFiles(await oneProjectBundle());
 		await page.getByTestId('confirm-open-bundle').click();
 		await expect(page.getByTestId('review-banner')).toBeVisible({ timeout: 30_000 });
 

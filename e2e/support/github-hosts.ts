@@ -38,7 +38,11 @@
 // and a rename that missed it fails every spec loudly.)
 
 import { createFakeGitHub, type FakeGitHub } from '../../packages/core/src/remote/fake-github.js';
-import { GITHUB_APP, type GitHubApp } from '../../packages/core/src/remote/github-app.js';
+import {
+	GITHUB_APP,
+	isGitHubAppConfigured,
+	type GitHubApp
+} from '../../packages/core/src/remote/github-app.js';
 import { GITHUB_AUTHORIZE_URL } from '../../packages/core/src/remote/github-sign-in.js';
 import type { BrowserContext, Page, Route } from './test.js';
 
@@ -77,6 +81,16 @@ export type GitHubHostsOptions = {
 	 * repository's API honours. Every spec driving sign-in has exactly one repository.
 	 */
 	readonly signIn?: boolean;
+	/**
+	 * Serve GitHub's authorize screen, but let every request to the broker fail to connect.
+	 *
+	 * ⚠ **This is the state this deployment ships in**, and it is not the same as `signIn: false`.
+	 * GitHub is real and answers; the broker's host is reserved by RFC 2606 and resolves nowhere
+	 * (`github-app.ts`), so a scholar gets all the way through the redirect and meets the failure at
+	 * the exchange. What must come out of that is a sentence naming the token-paste path, and a paste
+	 * that then binds and publishes exactly as it always did (ADR-0031's first consequence).
+	 */
+	readonly brokerUnreachable?: boolean;
 	/** How long an issued token lasts. Short values are how a spec reaches expiry without waiting. */
 	readonly tokenLifetimeSeconds?: number;
 	/** The account a completed sign-in is as, reported by `GET /user`. */
@@ -159,6 +173,17 @@ export async function routeGitHubHosts(
 	}
 
 	if (options.signIn === true && primary !== null) {
+		// ⚠ **A fork with no App configured must not be routed at all.** `SIGN_IN_APP` is this
+		// checkout's `GITHUB_APP`, and a fork that turns the front door off by emptying both values
+		// (`github-app.ts`) would reduce the glob below to `'/**'` — which matches every request the
+		// page makes, so this module would silently become the whole network. Said out loud instead:
+		// the sign-in surface cannot be served where there is no App for it to be.
+		if (!isGitHubAppConfigured(SIGN_IN_APP)) {
+			throw new Error(
+				'This checkout has no GitHub App configured, so the sign-in surface cannot be served and ' +
+					'no spec can drive it. See packages/core/src/remote/github-app.ts.'
+			);
+		}
 		const signInFake = primary;
 
 		/** Forward a request into the fake and send back exactly what it answered. */
@@ -182,8 +207,14 @@ export async function routeGitHubHosts(
 		// so the browser follows it straight back to the callback — which is the whole round trip, with
 		// no page on `github.com` ever being fetched.
 		await target.route(`${GITHUB_AUTHORIZE_URL}*`, forward);
-		// The broker's two endpoints, and nothing else on that origin (ADR-0031).
-		await target.route(`${SIGN_IN_APP.brokerOrigin}/**`, forward);
+		// The broker's two endpoints, and nothing else on that origin (ADR-0031). Recorded before it
+		// fails when the broker is unreachable, so a spec can tell "tried and could not" from
+		// "never went near it".
+		await target.route(`${SIGN_IN_APP.brokerOrigin}/**`, async (route) => {
+			if (options.brokerUnreachable !== true) return forward(route);
+			requests.push(new URL(route.request().url()).pathname);
+			await route.abort('connectionfailed');
+		});
 	}
 
 	await target.route(`${GITHUB_API_ORIGIN}/**`, async (route) => {

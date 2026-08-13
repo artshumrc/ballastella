@@ -28,8 +28,11 @@
 // │                                                                                            │
 // │ **This is a supported state, not a broken one.** With the broker unreachable the sign-in    │
 // │ button is offered and fails legibly, and the pasted personal access token binds and         │
-// │ publishes exactly as it always has — `editor-github-signin.e2e.ts` asserts that whole path  │
-// │ with this host unreachable, because it is what licenses shipping a placeholder at all.      │
+// │ publishes exactly as it always has. That is what licenses shipping a placeholder at all, so │
+// │ it is asserted in two places rather than assumed: `editor-github-signin.e2e.ts` presses the │
+// │ button with this host unreachable and then binds by paste on the same screen, and           │
+// │ `github-sign-in.test.ts` publishes a Workspace with a pasted token while every request to   │
+// │ this host fails, and asserts the broker was never on the path.                              │
 // │                                                                                            │
 // │ ⚠ **A GitHub App's callback URL is registered per App.** The App holds the one address      │
 // │ GitHub will redirect back to, so a fork living at a different address cannot borrow another │

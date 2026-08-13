@@ -178,9 +178,11 @@ an App registered for one address will not redirect to yours. A fork at a differ
 own App and its own client ID — and until it has them, the pasted token is the whole of its auth.
 
 1. Register a GitHub App on your account or organisation. Set its **callback URL** to the address
-   your editor is served from — the same URL you would type into a browser to open it. Give it
-   **Contents: Read and write** and **Pages: Read and write**, and enable user-to-server tokens with
-   expiry.
+   your editor is served from — the same URL you would type into a browser to open it, spelled the
+   same way. The editor sends the address the browser is actually at, so if people reach it as
+   `…/editor/index.html` that is what GitHub is asked to match, and a callback registered as
+   `…/editor/` will be refused with `redirect_uri_mismatch`. Give it **Contents: Read and write** and
+   **Pages: Read and write**, and enable user-to-server tokens with expiry.
 2. Deploy a broker that implements the two endpoints below, holding your App's client **secret**.
    The contract is fixed so the two repositories cannot drift:
 

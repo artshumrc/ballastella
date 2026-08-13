@@ -12,6 +12,7 @@ import {
 	GitHubSignInError,
 	authorizeUrl,
 	clearGrantRecord,
+	describeCallbackRefusal,
 	exchangeAuthorizationCode,
 	isGrantFresh,
 	newSignInState,
@@ -134,12 +135,68 @@ describe('the state', () => {
 	it('refuses a callback carrying a code and no state', () => {
 		const callback = readSignInCallback(new URLSearchParams('code=abc'));
 
-		expect(callback).toEqual({ code: 'abc', state: '' });
+		expect(callback).toEqual({ code: 'abc', state: '', error: '', errorDescription: '' });
 		expect(verifySignInState(callback?.state ?? '', 'abc123')).toContain('did not match');
 	});
 
 	it('reads nothing at all out of an ordinary page load', () => {
 		expect(readSignInCallback(new URLSearchParams('p=amsterdam-1625'))).toBeNull();
+	});
+});
+
+// SPEC story 57. GitHub answers a refusal with `error`, `error_description` and **the real `state`**,
+// and no code at all — so a reader that took only `code` and `state` found a state that verifies and
+// posted the empty string to the broker, and the scholar who pressed Cancel was told the code passed
+// was incorrect or expired.
+describe('a callback that refuses rather than authorises', () => {
+	const cancelled = new URLSearchParams(
+		'error=access_denied&error_description=The+user+has+denied+your+application+access.&state=abc123'
+	);
+
+	it('is read whole, including the state it carries', () => {
+		expect(readSignInCallback(cancelled)).toEqual({
+			code: '',
+			state: 'abc123',
+			error: 'access_denied',
+			errorDescription: 'The user has denied your application access.'
+		});
+	});
+
+	// The state does verify, which is exactly why the refusal has to be read: it is a real reply to a
+	// real sign-in, and the only thing wrong with it is what it says.
+	it('names Cancel, because that is what the scholar pressed', () => {
+		const callback = readSignInCallback(cancelled)!;
+
+		expect(verifySignInState(callback.state, 'abc123')).toBe('');
+		const refusal = describeCallbackRefusal(callback);
+		expect(refusal).toContain('not given permission');
+		expect(refusal).toContain('Cancel');
+		expect(refusal).toContain('personal access token');
+	});
+
+	it('passes GitHub’s own words on for anything else it refuses with', () => {
+		const refusal = describeCallbackRefusal({
+			code: '',
+			state: 'abc123',
+			error: 'application_suspended',
+			errorDescription: 'This application has been suspended.'
+		});
+
+		expect(refusal).toContain('This application has been suspended.');
+	});
+
+	// The remaining malformed shape: a reply with nothing in it to exchange. Sent to the broker it
+	// comes back as "the code passed is incorrect or expired", which describes nothing that happened.
+	it('refuses a callback with neither a code nor a reason', () => {
+		expect(
+			describeCallbackRefusal({ code: '', state: 'abc123', error: '', errorDescription: '' })
+		).toContain('carried no authorisation');
+	});
+
+	it('has nothing to say about an ordinary code', () => {
+		expect(
+			describeCallbackRefusal({ code: 'abc', state: 'abc123', error: '', errorDescription: '' })
+		).toBe('');
 	});
 });
 

@@ -50,10 +50,17 @@ export const SIGN_IN_STATE_KEY = 'ballastella.github-sign-in-state';
 /** Where the expiry and the refresh token live, beside the credential rather than inside it. */
 export const GITHUB_APP_SESSION_KEY = 'ballastella.github-app-session';
 
-/** The two query parameters GitHub sends back to the callback. */
+/** What GitHub sends back to the callback: a code, or a refusal, and the `state` either way. */
 export type SignInCallback = {
 	readonly code: string;
 	readonly state: string;
+	/**
+	 * GitHub's own refusal, or `''`. `access_denied` is what pressing **Cancel** on the authorise
+	 * screen produces, and it arrives with the real `state` beside it.
+	 */
+	readonly error: string;
+	/** GitHub's sentence about that refusal, or `''`. */
+	readonly errorDescription: string;
 };
 
 /** A token the broker handed back, with everything needed to know when it stops working. */
@@ -71,6 +78,21 @@ export class GitHubSignInError extends Error {
 	constructor(message: string) {
 		super(message);
 		this.name = 'GitHubSignInError';
+	}
+}
+
+/**
+ * A callback that was not this tab's: a `state` that does not match, or none at all.
+ *
+ * Its own type because the caller does more than show the sentence — a callback this tab really did
+ * ask for may put the tab back where the scholar left it, and one it did not must not be able to
+ * steer it anywhere. Every other refusal, including GitHub's own and a broker that is down, is an
+ * ordinary {@link GitHubSignInError}.
+ */
+export class GitHubCallbackRefusedError extends GitHubSignInError {
+	constructor(message: string) {
+		super(message);
+		this.name = 'GitHubCallbackRefusedError';
 	}
 }
 
@@ -112,8 +134,51 @@ export function authorizeUrl(options: {
 export function readSignInCallback(parameters: URLSearchParams): SignInCallback | null {
 	const code = parameters.get('code');
 	const state = parameters.get('state');
-	if (code === null && state === null) return null;
-	return { code: code ?? '', state: state ?? '' };
+	// ⚠ **`error` is a callback too.** A scholar who presses Cancel on GitHub's screen is sent back
+	// with `error=access_denied` and the real `state`, and no `code` at all. Read as a code-and-state
+	// pair alone that is an empty code with a state that verifies — so the empty string went to the
+	// broker and the person who chose not to authorise was told their code was "incorrect or expired".
+	const error = parameters.get('error');
+	const description = parameters.get('error_description');
+	if (code === null && state === null && error === null) return null;
+	return {
+		code: code ?? '',
+		state: state ?? '',
+		error: error ?? '',
+		errorDescription: description ?? ''
+	};
+}
+
+/**
+ * Why this callback cannot be exchanged at all, or `''` when it can — **read after the `state`**.
+ *
+ * The `state` is judged first because it is the only question about whether this reply is ours;
+ * everything here is about what the reply *says*, and a forged one may say anything.
+ */
+export function describeCallbackRefusal(callback: SignInCallback): string {
+	if (callback.error === 'access_denied') {
+		return (
+			`GitHub was not given permission, so nothing has been signed in to. That is what pressing ` +
+			`Cancel on GitHub's screen does, and it is a complete answer — nothing is wrong with your ` +
+			`account and nothing on this computer has changed. Press “Sign in with GitHub” if you meant ` +
+			`to authorise it, or paste a personal access token instead.`
+		);
+	}
+	if (callback.error !== '') {
+		const detail = callback.errorDescription || callback.error;
+		return (
+			`GitHub would not authorise this application, so nothing has been signed in to: ${detail}. ` +
+			`Nothing on this computer has changed, and you can publish by pasting a personal access ` +
+			`token instead.`
+		);
+	}
+	if (callback.code === '') {
+		return (
+			`The reply from GitHub carried no authorisation in it, so nothing has been signed in to and ` +
+			`nothing on this computer has changed. Press “Sign in with GitHub” to start again.`
+		);
+	}
+	return '';
 }
 
 /**
