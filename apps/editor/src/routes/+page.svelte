@@ -2,8 +2,15 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { GitHubCallbackRefusedError, readSignInCallback } from '@ballastella/core';
+	import {
+		GitHubCallbackRefusedError,
+		readReturnLink,
+		readSignInCallback,
+		withoutReturnLink,
+		type ReturnLink
+	} from '@ballastella/core';
 	import ProjectHub from '$lib/components/ProjectHub.svelte';
+	import ReturnLinkOffer from '$lib/components/ReturnLinkOffer.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import ProjectScreen from '$lib/project/ProjectScreen.svelte';
 	import { useWorkspaceHost, type WorkspaceStorage } from '$lib/workspace-storage.svelte.js';
@@ -110,6 +117,38 @@
 		}
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// A PUBLISHED SITE'S FRONT PAGE LEADS BACK HERE (ticket 09, SPEC stories 49–51)
+	//
+	// `?clone=owner/repo` and `?review=owner/repo&p=<directory>`, landing on the same one route the
+	// sign-in callback and `?p=` already arrive on, for the same reason: this app has one page.
+	//
+	// ⚠ **Read inside an effect, which is the prerender guard**, exactly as the callback above is and
+	// as `pageTitle` below explains. An effect never runs on the server.
+	//
+	// ⚠ **Nothing happens until a press.** The parameter raises an *offer*; `ReturnLinkOffer` carries
+	// the argument for why. A link that acted on arrival would let anyone rearrange a stranger's
+	// editor.
+	//
+	// **`?p=` keeps its meaning and wins for display.** The review link spells its Project in the
+	// parameter that already addresses one (ADR-0008), so the editor shows whatever `?p=` names —
+	// before the Review, a Project this computer has not got — with the offer rendered above it. The
+	// same address becomes the reviewed Project the moment the review copy exists.
+
+	/** The offer a link raised, or `null`. Survives the operation so its outcome does. */
+	let returnLink = $state<ReturnLink | null>(null);
+
+	$effect(() => {
+		if (!storage) return;
+		const link = readReturnLink(page.url.searchParams);
+		if (link === null) return;
+		returnLink = link;
+		// ⚠ **Stripped as the offer is raised, not after it is answered.** A parameter left in the bar
+		// is one a reload replays and a bookmark preserves — so somebody who followed a link once, said
+		// no, and came back to the tab later would be asked again by their own history.
+		void strip(withoutReturnLink(page.url.searchParams));
+	});
+
 	/**
 	 * Replace the address with this app's own root and the given query string.
 	 *
@@ -178,6 +217,20 @@
 	<div role="alert" class="m-4 alert flex-col items-start alert-warning">
 		<p data-testid="sign-in-problem">{signInProblem}</p>
 	</div>
+{/if}
+
+<!--
+	The offer a Published Site's link raised, above every branch below for the sign-in outcome's
+	reason: the link can land on the hub or on a Project, and it says the same thing either way.
+-->
+{#if returnLink && storage}
+	<ReturnLinkOffer
+		{storage}
+		link={returnLink}
+		ondismiss={() => {
+			returnLink = null;
+		}}
+	/>
 {/if}
 
 {#if host.unsupported}

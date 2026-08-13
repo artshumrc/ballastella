@@ -304,6 +304,23 @@ test.describe('publishing a Workspace', () => {
 		return { root, subpath };
 	}
 
+	/**
+	 * **One expected 404 on every site this spec publishes, and it is named rather than filtered out
+	 * of the way** — the same discipline as the referenced Historical Map's `info.json` below.
+	 *
+	 * Since ticket 09 the site record says which editor instance published it, and the Front Page's
+	 * link back to that instance needs a repository to name. The only place a published tree carries
+	 * one is `remote.json`, the Remote binding, which is inside the tree deliberately (ADR-0032) — so
+	 * the viewer asks for it and reads the answer off the status, exactly as it does for a Historical
+	 * Map's `info.json`. Every Workspace this spec publishes is **unbound**, which is what a publish
+	 * into a folder is, so there is no binding to find and the Front Page carries no link. Every
+	 * *other* failed request is still fatal here.
+	 */
+	const unboundBinding = (site: StaticSite) => ({
+		path: `${site.prefix}/remote.json`,
+		status: 404
+	});
+
 	test('serves a working site from a domain root and from a subdirectory, from one build', async ({
 		page
 	}) => {
@@ -347,10 +364,10 @@ test.describe('publishing a Workspace', () => {
 				page.getByTestId('base-map-switcher').locator('option[value="physical"]')
 			).toHaveText('Physical geography — needs network');
 
-			// Nothing 404'd. This is the assertion that fails when an asset is referenced as `/_app/…`:
-			// it is answered at a domain root and is outside the published folder in a subdirectory,
-			// which is the GitHub Pages case ADR-0006 exists for.
-			expect(site.failures).toEqual([]);
+			// Nothing 404'd but the one named below. This is the assertion that fails when an asset is
+			// referenced as `/_app/…`: it is answered at a domain root and is outside the published
+			// folder in a subdirectory, which is the GitHub Pages case ADR-0006 exists for.
+			expect(site.failures).toEqual([unboundBinding(site)]);
 			expect(failures).toEqual([]);
 			// Every request stayed inside the published folder, so nothing reached for the host's root —
 			// the stronger form of the same claim, since a host answering `/favicon.ico` with a page
@@ -659,11 +676,16 @@ test.describe('publishing a Workspace', () => {
 		await page.goto(`${root.url}?p=amsterdam-1625`);
 
 		await expect(page.getByTestId('project-needs-network')).toContainText('Blaeu’s plan');
-		// **One expected 404, and it is named rather than filtered out of the way.** A published site has no
-		// directory listing, so the viewer asks whether a Historical Map has an `info.json` of its own and
-		// reads the answer off the status (ADR-0023) — a referenced map has none, and that is how the site
-		// learns its tiles are on a Library's server. Every *other* failed request is still fatal here.
-		expect(root.failures).toEqual([{ path: `/images/${'aaa'}/info.json`, status: 404 }]);
+		// **Two expected 404s, and they are named rather than filtered out of the way.** A published site
+		// has no directory listing, so the viewer asks whether a Historical Map has an `info.json` of its
+		// own and reads the answer off the status (ADR-0023) — a referenced map has none, and that is how
+		// the site learns its tiles are on a Library's server. The second is `unboundBinding` above.
+		// Every *other* failed request is still fatal here.
+		// Order-independent: the two come from effects that run concurrently, so which lands first is
+		// not a claim this test has any business making.
+		expect(root.failures).toHaveLength(2);
+		expect(root.failures).toContainEqual(unboundBinding(root));
+		expect(root.failures).toContainEqual({ path: `/images/${'aaa'}/info.json`, status: 404 });
 	});
 
 	test('names the hosting limit when the Workspace is about to cross it', async ({ page }) => {
@@ -746,7 +768,7 @@ test.describe('publishing a Workspace', () => {
 
 		await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
 		await expect(page.getByTestId('published-projects')).toContainText('Boston 1775');
-		expect(subpath.failures).toEqual([]);
+		expect(subpath.failures).toEqual([unboundBinding(subpath)]);
 	});
 
 	test('refreshes a version stamp that has gone stale, and says so before it is refreshed', async ({

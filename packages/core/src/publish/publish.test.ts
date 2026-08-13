@@ -323,13 +323,16 @@ describe('publishing', () => {
 		await store.write('images/x/0,0,256,256/256,256/0/default.jpg', encode('a tile'));
 	});
 
-	const publish = async (options: { includeBaseMap?: boolean; at?: string } = {}) =>
+	const publish = async (
+		options: { includeBaseMap?: boolean; at?: string; editorUrl?: string } = {}
+	) =>
 		publishSite({
 			store,
 			plan: await planPublish(store, {
 				bundle,
 				projects: await workspace.listProjects(),
-				includeBaseMap: options.includeBaseMap ?? false
+				includeBaseMap: options.includeBaseMap ?? false,
+				...(options.editorUrl === undefined ? {} : { editorUrl: options.editorUrl })
 			}),
 			readAsset: asset,
 			now: () => new Date(options.at ?? '2026-02-03T04:05:06.000Z')
@@ -492,6 +495,25 @@ describe('publishing', () => {
 			['amsterdam-1625', true],
 			['boston-1775', false]
 		]);
+	});
+
+	// SPEC story 55: the site says which instance published it, which is what lets its Front Page carry
+	// a link back to an editor that can clone it (story 51).
+	it('records the editor instance that published the site', async () => {
+		const site = await publish({ editorUrl: 'https://maps.example.edu/ballastella/' });
+
+		expect(parsePublishedSite(await store.read('ballastella-site.json'))).toEqual(site);
+		expect(site.editorUrl).toBe('https://maps.example.edu/ballastella/');
+	});
+
+	// A publish that was not told an address says nothing rather than guessing at one: a Front Page with
+	// no link is the degradation the return links are designed for, and a canonical deployment invented
+	// here would send a Reader to somebody else's instance.
+	it('says nothing about the instance when publishing was not told one', async () => {
+		const site = await publish();
+
+		expect(parsePublishedSite(await store.read('ballastella-site.json'))).toEqual(site);
+		expect(site.editorUrl).toBe('');
 	});
 
 	it('writes the site record last, so an interrupted publish leaves a site that works', async () => {
@@ -805,6 +827,7 @@ describe('telling the author a Published Site is behind', () => {
 		formatVersion: 1,
 		viewerVersion: 'v1',
 		publishedAt: '2026-01-01T00:00:00.000Z',
+		editorUrl: '',
 		projects: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: true }],
 		baseMap: FORKED_CATALOG,
 		baseMapBundled: false,
@@ -1148,6 +1171,47 @@ describe('the site record a Reader’s page is drawn from', () => {
 		);
 
 		expect(record.projects.map((project) => project.onFrontPage)).toEqual([true]);
+	});
+
+	/**
+	 * A record published before the field existed says nothing about an instance, and a Front Page
+	 * that met one has to render no link rather than a broken one.
+	 */
+	it('reads no instance address out of a record written before there was one', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode('{"projects":[{"directory":"a","name":"A"}]}')
+		);
+
+		expect(record.editorUrl).toBe('');
+	});
+
+	it('gives the instance address the trailing slash a query string is appended to', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode('{"projects":[],"editorUrl":"https://maps.example.edu/ballastella"}')
+		);
+
+		expect(record.editorUrl).toBe('https://maps.example.edu/ballastella/');
+	});
+
+	/**
+	 * ⚠ **The address goes into an `href` on the site's own origin.** The record is ordinarily written
+	 * by the editor, but `parsePublishedSite` is the tolerant reader for files nobody here wrote — a
+	 * hand-edited record, or one served by whoever controls the host — and a `javascript:` address
+	 * rendered as a link is script execution on the author's domain (ADR-0009). Refused here rather
+	 * than at the one place that renders it, so the field is safe by construction wherever it is used,
+	 * which is `parseRemoteBinding`'s reasoning about the same class of input.
+	 */
+	it.each([
+		['javascript:alert(1)'],
+		['data:text/html,<script>alert(1)</script>'],
+		['/ballastella/'],
+		['not a url at all']
+	])('reads no instance address out of %s, which is not a web address', (given) => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(JSON.stringify({ projects: [], editorUrl: given }))
+		);
+
+		expect(record.editorUrl).toBe('');
 	});
 
 	it('drops a Project entry with no folder, which is the one field ?p= needs', () => {

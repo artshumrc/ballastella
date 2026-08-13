@@ -411,6 +411,92 @@ test.describe('what a Clone never does', () => {
 	});
 });
 
+/**
+ * A Reader who followed "Open this Workspace in Ballastella" off a Published Site's Front Page
+ * (ticket 09; SPEC stories 49 and 51).
+ *
+ * ⚠ **The offer is the behaviour under test, not the Clone.** A URL is a thing anyone can send, and
+ * one that silently created a Workspace and switched to it would let a link rearrange a stranger's
+ * editor — so what is asserted here is that landing changes nothing at all, that a press is what
+ * runs ticket 07's Clone, and that the parameter does not survive to be replayed by a reload.
+ *
+ * The *link* — its wording, its address, and both base paths it has to work at — is the viewer's
+ * half, asserted in `viewer-reader.e2e.ts` against a real Published Site.
+ */
+test.describe('arriving on a link from a Published Site', () => {
+	const offer = (page: Page) => page.getByTestId('return-link-offer');
+	const accept = (page: Page) => page.getByTestId('accept-return-link');
+
+	test('offers a Clone, and has done nothing until it is confirmed', async ({ page }) => {
+		await start(page);
+
+		await page.goto(`${HUB}?clone=${REMOTE}`);
+
+		await expect(offer(page)).toContainText(REMOTE);
+		await expect(accept(page)).toBeVisible();
+		// Nothing is running, and nothing has arrived: the visitor is in the Workspace they already
+		// had, and it is the only one.
+		await expect(page.getByTestId('return-link-progress')).toHaveCount(0);
+		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+	});
+
+	test('confirming runs the Clone, and switches to what it made', async ({ page }) => {
+		await start(page);
+		await page.goto(`${HUB}?clone=${REMOTE}`);
+
+		await accept(page).click();
+
+		await expect(page.getByTestId('return-link-outcome')).toContainText(`Cloned ${REMOTE}`);
+		await expectWorkspaceNamed(page, 'atlas');
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE, 'atlas']);
+		// The same Workspace the dialog's Clone produces, asserted on what arrived rather than on the
+		// sentence: the owned namespace plus the binding the Clone wrote for itself.
+		const stored = await everyByteOf(page, 'atlas');
+		expect(Object.keys(stored).sort()).toEqual([...DOWNLOADED, 'remote.json'].sort());
+	});
+
+	test('takes the parameter off the address, so a reload does not offer again', async ({
+		page
+	}) => {
+		await start(page);
+
+		await page.goto(`${HUB}?clone=${REMOTE}`);
+		await expect(offer(page)).toBeVisible();
+
+		expect(new URL(page.url()).searchParams.get('clone')).toBeNull();
+		await page.reload();
+		await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
+		await expect(offer(page)).toHaveCount(0);
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+	});
+
+	test('can be turned down, and turning it down downloads nothing', async ({ page }) => {
+		await start(page);
+		await page.goto(`${HUB}?clone=${REMOTE}`);
+
+		await page.getByTestId('dismiss-return-link').click();
+
+		await expect(offer(page)).toHaveCount(0);
+		await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+	});
+
+	// ⚠ Both halves of the reference are interpolated into a GitHub API path, and `ada/../../orgs`
+	// retargets every request the engine makes. A link nobody in this repository wrote offers nothing
+	// at all rather than being repaired into something.
+	test('offers nothing for a link that does not name a repository', async ({ page }) => {
+		await start(page);
+
+		for (const reference of ['ada', 'ada/../../orgs', 'ada atlas']) {
+			await page.goto(`${HUB}?clone=${encodeURIComponent(reference)}`);
+			await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
+			await expect(offer(page)).toHaveCount(0);
+		}
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+	});
+});
+
 test.describe('refusals, all before a byte is written', () => {
 	test('a truncated file list, with no Workspace made at all', async ({ page }) => {
 		// ⚠ A truncated listing answers **200**, so nothing throws anywhere. Proceeding would hand the
