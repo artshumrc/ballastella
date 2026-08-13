@@ -83,7 +83,7 @@ const stackOrder = async (page: Page): Promise<string[]> =>
 		)
 	).filter((id) => id.startsWith('ballastella-layer-'));
 
-const saved = (page: Page) => expect(page.getByRole('status')).toHaveText('Saved');
+const saved = (page: Page) => expect(page.getByRole('status')).toHaveText('Saved locally');
 
 /**
  * Hold up every read of a file called `name` by `ms`, widening a window the machine usually closes.

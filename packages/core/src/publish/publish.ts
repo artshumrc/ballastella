@@ -132,6 +132,22 @@ export type PublishedSite = {
 	 */
 	readonly baseMapAssetsBundled: boolean;
 	/**
+	 * Whether the **author asked** for the labels, whatever the deployment was able to write.
+	 *
+	 * ⚠ **{@link baseMapAssetsBundled} is not a record of the answer, and it was read as one.** It
+	 * says what was written, and this deployment writes `false` whenever it has no Base Map archive of
+	 * its own — see {@link planPublish} — so a site first published from such a deployment carries the
+	 * same `false` as one whose author deliberately left the labels out. The publish dialog offers the
+	 * last answer back rather than asking again, and with only the one field it cannot: the site comes
+	 * back unticked forever, on every deployment that *does* have the archive, with no place names on
+	 * its geography and nothing on screen to say why.
+	 *
+	 * So the answer is recorded beside what came of it. A record written before this field falls back
+	 * to that field, which is the old reading and the best available for a record that never carried
+	 * the answer at all.
+	 */
+	readonly baseMapAssetsRequested: boolean;
+	/**
 	 * Which archives this site carries cached tiles for, and how deep each goes. Empty for none.
 	 *
 	 * Carried on the record because a Reader's store is HTTP and **cannot list a directory**
@@ -261,6 +277,14 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 			typeof record.baseMapAssetsBundled === 'boolean'
 				? record.baseMapAssetsBundled
 				: record.baseMapBundled === true,
+		// A record written before the answer was kept says only what was written, which is what the
+		// dialog used to read it as. The same tolerance, for the same reason, as the field above.
+		baseMapAssetsRequested:
+			typeof record.baseMapAssetsRequested === 'boolean'
+				? record.baseMapAssetsRequested
+				: typeof record.baseMapAssetsBundled === 'boolean'
+					? record.baseMapAssetsBundled
+					: record.baseMapBundled === true,
 		baseMapCaches: parseBaseMapCaches(record.baseMapCaches, record.baseMapMaxZoom)
 	};
 }
@@ -363,6 +387,14 @@ export type PublishPlan = {
 	readonly baseMapBundled: boolean;
 	/** Whether glyphs and sprites are being written. The dialog's checkbox decides this one. */
 	readonly baseMapAssetsBundled: boolean;
+	/**
+	 * What the checkbox said, whether or not this deployment has anything to write for it.
+	 *
+	 * The two differ on a deployment with no Base Map archive, and telling them apart is the whole of
+	 * {@link PublishedSite.baseMapAssetsRequested} — the record has to carry the answer rather than
+	 * only what came of it.
+	 */
+	readonly baseMapAssetsRequested: boolean;
 	/** How many tiles every cache holds and what they weigh, for the sentence about the site. */
 	readonly baseMapTiles: BaseMapCacheSize;
 	/**
@@ -461,6 +493,7 @@ export async function planPublish(
 				catalog,
 				baseMapBundled: baseMapTiles.tiles > 0,
 				baseMapAssetsBundled: includeBaseMap,
+				baseMapAssetsRequested: includeBaseMap,
 				baseMapCaches: publishedCaches
 			})
 		).byteLength
@@ -515,6 +548,7 @@ export async function planPublish(
 		unusedHistoricalMaps,
 		baseMapBundled: baseMapTiles.tiles > 0,
 		baseMapAssetsBundled: includeBaseMap && baseMap.length > 0,
+		baseMapAssetsRequested: includeBaseMap,
 		baseMapTiles,
 		baseMapCaches: publishedCaches,
 		baseMap: catalog,
@@ -753,6 +787,7 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 		catalog: plan.baseMap,
 		baseMapBundled: plan.baseMapBundled,
 		baseMapAssetsBundled: plan.baseMapAssetsBundled,
+		baseMapAssetsRequested: plan.baseMapAssetsRequested,
 		baseMapCaches: plan.baseMapCaches
 	});
 	await store.write(PUBLISHED_SITE_RECORD_NAME, serialisePublishedSite(site));
@@ -819,6 +854,7 @@ const siteRecord = (fields: {
 	catalog: BaseMapCatalog;
 	baseMapBundled: boolean;
 	baseMapAssetsBundled: boolean;
+	baseMapAssetsRequested: boolean;
 	baseMapCaches: readonly PublishedBaseMapCache[];
 }): PublishedSite => ({
 	formatVersion: PUBLISHED_SITE_FORMAT_VERSION,
@@ -828,6 +864,7 @@ const siteRecord = (fields: {
 	baseMap: fields.catalog,
 	baseMapBundled: fields.baseMapBundled,
 	baseMapAssetsBundled: fields.baseMapAssetsBundled,
+	baseMapAssetsRequested: fields.baseMapAssetsRequested,
 	baseMapCaches: fields.baseMapCaches
 });
 

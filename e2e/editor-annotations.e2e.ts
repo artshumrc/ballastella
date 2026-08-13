@@ -234,7 +234,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// And the shape drawn next opens in an editor of its own, which is the panel that belongs there.
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(baseMap(page), 0.6, 0.6);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await expect(page.getByTestId('annotation-editor')).not.toContainText('The west quay');
 	});
 
@@ -328,7 +328,7 @@ test.describe('editing a vertex costs exactly one write, on gesture end (ADR-001
 			await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dx);
 		}
 		await page.mouse.up();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect(await annotationWrites(page)).toHaveLength(1);
 		const after = await storedAnnotations(page, layerId);
@@ -355,7 +355,7 @@ test.describe('editing a vertex costs exactly one write, on gesture end (ADR-001
 		await page.keyboard.down('ArrowRight');
 		for (let repeat = 0; repeat < 5; repeat += 1) await page.keyboard.down('ArrowRight');
 		await page.keyboard.up('ArrowRight');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect(await annotationWrites(page)).toHaveLength(1);
 		expect((await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates) //
@@ -379,7 +379,7 @@ test.describe('editing a vertex costs exactly one write, on gesture end (ADR-001
 
 		await handles.first().focus();
 		await page.keyboard.press('Shift+ArrowRight');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const ring = (await storedAnnotations(page, layerId)).features[0]?.geometry
 			?.coordinates as number[][][];
@@ -406,7 +406,7 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await page.getByTestId('annotation-title').blur();
 		await page.getByTestId('annotation-description').fill('The *west* quay.');
 		await page.getByTestId('annotation-description').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// The three colours a drawn Annotation starts on are alongside the text, which is the point of
 		// asserting the whole object: prose and style share one `properties` bag, and a title that landed
@@ -471,7 +471,7 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await page.keyboard.type('The old mill', { delay: 40 });
 		await page.getByTestId('annotation-description').click();
 		await page.keyboard.type('Built 1780.', { delay: 40 });
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect(await builds()).toBe(before);
 		// And the words did land, so this is not passing by having typed into nothing.
@@ -488,7 +488,7 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		const before = await builds();
 
 		await chooseColour(page, 'annotation-marker-color', 'purple');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect(await builds()).toBe(before);
 	});
@@ -545,7 +545,7 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-description').fill('The *west* quay.');
 		await page.getByTestId('annotation-description').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// Clicking the Annotation on the map is what a reader does, and it is the same popup. **With
 		// nothing selected**, which is the state a reader is in: a selected Annotation carries its
@@ -889,7 +889,7 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		const stroke = await chooseColour(page, 'annotation-stroke', 'red');
 		await page.getByTestId('annotation-stroke-width').fill('4');
 		await page.getByTestId('annotation-stroke-opacity').fill('0.5');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const properties = (await storedAnnotations(page, layerId)).features[0]!.properties;
 
@@ -913,7 +913,7 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 
 		const fill = await chooseColour(page, 'annotation-fill', 'blue');
 		await page.getByTestId('annotation-fill-opacity').fill('0.25');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const properties = (await storedAnnotations(page, layerId)).features[0]!.properties;
 		expect(properties['fill']).toBe(fill);
@@ -984,7 +984,7 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		// And the choice is said in words, which is the channel that survives a monochrome screen.
 		await chooseColour(page, 'annotation-marker-color', 'purple');
 		await expect(page.getByTestId('annotation-marker-color-chosen')).toHaveText('Purple');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 	});
 
 	test('a pin gets marker properties and no line or fill controls', async ({ page }) => {
@@ -1002,7 +1002,7 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		await expect(page.getByTestId('annotation-stroke')).toHaveCount(0);
 		await expect(page.getByTestId('annotation-stroke-width')).toHaveCount(0);
 		await page.getByTestId('annotation-marker-size-large').click();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const properties = (await storedAnnotations(page, layerId)).features[0]!.properties;
 		expect(properties['marker-color']).toBe(markerColor);
@@ -1054,7 +1054,7 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		await page.getByTestId('annotation-stroke-width').fill('3');
 		await page.getByTestId('annotation-stroke-opacity').fill('0.8');
 		await chooseLineStyle(page, 'dotted');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const stored = await storedAnnotations(page, layerId);
 
@@ -1100,12 +1100,12 @@ test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
 		});
 
 		await chooseLineStyle(page, 'dashed');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await storedAnnotations(page, layerId)).features[0]!.properties['stroke-dasharray']) //
 			.toEqual([8, 4]);
 
 		await chooseLineStyle(page, 'dotted');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await storedAnnotations(page, layerId)).features[0]!.properties['stroke-dasharray']) //
 			.toEqual([1, 3]);
 
@@ -1115,7 +1115,7 @@ test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
 
 		// And going back to solid *removes* the property rather than blanking it.
 		await chooseLineStyle(page, 'solid');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await storedAnnotations(page, layerId)).features[0]!.properties) //
 			.not.toHaveProperty('stroke-dasharray');
 	});
@@ -1232,7 +1232,7 @@ test.describe('style is on each Annotation (ADR-0009, as amended)', () => {
 
 		// And the field is still in `project.json`, untouched, after a session that opened and drew.
 		await drawPin(page, 0.5, 0.5);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const after = (await projectJson(page)).layers.find(
 			(one: { id: string }) => one.id === layerId
 		);
@@ -1253,14 +1253,14 @@ test.describe('style is on each Annotation (ADR-0009, as amended)', () => {
 		await selectAnnotation(page);
 		const stroke = await chooseColour(page, 'annotation-stroke', 'green');
 		await chooseLineStyle(page, 'dashed');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// A second line, drawn after that choice.
 		await drawShape(page, 'line', [
 			[0.3, 0.6],
 			[0.7, 0.65]
 		]);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const stored = await storedAnnotations(page, layerId);
 		expect(stored.features).toHaveLength(2);
@@ -1335,7 +1335,7 @@ test.describe('deleting an Annotation (SPEC story 66)', () => {
 		const before = (await storedAnnotations(page, layerId)).features.map((one) => one.id);
 		await selectAnnotation(page, 1);
 		await page.getByTestId('annotation-delete').click();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const after = (await storedAnnotations(page, layerId)).features.map((one) => one.id);
 		expect(after).toEqual([before[0], before[2]]);
@@ -1361,7 +1361,7 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('Warehouses');
 		await page.getByTestId('annotation-title').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const before = await hashesUnder(page, 'annotations/');
 		expect(before).toHaveLength(1);
@@ -1383,7 +1383,7 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		await page.getByTestId('layer-rename').click();
 		await page.getByTestId('layer-name').fill('Trade routes');
 		await page.getByTestId('layer-name').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect(await hashesUnder(page, 'annotations/')).toEqual(before);
 		expect(await annotationWrites(page)).toEqual([]);
@@ -1411,10 +1411,10 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('A');
 		await page.getByTestId('annotation-title').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await page.getByTestId('annotation-title').fill('');
 		await page.getByTestId('annotation-title').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// Back to exactly what it was: a title typed and cleared leaves no empty string behind.
 		expect(await readAnnotationText(page, layerId)).toBe(original);
@@ -1472,7 +1472,7 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		await page.keyboard.press('Enter');
 		await page.locator('canvas.maplibregl-canvas').focus();
 		await page.keyboard.press('Enter');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 
 		// And a line finished with Shift+Enter, which is the keyboard's double-click.
@@ -1485,7 +1485,7 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		await page.keyboard.press('ArrowRight');
 		await page.keyboard.press('Enter');
 		await page.keyboard.press('Shift+Enter');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const stored = await storedAnnotations(page, layerId);
 		expect(stored.features).toHaveLength(2);
 		expect(stored.features[1]?.geometry?.type).toBe('LineString');
@@ -1664,7 +1664,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		// give. It goes on top, so it is the one a restored fallback would choose.
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const topmost = (await projectJson(page)).layers.find(
 			(layer: { kind: string; id: string }) => layer.kind === 'annotation' && layer.id !== layerId
 		).id as string;
@@ -1698,7 +1698,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		await openLayerRow(page, rowFor(page, layerId));
 		await chooseTool(page, 'point');
 		await clickAt(baseMap(page), 0.45, 0.45);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 		expect((await storedAnnotations(page, topmost)).features).toHaveLength(0);
 
@@ -1728,7 +1728,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		// A second Layer to open. It goes on top, so `routes` moves down and stays open.
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const places = (await projectJson(page)).layers.find(
 			(layer: { kind: string; id: string }) => layer.kind === 'annotation' && layer.id !== routes
 		).id as string;
@@ -1786,13 +1786,13 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('Fort Amsterdam');
 		await page.getByTestId('annotation-title').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const pinId = (await storedAnnotations(page, routes)).features[0]!.id;
 
 		// A second Layer, opened, so the first is closed and its Annotation is not the selected one.
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const places = (await projectJson(page)).layers.find(
 			(layer: { kind: string; id: string }) => layer.kind === 'annotation' && layer.id !== routes
 		).id as string;
@@ -1871,7 +1871,7 @@ test.describe('placing a Pin at a Place', () => {
 	 * no Pin.
 	 *
 	 * ⚠ **Waited out on the file, not on the save indicator.** By the time a Layer is open the
-	 * indicator already reads `Saved`, so a `toHaveText('Saved')` here is satisfied by the write
+	 * indicator already reads `Saved`, so a `toHaveText('Saved locally')` here is satisfied by the write
 	 * *before* this one (`support/saved.ts` says so in as many words) and every caller would then read
 	 * the file too early. The Pin's title in that Layer's document is the placement itself arriving.
 	 */
@@ -2041,7 +2041,7 @@ test.describe('placing a Pin at a Place', () => {
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill(AMBIGUOUS_QUERY);
 		await page.getByTestId('annotation-title').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const drawn = await storedAnnotations(page, drawnLayer);
 		const at = drawn.features[0]?.geometry?.coordinates as [number, number];
@@ -2121,7 +2121,7 @@ test.describe('placing a Pin at a Place', () => {
 		expect(writes[0]?.bytes).toBe(new TextEncoder().encode(await layerText(page, layerId)).length);
 
 		// And still one once everything has settled: nothing was queued behind it.
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await page.waitForTimeout(1_000);
 		expect(await annotationWrites(page)).toHaveLength(1);
 	});
@@ -2138,7 +2138,7 @@ test.describe('placing a Pin at a Place', () => {
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
 		const blue = await chooseColour(page, 'annotation-marker-color', 'blue');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		await placeFrom(page, AMBIGUOUS_QUERY, HAMPDEN_NAME, layerId);
 
@@ -2206,7 +2206,7 @@ test.describe('placing a Pin at a Place', () => {
 
 		await startAlignment(page);
 		await makePairs(page, 3);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		await openLayers(page);
 		// The Historical Map is drawn over the Base Map. Read off the stack's own count, so a sheet that
@@ -2214,7 +2214,7 @@ test.describe('placing a Pin at a Place', () => {
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
 
 		await page.getByTestId('add-annotation-layer').click();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const layerId = await annotationLayerId(page);
 		await openLayerRow(page, page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`));
 		await waitForStack(page);
@@ -2273,7 +2273,7 @@ test.describe('placing a Pin at a Place', () => {
 			await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dx);
 		}
 		await page.mouse.up();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		// Polled on the **file**, because the save indicator was already reading `Saved` from the
 		// placement: a single read here would be satisfied by the bytes the drag was supposed to change.
 		await expect
@@ -2285,7 +2285,7 @@ test.describe('placing a Pin at a Place', () => {
 		// (SPEC story 11).
 		await handle.focus();
 		await page.keyboard.press('ArrowRight');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await expect
 			.poll(async () => (await storedAnnotations(page, layerId)).features[0]?.geometry?.coordinates)
 			.not.toEqual(dragged);

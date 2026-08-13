@@ -384,7 +384,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('community-offer')).toHaveCount(0);
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const imageId = generateId(service('images.test', 'florida'));
 		const alignment = (await readJson(page, '', `alignments/${imageId}.json`)) as {
@@ -463,7 +463,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const before = await readText(page, 'amsterdam-1625', 'project.json');
 		expect(JSON.parse(before).layers).toHaveLength(1);
@@ -475,7 +475,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await renaming.getByTestId('layer-rename').click();
 		await renaming.getByTestId('layer-name').fill('The Florida coast, as drawn in 1657');
 		await renaming.getByTestId('layer-name').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const renamed = await readText(page, 'amsterdam-1625', 'project.json');
 
 		// Back to the Project, and add the very same canvas again.
@@ -515,7 +515,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const imageId = generateId(service('images.test', 'florida'));
 
 		await page.goto('/?p=amsterdam-1625');
@@ -523,7 +523,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// Delete is inside the open card since the Layers revision.
 		await (await openLayerRow(page)).getByTestId('layer-delete').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect(
 			((await readJson(page, 'amsterdam-1625', 'project.json')) as { layers: unknown[] }).layers
 		).toEqual([]);
@@ -535,7 +535,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('remote-add')).toBeVisible();
 		await page.getByTestId('remote-add').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const back = (await readJson(page, 'amsterdam-1625', 'project.json')) as {
 			layers: { kind: string; imageId: string; name: string }[];
@@ -580,7 +580,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// Three Control Points, on disk, in the Workspace — the afternoon the guard exists to protect.
 		const aligned = await readText(page, '', `alignments/${imageId}.json`);
@@ -591,7 +591,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		// Delete is inside the open card since the Layers revision.
 		await (await openLayerRow(page)).getByTestId('layer-delete').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(0);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		// Deleting a Layer never deletes a Historical Map or its Alignment (ADR-0023). Stated here
 		// because everything below is about what the *re-add* does to a file that is still there.
 		expect(await readText(page, '', `alignments/${imageId}.json`)).toBe(aligned);
@@ -608,7 +608,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('community-offer')).toHaveCount(0);
 		await page.getByTestId('remote-add').click();
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// A fixed wait, because the claim is about a write that must **not** happen: reading the moment
 		// the add returns would go green against an implementation whose starter was still in flight.
@@ -650,7 +650,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const alignedInAmsterdam = await readText(page, '', `alignments/${imageId}.json`);
 		expect(JSON.parse(alignedInAmsterdam).target.selector.value).toContain('10,10 690,10');
@@ -666,7 +666,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// The Layer was added — the map is in this Project's stack, drawing the Alignment that exists.
 		await expect(page.getByTestId('layer-row')).toHaveCount(1);
@@ -711,7 +711,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('community-offer')).toHaveCount(0);
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect(
 			((await readJson(page, '', `alignments/${imageId}.json`)) as { body: { features: [] } }).body
 				.features
@@ -726,7 +726,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await expect(page.getByTestId('community-offer')).toContainText('3 control points');
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// Imported, and nothing said: there was nothing to keep and nothing to explain.
 		await expect
@@ -772,7 +772,7 @@ test.describe('adding a Historical Map from a IIIF URL', () => {
 		await page.getByTestId('remote-canvas').nth(1).click();
 		await page.getByTestId('remote-add').click();
 		await expectReferencedMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// The state an earlier build left behind: a map Layer whose Alignment is not there.
 		await removeFile(page, '', `alignments/${imageId}.json`);
@@ -1012,7 +1012,7 @@ test.describe('a referenced Historical Map, drawn from the library that holds it
 			await expectReferencedMap(page);
 			// The record of where the tiles are has reached the Workspace before the pane is opened, so the
 			// `'load'` half is about the pane's own ordering rather than about a write that had not happened.
-			await expect(page.getByRole('status')).toHaveText('Saved');
+			await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 			const tileRequests: string[] = [];
 			page.on('request', (request) => {
@@ -1104,7 +1104,7 @@ test.describe('a referenced Historical Map, drawn from the library that holds it
 				)
 			);
 		}
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const broken = generateId(service('images.test', 'approaches'));
 		await writeFile(page, '', `images/${broken}/remote.json`, '{"label":"corrupt"}');

@@ -7,6 +7,7 @@ import type { Bytes } from '../store/project-store.js';
 import { createFakeGitHub, type FakeGitHub } from './fake-github.js';
 import {
 	MAX_PUBLISHED_FILES,
+	RemotePublishCredentialError,
 	RemotePublishFailedError,
 	RemotePublishRateLimitedError,
 	RemotePublishRefusedError,
@@ -165,6 +166,57 @@ describe('a second publish', () => {
 		expect(decode(github.files().get('images/blaeu/info.json') ?? EMPTY)).toBe(
 			'{"id":"https://unset.invalid/blaeu"}'
 		);
+	});
+
+	// ⚠ **The fact "nothing needed changing" is made of, and `onRemote` is not it.** `onRemote` asks
+	// whether the Remote holds a file's *bytes* anywhere at all, so a Workspace whose every file is
+	// `onRemote` may still be one a Project has been deleted from — the deletion is a path the Remote
+	// holds and the Workspace does not, and no file-by-file question can see it. A caller offering a
+	// scholar "nothing needed changing" and then not publishing has to be reading the whole tree.
+	describe('the plan’s account of whether anything would change', () => {
+		it('is unchanged when the Remote already holds exactly this Workspace', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+			await publish(store, github);
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch
+			});
+
+			expect([plan.unchanged, plan.uploads]).toEqual([true, 0]);
+		});
+
+		it('is changed when a Project has been deleted here, which no blob count can see', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+			await publish(store, github);
+			await store.delete('amsterdam-1625/project.json');
+			await store.delete('amsterdam-1625/annotations/notes.json');
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch
+			});
+
+			// Every remaining file's bytes are on the Remote, so the upload is empty and the tree is not.
+			expect([plan.unchanged, plan.uploads]).toEqual([false, 0]);
+		});
+
+		it('is changed for a first publish, where there is no tree to be the same as', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch
+			});
+
+			expect([plan.head, plan.unchanged]).toEqual([null, false]);
+		});
 	});
 
 	it('sends exactly one blob when one Annotation changed', async () => {
@@ -505,6 +557,113 @@ describe('the three budgets (ADR-0033)', () => {
 		expect([plan.requestsRemaining, plan.requestsResetAt, plan.warnings]).toEqual([null, null, []]);
 	});
 
+	/**
+	 * ⚠ **The forecast runs before the local publish writes, which is the whole of ticket 04's flow.**
+	 * The dialog shows these three numbers and *then* writes `index.html`, `_app/**`,
+	 * `ballastella-site.json` and — when the box is ticked — the Base Map's five megabytes into the
+	 * Workspace. Counted only off the store as it stands, all three understate a first publish: the
+	 * files line is short by the whole website, the byte line by its bytes, and the request warning by
+	 * its blobs, which is the one that decides whether a scholar is told to wait for the reset.
+	 */
+	describe('what the local publish is about to write', () => {
+		/** A Workspace with no website in it yet, which is what a first publish plans against. */
+		const beforeTheFirstPublish = () =>
+			seeded({
+				'amsterdam-1625/project.json': '{"formatVersion":1,"name":"Amsterdam"}',
+				'images/blaeu/info.json': '{"id":"https://unset.invalid/blaeu"}'
+			});
+
+		/** The viewer bundle and the Base Map's glyphs, as a local plan enumerates them. */
+		const website = [
+			{ path: 'index.html', bytes: 400 },
+			{ path: '_app/immutable/entry/start.AAAA.js', bytes: 2_000 },
+			{ path: 'ballastella-site.json', bytes: 300 },
+			{ path: 'base-map/fonts/Noto/0-255.pbf', bytes: 5_000_000 }
+		];
+
+		it('counts into the files, the bytes and the blobs it will need', async () => {
+			const store = await beforeTheFirstPublish();
+			const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+
+			const bare = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch
+			});
+			const whole = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				pending: website
+			});
+
+			// Three files: the two the Workspace holds and the `.nojekyll` a publish authors.
+			expect([bare.pending.length, bare.uploads, whole.uploads]).toEqual([0, 3, 7]);
+			expect(whole.bytes - bare.bytes).toBe(5_002_700);
+			expect(whole.uploadBytes - bare.uploadBytes).toBe(5_002_700);
+			expect(whole.pending.map((file) => file.path)).toEqual(website.map((file) => file.path));
+		});
+
+		it('warns about the hour’s budget on a count the website is in', async () => {
+			const store = await beforeTheFirstPublish();
+			const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+			// Room for the three files the Workspace holds, the tree, the commit and the ref move — and
+			// none for the website. Uncounted, this publish is forecast to fit and stops part way.
+			github.rateLimit = { remaining: 8, reset: 1_800_000_000 };
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				pending: website
+			});
+
+			expect(plan.warnings.map((warning) => warning.kind)).toEqual(['request-budget']);
+			expect(plan.warnings[0]?.message).toContain('7 new files');
+			expect(plan.warnings[0]?.message).toContain('10 requests in all');
+		});
+
+		it('is not "nothing needs changing" when a website is about to arrive', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+			await publish(store, github);
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				pending: [...website]
+			});
+
+			expect([plan.unchanged, plan.pending.map((file) => file.path)]).toEqual([
+				false,
+				['base-map/fonts/Noto/0-255.pbf']
+			]);
+		});
+
+		// A second publish rewrites the whole viewer over the copy already in the Workspace, so the
+		// same list arrives held and adds nothing at all: "nothing needed changing" has to survive it.
+		it('ignores what the Workspace already holds', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+			await publish(store, github);
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				// `.nojekyll` among them: a publish authors it, and the local plan lists it too.
+				pending: [
+					{ path: 'index.html', bytes: 400 },
+					{ path: '.nojekyll', bytes: 0 },
+					{ path: '_app/immutable/entry/start.AAAA.js', bytes: 2_000 }
+				]
+			});
+
+			expect([plan.pending, plan.unchanged, plan.uploads]).toEqual([[], true, 0]);
+		});
+	});
+
 	it('says nothing about any of the three when a small Workspace has room', async () => {
 		const store = await smallWorkspace();
 		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
@@ -600,6 +759,31 @@ describe('a budget spent part way through', () => {
 		expect(raised.message).toContain('All 9 files had been sent');
 		expect(raised.message).toContain('building the tree');
 		expect([github.head(), [...github.files().keys()]]).toEqual([before, ['README.md']]);
+	});
+
+	it('tells a credential GitHub will not look at apart from a repository it will not write', async () => {
+		// ⚠ The stale-sign-in question ticket 03 recorded and ticket 04 settled. Rights are read at a
+		// bind and at a paste and at no other moment, so a token that has since expired still reads
+		// "Signed in to GitHub" — and collapsed into the general refusal it reaches the scholar as
+		// "GitHub refused this publish: Bad credentials", sending them to check a repository that is
+		// fine. The remedy is a sign-in, and the sentence has to say so.
+		const store = await smallWorkspace();
+		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+		github.rejectCredential = true;
+
+		const raised = await planRemotePublish(store, {
+			token: TOKEN,
+			remote: REMOTE,
+			fetch: github.fetch
+		}).catch((cause: unknown) => cause);
+
+		expect(raised).toBeInstanceOf(RemotePublishCredentialError);
+		expect((raised as Error).message).toContain('sign-in has expired');
+		expect((raised as Error).message).toContain('ada/atlas');
+		// It arrives before a byte is sent, because a publish asks GitHub a credentialed question
+		// before it uploads anything — which is what makes "leave the label, let the refusal carry it"
+		// a safe answer for a Workspace of four thousand tiles.
+		expect(github.blobPosts).toBe(0);
 	});
 
 	it('reports a 403 with no budget header as a refusal, not as a wait for the reset', async () => {

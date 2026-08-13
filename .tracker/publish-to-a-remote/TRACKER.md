@@ -48,6 +48,28 @@ honest fix within its scope. The underlying capability is still absent. Three wa
 
 Nothing downstream is blocked on this: tickets 03–11 are unaffected either way.
 
+## Open question for a human: an interrupted Clone cannot be resumed from the app
+
+Raised by ticket 07's review. The engine resumes correctly and is tested doing so; the **application** cannot
+reach that capability, because `cloneFrom` always calls `createOpfsWorkspace`. Retrying an interrupted Clone
+therefore produces `atlas (2)` and downloads everything again, while `atlas` sits abandoned holding whatever
+it had fetched. Repeated interruptions accumulate orphan Workspaces, and each retry's quota check is made
+against a quota the previous partials are already consuming.
+
+Ticket 07's criterion 6 is satisfied as written — it asks that a resumed Clone skip files already present and
+asserts the fake's request counter, which the engine does at seam 1 with a hand-built destination. Building a
+resume flow in the interface is new scope, so it was not done.
+
+**The destructive half of this is closed**, and deliberately: a Clone writes `remote.json` last, so an
+interrupted Clone leaves the Workspace *unbound* and Publish has no target. Ticket 07's remediation turned
+that accident into a tested invariant. Ticket 05's bind-time subset refusal (story 23) closes the remaining
+manual route, where a scholar binds a partial Workspace by hand. What is left after both is untidiness and
+wasted quota, not data loss.
+
+Two ways out, neither chosen: offer to continue into the existing partial Workspace when one exists for that
+Remote (which needs a way to mark a Workspace incomplete), or discard a partial Workspace on failure and give
+up resume entirely, which contradicts story 46.
+
 ## Sequencing, and why it is risk-ordered
 
 The order below is not dependency order alone. **Everything is buildable and testable against a pasted
@@ -76,7 +98,7 @@ docs, and nothing else.
 | 01 | [01-a-fake-github-and-blob-shas-that-agree-with-git.md](./tickets/01-a-fake-github-and-blob-shas-that-agree-with-git.md) | Completed | — |
 | 02 | [02-a-workspace-becomes-a-commit.md](./tickets/02-a-workspace-becomes-a-commit.md) | Completed | 01 |
 | 03 | [03-a-workspace-is-bound-to-a-remote.md](./tickets/03-a-workspace-is-bound-to-a-remote.md) | Completed | 02 |
-| 04 | [04-publish-from-the-navigation-bar.md](./tickets/04-publish-from-the-navigation-bar.md) | Not Started | 03 |
+| 04 | [04-publish-from-the-navigation-bar.md](./tickets/04-publish-from-the-navigation-bar.md) | Completed | 03 |
 | 05 | [05-a-publish-refuses-to-overwrite-another-machine.md](./tickets/05-a-publish-refuses-to-overwrite-another-machine.md) | Not Started | 04 |
 | 06 | [06-a-project-chooses-whether-it-is-on-the-front-page.md](./tickets/06-a-project-chooses-whether-it-is-on-the-front-page.md) | Completed | 02 |
 | 07 | [07-clone-a-workspace-from-a-remote.md](./tickets/07-clone-a-workspace-from-a-remote.md) | Not Started | 03 |

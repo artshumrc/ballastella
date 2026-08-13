@@ -20,8 +20,16 @@
 	 */
 	const MINIMUM_SAVING_MS = 400;
 
+	/**
+	 * ⚠ **"Saved locally", not "Saved"** (ADR-0032, SPEC story 2). Since publishing means *send this
+	 * Workspace to its Remote*, the bare word conflated the two facts a scholar most needs kept apart:
+	 * their edit is safe on this machine the moment they make it, and it is on the web only when they
+	 * press Publish. The word is next to that button, so it has to say which of the two it means.
+	 *
+	 * The other two are unchanged: there is nowhere else for an unsaved edit to be.
+	 */
 	const LABELS: Record<SaveState, string> = {
-		saved: 'Saved',
+		saved: 'Saved locally',
 		saving: 'Saving…',
 		unsaved: 'Unsaved changes'
 	};

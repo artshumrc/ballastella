@@ -102,3 +102,31 @@ presentation is the e2e half. Success: both pass.
 ## Blocked by
 
 - Ticket 04
+
+---
+
+## ⚠ Carried over from ticket 07's review — read before implementing the manifest
+
+Two things the review of the Clone (ticket 07) established that this ticket has to act on. Ticket 07's
+remediation deliberately did **not** build either: both are this ticket's, and both are load-bearing.
+
+**(a) The publish manifest must be built from what was actually written, never from the listed tree.**
+SPEC says the manifest records the Remote "as of the last successful Publish **or Clone**", and the Clone
+as shipped writes no manifest at all — so that half is unimplemented and belongs here. When it is
+implemented, the record must be the set of paths the Clone *wrote*, not the set the tree *listed*. A Clone
+can stop part way (a raw-host 404, a closed laptop), and a manifest claiming the whole tree would make this
+ticket's conflict check bless the deletion of every un-fetched path as a legitimate removal — a partial
+download silently authorising the deletion of most of somebody's site.
+
+**(b) The bind-time subset refusal has to catch a partly-cloned Workspace, not only a second machine's.**
+`bindWorkspaceToRemote` reads no site record at all today, so binding a partial clone succeeds, and one
+publish from it deletes every owned-namespace path the Clone had not yet fetched. The criterion above —
+"binding to a Remote whose `ballastella-site.json` lists a Project this Workspace lacks is refused" — is
+the same check, and it is what finally closes the manual-bind route into this hazard (ADR-0033, story 23).
+
+Ticket 07 closed the destructive path from its own side: an interrupted Clone now leaves the Workspace
+**unbound**, asserted by a test, and the binding is written last for exactly this reason. What remains is
+the manual bind and the manifest, which are both here. A related item is recorded for a human decision
+rather than built: `cloneFrom` always creates a new Workspace, so an interrupted Clone cannot be resumed
+from the app and its partial Workspace is orphaned. That is untidiness rather than data loss once (a) and
+(b) land.

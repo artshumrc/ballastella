@@ -265,7 +265,7 @@ export async function startAnnotating(page: Page): Promise<string> {
 	await openLayers(page);
 	await page.getByTestId('add-annotation-layer').click();
 	await expect(page.getByTestId('layer-row')).toHaveCount(1);
-	await expect(page.getByRole('status')).toHaveText('Saved');
+	await expect(page.getByRole('status')).toHaveText('Saved locally');
 	await openLayerRow(page);
 	await waitForStack(page);
 	await centreOnAmsterdam(page);
@@ -493,7 +493,7 @@ export async function chooseColour(
 export async function drawPin(page: Page, fx: number, fy: number): Promise<void> {
 	await chooseTool(page, 'point');
 	await clickAt(baseMap(page), fx, fy);
-	await expect(page.getByRole('status')).toHaveText('Saved');
+	await expect(page.getByRole('status')).toHaveText('Saved locally');
 }
 
 /** Draw a line or a shape through the given fractions, finishing with the Finish button. */
@@ -506,7 +506,7 @@ export async function drawShape(
 	for (const [fx, fy] of points) await clickAt(baseMap(page), fx, fy);
 	await expect(page.getByTestId('annotation-finish')).toBeEnabled();
 	await page.getByTestId('annotation-finish').click();
-	await expect(page.getByRole('status')).toHaveText('Saved');
+	await expect(page.getByRole('status')).toHaveText('Saved locally');
 }
 
 /**

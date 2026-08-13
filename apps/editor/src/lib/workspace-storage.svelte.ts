@@ -24,6 +24,7 @@ import {
 	browserJournalStorage,
 	discardDeletions,
 	discardJournal,
+	discardPublishManifest,
 	journalledWorkspaces,
 	workspacesWithDeletions,
 	bindWorkspaceToRemote,
@@ -383,8 +384,8 @@ export class WorkspaceStorage {
 			this.unprotected =
 				`This browser is not letting Ballastella keep a copy of an edit while it is being ` +
 				`saved, so an edit made in the last moment before you close this tab may not be kept. ` +
-				`Wait for the indicator to read “Saved” before you leave. Allowing site data for this ` +
-				`page — usually blocked in a private window — turns the protection back on.`;
+				`Wait for the indicator to read “Saved locally” before you leave. Allowing site data for ` +
+				`this page — usually blocked in a private window — turns the protection back on.`;
 		}
 		// The Workspace the session was already built for, made real: the store creates its directory at
 		// the first write, so without this a Workspace nobody has typed into yet is missing from its own
@@ -685,6 +686,11 @@ export class WorkspaceStorage {
 		if (this.#journalStorage) {
 			discardJournal(this.#journalStorage, opfsWorkspaceKey(name));
 			discardDeletions(this.#journalStorage, opfsWorkspaceKey(name));
+			// **And what this machine last saw on that Workspace's Remote** (ticket 04, ADR-0033). The
+			// same key shape and the same reuse hazard: left behind, it is this browser's claim about a
+			// repository, standing ready for whichever repository a Workspace made under that name next
+			// is bound to — and ticket 05 judges a publish by it.
+			discardPublishManifest(this.#journalStorage, opfsWorkspaceKey(name));
 		}
 	}
 

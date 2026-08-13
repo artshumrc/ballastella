@@ -5,6 +5,7 @@ import {
 	Autosave,
 	DeletedProjects,
 	HistoricalMapInUseError,
+	PublishManifests,
 	HistoricalMapPartlyDeletedError,
 	OpfsProjectStore,
 	PathNotFoundError,
@@ -62,8 +63,12 @@ import {
 	parseAnnotations,
 	partitionByOfflineCopy,
 	planPublish,
+	// Aliased for the reason `stampCanonicalUrl` is: the session has methods of both names, and two
+	// things called one word is how a later edit calls the wrong one.
+	planRemotePublish as planWorkspaceUpload,
 	projectFilePath,
 	publishSite,
+	publishToRemote as uploadWorkspace,
 	readPublishedSite,
 	readImageLabel,
 	referencedAlignmentAddress,
@@ -107,6 +112,7 @@ import {
 	type OfflineCopyPlan,
 	type OfflineCopyProgress,
 	type OfflineCoverage,
+	type PendingLocalFile,
 	type ProjectFile,
 	type ProjectStore,
 	type ProjectSummary,
@@ -114,6 +120,8 @@ import {
 	type PublishedSite,
 	type ReferencedImage,
 	type RemoteImageService,
+	type RemotePublishPlan,
+	type RemoteRepository,
 	type SaveState,
 	type TileCoordinate,
 	type TileFetchResult,
@@ -309,6 +317,14 @@ export class EditorSession {
 	 * {@link deletionWarning}.
 	 */
 	readonly #deleted: DeletedProjects | undefined;
+	/**
+	 * What **this** Workspace's Remote held when its last publish finished (ADR-0033).
+	 *
+	 * `undefined` where there can be no journal storage, exactly as {@link #deleted} is. There it is
+	 * simply not recorded, and ticket 05's refusal falls back to saying plainly that it cannot tell —
+	 * which is the answer a browser with no `localStorage` has to give anyway.
+	 */
+	readonly #manifests: PublishManifests | undefined;
 	/** Held for the tiler, which writes tens of thousands of files that are not `project.json`. */
 	readonly #store: ProjectStore;
 	/** Bumped by every {@link open}, so a read that resolves late knows it has been superseded. */
@@ -627,6 +643,10 @@ export class EditorSession {
 		this.#deleted =
 			options.journalStorage && options.workspaceKey
 				? new DeletedProjects(options.journalStorage, options.workspaceKey)
+				: undefined;
+		this.#manifests =
+			options.journalStorage && options.workspaceKey
+				? new PublishManifests(options.journalStorage, options.workspaceKey)
 				: undefined;
 		this.#workspace = new Workspace(store, {
 			autosave: this.#autosave,
@@ -2372,6 +2392,84 @@ export class EditorSession {
 	/** The record the Published Site carries about itself, or `null` if there is no site yet. */
 	async readPublishedSite(): Promise<PublishedSite | null> {
 		return readPublishedSite(this.#store);
+	}
+
+	/**
+	 * What sending this Workspace to its Remote would cost, and everything the user must read first
+	 * (ticket 04; ADR-0031, ADR-0033).
+	 *
+	 * **Sends nothing**, so both of its refusals — a truncated tree, a Workspace of more files than a
+	 * publish can list — reach the user with the Remote untouched. It is the forecast the dialog shows
+	 * before the button does anything: the two numbers of story 9, the three budgets, and whether
+	 * there is anything to do at all.
+	 *
+	 * @throws RemotePublishRefusedError, RemotePublishCredentialError, RemotePublishFailedError
+	 */
+	async planRemotePublish(options: {
+		token: string;
+		remote: RemoteRepository;
+		/**
+		 * What the local publish will write into the Workspace before the upload runs, so the three
+		 * budgets are about the publish being agreed to rather than about the folder as it stands.
+		 * `PublishDialog` hands it {@link PublishPlan.files}.
+		 */
+		pending?: readonly PendingLocalFile[];
+	}): Promise<RemotePublishPlan> {
+		return planWorkspaceUpload(this.#store, {
+			token: options.token,
+			remote: options.remote,
+			...(options.pending ? { pending: options.pending } : {})
+		});
+	}
+
+	/**
+	 * Send this Workspace to its Remote, and record what the Remote then holds.
+	 *
+	 * ⚠ **It plans again rather than taking the plan the user was shown, and that is a correctness
+	 * requirement.** Confirming the dialog stamps the canonical address into every `info.json` and
+	 * writes the viewer's files into the Workspace — so by the time this is called the Workspace holds
+	 * files the forecast never saw, and `publishToRemote` uploads exactly the paths its plan names.
+	 * Handed the forecast it would publish a site with no `index.html` in it, silently, on the one
+	 * publish that most needs to work: the first.
+	 *
+	 * The manifest goes into `localStorage` rather than into the Workspace, because it records what
+	 * *this machine* last saw on the Remote and a record that travelled with the Workspace would be
+	 * another machine's belief arriving as this one's evidence (ticket 05).
+	 *
+	 * @returns the plan that ran, the commit the branch now holds, and whether the manifest was kept
+	 * @throws RemotePublishRateLimitedError, RemotePublishCredentialError, RemotePublishFailedError
+	 */
+	async publishToRemote(options: {
+		token: string;
+		remote: RemoteRepository;
+		onProgress?: (progress: {
+			files: number;
+			totalFiles: number;
+			requestsRemaining: number | null;
+		}) => void;
+	}): Promise<{ commit: string; plan: RemotePublishPlan; manifestKept: boolean }> {
+		// Everything pending on disk first, for the same reason `publish` flushes: an Annotation still
+		// inside the autosave debounce would go to a public host missing the edit just made.
+		await this.flush();
+		const request = { token: options.token, remote: options.remote };
+		const plan = await planWorkspaceUpload(this.#store, request);
+		const { commit, manifest } = await uploadWorkspace(this.#store, {
+			...request,
+			plan,
+			...(options.onProgress ? { onProgress: options.onProgress } : {})
+		});
+		// Best effort by construction: a manifest too large for what is left of the origin's 5 MB
+		// answers `false` rather than throwing, because a publish that has already reached GitHub must
+		// not be reported as having failed over a record of it. **Answered onward rather than
+		// swallowed**: the publish succeeded and the record of it did not, and a scholar told neither
+		// meets ticket 05's "we cannot tell what is on the Remote" as a mystery on their next publish.
+		//
+		// A session with no journal storage keeps no manifest at all and never could, which is not the
+		// same news and is not reported as it.
+		const manifestKept =
+			this.#manifests === undefined ||
+			this.#manifests.write({ remote: options.remote, commit, files: manifest });
+		return { commit, plan, manifestKept };
 	}
 
 	/**

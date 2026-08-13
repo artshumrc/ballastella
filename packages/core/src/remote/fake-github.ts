@@ -351,7 +351,24 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	 */
 	const headers = (): Record<string, string> => ({
 		'X-RateLimit-Remaining': String(state.rateLimit.remaining),
-		'X-RateLimit-Reset': String(state.rateLimit.reset)
+		'X-RateLimit-Reset': String(state.rateLimit.reset),
+		// ⚠ **The CORS pair is not decoration, and it is why ADR-0031 holds at all.** Measured:
+		// `api.github.com` answers `access-control-allow-origin: *` and *names* both rate-limit headers
+		// in `access-control-expose-headers`. The two do different jobs, and only the second is about
+		// the budget: without the **origin** header a cross-origin response is not readable at all —
+		// `fetch` rejects and the publish reports a network failure — while without the **expose**
+		// header the response arrives and every unexposed header is hidden, so the budget reads `null`
+		// end to end: no request warning before a publish, no count in the progress line, and a spent
+		// budget mid-publish reported as an ordinary refusal rather than as a wait.
+		//
+		// Both are carried so a fake driven through Playwright routes fails the way GitHub would.
+		// **What this does not model is the preflight.** Every request here carries `Authorization`,
+		// which is never CORS-safelisted, so a real browser sends `OPTIONS` first and neither this fake
+		// nor `e2e/support/github-hosts.ts` answers one — `route.fulfill` short-circuits the preflight,
+		// and through an injected `fetch` there is no CORS at all. So these headers are a record of
+		// what the real host sends, checked by nothing in this repository.
+		'Access-Control-Allow-Origin': '*',
+		'Access-Control-Expose-Headers': 'X-RateLimit-Remaining, X-RateLimit-Reset'
 	});
 
 	const json = (body: unknown, status = 200): Response =>

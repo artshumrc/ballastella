@@ -9,7 +9,6 @@
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import MapThumbnail from '../historical-maps/MapThumbnail.svelte';
-	import PublishDialog from '../publish/PublishDialog.svelte';
 	import { useWorkspaceHost } from '../workspace-storage.svelte.js';
 	import ModalDialog from './ModalDialog.svelte';
 
@@ -40,15 +39,6 @@
 	let renamedTo = $state('');
 
 	let deleting = $state<ProjectSummary | null>(null);
-
-	/**
-	 * The Publish dialog is open (ticket 16).
-	 *
-	 * On the hub rather than inside a Project, because ADR-0008 makes the **Workspace** the Published
-	 * Site: one `index.html`, one shared viewer, one hub page listing every Project. Publishing from
-	 * inside one Project would imply a per-Project site, which is the deferred second output mode.
-	 */
-	let publishing = $state(false);
 
 	/**
 	 * The "open a Project somebody sent you" dialog (workspace-and-layers SPEC story 90).
@@ -409,22 +399,15 @@
 				<button class="btn" data-testid="open-bundle" onclick={startOpeningBundle}>
 					Open a Project someone sent me…
 				</button>
-				<!-- The Workspace is the site (ADR-0008), so Publish belongs to the hub and not to a
-				     Project. -->
-				<button class="btn" data-testid="publish" onclick={() => (publishing = true)}>
-					Publish…
-				</button>
 			{/if}
 			<button class="btn btn-primary" onclick={startCreating}>New Project</button>
 		</div>
 	</div>
 
-	<!-- ADR-0024: a Review Workspace is never published. Not mounted at all inside one, so there is no
-	     dialog to reach by any route — `WorkspaceStorage.assertNotReviewing` is the second layer, on
-	     the backup path where the button is in another component entirely. -->
-	{#if review === null}
-		<PublishDialog {session} bind:open={publishing} />
-	{:else}
+	<!-- ADR-0024: a Review Workspace is never published. Since ticket 04 the control and its dialog
+	     are on the navigation bar, where they are on every screen — so what is left here is the
+	     sentence explaining the absence, which the bar has nowhere to put. -->
+	{#if review !== null}
 		<p class="mt-4 text-sm opacity-70" data-testid="review-workspace-note">
 			A review copy is not published and not backed up: it holds somebody else's work and is meant
 			to be discarded. Go back to your own Workspace to publish yours.

@@ -90,14 +90,62 @@ export type RemotePublishWarning = {
 	readonly message: string;
 };
 
+/**
+ * A file the local publish will write into the Workspace before the upload runs.
+ *
+ * {@link ViewerBundleFile} is one structurally, which is the point: the local plan already
+ * enumerates exactly these — `index.html`, `_app/**`, `ballastella-site.json`, and the Base Map's
+ * glyphs and sprites when the author asks for them.
+ */
+export type PendingLocalFile = {
+	readonly path: string;
+	readonly bytes: number;
+};
+
 /** What a publish is about to send, worked out before a single blob is posted. */
 export type RemotePublishPlan = {
 	/** The commit the new one will parent onto, or `null` for a repository with no ref yet. */
 	readonly head: string | null;
-	/** Every Workspace file the commit will hold, sorted by path. */
+	/**
+	 * Every file the Workspace **already holds** that the commit will hold, sorted by path.
+	 *
+	 * The ones the local publish is about to add are {@link pending}, and they are not here because
+	 * this is also the list {@link publishToRemote} reads bytes for: a path with nothing behind it yet
+	 * is not a path to `store.read`.
+	 */
 	readonly files: readonly PlannedRemoteFile[];
+	/**
+	 * What the local publish will write into the Workspace first, and it does not hold yet.
+	 *
+	 * ⚠ **Counted into {@link uploads}, {@link uploadBytes}, {@link bytes}, {@link unchanged} and the
+	 * warnings, because a first publish is exactly where those numbers matter and exactly where they
+	 * would otherwise be wrong.** The dialog forecasts before it writes — decision 2 of `PublishDialog`
+	 * settles the address before anything is written at all — so at the moment the three budgets are
+	 * shown, the viewer bundle and the Base Map's five megabytes are not in the Workspace and every
+	 * one of the three would quote a total missing them.
+	 *
+	 * Each is counted as one blob it does not have: their bytes have never been hashed here, and a
+	 * forecast that guessed they were already on the Remote would understate in the direction that
+	 * ends at a rate limit 300 files in.
+	 */
+	readonly pending: readonly PendingLocalFile[];
 	/** Paths on the Remote outside the owned namespace, carried into the new tree untouched. */
 	readonly preserved: readonly RemoteTreeEntry[];
+	/**
+	 * Whether the Remote's tree already holds exactly what this publish would write.
+	 *
+	 * ⚠ **Path *and* blob, both ways round.** {@link PlannedRemoteFile.onRemote} is a question about
+	 * bytes — *does the Remote hold this blob anywhere* — so a Workspace whose every file is `onRemote`
+	 * may still be a Workspace one Project has been deleted from, or one whose two blank tiles have
+	 * swapped places. This compares the whole `path → blob` map in both directions, which is the only
+	 * form of the question a caller can offer a scholar the sentence "nothing needed changing" on.
+	 *
+	 * It is a fact for the *caller* to act on and changes nothing here: {@link publishToRemote} still
+	 * writes its tree, its commit and its ref when it is handed such a plan, because a caller may have
+	 * reason to move the branch anyway and an engine that silently declined would be the harder thing
+	 * to reason about. Publishing nothing is done by not calling it.
+	 */
+	readonly unchanged: boolean;
 	/**
 	 * How many blobs need uploading, and what they weigh: the two numbers a user wants.
 	 *
@@ -128,6 +176,30 @@ export class RemotePublishFailedError extends Error {
 	constructor(message: string) {
 		super(message);
 		this.name = 'RemotePublishFailedError';
+	}
+}
+
+/**
+ * GitHub would not look at the credential at all: 401.
+ *
+ * ⚠ **Its own class because it is the one failure whose remedy is a sign-in rather than a repository.**
+ * Rights are read when a Remote is bound and when a token is pasted, and at no other moment — so what
+ * the bar means by "Signed in to GitHub" is *a credential is held*, never *a credential still works*,
+ * and a token that has since expired, been revoked, or had its repository access withdrawn reads as
+ * signed in indefinitely. Collapsed into {@link RemotePublishFailedError} the scholar meets
+ * "GitHub refused this publish: Bad credentials" and goes off to check a repository that is perfectly
+ * fine. Told apart, the caller can say the sign-in has expired, offer the paste, and forget the
+ * credential — which is where this epic settled the question rather than re-checking the rights on
+ * every dialog (ticket 04).
+ *
+ * Every publish asks GitHub a credentialed question before it sends a byte —
+ * {@link planRemotePublish}'s first request is one — so this reaches a user with the Remote untouched
+ * whenever it is the credential rather than the network that has changed.
+ */
+export class RemotePublishCredentialError extends RemotePublishFailedError {
+	constructor(message: string) {
+		super(message);
+		this.name = 'RemotePublishCredentialError';
 	}
 }
 
@@ -182,7 +254,22 @@ export type RemotePublishOptions = {
 	readonly fetch?: FetchFn;
 };
 
+export type PlanRemotePublishOptions = RemotePublishOptions & {
+	/**
+	 * What the local publish will write into the Workspace before the upload runs — see
+	 * {@link RemotePublishPlan.pending}. Paths the Workspace already holds are ignored, so handing
+	 * the whole of a local plan's file list is right on a second publish as well as on a first.
+	 */
+	readonly pending?: readonly PendingLocalFile[];
+};
+
 export type PublishToRemoteOptions = RemotePublishOptions & {
+	/**
+	 * ⚠ **A plan made after the local publish has written, never the forecast the user was shown.**
+	 * Only {@link RemotePublishPlan.files} is uploaded, so a plan still carrying
+	 * {@link RemotePublishPlan.pending} would commit a site with no `index.html` in it — see
+	 * `EditorSession.publishToRemote`, which re-plans for exactly this reason.
+	 */
 	readonly plan: RemotePublishPlan;
 	readonly onProgress?: (seen: {
 		readonly files: number;
@@ -282,6 +369,8 @@ const branchPath = (branch: string): string => branch.split('/').map(encodeURICo
 type RemoteApi = {
 	/** What the last response said is left of the hourly budget, and when it resets. */
 	readonly budget: Budget;
+	/** Carried so a refusal can name the repository it was refused about. */
+	readonly remote: RemoteRepository;
 	call(path: string, init?: RequestInit): Promise<Response>;
 };
 
@@ -291,6 +380,7 @@ function createRemoteApi(options: RemotePublishOptions, budget: Budget): RemoteA
 
 	return {
 		budget,
+		remote: options.remote,
 		async call(path, init = {}) {
 			const response = await request(`${base}${path}`, {
 				...init,
@@ -326,7 +416,8 @@ async function problemOf(response: Response): Promise<string> {
  *
  * A spent budget is told apart from every other 403 by the remaining count, which is what GitHub
  * itself sends: the status is the same, and the two need different sentences because only one of
- * them is fixed by waiting.
+ * them is fixed by waiting. A 401 is told apart from both, because its remedy is a new sign-in and
+ * not a repository — see {@link RemotePublishCredentialError}.
  */
 async function failureFrom(
 	response: Response,
@@ -335,6 +426,11 @@ async function failureFrom(
 	sent: number,
 	total: number
 ): Promise<RemotePublishFailedError> {
+	if (response.status === 401) {
+		return new RemotePublishCredentialError(
+			expiredCredentialMessage(api.remote, phase, sent, total)
+		);
+	}
 	if (response.status === 403 && api.budget.remaining === 0) {
 		return new RemotePublishRateLimitedError(phase, sent, total, api.budget.resetAt);
 	}
@@ -486,7 +582,7 @@ function blobsToUpload(files: readonly PlannedRemoteFile[]): PlannedRemoteFile[]
  */
 export async function planRemotePublish(
 	store: ProjectStore,
-	options: RemotePublishOptions
+	options: PlanRemotePublishOptions
 ): Promise<RemotePublishPlan> {
 	const api = createRemoteApi(options, { remaining: null, resetAt: null });
 
@@ -533,6 +629,17 @@ export async function planRemotePublish(
 	}
 	files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
 
+	// What the local publish will add, minus whatever it is about to overwrite: a second publish
+	// rewrites the whole viewer over the copy already in the Workspace, so its file list arrives here
+	// almost entirely held and adds nothing to any of the three budgets.
+	//
+	// The {@link MAX_PUBLISHED_FILES} refusal above is deliberately *not* re-made against this total.
+	// It is a statement about the Workspace, which is the half a scholar can act on, and it is made
+	// before a byte is read — the pattern `tileBudget` sets.
+	const planned = new Set(files.map((file) => file.path));
+	const pending = (options.pending ?? []).filter((file) => !planned.has(file.path));
+	const pendingBytes = pending.reduce((sum, file) => sum + file.bytes, 0);
+
 	// Outside the owned namespace, and not something the Workspace is sending anyway. This is the
 	// half that keeps a `CNAME`, a `README.md`, and a `docs/` folder the scholar added.
 	const preserved = remote.filter(
@@ -541,14 +648,14 @@ export async function planRemotePublish(
 	const preservedBytes = preserved.reduce((sum, entry) => sum + entry.bytes, 0);
 
 	const uploaded = blobsToUpload(files);
-	const uploads = uploaded.length;
-	const uploadBytes = uploaded.reduce((sum, file) => sum + file.bytes, 0);
+	const uploads = uploaded.length + pending.length;
+	const uploadBytes = uploaded.reduce((sum, file) => sum + file.bytes, pendingBytes);
 
 	const warnings: RemotePublishWarning[] = [];
-	if (crossesHostingLimit(workspace.bytes, preservedBytes)) {
+	if (crossesHostingLimit(workspace.bytes, preservedBytes + pendingBytes)) {
 		warnings.push({
 			kind: 'hosting-limit',
-			message: hostingLimitMessage(workspace.bytes + preservedBytes)
+			message: hostingLimitMessage(workspace.bytes + preservedBytes + pendingBytes)
 		});
 	}
 	if (api.budget.remaining !== null && uploads + REQUESTS_BEYOND_BLOBS > api.budget.remaining) {
@@ -558,14 +665,31 @@ export async function planRemotePublish(
 		});
 	}
 
+	// The tree this publish would post, path by path, against the one the Remote holds. Compared by
+	// size *and* entry, so a Remote holding one extra owned path — a Project deleted here since the
+	// last publish — is a difference rather than a subset that looks like a match.
+	const wouldWrite = new Map<string, string>([
+		...preserved.map((entry) => [entry.path, entry.sha] as const),
+		...files.map((file) => [file.path, file.sha] as const)
+	]);
+	const unchanged =
+		head !== null &&
+		// A file the publish is about to write into the Workspace is a file the Remote is about to
+		// gain, whatever the two trees look like now.
+		pending.length === 0 &&
+		remote.length === wouldWrite.size &&
+		remote.every((entry) => wouldWrite.get(entry.path) === entry.sha);
+
 	return {
 		head,
 		files,
+		pending,
 		preserved,
+		unchanged,
 		uploads,
 		uploadBytes,
 		workspace,
-		bytes: workspace.bytes + preservedBytes,
+		bytes: workspace.bytes + preservedBytes + pendingBytes,
 		requestsRemaining: api.budget.remaining,
 		requestsResetAt: api.budget.resetAt,
 		warnings
@@ -741,6 +865,34 @@ function noRepositoryMessage(remote: RemoteRepository): string {
 		`see, so there is nothing to publish to and nothing has been sent. Check the owner and the ` +
 		`repository name, and that the account you signed in with still has access to it — a private ` +
 		`repository looks exactly like a missing one to somebody who cannot open it.`
+	);
+}
+
+/**
+ * What a 401 says, which is about the sign-in and never about the repository.
+ *
+ * It names no permission to go and tick, because a 401 is GitHub declining to look at the credential
+ * at all — a token that has expired, been revoked, or had this repository removed from it. A token
+ * that is fine and lacks `contents: write` answers 403 and is
+ * {@link RemotePublishFailedError}'s sentence instead.
+ */
+function expiredCredentialMessage(
+	remote: RemoteRepository,
+	phase: RemotePublishPhase,
+	sent: number,
+	total: number
+): string {
+	// ⚠ **"Nothing has been sent" and "8 of 40 files had been sent" cannot both be on screen.** They
+	// were, because this is raised at the first credentialed request *and* part way through an upload.
+	// The load-bearing half is the Published Site, which is untouched either way — nothing is visible
+	// until the ref moves — so that is what the sentence claims, and the blobs are reported as what
+	// they are: loose objects in no tree, which the next publish sends again.
+	return (
+		`Your GitHub sign-in has expired, so this publish stopped and your Published Site is exactly ` +
+		`as it was. ${describeProgress(phase, sent, total)}. A token that has been revoked, or that has ` +
+		`had ${remote.owner}/${remote.repository} taken off it, looks exactly like an expired one from ` +
+		`here. Sign in again with a fine-grained personal access token that has “Contents: Read and ` +
+		`write” for that repository, and publish again.`
 	);
 }
 

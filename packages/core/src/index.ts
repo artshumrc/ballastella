@@ -348,11 +348,14 @@ export {
 // failures live, and all of them are assertable with no browser.
 export {
 	MAX_PUBLISHED_FILES,
+	RemotePublishCredentialError,
 	RemotePublishFailedError,
 	RemotePublishRateLimitedError,
 	RemotePublishRefusedError,
 	planRemotePublish,
 	publishToRemote,
+	type PendingLocalFile,
+	type PlanRemotePublishOptions,
 	type PlannedRemoteFile,
 	type PublishToRemoteOptions,
 	type RemotePublishOptions,
@@ -361,6 +364,16 @@ export {
 	type RemoteRepository,
 	type RemoteTreeEntry
 } from './remote/publish-to-remote.js';
+// What this machine last saw on the Remote. Local only and keyed per Workspace, because it is
+// evidence about a Remote rather than a fact about a Workspace — see the module header.
+export {
+	PUBLISH_MANIFEST_FORMAT_VERSION,
+	PUBLISH_MANIFEST_KEY_PREFIX,
+	PublishManifests,
+	discardPublishManifest,
+	publishManifestKey,
+	type PublishManifest
+} from './remote/publish-manifest.js';
 // Which repository a Workspace publishes to, and the credential that may push there (ADR-0032,
 // ADR-0033). The rights check and the Pages enablement happen the moment a scholar names one, so
 // that "you cannot push here" is not discovered after four thousand tiles have gone.

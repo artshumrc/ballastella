@@ -472,7 +472,7 @@ async function addHistoricalMap(page: Page): Promise<void> {
 async function projectWithImage(page: Page): Promise<string> {
 	const directory = await emptyProject(page);
 	await addHistoricalMap(page);
-	await expect(page.getByRole('status')).toHaveText('Saved');
+	await expect(page.getByRole('status')).toHaveText('Saved locally');
 	return directory;
 }
 
@@ -523,7 +523,7 @@ async function alignedProject(page: Page): Promise<string> {
 		await pairAt(page, fx, fy);
 	}
 	await expectWarpedDrawn(page);
-	await expect(page.getByRole('status')).toHaveText('Saved');
+	await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 	return directory;
 }
@@ -895,7 +895,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 
 		await pairAt(page, 0.3, 0.3);
 		await pairAt(page, 0.7, 0.35);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await openLayers(page, directory, { drawn: 0 });
 		// Settled, for the reason the test above gives: a Layer whose Alignment has not been read yet
 		// reads as not aligned, so the sentence has to still be there once it has.
@@ -913,7 +913,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		// three pairs really do solve. Without it this waits on the Layers pane for a state the Alignment
 		// may not have reached yet, and a red run would say nothing about the sentence under test.
 		await expectWarpedDrawn(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await openLayers(page, directory, { drawn: 1 });
 		await expect(rows(page).first().getByTestId('layer-problem')).toHaveCount(0);
 	});
@@ -935,7 +935,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		await expect(page.getByTestId('pairing-status')).toHaveAttribute('data-pending', 'resource');
 		await clickAt(page.getByTestId('base-map-pane'), 0.4, 0.5);
 		await expect(page.getByTestId('control-point-row')).toHaveCount(4);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const after = await projectJson(page, directory);
 		expect(after.layers).toEqual(before.layers);
@@ -1059,7 +1059,7 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		// Long enough for the delayed read and the write it leads to. A fixed wait rather than a signal,
 		// because the claim is about a write that must *not* undo an earlier one.
 		await page.waitForTimeout(5000);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// The Layer was made, and the rename survived it — on screen and in the file.
 		const file = await projectJson(page, directory);
@@ -1203,12 +1203,12 @@ test.describe('showing and hiding a Layer (SPEC story 50)', () => {
 		await openLayers(page, directory);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// The Annotation Layer is on top, the map Layer below it.
 		await rows(page).nth(0).getByTestId('layer-visible').uncheck();
 		await rows(page).nth(1).getByTestId('layer-visible').uncheck();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		await page.reload();
 		await expect(rows(page)).toHaveCount(2);
@@ -1237,7 +1237,7 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		// ADR-0017 rule 1: dragging a slider must not tear the stack down and refetch every tile.
 		expect(await stackBuilds(page), 'the stack was rebuilt by an opacity change').toBe(builtBefore);
 
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await projectJson(page, directory)).layers[0].opacity).toBeCloseTo(0.35, 5);
 
 		await page.reload();
@@ -1288,7 +1288,7 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		expect(opacity, 'dragging the opacity slider did not reach the warped renderer').toBeLessThan(
 			0.6
 		);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await projectJson(page, directory)).layers[0].opacity).toBeCloseTo(opacity, 5);
 	});
 
@@ -1336,7 +1336,7 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		await openLayers(page, directory);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		const [annotationId, mapId] = (await rowIds(page)) as [string, string];
 
 		if (Object.keys(defaultStyle).length > 0) {
@@ -1658,7 +1658,7 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		// Reorder buttons are inside the open card since the Layers revision. The card follows the
 		// Layer rather than the position, so it is still open after the move.
 		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await page.reload();
 		// Waited for, not assumed: a reload renders the hub frame before `?p=` has been read, so the
 		// rows arrive a tick after the page does (ADR-0008 — a Project is selected client-side).
@@ -1678,7 +1678,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await openLayers(page, directory);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const before = [
 			// The Alignment is the Workspace's and the Annotations are the Project's (ADR-0023), so the two
@@ -1702,7 +1702,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		// The slider is inside the open card since the Layers revision, and only a map Layer has one —
 		// so the card is found by kind rather than by position, which the move above has just changed.
 		await (await openLayerRow(page, mapRow(page))).getByTestId('layer-opacity').fill('0.4');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const after = [
 			...(await hashesUnder(page, '', 'alignments/')),
@@ -1736,7 +1736,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(2);
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const annotationId = (await rowIds(page))[0] as string;
 		const alignmentFile = (await alignmentRefOf(page, directory)).split('/').at(-1) as string;
@@ -1752,7 +1752,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await renaming.getByTestId('layer-rename').click();
 		await renaming.getByTestId('layer-name').fill('Trade routes');
 		await renaming.getByTestId('layer-name').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		// Both Layers are still drawn, so nothing was skipped rather than re-read.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 
@@ -1775,7 +1775,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await renaming.getByTestId('layer-rename').click();
 		await renaming.getByTestId('layer-name').fill('The 1625 plan');
 		await renaming.getByTestId('layer-name').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect((await projectJson(page, directory)).layers[0].name).toBe('The 1625 plan');
 		expect(await readProjectFile(page, '', alignmentRef)).toBe(alignmentBefore);
@@ -1828,7 +1828,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 		await page.keyboard.press('Tab');
 		await page.keyboard.press('Tab');
 		await page.keyboard.press('Tab');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect(await readProjectFile(page, directory, 'project.json')).toBe(before);
 	});
@@ -1896,7 +1896,7 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 		// Reorder buttons are inside the open card since the Layers revision. The card follows the
 		// Layer rather than the position, so it is still open after the move.
 		await (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down').click();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const written = await projectJson(page, directory);
 		expect(written.layers[1]).toEqual({
@@ -1937,7 +1937,7 @@ test.describe('adding an Annotation Layer (SPEC stories 55 and 56)', () => {
 		await add.click();
 
 		await expect(rows(page)).toHaveCount(3, { timeout: 15_000 });
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// And every file in `annotations/` belongs to a Layer that is in the stack. An orphan there is a
 		// file the user can neither see nor delete.
@@ -2341,7 +2341,7 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		expect(await accessibleText(rows(page).first())).not.toContain('Not aligned yet');
 
 		await row.getByTestId('layer-visible').uncheck();
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await expect(row.getByTestId('layer-not-aligned')).toHaveCount(0);
 		expect(await accessibleText(rows(page).first())).not.toContain('Not aligned yet');
 	});
@@ -2363,7 +2363,7 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		await openLayers(page, directory);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(rows(page)).toHaveCount(2);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const before = await readProjectFile(page, directory, 'project.json');
 		const storageBefore = await page.evaluate(() => JSON.stringify({ ...localStorage }));

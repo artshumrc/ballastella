@@ -7,9 +7,17 @@ import path from 'node:path';
 
 import { gradientPng } from './support/alignment-workspace.js';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
+import {
+	GITHUB_API_ORIGIN,
+	routeGitHubHosts,
+	type GitHubHosts,
+	type GitHubHostsOptions
+} from './support/github-hosts.js';
 import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
 import { alignFromLayer } from './support/layers.js';
+import { projectNameField } from './support/project-screen.js';
 import { serveDirectory, type StaticSite } from './support/static-site.js';
+import { createWorkspace } from './support/workspace.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -505,6 +513,51 @@ test.describe('publishing a Workspace', () => {
 		expect(hashes(after)).toEqual(hashes(bundled));
 	});
 
+	/**
+	 * Which `baseMapAssetsBundled: false` means the author said no, and which means nobody was asked.
+	 *
+	 * ⚠ **That field says what was *written***, and a deployment with no Base Map archive writes
+	 * `false` whatever the box said. Read back as the answer, a site first published from such a
+	 * deployment comes back unticked forever — on every deployment that does have the archive, with no
+	 * place names on its geography and nothing on screen saying why. So the record carries the answer
+	 * beside what came of it, and it is the answer that is offered back.
+	 */
+	test('offers the Base Map answer back, not what the last deployment managed to write', async ({
+		page
+	}) => {
+		const publishedSite = (fields: Record<string, unknown>) => ({
+			'ballastella-site.json': `${JSON.stringify(
+				{
+					formatVersion: 2,
+					viewerVersion: 'whatever',
+					publishedAt: '2026-01-01T00:00:00.000Z',
+					projects: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }],
+					baseMapBundled: false,
+					...fields
+				},
+				null,
+				'\t'
+			)}\n`
+		});
+
+		// Asked for and not written, which is what a deployment with no Base Map archive records. The
+		// labels are offered again here, where there is an archive to write them from.
+		await openWorkspace(page, {
+			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
+			...publishedSite({ baseMapAssetsBundled: false, baseMapAssetsRequested: true })
+		});
+		await expect((await openPublishDialog(page)).getByRole('checkbox')).toBeChecked();
+		await page.keyboard.press('Escape');
+
+		// And an author who said no is not asked again: a box that reverted to "on" would re-add five
+		// megabytes to their site every time they published a typo fix.
+		await openWorkspace(page, {
+			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
+			...publishedSite({ baseMapAssetsBundled: false, baseMapAssetsRequested: false })
+		});
+		await expect((await openPublishDialog(page)).getByRole('checkbox')).not.toBeChecked();
+	});
+
 	test('refuses a mistyped address before it writes a thing, which is what its refusal claims', async ({
 		page
 	}) => {
@@ -861,9 +914,12 @@ test.describe('publishing a Workspace', () => {
 	test('is reachable and operable from the keyboard, with progress announced', async ({ page }) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 
-		// Reached by tabbing rather than by clicking (SPEC story 95).
+		// Reached by tabbing rather than by clicking (SPEC story 95). From the theme toggle, which is
+		// the control before it on the bar since ticket 04 moved Publish there — `UndoControl` sits
+		// between them and renders nothing at all when there is nothing to undo, which is the state a
+		// freshly seeded Workspace is in.
 		const publishButton = page.getByRole('button', { name: 'Publish…' });
-		await page.getByRole('button', { name: 'Open a Project someone sent me…' }).focus();
+		await page.getByTestId('theme-toggle').focus();
 		await page.keyboard.press('Tab');
 		await expect(publishButton).toBeFocused();
 		await page.keyboard.press('Enter');
@@ -892,5 +948,595 @@ test.describe('publishing a Workspace', () => {
 				element.getAttribute('aria-atomic')
 			])
 		).toEqual(['polite', 'true']);
+	});
+
+	/**
+	 * SPEC story 2, and the reason the word changed at all.
+	 *
+	 * Publish now means *send this Workspace to its Remote*, and the indicator sits beside that
+	 * button — so the bare word "Saved" conflated the two facts a scholar most needs kept apart. The
+	 * other two states keep their own words, because there is nowhere else for an unsaved edit to be.
+	 */
+	test('reads “Saved locally” beside Publish, and is still the only status region', async ({
+		page
+	}) => {
+		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
+
+		// ⚠ **Strict-mode `getByRole('status')` is the assertion here, not a convenience.** A second
+		// `status` on the editor makes this throw, and a locator that has to be disambiguated is a hint
+		// that a screen-reader user would have to disambiguate as well (ADR-0016).
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		await expect(page.getByTestId('publish')).toBeVisible();
+
+		await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+
+		// The **words**, recorded as they happen and paired with the state that produced them.
+		// "Unsaved changes" is the 400 ms debounce window and "Saving…" can be over in a few
+		// milliseconds, so both are observed with a `MutationObserver` rather than polled for — the
+		// discipline `support/saved.ts` records, and the reason a poll here says nothing when it passes.
+		await page.evaluate(() => {
+			const indicator = document.querySelector('[data-save-state]');
+			if (!indicator) throw new Error('no [data-save-state] element to observe');
+			const read = () =>
+				`${indicator.getAttribute('data-save-state')}=${indicator.textContent?.trim()}`;
+			const seen: string[] = [read()];
+			new MutationObserver(() => {
+				if (read() !== seen[seen.length - 1]) seen.push(read());
+			}).observe(indicator, {
+				attributes: true,
+				characterData: true,
+				childList: true,
+				subtree: true
+			});
+			(window as unknown as { __labels?: string[] }).__labels = seen;
+		});
+
+		// A debounced edit, which is the only kind that passes through all three states: renaming is
+		// behind the Project settings dialog since ticket 04, and follows the ordinary autosave rules.
+		await (await projectNameField(page)).fill('Amsterdam 1626');
+
+		await expect
+			.poll(
+				() => page.evaluate(() => (window as unknown as { __labels?: string[] }).__labels ?? []),
+				{ message: 'the indicator should pass through unsaved and saving, in its own words' }
+			)
+			.toEqual([
+				'saved=Saved locally',
+				'unsaved=Unsaved changes',
+				'saving=Saving…',
+				'saved=Saved locally'
+			]);
+	});
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// PUBLISHING TO A REMOTE (ticket 04; ADR-0031, ADR-0032, ADR-0033)
+//
+// SPEC's Seam 2, driving SPEC's Seam 1 fake through Playwright routes. The engine's own
+// correctness — the incremental upload, the owned-namespace rules, the truncation refusal, the
+// three budgets — is asserted in `packages/core/src/remote/publish-to-remote.test.ts`, where the
+// assertion is the resulting tree and no browser is involved. What only a browser can settle is
+// here: that one press of one button on the navigation bar puts a Workspace on GitHub, and that
+// every way it can go wrong reaches a scholar as a sentence they can act on.
+//
+// ⚠ **Assertions are on what arrived at the Remote, never on which calls were made.** Every failure
+// mode in this epic is silent and plausible, and a test counting requests passes over all of them.
+// The one exception is `blobPosts`, which measures what was *sent* — "the second publish uploaded
+// nothing" and "the refusal stopped the uploads" are claims no assertion on a tree can make.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+const OWNER = 'ada';
+const REPOSITORY = 'atlas';
+const REMOTE = `${OWNER}/${REPOSITORY}`;
+/** A token of the right shape. Its value never matters: the fake looks only for a credential. */
+const TOKEN = 'github_pat_11ABCDE0000abcdefghijklmnop';
+/** Well into the future, so a reset time is a stable clock reading rather than a race. */
+const RESET_AT = 1_800_000_000;
+
+/** `remote.json`, exactly as `bindWorkspaceToRemote` writes it — see `editor-remote-binding.e2e.ts`. */
+const boundTo = (owner = OWNER, repository = REPOSITORY): Record<string, string> => ({
+	'remote.json': `${JSON.stringify({ formatVersion: 1, owner, repository, branch: 'main' }, null, '\t')}\n`
+});
+
+test.describe('publishing to a Remote', () => {
+	/** A bound Workspace on a clean hub, with one repository on the fake GitHub. */
+	async function start(
+		page: Page,
+		options: { files?: Record<string, string>; hosts?: GitHubHostsOptions } = {}
+	): Promise<GitHubHosts> {
+		const github = await routeGitHubHosts(page, {
+			repositories: [{ owner: OWNER, name: REPOSITORY }],
+			...options.hosts
+		});
+		await openWorkspace(page, {
+			...projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }),
+			...boundTo(),
+			...options.files
+		});
+		return github;
+	}
+
+	/**
+	 * Sign in from the publish dialog itself, which **is** the bound-with-no-credential state.
+	 *
+	 * The Publish control is enabled in that state and pressing it asks for the credential here rather
+	 * than sending the user to another dialog — one of the six states this ticket settled.
+	 */
+	async function signIn(page: Page) {
+		const dialog = await openPublishDialog(page);
+		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
+		await dialog.getByTestId('publish-token-field').fill(TOKEN);
+		await dialog.getByTestId('publish-sign-in').click();
+		return dialog;
+	}
+
+	/**
+	 * Confirm, and wait for the outcome to be announced.
+	 *
+	 * The Base Map's own files are left out throughout this describe: they are five megabytes of
+	 * glyphs and sprites whose journey through `page.route` says nothing about the transport, and
+	 * `base-map/` is inside the owned namespace either way (ADR-0033) — which
+	 * `publish-to-remote.test.ts` asserts on the bytes.
+	 */
+	async function publishToRemote(page: Page, dialog: ReturnType<Page['getByRole']>) {
+		await dialog.getByRole('checkbox').uncheck();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
+			timeout: 120_000
+		});
+	}
+
+	test('sends the Workspace to its Remote, .nojekyll and all', async ({ page }) => {
+		const github = await start(page, {
+			// A `CNAME` and a `docs/` folder the scholar put there themselves: outside the owned
+			// namespace, so a publish must leave both exactly where they are (ADR-0033).
+			hosts: {
+				repositories: [
+					{
+						owner: OWNER,
+						name: REPOSITORY,
+						files: {
+							'README.md': '# Atlas\n',
+							CNAME: 'atlas.example\n',
+							'docs/guide.md': 'How to\n'
+						}
+					}
+				]
+			}
+		});
+		const dialog = await signIn(page);
+		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
+
+		await publishToRemote(page, dialog);
+
+		// What arrived, rather than what was asked for. The Workspace's own files, the website that was
+		// written into it, the binding, and the marker without which GitHub Pages serves a blank page.
+		const arrived = github.files(OWNER, REPOSITORY);
+		expect(arrived).toContain('.nojekyll');
+		expect(arrived).toContain('index.html');
+		expect(arrived).toContain('remote.json');
+		expect(arrived).toContain('ballastella-site.json');
+		expect(arrived).toContain('amsterdam-1625/project.json');
+		expect(arrived).toContain('images/aaa/0,0,256,256/256,256/0/default.jpg');
+		expect(arrived.filter((path) => path.startsWith('_app/')).length).toBeGreaterThan(5);
+		// The tile's bytes, not merely its path: a publish that sent every file empty would pass a
+		// listing and serve a site of blank tiles.
+		expect(github.fileText(OWNER, REPOSITORY, 'images/aaa/0,0,256,256/256,256/0/default.jpg')).toBe(
+			'stands in for a tile'
+		);
+		// And nothing of the scholar's own was published over. This is the assertion that fails when the
+		// owned namespace is one segment too wide, and it fails silently in production: a `CNAME` gone
+		// moves a cited address back to a `github.io` URL, and the next publish does it again.
+		expect(github.fileText(OWNER, REPOSITORY, 'CNAME')).toBe('atlas.example\n');
+		expect(github.fileText(OWNER, REPOSITORY, 'docs/guide.md')).toBe('How to\n');
+
+		// ⚠ **The publish manifest is kept, and it is kept *outside* the Workspace** (ADR-0033). It
+		// records what **this machine** last saw on the Remote, which is what ticket 05 refuses an
+		// overwrite on — so a copy inside the Workspace would be packed into a Backup, uploaded by the
+		// very publish it describes, and downloaded by a Clone, at which point another machine's belief
+		// arrives as this one's evidence. `localStorage`, keyed by Workspace and backing, exactly as the
+		// write-ahead journal is.
+		const manifest = await page.evaluate(() => {
+			const key = Object.keys(localStorage).find((name) =>
+				name.startsWith('ballastella.publish-manifest.')
+			);
+			return key === undefined
+				? null
+				: { key, files: Object.keys(JSON.parse(localStorage.getItem(key) ?? '{}').files ?? {}) };
+		});
+		expect(manifest?.key).toBe('ballastella.publish-manifest.opfs%3AMy%20Workspace');
+		// What it holds is the whole tree the Remote now has, `CNAME` and all — not merely what was
+		// uploaded, which is the distinction a conflict check rests on.
+		expect(manifest?.files.sort()).toEqual(arrived);
+		expect(Object.keys(await takeWorkspace(page))).not.toContain('publish-manifest.json');
+	});
+
+	test('says nothing needed changing on a second publish, and sends no blob', async ({ page }) => {
+		const github = await start(page);
+		await publishToRemote(page, await signIn(page));
+		const sent = github.blobPosts();
+		const commit = github.head(OWNER, REPOSITORY);
+
+		const again = await openPublishDialog(page);
+
+		await expect(again.getByTestId('publish-nothing-to-do')).toContainText(REMOTE);
+		// Nothing to press, because there is nothing to do — and nothing was sent finding that out
+		// beyond the two requests the plan itself makes.
+		//
+		// ⚠ **Inert rather than gone.** A button removed from the DOM leaves the tab order exactly as a
+		// `disabled` one does, dropping a keyboard user's focus to `<body>` — the failure decision 4 in
+		// `PublishDialog`'s header rules out, and this is the same rule applied to the other way of
+		// taking a control away (SPEC story 60, WCAG 2.4.3).
+		const confirm = again.getByRole('button', { name: 'Publish', exact: true });
+		await expect(confirm).toHaveAttribute('aria-disabled', 'true');
+		expect(github.blobPosts() - sent).toBe(0);
+		expect(github.head(OWNER, REPOSITORY)).toBe(commit);
+	});
+
+	/**
+	 * SPEC stories 13, 14, 59 and 60 in one run, because they are one moment.
+	 *
+	 * Three numbers, because a publish can be slow for three different reasons and a scholar cannot
+	 * tell them apart otherwise; announced from inside the modal, because `showModal()` makes the rest
+	 * of the document inert and an inert live region is never announced at all; and focus stays where
+	 * it is, because the control that started it is `aria-disabled` rather than `disabled`.
+	 */
+	test('announces files done, files total and the requests left, and keeps focus', async ({
+		page
+	}) => {
+		const github = await start(page);
+		const dialog = await signIn(page);
+		await dialog.getByRole('checkbox').uncheck();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		// Slow every GitHub request down so the progress line is on screen long enough to assert rather
+		// than long enough to be lucky. Installed *after* the fake's own handler, so it is consulted
+		// first and falls back to it — the delay is the whole of what this adds.
+		await page.route(`${GITHUB_API_ORIGIN}/**`, async (route) => {
+			await new Promise((resolve) => setTimeout(resolve, 60));
+			await route.fallback();
+		});
+
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+
+		await expect(dialog.getByTestId('publish-progress')).toContainText(
+			/Uploading: \d+ of \d+ files\. \d+ GitHub requests left this hour\./,
+			{ timeout: 60_000 }
+		);
+		// The control that started it says so, and does it with `aria-disabled`: a `disabled` button
+		// leaves the tab order the moment it is pressed, dropping focus to `<body>` for the length of
+		// the publish (WCAG 2.4.3).
+		await expect(page.getByTestId('publish')).toHaveAttribute('aria-disabled', 'true');
+		await expect(page.getByTestId('publish')).toContainText(/(Publishing|Uploading)… \d+\/\d+/);
+		expect(await page.evaluate(() => document.activeElement?.tagName ?? 'NONE')).not.toBe('BODY');
+
+		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`, {
+			timeout: 120_000
+		});
+		// The outcome is outside the dialog, where the dialog no longer is — and it stays there.
+		await expect(page.getByTestId('publish-status')).toBeVisible();
+		await expect(page.getByRole('dialog')).toBeHidden();
+		// One region speaks at a time: the progress line is emptied rather than left holding a sentence
+		// a screen reader would read out again on the next publish.
+		await expect(page.getByTestId('publish-progress')).toHaveText('');
+		expect(github.files(OWNER, REPOSITORY)).toContain('index.html');
+	});
+
+	test('refuses a truncated tree, quoting the file count, and sends nothing', async ({ page }) => {
+		// The real endpoint truncates at 100 000 entries or a 7 MB response and **answers 200**, so a
+		// publish that did not look would upload everything again and then commit a tree missing most
+		// of a Historical Map — a silently incomplete site on a scholar's own address.
+		const github = await start(page, {
+			hosts: {
+				repositories: [
+					{
+						owner: OWNER,
+						name: REPOSITORY,
+						files: {
+							'README.md': '# Atlas\n',
+							CNAME: 'atlas.example\n',
+							'docs/guide.md': 'How to\n'
+						},
+						truncateAfter: 3
+					}
+				]
+			}
+		});
+		const before = github.files(OWNER, REPOSITORY);
+
+		const dialog = await signIn(page);
+
+		// Two, not three: a recursive listing carries an entry per directory as well, and quoting the
+		// folder would tell a scholar to delete files they do not have.
+		const refusal = dialog.getByTestId('publish-upload-problem');
+		await expect(refusal).toContainText('first 2 files');
+		await expect(refusal).toContainText('deleting Historical Maps no Project uses');
+		expect(github.blobPosts()).toBe(0);
+		expect(github.files(OWNER, REPOSITORY)).toEqual(before);
+
+		// **The refusal outlives the dialog**, which is the whole of that control state: it is the one
+		// thing on this screen the scholar has to act on, and dismissing the modal is how they get back
+		// to the Workspace to act on it.
+		await page.keyboard.press('Escape');
+		await expect(page.getByRole('dialog')).toBeHidden();
+		await expect(page.getByTestId('publish-failure')).toContainText('first 2 files');
+	});
+
+	test('warns before starting when it needs more requests than remain, naming the reset', async ({
+		page
+	}) => {
+		// ⚠ **A budget the Workspace fits into and the publish does not, which is the whole point of
+		// forecasting what is about to be written.** This fixture holds six files; with the two the plan
+		// itself spends, thirteen is room for all of them, for the tree, for the commit and for the ref
+		// move. What does not fit is the website — twenty-odd files of viewer bundle and a site record,
+		// none of them in the Workspace at the moment this warning is computed. A forecast made against
+		// the folder as it stands says this publish fits, and the scholar meets the 403 three hundred
+		// files in instead of making the decision story 11 exists to give them.
+		await start(page, {
+			hosts: {
+				repositories: [
+					{ owner: OWNER, name: REPOSITORY, rateLimit: { remaining: 15, reset: RESET_AT } }
+				]
+			}
+		});
+
+		const dialog = await signIn(page);
+
+		const warning = dialog.locator('[data-remote-warning="request-budget"]');
+		await expect(warning).toContainText('requests in all');
+		await expect(warning).toContainText(/\d{1,2}:\d{2}/);
+		// And the budget is stated whether or not it warns, because "how many files, how many bytes,
+		// how much of the hour" is what story 9 asks for before the button is pressed at all.
+		await expect(dialog.locator('[data-budget="requests"]')).toContainText(/\d{1,2}:\d{2}/);
+		await expect(dialog.locator('[data-budget="files"]')).toContainText('need uploading');
+		// **Both numbers on the byte axis**: what the site will weigh, and the ceiling it is measured
+		// against (ADR-0008's cliff). The *warning* on that axis is asserted at seam 1
+		// — `publish-to-remote.test.ts`, "warns when the site would pass the static-hosting limit" —
+		// because provoking it from a browser means a Workspace of over a gigabyte, and a publish hashes
+		// every byte it is about to send: the fixture that stands the local warning up is a sparse file
+		// `ProjectStore#size` reports without reading, and this path would read all of it.
+		await expect(dialog.locator('[data-budget="bytes"]')).toContainText(
+			/The site will hold [\d.]+ (bytes|kB|MB|GB),\s+of the\s+1\.0 GB GitHub Pages will serve\./
+		);
+	});
+
+	/**
+	 * Story 9's two numbers, checked against what actually arrived.
+	 *
+	 * ⚠ **The forecast is made before the local publish writes**, so a count taken off the Workspace as
+	 * it stands is short by the whole website: `index.html`, `_app/**` and `ballastella-site.json` are
+	 * not there yet when the dialog states what it will send. The assertion is the one that cannot pass
+	 * over that — the stated total against the tree the Remote ends up holding, which is every file the
+	 * forecast named plus the `README.md` outside the owned namespace that a publish preserves.
+	 */
+	test('states a first publish’s file count including the website it is about to write', async ({
+		page
+	}) => {
+		const github = await start(page);
+		const dialog = await signIn(page);
+		await dialog.getByRole('checkbox').uncheck();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
+
+		const stated = await dialog.locator('[data-budget="files"]').innerText();
+		const [, uploads, total] = stated.match(/(\d+) of (\d+) files need uploading/) ?? [];
+
+		await publishToRemote(page, dialog);
+
+		const arrived = github.files(OWNER, REPOSITORY);
+		expect(arrived).toContain('index.html');
+		expect(Number(total)).toBe(arrived.length - 1);
+		// And the same total is what the publish had to upload: the repository held only the `README.md`
+		// it keeps, so every file the forecast named was new.
+		expect(Number(uploads)).toBe(Number(total));
+	});
+
+	test('stops legibly when the budget runs out part way, leaving the site as it was', async ({
+		page
+	}) => {
+		// Enough for the sign-in, both plans and a handful of blobs, and not enough for the bundle.
+		// Nothing is visible on a Remote until the ref moves, so an interrupted publish has to leave the
+		// site exactly as it was rather than half replaced (SPEC story 16).
+		const github = await start(page, {
+			hosts: {
+				repositories: [
+					{ owner: OWNER, name: REPOSITORY, rateLimit: { remaining: 20, reset: RESET_AT } }
+				]
+			}
+		});
+		const before = github.files(OWNER, REPOSITORY);
+		const commit = github.head(OWNER, REPOSITORY);
+		const dialog = await signIn(page);
+		await dialog.getByRole('checkbox').uncheck();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+
+		const stopped = dialog.getByRole('alert').first();
+		await expect(stopped).toContainText('hourly request budget ran out', { timeout: 120_000 });
+		await expect(stopped).toContainText(/\d{1,2}:\d{2}/);
+		await expect(stopped).toContainText('Nothing has been published');
+		// The branch did not move, so the Reader sees what they saw before.
+		expect(github.files(OWNER, REPOSITORY)).toEqual(before);
+		expect(github.head(OWNER, REPOSITORY)).toBe(commit);
+
+		// It survives the dialog, and it says the website itself did reach the Workspace — the half a
+		// message about the Remote alone would leave a scholar unable to account for.
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('publish-failure')).toContainText('written into this Workspace');
+	});
+
+	test('settles the address before any upload, and a refused one sends nothing', async ({
+		page
+	}) => {
+		// `scholar.example` — no scheme — is how a user ordinarily arrives here. Core's refusal ends
+		// "Nothing has been changed.", so the address is settled before the site is written *and*
+		// before a byte is sent: a refusal after an upload would make that sentence false on a public
+		// host as well as in a folder.
+		const github = await start(page);
+		const before = await takeWorkspace(page);
+		const dialog = await signIn(page);
+		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
+
+		await dialog.getByLabel(/Address your Historical Maps/).fill('scholar.example');
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+
+		await expect(dialog.getByRole('alert').first()).toContainText('Nothing has been changed.');
+		expect(await takeWorkspace(page)).toEqual(before);
+		expect(github.blobPosts()).toBe(0);
+		expect(github.files(OWNER, REPOSITORY)).toEqual(['README.md']);
+	});
+
+	// SPEC story 38 in the one place it could most easily be broken: the Publish button is on every
+	// screen now, and a scholar who never publishes must still never meet a sign-in prompt.
+	test('offers the binding rather than a sign-in when the Workspace is bound to nothing', async ({
+		page
+	}) => {
+		const github = await routeGitHubHosts(page, {
+			repositories: [{ owner: OWNER, name: REPOSITORY }]
+		});
+		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
+
+		const dialog = await openPublishDialog(page);
+
+		await expect(dialog.getByTestId('publish-unbound')).toContainText('Remote repository…');
+		await expect(dialog.getByTestId('publish-token-field')).toHaveCount(0);
+		// Nothing was asked of GitHub, and the local publish is still there and still works — a user
+		// with no Remote is not blocked by an epic about Remotes.
+		expect(github.requests).toEqual([]);
+		await dialog.getByRole('checkbox').uncheck();
+		await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.getByTestId('publish-status')).toContainText('Published:', {
+			timeout: 30_000
+		});
+		await expect(page.getByTestId('publish-status')).not.toContainText('Sent to');
+		expect(github.requests).toEqual([]);
+	});
+
+	/**
+	 * The state between the two the unbound test covers, and the one that can report a lie.
+	 *
+	 * ⚠ **Bound with no credential publishes into the Workspace and reaches nobody.** The paste form
+	 * and the confirm button are on screen together, so the press is available before the sign-in is —
+	 * and the worst arrangement of it is the one the expired-token test above produces, where the
+	 * credential is cleared from under a scholar who then presses Publish and would be told their work
+	 * is on the web. What must be on screen afterwards is the Remote that did **not** get it.
+	 */
+	test('says nothing was sent when the Workspace is bound and not signed in', async ({ page }) => {
+		const github = await start(page);
+		const before = github.files(OWNER, REPOSITORY);
+
+		const dialog = await openPublishDialog(page);
+		await expect(dialog.getByTestId('publish-sign-in-needed')).toContainText(REMOTE);
+		await dialog.getByRole('checkbox').uncheck();
+		await expect(dialog.locator('[data-warning="base-map-size"]')).toBeHidden();
+		// The label says so as well, before it is pressed: "Publish" beside a token field is the one
+		// control here that reads as putting the work on the web without doing it.
+		await dialog.getByRole('button', { name: 'Publish into this Workspace only' }).click();
+
+		const status = page.getByTestId('publish-status');
+		await expect(status).toContainText('Published:', { timeout: 30_000 });
+		await expect(status).toContainText(`Nothing was sent to ${REMOTE}`);
+		await expect(status).toContainText('not signed in to GitHub');
+		await expect(status).not.toContainText('Sent to');
+		// And the Remote is exactly as it was, which is what the sentence claims.
+		expect(github.blobPosts()).toBe(0);
+		expect(github.files(OWNER, REPOSITORY)).toEqual(before);
+		// The website itself did reach the Workspace, so publishing again after a sign-in sends it.
+		expect(Object.keys(await takeWorkspace(page))).toContain('index.html');
+	});
+
+	/**
+	 * Story 5: the credential that reaches a repository and cannot push to it.
+	 *
+	 * `signIn` reads the rights for exactly this reason, and every request a forecast makes is a GET —
+	 * so a `Contents: Read` token pastes cleanly, plans cleanly, and meets its 403 at the first blob,
+	 * with the whole website already written into the Workspace. The Remote dialog says so at a bind;
+	 * this says so at a paste.
+	 */
+	test('says a token that cannot push cannot push, before anything is written', async ({
+		page
+	}) => {
+		await start(page, {
+			hosts: { repositories: [{ owner: OWNER, name: REPOSITORY, push: false }] }
+		});
+
+		const dialog = await signIn(page);
+
+		const notice = dialog.getByTestId('publish-no-push');
+		await expect(notice).toContainText(REMOTE);
+		await expect(notice).toContainText('Contents: Read and write');
+		// It is a notice and not a refusal: the forecast is still shown, because the sentence is about
+		// what the publish will meet rather than about anything that has already gone wrong.
+		await expect(dialog.getByTestId('publish-budget')).toBeVisible();
+	});
+
+	/**
+	 * The result renders **outside** the dialog, on a bar that is on every screen (ticket 07's class).
+	 *
+	 * So closing is not what makes it stale — switching Workspace is. "Published … Sent to ada/atlas"
+	 * left under the bar of the Workspace a scholar has just switched to is a statement about that
+	 * Workspace, and it is false.
+	 */
+	test('leaves no result from one Workspace standing under the bar of the next', async ({
+		page
+	}) => {
+		await start(page);
+		await publishToRemote(page, await signIn(page));
+		await expect(page.getByTestId('publish-status')).toContainText(`Sent to ${REMOTE}`);
+
+		await createWorkspace(page, 'Marking 2026');
+
+		await expect(page.getByTestId('publish-status')).toHaveText('');
+		await expect(page.getByTestId('publish-stale')).toHaveCount(0);
+		await expect(page.getByTestId('publish-failure')).toHaveCount(0);
+	});
+
+	/**
+	 * The stale sign-in ticket 03 recorded and this ticket settled.
+	 *
+	 * Rights are read at a bind and at a paste and at no other moment, so the bar's "Signed in to
+	 * GitHub" means *a credential is held*, never *a credential still works*. The answer taken is:
+	 * leave the label alone and let the **refusal** carry it. It arrives on opening the dialog,
+	 * because planning is the first credentialed request a publish makes and it sends nothing — so a
+	 * scholar meets it with the Remote untouched rather than after four thousand tiles have gone.
+	 */
+	test('says the sign-in has expired, offers the paste, and forgets the credential', async ({
+		page
+	}) => {
+		const github = await start(page);
+		// Waited out rather than merely started: the forecast that follows a sign-in is what would meet
+		// the revoked token below, and closing the dialog on top of one still in flight would be a test
+		// asserting a race rather than the behaviour.
+		await expect((await signIn(page)).getByTestId('publish-budget')).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('remote-credential')).toHaveText('Signed in to GitHub');
+
+		// The token is revoked on GitHub's side while the tab still holds it — which is the situation,
+		// and which nothing in this browser can notice until it next asks. A second fake, installed
+		// later and therefore consulted first, is how that is arranged: Playwright takes the most
+		// recently registered matching handler.
+		const revoked = await routeGitHubHosts(page, {
+			repositories: [{ owner: OWNER, name: REPOSITORY }],
+			rejectCredential: true
+		});
+
+		const dialog = await openPublishDialog(page);
+
+		const refusal = dialog.getByTestId('publish-upload-problem');
+		await expect(refusal).toContainText('sign-in has expired');
+		await expect(refusal).toContainText(REMOTE);
+		// Not "GitHub refused this publish", which sends a scholar off to check a repository that is
+		// perfectly fine — and not a byte sent finding out.
+		await expect(refusal).not.toContainText('Bad credentials');
+		expect(revoked.blobPosts()).toBe(0);
+		expect(github.files(OWNER, REPOSITORY)).toEqual(['README.md']);
+
+		// And the credential is forgotten rather than merely reported on, so the paste is back — the
+		// bar tells the truth from here on, because there is now genuinely no credential held.
+		await expect(dialog.getByTestId('publish-token-field')).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('remote-credential')).toHaveText('Not signed in');
 	});
 });

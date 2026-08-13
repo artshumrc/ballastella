@@ -37,7 +37,11 @@
 // `DEFAULT_WORKSPACE` out as a literal, which is a different and much cheaper judgement: one word,
 // and a rename that missed it fails every spec loudly.)
 
-import { createFakeGitHub, type FakeGitHub } from '../../packages/core/src/remote/fake-github.js';
+import {
+	createFakeGitHub,
+	type FakeGitHub,
+	type FakeRateLimit
+} from '../../packages/core/src/remote/fake-github.js';
 import type { BrowserContext, Page, Route } from './test.js';
 
 /** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
@@ -46,12 +50,29 @@ export const GITHUB_API_ORIGIN = 'https://api.github.com';
 export type FakeRepository = {
 	readonly owner: string;
 	readonly name: string;
+	/**
+	 * What the repository already holds, as its first commit.
+	 *
+	 * A `README.md` by default, so the repository has the `main` branch a Pages source names. Pass
+	 * `{}` for a repository with a commit and no files, and pass files a publish must **not** touch —
+	 * a `CNAME`, a `docs/` folder — to assert ADR-0033's owned namespace from a browser.
+	 */
+	readonly files?: Readonly<Record<string, string>>;
 	/** What `GET /repos/{owner}/{repo}` reports about the caller. */
 	readonly push?: boolean;
 	/** `POST /pages` answers 409 when this is already true, and turns it on when it is not. */
 	readonly pagesEnabled?: boolean;
 	/** Answer 403 to `POST /pages`: a token with `contents: write` and no `pages: write`. */
 	readonly refusePages?: boolean;
+	/**
+	 * Cut every tree listing short after this many entries and report `truncated: true`.
+	 *
+	 * The real endpoint truncates at 100 000 entries or 7 MB **and still answers 200**, which is why
+	 * a publish that did not look would commit a tree missing most of a Workspace.
+	 */
+	readonly truncateAfter?: number;
+	/** The hourly budget this repository starts with, and when it resets. */
+	readonly rateLimit?: FakeRateLimit;
 };
 
 export type GitHubHostsOptions = {
@@ -61,12 +82,35 @@ export type GitHubHostsOptions = {
 	readonly rejectCredential?: boolean;
 };
 
-/** What the fake was asked, so a spec can assert that a Review Workspace asked nothing. */
+/**
+ * What the fake was asked, and — the half that matters — what it now holds.
+ *
+ * ⚠ **SPEC's testing decision in as many words: *a good test here asserts what arrived at the
+ * Remote, not which calls were made.*** Every failure mode in this epic is silent and plausible: a
+ * truncated tree yields a commit missing most of a pyramid, an off-by-one in the owned namespace
+ * deletes a `CNAME`. A spec counting requests passes over both, so {@link GitHubHosts.files} is what
+ * a publish is asserted on and {@link GitHubHosts.requests} is for the one claim of the opposite
+ * shape — that a Review Workspace asked GitHub nothing at all.
+ */
 export type GitHubHosts = {
 	/** Every API path that was requested, in order. */
 	readonly requests: string[];
 	/** Whether Pages is on for `owner/name`. */
 	pagesOn(owner: string, name: string): boolean;
+	/** Every path the branch's current commit holds, sorted. Empty for a repository this fake lacks. */
+	files(owner: string, name: string): string[];
+	/** The bytes at one path in the branch's current commit, as text, or `null`. */
+	fileText(owner: string, name: string, path: string): string | null;
+	/**
+	 * How many `POST /git/blobs` have arrived across every repository, refusals included.
+	 *
+	 * The one request count worth having: "the second publish uploaded nothing" and "the refusal
+	 * stopped the uploads rather than merely failing them" are claims about what was *sent*, and no
+	 * assertion on the resulting tree can make either.
+	 */
+	blobPosts(): number;
+	/** The commit the branch is on, or `null` when the repository is empty. */
+	head(owner: string, name: string): string | null;
 };
 
 const key = (owner: string, name: string): string => `${owner}/${name}`;
@@ -99,12 +143,14 @@ export async function routeGitHubHosts(
 		const fake = await createFakeGitHub({
 			owner: repository.owner,
 			repository: repository.name,
-			tree: { 'README.md': '# Atlas\n' }
+			tree: repository.files ?? { 'README.md': '# Atlas\n' }
 		});
 		fake.permissions = { push: repository.push ?? true, admin: false };
 		fake.pagesEnabled = repository.pagesEnabled ?? false;
 		fake.refusePages = repository.refusePages ?? false;
 		fake.rejectCredential = options.rejectCredential ?? false;
+		fake.truncateAfter = repository.truncateAfter ?? null;
+		if (repository.rateLimit) fake.rateLimit = { ...repository.rateLimit };
 		fakes.set(key(repository.owner, repository.name), fake);
 	}
 
@@ -133,8 +179,16 @@ export async function routeGitHubHosts(
 		});
 	});
 
+	const decoder = new TextDecoder();
 	return {
 		requests,
-		pagesOn: (owner, name) => fakes.get(key(owner, name))?.pagesEnabled ?? false
+		pagesOn: (owner, name) => fakes.get(key(owner, name))?.pagesEnabled ?? false,
+		files: (owner, name) => [...(fakes.get(key(owner, name))?.files().keys() ?? [])].sort(),
+		fileText: (owner, name, path) => {
+			const bytes = fakes.get(key(owner, name))?.files().get(path);
+			return bytes === undefined ? null : decoder.decode(bytes);
+		},
+		blobPosts: () => [...fakes.values()].reduce((sum, fake) => sum + fake.blobPosts, 0),
+		head: (owner, name) => fakes.get(key(owner, name))?.head() ?? null
 	};
 }

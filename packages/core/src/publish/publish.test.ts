@@ -656,6 +656,41 @@ describe('publishing', () => {
 		// No tiles cached, so the geography still needs the network; the labels do not.
 		expect(record.baseMapBundled).toBe(false);
 		expect(record.baseMapAssetsBundled).toBe(true);
+		expect(record.baseMapAssetsRequested).toBe(true);
+	});
+
+	/**
+	 * ⚠ **The answer, kept apart from what came of it.**
+	 *
+	 * A deployment with no Base Map archive writes `baseMapAssetsBundled: false` whatever the box
+	 * said, so that field cannot be read as the author's answer — and the publish dialog reads it back
+	 * to offer the last answer again. Read as one, a site first published from such a deployment comes
+	 * back unticked forever on every deployment that *does* have the archive: a Published Site whose
+	 * geography has no place names on it, and nothing on screen saying why.
+	 */
+	it('records that the labels were asked for even where there were none to write', async () => {
+		const withoutBaseMap = await planPublish(store, {
+			bundle: { ...bundle, baseMap: [] },
+			projects: await workspace.listProjects(),
+			includeBaseMap: true
+		});
+		await publishSite({ store, plan: withoutBaseMap, readAsset: asset });
+
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+		expect([record.baseMapAssetsBundled, record.baseMapAssetsRequested]).toEqual([false, true]);
+	});
+
+	// A record written before the answer was kept says only what was written, which is the reading the
+	// dialog had before and the best there is for a record that never carried the answer.
+	it('reads a record with no answer in it as what that record could say', async () => {
+		await store.write(
+			'ballastella-site.json',
+			encode(JSON.stringify({ projects: [], baseMapBundled: true, baseMapAssetsBundled: true }))
+		);
+
+		const record = await readPublishedSite(store);
+
+		expect(record?.baseMapAssetsRequested).toBe(true);
 	});
 
 	it('keeps the hashed chunks an earlier viewer left, which ADR-0006 accepts', async () => {
@@ -774,6 +809,7 @@ describe('telling the author a Published Site is behind', () => {
 		baseMap: FORKED_CATALOG,
 		baseMapBundled: false,
 		baseMapAssetsBundled: false,
+		baseMapAssetsRequested: false,
 		baseMapCaches: []
 	};
 	const summary = (directory: string, name: string, onFrontPage = true) => ({

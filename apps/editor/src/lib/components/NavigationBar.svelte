@@ -39,6 +39,8 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import Settings from '@lucide/svelte/icons/settings';
 
+	import PublishDialog from '$lib/publish/PublishDialog.svelte';
+	import { publishControlLabel, type PublishProgress } from '$lib/publish/publish-progress.js';
 	import UndoControl from '$lib/undo/UndoControl.svelte';
 	import { theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
@@ -72,6 +74,25 @@
 	let menu = $state<ReturnType<typeof MenuPopover> | undefined>();
 	let settingsOpen = $state(false);
 	let remoteOpen = $state(false);
+	let publishOpen = $state(false);
+	/**
+	 * Whether a publish is running, and how far it has got.
+	 *
+	 * Bound out of `PublishDialog` rather than kept there, because the control that started it is on
+	 * this bar and has to say so: `aria-disabled` with a label that reflects progress, never
+	 * `disabled` — a `disabled` button leaves the tab order the instant it is pressed, dropping a
+	 * keyboard user's focus to `<body>` for the length of the publish (SPEC story 60, WCAG 2.4.3).
+	 */
+	let publishing = $state(false);
+	let publishProgress = $state<PublishProgress | null>(null);
+	/**
+	 * Whether this Workspace may be published at all (ADR-0024, SPEC story 39).
+	 *
+	 * Absent inside a review copy rather than present and refused, which is the arrangement the hub
+	 * already had: the review copy holds somebody else's work, the hub says so in words where the
+	 * button used to be, and `packages/core` refuses the binding by any route regardless.
+	 */
+	const publishable = $derived(storage !== null && storage.review === null);
 	/** The new-Workspace field, or `null` when it is not being asked for. */
 	let newName = $state<string | null>(null);
 	let newNameField = $state<HTMLInputElement | undefined>();
@@ -487,7 +508,37 @@
 			<UndoControl {session} />
 		</div>
 
-		<!-- 5. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
+		<!--
+			5. Putting the work on the web (SPEC story 1, ADR-0032).
+
+			**Beside the save indicator, and that is the whole point of both.** "Saved locally" and
+			"Publish" answer the two questions a scholar has about where their work is, and separating
+			them across two screens is how somebody comes to believe a saved edit is a published one.
+			The Workspace is the site (ADR-0008), so this belongs to the bar rather than to a Project —
+			it was on the hub, which meant it was absent from every screen where a person is actually
+			working.
+
+			**Enabled in every state except while it is running**, and each of them leads somewhere: it
+			offers the binding when there is none, asks for the credential when there is no credential,
+			and says so when nothing needs changing. A disabled Publish button with no explanation is
+			the failure this epic exists to remove.
+		-->
+		{#if publishable}
+			<button
+				type="button"
+				class="btn btn-sm"
+				class:btn-disabled={publishing}
+				aria-disabled={publishing}
+				data-testid="publish"
+				onclick={() => {
+					if (!publishing) publishOpen = true;
+				}}
+			>
+				{publishing ? publishControlLabel(publishProgress) : 'Publish…'}
+			</button>
+		{/if}
+
+		<!-- 6. Whether the work is kept. ADR-0017 rule 5: there is no Save button, so this is the
 		     only signal that anything reached storage — which is why it is on every screen and not
 		     only on the ones that happen to write. -->
 		<div class="flex flex-col items-end" data-testid="save-slot">
@@ -574,4 +625,22 @@
 {#if storage !== null}
 	<WorkspaceSettings bind:open={settingsOpen} {storage} />
 	<RemoteSettings bind:open={remoteOpen} {storage} />
+{/if}
+
+<!--
+	ADR-0024: a Review Workspace is never published. Not mounted at all inside one, so there is no
+	dialog to reach by any route — `WorkspaceStorage.assertNotReviewing` is the second layer, on the
+	backup path where the button is in another component entirely.
+
+	Its own live regions — the outcome, the staleness notice and a refusal that outlives the modal —
+	render here, immediately under the bar, so that they are on whichever screen the user was on when
+	they pressed the button.
+-->
+{#if publishable && storage !== null}
+	<PublishDialog
+		{storage}
+		bind:open={publishOpen}
+		bind:publishing
+		bind:progress={publishProgress}
+	/>
 {/if}

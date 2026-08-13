@@ -311,7 +311,7 @@ test.describe('the alignment route', () => {
 	test('opening it writes no Alignment and adds no Layer', async ({ page }) => {
 		test.setTimeout(120_000);
 		await projectWithMap(page);
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// The starter Alignment and the Layer are both already on disk — adding the map wrote them
 		// (ADR-0023). Everything after this point must leave them exactly as they are.
@@ -549,7 +549,7 @@ test.describe('“Check this alignment”', () => {
 		await page.getByTestId('distortion-toggle').check();
 		await page.getByTestId('grid-toggle').check();
 		await expect(checkToggle(page)).toHaveAttribute('aria-expanded', 'true');
-		await expect(page.getByRole('status')).toHaveText('Saved');
+		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const stored = await page.evaluate(async () => {
 			const root = await workspaceRoot();
