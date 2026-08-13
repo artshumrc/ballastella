@@ -75,8 +75,9 @@ import { isProjectManifest } from '../transfer/restore-workspace-tar.js';
 import type { EstimateStorage, OpenRestoreDestination } from '../transfer/restore-workspace-tar.js';
 import type { TransferProgressListener } from '../transfer/transfer.js';
 import { gitBlobSha } from './blob-sha.js';
-import { GITHUB_API_ORIGIN, GITHUB_RAW_ORIGIN } from './github-api.js';
+import { GITHUB_RAW_ORIGIN, describeReset } from './github-api.js';
 import { isOwnedPath, remoteProjectDirectories } from './publish-to-remote.js';
+import { RemoteTreeRefusedError, readRemoteTree, urlPath, type RemoteBlob } from './remote-tree.js';
 import {
 	DEFAULT_REMOTE_BRANCH,
 	REMOTE_BINDING_FORMAT_VERSION,
@@ -99,6 +100,14 @@ export type CloneRefusal =
 	| 'no-repository'
 	/** The repository holds no commits, so there is nothing in it to clone. */
 	| 'empty'
+	/**
+	 * GitHub's hourly limit for anonymous readers is used up. Nothing is wrong with the repository.
+	 *
+	 * Separate from `'no-repository'` because the remedy is waiting rather than asking somebody to
+	 * change a setting — see `remote-tree.ts`'s `'rate-limited'` for why the two arrive as the
+	 * same status.
+	 */
+	| 'rate-limited'
 	/** GitHub could only list part of the file list, so a Clone would silently be incomplete. */
 	| 'truncated'
 	/** There is not enough room in the browser's storage to hold it. */
@@ -183,19 +192,6 @@ type CloneEntry = {
 	readonly sha: string;
 	readonly bytes: number;
 };
-
-/**
- * A path as URL segments.
- *
- * Per segment, so the path structure survives, and encoded, because a `#` in a file name is a
- * fragment that silently truncates the request into one for a different file.
- *
- * ⚠ **Not for a branch on the API host**, where the ref is one path parameter and a `/` in it would
- * address a different endpoint — see {@link readCloneTree}. It is right for a branch on the raw
- * host, whose URL is literally `{owner}/{repository}/{branch}/{path}` and which resolves a branch
- * name containing a slash across those segments itself.
- */
-const urlPath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
 
 /**
  * Clone a public repository's published Workspace into a new one.
@@ -351,7 +347,11 @@ export async function cloneFromRemote(
 }
 
 /**
- * Every file the branch's tip holds, from one unauthenticated tree listing.
+ * Every file of the Remote's the Clone is to bring down.
+ *
+ * The listing itself is `readRemoteTree`'s, shared with the Review so that two readers of one tree
+ * cannot come to disagree about what a repository holds; what is here is the half that is a Clone's
+ * own — the owned-namespace filter, and the sentences.
  *
  * @throws CloneRefusedError for a repository that cannot be read, and for a truncated listing
  */
@@ -359,63 +359,11 @@ async function readCloneTree(
 	remote: Required<CloneReference>,
 	fetchFn: FetchFn | undefined
 ): Promise<CloneEntry[]> {
-	const request = fetchFn ?? ((input: string, init?: RequestInit) => fetch(input, init));
-	// ⚠ The branch is **one** encoded path parameter here, unlike on the raw host. `/git/trees/{ref}`
-	// takes a single segment, so a branch of `feature/x` spelled per segment would ask for
-	// `/git/trees/feature/x` — a path this endpoint does not have at all, and one whose failure says
-	// nothing about branches.
-	const url =
-		`${GITHUB_API_ORIGIN}/repos/${urlPath(remote.owner)}/${urlPath(remote.repository)}` +
-		`/git/trees/${encodeURIComponent(remote.branch)}?recursive=1`;
-
-	let response: Response;
+	let blobs: readonly RemoteBlob[];
 	try {
-		// No `Authorization` header, by design — see this module's header. `Accept` only.
-		response = await request(url, { headers: { Accept: 'application/vnd.github+json' } });
+		blobs = await readRemoteTree(remote, fetchFn);
 	} catch (cause) {
-		throw new CloneRefusedError('refused', unreachableMessage(remote, cause));
-	}
-
-	// ⚠ 409 `Git Repository is empty.` is a repository with no commits, which is not 404 and needs its
-	// own sentence: there is nothing wrong with the address, there is simply nothing published there
-	// yet. Reported as a missing repository it sends the user off to check a name that is fine.
-	if (response.status === 409) throw new CloneRefusedError('empty', emptyMessage(remote));
-	if (response.status === 404) {
-		throw new CloneRefusedError('no-repository', noRepositoryMessage(remote));
-	}
-	if (response.status === 401 || response.status === 403) {
-		throw new CloneRefusedError('no-repository', notPublicMessage(remote));
-	}
-	if (!response.ok) {
-		throw new CloneRefusedError('refused', refusedMessage(remote, await problemOf(response)));
-	}
-
-	const body = (await response.json().catch(() => ({}))) as {
-		tree?: { path?: unknown; sha?: unknown; type?: unknown; size?: unknown }[];
-		truncated?: unknown;
-	};
-	const listed = body.tree ?? [];
-
-	// ⚠ **A truncated listing answers 200**, so nothing throws and nothing logs. Ticket 02's reason,
-	// pointing the other way: proceeding would download the part GitHub happened to mention and hand
-	// the user a Workspace with most of a pyramid silently missing — a Project that opens, draws a
-	// map with holes in it, and says nothing at all about why.
-	if (body.truncated === true) {
-		const files = listed.filter((entry) => entry.type === 'blob').length;
-		throw new CloneRefusedError('truncated', truncatedMessage(files, remote));
-	}
-
-	// Blobs only. A `tree` entry is a directory, implied by the paths beneath it; a `commit` entry is
-	// a gitlink, whose bytes live in another repository and cannot be fetched from this one.
-	const blobs: { path: string; sha: string; bytes: number }[] = [];
-	for (const entry of listed) {
-		if (entry.type !== 'blob') continue;
-		if (typeof entry.path !== 'string' || typeof entry.sha !== 'string') continue;
-		blobs.push({
-			path: entry.path,
-			sha: entry.sha,
-			bytes: typeof entry.size === 'number' ? entry.size : 0
-		});
+		throw asCloneRefusal(remote, cause);
 	}
 
 	// ⚠ **The namespace rule, asked of the Remote's own tree** — the same question and the same
@@ -434,6 +382,37 @@ async function readCloneTree(
 			? [{ ...entry, path: entry.path as StorePath }]
 			: []
 	);
+}
+
+/**
+ * A file list that could not be had, said in a Clone's own words.
+ *
+ * The kinds are the shared reader's and the sentences are this module's, which is the whole of why
+ * `remote-tree.ts` carries no message: a Review refuses the same seven things and has to say
+ * different things about them. `not-public` and `no-repository` both come out as
+ * {@link CloneRefusal} `'no-repository'` — from a browser with no credential they are one situation
+ * with two GitHub statuses — and the two sentences differ because only one of them can be acted on.
+ */
+function asCloneRefusal(remote: Required<CloneReference>, cause: unknown): CloneRefusedError {
+	if (!(cause instanceof RemoteTreeRefusedError)) {
+		return new CloneRefusedError('refused', unreachableMessage(remote, cause));
+	}
+	switch (cause.refusal) {
+		case 'no-repository':
+			return new CloneRefusedError('no-repository', noRepositoryMessage(remote));
+		case 'not-public':
+			return new CloneRefusedError('no-repository', notPublicMessage(remote));
+		case 'rate-limited':
+			return new CloneRefusedError('rate-limited', rateLimitedMessage(remote, cause.resetAt));
+		case 'empty':
+			return new CloneRefusedError('empty', emptyMessage(remote));
+		case 'truncated':
+			return new CloneRefusedError('truncated', truncatedMessage(cause.listed, remote));
+		case 'unreachable':
+			return new CloneRefusedError('refused', unreachableMessage(remote, cause.detail));
+		case 'refused':
+			return new CloneRefusedError('refused', refusedMessage(remote, cause.detail));
+	}
 }
 
 /**
@@ -520,16 +499,6 @@ function alignmentImageId(path: string): string | null {
 		: null;
 }
 
-/** GitHub's own words for a refusal, which are more useful than a status code alone. */
-async function problemOf(response: Response): Promise<string> {
-	try {
-		const body = (await response.json()) as { message?: unknown };
-		return typeof body?.message === 'string' ? body.message : response.statusText;
-	} catch {
-		return response.statusText;
-	}
-}
-
 // ── What the refusals say ─────────────────────────────────────────────────────────────────────
 
 function noRepositoryMessage(remote: CloneReference): string {
@@ -547,6 +516,27 @@ function notPublicMessage(remote: CloneReference): string {
 		`not a public repository. Cloning is deliberately an anonymous operation — it needs no ` +
 		`account and no token — so a private repository cannot be cloned at all. Whoever published it ` +
 		`has to make it public, or send you a Backup instead.`
+	);
+}
+
+/**
+ * The hourly limit, said as a wait rather than as a fault in the repository.
+ *
+ * ⚠ **It names the limit as *anonymous* and the address as *shared*, because both are what make it
+ * legible.** A Clone signs in to nothing, so the budget is GitHub's 60 requests an hour per IP
+ * address rather than a personal one — which means the person reading this may have made no requests
+ * at all and is sharing a campus NAT with a class doing the same thing at the same time (SPEC story
+ * 48). Without that, the honest reading of "rate limit" is "I did something too many times".
+ */
+function rateLimitedMessage(remote: CloneReference, resetAt: Date | null): string {
+	const at = describeReset(resetAt);
+	return (
+		`GitHub's hourly limit for anonymous readers has been used up, so ${describeRemote(remote)} ` +
+		`could not be listed. Nothing is wrong with the address and nothing is wrong with that ` +
+		`repository — cloning reads GitHub without signing in, and that allows 60 requests an hour for ` +
+		`each internet connection, so on a shared one — a university network, a classroom — everybody's ` +
+		`reading counts together. ` +
+		`${at === '' ? 'Wait until the limit resets and clone again' : `Clone again after ${at}, when the limit resets`}.`
 	);
 }
 

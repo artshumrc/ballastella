@@ -20,6 +20,7 @@ import {
 	rememberedFolderName,
 	reopenWorkspaceFolder,
 	restoreWorkspaceTar,
+	reviewFromRemote,
 	workspaceSize,
 	requestPersistentStorage,
 	browserJournalStorage,
@@ -67,6 +68,8 @@ import {
 	type RestoreDestination,
 	type ReviewDestination,
 	type ReviewMark,
+	type ReviewReference,
+	type ReviewedProject,
 	type StoragePersistence,
 	type TransferProgressListener,
 	type WorkspaceBackup,
@@ -935,6 +938,52 @@ export class WorkspaceStorage {
 			// A refusal has left nothing behind, so the progress line must not be left mid-count saying
 			// a bundle is still being read. The message the user needs is the refusal, which the hub
 			// renders as an alert.
+			this.transfer = null;
+			throw cause;
+		}
+	}
+
+	/**
+	 * Review one Project out of a public repository, into a **new Review Workspace**, and switch to it.
+	 *
+	 * ⚠ **The same destination as {@link openBundle}, deliberately.** This is the bundle path with a
+	 * different source of bytes (ADR-0024), so what arrives is the same kind of Workspace: throwaway,
+	 * unbound, unpublishable, carrying the banner. Nothing here decides that — `reviewFromRemote`
+	 * writes the mark, `#adopt` reads it back, and the banner, the sealed credential and the refused
+	 * binding all follow from the mark rather than from this method remembering to arrange them.
+	 *
+	 * ⚠ **No credential is sent, and none is read** (SPEC, "Import: two operations, both
+	 * unauthenticated"). A reviewer is often the person with no GitHub account at all — a colleague
+	 * sent a link — and consulting the store would make the flow behave differently for somebody who
+	 * happened to be signed in, in a way no test that signs in first would ever show.
+	 *
+	 * ⚠ **Always a browser-storage Workspace, whatever the current backing is**, for the reason
+	 * {@link restoreFrom} gives: browser storage can make a new Workspace by itself and a folder
+	 * cannot, and a subdirectory of the current folder would be a Workspace inside a Workspace.
+	 *
+	 * @throws ReviewRefusedError with nothing opened and no Workspace left behind
+	 */
+	async reviewFrom(remote: ReviewReference): Promise<ReviewedProject> {
+		const subject = `${describeRemote(remote)} · ${remote.project}`;
+		// Announced for `openBundle`'s reason: a Historical Map's pyramid is thousands of files over
+		// real minutes, and a still screen with nothing said is where a scholar concludes it has hung.
+		const announce = (files: number, totalFiles: number, finished: boolean) => {
+			this.transfer = { kind: 'open', subject, files, totalFiles, finished };
+		};
+		try {
+			const opened = await reviewFromRemote((preferred) => this.#makeReviewDestination(preferred), {
+				remote,
+				estimateStorage: estimateStorage,
+				onProgress: ({ files, totalFiles }) => announce(files, totalFiles, false)
+			});
+			// Only once the Review has finished. Switching first would leave the user looking at a
+			// half-filled Workspace, and `#adopt` tears down the session they are in.
+			await this.openWorkspace(opened.workspaceName);
+			announce(opened.totalFiles, opened.totalFiles, true);
+			return opened;
+		} catch (cause) {
+			// A refusal has left nothing behind, so the progress line must not be left mid-count saying
+			// a Project is still being read. What the user needs is the refusal, which the hub renders.
 			this.transfer = null;
 			throw cause;
 		}
