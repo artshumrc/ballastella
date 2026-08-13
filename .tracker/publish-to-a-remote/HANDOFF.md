@@ -84,14 +84,14 @@ Requirements, from ADR-0031 and the ticket-10 contract:
 - It is stateless. It exists only because `github.com/login/oauth/access_token` sends no CORS headers;
   every other request goes from the browser straight to `api.github.com`.
 
-**Follow your existing conventions — and note a mismatch in this epic's own prose.** SPEC.md and
-TRACKER.md say "no SAM template belongs in this repository", which implies SAM. Your
-`infrastructure` repo is **AWS CDK**. Build it as CDK.
+**Build it with SAM**, as SPEC.md and TRACKER.md say — `template.yaml`, `sam build`, `sam deploy`.
+The other services in `infrastructure/` are CDK; the broker is not, and does not need to be. It shares
+nothing with them: no VPC, no database, no shared resource. It is one stateless function and an
+endpoint, which is what SAM is for.
 
-**`infrastructure/emailer/` is the closest model** and is nearly the same shape: a TypeScript CDK
-Lambda behind API Gateway that validates an inbound header. Copy its layout
-(`bin/`, `lib/`, `cdk.json`, `test/`). `backup_service/` is the Python CDK equivalent if you prefer
-Python. Deploy with `cdk deploy`, as those do — not the AWS CLI by hand.
+`infrastructure/emailer/` is still worth reading for the **shape** rather than the tooling — a Lambda
+behind API Gateway that validates an inbound header before doing anything — but do not copy its CDK
+layout.
 
 Verify before going on: `POST {broker}/github/token` with a junk code should answer GitHub's error
 JSON shape, and a request from a disallowed `Origin` should be refused.
