@@ -33,10 +33,10 @@ The ceiling starts at the current count and is **lowered** by later tickets as t
 
 ## Acceptance criteria
 
-- [ ] `pnpm lint` runs the check and passes at the current count.
-- [ ] Setting the ceiling one below the current count makes `pnpm lint` fail, with a message naming both numbers.
-- [ ] The check does not start a web server or trigger a build, and adds no more than a second or two to `pnpm lint`.
-- [ ] The ceiling and its rationale are readable in one file.
+- [x] `pnpm lint` runs the check and passes at the current count.
+- [x] Setting the ceiling one below the current count makes `pnpm lint` fail, with a message naming both numbers.
+- [x] The check does not start a web server or trigger a build, and adds no more than a second or two to `pnpm lint`.
+- [x] The ceiling and its rationale are readable in one file.
 
 ```bash
 pnpm lint                                   # passes
