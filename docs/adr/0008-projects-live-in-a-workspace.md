@@ -5,6 +5,10 @@
 > **Amended by [ADR-0024](./0024-backup-and-handoff-are-different-artefacts.md):** "a project zip is one project subdirectory" no longer describes transfer. Backup is a **tar of the whole workspace**; a project bundle is a separate artefact that opens only in a throwaway Review Workspace and is never merged into the recipient's own.
 >
 > The shared ~1 GB budget below is *more* significant under ADR-0023, not less: the workspace can hold historical maps no project uses, and publishing is additive so it cannot exclude them. The hosting warning must name that weight.
+>
+> **Amended by [ADR-0032](./0032-publish-means-the-remote.md): the "hub page" below is the *Front Page*.** "Hub" was doing two jobs — this record's reader-facing published root, and `ProjectHub.svelte`, which is the *editor's* Project list. Read every "hub page" here as **Front Page**, and note that a Project is now either on it or not, which this record's `?p=` addressing already makes possible at no cost: a Project absent from the Front Page is still reachable by its query parameter, and is therefore not private.
+>
+> **The "one repository to set up, not N" argument below is now load-bearing for a second reason.** Publishing is a push to a **Remote** — one repository per Workspace, bound in the app — so the count of repositories a student must create is the count this record already argued down to one.
 
 A user chooses one **workspace** directory. Projects are directories inside it. Publishing writes a single `index.html` and one shared viewer bundle at the workspace root; that root, published, is a hub page listing every project, with a project addressed by query parameter — `/?p=amsterdam-1625`.
 
