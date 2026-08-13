@@ -45,10 +45,9 @@ TRACKER.md. It is now unblocked — ask and I will do it.
 
 **This is the only item with real work in it, and the work is not where you might expect.**
 
-> ⚠ **The broker does not exist.** `/home/dflood/repos/infrastructure/github_broker/` is an empty
-> directory. There is no handler, no infrastructure-as-code, and nothing to deploy. This is not a
-> `cdk deploy` away — the service has to be written first. This epic deliberately kept it out of the
-> Ballastella repository and carried only the contract, so that the two could not drift.
+> **The handler is written; the packaging is not.** `/home/dflood/repos/infrastructure/github_broker/`
+> now holds `index.mjs`, `index.test.mjs` (17 tests, `node --test`, no dependencies) and a `README.md`
+> recording the contract. What is missing is `template.yaml` and a deploy — see step 2.
 
 Do these in order; each is independently verifiable.
 
@@ -65,9 +64,19 @@ The two that bite:
 
 Keep the **client ID** (public) and the **client secret** (never leaves the broker).
 
-### Step 2 — Write and deploy the broker
+### Step 2 — Package and deploy the broker
 
-Two endpoints, and nothing else. No repository data ever passes through it:
+**The handler is done.** `infrastructure/github_broker/index.mjs` implements both endpoints, and
+`index.test.mjs` pins them to the shapes `github-sign-in.ts` actually parses — including the three
+properties that are easy to get wrong and impossible to notice: a refusal comes back in the body with
+a 200, GitHub's answer is passed through unchanged, and the CORS preflight is answered (without it,
+`fetch` rejects and the editor reports the broker as unreachable rather than as refusing).
+
+What is left is packaging: a `template.yaml` with one function and two routes, `sam build`,
+`sam deploy`, and `GITHUB_BROKER_APPS` set to the JSON in that README. Nothing in the handler needs to
+change to deploy it.
+
+For reference, the two endpoints it serves — no repository data passes through either:
 
 ```
 POST {broker}/github/token    { client_id, code, redirect_uri }  → GitHub's token JSON verbatim,
