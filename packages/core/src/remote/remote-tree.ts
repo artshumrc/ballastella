@@ -16,12 +16,13 @@
 // caller writes its own from {@link RemoteTreeRefusedError.refusal} — this module has no opinion
 // about how a refusal is spelled and must not grow one.
 //
-// It has no test of its own: every branch is reached through `clone-from-remote.test.ts` and
-// `review-from-remote.test.ts`, which drive it against the shared fake GitHub and assert the
-// sentences their own callers produce.
+// `remote-tree.test.ts` drives this directly, because most of what is here is a reading of responses
+// no caller can produce through the fake — a body that is not JSON, a `tree` that is not an array, a
+// status neither reader has a name for. What the *callers* do with each refusal is asserted in
+// `clone-from-remote.test.ts` and `review-from-remote.test.ts`, against the sentences they write.
 
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import { GITHUB_API_ORIGIN } from './github-api.js';
+import { GITHUB_API_ORIGIN, headerNumber } from './github-api.js';
 
 /** The repository a listing is read from, with its branch already decided. */
 export type RemoteTreeReference = {
@@ -44,6 +45,17 @@ export type RemoteTreeRefusal =
 	| 'no-repository'
 	/** GitHub demanded a credential, so the repository is not a public one. */
 	| 'not-public'
+	/**
+	 * GitHub's hourly limit for anonymous readers is used up, whatever the repository is.
+	 *
+	 * ⚠ **Told apart from {@link RemoteTreeRefusal} `'not-public'` by the remaining count, and it has
+	 * to be.** The unauthenticated API allows 60 requests an hour **per IP address**, and answers 403
+	 * when they are gone — the same status a repository needing a credential answers. On a shared
+	 * campus address, a class all reading their instructor's repository spends that between them, so
+	 * reporting it as a private repository tells a room full of people to change a setting on somebody
+	 * else's repository (SPEC story 48). Waiting is the remedy, and only this refusal can say so.
+	 */
+	| 'rate-limited'
 	/** The repository holds no commits, so there is nothing in it to read. */
 	| 'empty'
 	/** GitHub could only list part of the tree, so anything built from it would silently be partial. */
@@ -65,13 +77,16 @@ export class RemoteTreeRefusedError extends Error {
 	readonly detail: string;
 	/** How many files a truncated listing did name. `0` for every other refusal. */
 	readonly listed: number;
+	/** When the hourly budget starts again, for `'rate-limited'`. `null` when GitHub did not say. */
+	readonly resetAt: Date | null;
 
-	constructor(refusal: RemoteTreeRefusal, detail = '', listed = 0) {
+	constructor(refusal: RemoteTreeRefusal, detail = '', listed = 0, resetAt: Date | null = null) {
 		super(`The file list could not be read: ${refusal}.`);
 		this.name = 'RemoteTreeRefusedError';
 		this.refusal = refusal;
 		this.detail = detail;
 		this.listed = listed;
+		this.resetAt = resetAt;
 	}
 }
 
@@ -127,6 +142,20 @@ export async function readRemoteTree(
 	// yet. Reported as a missing repository it sends the user off to check a name that is fine.
 	if (response.status === 409) throw new RemoteTreeRefusedError('empty');
 	if (response.status === 404) throw new RemoteTreeRefusedError('no-repository');
+	// ⚠ **A 403 is two different situations and the remaining count is what separates them.** GitHub
+	// answers 403 both to a repository that needs a credential and to an anonymous reader who has
+	// spent the hourly 60 requests their IP address is allowed — and the second is the ordinary case
+	// on a shared campus connection. A missing header is deliberately *not* a spent budget: the count
+	// is `null` when the response did not expose it, and only an explicit nought is a wait.
+	if (response.status === 403 && headerNumber(response.headers, 'X-RateLimit-Remaining') === 0) {
+		const reset = headerNumber(response.headers, 'X-RateLimit-Reset');
+		throw new RemoteTreeRefusedError(
+			'rate-limited',
+			'',
+			0,
+			reset !== null && reset > 0 ? new Date(reset * 1000) : null
+		);
+	}
 	if (response.status === 401 || response.status === 403) {
 		throw new RemoteTreeRefusedError('not-public');
 	}
@@ -135,10 +164,19 @@ export async function readRemoteTree(
 	}
 
 	const body = (await response.json().catch(() => ({}))) as {
-		tree?: { path?: unknown; sha?: unknown; type?: unknown; size?: unknown }[];
+		tree?: unknown;
 		truncated?: unknown;
 	};
-	const listed = body.tree ?? [];
+	// `Array.isArray` rather than `?? []`: a `tree` that is a string is iterable, and one that is a
+	// number is not iterable at all — so an answer that is JSON but not this endpoint's would either
+	// walk it character by character or throw a `TypeError` out of a function whose whole job is to
+	// turn a bad answer into a refusal.
+	const listed = (Array.isArray(body.tree) ? body.tree : []) as readonly {
+		path?: unknown;
+		sha?: unknown;
+		type?: unknown;
+		size?: unknown;
+	}[];
 
 	// Blobs only. A `tree` entry is a directory, implied by the paths beneath it; a `commit` entry is
 	// a gitlink, whose bytes live in another repository and cannot be fetched from this one.

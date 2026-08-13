@@ -467,6 +467,71 @@ describe('cloneFromRemote', () => {
 			expect((error as Error).message).toContain('private');
 		});
 
+		it('refuses a repository GitHub will not read at all without signing in', async () => {
+			// GitHub answers 401 rather than 404 for some private repositories, and the sentence differs
+			// from the missing-repository one because only this one can be acted on: there is nothing to
+			// check in the address, and cloning has no sign-in to offer.
+			const demanding = (async () =>
+				new Response(JSON.stringify({ message: 'Requires authentication' }), {
+					status: 401,
+					headers: { 'content-type': 'application/json' }
+				})) as FetchFn;
+
+			const error = await cloneFromRemote(destinationFor(new MemoryProjectStore()).open, {
+				remote: { owner: OWNER, repository: REPOSITORY },
+				fetch: demanding
+			}).catch((cause: unknown) => cause);
+
+			expect(error).toBeInstanceOf(CloneRefusedError);
+			expect((error as CloneRefusedError).refusal).toBe('no-repository');
+			expect((error as Error).message).toContain('not a public repository');
+			expect((error as Error).message).toContain('send you a Backup instead');
+		});
+
+		it('tells the anonymous hourly limit apart from a repository that is not public', async () => {
+			// ⚠ **A spent budget and a private repository are both 403.** A Clone signs in to nothing, so
+			// the budget is GitHub's 60 requests an hour *per IP address*: a class of students on one
+			// campus connection cloning their instructor's repository spends it between them (SPEC story
+			// 48), and "make it public" is then an instruction about somebody else's repository that
+			// would not help if they followed it. The fake answers 403 before it looks at a credential,
+			// which is what makes this the anonymous reader's 403.
+			const fake = await github();
+			fake.rateLimit = { remaining: 0, reset: 1_800_000_000 };
+			const destination = destinationFor(new MemoryProjectStore());
+
+			const error = await cloneFromRemote(destination.open, {
+				remote: { owner: OWNER, repository: REPOSITORY },
+				fetch: fake.fetch
+			}).catch((cause: unknown) => cause);
+
+			expect(error).toBeInstanceOf(CloneRefusedError);
+			expect((error as CloneRefusedError).refusal).toBe('rate-limited');
+			expect((error as Error).message).toContain('hourly limit for anonymous readers');
+			expect((error as Error).message).toContain('60 requests an hour');
+			// Named as a wait, and never as a fault in the repository or in the address.
+			expect((error as Error).message).not.toContain('private');
+			expect((error as Error).message).toContain('when the limit resets');
+			expect((error as Error).message).toContain('Nothing has been downloaded.');
+			expect(destination.opened).toBe(0);
+			expect(fake.rawGets).toBe(0);
+		});
+
+		it('refuses legibly when the file list fails in a way it has no name for', async () => {
+			// A `fetch` replaced by an extension or a service worker can answer with something that is
+			// not a response at all, and the reading of it throws where nothing catches. What the user
+			// gets is still a refusal rather than the first line of a stack trace.
+			const answering = (async () => null) as unknown as FetchFn;
+
+			const error = await cloneFromRemote(destinationFor(new MemoryProjectStore()).open, {
+				remote: { owner: OWNER, repository: REPOSITORY },
+				fetch: answering
+			}).catch((cause: unknown) => cause);
+
+			expect(error).toBeInstanceOf(CloneRefusedError);
+			expect((error as CloneRefusedError).refusal).toBe('refused');
+			expect((error as Error).message).toContain('Nothing has been downloaded.');
+		});
+
 		it('tells an empty repository apart from a missing one', async () => {
 			// ⚠ 409 `Git Repository is empty.`, which is what a repository made at github.com/new with
 			// no README answers. Reported as "no such repository" it sends the user to check an address

@@ -37,7 +37,7 @@ import {
 import { topLevelSegment, type Bytes, type ProjectStore } from '../store/project-store.js';
 import { JEKYLL_OFF_MARKER, isViewerFile } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
-import { GITHUB_API_ORIGIN } from './github-api.js';
+import { GITHUB_API_ORIGIN, describeReset, rateLimitOf } from './github-api.js';
 import { REMOTE_BINDING_PATH } from './remote-binding.js';
 
 /**
@@ -351,21 +351,6 @@ export function isOwnedPath(path: string, remoteProjects: ReadonlySet<string>): 
 type Budget = { remaining: number | null; resetAt: Date | null };
 
 /**
- * A header's number, or `null` when it is absent or unreadable.
- *
- * ⚠ `Headers#get` answers `null` for a header that is not there and `Number(null)` is `0`, which
- * `Number.isFinite` accepts — so a response carrying no budget header would otherwise read as a
- * budget of nought: a warning that GitHub allows no more requests this hour, and every later 403,
- * including a token with no `contents: write`, reported as a rate limit that waiting would fix.
- */
-function headerNumber(headers: Headers, name: string): number | null {
-	const raw = headers.get(name);
-	if (raw === null || raw.trim() === '') return null;
-	const value = Number(raw);
-	return Number.isFinite(value) ? value : null;
-}
-
-/**
  * A branch name as URL path segments.
  *
  * Per segment, because `refs/heads/one/two` is a branch called `one/two` and an encoded slash names
@@ -399,11 +384,12 @@ function createRemoteApi(options: RemotePublishOptions, budget: Budget): RemoteA
 				}
 			});
 			// Read rather than inferred, and read from every response: `api.github.com` names both in
-			// `access-control-expose-headers`, so the browser can see what it has left (ADR-0031).
-			const remaining = headerNumber(response.headers, 'X-RateLimit-Remaining');
-			if (remaining !== null) budget.remaining = remaining;
-			const reset = headerNumber(response.headers, 'X-RateLimit-Reset');
-			if (reset !== null && reset > 0) budget.resetAt = new Date(reset * 1000);
+			// `access-control-expose-headers`, so the browser can see what it has left (ADR-0031). Kept
+			// from the last response that said anything, so a response with the headers stripped leaves
+			// the budget as it was rather than blanking it.
+			const said = rateLimitOf(response.headers);
+			if (said.remaining !== null) budget.remaining = said.remaining;
+			if (said.resetAt !== null) budget.resetAt = said.resetAt;
 			return response;
 		}
 	};
@@ -830,12 +816,6 @@ export async function publishToRemote(
 }
 
 // ── What the refusals and the warnings say ────────────────────────────────────────────────────
-
-/** A clock time a person reads, or `''` when the Remote never said when the budget resets. */
-const describeReset = (resetAt: Date | null): string =>
-	resetAt === null
-		? ''
-		: resetAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
 function truncatedMessage(listed: number, remote: RemoteRepository): string {
 	return (

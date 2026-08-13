@@ -104,6 +104,14 @@
 		reviewingRemote = true;
 	};
 
+	/**
+	 * Put the Review dialog away, unless a download is running.
+	 *
+	 * A Review cannot be stopped part way: there is no resume, and `reviewFromRemote` discards the
+	 * whole review copy on its way out of a failure, so there is nothing a cancel could keep. Rather
+	 * than answer nothing to a control that looks pressable, the dialog says it: the buttons are shown
+	 * as unavailable and Escape is refused while `reviewBusy` — see `dismissable` below.
+	 */
 	const cancelReviewingRemote = () => {
 		if (reviewBusy) return;
 		reviewingRemote = false;
@@ -946,6 +954,7 @@
 	}
 	title="Review a Project from GitHub"
 	restoreFocusTo={() => bundleNoticeLine}
+	dismissable={!reviewBusy}
 >
 	<label class="floating-label">
 		<span>Repository</span>
@@ -998,18 +1007,33 @@
 		</div>
 	{/if}
 	{#snippet actions()}
-		<button class="btn" onclick={cancelReviewingRemote}>Cancel</button>
+		<!-- ⚠ **Shown as unavailable while the download runs, because it is.** A Review cannot be
+		     stopped part way — there is no resume and nothing to keep — so `cancelReviewingRemote`
+		     declines, and a Cancel button that looks pressable and answers nothing is the worst of the
+		     three states. Escape is refused for the same reason (`dismissable` above), which is what
+		     keeps the dialog on screen to carry the progress line and any refusal. -->
+		<button
+			class="btn"
+			class:btn-disabled={reviewBusy}
+			aria-disabled={reviewBusy}
+			data-testid="cancel-review-remote"
+			onclick={cancelReviewingRemote}
+		>
+			Cancel
+		</button>
 		<!-- `aria-disabled` for the *busy* half rather than `disabled`, which leaves the tab order the
 		     moment it is pressed and drops a keyboard user's focus to `<body>` for the length of the
 		     download (WCAG 2.4.3). `disabled` is still right for the empty fields, which have never
-		     been pressed. -->
+		     been pressed — but only while nothing is running: a field cleared mid-download would
+		     otherwise turn the button the user just pressed into a `disabled` one and take their focus
+		     with it, which is the identical defect the busy half is written around. -->
 		<button
 			class="btn btn-primary"
 			class:btn-disabled={reviewBusy}
 			aria-disabled={reviewBusy}
 			data-testid="confirm-review-remote"
 			onclick={() => !reviewBusy && runReviewRemote()}
-			disabled={reviewRepository.trim() === '' || reviewProject.trim() === ''}
+			disabled={!reviewBusy && (reviewRepository.trim() === '' || reviewProject.trim() === '')}
 		>
 			{reviewBusy ? 'Downloading…' : 'Open in a review copy'}
 		</button>

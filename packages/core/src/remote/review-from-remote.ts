@@ -58,7 +58,7 @@
 import { writeAlignmentBytes } from '../alignment/alignment-file.js';
 import { ALIGNMENT_DIRECTORY, alignmentPath } from '../alignment/alignment.js';
 import type { FetchFn } from '../injection/store-image-fetch.js';
-import { imageDirectory } from '../project/image-files.js';
+import { IMAGE_DIRECTORY, imageDirectory } from '../project/image-files.js';
 import {
 	BALLASTELLA_CANONICAL_URL,
 	ProjectFormatTooNewError,
@@ -72,15 +72,17 @@ import {
 	serialiseReviewMark
 } from '../project/review-workspace.js';
 import { describeBytes } from '../project/workspace-size.js';
+import { REFERENCED_IMAGE_FILE } from '../remote-iiif/referenced-image.js';
 import { createHttpProjectStore } from '../store/http-project-store.js';
 import type { Bytes, ProjectStore, StorePath } from '../store/project-store.js';
+import { layerReferences } from '../transfer/open-project-bundle.js';
 import type { OpenReviewDestination, ReviewDestination } from '../transfer/open-project-bundle.js';
 import type { EstimateStorage } from '../transfer/restore-workspace-tar.js';
 import type { TransferProgressListener } from '../transfer/transfer.js';
 import { isViewerFile } from '../transfer/viewer-files.js';
 import { gitBlobSha } from './blob-sha.js';
 import type { CloneReference } from './clone-from-remote.js';
-import { GITHUB_RAW_ORIGIN } from './github-api.js';
+import { GITHUB_RAW_ORIGIN, describeReset } from './github-api.js';
 import { remoteProjectDirectories } from './publish-to-remote.js';
 import { RemoteTreeRefusedError, readRemoteTree, urlPath, type RemoteBlob } from './remote-tree.js';
 import { DEFAULT_REMOTE_BRANCH, describeRemote } from './remote-binding.js';
@@ -107,6 +109,14 @@ export type ReviewReference = CloneReference & {
 export type ReviewRefusal =
 	/** No such public repository, or one no anonymous reader can see — which look the same. */
 	| 'no-repository'
+	/**
+	 * GitHub's hourly limit for anonymous readers is used up. Nothing is wrong with the repository.
+	 *
+	 * Separate from `'no-repository'` because the remedy is waiting rather than asking somebody to
+	 * change a setting — see `remote-tree.ts`'s `'rate-limited'` for why the two arrive as the
+	 * same status, and why a class reviewing one instructor's repository is how a scholar gets here.
+	 */
+	| 'rate-limited'
 	/** The repository holds no commits, so there is nothing in it to review. */
 	| 'empty'
 	/** GitHub could only list part of the file list, so a Review would silently be incomplete. */
@@ -149,6 +159,24 @@ export type ReviewFromRemoteOptions = {
 	readonly now?: () => Date;
 };
 
+/**
+ * A file this Project's Layers name that the Remote does not hold.
+ *
+ * ⚠ **The Review does not refuse over one, and does not hide one either.** The bundle path refuses
+ * the same situation by name (`assertReferencesPresent`), which it can because a bundle is one file
+ * a sender can be asked to make again. A Remote is not: refusing would leave a reviewer unable to
+ * read the Annotations that *did* arrive, over a pyramid whose absence is the author's mistake and
+ * not theirs. So what arrives is everything there was, and this says what was not there.
+ */
+export interface UnmetReference {
+	/** The path the Remote would have had to hold, as a reviewer could ask its author for it. */
+	readonly reference: string;
+	/** The Layer that needed it, named as the Layer card names it. */
+	readonly layer: string;
+	/** What will be missing on screen, which is what makes the notice's two sentences different. */
+	readonly kind: 'image' | 'annotation';
+}
+
 /** What a Review did, in the numbers and words a caller has to report. */
 export interface ReviewedProject {
 	/** The Review Workspace it landed in, which the caller now has to switch to. */
@@ -159,7 +187,26 @@ export interface ReviewedProject {
 	readonly project: ProjectFile;
 	/** How many files were written, `project.json` included. */
 	readonly totalFiles: number;
+	/**
+	 * How many bytes were **written**, which is not what `WorkspaceClone.totalBytes` counts.
+	 *
+	 * A Clone reports the tree's own figure for everything it means to fetch, because a resumed Clone
+	 * writes only some of it and the total a progress line counts towards must not move between runs.
+	 * A Review always writes everything it fetches, once, so the honest figure is the one measured on
+	 * the way past — and it is the figure the closing progress report ends on.
+	 */
 	readonly totalBytes: number;
+	/**
+	 * Files this Project's Layers name that the Remote did not hold, and that therefore did not come.
+	 *
+	 * Empty for a Project published whole, which is every ordinary one. Reported rather than
+	 * swallowed, for `WorkspaceClone.declined`'s reason — a transfer that quietly delivers less
+	 * than it was given is the exact failure `restore-workspace-tar.ts`'s whole format change escaped
+	 * — and here the reviewer cannot discover it any other way: a Layer card has no missing-image
+	 * state, so a map Layer whose pyramid never arrived draws blank and looks exactly like one nobody
+	 * has aligned yet.
+	 */
+	readonly unmet: readonly UnmetReference[];
 	/** What the user has to be told, in the words they should see. */
 	readonly notice: string;
 }
@@ -177,6 +224,8 @@ type ReviewEntry = RemoteBlob & { readonly path: StorePath };
  * 3. **`project.json` is fetched and parsed**, so ADR-0010's refusal of a Project from the future
  *    lands while there is still nothing to throw away — and so the Layers can say what else travels.
  * 4. **The closure is gathered**, and the quota checked against the byte total the listing reports.
+ *    A reference the Remote turns out not to hold does not stop this — it is carried out on
+ *    {@link ReviewedProject.unmet} and named in the notice, for `gather`'s reason.
  * 5. **The Review Workspace is created, and marked, before a single Project byte lands.** The mark
  *    is what makes the banner appear; written last, an interrupted Review would leave a Workspace
  *    full of somebody else's work looking exactly like the user's own.
@@ -231,7 +280,7 @@ export async function reviewFromRemote(
 	const manifestBytes = await read(manifestEntry);
 	const project = readManifest(manifestBytes);
 
-	const wanted = gather(blobs, directory, project);
+	const { wanted, unmet } = gather(blobs, directory, project);
 	const totalBytes = wanted.reduce((sum, entry) => sum + entry.bytes, 0) + manifestEntry.bytes;
 	await assertRoomToReview(totalBytes, options.estimateStorage);
 
@@ -260,7 +309,14 @@ export async function reviewFromRemote(
 		report(null);
 		for (const entry of wanted) {
 			const content = await read(entry);
-			await writeReviewed(store, entry.path, content);
+			// ⚠ **A decline is a refusal here rather than a file quietly left out**, which is the whole
+			// difference between this and the Clone's resume. The destination is made by this call and is
+			// empty, so `writeAlignmentBytes` cannot decline against it — but if it ever could, counting
+			// the file as written would report a Review that delivered everything while an Alignment was
+			// missing from the Workspace, which is the failure `unmet` exists to make impossible.
+			if ((await writeReviewed(store, entry.path, content)) === 'declined') {
+				throw new ReviewRefusedError('incomplete', declinedFileMessage(entry.path));
+			}
 			files += 1;
 			bytes += content.byteLength;
 			report(entry.path);
@@ -279,11 +335,13 @@ export async function reviewFromRemote(
 			project,
 			totalFiles: files,
 			totalBytes: bytes,
+			unmet,
 			notice:
 				`Opened “${project.name || directory}” from ${describeRemote(remote)} into a review copy ` +
 				`called “${destination.name}”. It is a throwaway Workspace: your own Workspaces have not ` +
 				`been touched, nothing here can be copied into them, and discarding this one removes ` +
-				`everything in it.`
+				`everything in it.` +
+				unmetSentence(unmet)
 		};
 	} catch (cause) {
 		// What makes "Nothing has been opened" true. A discard that itself fails must not replace the
@@ -310,6 +368,8 @@ async function readReviewTree(
 				throw new ReviewRefusedError('no-repository', noRepositoryMessage(remote));
 			case 'not-public':
 				throw new ReviewRefusedError('no-repository', notPublicMessage(remote));
+			case 'rate-limited':
+				throw new ReviewRefusedError('rate-limited', rateLimitedMessage(remote, cause.resetAt));
 			case 'empty':
 				throw new ReviewRefusedError('empty', emptyMessage(remote));
 			case 'truncated':
@@ -347,6 +407,12 @@ function findProject(
 	return { directory: remote.project, manifest: { ...manifest, path: manifest.path as StorePath } };
 }
 
+/** What a Review is to bring down, and what its Layers named that the Remote turned out not to hold. */
+type Closure = {
+	readonly wanted: readonly ReviewEntry[];
+	readonly unmet: readonly UnmetReference[];
+};
+
 /**
  * The Project's own files, and the shared material its Layers reference. Nothing else.
  *
@@ -356,60 +422,135 @@ function findProject(
  * because a Workspace holds a shared pool (ADR-0023) and a reviewer has no business receiving a
  * pyramid no Layer of the Project they were sent points at.
  *
- * A Layer whose image the Remote does not hold contributes nothing rather than failing. Publishing a
- * Project whose pyramid never made it is the author's mistake to see, and refusing the Review over it
- * would leave the reviewer unable to read the Annotations that *are* there — where opening it shows
- * them a Layer that draws nothing, which is what the Layer card already says.
+ * ⚠ **What the Remote does not hold is *reported*, never dropped, and never refused over.** The
+ * bundle path refuses the same situation by name — `assertReferencesPresent`, "this bundle is missing
+ * X, which the Layer Y needs to be drawn" — and it can, because a bundle is one file its sender can
+ * be asked to make again. Refusing here would punish a reviewer for their author's publishing
+ * mistake and leave them unable to read the Annotations that *did* arrive. Silently dropping it is
+ * worse still: nothing on a Layer card says an image is missing, so the map Layer draws blank and is
+ * indistinguishable from one nobody has aligned yet. So both loops below answer with what came *and*
+ * with what did not, and {@link reviewFromRemote} says so in the notice.
+ *
+ * **One pass over the tree**, bucketed by what each path is under, rather than a scan per referenced
+ * Historical Map. A Project with fifty maps would otherwise walk a fifty-thousand-file listing fifty
+ * times to find the same thing each time.
  *
  * `project.json` is not among these: it has been read already and is written last.
  */
-function gather(
-	blobs: readonly RemoteBlob[],
-	directory: string,
-	project: ProjectFile
-): ReviewEntry[] {
+function gather(blobs: readonly RemoteBlob[], directory: string, project: ProjectFile): Closure {
 	const prefix = `${directory}/`;
 	const manifest = projectFilePath(directory);
 
 	const wanted: ReviewEntry[] = [];
-	for (const entry of blobs) {
-		if (!entry.path.startsWith(prefix) || entry.path === manifest) continue;
-		// ⚠ The predicate is asked of the **Project-relative** name, which is what it is a predicate
-		// about, and it is the same one the exporter asks. A published Project directory holds
-		// `annotations/` and nothing else, so this removes nothing today — but a Workspace made by
-		// unpacking a Published Site into a Project folder has the viewer's own files inside it
-		// (ADR-0006), and those are publishing's rather than the author's.
-		if (isViewerFile(entry.path.slice(prefix.length))) continue;
-		wanted.push({ ...entry, path: entry.path as StorePath });
+	/** Everything under `<dir>/` that is travelling, so an Annotation's reference can be checked. */
+	const inProject = new Set<string>();
+	const byImage = new Map<string, ReviewEntry[]>();
+	const byPath = new Map<string, ReviewEntry>();
+
+	for (const blob of blobs) {
+		const entry: ReviewEntry = { ...blob, path: blob.path as StorePath };
+		if (blob.path.startsWith(prefix)) {
+			if (blob.path === manifest) continue;
+			// ⚠ The predicate is asked of the **Project-relative** name, which is what it is a predicate
+			// about, and it is the same one the exporter asks. A published Project directory holds
+			// `annotations/` and nothing else, so this removes nothing today — but a Workspace made by
+			// unpacking a Published Site into a Project folder has the viewer's own files inside it
+			// (ADR-0006), and those are publishing's rather than the author's.
+			if (isViewerFile(blob.path.slice(prefix.length))) continue;
+			inProject.add(blob.path);
+			wanted.push(entry);
+			continue;
+		}
+		const segments = blob.path.split('/');
+		if (segments[0] === IMAGE_DIRECTORY && segments.length > 2) {
+			const imageId = segments[1] ?? '';
+			const held = byImage.get(imageId);
+			if (held === undefined) byImage.set(imageId, [entry]);
+			else held.push(entry);
+			continue;
+		}
+		byPath.set(blob.path, entry);
 	}
 
-	for (const imageId of referencedImageIds(project)) {
-		const images = `${imageDirectory(imageId)}/`;
-		for (const entry of blobs) {
-			if (entry.path === alignmentPath(imageId) || entry.path.startsWith(images)) {
-				wanted.push({ ...entry, path: entry.path as StorePath });
+	const unmet: UnmetReference[] = [];
+	const taken = new Set<string>();
+	for (const layer of project.layers) {
+		const named = layer.name || layer.id;
+		// An Annotation Layer's `geojsonRef` is Project-relative, so what it names is under `<dir>/` and
+		// has already been taken above if it is there at all. Asked through the bundle reader's own
+		// collector so that a Layer kind added later cannot say one thing to a bundle and another here.
+		for (const reference of layerReferences(layer)) {
+			if (reference === '') continue;
+			if (!inProject.has(`${prefix}${reference}`)) {
+				unmet.push({ reference: `${prefix}${reference}`, layer: named, kind: 'annotation' });
 			}
 		}
+
+		// A map Layer is the only kind asked about a Historical Map. A kind this build has never heard
+		// of is not, because this build cannot know that a foreign kind's `imageId` names one at all —
+		// the same judgement `open-project-bundle.ts` makes about the same field.
+		if (layer.kind !== 'map' || layer.imageId === '') continue;
+		const files = byImage.get(layer.imageId) ?? [];
+		const directoryOf = imageDirectory(layer.imageId);
+		// **Two ways to be describable, because there are two kinds of image** (`assertReferencesPresent`
+		// makes the same distinction): a local copy has the `info.json` that makes its pyramid readable,
+		// a referenced one has `remote.json` because its tiles are on somebody else's server. A heap of
+		// tiles with neither is a directory no client can open, so the image is missing whether or not
+		// the directory exists — and its tiles are then not worth downloading.
+		const readable = files.some(
+			(entry) =>
+				entry.path === `${directoryOf}/info.json` ||
+				entry.path === `${directoryOf}/${REFERENCED_IMAGE_FILE}`
+		);
+		if (!readable) {
+			unmet.push({
+				reference: files.length === 0 ? `${directoryOf}/` : `${directoryOf}/info.json`,
+				layer: named,
+				kind: 'image'
+			});
+			continue;
+		}
+		if (taken.has(layer.imageId)) continue;
+		taken.add(layer.imageId);
+		wanted.push(...files);
+		// ⚠ **An Alignment is wanted and never required.** A Historical Map added to a Project is a
+		// Layer from that moment, aligned or not (ADR-0023), so a Project in that ordinary state has no
+		// `alignments/<id>.json` at all and its absence is not a missing reference.
+		const alignment = byPath.get(alignmentPath(layer.imageId));
+		if (alignment !== undefined) wanted.push(alignment);
 	}
-	return wanted;
+
+	return { wanted, unmet };
 }
 
 /**
- * The Historical Maps this Project's Layers draw, in the order they are first named.
+ * What a review copy is missing, in the words a reviewer can take back to its author.
  *
- * A map Layer is the only kind that references one: an Annotation Layer's `geojsonRef` is
- * Project-relative and is therefore already under `<dir>/`, and a Layer kind this build has never
- * heard of is not asked, because this build cannot know that a foreign kind's `imageId` names a
- * Historical Map at all — the same judgement `open-project-bundle.ts` makes about the same field.
+ * Two sentences rather than one list, because the two lose different things: an image that did not
+ * arrive is a Layer drawing nothing, and an Annotation document that did not arrive is a Layer with
+ * no features in it. Both name the Layer, which is what a reviewer sees on screen, and the path,
+ * which is what an author has to publish.
  */
-function referencedImageIds(project: ProjectFile): string[] {
-	return [
-		...new Set(
-			project.layers.flatMap((layer) =>
-				layer.kind === 'map' && layer.imageId !== '' ? [layer.imageId] : []
-			)
-		)
-	];
+function unmetSentence(unmet: readonly UnmetReference[]): string {
+	if (unmet.length === 0) return '';
+	const describe = (one: UnmetReference): string => `“${one.layer}” (${one.reference})`;
+	const images = unmet.filter((one) => one.kind === 'image');
+	const annotations = unmet.filter((one) => one.kind === 'annotation');
+	const said: string[] = [];
+	if (images.length > 0) {
+		said.push(
+			`${images.length} ${images.length === 1 ? 'Layer names a Historical Map' : 'Layers name Historical Maps'} ` +
+				`the Remote does not hold, so ${images.length === 1 ? 'it will' : 'they will'} draw nothing: ` +
+				`${images.map(describe).join(', ')}`
+		);
+	}
+	if (annotations.length > 0) {
+		said.push(
+			`${annotations.length} ${annotations.length === 1 ? 'Layer names an Annotation file' : 'Layers name Annotation files'} ` +
+				`the Remote does not hold: ${annotations.map(describe).join(', ')}`
+		);
+	}
+	return ` This review copy is incomplete, and what is missing was missing on the Remote: ${said.join('; ')}.`;
 }
 
 /**
@@ -444,22 +585,30 @@ function readManifest(bytes: Bytes): ProjectFile {
  * that the next person reads as permission.
  *
  * The destination is made by this call and is empty, so `intent: 'create'` always writes and the
- * decline `writeAlignmentBytes` can answer is unreachable from here — which is why there is nothing
- * for the caller to report, unlike a resumed Clone.
+ * decline `writeAlignmentBytes` can answer is unreachable through {@link reviewFromRemote} — but it
+ * is *answered* rather than discarded, because a caller that ignored it would count a file it did
+ * not write. A resumed Clone reports its declines; a Review has nowhere to put one, so it refuses.
+ *
+ * @returns `'written'`, or `'declined'` when the destination already held an Alignment for that map
  */
-async function writeReviewed(store: ProjectStore, path: StorePath, bytes: Bytes): Promise<void> {
+async function writeReviewed(
+	store: ProjectStore,
+	path: StorePath,
+	bytes: Bytes
+): Promise<'written' | 'declined'> {
 	const imageId = alignmentImageId(path);
 	if (imageId === null) {
 		await store.write(path, bytes);
-		return;
+		return 'written';
 	}
-	await writeAlignmentBytes(
+	const outcome = await writeAlignmentBytes(
 		{
 			read: (at) => store.read(at),
 			commit: (at, content) => store.write(at, content)
 		},
 		{ imageId, bytes, write: { intent: 'create' } }
 	);
+	return outcome === 'written' ? 'written' : 'declined';
 }
 
 /** The image id of `alignments/<id>.json`, or `null` for anything else. */
@@ -529,6 +678,28 @@ function notPublicMessage(remote: Named): string {
 	);
 }
 
+/**
+ * The hourly limit, said as a wait rather than as a fault in the repository.
+ *
+ * ⚠ **It names the limit as *anonymous* and the address as *shared*, and this path is where that
+ * matters most.** Reviewing signs in to nothing, so the budget is GitHub's 60 requests an hour per IP
+ * address — and the scenario SPEC story 48 describes is a class of students all reviewing their
+ * instructor's Project from one campus connection, where the 61st reader meets this having made no
+ * requests at all. Reported as a private repository it sends a room full of people to change a
+ * setting on a repository none of them own.
+ */
+function rateLimitedMessage(remote: Named, resetAt: Date | null): string {
+	const at = describeReset(resetAt);
+	return (
+		`GitHub's hourly limit for anonymous readers has been used up, so ${describeRemote(remote)} ` +
+		`could not be read. Nothing is wrong with the address and nothing is wrong with that ` +
+		`repository — reviewing reads GitHub without signing in, and that allows 60 requests an hour ` +
+		`for each internet connection, so on a shared one — a university network, a classroom — ` +
+		`everybody's reading counts together. ` +
+		`${at === '' ? 'Wait until the limit resets and open it again' : `Open it again after ${at}, when the limit resets`}.`
+	);
+}
+
 function emptyMessage(remote: Named): string {
 	return (
 		`${describeRemote(remote)} exists but has nothing in it yet — no files, no branches, no ` +
@@ -580,6 +751,15 @@ function missingFileMessage(remote: Named, path: string, cause: unknown): string
 		`${describeRemote(remote)} listed ${path}, but it could not be downloaded: ${detail}. A file ` +
 		`can be deleted, or a branch moved, while a Review is running — so this one has stopped rather ` +
 		`than show you a Project with a file silently missing. Opening it again starts afresh.`
+	);
+}
+
+/** A Workspace that was to be brand new and was not, which is a broken invariant rather than a fault. */
+function declinedFileMessage(path: string): string {
+	return (
+		`${path} could not be written into the review copy, because something was already there. A ` +
+		`review copy is made empty and filled once, so this should not be possible — and going on would ` +
+		`show you a Project whose file list says it is whole.`
 	);
 }
 

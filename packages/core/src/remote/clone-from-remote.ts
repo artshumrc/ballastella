@@ -75,7 +75,7 @@ import { isProjectManifest } from '../transfer/restore-workspace-tar.js';
 import type { EstimateStorage, OpenRestoreDestination } from '../transfer/restore-workspace-tar.js';
 import type { TransferProgressListener } from '../transfer/transfer.js';
 import { gitBlobSha } from './blob-sha.js';
-import { GITHUB_RAW_ORIGIN } from './github-api.js';
+import { GITHUB_RAW_ORIGIN, describeReset } from './github-api.js';
 import { isOwnedPath, remoteProjectDirectories } from './publish-to-remote.js';
 import { RemoteTreeRefusedError, readRemoteTree, urlPath, type RemoteBlob } from './remote-tree.js';
 import {
@@ -100,6 +100,14 @@ export type CloneRefusal =
 	| 'no-repository'
 	/** The repository holds no commits, so there is nothing in it to clone. */
 	| 'empty'
+	/**
+	 * GitHub's hourly limit for anonymous readers is used up. Nothing is wrong with the repository.
+	 *
+	 * Separate from `'no-repository'` because the remedy is waiting rather than asking somebody to
+	 * change a setting — see `remote-tree.ts`'s `'rate-limited'` for why the two arrive as the
+	 * same status.
+	 */
+	| 'rate-limited'
 	/** GitHub could only list part of the file list, so a Clone would silently be incomplete. */
 	| 'truncated'
 	/** There is not enough room in the browser's storage to hold it. */
@@ -380,7 +388,7 @@ async function readCloneTree(
  * A file list that could not be had, said in a Clone's own words.
  *
  * The kinds are the shared reader's and the sentences are this module's, which is the whole of why
- * `remote-tree.ts` carries no message: a Review refuses the same six things and has to say
+ * `remote-tree.ts` carries no message: a Review refuses the same seven things and has to say
  * different things about them. `not-public` and `no-repository` both come out as
  * {@link CloneRefusal} `'no-repository'` — from a browser with no credential they are one situation
  * with two GitHub statuses — and the two sentences differ because only one of them can be acted on.
@@ -394,6 +402,8 @@ function asCloneRefusal(remote: Required<CloneReference>, cause: unknown): Clone
 			return new CloneRefusedError('no-repository', noRepositoryMessage(remote));
 		case 'not-public':
 			return new CloneRefusedError('no-repository', notPublicMessage(remote));
+		case 'rate-limited':
+			return new CloneRefusedError('rate-limited', rateLimitedMessage(remote, cause.resetAt));
 		case 'empty':
 			return new CloneRefusedError('empty', emptyMessage(remote));
 		case 'truncated':
@@ -506,6 +516,27 @@ function notPublicMessage(remote: CloneReference): string {
 		`not a public repository. Cloning is deliberately an anonymous operation — it needs no ` +
 		`account and no token — so a private repository cannot be cloned at all. Whoever published it ` +
 		`has to make it public, or send you a Backup instead.`
+	);
+}
+
+/**
+ * The hourly limit, said as a wait rather than as a fault in the repository.
+ *
+ * ⚠ **It names the limit as *anonymous* and the address as *shared*, because both are what make it
+ * legible.** A Clone signs in to nothing, so the budget is GitHub's 60 requests an hour per IP
+ * address rather than a personal one — which means the person reading this may have made no requests
+ * at all and is sharing a campus NAT with a class doing the same thing at the same time (SPEC story
+ * 48). Without that, the honest reading of "rate limit" is "I did something too many times".
+ */
+function rateLimitedMessage(remote: CloneReference, resetAt: Date | null): string {
+	const at = describeReset(resetAt);
+	return (
+		`GitHub's hourly limit for anonymous readers has been used up, so ${describeRemote(remote)} ` +
+		`could not be listed. Nothing is wrong with the address and nothing is wrong with that ` +
+		`repository — cloning reads GitHub without signing in, and that allows 60 requests an hour for ` +
+		`each internet connection, so on a shared one — a university network, a classroom — everybody's ` +
+		`reading counts together. ` +
+		`${at === '' ? 'Wait until the limit resets and clone again' : `Clone again after ${at}, when the limit resets`}.`
 	);
 }
 

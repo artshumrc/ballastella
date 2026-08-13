@@ -17,7 +17,8 @@
 		wide = false,
 		children,
 		actions,
-		restoreFocusTo
+		restoreFocusTo,
+		dismissable = true
 	}: {
 		open?: boolean;
 		title: string;
@@ -54,6 +55,18 @@
 		 * focus is on `<body>`, where it already was, and nothing has been taken off the user.
 		 */
 		restoreFocusTo?: () => HTMLElement | null | undefined;
+		/**
+		 * Whether Escape may close this dialog, which it must not while the dialog cannot be cancelled.
+		 *
+		 * ⚠ **Native Escape closes a `<dialog>` whatever the owner thinks**, and that is a real defect
+		 * rather than a theoretical one: a caller whose cancel handler declines to act — because a
+		 * download is running and there is nothing to stop — is left with the dialog gone from the
+		 * screen and its own `open` still `true`, so the progress line and any refusal that arrives are
+		 * rendered into a dialog nobody can see. Refusing the `cancel` event keeps the screen and the
+		 * state agreeing; the owner is then responsible for saying *why* it will not close, which is
+		 * what a visibly disabled Cancel button is for.
+		 */
+		dismissable?: boolean;
 	} = $props();
 
 	let dialog: HTMLDialogElement | undefined = $state();
@@ -123,9 +136,15 @@
 		open = false;
 		restoreFocus();
 	};
+
+	// Escape's own event, which is cancelable — see {@link dismissable}. The backdrop is not a form
+	// here, so this is the only way in.
+	const oncancel = (event: Event) => {
+		if (!dismissable) event.preventDefault();
+	};
 </script>
 
-<dialog bind:this={dialog} {onclose} class="modal" aria-labelledby={titleId}>
+<dialog bind:this={dialog} {onclose} {oncancel} class="modal" aria-labelledby={titleId}>
 	<div class="modal-box" class:max-w-3xl={wide}>
 		<h2 id={titleId} class="text-lg font-bold">{title}</h2>
 		<div class="py-4">{@render children()}</div>

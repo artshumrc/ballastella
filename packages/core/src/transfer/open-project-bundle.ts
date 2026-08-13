@@ -551,13 +551,17 @@ function readManifest(bytes: Bytes): ProjectFile {
 }
 
 /**
- * The files a Layer names, which the bundle therefore has to carry.
+ * The files a Layer names, Project-relative, which a transfer therefore has to carry.
  *
  * A Layer references its content and never contains it (ADR-0002), so this is where the references
  * are collected — from the union rather than by reading key names off an untyped object, so a kind
  * added later has to say here what it points at.
+ *
+ * Exported for `review-from-remote.ts`, which asks the same question of a Remote's tree and reports
+ * rather than refuses. Two answers to "what does this Layer point at" is how a bundle and a Review
+ * of the same Project come to carry different files while both stay green.
  */
-function layerReferences(layer: Layer): readonly string[] {
+export function layerReferences(layer: Layer): readonly string[] {
 	switch (layer.kind) {
 		// ⚠ **A map Layer references no *file* that a bundle must carry, and requiring its Alignment
 		// was a refusal of the ordinary case.** A Historical Map added to a Project is a Layer from

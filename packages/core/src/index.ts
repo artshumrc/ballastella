@@ -395,7 +395,8 @@ export {
 	type ReviewFromRemoteOptions,
 	type ReviewReference,
 	type ReviewRefusal,
-	type ReviewedProject
+	type ReviewedProject,
+	type UnmetReference
 } from './remote/review-from-remote.js';
 // Which repository a Workspace publishes to, and the credential that may push there (ADR-0032,
 // ADR-0033). The rights check and the Pages enablement happen the moment a scholar names one, so

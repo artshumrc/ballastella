@@ -95,6 +95,10 @@ const AMSTERDAM_CLOSURE = [
 const github = (tree: Record<string, string> = PUBLISHED): Promise<FakeGitHub> =>
 	createFakeGitHub({ owner: OWNER, repository: REPOSITORY, tree });
 
+/** The published tree with some of it never published — an author's mistake, as it reaches a reviewer. */
+const withoutFiles = (...paths: string[]): Record<string, string> =>
+	Object.fromEntries(Object.entries(PUBLISHED).filter(([path]) => !paths.includes(path)));
+
 /** A destination whose store and discards are inspectable. */
 function destinationFor(store: ProjectStore = new MemoryProjectStore(), name = REPOSITORY) {
 	let opened = 0;
@@ -145,6 +149,8 @@ describe('reviewFromRemote', () => {
 		expect(result.directory).toBe(AMSTERDAM);
 		expect(result.project.name).toBe('Amsterdam 1625');
 		expect(result.totalFiles).toBe(AMSTERDAM_CLOSURE.length);
+		// Nothing the Layers name was missing, which is every ordinary Project.
+		expect(result.unmet).toEqual([]);
 		// The mark is the Review Workspace's own file and is not one of the Project's.
 		expect(await destination.store.list('')).toEqual([...AMSTERDAM_CLOSURE, 'review.json'].sort());
 		// The bytes themselves, so this is a Project that can be opened rather than a list of names.
@@ -329,6 +335,102 @@ describe('reviewFromRemote', () => {
 		expect(await second.store.list('')).not.toContain('alignments/map-1.json');
 	});
 
+	it('says which Historical Map the Remote did not hold, rather than dropping the Layer', async () => {
+		// ⚠ **A transfer that quietly delivers less than it was given is the failure the whole tar
+		// format change escaped**, and here it is invisible without this: nothing on a Layer card says
+		// an image is missing, so a map Layer whose pyramid never arrived draws blank and looks exactly
+		// like one nobody has aligned yet. The bundle path refuses this by name; a Review reports it,
+		// because refusing would leave the reviewer unable to read the Annotations that *did* come.
+		const fake = await github(withoutFiles('images/map-1/info.json', 'images/map-1/0/0/0.jpg'));
+		const destination = destinationFor();
+
+		const result = await reviewFromRemote(destination.open, {
+			remote: { owner: OWNER, repository: REPOSITORY, project: AMSTERDAM },
+			fetch: fake.fetch
+		});
+
+		expect(result.unmet).toEqual([
+			{ reference: 'images/map-1/', layer: 'The sheet', kind: 'image' }
+		]);
+		expect(result.notice).toContain('1 Layer names a Historical Map the Remote does not hold');
+		expect(result.notice).toContain('“The sheet” (images/map-1/)');
+		// And the rest of the Project is there to read, which is the whole reason not to refuse.
+		expect(await text(destination.store, `${AMSTERDAM}/annotations/warehouses.geojson`)).toBe(
+			'{"type":"FeatureCollection","features":[]}'
+		);
+		// The Alignment does not travel alone: without the pyramid it names there is nothing to place.
+		expect(await destination.store.list('')).not.toContain('alignments/map-1.json');
+	});
+
+	it('says so for an image directory that describes itself as neither kind', async () => {
+		// A heap of tiles with no `info.json` — and no `remote.json`, which is how a referenced image
+		// says its tiles are on somebody else's server — is a directory no client can open, so the map
+		// is missing whether or not the directory is there. `assertReferencesPresent` draws the same
+		// line, and the reference names the file an author has to publish.
+		const fake = await github(withoutFiles('images/map-1/info.json'));
+
+		const result = await reviewFromRemote(destinationFor().open, {
+			remote: { owner: OWNER, repository: REPOSITORY, project: AMSTERDAM },
+			fetch: fake.fetch
+		});
+
+		expect(result.unmet).toEqual([
+			{ reference: 'images/map-1/info.json', layer: 'The sheet', kind: 'image' }
+		]);
+		expect(result.notice).toContain('will draw nothing');
+	});
+
+	it('says which Annotation document the Remote did not hold', async () => {
+		// The case the bundle path refuses by name — "this bundle is missing X, which the Layer Y needs
+		// to be drawn" — and the one the first cut of this module dropped without a word, because it
+		// took whatever happened to be under the Project's directory and asked nothing.
+		const fake = await github(withoutFiles(`${AMSTERDAM}/annotations/warehouses.geojson`));
+		const destination = destinationFor();
+
+		const result = await reviewFromRemote(destination.open, {
+			remote: { owner: OWNER, repository: REPOSITORY, project: AMSTERDAM },
+			fetch: fake.fetch
+		});
+
+		expect(result.unmet).toEqual([
+			{
+				reference: `${AMSTERDAM}/annotations/warehouses.geojson`,
+				layer: 'Warehouses',
+				kind: 'annotation'
+			}
+		]);
+		expect(result.notice).toContain('1 Layer names an Annotation file the Remote does not hold');
+		expect(result.notice).toContain('“Warehouses”');
+		// And the Historical Map still came, so the reviewer sees the sheet the Annotations were about.
+		expect(await text(destination.store, 'images/map-1/info.json')).toBe(
+			'{"width":1024,"height":768}'
+		);
+	});
+
+	it('refuses rather than count a file the destination would not take', async () => {
+		// ⚠ The invariant the count depends on: a review copy is made empty and filled once, so
+		// `writeAlignmentBytes` cannot decline against it. A destination that is *not* new breaks that,
+		// and the alternative to refusing is a Review reporting every file delivered while an Alignment
+		// is not in the Workspace — which is exactly what `unmet` exists to make impossible.
+		const notNew = new MemoryProjectStore();
+		// alignment-write-is-the-fixture: the Alignment already in the destination *is* the specimen — what makes the destination not new, so the decline this guard answers becomes reachable
+		await notNew.write(
+			'alignments/map-1.json' as StorePath,
+			new TextEncoder().encode('{"formatVersion":1,"controlPoints":["somebody else’s"]}')
+		);
+		const fake = await github();
+		const destination = destinationFor(notNew);
+
+		const refusal = await reviewFromRemote(destination.open, {
+			remote: { owner: OWNER, repository: REPOSITORY, project: AMSTERDAM },
+			fetch: fake.fetch
+		}).catch((cause: unknown) => cause);
+
+		expect((refusal as ReviewRefusedError).refusal).toBe('incomplete');
+		expect((refusal as Error).message).toMatch(/already there/);
+		expect(destination.discarded).toBe(1);
+	});
+
 	it('reports per-file progress against the Project’s own total', async () => {
 		const fake = await github();
 		const progress: { files: number; totalFiles: number }[] = [];
@@ -495,6 +597,68 @@ describe('what a Review refuses', () => {
 		expect((refusal as Error).name).toBe('ProjectFormatTooNewError');
 		expect((refusal as Error).message).toMatch(/Nothing has been opened\./);
 		expect(destination.opened).toBe(0);
+	});
+
+	it('a repository GitHub will not read at all without signing in', async () => {
+		// GitHub answers 401 rather than 404 for some private repositories, and the sentence differs
+		// from the missing-repository one because only this one can be acted on: there is nothing to
+		// check in the address, and reviewing has no sign-in to offer.
+		const demanding = (async () =>
+			new Response(JSON.stringify({ message: 'Requires authentication' }), {
+				status: 401,
+				headers: { 'content-type': 'application/json' }
+			})) as FakeGitHub['fetch'];
+
+		const refusal = await reviewFromRemote(destinationFor().open, {
+			remote: { owner: OWNER, repository: REPOSITORY, project: AMSTERDAM },
+			fetch: demanding
+		}).catch((cause: unknown) => cause);
+
+		expect((refusal as ReviewRefusedError).refusal).toBe('no-repository');
+		expect((refusal as Error).message).toMatch(/not a public repository/);
+		expect((refusal as Error).message).toMatch(/bundle instead/);
+		expect((refusal as Error).message).toMatch(/Nothing has been opened\./);
+	});
+
+	it('the anonymous hourly limit, told apart from a repository that is not public', async () => {
+		// ⚠ **A spent budget and a private repository are both 403**, and this is the path where the
+		// difference bites: reviewing signs in to nothing, so the budget is GitHub's 60 requests an hour
+		// *per IP address* — and SPEC story 48's scenario is a class of students reviewing one
+		// instructor's Project from one campus connection, where the 61st reader meets this having made
+		// no requests at all. "Ask whoever published it to make it public" is then an instruction about
+		// a repository none of them own, and following it would not help.
+		const fake = await github();
+		fake.rateLimit = { remaining: 0, reset: 1_800_000_000 };
+		const destination = destinationFor();
+
+		const refusal = await reviewFromRemote(destination.open, {
+			remote: { owner: OWNER, repository: REPOSITORY, project: AMSTERDAM },
+			fetch: fake.fetch
+		}).catch((cause: unknown) => cause);
+
+		expect((refusal as ReviewRefusedError).refusal).toBe('rate-limited');
+		expect((refusal as Error).message).toMatch(/hourly limit for anonymous readers/);
+		expect((refusal as Error).message).toMatch(/60 requests an hour/);
+		// Said as a wait, never as a fault in the repository or in what the user typed.
+		expect((refusal as Error).message).not.toMatch(/private/);
+		expect((refusal as Error).message).toMatch(/when the limit resets/);
+		expect((refusal as Error).message).toMatch(/Nothing has been opened\./);
+		expect(fake.rawGets).toBe(0);
+		expect(destination.opened).toBe(0);
+	});
+
+	it('a file list that fails in a way it has no name for', async () => {
+		// A `fetch` replaced by an extension or a service worker can answer with something that is not a
+		// response at all. What the user gets is still a refusal rather than a stack trace's first line.
+		const answering = (async () => null) as unknown as FakeGitHub['fetch'];
+
+		const refusal = await reviewFromRemote(destinationFor().open, {
+			remote: { owner: OWNER, repository: REPOSITORY, project: AMSTERDAM },
+			fetch: answering
+		}).catch((cause: unknown) => cause);
+
+		expect((refusal as ReviewRefusedError).refusal).toBe('refused');
+		expect((refusal as Error).message).toMatch(/Nothing has been opened\./);
 	});
 
 	it('a connection that never answers', async () => {
