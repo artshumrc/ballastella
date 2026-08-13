@@ -13,6 +13,7 @@ import {
 	newProjectFile,
 	parseProjectFile,
 	projectFilePath,
+	readOnFrontPage,
 	serialiseProjectFile,
 	type ProjectFile
 } from './project-file.js';
@@ -87,6 +88,15 @@ export interface ProjectSummary {
 	readonly name: string;
 	/** ISO 8601, or `''` for a Project whose manifest never recorded one. */
 	readonly updatedAt: string;
+	/**
+	 * Whether the Project is listed on a Published Site's Front Page (ADR-0032).
+	 *
+	 * Read from `project.json` even when the rest of it cannot be parsed — the field is
+	 * version-independent by construction, so a Project from the future still says what its author
+	 * chose. `true` only when the file says so, says nothing, or cannot be fetched at all, which is
+	 * the answer an absent field gets. See {@link readOnFrontPage}.
+	 */
+	readonly onFrontPage: boolean;
 	/**
 	 * Why this Project cannot be opened, if it cannot. The hub still lists it: a Project from a
 	 * newer version of the app is a thing the user owns and needs to see, and hiding it would
@@ -344,13 +354,19 @@ export class Workspace {
 	 *
 	 * @param options.debounce true for a continuing edit such as typing, which should coalesce;
 	 *   false — the default — for a discrete action, which must not be lost to a closed tab.
+	 * @param options.stamp false for a write that changes nothing about the Project's content, so
+	 *   `updatedAt` keeps the moment the work itself was last touched. The hub is ordered by that
+	 *   stamp, so bumping it moves the row — under the cursor of the user who just clicked something
+	 *   on it, and, since that order is the order publishing writes, on the Front Page too.
 	 */
 	async writeProject(
 		directory: string,
 		file: ProjectFile,
-		options: { debounce?: boolean } = {}
+		options: { debounce?: boolean; stamp?: boolean } = {}
 	): Promise<void> {
-		const bytes = serialiseProjectFile({ ...file, updatedAt: this.#now().toISOString() });
+		const bytes = serialiseProjectFile(
+			options.stamp === false ? file : { ...file, updatedAt: this.#now().toISOString() }
+		);
 		const path = projectFilePath(directory);
 		if (options.debounce && this.#autosave) {
 			this.#autosave.queue(path, bytes);
@@ -400,6 +416,27 @@ export class Workspace {
 	): Promise<ProjectSummary> {
 		const file = await this.readProject(directory);
 		await this.writeProject(directory, { ...file, name: displayName }, options);
+		return this.#summarise(directory);
+	}
+
+	/**
+	 * Put a Project on the Published Site's Front Page, or take it off (ADR-0032).
+	 *
+	 * A discrete action rather than a continuing edit, so it is written straight through rather than
+	 * debounced: the user pressed one control once, and the answer to "did that stick?" has to be yes
+	 * before they close the tab.
+	 *
+	 * **It changes what a Front Page lists and nothing else.** The Project's files are untouched, its
+	 * `?p=` address still resolves, and on a public Remote anyone who knows the directory name can read
+	 * it — which is why nothing on this path is called private, hidden, or unpublished.
+	 *
+	 * **`updatedAt` is left alone.** It records when the *work* was last touched, and the hub is
+	 * ordered by it: stamping here would jump the row to the top under the cursor of the user who
+	 * just clicked it, and would reorder the Front Page itself, which ADR-0032 leaves fixed.
+	 */
+	async setProjectOnFrontPage(directory: string, onFrontPage: boolean): Promise<ProjectSummary> {
+		const file = await this.readProject(directory);
+		await this.writeProject(directory, { ...file, onFrontPage }, { stamp: false });
 		return this.#summarise(directory);
 	}
 
@@ -736,19 +773,46 @@ export class Workspace {
 
 	async #summarise(directory: string): Promise<ProjectSummary> {
 		try {
+			const file = await this.readProject(directory);
 			return {
 				directory,
-				...identityOf(directory, await this.readProject(directory)),
+				...identityOf(directory, file),
+				onFrontPage: file.onFrontPage,
 				problem: null
 			};
 		} catch (cause) {
-			if (cause instanceof ProjectFormatTooNewError) {
-				return { directory, ...unreadableIdentity(directory), problem: 'format-too-new' };
-			}
-			if (cause instanceof ProjectFileUnreadableError || cause instanceof PathNotFoundError) {
-				return { directory, ...unreadableIdentity(directory), problem: 'unreadable' };
-			}
-			throw cause;
+			const problem =
+				cause instanceof ProjectFormatTooNewError
+					? 'format-too-new'
+					: cause instanceof ProjectFileUnreadableError || cause instanceof PathNotFoundError
+						? 'unreadable'
+						: null;
+			if (problem === null) throw cause;
+			return {
+				directory,
+				...unreadableIdentity(directory),
+				// Read out of the bytes even though nothing else here could be. See
+				// {@link readOnFrontPage}: the field is version-independent by construction, and the
+				// author's answer to "is this on my front page?" is the one thing about a Project from the
+				// future that must not be guessed in the disclosure direction.
+				onFrontPage: await this.#onFrontPageOf(directory),
+				problem
+			};
+		}
+	}
+
+	/**
+	 * The Front Page choice of a Project whose manifest {@link readProject} could not deliver.
+	 *
+	 * Reads the bytes directly rather than through `readProject`, so the content observer is not told
+	 * about them twice, and answers "on the Front Page" for a file that cannot be fetched at all —
+	 * the same answer an absent field gets.
+	 */
+	async #onFrontPageOf(directory: string): Promise<boolean> {
+		try {
+			return readOnFrontPage(await this.#store.read(projectFilePath(directory)));
+		} catch {
+			return true;
 		}
 	}
 

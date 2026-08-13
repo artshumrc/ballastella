@@ -81,9 +81,14 @@ export async function writePublishedSite(
  *
  * A test that wants to prove the *record* is what drives the switcher passes its own catalog through
  * `overrides` — see `viewer-reader.e2e.ts`, which supplies one naming an entry this build does not have.
+ *
+ * `onFrontPage` is **optional on each entry, and left out unless a test supplies it** (ADR-0032). A
+ * record written before that field existed is what every already-published site carries, so the default
+ * record here is that shape — which is the one an over-strict viewer would answer with an empty Front
+ * Page and no explanation.
  */
 export function siteRecord(
-	projects: readonly { directory: string; name: string }[],
+	projects: readonly { directory: string; name: string; onFrontPage?: boolean }[],
 	overrides: Record<string, unknown> = {}
 ): string {
 	return `${JSON.stringify(

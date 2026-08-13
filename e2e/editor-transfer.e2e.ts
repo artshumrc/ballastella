@@ -689,7 +689,7 @@ test.describe('opening a bundle lands in a review copy (workspace-and-layers SPE
 		await expect(dialog).toBeVisible();
 		// The dialog counts the Projects it is about to publish, and counts **one** — the user's own.
 		// The reviewed Project is in another Workspace entirely and is not among them.
-		await expect(dialog).toContainText('will list');
+		await expect(dialog).toContainText('will carry');
 		await expect(dialog).toContainText('1 Project');
 	});
 

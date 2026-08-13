@@ -96,6 +96,90 @@ const projectWrites = async (page: Page): Promise<number> =>
 		name.includes('project.json')
 	).length;
 
+/**
+ * The Front Page choice, on the hub (SPEC stories 25–28, ADR-0032).
+ *
+ * On the Workspace hub rather than inside a Project, because the Workspace is what publishes: the
+ * choice decides one entry in one list on the Published Site, and the list is the Workspace's.
+ */
+test.describe('choosing whether a Project is on the Front Page', () => {
+	test.beforeEach(async ({ context }) => {
+		await routeBaseMapArchive(context);
+	});
+
+	test('takes a Project off the Front Page and puts it back, and the choice survives a reload', async ({
+		page
+	}) => {
+		await freshWorkspace(page);
+		// Per directory, like the note's `id` beside it: the hub lists every Project, so a testid that
+		// is only per-row is ambiguous the moment a Workspace holds two.
+		const toggle = page.getByTestId(`on-front-page-${PROJECT_DIRECTORY}`);
+
+		// On by default, and written as *absence* — so a new Project's manifest is byte-identical to one
+		// from a build that had never heard of the choice, and a Workspace in git gains no diff.
+		await expect(toggle).toBeChecked();
+		expect(JSON.parse(await projectFile(page))).not.toHaveProperty('onFrontPage');
+		const before = JSON.parse(await projectFile(page)).updatedAt;
+
+		await toggle.uncheck();
+		await expect.poll(async () => JSON.parse(await projectFile(page)).onFrontPage).toBe(false);
+
+		// ⚠ **`updatedAt` is untouched.** The hub is ordered by it and publishing writes the Front Page in
+		// that order, so stamping here would move the row out from under the cursor that just clicked it
+		// and reorder the site — which ADR-0032 leaves alone.
+		expect(JSON.parse(await projectFile(page)).updatedAt).toBe(before);
+
+		// The reload is the assertion: the control reads `project.json` rather than remembering, so what
+		// comes back is what is on disk.
+		await page.reload();
+		await expect(toggle).not.toBeChecked();
+
+		await toggle.check();
+		await expect.poll(async () => 'onFrontPage' in JSON.parse(await projectFile(page))).toBe(false);
+		await page.reload();
+		await expect(toggle).toBeChecked();
+		expect(JSON.parse(await projectFile(page)).updatedAt).toBe(before);
+	});
+
+	/**
+	 * ⚠ **The wording, asserted rather than eyeballed** (ADR-0032, SPEC stories 26 and 27).
+	 *
+	 * A Project off the Front Page is still published, still in the repository, and still opened by
+	 * `?p=<folder>` for anyone who knows the name. Every one of "unpublished", "private", "draft", and
+	 * "hidden" invites the opposite reading, and a scholar with an embargoed archival photograph or a
+	 * manuscript under a library's publication restriction will act on the reading they are given. So
+	 * the four words are refused by test, and the caution is required by test, in **both** states —
+	 * because the state a user is about to leave is the one they are deciding from.
+	 */
+	test('says the Project stays readable by anyone, and never calls it private, hidden, unpublished, or a draft', async ({
+		page
+	}) => {
+		await freshWorkspace(page);
+		const toggle = page.getByRole('checkbox', { name: `On the front page — ${PROJECT_NAME}` });
+		const note = page.getByTestId(`front-page-note-${PROJECT_DIRECTORY}`);
+
+		// The caution is the control's accessible *description*, not merely a paragraph nearby: a screen
+		// reader user is given it along with the control instead of having to go looking.
+		await expect(toggle).toHaveAttribute('aria-describedby', (await note.getAttribute('id')) ?? '');
+
+		for (const state of ['on', 'off'] as const) {
+			if (state === 'off') {
+				await toggle.uncheck();
+				await expect(note).toContainText('Not on the front page');
+			}
+			const words = `${await toggle.evaluate((element) => element.closest('label')!.textContent)} ${await note.textContent()}`;
+			expect(words.toLowerCase(), `the wording while ${state} the front page`).toContain(
+				'readable by anyone with the link'
+			);
+			for (const forbidden of ['unpublished', 'private', 'draft', 'hidden']) {
+				expect(words.toLowerCase(), `“${forbidden}” while ${state} the front page`).not.toContain(
+					forbidden
+				);
+			}
+		}
+	});
+});
+
 test.describe('the Project screen', () => {
 	test.beforeEach(async ({ context }) => {
 		await routeBaseMapArchive(context);
