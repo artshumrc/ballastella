@@ -427,6 +427,14 @@ export {
 	writeRemoteBinding,
 	type RemoteBinding
 } from './remote/remote-binding.js';
+// The Front Page's two return links (SPEC stories 49–51). Exported for **both** apps: the viewer
+// builds the address and the editor reads it back, and they share no code but this package.
+export {
+	readReturnLink,
+	returnLinkUrl,
+	withoutReturnLink,
+	type ReturnLink
+} from './remote/return-link.js';
 // The credential lives behind this interface, outside `ProjectStore`, and is never reachable through
 // it: a token in the Workspace would be backed up, journalled, and published (ADR-0033). The two
 // implementations behind `browserCredentialStore` and the storage shape they take are deliberately

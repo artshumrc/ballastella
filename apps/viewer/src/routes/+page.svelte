@@ -56,7 +56,9 @@
 		parsePublishedSite,
 		projectFilePath,
 		readBaseMapPreference,
+		readRemoteBinding,
 		resolveBaseMap,
+		returnLinkUrl,
 		openingViewSentence,
 		projectOpeningFit,
 		setLayerVisible,
@@ -72,6 +74,7 @@
 		type OpeningViewOutcome,
 		type ProjectFile,
 		type PublishedSite,
+		type RemoteBinding,
 		type TileSourceFailure
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
@@ -131,6 +134,18 @@
 	/** Why the site record could not be read. A site with no record is not a site at all. */
 	let siteError = $state('');
 
+	/**
+	 * The repository this site was published to, for the return links below — or `null`.
+	 *
+	 * `remote.json` is *inside* the published tree deliberately (ADR-0032), which is what makes the
+	 * repository readable here at all: a static host cannot be asked what it is, and the record says
+	 * which editor published the site but not where the files came from.
+	 *
+	 * Never a failure. A site published into a folder rather than to a Remote has no binding, and a
+	 * Front Page with one fewer link is the whole of what that costs a Reader.
+	 */
+	let remote = $state<RemoteBinding | null>(null);
+
 	let openProject = $state<{ directory: string; file: ProjectFile } | null>(null);
 	let projectError = $state('');
 
@@ -140,13 +155,59 @@
 		if (!hydrated) return;
 		void (async () => {
 			try {
-				site = parsePublishedSite(await readSiteFile(PUBLISHED_SITE_RECORD_NAME));
+				const record = parsePublishedSite(await readSiteFile(PUBLISHED_SITE_RECORD_NAME));
+				site = record;
 				siteError = '';
+				// Asked for only when there is an instance to link back to, so a site that records no
+				// editor — every site published before ticket 09 — costs its Readers no request at all.
+				remote = record.editorUrl === '' ? null : await readRemoteBinding(siteStore());
 			} catch (cause) {
 				siteError = describeSiteRecordFailure(cause);
 			}
 		})();
 	});
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE WAY BACK TO THE EDITOR (SPEC stories 49–51)
+	//
+	// The only **absolute** addresses this app renders. Everything else goes through `resolve` because
+	// the site's own base path is unknown at build time (ADR-0006); these are different in kind — they
+	// leave for another origin entirely, which is the ordinary topology under ADR-0032 — and they are
+	// still built from two files read *relative* to this document.
+	//
+	// Plain links, and deliberately nothing more: no `postMessage`, no iframe, no attempt to hand
+	// state across. The editor is offered a repository name and asks the Reader before it acts on it.
+	//
+	// Both are `null` unless the site records an instance **and** a repository, which is the
+	// degradation the record's reader is written for: no link rather than a broken one, and never a
+	// guess at a canonical deployment.
+
+	const cloneLink = $derived(
+		site === null || remote === null
+			? null
+			: returnLinkUrl(site.editorUrl, {
+					kind: 'clone',
+					owner: remote.owner,
+					repository: remote.repository
+				})
+	);
+
+	/**
+	 * The link on a Project's own page, offering that Project alone.
+	 *
+	 * Gated on the Project having opened rather than on `?p=`: a screen already saying a Project
+	 * cannot be shown should not also offer to review it somewhere else.
+	 */
+	const reviewLink = $derived(
+		site === null || remote === null || openProject === null
+			? null
+			: returnLinkUrl(site.editorUrl, {
+					kind: 'review',
+					owner: remote.owner,
+					repository: remote.repository,
+					project: openProject.directory
+				})
+	);
 
 	/**
 	 * Why the site record could not be read, in a Reader's terms.
@@ -926,6 +987,24 @@
 			<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
 		</p>
 
+		<!--
+			The way back to the editor that published this site (SPEC stories 49 and 51).
+
+			**No sign-in is mentioned and none is implied**, because a Clone reads a public repository and
+			needs no credential at all — which is the whole reason a student with no GitHub account can
+			follow this link.
+		-->
+		{#if cloneLink}
+			<p class="mt-4 max-w-prose">
+				<!-- `resolve()` is for this site's own pages; the editor that published it is another
+				     origin entirely (ADR-0032), so the rule is disabled for the one case it does not
+				     cover. Same exemption, and the same reason, as the `github.com` link above. -->
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+				<a class="link" href={cloneLink}>Open this Workspace in Ballastella</a> to take a copy of all
+				of it onto your own computer. You do not need an account, and nothing published here is changed.
+			</p>
+		{/if}
+
 		{#if siteError}
 			<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
 				<h2 class="font-semibold">This site has no list of Projects</h2>
@@ -998,6 +1077,20 @@
 					Switch to {otherTheme(theme.current)} theme
 				</button>
 			</div>
+
+			<!--
+				One Project, rather than the Workspace the Front Page offers (SPEC story 50). What it opens
+				is a review copy, so the sentence says the two things a reader of somebody else's work needs
+				to know before following it: it is throwaway, and it takes nothing of theirs.
+			-->
+			{#if reviewLink}
+				<p class="mt-2 max-w-prose text-sm">
+					<!-- Another origin, so `resolve()` does not apply. See the Front Page's link above. -->
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+					<a class="link" href={reviewLink}>Review this Project in Ballastella</a> to look at just this
+					Project on your own computer. No account is needed, and it opens into a copy you can throw away.
+				</p>
+			{/if}
 
 			{#if unwarpedLayerId !== null}
 				<!--

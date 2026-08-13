@@ -61,6 +61,7 @@
 		type RemotePublishPlan
 	} from '@ballastella/core';
 
+	import { deploymentRoot } from '../base-map/deployment-assets';
 	import ModalDialog from '../components/ModalDialog.svelte';
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import type { WorkspaceStorage } from '../workspace-storage.svelte.js';
@@ -294,7 +295,11 @@
 			// falls back to the old reading, which is the best there is for a record that never carried
 			// it.
 			const wanted = record?.baseMapAssetsRequested ?? true;
-			const planned = await active.planPublish({ bundle, includeBaseMap: wanted });
+			const planned = await active.planPublish({
+				bundle,
+				includeBaseMap: wanted,
+				editorUrl: deploymentRoot()
+			});
 			if (mine !== planning) return;
 			site = record;
 			includeBaseMap = wanted;
@@ -325,7 +330,8 @@
 		try {
 			const planned = await session.planPublish({
 				bundle: await loadViewerBundle(),
-				includeBaseMap: wanted
+				includeBaseMap: wanted,
+				editorUrl: deploymentRoot()
 			});
 			if (mine !== planning) return;
 			plan = planned;

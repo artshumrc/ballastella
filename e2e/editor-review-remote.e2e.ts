@@ -436,6 +436,149 @@ test.describe('reviewing one Project from a Remote', () => {
 	});
 });
 
+/**
+ * A Reader who followed "Review this Project in Ballastella" off a Published Site (ticket 09; SPEC
+ * stories 50 and 51).
+ *
+ * ⚠ **The offer is the behaviour under test, not the Review.** A link that silently made a Workspace
+ * and switched to it would rearrange a stranger's editor, so landing must change nothing until a
+ * press. The *link* — its wording and its address at both base paths — is the viewer's half, in
+ * `viewer-reader.e2e.ts`.
+ */
+test.describe('arriving on a link from a Published Site', () => {
+	const LINK = `${HUB}?review=${REMOTE}&p=${AMSTERDAM}`;
+	const offer = (page: Page) => page.getByTestId('return-link-offer');
+	const accept = (page: Page) => page.getByTestId('accept-return-link');
+
+	test('offers a Review of the one Project, and has done nothing until it is confirmed', async ({
+		page
+	}) => {
+		await start(page);
+
+		await page.goto(LINK);
+
+		await expect(offer(page)).toContainText(REMOTE);
+		await expect(offer(page)).toContainText(AMSTERDAM);
+		await expect(accept(page)).toBeVisible();
+		await expect(page.getByTestId('return-link-progress')).toHaveCount(0);
+		await expect(banner(page)).toBeHidden();
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+	});
+
+	/**
+	 * ⚠ **`?p=` keeps its meaning, and it wins for display.** The review link carries the Project's
+	 * directory in the parameter that already addresses a Project (ADR-0008), so the editor shows what
+	 * `?p=` names — which, before the Review has run, is a Project this computer does not have. The
+	 * offer is rendered above that screen rather than instead of it, and the same address becomes the
+	 * reviewed Project the moment it arrives.
+	 */
+	test('shows the Project ?p= names beneath the offer, before and after the Review', async ({
+		page
+	}) => {
+		await start(page);
+
+		await page.goto(LINK);
+
+		await expect(page.getByRole('heading', { name: 'Project not found' })).toBeVisible();
+		await expect(offer(page)).toBeVisible();
+		// ⚠ **And the invitation is announced before the error it explains.** The visual order is right
+		// either way; an assertive region is not, because it interrupts a polite one whatever the DOM
+		// says — so a screen-reader user following a perfectly good link heard "Project not found"
+		// before the offer to fetch it. Both polite here, which announces them in reading order.
+		await expect(page.getByTestId('project-problem')).toHaveAttribute('aria-live', 'polite');
+
+		await accept(page).click();
+
+		await expect(banner(page)).toBeVisible();
+		expect(new URL(page.url()).searchParams.get('p')).toBe(AMSTERDAM);
+		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		await expect(page.getByTestId('project-screen')).toBeVisible();
+	});
+
+	test('confirming makes the review copy, holding that one Project', async ({ page }) => {
+		await start(page);
+		await page.goto(LINK);
+
+		await accept(page).click();
+
+		await expect(page.getByTestId('return-link-outcome')).toContainText('Amsterdam 1625');
+		await expect(banner(page)).toBeVisible();
+		await expectWorkspaceNamed(page, REPOSITORY);
+		// What arrived, rather than what was said: the Project's closure and the mark that makes this
+		// Workspace a review copy, and nothing of the publisher's own.
+		const stored = await everyByteOf(page, REPOSITORY);
+		expect(Object.keys(stored).sort()).toEqual([...AMSTERDAM_CLOSURE, 'review.json'].sort());
+		for (const path of NOT_THIS_PROJECT) expect(Object.keys(stored)).not.toContain(path);
+	});
+
+	test('takes the parameter off the address, so a reload does not offer again', async ({
+		page
+	}) => {
+		await start(page);
+
+		await page.goto(LINK);
+		await expect(offer(page)).toBeVisible();
+
+		expect(new URL(page.url()).searchParams.get('review')).toBeNull();
+		await page.reload();
+		await expect(page.getByRole('heading', { name: 'Project not found' })).toBeVisible();
+		await expect(offer(page)).toHaveCount(0);
+		// With no offer above it, the dead end is an alert again: nothing else on the page is going to
+		// say why the Project is missing.
+		await expect(page.getByTestId('project-problem')).toHaveAttribute('role', 'alert');
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+	});
+
+	/**
+	 * Turning down a Review leaves the editor as the visitor found it — which means without the
+	 * link's `?p=`.
+	 *
+	 * Dismissing the offer alone would drop them onto "There is no Project called “amsterdam-1625” in
+	 * this Workspace", with the one thing on the page that explained where that name came from now
+	 * gone.
+	 */
+	test('can be turned down, and turning it down leaves no trace of the link', async ({ page }) => {
+		await start(page);
+		await page.goto(LINK);
+		await expect(offer(page)).toBeVisible();
+
+		await page.getByTestId('dismiss-return-link').click();
+
+		await expect(offer(page)).toHaveCount(0);
+		await expect(page.getByRole('heading', { name: 'Ballastella Editor' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0);
+		await expect.poll(() => new URL(page.url()).searchParams.get('p')).toBeNull();
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+	});
+
+	// A Review is of a Project. Without `?p=` there is nothing to offer, and widening it to the whole
+	// repository would take a Reader who asked to look at one piece of work and hand them all of it.
+	//
+	// ⚠ **The parameter still comes off the address**, whether or not it raised an offer: one left in
+	// the bar is replayed by a reload and kept by a bookmark, which is what the stripping is for. The
+	// link's `?p=` is not the invitation and keeps its ordinary meaning (ADR-0008).
+	test('offers nothing for a link naming no Project, and none for a Project on no repository', async ({
+		page
+	}) => {
+		await start(page);
+
+		for (const query of [`?review=${REMOTE}`, `?review=ada&p=${AMSTERDAM}`]) {
+			await page.goto(`${HUB}${query}`);
+			// The bar rather than a heading: the second of these carries `?p=`, so the two land on
+			// different screens and only the bar is on both.
+			await expectWorkspaceNamed(page, DEFAULT_WORKSPACE);
+			await expect(offer(page)).toHaveCount(0);
+			await expect
+				.poll(() => new URL(page.url()).searchParams.get('review'), {
+					message: `${query} left in the address bar`
+				})
+				.toBeNull();
+		}
+		expect(new URL(page.url()).searchParams.get('p')).toBe(AMSTERDAM);
+		expect(await workspaceNames(page)).toEqual([DEFAULT_WORKSPACE]);
+	});
+});
+
 test.describe('refusals, all before a byte is written', () => {
 	test('a truncated file list, with no review copy made at all', async ({ page }) => {
 		// ⚠ A truncated listing answers **200**, so nothing throws anywhere. Proceeding would show a

@@ -108,6 +108,20 @@ export type PublishedSite = {
 	readonly viewerVersion: string;
 	/** When it was published, ISO 8601. */
 	readonly publishedAt: string;
+	/**
+	 * The editor instance that published this site, with a trailing slash — or `''` when the record
+	 * does not say (SPEC story 55).
+	 *
+	 * **This is what makes the Front Page's return links possible** (story 51): a Reader who was given
+	 * nothing but a URL is sent back to the instance that made the site rather than asked which copy
+	 * of the tool to use. It is provenance independent of the link, which is why it is recorded rather
+	 * than derived at read time — a site can say where it came from.
+	 *
+	 * `''` renders no link at all. A record written before this field existed, and a site published
+	 * from a build that could not know its own address, must degrade to nothing: a guess at a
+	 * canonical deployment would send a Reader to a stranger's editor.
+	 */
+	readonly editorUrl: string;
 	readonly projects: readonly PublishedProject[];
 	/** This deployment's catalog, travelling with the site (ADR-0020). */
 	readonly baseMap: BaseMapCatalog;
@@ -243,6 +257,7 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 				: PUBLISHED_SITE_FORMAT_VERSION,
 		viewerVersion: typeof record.viewerVersion === 'string' ? record.viewerVersion : '',
 		publishedAt: typeof record.publishedAt === 'string' ? record.publishedAt : '',
+		editorUrl: parseEditorUrl(record.editorUrl),
 		projects: projects.flatMap((entry) => {
 			const project = entry as Record<string, unknown> | null;
 			const directory = project?.directory;
@@ -287,6 +302,66 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 					: record.baseMapBundled === true,
 		baseMapCaches: parseBaseMapCaches(record.baseMapCaches, record.baseMapMaxZoom)
 	};
+}
+
+/**
+ * The publishing instance's address, as something a Reader's page may safely put in an `href`.
+ *
+ * ⚠ **The scheme is checked here rather than where the link is built.** The record is ordinarily
+ * written by the editor, but this is the tolerant reader for a file nobody in this repository wrote
+ * — a hand-edited record, or one served by whoever controls the host — and the link it feeds is
+ * rendered on the *site's own origin*, so a `javascript:` address would be script execution against
+ * the author's domain (ADR-0009). Checked once, so the field is safe by construction wherever it is
+ * interpolated, which is `parseRemoteBinding`'s reasoning about the same class of input.
+ *
+ * The trailing slash is not cosmetic either: the return links are this address plus a query string,
+ * and `https://host/ballastella?clone=…` asks a static host for a *file* called `ballastella`.
+ */
+function parseEditorUrl(value: unknown): string {
+	if (typeof value !== 'string' || value === '') return '';
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return '';
+	}
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+	if (!reachableByAReader(url.hostname)) return '';
+	// Credentials belong to whoever typed them and to nothing else. They would otherwise travel into
+	// the record and out again as an `href` rendered on the author's own domain.
+	url.username = '';
+	url.password = '';
+	// A query or a fragment on the instance address is somebody's open Project or scroll position,
+	// which is not part of where the editor lives and would fight the link's own query string.
+	url.search = '';
+	url.hash = '';
+	return url.href.endsWith('/') ? url.href : `${url.href}/`;
+}
+
+/**
+ * Whether an address means anything on a machine that is not the one that published the site.
+ *
+ * ⚠ **This looks like an odd refusal until you know what gets recorded.** The editor stamps its own
+ * `location.origin`, so an author who publishes to GitHub Pages from `pnpm dev` records
+ * `http://localhost:5173/`, and every Reader's Front Page then offers them a live "Open this
+ * Workspace in Ballastella" pointing at *their own* port 5173 — a dead link, or whatever unrelated
+ * thing is running there. A single-label name (`http://atlas/`) is the same failure by way of
+ * somebody's intranet: it resolves on the author's network and nowhere else. Nothing in the publish
+ * dialog shows the address or offers to override it, so the refusal has to be here.
+ *
+ * Refusing produces `''`, which is the record's no-instance state: no link, no error, no guess at a
+ * canonical deployment — exactly the degradation the field is designed around, and better than an
+ * address whose only reachable meaning is on the wrong computer.
+ */
+function reachableByAReader(hostname: string): boolean {
+	const host = hostname.toLowerCase();
+	// `URL` brackets an IPv6 host and normalises every spelling of loopback to `[::1]`.
+	if (host.startsWith('[')) return host !== '[::1]';
+	// RFC 6761: `localhost` and anything under it are the local machine by definition.
+	if (host === 'localhost' || host.endsWith('.localhost')) return false;
+	// 127.0.0.0/8, which `URL` has already normalised to four dotted parts.
+	if (host.startsWith('127.')) return false;
+	return host.includes('.');
 }
 
 /**
@@ -415,6 +490,8 @@ export type PublishPlan = {
 	 * and one that moves every time it is re-published.
 	 */
 	readonly canonicalUrl: string | null;
+	/** The address the site will record for the instance publishing it, or `''`. */
+	readonly editorUrl: string;
 	/**
 	 * Project directories whose names collide with something publishing writes. Publishing refuses
 	 * rather than overwriting one — see {@link publishSite}.
@@ -439,6 +516,14 @@ export type PlanPublishOptions = {
 	readonly includeBaseMap: boolean;
 	/** This deployment's catalog. Injected so the tests can drive a different one (ADR-0020). */
 	readonly catalog?: BaseMapCatalog;
+	/**
+	 * Where the editor doing the publishing lives, for {@link PublishedSite.editorUrl}.
+	 *
+	 * Passed in rather than read here, because it is `location.origin` plus a base path and core has
+	 * no business knowing either (ADR-0006) — the same division `readAsset` is drawn on. Omitted, the
+	 * site records no instance and its Front Page carries no return link, which is a working site.
+	 */
+	readonly editorUrl?: string;
 };
 
 /**
@@ -455,6 +540,9 @@ export async function planPublish(
 ): Promise<PublishPlan> {
 	const { bundle, projects, includeBaseMap } = options;
 	const catalog = options.catalog ?? BASE_MAP_CATALOG;
+	// Through the record's own reader, so the plan carries exactly what a Reader will read back — and
+	// an address the reader would refuse is `''` here rather than a link that never appears.
+	const editorUrl = parseEditorUrl(options.editorUrl);
 
 	// Every Project, whether or not the Front Page lists it: the record is the site's whole account of
 	// itself, and the listing decision travels on each entry rather than by omission (ADR-0032).
@@ -489,6 +577,7 @@ export async function planPublish(
 			siteRecord({
 				viewerVersion: bundle.version,
 				publishedAt: '',
+				editorUrl,
 				projects: listed,
 				catalog,
 				baseMapBundled: baseMapTiles.tiles > 0,
@@ -553,6 +642,7 @@ export async function planPublish(
 		baseMapCaches: publishedCaches,
 		baseMap: catalog,
 		canonicalUrl,
+		editorUrl,
 		collisions,
 		warnings
 	};
@@ -783,6 +873,7 @@ export async function publishSite(options: PublishSiteOptions): Promise<Publishe
 	const site = siteRecord({
 		viewerVersion: plan.viewerVersion,
 		publishedAt: now().toISOString(),
+		editorUrl: plan.editorUrl,
 		projects: plan.projects,
 		catalog: plan.baseMap,
 		baseMapBundled: plan.baseMapBundled,
@@ -850,6 +941,7 @@ async function removeSupersededFiles(
 const siteRecord = (fields: {
 	viewerVersion: string;
 	publishedAt: string;
+	editorUrl: string;
 	projects: readonly PublishedProject[];
 	catalog: BaseMapCatalog;
 	baseMapBundled: boolean;
@@ -860,6 +952,7 @@ const siteRecord = (fields: {
 	formatVersion: PUBLISHED_SITE_FORMAT_VERSION,
 	viewerVersion: fields.viewerVersion,
 	publishedAt: fields.publishedAt,
+	editorUrl: fields.editorUrl,
 	projects: fields.projects,
 	baseMap: fields.catalog,
 	baseMapBundled: fields.baseMapBundled,

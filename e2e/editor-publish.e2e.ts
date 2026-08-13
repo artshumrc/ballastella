@@ -304,11 +304,33 @@ test.describe('publishing a Workspace', () => {
 		return { root, subpath };
 	}
 
+	/**
+	 * **This suite's editor is on `localhost`, so nothing it publishes records an instance** (ticket
+	 * 09).
+	 *
+	 * The editor stamps its own origin so a site's Front Page can lead a Reader back to it, and an
+	 * address only the publishing machine can reach is refused rather than recorded — a Reader
+	 * following `http://localhost:5173/` arrives at whatever is on *their* port 5173. A dev server is
+	 * exactly that case, and so is this one.
+	 *
+	 * Which is why every site below carries no return link and asks for no `remote.json`: the binding
+	 * that would name the repository is only worth a round trip when there is an instance to link to.
+	 */
+	async function expectNoReturnLink(page: Page, site: StaticSite): Promise<void> {
+		await expect(page.getByRole('link', { name: /in Ballastella$/ })).toHaveCount(0);
+		expect(site.requests.filter((asked) => asked.endsWith('/remote.json'))).toEqual([]);
+	}
+
 	test('serves a working site from a domain root and from a subdirectory, from one build', async ({
 		page
 	}) => {
 		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
 		await publish(page);
+
+		// Read on the editor, before this page leaves for the site: this suite's editor is served from
+		// `localhost`, and an address only the publishing machine can reach is refused rather than
+		// recorded. See `expectNoReturnLink` above.
+		expect((await siteRecord(page)).editorUrl).toBe('');
 
 		const { root, subpath } = await servePublished(page);
 
@@ -352,6 +374,7 @@ test.describe('publishing a Workspace', () => {
 			// which is the GitHub Pages case ADR-0006 exists for.
 			expect(site.failures).toEqual([]);
 			expect(failures).toEqual([]);
+			await expectNoReturnLink(page, site);
 			// Every request stayed inside the published folder, so nothing reached for the host's root —
 			// the stronger form of the same claim, since a host answering `/favicon.ico` with a page
 			// would otherwise hide it.

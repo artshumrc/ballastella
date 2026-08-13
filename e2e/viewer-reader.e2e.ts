@@ -15,6 +15,7 @@ import {
 } from './support/editor-deployment';
 
 import {
+	asJson,
 	servePublishedSite,
 	siteRecord,
 	writePublishedSite,
@@ -251,6 +252,25 @@ function oneProject(fixture: ProjectFixture = {}, record: Record<string, unknown
 			record
 		),
 		...projectFiles(fixture)
+	};
+}
+
+/**
+ * The editor instance a site's return links point at (SPEC story 51).
+ *
+ * A **different origin** from the site, which is the ordinary topology under ADR-0032 and the reason
+ * these are plain links: nothing is handed across, so nothing has to be.
+ */
+const EDITOR_INSTANCE = 'https://maps.example.edu/ballastella/';
+
+/**
+ * A site as a publish to a Remote leaves it: the record naming the instance that wrote it, and the
+ * binding naming the repository, which is inside the published tree deliberately (ADR-0032).
+ */
+function publishedByEditor(): SiteFiles {
+	return {
+		...oneProject({}, { editorUrl: EDITOR_INSTANCE }),
+		'remote.json': asJson({ formatVersion: 1, owner: 'ada', repository: 'atlas' })
 	};
 }
 
@@ -619,6 +639,90 @@ test.describe('a Published Site a Reader arrives at', () => {
 		// And the Project itself is untouched by the wording: still there, still opening.
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+	});
+
+	/**
+	 * The loop closes: a Reader who was given nothing but a URL can take the work onto their own
+	 * machine (SPEC stories 49–51).
+	 *
+	 * ⚠ **Asserted at both base paths, and the subdirectory is the load-bearing half.** These are the
+	 * only *absolute* addresses this app renders — everything else goes through `resolve` — and they
+	 * are built from two files read relative to the document: the site record's `editorUrl` and the
+	 * published `remote.json`. A read pointed at `/` instead of at the document leaves the root site
+	 * green and only the subdirectory red, which is what ticket 16 mutation-verified about this
+	 * harness.
+	 *
+	 * The links are read rather than followed: the destination is a different origin under ADR-0032
+	 * and there is no editor on this port. What the editor does when it is landed on is
+	 * `editor-clone-remote` and `editor-review-remote`.
+	 */
+	test('leads back to the editor that published it, from the Front Page and from a Project', async ({
+		page
+	}) => {
+		site = await published(publishedByEditor());
+
+		for (const served of site.sites) {
+			await page.goto(served.url);
+
+			const clone = page.getByRole('link', { name: 'Open this Workspace in Ballastella' });
+			await expect(clone).toHaveAttribute('href', `${EDITOR_INSTANCE}?clone=ada/atlas`);
+
+			await page.goto(`${served.url}?p=amsterdam-1625`);
+
+			const review = page.getByRole('link', { name: 'Review this Project in Ballastella' });
+			await expect(review).toHaveAttribute(
+				'href',
+				`${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`
+			);
+			// The whole-Workspace invitation is the Front Page's, not a Project's: a Reader looking at
+			// one piece of work is offered that piece of work.
+			await expect(clone).toHaveCount(0);
+		}
+	});
+
+	/**
+	 * A record with no instance address renders no link and no error (SPEC story 51).
+	 *
+	 * Every site published before ticket 09 is in this state and is in front of Readers now. A guess
+	 * at a canonical deployment would be worse than the absence: it would offer a stranger's editor a
+	 * repository the stranger has nothing to do with.
+	 */
+	test('says nothing about an editor when the site does not record one', async ({ page }) => {
+		site = await published({
+			...oneProject(),
+			// ⚠ **A binding the page must not go looking for.** The site records no instance, so there is
+			// no link to build and the repository's name is of no use — and this file is here precisely
+			// so that "no extra request" is a claim about the wire rather than about a missing fixture.
+			'remote.json': asJson({ formatVersion: 1, owner: 'ada', repository: 'atlas' })
+		});
+		const seen = watch(page);
+		const served = site.sites[0]!;
+
+		await page.goto(served.url);
+
+		await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
+		await expect(page.getByRole('link', { name: /in Ballastella$/ })).toHaveCount(0);
+		await expect(page.getByTestId('site-problem')).toHaveCount(0);
+		// Every site published before ticket 09 is in this state, and the binding is a whole extra
+		// round trip on the Front Page of every one of them.
+		expect(served.requests.filter((asked) => asked.endsWith('/remote.json'))).toEqual([]);
+		expect(seen.failures).toEqual([]);
+	});
+
+	/**
+	 * A site published to a folder rather than to a Remote has no `remote.json`, so there is no
+	 * repository to name in a link — and a Reader meets a Front Page, not a 404 or an alert.
+	 */
+	test('says nothing about an editor when the site is bound to no repository', async ({ page }) => {
+		site = await published(oneProject({}, { editorUrl: EDITOR_INSTANCE }));
+		const seen = watch(page);
+
+		await page.goto(site.sites[0]!.url);
+
+		await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
+		await expect(page.getByRole('link', { name: /in Ballastella$/ })).toHaveCount(0);
+		await expect(page.getByTestId('site-problem')).toHaveCount(0);
+		expect(seen.failures).toEqual([]);
 	});
 
 	test('reads everything through the HTTP store, and makes no request that could change a byte', async ({
@@ -2522,6 +2626,34 @@ test.describe('a Reader on a phone', () => {
 		await expect(page.getByTestId('layer-view-status')).toContainText('hidden');
 		await page.getByTestId('reader-layer-opacity').fill('0.5');
 		await expect(page.getByTestId('reader-layer-opacity-value')).toHaveText('50%');
+		expect(seen.failures).toEqual([]);
+	});
+
+	/**
+	 * The return links read well at 375 px (ticket 09's criterion, SPEC story 84).
+	 *
+	 * A link is where a long unbroken string usually gets onto a page, and these carry an absolute URL
+	 * — so the failure to look for is a Front Page that scrolls sideways on the width most Readers
+	 * arrive at.
+	 */
+	test('the links back to the editor are readable and do not widen the page', async ({ page }) => {
+		site = await published(publishedByEditor());
+		const seen = watch(page);
+
+		for (const where of ['', '?p=amsterdam-1625'] as const) {
+			await page.goto(site.sites[0]!.url + where);
+
+			const link = page.getByRole('link', { name: /in Ballastella$/ });
+			await expect(link).toBeVisible();
+			const box = (await link.boundingBox())!;
+			expect(box.width, `link width at ${where || 'the Front Page'}`).toBeLessThanOrEqual(375);
+
+			expect(
+				await page.evaluate(() => document.documentElement.scrollWidth),
+				`horizontal scroll at ${where || 'the Front Page'}`
+			).toBe(await page.evaluate(() => document.documentElement.clientWidth));
+		}
+
 		expect(seen.failures).toEqual([]);
 	});
 

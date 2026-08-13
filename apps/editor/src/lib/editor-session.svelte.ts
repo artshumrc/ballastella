@@ -2351,11 +2351,21 @@ export class EditorSession {
 	async planPublish(options: {
 		bundle: ViewerBundle;
 		includeBaseMap: boolean;
+		/**
+		 * This deployment's own address, which the site records so its Front Page can lead back here
+		 * (SPEC story 55).
+		 *
+		 * Required rather than optional, and supplied by the app for `readAsset`'s reason: where this
+		 * deployment lives is `$lib/base-map/deployment-assets`'s business, and a caller that could
+		 * quietly omit it would publish a site with no way back and nothing to say so.
+		 */
+		editorUrl: string;
 	}): Promise<PublishPlan> {
 		return planPublish(this.#store, {
 			bundle: options.bundle,
 			projects: await this.#workspace.listProjects(),
-			includeBaseMap: options.includeBaseMap
+			includeBaseMap: options.includeBaseMap,
+			editorUrl: options.editorUrl
 		});
 	}
 
