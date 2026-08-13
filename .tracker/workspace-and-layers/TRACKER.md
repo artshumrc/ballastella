@@ -12,7 +12,7 @@ Overall: **`Completed`**. All 22 tickets merged, 2026-08-09.
 
 The full gate on merged `main`: install / lint / check / build / test all exit 0, and `pnpm test:e2e` is **522 passed, 1 skipped, retry budget 0 of 523 (0.00%)**. The editor's bundle finished at **2.4M**, down from 3.2M.
 
-**What is not done is in "Open leads" below, and none of it is in the ledger.** Seven leads, every one carrying evidence rather than suspicion — a root cause, a measured rate, a deterministic reproduction, or an explicit statement that reachability is unproven. One (lead 6) is a vacuous assertion in merged code, found by the ticket after the one that shipped it. One (lead 7) is a decision left unguarded by a removal. **Lead 3's `editor-alignment.e2e.ts:678` is deliberately left unexplained** rather than attached to the nearest plausible cause — which is how lead 1 stayed mis-diagnosed for months.
+**What is not done is in "Open leads" below, and none of it is in the ledger.** Nine leads — seven from this epic, and 8 and 9 raised afterwards by `the-suite-runs-in-three-minutes` ticket 05, which is where they were found and not where they belong — every one carrying evidence rather than suspicion — a root cause, a measured rate, a deterministic reproduction, or an explicit statement that reachability is unproven. One (lead 6) is a vacuous assertion in merged code, found by the ticket after the one that shipped it. One (lead 7) is a decision left unguarded by a removal. **Lead 3's `editor-alignment.e2e.ts:678` is deliberately left unexplained** rather than attached to the nearest plausible cause — which is how lead 1 stayed mis-diagnosed for months.
 
 ## What this epic cost, for whoever plans the next one
 
@@ -109,6 +109,60 @@ Last updated: 2026-08-09.
    **Correction, same day: a "two floating assertions" claim recorded here was wrong, and was withdrawn after measurement.** `e2e/editor-stored-image-pane.e2e.ts:275` and `e2e/editor-image-pane.e2e.ts:87` *look* un-awaited but are expression-bodied arrow functions that **return** the promise, and all 17 call sites await it. Settled by mutating each helper to a `data-testid` that does not exist: `editor-image-pane` went **5 of 5 red**, `editor-stored-image-pane` **5 red and 1 passed** — the one test that never calls the helper. A genuinely floating assertion would have left both files green. Nothing here needs fixing.
 
    Kept as a note on method rather than deleted: the reviewer who raised it read the shape and was wrong; the implementer mutated it and was right. **A missing `await` on a web-first assertion is a real vacuity class and worth grepping for — but the grep must be followed by a mutation, because the returning-arrow shape is indistinguishable from it by eye.**
+
+8. **A first visit does show a GitHub affordance, and the test that says otherwise passes under load.** Raised 2026-08-13 by `the-suite-runs-in-three-minutes` ticket 05, at `d8d17d2`. Two separate things are wrong here and they must not be collapsed into one.
+
+   **The product half.** `e2e/editor-remote-binding.e2e.ts:344` › "a first visit › shows no sign-in affordance anywhere" asserts publish-to-a-remote SPEC story 38 — *a scholar who never publishes is never shown a sign-in prompt*. On a failing attempt the accessibility snapshot names the offending element exactly, so this is observed rather than inferred:
+
+   ```
+   - heading "Projects" [level=2]
+   - button "Open a Project someone sent me…"
+   - button "Review a Project from GitHub…"   ← the one visible match for /GitHub/i
+   - button "New Project"
+   ```
+
+   That button is `ProjectHub.svelte:484`, inside `{#if review === null}`, and it is story **50** — a Reader following a review link from a Published Site. So the two stories disagree on the hub of a Workspace that has never published: 38 says nothing about GitHub is on any screen until the scholar asks, 50 puts a button naming GitHub on the first screen there is. **Which one gives way is a product decision and is deliberately not taken here** — ADR-0031 and ADR-0032 are the territory, and the sibling test "asks GitHub nothing at all" is the one that says what a first visit is *supposed* to be (it passes: nothing is requested, only offered).
+
+   **The test half, and this is the part the record had wrong.** The spec of `the-suite-runs-in-three-minutes` called this failure *deterministic*, on the evidence that it fails its retry. Measured on `d8d17d2`, 2026-08-13, on the 20-core box:
+
+   | Run | Result |
+   | --- | --- |
+   | whole spec, default 4 workers | 1 failed of 20, **both attempts** |
+   | `--repeat-each=5 -g`, 4 workers | **2 failed, 3 passed** |
+   | the same again, 4 workers | **2 failed, 3 passed** |
+   | `BALLASTELLA_E2E_WORKERS=1 --repeat-each=5 -g` | **5 failed of 5**, every one failing its retry |
+
+   So "fails its retry" is true and "deterministic" is not: *within* an attempt pair the outcome is already decided, but *whether* the test fails at all depends on the run. **The unloaded run is the one that fails.** Every passing attempt finished in 378–616 ms; every failing attempt spent the full 10 s `toHaveCount` timeout. That is the shape of a test that passes by asserting `toHaveCount(0)` against a hub that has not yet put its buttons on the screen — under four workers the application boots slowly enough to lose the race, and the assertion is then vacuous.
+
+   ⚠ **That mechanism is not proven, and must not be written down as though it were.** The obvious probe refutes the obvious version of it: adding `await page.getByTestId('navigation-bar').waitFor()` before the assertions changed nothing — 3 passed, 2 failed, the same split as without it. So the navigation bar is not what the assertion is racing. Whatever populates the Projects hub is later than that, and has not been identified. Lead 1 is the reason for this caution: a plausible cause attached to real evidence stayed wrong for months.
+
+   **What is ruled out**: a code change between the four runs that disagreed. `git diff 780097f..d8d17d2 -- apps/editor/src apps/viewer packages` touches only `LayerListHarness.svelte` and a component test, so every run of this test today was against identical application code.
+
+   **Neither half is fixed and the test is not skipped.** Fixing the vacuity without deciding the product question would turn an intermittent red into a permanent one; deciding it without fixing the vacuity leaves a test that can pass when it should not.
+
+9. **The `viewer-reader` outage-notice retry is a family of two tests, not the one the record names.** Raised 2026-08-13 by the same ticket. `the-suite-runs-in-three-minutes`'s spec records the habitual flake as `viewer-reader.e2e.ts:2472` › "tells a server that is failing apart from a connection that is gone". Across four full-suite runs and one spec run taken today, the retries actually landed like this:
+
+   | Run | Retried |
+   | --- | --- |
+   | ticket 01, full suite | `:2524` "takes the notice down by itself when the map's own record answers again" — **failed its retry**, and was that run's one failure |
+   | ticket 03, full suite unprofiled | 2 flaky, **neither** of them a notice test |
+   | ticket 03, full suite profiled | `:2472`, the test the record names — flaky |
+   | ticket 03, regenerated run | the `viewer-reader` notice test — flaky |
+   | ticket 05, `pnpm test:e2e viewer-reader.e2e.ts` | `:2524` flaky — 1 of 63, 1.59%, budget 3%; `:2472` passed first time in 3.4 s |
+
+   So the habit is real and the name attached to it was not reliably the right one. `:2524` is the more frequent of the two and is the one that has been seen to fail *both* attempts.
+
+   The failure text is the same shape each time — the notice that is supposed to withdraw itself does not:
+
+   ```
+   expect(locator).toHaveCount(expected) failed
+   Locator:  getByTestId('historical-map-tiles-unavailable')
+   Expected: 0   Received: 1   Timeout: 45000ms
+   ```
+
+   at `viewer-reader.e2e.ts:2565`, the assertion that the notice comes down with no gesture at all once `info.json` answers again. The failing attempt took 49.2 s; the retry passed in 3.4 s. **This is a claim about recovery over a real WebGL renderer with a 45 s ceiling, so a defect and a lost race look alike from the outside, and nothing here separates them yet.** The two candidates are: the renderer does not always re-ask for a refused `info.json` (which would make SPEC story 17's promise to a Reader wrong), or 45 s is not enough under four workers. Deciding between them wants `--repeat-each` at two worker counts, the way lead 2 was settled — the instrument exists and has not been pointed at this.
+
+   **Why it matters that this is not absorbed**: the retry budget is 3%, which on a 669-test suite allows 20 retried tests. One habitual flake is invisible in that, and `scripts/retry-budget.mjs`'s own header says the thing the budget is still meant to catch is *a test that needs its retry habitually*. Absorbing this one is exactly the case the threshold was widened to keep catching. **Do not raise the budget to accommodate it, and do not skip either test.**
 
 ## Standing constraints
 

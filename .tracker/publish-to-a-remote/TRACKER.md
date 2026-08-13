@@ -24,6 +24,22 @@ Current ticket: — all eleven are complete
 
 Last updated: 2026-08-13
 
+## Open question for a human: stories 38 and 50 disagree about the hub
+
+Raised after this epic closed, by `the-suite-runs-in-three-minutes` ticket 05, and recorded in full —
+reproduction, run counts, and one refuted hypothesis — as **lead 8** in
+[`workspace-and-layers`'s TRACKER](../workspace-and-layers/TRACKER.md#open-leads--unclosed-and-not-to-be-absorbed-into-the-flake-budget).
+
+Story 38 says a scholar who never publishes is never shown a sign-in prompt. Story 50's *"Review a
+Project from GitHub…"* button (`ProjectHub.svelte:484`) is on the hub of a Workspace that has never
+published, and `e2e/editor-remote-binding.e2e.ts:344` — which reads 38 as *nothing about GitHub is on
+any screen* — sees it there. Nothing is *requested* of GitHub on a first visit; the sibling test proves
+that and passes. What is offered is the question.
+
+**Not decided here, and not decided by ticket 05 either.** The choice is between narrowing story 38's
+reading to a sign-in prompt specifically, or moving the review entry point behind the same gesture the
+rest of the Remote is behind. It is an ADR-0031 / ADR-0032 question and wants a human.
+
 ## Open question for a human: a rate-limited publish cannot be resumed
 
 Raised by ticket 02's review, and left open deliberately rather than decided in an implementation ticket.

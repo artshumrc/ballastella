@@ -14,7 +14,7 @@ Scope, the seam boundaries, and the measured baseline are in [SPEC.md](./SPEC.md
 
 Overall status: `In Progress`
 
-Current ticket: 01, 02 and 03 complete; 04, 05, 06, 08, 09, 10, 11, 12 and 13 unblocked.
+Current ticket: 01, 02, 03 and 05 complete; 04, 06, 08, 09, 10, 11, 12 and 13 unblocked.
 
 Ticket 03 added the cost profile. **[COST-PROFILE.md](./COST-PROFILE.md) is the measured per-spec table
 every later ticket targets by**, regenerated with one command:
@@ -56,7 +56,34 @@ Groundwork, verified and measured under ticket 01:
 
 **Full suite: 13m 04s / 675 tests → 10m 55s / 669 tests. A 16% saving, and that is all configuration can buy.** The remaining 75% is the migration work this epic's tickets will carry.
 
-Two faults predating this epic are recorded in the spec and are **not** in scope here: a deterministic failure in `editor-remote-binding` on `main`, and a habitual flake in `viewer-reader`.
+Two faults predating this epic are **not** in scope here. Ticket 05 measured both and wrote them up as
+leads 8 and 9 in [`workspace-and-layers`'s TRACKER](../workspace-and-layers/TRACKER.md#open-leads--unclosed-and-not-to-be-absorbed-into-the-flake-budget),
+where the reproductions, the runs and the two refuted hypotheses live. Neither is fixed; neither test is
+skipped. What every later ticket needs from them is the profile below.
+
+### The expected failure profile of an unmodified run
+
+**At most 1 failed, 0–2 flaky, 1 skipped — and every red or retried test is in `editor-remote-binding`
+or `viewer-reader`.** Anything else is this epic's doing and must be explained rather than absorbed.
+
+⚠ **The spec's "1 failed, 1 flaky" was a snapshot, not a prediction.** Measured across five runs on
+2026-08-13, all against identical application code (`git diff 780097f..d8d17d2 -- apps/editor/src
+apps/viewer packages` touches only a component-test harness):
+
+| Run | Failed | Flaky |
+| --- | --- | --- |
+| ticket 01, full suite | 1 — `viewer-reader:2524`, failing its retry | 0 |
+| ticket 03, full suite unprofiled | 1 — `editor-remote-binding` | 2, neither a notice test |
+| ticket 03, full suite profiled | 1 — `editor-remote-binding` | 1 — `viewer-reader:2472` |
+| ticket 03, regenerated | 1 — `editor-remote-binding` | 1 — the `viewer-reader` notice |
+| ticket 05, `viewer-reader` alone | 0 | 1 — `viewer-reader:2524` |
+
+So the count of failures **is not stable at 1**, and which of the two faults is red on a given run is
+not stable either. A ticket comparing profiles compares the *files*, not the numbers: the question to
+answer is "is anything red that is not one of these two tests", and after that, "did the suite's own
+count of tests change".
+
+The one skip is `editor-retry-budget-control.e2e.ts`'s deliberate control test, not a quarantine.
 
 ### Ticket 01's verification run — 2026-08-13, same 20-core box, not otherwise idle
 
@@ -102,6 +129,23 @@ spec calls deterministic and ticket 01's run saw pass. The flake did not hold st
 had two and the profiled run one, and only the profiled run's was the `viewer-reader` notice test the
 spec names. Ticket 05 has the reconciliation.
 
+### Ticket 05's verification runs — 2026-08-13, same 20-core box, `d8d17d2`
+
+Ticket 05 changes no code and no test. It runs to gather evidence, and these are the runs the two
+leads are written from.
+
+| Command | Result |
+| ------- | ------ |
+| `pnpm test:e2e editor-remote-binding.e2e.ts` | 1 failed of 20 in 52.9s — the sign-in-affordance test, failing **both** attempts |
+| `pnpm test:e2e editor-remote-binding.e2e.ts --repeat-each=5 -g "shows no sign-in affordance anywhere"` | **2 failed, 3 passed** (27.0s) |
+| the same with a `navigation-bar` wait added before the assertions, then reverted | **2 failed, 3 passed** (25.8s) — the probe changed nothing |
+| `BALLASTELLA_E2E_WORKERS=1` and the same `--repeat-each=5` | **5 failed of 5**, every attempt |
+| `pnpm test:e2e viewer-reader.e2e.ts` | 62 passed, **1 flaky** in 1.9m — `:2524`, failed 49.2s then passed on retry in 3.4s; retry budget 1.59% of 3% |
+
+Passing attempts of the sign-in-affordance test finish in 378–616 ms; failing ones spend the full 10 s
+`toHaveCount` timeout. **The unloaded run is the one that fails**, which is the opposite of the usual
+shape and is why "deterministic" was never quite the right word for it.
+
 Last updated: 2026-08-13
 
 ## Ledger
@@ -116,7 +160,7 @@ Tickets 01–05 are groundwork and instrumentation; 06–14 are the migration, o
 | 02     | 02-move-the-component-seam-into-node.md                          | Completed   | 01                                 |
 | 03     | 03-profile-seam-2-by-cost-per-test.md                            | Completed   | 01                                 |
 | 04     | 04-fence-the-size-of-seam-2.md                                   | Not Started | 01                                 |
-| 05     | 05-record-the-two-pre-existing-faults.md                         | Not Started | 01                                 |
+| 05     | 05-record-the-two-pre-existing-faults.md                         | Completed   | 01                                 |
 | 06     | 06-rehouse-the-annotation-document-claims.md                     | Not Started | 01                                 |
 | 07     | 07-rehouse-the-annotation-interface-claims.md                    | Not Started | 02, 06                             |
 | 08     | 08-finish-the-layer-stack-migration.md                           | Not Started | 02                                 |

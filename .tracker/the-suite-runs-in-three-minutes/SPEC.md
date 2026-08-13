@@ -188,7 +188,7 @@ This epic adds one criterion, because it is the one a migration can violate: **a
 The changes here are to the test suite, so the ordinary question — how do we know this did not break anything? — is answered by the suite itself, plus:
 
 - **The full suite, run end-to-end before and after each ticket**, with the counts and wall time recorded in the ticket. A ticket that reports a saving without both numbers has not measured one.
-- **The failure profile must be unchanged.** Both the 13m04s baseline and the 10m55s run reported 1 failed and 1 flaky, which is what confirmed the failure was pre-existing rather than introduced. A ticket that changes the count of failures explains it.
+- **The failure profile must be unchanged** — and "unchanged" is a range rather than a pair of numbers, because ticket 05 measured the two known faults and neither holds still. The baseline is stated in [TRACKER.md](./TRACKER.md#the-expected-failure-profile-of-an-unmodified-run) and amounts to: **at most 1 failed and 0–2 flaky, every one of them in `editor-remote-binding` or `viewer-reader`, plus 1 deliberate skip.** Anything red outside those two files is this epic's and is explained.
 - **Mutation of the new seam.** A component test that cannot be made to fail by breaking the component is not asserting anything; each migrated claim is watched to fail once, the way ticket 17's fixes were.
 - **The fence has a positive control** — a deliberately over-count run must fail it — in the family of `BALLASTELLA_E2E_RETRY_BUDGET=0` for the retry budget.
 
@@ -252,8 +252,13 @@ The pattern in all three is the same: a per-file or partial measurement generali
 
 ### Two open faults, both predating this epic
 
-- **`editor-remote-binding` › "shows no sign-in affordance anywhere" fails on `main`.** A visible element matching `/GitHub/i` is present on a first visit. Reproduced on clean `main`, in isolation, with and without `fullyParallel`, and it fails its retry — so it is deterministic, not flake. It is a product question (ADR-0031, ADR-0032 territory), not a suite question.
-- **`viewer-reader` › "tells a server that is failing apart from a connection that is gone" is habitually flaky.** It retried in three of the runs taken during this investigation, including on clean `main`. A test that needs its retry habitually is exactly what the retry budget's own note says the budget still catches, and it should be explained rather than tolerated.
+Written up in full, with the evidence, as **leads 8 and 9 in [`workspace-and-layers`'s TRACKER](../workspace-and-layers/TRACKER.md#open-leads--unclosed-and-not-to-be-absorbed-into-the-flake-budget)** (ticket 05). Neither is fixed, neither is skipped, and what this section originally said about both was measured and found to be wrong.
+
+- **`editor-remote-binding` › "shows no sign-in affordance anywhere" fails on `main`.** A visible element matching `/GitHub/i` is present on a first visit — the accessibility snapshot names it: the hub's *"Review a Project from GitHub…"* button, which is publish-to-a-remote's story 50 sitting on the screen its story 38 says must have nothing about GitHub on it. That much is a product question (ADR-0031, ADR-0032 territory), not a suite question.
+
+  ⚠ **It is not deterministic, and this document said it was.** Measured at `d8d17d2`: 2 of 5 repeats failed at the default 4 workers, twice over — but **5 of 5 at one worker**. It fails its retry whenever it fails, which is what "deterministic" was inferred from; what actually varies is whether it fails at all, and the *less* loaded run is the one that fails. Passing attempts take ~0.5 s and failing ones spend the whole 10 s timeout, so under contention the test is passing vacuously. The thing it is racing has not been identified — lead 8 records the probe that ruled out the obvious answer.
+
+- **`viewer-reader` › "tells a server that is failing apart from a connection that is gone" is habitually flaky.** The habit is real; the name is not reliably right. Of the five runs now on record the retry landed on the **sibling** test — "takes the notice down by itself when the map's own record answers again" — more often than on this one, and once it failed both attempts. Lead 9 has the table. A test that needs its retry habitually is exactly what the retry budget's own note says the budget still catches, and it should be explained rather than tolerated.
 
 ### What the epic is likely to cost
 
