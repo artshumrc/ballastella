@@ -132,11 +132,17 @@ export interface FakeGitHub {
 	 */
 	readonly rawGets: number;
 
-	/** Every file the branch's current commit holds, path → a copy of its bytes, sorted by path. */
-	files(branch?: string): Map<string, Uint8Array>;
+	/**
+	 * Every file a commit holds, path → a copy of its bytes, sorted by path.
+	 *
+	 * Takes a branch name or a commit SHA, so a test can ask what an *earlier* commit held rather
+	 * than only what survived to the head — the question "every commit a publish writes carries
+	 * `.nojekyll`" cannot be asked of the head alone.
+	 */
+	files(ref?: string): Map<string, Uint8Array>;
 
-	/** Every submodule the branch's current commit holds, path → the commit SHA it points at. */
-	gitlinks(branch?: string): Map<string, string>;
+	/** Every submodule a commit holds, path → the commit SHA it points at. Takes a branch or a SHA. */
+	gitlinks(ref?: string): Map<string, string>;
 
 	/** The branch's current commit, or `null` when the repository is empty. */
 	head(branch?: string): string | null;
@@ -374,14 +380,6 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		return commit === undefined ? null : (trees.get(commit.tree) ?? null);
 	};
 
-	/** The branch's tree as path-ordered pairs, which is how both readers below hand it out. */
-	const sortedTree = (
-		branch: string
-	): [string, { readonly sha: string; readonly mode: string }][] =>
-		[...(treeAt(branch) ?? [])].sort(([left], [right]) =>
-			left < right ? -1 : left > right ? 1 : 0
-		);
-
 	/**
 	 * The tree a `{ref}` names: a branch, a commit, or a tree, in that order.
 	 *
@@ -395,6 +393,12 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		if (commit) return trees.get(commit.tree) ?? null;
 		return trees.get(ref) ?? null;
 	};
+
+	/** A ref's tree as path-ordered pairs, which is how both readers below hand it out. */
+	const sortedTree = (ref: string): [string, { readonly sha: string; readonly mode: string }][] =>
+		[...(resolveTree(ref) ?? [])].sort(([left], [right]) =>
+			left < right ? -1 : left > right ? 1 : 0
+		);
 
 	/** The listing, with the directory entries a real recursive listing carries. */
 	const listing = async (tree: StoredTree): Promise<FakeTreeEntry[]> => {
@@ -921,9 +925,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		get rawGets() {
 			return rawGets;
 		},
-		files(branch = defaultBranch) {
+		files(ref = defaultBranch) {
 			const files = new Map<string, Uint8Array>();
-			for (const [path, entry] of sortedTree(branch)) {
+			for (const [path, entry] of sortedTree(ref)) {
 				const bytes = blobs.get(entry.sha);
 				// Copied: a caller that decodes a tile in place would otherwise rewrite the object
 				// store under every later read, and the corruption would surface as a wrong assertion
@@ -932,9 +936,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			}
 			return files;
 		},
-		gitlinks(branch = defaultBranch) {
+		gitlinks(ref = defaultBranch) {
 			const links = new Map<string, string>();
-			for (const [path, entry] of sortedTree(branch)) {
+			for (const [path, entry] of sortedTree(ref)) {
 				if (entry.mode === GITLINK_MODE) links.set(path, entry.sha);
 			}
 			return links;

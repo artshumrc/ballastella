@@ -7,7 +7,7 @@ sites. Keeping them apart is most of understanding this document.
 | --- | --- | --- |
 | Who | An instructor or department who wants their own instance | Any scholar or student using one |
 | What is served | The editor — the authoring application | A Workspace — your Projects, as a website |
-| Where it comes from | A fork of this repository, built by CI | A folder on your computer, pushed as-is |
+| Where it comes from | A fork of this repository, built by CI | Your Workspace folder, sent by the editor |
 | How often it changes | When you pull upstream changes | Every time you publish |
 
 They are **separate repositories**, deliberately. One instance of the tool serves any number of
@@ -241,83 +241,131 @@ reason to keep the fork current.
 
 ## Part 2 — Publishing your Workspace
 
-Your Workspace is a folder on your computer holding your Projects. Publishing turns that same folder
-into a website by **adding** files to it — it copies none of your data, not one tile
-([ADR-0006](adr/0006-the-project-directory-is-the-published-site.md)).
+Your Workspace is a folder on your computer holding your Projects. To **Publish** is to send that
+folder's files to its **Remote** — the one GitHub repository the Workspace is bound to — so that the
+site at that address becomes your work as it now stands. There is no `git` to learn and nothing to
+install: the editor talks to GitHub from the browser.
 
-### 1. Publish, in the editor
+Publishing **adds** files to that same folder and copies none of your data, not one tile
+([ADR-0006](adr/0006-the-project-directory-is-the-published-site.md)). It is never automatic: your
+edits are saved to your own disk as you make them; nothing reaches the Remote until you press the
+button ([ADR-0032](adr/0032-publish-means-the-remote.md)).
 
-Press **Publish**. The dialog tells you how many files and how many bytes it is about to add, and
-warns you about anything that would make the site disappoint a reader — a Project that references
-images from a remote library, for instance, which a reader with no network will not see.
+### Read this before your first publish: everything there is public
 
-Afterwards your Workspace holds these new entries beside your Projects:
+The Remote is a public repository, and everything in it can be read by anyone who has the address —
+every Project, every Historical Map, every annotation.
+
+**A Project you keep off the Front Page is still readable by anyone with the link.** The Front Page
+is the site's front door, listing the Projects a Reader arriving there is offered; taking a Project
+off it is an editorial decision about that list and nothing more. It is not a lock, not a password,
+and not an embargo. Do not put material there that is under embargo, under licence, or otherwise not
+yet yours to hand to a stranger.
+
+### 1. Make an empty repository on GitHub
+
+The editor offers you a link to `github.com/new` with the name already filled in from your Workspace.
+Choose **Public**, add nothing to it — no README, no `.gitignore`, no licence — and create it. A
+repository with nothing in it is what a first Publish expects.
+
+One repository for the whole Workspace, not one per Project.
+
+### 2. Bind your Workspace to it
+
+In the editor: **Workspace menu → Remote repository…**. Paste the repository's address and give the
+editor a credential — *Sign in with GitHub* if this instance offers it (part 1, step 6), or a
+fine-grained personal access token with **Contents: Read and write** and **Pages: Read and write**.
+
+Binding checks that the credential can actually write to that repository before it keeps anything, so
+a mistyped address or a token without the rights is refused there and then rather than half way
+through an upload. A Workspace has at most one Remote, and the binding is recorded in a `remote.json`
+in the Workspace itself, so it travels with the folder — copy the Workspace to another machine and it
+still knows where it publishes.
+
+### 3. Press Publish
+
+**Publish…**, on the navigation bar. The dialog tells you how many files and how many bytes it is
+about to send, how many Projects the site will carry and how many of those the Front Page lists, and
+warns you about anything that would make the site disappoint a Reader — a Project that references
+images from a Library, for instance, which a Reader with no network will not see.
+
+The editor writes the read-only viewer, the Front Page, and `.nojekyll` in beside your Projects, and
+sends the whole Workspace as a single commit. Nothing at the published address changes until that
+commit lands, so a publish that fails half way through leaves the site exactly as the last one left
+it.
+
+Afterwards your Workspace holds these entries beside your Projects:
 
 ```
 workspace/
-├── index.html              ← the hub page, listing every Project
+├── index.html              ← the Front Page, listing the Projects you put on it
 ├── _app/                   ← the read-only viewer
 ├── ballastella-site.json   ← the Project list, and the Base Map settings the site was published with
+├── remote.json             ← which repository this Workspace publishes to
 ├── .nojekyll               ← see below; do not delete it
 ├── amsterdam-1625/         ← your work, untouched
 └── boston-1775/            ← your work, untouched
 ```
 
-You can delete all four and every Project directory is still complete and readable, in standard
-formats, with no proprietary index left behind.
+You can delete every one of them and each Project directory is still complete and readable, in
+standard formats, with no proprietary index left behind.
 
-### 2. Put the Workspace in a repository and push it
+### 4. Turn Pages on, if the editor could not
 
-Once, for the whole Workspace — not once per Project.
+Binding asks GitHub to turn Pages on for you, and where your credential allows it that is the end of
+the matter. It cannot always: a token without **Pages: Read and write** may not, and a repository with
+nothing in it yet has no branch for Pages to serve from. The editor says which happened, in words, and
+what to click.
 
-```sh
-cd path/to/your-workspace
-git init
-git add -A
-git commit -m "Publish"
-git remote add origin git@github.com:<your-name>/<your-workspace-repo>.git
-git push -u origin main
-```
+By hand it is one setting, done once: **Settings → Pages → Source → Deploy from a branch**, branch
+`main`, folder `/ (root)`.
 
-### 3. Turn on Pages for that repository
+Here you *do* want the branch deploy, because the site is already built — what was sent is the
+website. There is nothing to compile.
 
-**Settings → Pages → Source → Deploy from a branch**, branch `main`, folder `/ (root)`.
-
-Here you *do* want the branch deploy, because the site is already built — the folder you pushed is
-the website. There is nothing to compile.
-
-Your site is at `https://<your-name>.github.io/<your-workspace-repo>/`, and a single Project is at
+Your site is then at `https://<your-name>.github.io/<your-repository>/`, and a single Project is at
 `…/?p=amsterdam-1625`. Those URLs are stable and citable; send them to anyone.
 
-### 4. Re-publish whenever you like
+### 5. Publish again whenever you like
 
-Publish again, then `git add -A && git commit && git push`. Publishing is additive and leaves earlier
-Projects byte-identical, so the diff is your work plus a refreshed viewer stamp. Adding a Project
-extends the hub page to include it. This is the one-repository-per-semester workflow: set hosting up
-once, push all term.
+Press **Publish** again. Only what changed is uploaded — files the Remote already holds are not sent
+a second time — so an ordinary publish after an afternoon's work takes seconds.
 
-### What `.nojekyll` is, and why it must stay
+A Project deleted from your Workspace is removed from the Remote, with the tiles only it used. Files
+you put in the repository yourself and the editor knows nothing about — a `CNAME`, a `README.md`, a
+`docs/` folder — are left alone
+([ADR-0033](adr/0033-a-publish-mirrors-an-owned-namespace.md)). This is the
+one-repository-per-semester workflow: set hosting up once, publish all term.
 
-GitHub Pages, when deploying from a branch, runs your files through Jekyll — and Jekyll ignores
-every path beginning with `_`. The viewer lives in `_app/`. Without an empty `.nojekyll` file at the
-root of your site, GitHub would serve your hub page and then refuse to serve any of the JavaScript
-in it: **a blank page, with the reason visible only in a browser's developer console.**
+### The first publish is the slow one
 
-It is empty, and publishing writes it directly rather than copying it from anywhere — there are no
-bytes in it to copy, and a file fetched over the network is a file that can 404.
+GitHub allows an account **5 000 requests an hour**, and a publish spends roughly one on every file it
+has not sent before. A freshly tiled Historical Map is thousands of tiles, so **a first publish of one
+can take more than an hour** — the editor tells you before it starts if the budget will not cover the
+upload.
 
-Publishing writes the file for you and re-writes it every time, so in normal use you will never think
-about it. It is mentioned here because it is an empty file with a strange name, and empty files with
-strange names get tidied away.
+If the budget does run out, publishing stops and names the time it resets. Publishing again after that
+starts the upload from the beginning, so a Workspace whose first publish needs more than one hour's
+worth of requests is best published in stages: add and publish one Historical Map at a time.
 
-### Size, and the cliff at the end of it
+Every publish after the first sends only what changed, and takes seconds.
 
-A GitHub Pages site is capped at roughly **1 GB**, shared by every Project in the Workspace. The
-editor warns you as you approach it — at the two moments that matter, before making an offline copy
-of a large map, and at publish — rather than letting `git push` fail cryptically
-([ADR-0008](adr/0008-projects-live-in-a-workspace.md)).
+### The three limits, and what drives each
 
-Two further notes if you are working near the limit:
+| Limit | Roughly | Driven by |
+| --- | --- | --- |
+| Total bytes | **1 GB** for the whole site | offline Base Map tiles, ~150 kB each |
+| Total files | **40 000** | Historical Map pyramids, which are thousands of small tiles each |
+| Requests an hour | **5 000** | a first publish, which sends every file once |
+
+The first two are properties of your Workspace; the third is a property of the hour you are in. You
+are told about all three before anything is uploaded rather than by a failure part way through: about
+bytes at the two moments that matter — before making an Offline Copy of a large map, and at publish
+([ADR-0008](adr/0008-projects-live-in-a-workspace.md)) — and about requests when you press Publish. A
+Workspace past the file ceiling is refused outright, because a publish over it is one GitHub would
+silently truncate.
+
+Two further notes if you are working near the limits:
 
 - Git refuses any single file over **100 MB**. Nothing the editor writes into a Workspace comes near
   it — a map tile is a few kilobytes — so this only bites if you add something large by hand.
@@ -325,12 +373,27 @@ Two further notes if you are working near the limit:
   pointer files, and every tile and every page would be a few lines of text instead of the thing it
   stands for.
 
+### What `.nojekyll` is, and why it must stay
+
+GitHub Pages, when deploying from a branch, runs your files through Jekyll — and Jekyll ignores
+every path beginning with `_`. The viewer lives in `_app/`. Without an empty `.nojekyll` file at the
+root of your site, GitHub would serve your Front Page and then refuse to serve any of the JavaScript
+in it: **a blank page, with the reason visible only in a browser's developer console.**
+
+It is empty, and publishing writes it directly rather than copying it from anywhere — there are no
+bytes in it to copy, and a file fetched over the network is a file that can 404.
+
+Publishing writes the file for you, into your Workspace and into **every** commit it sends to your
+Remote, whether or not your Workspace holds a copy — so in normal use you will never think about it.
+It is mentioned here because it is an empty file with a strange name, and empty files with strange
+names get tidied away.
+
 ### Other hosts
 
-Nothing above is specific to GitHub. The published Workspace is a directory of static files with no
-server-side anything, and it works at a domain root or in a subdirectory from the same bytes. Upload
-it anywhere that serves files. `.nojekyll` is inert everywhere else — harmless, and worth keeping in
-case the folder later goes to Pages.
+A published Workspace is a directory of static files with no server-side anything, and it works at a
+domain root or in a subdirectory from the same bytes. Publish goes to GitHub, but the folder does not
+have to stay there: copy the Workspace to anywhere that serves files and the site works. `.nojekyll`
+is inert everywhere else — harmless, and worth keeping in case the folder later goes to Pages.
 
 ---
 
@@ -348,6 +411,10 @@ case the folder later goes to Pages.
   step 5, and [ADR-0029](adr/0029-place-lookup-is-a-warned-service-that-leaves-nothing-behind.md). The use is
   within that service's published policy, and a fork inherits it until it repoints
   `packages/core/src/places/service.ts`.
+- **A publish stopped by the hourly request budget starts again from the beginning** (part 2, "The
+  first publish is the slow one"). What was uploaded before the stop is in no commit, so the next
+  attempt sends it again — which is why a Workspace whose first publish needs more than one hour's
+  worth of requests has to be published in stages.
 - **Publishing a single Project standalone** is not implemented. The Workspace is the site; a
   per-Project output is a deferred second mode (ADR-0008).
 - **Pretty per-Project URLs** (`/amsterdam-1625/` rather than `?p=amsterdam-1625`) are deferred, and

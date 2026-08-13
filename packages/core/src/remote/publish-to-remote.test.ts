@@ -808,3 +808,45 @@ describe('a budget spent part way through', () => {
 		expect((raised as Error).message).toContain('Resource not accessible by personal access token');
 	});
 });
+
+// SPEC's `.nojekyll` decision asserted from the outside rather than trusted: *written by every
+// publish, unconditionally*. The chain `scripts/check-nojekyll.mjs` follows ends here — in a
+// repository this code writes to — so this is the last point at which the property can be checked at
+// all. Its absence is a blank page on a scholar's own domain with the reason only in a browser
+// console (story 61), and nothing in this repository's own deployment would ever show it.
+describe('the Jekyll marker every publish writes', () => {
+	/** A commit's root entries, which is the only place a branch deploy reads `.nojekyll` from. */
+	const rootPaths = (github: FakeGitHub, commit: string): string[] =>
+		[...github.files(commit).keys()].filter((path) => !path.includes('/'));
+
+	it('is at the root of every commit a publish writes, and of no commit it did not', async () => {
+		const store = await smallWorkspace();
+		// The case the engine authors one for: nothing in the Workspace is called this.
+		expect(await store.list('')).not.toContain('.nojekyll');
+		const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });
+		const ancestor = github.head() ?? '';
+
+		const first = await publish(store, github);
+		const second = await publish(store, github);
+
+		expect(github.history()).toEqual([second.commit, first.commit, ancestor]);
+		expect([rootPaths(github, first.commit), rootPaths(github, second.commit)]).toEqual([
+			['.nojekyll', 'README.md', 'ballastella-site.json', 'index.html'],
+			['.nojekyll', 'README.md', 'ballastella-site.json', 'index.html']
+		]);
+		expect(github.files(first.commit).get('.nojekyll')?.byteLength).toBe(0);
+		// ⚠ The positive control. A reader that answered the same for every commit would satisfy the
+		// two assertions above, and a fence that cannot fail is `exit 0` spelled at length. The
+		// ancestor is a commit this code did not write, and the same reader says it has no marker.
+		expect(rootPaths(github, ancestor)).toEqual(['README.md']);
+	});
+
+	it('is written once when the Workspace already holds one, rather than twice', async () => {
+		const store = await seeded({ '.nojekyll': '', 'index.html': '<!doctype html>' });
+		const github = await createFakeGitHub({ ...REMOTE, tree: {} });
+
+		const { commit } = await publish(store, github);
+
+		expect(rootPaths(github, commit)).toEqual(['.nojekyll', 'index.html']);
+	});
+});
