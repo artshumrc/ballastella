@@ -22,7 +22,7 @@ Overall status: `In Progress`
 
 Current ticket: 05, 08 and 11, in parallel
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 ## Open question for a human: a rate-limited publish cannot be resumed
 
@@ -87,6 +87,39 @@ Two ways out, neither chosen: offer to continue into the existing partial Worksp
 Remote (which needs a way to mark a Workspace incomplete), or discard a partial Workspace on failure and give
 up resume entirely, which contradicts story 46.
 
+## Known limitation: the bind-time subset refusal has no override
+
+Raised by ticket 05's review and left as it stands, deliberately. Binding is refused when the Remote's
+`ballastella-site.json` lists a Project this Workspace has not got, and there is no way past it — the only
+remedy offered is Clone.
+
+That is right for the case it exists for and wrong for one legitimate case: a scholar who deletes a Project
+locally, unbinds, and re-binds the same repository is refused, and the refusal names the Project they
+deliberately deleted. Clone does not help them; it makes a second Workspace holding the very Project they
+meant to be rid of. The way through today is to publish *before* unbinding, so the Remote's record no longer
+lists it.
+
+Not fixed because an override is a switch that turns the guard off, and the guard's whole subject is a
+scholar who does not yet know what is on the Remote — a second machine and a partly-cloned Workspace both
+arrive at the refusal believing the deletion is deliberate. Trading a rare annoyance for the loss this epic
+exists to prevent is the wrong way round. If it is revisited, the shape to look at is a remedy that
+*publishes the deletion* rather than one that waives the check.
+
+## Deferred out of ticket 05: a Clone still writes no publish manifest
+
+SPEC says the manifest records the Remote *"as of the last successful Publish **or Clone**"*, and the Clone
+half is unimplemented — `cloneFromRemote` writes none. Held back from ticket 05 deliberately: it needs
+`WorkspaceClone`'s shape and `cloneFromRemote`'s loop, which ticket 08 is working in, and a Clone reads a
+*tree* at a branch and so never learns a commit SHA for `PublishManifest.commit`. The intended shape is that
+the Clone learn its commit from `GET /git/ref/heads/{branch}` — one extra request, which the publish engine
+already makes — rather than the field being made optional; and that the record be built from the paths the
+Clone **wrote**, never from the ones the tree listed, because a partial download recording the whole listing
+would make ticket 05's check bless the deletion of every un-fetched path.
+
+Until it lands, the first publish from a cloned Workspace meets ticket 05's no-manifest refusal. That is
+safe and is the specified fallback: it says plainly that it cannot tell, says that a just-cloned Workspace
+is the ordinary case for it, and offers "publish anyway".
+
 ## Sequencing, and why it is risk-ordered
 
 The order below is not dependency order alone. **Everything is buildable and testable against a pasted
@@ -116,7 +149,7 @@ docs, and nothing else.
 | 02 | [02-a-workspace-becomes-a-commit.md](./tickets/02-a-workspace-becomes-a-commit.md) | Completed | 01 |
 | 03 | [03-a-workspace-is-bound-to-a-remote.md](./tickets/03-a-workspace-is-bound-to-a-remote.md) | Completed | 02 |
 | 04 | [04-publish-from-the-navigation-bar.md](./tickets/04-publish-from-the-navigation-bar.md) | Completed | 03 |
-| 05 | [05-a-publish-refuses-to-overwrite-another-machine.md](./tickets/05-a-publish-refuses-to-overwrite-another-machine.md) | Not Started | 04 |
+| 05 | [05-a-publish-refuses-to-overwrite-another-machine.md](./tickets/05-a-publish-refuses-to-overwrite-another-machine.md) | Completed | 04 |
 | 06 | [06-a-project-chooses-whether-it-is-on-the-front-page.md](./tickets/06-a-project-chooses-whether-it-is-on-the-front-page.md) | Completed | 02 |
 | 07 | [07-clone-a-workspace-from-a-remote.md](./tickets/07-clone-a-workspace-from-a-remote.md) | Completed | 03 |
 | 08 | [08-review-a-project-from-a-remote.md](./tickets/08-review-a-project-from-a-remote.md) | Not Started | 07 |

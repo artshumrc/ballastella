@@ -39,9 +39,10 @@
 	// no credential: it asks for the credential, here, rather than sending the user to another dialog
 	// — and the confirm button says what pressing it in that state actually does, which is write the
 	// website into the Workspace and send it nowhere. Bound with a credential and nothing to do: it
-	// says so, and the button is inert beside the sentence saying why. A disabled Publish button with
-	// no explanation is the failure this whole epic exists to remove; the explanation is the part that
-	// matters, and it is always on screen.
+	// says so, and the button is inert beside the sentence saying why. Bound to a Remote somebody else
+	// has written to: it names the files, offers Clone and replace, and the button waits for one of
+	// them. A disabled Publish button with no explanation is the failure this whole epic exists to
+	// remove; the explanation is the part that matters, and it is always on screen.
 
 	import { tick } from 'svelte';
 
@@ -99,6 +100,18 @@
 	let upload = $state<RemotePublishPlan | null>(null);
 	/** Why the upload could not even be worked out: a truncated tree, an expired sign-in. */
 	let uploadProblem = $state('');
+	/**
+	 * Whether the scholar has taken the second remedy: *publish anyway, replacing it* (ADR-0033).
+	 *
+	 * ⚠ **Armed by its own button and never a default**, which is the two-step this codebase uses for
+	 * everything that cannot be undone — `ProjectHub`'s deletion confirmation names what is at stake
+	 * on the second step for the same reason. Until it is armed the confirm button is inert with the
+	 * refusal above it saying why, so the state leads somewhere rather than being a dead button.
+	 *
+	 * Cleared by every re-forecast, deliberately: a decision taken about one set of files is not a
+	 * decision about the set a later listing found.
+	 */
+	let replacing = $state(false);
 	/** Why there is nothing to publish, or why publishing stopped. */
 	let failure = $state('');
 	/**
@@ -147,6 +160,7 @@
 		site = null;
 		upload = null;
 		uploadProblem = '';
+		replacing = false;
 		rightsNotice = '';
 		failure = '';
 		progress = null;
@@ -180,6 +194,7 @@
 	): Promise<void> {
 		upload = null;
 		uploadProblem = '';
+		replacing = false;
 		const bound = storage.remote;
 		const credential = storage.credential;
 		if (bound === null || credential === null) return;
@@ -396,6 +411,17 @@
 	const uploadFiles = $derived(upload === null ? 0 : upload.files.length + upload.pending.length);
 
 	/**
+	 * Why publishing would overwrite work this Workspace has never seen, or `null` (ADR-0033).
+	 *
+	 * The engine refuses on it whatever this dialog does — `publishToRemote` will not send a byte
+	 * while it is set unless it is told to replace — so what is rendered from it is the *offer*, not
+	 * the protection.
+	 */
+	const conflict = $derived(upload?.conflict ?? null);
+	/** Whether the confirm button would refuse: a standing conflict the scholar has not answered. */
+	const blockedByConflict = $derived(conflict !== null && !replacing);
+
+	/**
 	 * What the confirm button says, which has to be what pressing it does.
 	 *
 	 * ⚠ **A bound Workspace with no credential publishes into the folder and reaches nobody.** The
@@ -409,12 +435,16 @@
 			? 'Publishing…'
 			: remote !== null && !signedIn
 				? 'Publish into this Workspace only'
-				: 'Publish'
+				: // Said on the button as well as on the remedy that armed it, because between the two
+					// presses is where a scholar looks away — and "Publish" is not what this one does.
+					conflict !== null && replacing
+					? 'Publish anyway, replacing it'
+					: 'Publish'
 	);
 
 	const run = async () => {
 		const agreed = plan;
-		if (!agreed || publishing || nothingToDo) return;
+		if (!agreed || publishing || nothingToDo || blockedByConflict) return;
 		publishing = true;
 		failure = '';
 		/** Whether the viewer has reached the Workspace, so a later refusal does not deny it. */
@@ -451,6 +481,14 @@
 				const result = await session.publishToRemote({
 					token: credential,
 					remote: bound,
+					// The scholar's answer to the refusal, carried through to the engine as the **files it
+					// was about** — which re-plans against the Workspace the local publish has just written
+					// and would otherwise refuse all over again, on the same conflict they have already been
+					// shown and accepted. The paths rather than a `true`, because that second plan is made
+					// against a tree listing minutes newer than the one on screen: an agreement to replace
+					// one Annotation must not become an agreement to delete a Project that arrived in the
+					// meantime.
+					...(replacing ? { replace: conflict?.paths ?? [] } : {}),
 					onProgress: (seen) => {
 						progress = { phase: 'uploading', ...seen };
 					}
@@ -734,11 +772,57 @@
 				{:else if upload === null}
 					<p class="mt-1 text-sm opacity-70">Asking GitHub what it already has…</p>
 				{:else if nothingToDo}
+					<!--
+						⚠ **Before the conflict, and that ordering is the fix to a dead button.** A conflict
+						is a statement about *whose* the files on the Remote are, and `unknown` is raised on
+						nothing more than "no manifest, and the owned namespace is not empty" — which is the
+						state of a Workspace whose Remote matches it byte for byte, the ordinary first press
+						after a complete Clone (story 24). Rendered conflict-first, that Workspace was shown a
+						refusal, offered a replace that armed and then changed nothing, and left with a
+						`aria-disabled` Publish button and the sentence explaining it suppressed. Nothing here
+						would change anything anywhere, so there is nothing to refuse and nothing at stake.
+					-->
 					<p class="mt-1 text-sm" data-testid="publish-nothing-to-do">
 						Nothing needs changing. <code>{describeRemote(remote)}</code> already holds this Workspace
 						exactly as it is here, so there is nothing to send and your Published Site is up to date.
 					</p>
 				{:else}
+					{#if conflict !== null}
+						<!--
+							⚠ **The refusal, and both of its remedies, on one screen.** Naming the paths is the
+							whole of the reporting — there is no diff and no per-file choosing (SPEC "Out of
+							scope" item 3) — and the two ways on are Clone or replace, never a merge. The second
+							is a two-step: this button only *arms* it, and the confirm button below then says
+							what pressing it does. That is `ProjectHub`'s deletion pattern, for its reason.
+
+							⚠ **Beside the budgets rather than instead of them.** A conflict is where the
+							replacement tree is largest and where the scholar is being asked to press through a
+							warning, so it is the worst possible moment to be the one state that hides story 9's
+							two numbers, the hosting cliff and the hourly request budget.
+						-->
+						<div
+							role="alert"
+							class="mt-3 alert flex-col items-start alert-warning"
+							data-testid="publish-conflict"
+							data-conflict={conflict.reason}
+						>
+							<p>{conflict.message}</p>
+							<p class="text-sm">
+								Cloning is in the Workspace menu at the top left, under <strong
+									>Remote repository…</strong
+								>. It makes a new Workspace and leaves this one exactly as it is.
+							</p>
+							<button
+								class="btn btn-sm"
+								class:btn-disabled={replacing}
+								aria-disabled={replacing}
+								data-testid="publish-replace"
+								onclick={() => (replacing = true)}
+							>
+								{replacing ? 'Ready to replace it' : 'Publish anyway, replacing it'}
+							</button>
+						</div>
+					{/if}
 					<p class="mt-1 text-sm">
 						Publishing sends this Workspace to <code>{describeRemote(remote)}</code>, on the branch
 						<code>{remote.branch}</code>, and nowhere else.
@@ -862,8 +946,8 @@
 		</button>
 		<button
 			class="btn btn-primary"
-			class:btn-disabled={publishing || plan === null || nothingToDo}
-			aria-disabled={publishing || plan === null || nothingToDo}
+			class:btn-disabled={publishing || plan === null || nothingToDo || blockedByConflict}
+			aria-disabled={publishing || plan === null || nothingToDo || blockedByConflict}
 			onclick={run}
 		>
 			{confirmLabel}

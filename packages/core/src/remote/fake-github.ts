@@ -145,6 +145,24 @@ export interface FakeGitHub {
 	history(branch?: string): string[];
 
 	/**
+	 * Commit a change nothing here made: a scholar editing a file on github.com, or another machine.
+	 *
+	 * ⚠ **The only way to produce a *foreign* write**, and that is what it is for. A publish's
+	 * conflict refusal is entirely about writes this app did not make, and every other way of
+	 * changing this repository goes through the publish engine — so a test that built one that way
+	 * would be asserting that the engine agrees with itself.
+	 *
+	 * Paths not named are left exactly as they are, and `null` removes one. The commit is parented
+	 * onto whatever the branch held, so the history reads as it would on the real host.
+	 *
+	 * @returns the commit the branch now holds
+	 */
+	commitFiles(
+		files: Readonly<Record<string, string | Uint8Array | null>>,
+		branch?: string
+	): Promise<string>;
+
+	/**
 	 * Cut every tree listing short after this many entries and report `truncated: true`.
 	 *
 	 * The real endpoint truncates at 100 000 entries or 7 MB **and still answers 200**, which is
@@ -185,6 +203,22 @@ export interface FakeGitHub {
 
 	/** Whether Pages is on. `POST /pages` answers 409 when it is, and turns it on when it is not. */
 	pagesEnabled: boolean;
+
+	/**
+	 * Answer 404 on `raw.githubusercontent.com` to any read carrying no credential.
+	 *
+	 * SPEC puts private repositories out of scope and nothing in this epic refuses one, which is the
+	 * whole reason this knob exists: a check that reads a file from the raw host without a credential
+	 * does not *fail* on a private repository, it reads "there is no such file" and passes. That is
+	 * how the bind-time subset refusal was silently inert on exactly the repository whose owner is
+	 * most likely to have two machines.
+	 *
+	 * ⚠ **Default `false`, and that matters as much as the knob.** A public repository's bytes are
+	 * read here with no credential at all, so the ordinary raw host must not so much as *look* at an
+	 * `Authorization` header — a fake that demanded one everywhere would hide a Clone sending a token
+	 * it has no business sending.
+	 */
+	privateRepository: boolean;
 
 	rateLimit: FakeRateLimit;
 
@@ -311,6 +345,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		refusePages: false,
 		permissions: { push: true, admin: true } as FakeRepositoryPermissions,
 		pagesEnabled: false,
+		privateRepository: false,
 		rateLimit: {
 			remaining: DEFAULT_HOURLY_REQUESTS,
 			reset: Math.floor(Date.now() / 1000) + 3600
@@ -741,10 +776,16 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	 *
 	 * It spends none of the hourly budget, because it is not the API and does not share its ceiling.
 	 */
-	const answerRaw = (url: URL): Response => {
+	const answerRaw = (url: URL, request: Request): Response => {
 		// Counted before anything is resolved, for {@link FakeGitHub.blobPosts}'s reason in the other
 		// direction: a 404 is still a request the engine chose to make.
 		rawGets += 1;
+		// ⚠ **A private repository answers 404 here, not 401**, which is the whole hazard: a caller
+		// reading a file to find out what the Remote carries is told the file is not there, and a check
+		// built on that read passes rather than failing (see {@link FakeGitHub.privateRepository}).
+		if (state.privateRepository && !bearsToken(request)) {
+			return new Response('404: Not Found', { status: 404, headers: headers() });
+		}
 		const path = decodePath(url.pathname);
 		if (path === null) return notFound(`${url.pathname} is not a path this fake implements.`);
 		const [owner, repository, ref, ...rest] = path;
@@ -879,10 +920,10 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			if (url.href.split('?')[0] === GITHUB_AUTHORIZE_URL) return answerAuthorize(url);
 		}
 
-		// The raw host is deliberately not covered: a public repository's bytes are read there with no
-		// credential at all, and a fake that demanded one would hide a Clone sending a token it has no
-		// business sending.
-		if (url.origin === GITHUB_RAW_ORIGIN) return answerRaw(url);
+		// The raw host spends none of the hourly budget and, unless this repository is private, does not
+		// so much as look at a credential: a public repository's bytes are read there with none at all,
+		// and a fake that demanded one would hide a Clone sending a token it has no business sending.
+		if (url.origin === GITHUB_RAW_ORIGIN) return answerRaw(url, request);
 		if (url.origin !== GITHUB_API_ORIGIN) {
 			return notFound(`${url.origin} is not a host this fake implements.`);
 		}
@@ -950,6 +991,27 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			}
 			return chain;
 		},
+		async commitFiles(files, branch = defaultBranch) {
+			const entries = new Map(treeAt(branch) ?? []);
+			for (const [path, content] of Object.entries(files)) {
+				if (content === null) {
+					entries.delete(path);
+					continue;
+				}
+				const bytes = bytesOf(content);
+				const sha = await gitBlobSha(bytes);
+				blobs.set(sha, bytes);
+				entries.set(path, { sha, mode: '100644' });
+			}
+			const parent = refs.get(branch);
+			const commit = await storeCommit({
+				message: 'Edited on github.com',
+				tree: await storeTree(entries),
+				parents: parent === undefined ? [] : [parent]
+			});
+			refs.set(branch, commit);
+			return commit;
+		},
 		get truncateAfter() {
 			return state.truncateAfter;
 		},
@@ -985,6 +1047,12 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		},
 		set pagesEnabled(value) {
 			state.pagesEnabled = value;
+		},
+		get privateRepository() {
+			return state.privateRepository;
+		},
+		set privateRepository(value) {
+			state.privateRepository = value;
 		},
 		get rateLimit() {
 			return state.rateLimit;

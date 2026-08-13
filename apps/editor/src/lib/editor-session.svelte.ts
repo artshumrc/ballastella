@@ -2418,8 +2418,22 @@ export class EditorSession {
 		return planWorkspaceUpload(this.#store, {
 			token: options.token,
 			remote: options.remote,
+			manifest: this.#lastSeenOn(options.remote),
 			...(options.pending ? { pending: options.pending } : {})
 		});
+	}
+
+	/**
+	 * What this machine last saw on `remote`, or `null` for *we cannot say*.
+	 *
+	 * ⚠ **The Remote is handed to the record rather than assumed of it**, which is what makes a
+	 * re-bound Workspace safe: `PublishManifests.read` answers `null` for a record naming a different
+	 * repository or branch, so this machine's claim about `ada/atlas` can never stand as evidence
+	 * about `ada/atlas-2`. A session with no journal storage has no record at all and says so, which
+	 * the engine reads as the same "we cannot say" and refuses on rather than guesses at.
+	 */
+	#lastSeenOn(remote: RemoteRepository): ReadonlyMap<string, string> | null {
+		return this.#manifests?.read(remote)?.files ?? null;
 	}
 
 	/**
@@ -2437,11 +2451,26 @@ export class EditorSession {
 	 * another machine's belief arriving as this one's evidence (ticket 05).
 	 *
 	 * @returns the plan that ran, the commit the branch now holds, and whether the manifest was kept
+	 * @throws RemotePublishRefusedError when the Remote moved past what `replace` agreed to
 	 * @throws RemotePublishRateLimitedError, RemotePublishCredentialError, RemotePublishFailedError
 	 */
 	async publishToRemote(options: {
 		token: string;
 		remote: RemoteRepository;
+		/**
+		 * The paths of the conflict the scholar was shown and agreed to replace (ADR-0033).
+		 *
+		 * ⚠ **The paths and not a `true`, because the plan this runs is not the plan they read.** The
+		 * forecast is made before the local publish writes; this replans afterwards, against a tree
+		 * listing taken minutes later on a large Workspace. Handed a bare "yes" the engine would apply a
+		 * decision about one `notes.json` to whatever the second listing found — including a Project
+		 * another machine published in the window, deleted without anybody having seen its name. So the
+		 * agreement travels as the set it was about, and `publishToRemote` refuses when the second
+		 * plan's conflict is not a subset of it.
+		 *
+		 * Left out, a Remote somebody else has written to is refused, which is the default.
+		 */
+		replace?: readonly string[];
 		onProgress?: (progress: {
 			files: number;
 			totalFiles: number;
@@ -2452,10 +2481,14 @@ export class EditorSession {
 		// inside the autosave debounce would go to a public host missing the edit just made.
 		await this.flush();
 		const request = { token: options.token, remote: options.remote };
-		const plan = await planWorkspaceUpload(this.#store, request);
+		const plan = await planWorkspaceUpload(this.#store, {
+			...request,
+			manifest: this.#lastSeenOn(options.remote)
+		});
 		const { commit, manifest } = await uploadWorkspace(this.#store, {
 			...request,
 			plan,
+			...(options.replace === undefined ? {} : { replace: options.replace }),
 			...(options.onProgress ? { onProgress: options.onProgress } : {})
 		});
 		// Best effort by construction: a manifest too large for what is left of the origin's 5 MB

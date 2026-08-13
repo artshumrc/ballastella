@@ -359,6 +359,7 @@ export {
 	type PlanRemotePublishOptions,
 	type PlannedRemoteFile,
 	type PublishToRemoteOptions,
+	type RemotePublishConflict,
 	type RemotePublishOptions,
 	type RemotePublishPlan,
 	type RemotePublishWarning,

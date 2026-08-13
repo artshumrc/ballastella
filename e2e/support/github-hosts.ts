@@ -153,6 +153,19 @@ export type GitHubHosts = {
 	/** The commit the branch is on, or `null` when the repository is empty. */
 	head(owner: string, name: string): string | null;
 	/**
+	 * Commit a change the browser did not make: another machine publishing, or an edit on github.com.
+	 *
+	 * ⚠ **The only way to produce a *foreign* write**, which is what the publish's conflict refusal is
+	 * entirely about — every other way of changing a repository here goes through the app under test.
+	 * Paths not named are left as they are; `null` removes one. It is the shared fake's own
+	 * `commitFiles`, not a second way of writing bytes.
+	 */
+	commitFiles(
+		owner: string,
+		name: string,
+		files: Readonly<Record<string, string | null>>
+	): Promise<void>;
+	/**
 	 * How many byte reads `owner/name` has answered, refusals included.
 	 *
 	 * The fake's own counter rather than a length of {@link rawRequests}, so a spec asserting that a
@@ -347,6 +360,13 @@ export async function routeGitHubHosts(
 		},
 		blobPosts: () => [...fakes.values()].reduce((sum, fake) => sum + fake.blobPosts, 0),
 		head: (owner, name) => fakes.get(key(owner, name))?.head() ?? null,
+		commitFiles: async (owner, name, files) => {
+			const fake = fakes.get(key(owner, name));
+			if (fake === undefined) {
+				throw new Error(`No fake repository at ${key(owner, name)} to commit to.`);
+			}
+			await fake.commitFiles(files);
+		},
 		rawGets: (owner, name) => fakes.get(key(owner, name))?.rawGets ?? 0,
 		expireSignIn: () => primary?.expireIssuedTokens(),
 		refuseRefresh: () => {

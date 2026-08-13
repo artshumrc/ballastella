@@ -1147,9 +1147,15 @@ test.describe('publishing to a Remote', () => {
 				: { key, files: Object.keys(JSON.parse(localStorage.getItem(key) ?? '{}').files ?? {}) };
 		});
 		expect(manifest?.key).toBe('ballastella.publish-manifest.opfs%3AMy%20Workspace');
-		// What it holds is the whole tree the Remote now has, `CNAME` and all — not merely what was
-		// uploaded, which is the distinction a conflict check rests on.
-		expect(manifest?.files.sort()).toEqual(arrived);
+		// ⚠ **What it holds is every path this publish *wrote*, and not merely the ones it uploaded** —
+		// the distinction a conflict check rests on, because a file skipped as already-present is still
+		// a file this machine put there and may replace. `CNAME`, `README.md` and `docs/guide.md` are
+		// the other exclusion and the sharper one: they were carried into the commit from the tree
+		// listing, with SHAs nothing here has read bytes for, so claiming them would be this machine
+		// asserting authorship of files it never sent.
+		const preserved = ['CNAME', 'README.md', 'docs/guide.md'];
+		expect(manifest?.files.sort()).toEqual(arrived.filter((path) => !preserved.includes(path)));
+		expect(arrived).toEqual(expect.arrayContaining(preserved));
 		expect(Object.keys(await takeWorkspace(page))).not.toContain('publish-manifest.json');
 	});
 
