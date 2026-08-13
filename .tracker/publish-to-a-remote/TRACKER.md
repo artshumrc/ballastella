@@ -20,7 +20,7 @@ mirrors an owned namespace and preserves the rest), with amendment banners on AD
 
 Overall status: `In Progress`
 
-Current ticket: 04, 07 and 10, in parallel
+Current ticket: 05, 08 and 11, in parallel
 
 Last updated: 2026-08-12
 
@@ -47,6 +47,23 @@ honest fix within its scope. The underlying capability is still absent. Three wa
    ("nothing on my published site changes until the upload has finished") and should probably be refused.
 
 Nothing downstream is blocked on this: tickets 03–11 are unaffected either way.
+
+## For a human: this deployment ships with no GitHub App
+
+Ticket 10 landed with **placeholder** App values — `https://github-broker.example.org` (RFC 2606 reserved,
+so it can never be registered by anyone) and a self-evidently fake client ID. There is no broker deployed and
+no GitHub App registered; `/home/dflood/repos/infrastructure/github_broker` is an empty directory.
+
+This is a specified, tested state, not a gap: story 56 wants a fork to work with no AWS account, and ticket
+10's criterion 9 — asserted end to end — is that with the broker unreachable the pasted-token path still
+binds and still publishes. Until the pair is replaced, the pasted personal access token is the whole of this
+deployment's auth, which is what ADR-0031 intends.
+
+**To turn the sign-in on:** register a GitHub App, deploy the broker from the sibling repository, and replace
+the two values in the one configuration module (`packages/core/src/remote/github-app.ts`). Neither is a
+secret. `docs/hosting.md` §6 has the instructions, and `scripts/check-github-broker.mjs` fails the lint if
+either value is ever named anywhere else. Note that a GitHub App's callback URL is registered **per app**, so
+a fork at a different address needs its own.
 
 ## Open question for a human: an interrupted Clone cannot be resumed from the app
 
@@ -101,10 +118,10 @@ docs, and nothing else.
 | 04 | [04-publish-from-the-navigation-bar.md](./tickets/04-publish-from-the-navigation-bar.md) | Completed | 03 |
 | 05 | [05-a-publish-refuses-to-overwrite-another-machine.md](./tickets/05-a-publish-refuses-to-overwrite-another-machine.md) | Not Started | 04 |
 | 06 | [06-a-project-chooses-whether-it-is-on-the-front-page.md](./tickets/06-a-project-chooses-whether-it-is-on-the-front-page.md) | Completed | 02 |
-| 07 | [07-clone-a-workspace-from-a-remote.md](./tickets/07-clone-a-workspace-from-a-remote.md) | Not Started | 03 |
+| 07 | [07-clone-a-workspace-from-a-remote.md](./tickets/07-clone-a-workspace-from-a-remote.md) | Completed | 03 |
 | 08 | [08-review-a-project-from-a-remote.md](./tickets/08-review-a-project-from-a-remote.md) | Not Started | 07 |
 | 09 | [09-the-front-page-leads-back-to-the-editor.md](./tickets/09-the-front-page-leads-back-to-the-editor.md) | Not Started | 06, 08 |
-| 10 | [10-a-github-app-and-the-broker.md](./tickets/10-a-github-app-and-the-broker.md) | Not Started | 03 |
+| 10 | [10-a-github-app-and-the-broker.md](./tickets/10-a-github-app-and-the-broker.md) | Completed | 03 |
 | 11 | [11-the-jekyll-fence-follows-the-publish.md](./tickets/11-the-jekyll-fence-follows-the-publish.md) | Not Started | 04 |
 
 Tickets 06, 07, and 10 are independent of one another once 03 lands, and 06 needs only 02 — three parallel
