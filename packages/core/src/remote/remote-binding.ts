@@ -63,6 +63,21 @@ export const DEFAULT_REMOTE_BRANCH = 'main';
 const OWNER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]+$/;
 
+/**
+ * A repository name, with the two path segments that are not names refused.
+ *
+ * ⚠ **`.` and `..` match {@link REPOSITORY_PATTERN} exactly**, and both are interpolated straight
+ * into a URL path: `ada/..` normalises to `api.github.com/repos/ada`, an endpoint about a *user*,
+ * and on the raw host it climbs out of the repository altogether. `encodeURIComponent` is no defence
+ * — it leaves `.` alone and `fetch` resolves the traversal afterwards, which is the trap the note on
+ * {@link parseRemoteBinding} records.
+ *
+ * The two exact strings, rather than the character: real repositories are called `.github` and
+ * `foo.js`, and banning the dot would refuse them.
+ */
+const isRepositoryName = (value: string): boolean =>
+	REPOSITORY_PATTERN.test(value) && value !== '.' && value !== '..';
+
 /** Which repository this Workspace is published to. */
 export interface RemoteBinding {
 	readonly formatVersion: number;
@@ -105,7 +120,7 @@ export function parseRemoteBinding(bytes: Bytes): RemoteBinding | null {
 	const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 	const owner = text(record['owner']);
 	const repository = text(record['repository']);
-	if (!OWNER_PATTERN.test(owner) || !REPOSITORY_PATTERN.test(repository)) return null;
+	if (!OWNER_PATTERN.test(owner) || !isRepositoryName(repository)) return null;
 	const formatVersion = record['formatVersion'];
 	return {
 		formatVersion:
@@ -194,6 +209,6 @@ export function parseRemoteReference(
 	if (segments.length !== 2) return null;
 	const [owner, repository] = segments;
 	if (owner === undefined || !OWNER_PATTERN.test(owner)) return null;
-	if (repository === undefined || !REPOSITORY_PATTERN.test(repository)) return null;
+	if (repository === undefined || !isRepositoryName(repository)) return null;
 	return { owner, repository };
 }

@@ -47,6 +47,9 @@ import type { BrowserContext, Page, Route } from './test.js';
 /** GitHub's data plane. It answers `access-control-allow-origin: *`, which is why ADR-0031 holds. */
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
 
+/** Where a public repository's bytes are read from, unauthenticated, by Clone and Review. */
+export const GITHUB_RAW_ORIGIN = 'https://raw.githubusercontent.com';
+
 export type FakeRepository = {
 	readonly owner: string;
 	readonly name: string;
@@ -95,6 +98,8 @@ export type GitHubHostsOptions = {
 export type GitHubHosts = {
 	/** Every API path that was requested, in order. */
 	readonly requests: string[];
+	/** Every `raw.githubusercontent.com` path that was requested, in order. */
+	readonly rawRequests: string[];
 	/** Whether Pages is on for `owner/name`. */
 	pagesOn(owner: string, name: string): boolean;
 	/** Every path the branch's current commit holds, sorted. Empty for a repository this fake lacks. */
@@ -111,6 +116,13 @@ export type GitHubHosts = {
 	blobPosts(): number;
 	/** The commit the branch is on, or `null` when the repository is empty. */
 	head(owner: string, name: string): string | null;
+	/**
+	 * How many byte reads `owner/name` has answered, refusals included.
+	 *
+	 * The fake's own counter rather than a length of {@link rawRequests}, so a spec asserting that a
+	 * resumed Clone re-downloaded nothing is asserting the same number the domain tests assert.
+	 */
+	rawGets(owner: string, name: string): number;
 };
 
 const key = (owner: string, name: string): string => `${owner}/${name}`;
@@ -124,7 +136,11 @@ const notFound = (route: Route): Promise<void> =>
 	});
 
 /**
- * Serve `api.github.com` from memory, and answer what was asked.
+ * Serve `api.github.com` and `raw.githubusercontent.com` from memory, and answer what was asked.
+ *
+ * Two hosts and deliberately not a third: `codeload.github.com` is routed nowhere, so a Clone that
+ * reached for the tarball endpoint would meet the network fence's `net::ERR_BLOCKED_BY_CLIENT`
+ * rather than quietly working in a test and failing in a browser (ADR-0031).
  *
  * @param target a `Page` for an ordinary spec, or a `BrowserContext` where a service worker is in
  *   play — see the header
@@ -134,6 +150,7 @@ export async function routeGitHubHosts(
 	options: GitHubHostsOptions = {}
 ): Promise<GitHubHosts> {
 	const requests: string[] = [];
+	const rawRequests: string[] = [];
 	const fakes = new Map<string, FakeGitHub>();
 
 	for (const repository of options.repositories ?? []) {
@@ -179,9 +196,33 @@ export async function routeGitHubHosts(
 		});
 	});
 
+	// ⚠ **The raw host is a second route into the *same* fakes, never a second store of bytes.** A
+	// Clone's file list comes from the API and its bytes come from here, and the two agreeing is the
+	// whole of what makes a resumed Clone's blob-SHA comparison mean anything — a separate byte source
+	// could serve content whose SHA the tree never named, and every assertion would still pass.
+	//
+	// It carries no credential and none is demanded: reading a public repository is anonymous, which
+	// is what a Clone depends on (ADR-0031, SPEC "Import: two operations, both unauthenticated").
+	await target.route(`${GITHUB_RAW_ORIGIN}/**`, async (route) => {
+		const url = new URL(route.request().url());
+		rawRequests.push(url.pathname);
+
+		const [owner, name] = url.pathname.split('/').filter(Boolean);
+		const fake = owner && name ? fakes.get(key(owner, name)) : undefined;
+		if (!fake) return notFound(route);
+
+		const response = await fake.fetch(route.request().url());
+		await route.fulfill({
+			status: response.status,
+			headers: Object.fromEntries(response.headers),
+			body: Buffer.from(await response.arrayBuffer())
+		});
+	});
+
 	const decoder = new TextDecoder();
 	return {
 		requests,
+		rawRequests,
 		pagesOn: (owner, name) => fakes.get(key(owner, name))?.pagesEnabled ?? false,
 		files: (owner, name) => [...(fakes.get(key(owner, name))?.files().keys() ?? [])].sort(),
 		fileText: (owner, name, path) => {
@@ -189,6 +230,7 @@ export async function routeGitHubHosts(
 			return bytes === undefined ? null : decoder.decode(bytes);
 		},
 		blobPosts: () => [...fakes.values()].reduce((sum, fake) => sum + fake.blobPosts, 0),
-		head: (owner, name) => fakes.get(key(owner, name))?.head() ?? null
+		head: (owner, name) => fakes.get(key(owner, name))?.head() ?? null,
+		rawGets: (owner, name) => fakes.get(key(owner, name))?.rawGets ?? 0
 	};
 }

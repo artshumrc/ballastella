@@ -181,6 +181,19 @@ describe('the fake GitHub', () => {
 			expect(response.status).toBe(404);
 		});
 
+		it('counts raw reads, including the ones it refuses', async () => {
+			// `blobPosts`'s counterpart, and it exists for the same reason pointing the other way: a
+			// resumed Clone that skipped nothing leaves a Workspace identical to one that skipped
+			// everything, so the only place the difference shows is how many times it asked.
+			await commitThrough(github, { 'a.txt': utf8('a') });
+			const before = github.rawGets;
+
+			await github.fetch(`${GITHUB_RAW_ORIGIN}/ada/atlas/main/a.txt`);
+			await github.fetch(`${GITHUB_RAW_ORIGIN}/ada/atlas/main/nowhere.txt`);
+
+			expect(github.rawGets - before).toBe(2);
+		});
+
 		it('counts blob posts, so "the second publish uploaded nothing" needs no call order', async () => {
 			await commitThrough(github, { 'a.txt': utf8('a'), 'b.txt': utf8('b') });
 			const afterFirst = github.blobPosts;

@@ -42,10 +42,14 @@
 	const repositoryId = `${fieldId}-repository`;
 	const tokenId = `${fieldId}-token`;
 	const signInTokenId = `${fieldId}-sign-in-token`;
+	const cloneRepositoryId = `${fieldId}-clone-repository`;
 
 	let repository = $state('');
 	let token = $state('');
 	let signInToken = $state('');
+	let cloneRepository = $state('');
+	/** Whether a Clone is running, which is minutes rather than the moment a bind takes. */
+	let cloning = $state(false);
 	/** Whether a request is in flight, so the button cannot be pressed twice. */
 	let working = $state(false);
 	/** What the last action did, in the words the user should see. */
@@ -84,6 +88,20 @@
 		problem = '';
 		notices = [];
 	}
+
+	/**
+	 * Forget what the dialog last said, once it is closed.
+	 *
+	 * ⚠ **This component is mounted for the page's life, so nothing else clears a notice.** Without
+	 * this, “Cloned ada/atlas into a new Workspace called “atlas”” is still on screen the next time
+	 * anybody opens the dialog — including after switching to a Workspace it has nothing to say
+	 * about. Closing is the right moment for the Workspace case too: this is a modal, so the only
+	 * Workspace change that can happen while it is open is a Clone's own, and that message is about
+	 * the Workspace the user has just been moved into and must survive the switch.
+	 */
+	$effect(() => {
+		if (!open) reset();
+	});
 
 	async function bind(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
@@ -157,6 +175,39 @@
 		reset();
 		storage.signOut();
 		outcome = 'Signed out of GitHub. Nothing on this computer or on GitHub has been changed.';
+	}
+
+	/**
+	 * Download somebody's published Workspace into a new one of your own (stories 43–48).
+	 *
+	 * ⚠ **Offered whether or not anybody is signed in, and it asks for no token.** Cloning reads a
+	 * public repository, which needs no credential at all — that is the whole point of it, and gating
+	 * this behind a sign-in would put a GitHub account in front of the one operation a student
+	 * without one is promised.
+	 */
+	async function clone(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		reset();
+
+		const reference = parseRemoteReference(cloneRepository);
+		if (reference === null) {
+			problem =
+				`“${cloneRepository.trim()}” is not a repository address. It looks like ` +
+				`“owner/repository” — the two parts after github.com in your browser's address bar — and ` +
+				`the whole of that address works too.`;
+			return;
+		}
+
+		cloning = true;
+		try {
+			const cloned = await storage.cloneFrom(reference);
+			cloneRepository = '';
+			outcome = cloned.notice;
+		} catch (cause) {
+			problem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			cloning = false;
+		}
 	}
 
 	async function unbind(): Promise<void> {
@@ -333,6 +384,58 @@
 				{/if}
 			</section>
 		{/if}
+
+		<!--
+			⚠ **Outside every condition above, and offered to a Review Workspace too.** Cloning makes a
+			*new* Workspace rather than touching this one, so none of the reasons a review copy may not
+			be bound or published apply to it — and a reviewer who wants their own copy of the work they
+			are looking at is a reasonable person, not a promotion route (ADR-0024). It needs no
+			credential, so it is deliberately not inside the sign-in section either.
+		-->
+		<section class="rounded-box border border-base-300 p-4">
+			<h3 class="font-semibold">Clone a Workspace from GitHub</h3>
+			<p class="mt-1 text-sm opacity-70">
+				Download somebody's published Workspace into a new Workspace of your own. It has to be a
+				public repository, and you do not need a GitHub account or a token to do this. Nothing you
+				already have is changed — the Workspace you are in now is left exactly as it is.
+			</p>
+			<form class="mt-3 flex flex-col gap-3" onsubmit={(event) => void clone(event)}>
+				<div class="flex flex-col gap-1">
+					<label class="text-sm font-medium" for={cloneRepositoryId}>Repository to clone</label>
+					<input
+						id={cloneRepositoryId}
+						class="input w-full max-w-md input-sm"
+						bind:value={cloneRepository}
+						data-testid="clone-repository-field"
+						placeholder="owner/repository"
+						autocomplete="off"
+						spellcheck="false"
+					/>
+				</div>
+				<div>
+					<button
+						class="btn btn-primary btn-sm"
+						type="submit"
+						data-testid="clone-remote"
+						disabled={cloning}
+					>
+						{cloning ? 'Downloading…' : 'Clone into a new Workspace'}
+					</button>
+				</div>
+			</form>
+			<!--
+				Per-file progress, announced. A Historical Map's pyramid is thousands of files over real
+				minutes, and this is one of the places a scholar is waiting on something they cannot see
+				(workspace-and-layers SPEC story 96). `role="status"` so it reaches assistive technology
+				without interrupting, which is CONTRIBUTING's mandated method for exactly this.
+			-->
+			{#if storage.transfer && cloning}
+				<p role="status" class="mt-3 text-sm" data-testid="clone-progress">
+					{storage.transfer.files} of {storage.transfer.totalFiles} files downloaded from
+					{storage.transfer.subject}.
+				</p>
+			{/if}
+		</section>
 
 		<!--
 			What happened, announced. `aria-live="polite"` rather than `role="alert"` for the outcome,

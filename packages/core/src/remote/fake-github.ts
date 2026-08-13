@@ -94,6 +94,17 @@ export interface FakeGitHub {
 	 */
 	readonly blobPosts: number;
 
+	/**
+	 * How many byte reads have arrived at `raw.githubusercontent.com`, counting those answered 404.
+	 *
+	 * {@link blobPosts}'s counterpart on the read side, and it measures the same thing for the same
+	 * reason: what the engine *asked for*, not what it got. A Clone resumes by skipping paths it
+	 * already holds (ticket 07), and "already holds" is a claim only this counter can check — an
+	 * engine that re-downloaded every file and then wrote the same bytes back would leave a Workspace
+	 * indistinguishable from a resumed one, and pass any assertion made on the result.
+	 */
+	readonly rawGets: number;
+
 	/** Every file the branch's current commit holds, path → a copy of its bytes, sorted by path. */
 	files(branch?: string): Map<string, Uint8Array>;
 
@@ -231,6 +242,7 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	const refs = new Map<string, string>();
 
 	let blobPosts = 0;
+	let rawGets = 0;
 
 	const state = {
 		truncateAfter: null as number | null,
@@ -639,6 +651,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	 * It spends none of the hourly budget, because it is not the API and does not share its ceiling.
 	 */
 	const answerRaw = (url: URL): Response => {
+		// Counted before anything is resolved, for {@link FakeGitHub.blobPosts}'s reason in the other
+		// direction: a 404 is still a request the engine chose to make.
+		rawGets += 1;
 		const path = decodePath(url.pathname);
 		if (path === null) return notFound(`${url.pathname} is not a path this fake implements.`);
 		const [owner, repository, ref, ...rest] = path;
@@ -694,6 +709,9 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 		fetch: fetchFn,
 		get blobPosts() {
 			return blobPosts;
+		},
+		get rawGets() {
+			return rawGets;
 		},
 		files(branch = defaultBranch) {
 			const files = new Map<string, Uint8Array>();

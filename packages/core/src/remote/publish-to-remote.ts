@@ -310,8 +310,10 @@ const OWNED_DIRECTORIES = [`${IMAGE_DIRECTORY}/`, `${ALIGNMENT_DIRECTORY}/`];
  * Remote can still say it was a Project. Asked of the Workspace instead, a deleted Project's
  * directory would fall outside the namespace and be preserved forever — ADR-0033's "additive only"
  * leak, arriving through the back door.
+ *
+ * Exported for `clone-from-remote.ts`, which asks the same question of the same kind of tree.
  */
-function remoteProjectDirectories(paths: Iterable<string>): Set<string> {
+export function remoteProjectDirectories(paths: Iterable<string>): Set<string> {
 	const directories = new Set<string>();
 	for (const path of paths) {
 		const [directory, name, ...deeper] = path.split('/');
@@ -328,8 +330,14 @@ function remoteProjectDirectories(paths: Iterable<string>): Set<string> {
  * Inside it the Remote becomes exactly the Workspace. Outside it nothing is touched, which is why a
  * scholar's `CNAME` survives — publish over it once and their cited address quietly moves back to a
  * `github.io` URL, and the next publish does it again after they fix it.
+ *
+ * ⚠ **Exported so that a Clone reads exactly this rule, and there is deliberately no second copy of
+ * it** (`clone-from-remote.ts`). The two halves have to agree or the namespace leaks: a Clone that
+ * brought down a path this predicate excludes would make it Workspace content, and the next publish
+ * from that Workspace would push somebody else's `CNAME`, `README.md` and workflows into the
+ * cloner's own repository as though the cloner had written them.
  */
-function isOwnedPath(path: string, remoteProjects: ReadonlySet<string>): boolean {
+export function isOwnedPath(path: string, remoteProjects: ReadonlySet<string>): boolean {
 	if (isViewerFile(path)) return true;
 	// The binding document is inside the published tree deliberately (ADR-0033), so it is ours to
 	// replace and ours to remove: a Workspace that has been unbound must not leave a stale one there.

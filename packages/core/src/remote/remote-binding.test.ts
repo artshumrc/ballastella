@@ -129,6 +129,16 @@ describe('a binding this build cannot act on is no binding', () => {
 	it('names an owner with a dot in it, which GitHub does not allow', async () =>
 		unbound('{"formatVersion":1,"owner":"ada.lovelace","repository":"atlas"}'));
 
+	// ⚠ **The two path segments that are not names.** Both match the character set a repository is
+	// allowed — letters, digits and `-_.` — and both are interpolated straight into a URL: `ada/..`
+	// normalises to `api.github.com/repos/ada`, which is an endpoint about a *user*, and on the raw
+	// host it climbs out of the repository altogether.
+	it('names a repository that is the current directory', async () =>
+		unbound('{"formatVersion":1,"owner":"ada","repository":"."}'));
+
+	it('names a repository that is the parent directory', async () =>
+		unbound('{"formatVersion":1,"owner":"ada","repository":".."}'));
+
 	it('is a Workspace that cannot be reached at all', async () => {
 		const unreachable = {
 			read: () => Promise.reject(new Error('The folder has been unplugged.')),
@@ -230,6 +240,18 @@ describe('what a scholar pastes as a repository address', () => {
 	// binding a Workspace to something the user did not name.
 	it('refuses a URL that names something inside a repository', () => {
 		expect(parseRemoteReference('https://github.com/ada/atlas/tree/main/docs')).toBeNull();
+	});
+
+	// ⚠ Both match the character set GitHub allows and neither names a repository: typed into the
+	// Clone form, `ada/..` builds a tree URL that normalises to an endpoint about the *user* `ada`,
+	// and the refusal the user then reads is about the wrong thing entirely. Refused as the two exact
+	// strings rather than by banning the dot, because `.github` and `foo.js` are real repositories —
+	// see the test above that keeps them.
+	it('refuses the two path segments that are not repository names', () => {
+		expect(parseRemoteReference('ada/..')).toBeNull();
+		expect(parseRemoteReference('ada/.')).toBeNull();
+		expect(parseRemoteReference('https://github.com/ada/..')).toBeNull();
+		expect(parseRemoteReference('ada/.github')).toEqual({ owner: 'ada', repository: '.github' });
 	});
 
 	it('refuses a name on its own, an empty paste, and a space', () => {

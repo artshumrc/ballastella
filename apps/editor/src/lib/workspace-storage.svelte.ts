@@ -6,6 +6,7 @@ import {
 	assertNotReviewing as refuseInsideReview,
 	assertReviewing as refuseOutsideReview,
 	chooseWorkspaceFolder,
+	cloneFromRemote,
 	createOpfsWorkspace,
 	deleteOpfsWorkspace,
 	ensureOpfsWorkspace,
@@ -31,8 +32,10 @@ import {
 	browserCredentialStore,
 	clearRemoteBinding,
 	closedWhileReviewing,
+	describeRemote,
 	readRemoteBinding,
 	readRemoteRights,
+	type CloneReference,
 	type CredentialStore,
 	type JournalStorage,
 	type OpenedBundle,
@@ -47,6 +50,7 @@ import {
 	type StoragePersistence,
 	type TransferProgressListener,
 	type WorkspaceBackup,
+	type WorkspaceClone,
 	type WorkspaceRestore,
 	type WorkspaceSize
 } from '@ballastella/core';
@@ -1041,6 +1045,76 @@ export class WorkspaceStorage {
 	async unbindRemote(): Promise<void> {
 		await clearRemoteBinding(this.session.store);
 		this.remote = null;
+	}
+
+	/**
+	 * Download a public repository's published Workspace into a **new** one, and switch to it.
+	 *
+	 * ⚠ **No credential is sent, and none is needed** (SPEC, "Import: two operations, both
+	 * unauthenticated"). `cloneFromRemote` takes no token and this passes none — a student with no
+	 * GitHub account can seed a Workspace from their instructor's Remote, which is the story this
+	 * whole epic is most likely to be used for. The credential store is deliberately not consulted:
+	 * reading it would make the flow behave differently for somebody who happened to be signed in,
+	 * and the difference would never show up in a test that signs in first.
+	 *
+	 * ⚠ **Always a browser-storage Workspace, whatever the current backing is**, for the reason
+	 * {@link restoreFrom} gives: browser storage can make a new Workspace by itself and a folder
+	 * cannot, and a subdirectory of the current folder would be a Workspace inside a Workspace.
+	 *
+	 * The quota check happens inside `cloneFromRemote`, before the Workspace is created, against the
+	 * byte total the Remote's own tree listing reports.
+	 *
+	 * @throws CloneRefusedError with nothing downloaded and no Workspace made
+	 */
+	async cloneFrom(remote: CloneReference): Promise<WorkspaceClone> {
+		const subject = describeRemote(remote);
+		// Announced for `openBundle`'s reason: a Historical Map's pyramid is thousands of files over
+		// real minutes, and a still screen with nothing said is where a scholar concludes it has hung.
+		const announce = (files: number, totalFiles: number, finished: boolean) => {
+			this.transfer = { kind: 'open', subject, files, totalFiles, finished };
+		};
+		try {
+			const cloned = await cloneFromRemote((preferred) => this.#makeCloneDestination(preferred), {
+				remote,
+				estimateStorage: estimateStorage,
+				onProgress: ({ files, totalFiles }) => announce(files, totalFiles, false)
+			});
+			// Only once the Clone has finished. Switching first would leave the user looking at a
+			// half-filled Workspace, and `#adopt` tears down the session they are in.
+			await this.openWorkspace(cloned.workspaceName);
+			announce(cloned.totalFiles, cloned.totalFiles, true);
+			return cloned;
+		} catch (cause) {
+			// The progress line must not be left mid-count saying a Clone is still running. What the
+			// user needs is the refusal, which the dialog renders as an alert.
+			this.transfer = null;
+			throw cause;
+		}
+	}
+
+	/**
+	 * A brand new browser-storage Workspace for a Clone to fill, named after the repository.
+	 *
+	 * `createOpfsWorkspace` rather than `ensureOpfsWorkspace`, which is what makes a name collision
+	 * produce `atlas (2)` beside `atlas` rather than a Clone writing into a Workspace the user already
+	 * had. Cloning the same repository twice — to compare a colleague's published work against your
+	 * own copy of it — is exactly the gesture that meets this.
+	 */
+	async #makeCloneDestination(preferred: string): Promise<RestoreDestination> {
+		const name = await createOpfsWorkspace(preferred);
+		await this.refreshWorkspaces();
+		return {
+			name,
+			store: openOpfsWorkspace(name),
+			// ⚠ **Never called by `cloneFromRemote`, unlike a restore's, and that is deliberate.** A
+			// Clone keeps what it has downloaded so that running it again resumes rather than starting
+			// a pyramid over. It is here because `RestoreDestination` requires it, and it is real: were
+			// a caller ever to want the restore behaviour, this is what it would do.
+			discard: async () => {
+				await deleteOpfsWorkspace(name);
+				await this.refreshWorkspaces();
+			}
+		};
 	}
 
 	/** A brand new browser-storage Workspace near `preferred`, and the way to throw it away. */
