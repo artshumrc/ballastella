@@ -20,7 +20,7 @@ mirrors an owned namespace and preserves the rest), with amendment banners on AD
 
 Overall status: `In Progress`
 
-Current ticket: 03 and 06, in parallel
+Current ticket: 04, 07 and 10, in parallel
 
 Last updated: 2026-08-12
 
@@ -78,7 +78,7 @@ docs, and nothing else.
 | 03 | [03-a-workspace-is-bound-to-a-remote.md](./tickets/03-a-workspace-is-bound-to-a-remote.md) | Completed | 02 |
 | 04 | [04-publish-from-the-navigation-bar.md](./tickets/04-publish-from-the-navigation-bar.md) | Not Started | 03 |
 | 05 | [05-a-publish-refuses-to-overwrite-another-machine.md](./tickets/05-a-publish-refuses-to-overwrite-another-machine.md) | Not Started | 04 |
-| 06 | [06-a-project-chooses-whether-it-is-on-the-front-page.md](./tickets/06-a-project-chooses-whether-it-is-on-the-front-page.md) | Not Started | 02 |
+| 06 | [06-a-project-chooses-whether-it-is-on-the-front-page.md](./tickets/06-a-project-chooses-whether-it-is-on-the-front-page.md) | Completed | 02 |
 | 07 | [07-clone-a-workspace-from-a-remote.md](./tickets/07-clone-a-workspace-from-a-remote.md) | Not Started | 03 |
 | 08 | [08-review-a-project-from-a-remote.md](./tickets/08-review-a-project-from-a-remote.md) | Not Started | 07 |
 | 09 | [09-the-front-page-leads-back-to-the-editor.md](./tickets/09-the-front-page-leads-back-to-the-editor.md) | Not Started | 06, 08 |
