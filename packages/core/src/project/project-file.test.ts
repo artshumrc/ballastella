@@ -7,7 +7,8 @@ import {
 	ProjectFormatTooNewError,
 	newProjectFile,
 	parseProjectFile,
-	serialiseProjectFile
+	serialiseProjectFile,
+	type ProjectFile
 } from './project-file.js';
 
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
@@ -58,6 +59,7 @@ describe('project.json', () => {
 			'formatVersion',
 			'layers',
 			'name',
+			'onFrontPage',
 			'unknownFields',
 			'updatedAt'
 		]);
@@ -191,6 +193,105 @@ describe('the deleted tombstone (ADR-0023)', () => {
 
 		expect(parseProjectFile(bytes).unknownFields).toEqual({});
 		expect(decode(serialiseProjectFile(parseProjectFile(bytes)))).not.toContain('removedMapLayers');
+	});
+});
+
+/**
+ * The Front Page choice (ADR-0032), and the format-version decision that shapes every test here.
+ *
+ * `CURRENT_FORMAT_VERSION` was **not** bumped for this field, deliberately. ADR-0010 refuses a
+ * `formatVersion` higher than the build understands, and a Remote makes one repository readable by
+ * several instances at several versions — so a bump would have turned "my colleague chose something on
+ * their newer copy" into "your copy will not open this Project at all". The field therefore has to
+ * survive a build that has never heard of it, in both directions: read as on the Front Page when
+ * absent, and written back untouched when present.
+ */
+describe('the Front Page choice (ADR-0032)', () => {
+	const withChoice = (onFrontPage?: boolean) =>
+		encode({
+			formatVersion: 1,
+			name: 'Amsterdam 1625',
+			updatedAt: '2026-01-01T00:00:00.000Z',
+			layers: [],
+			baseMap: null,
+			...(onFrontPage === undefined ? {} : { onFrontPage })
+		});
+
+	// The upgrade case, and the one a whole Workspace depends on: every `project.json` in existence was
+	// written before this field, and reading their absence as anything but "listed" would empty a
+	// scholar's Front Page on the day they updated the app.
+	it('reads a Project with no such field as on the Front Page', () => {
+		expect(parseProjectFile(withChoice()).onFrontPage).toBe(true);
+	});
+
+	it('reads the author’s choice when the file carries one', () => {
+		expect(parseProjectFile(withChoice(false)).onFrontPage).toBe(false);
+		expect(parseProjectFile(withChoice(true)).onFrontPage).toBe(true);
+	});
+
+	// A value of some other shape is somebody else's build talking. Reading it as `false` would take a
+	// Project off a site over a field this parser could not make sense of, which is the destructive
+	// direction; only a literal `false` does that.
+	it.each([
+		['a string', '"no"'],
+		['a number', '0'],
+		['null', 'null']
+	])('leaves the Project on the Front Page for %s, rather than guessing', (_description, json) => {
+		const bytes = new TextEncoder().encode(`{"formatVersion":1,"onFrontPage":${json}}`);
+
+		expect(parseProjectFile(bytes).onFrontPage).toBe(true);
+	});
+
+	it('is a new Project’s default, so publishing behaves as it always did', () => {
+		expect(newProjectFile('Amsterdam 1625', new Date(0)).onFrontPage).toBe(true);
+	});
+
+	// Written as *absence*, exactly as `canonicalUrl` is: a Project on the Front Page keeps the bytes it
+	// had before this field existed, so a Workspace kept in git gains no diff on the day of the upgrade.
+	it('writes nothing at all for a Project on the Front Page', () => {
+		const on = newProjectFile('Amsterdam 1625', new Date(0));
+
+		expect(decode(serialiseProjectFile(on))).not.toContain('onFrontPage');
+		expect(
+			JSON.parse(decode(serialiseProjectFile({ ...on, onFrontPage: false }))).onFrontPage
+		).toBe(false);
+	});
+
+	it('survives a round trip through this build, without also lodging in unknownFields', () => {
+		const off = parseProjectFile(withChoice(false));
+
+		expect(off.unknownFields).toEqual({});
+		expect(parseProjectFile(serialiseProjectFile(off)).onFrontPage).toBe(false);
+	});
+
+	/**
+	 * ⚠ **The reason there is no format-version bump**: a build that has never heard of the field must
+	 * hand it back exactly as it found it.
+	 *
+	 * Such a build's `ProjectFile` has no `onFrontPage` property at all — every key it does not name
+	 * falls into `unknownFields`, which is the whole of its knowledge of the choice — so that is the
+	 * model constructed here, with `true` standing for the property it does not have. What is asserted
+	 * is the *bytes* it writes back, because that is where the loss would happen and nowhere else: a
+	 * colleague opening their Project in an older fork, saving a rename, and finding it back on a front
+	 * page they had taken it off.
+	 */
+	it('is written back untouched by a build that does not know it', () => {
+		const bytes = withChoice(false);
+		const asAnOlderBuildHoldsIt: ProjectFile = {
+			...parseProjectFile(bytes),
+			onFrontPage: true,
+			unknownFields: { onFrontPage: false }
+		};
+
+		const rewritten = JSON.parse(decode(serialiseProjectFile(asAnOlderBuildHoldsIt)));
+		expect(rewritten.onFrontPage).toBe(false);
+	});
+
+	// Asserted here rather than left to the ADR, because the bump is the thing an implementer reaches
+	// for when adding a field and it is the one move this field must not make.
+	it('did not bump the format version', () => {
+		expect(CURRENT_FORMAT_VERSION).toBe(1);
+		expect(JSON.parse(decode(withChoice(false))).formatVersion).toBe(CURRENT_FORMAT_VERSION);
 	});
 });
 

@@ -913,6 +913,19 @@ export class EditorSession {
 	}
 
 	/**
+	 * Put a Project on the Published Site's Front Page, or take it off (ADR-0032).
+	 *
+	 * Through `#mutate` like every other hub action, so the list on screen comes back from the
+	 * Workspace rather than from a value flipped here — which is what makes the control's state a
+	 * reading of `project.json` and therefore something that survives a reload.
+	 */
+	async setProjectOnFrontPage(directory: string, onFrontPage: boolean): Promise<void> {
+		await this.#mutate(directory, () =>
+			this.#workspace.setProjectOnFrontPage(directory, onFrontPage)
+		);
+	}
+
+	/**
 	 * Remove a Project and everything in it.
 	 *
 	 * **The journal is emptied of it first** (ticket 20). `ProjectStore.delete` does not go through

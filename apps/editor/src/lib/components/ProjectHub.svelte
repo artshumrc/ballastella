@@ -83,6 +83,26 @@
 	 */
 	let bundleNoticeLine: HTMLElement | null = $state(null);
 
+	/**
+	 * What being on — or off — the Front Page means, in the words the user reads beside the control.
+	 *
+	 * ⚠ **The caution is the point, and it is not decoration** (ADR-0032). A Project taken off the Front
+	 * Page is still published, still in the repository, and still opened by `?p=<folder>` for anyone who
+	 * knows the name. A scholar with an embargoed archival photograph, a manuscript under a library's
+	 * publication restriction, or a student's unmarked coursework will act on the reading this sentence
+	 * invites, so the invited reading has to be the true one — which is why the state is never called
+	 * unpublished, private, draft, or hidden anywhere on this control, and why the readable-by-anyone
+	 * half is said in both states rather than only in the one that seems to need it.
+	 */
+	const frontPageNote = (project: ProjectSummary): string =>
+		project.onFrontPage
+			? 'On the front page: a Reader arriving at your Published Site is offered this Project. ' +
+				'Taking it off removes it from that list only — it stays on the site, readable by anyone ' +
+				'with the link.'
+			: 'Not on the front page — but still readable by anyone with the link. It goes to your ' +
+				'Published Site with the rest of the Workspace, and anyone who knows its folder name can ' +
+				'open it.';
+
 	const dateFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: 'medium',
 		timeStyle: 'short'
@@ -507,6 +527,37 @@
 							{:else if project.problem === 'unreadable'}
 								<p class="text-sm text-warning">Its project.json could not be read.</p>
 							{/if}
+							<!--
+								The Front Page choice (ADR-0032), with its consequence beside it rather than in a
+								tooltip, a badge, or a dialog the user meets once: the sentence is the safeguard, so
+								it is on screen whenever the control is.
+
+								`aria-describedby` rather than a paragraph that merely happens to sit underneath, so
+								a screen-reader user is given the caution as part of the control instead of having to
+								find it. `disabled` for a Project this build cannot read, because setting the field
+								means writing `project.json` and ADR-0010 forbids that for one from the future — the
+								same reason Rename and Duplicate are disabled beside it.
+							-->
+							<label class="mt-2 flex w-fit items-center gap-2 text-sm">
+								<input
+									type="checkbox"
+									class="toggle toggle-sm"
+									data-testid="on-front-page"
+									checked={project.onFrontPage}
+									disabled={project.problem !== null}
+									aria-describedby="front-page-note-{project.directory}"
+									onchange={(event) =>
+										session.setProjectOnFrontPage(project.directory, event.currentTarget.checked)}
+								/>
+								On the front page<span class="sr-only"> — {project.name}</span>
+							</label>
+							<p
+								id="front-page-note-{project.directory}"
+								class="mt-1 max-w-prose text-sm opacity-70"
+								data-testid="front-page-note"
+							>
+								{frontPageNote(project)}
+							</p>
 						</div>
 						<div class="flex flex-wrap gap-2">
 							<button

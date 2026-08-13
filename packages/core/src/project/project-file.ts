@@ -95,6 +95,26 @@ export interface ProjectFile {
 	 */
 	readonly canonicalUrl: string | null;
 	/**
+	 * Whether this Project is listed on the Published Site's Front Page (ADR-0032).
+	 *
+	 * **Absent from the file means `true`**, which is what every Project written before this field
+	 * existed meant and what a new one means: publishing lists everything unless the author says
+	 * otherwise. `false` is written; `true` is written as *absence*, so a Project on the Front Page is
+	 * byte-identical to one from a build that had never heard of the choice.
+	 *
+	 * ⚠ **Not on the Front Page is not private, and nothing here should be read as if it were.** The
+	 * repository is public and `?p=<directory>` opens the Project for anyone who knows the name; this
+	 * decides one list and nothing else. The control that sets it says so in words, because a scholar
+	 * with embargoed material will act on the reading the interface invites.
+	 *
+	 * **This field did not bump `CURRENT_FORMAT_VERSION`, deliberately.** ADR-0010 refuses a newer
+	 * version outright, and one repository read by several instances at several versions multiplies
+	 * exactly the skew that ADR names — so a build that has never heard of this carries it through
+	 * {@link unknownFields} and writes it back untouched, rather than refusing the Project or silently
+	 * taking a colleague's work off their own front page.
+	 */
+	readonly onFrontPage: boolean;
+	/**
 	 * Anything else the file carried, kept so that writing it back cannot drop it. The refusal
 	 * below means we never write a file from a newer version, but the same-version case matters
 	 * too: a field added by a build one commit ahead is not worth destroying (ADR-0010).
@@ -161,10 +181,8 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		throw new ProjectFileUnreadableError('the file does not contain a JSON object');
 	}
 
-	const { formatVersion, name, updatedAt, layers, canonicalUrl, ...unknownFields } = raw as Record<
-		string,
-		unknown
-	>;
+	const { formatVersion, name, updatedAt, layers, canonicalUrl, onFrontPage, ...unknownFields } =
+		raw as Record<string, unknown>;
 	// Removed by the same key `readBaseMapId` reads it under, so the field cannot be recognised in
 	// one place and treated as unknown in the other.
 	delete unknownFields[PROJECT_BASE_MAP_KEY];
@@ -201,6 +219,11 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
 		// else's build may have written, and one bad field must not make a Project unopenable.
 		canonicalUrl:
 			typeof canonicalUrl === 'string' && canonicalUrl.trim() !== '' ? canonicalUrl : null,
+		// Only a literal `false` takes a Project off the Front Page. Absence is the default and the
+		// pre-ADR-0032 behaviour, and a value of some other shape is a file somebody else's build wrote
+		// — reading it as "not listed" would take a Project off a site over a field this parser could
+		// not make sense of, which is the destructive direction.
+		onFrontPage: onFrontPage !== false,
 		unknownFields
 	};
 }
@@ -210,7 +233,16 @@ export function parseProjectFile(bytes: Uint8Array): ProjectFile {
  * produces diffs a human can read and every write of an unchanged Project is byte-identical.
  */
 export function serialiseProjectFile(file: ProjectFile): Bytes {
-	const { unknownFields, formatVersion, name, updatedAt, layers, baseMap, canonicalUrl } = file;
+	const {
+		unknownFields,
+		formatVersion,
+		name,
+		updatedAt,
+		layers,
+		baseMap,
+		canonicalUrl,
+		onFrontPage
+	} = file;
 	const json = JSON.stringify(
 		{
 			formatVersion,
@@ -223,6 +255,13 @@ export function serialiseProjectFile(file: ProjectFile): Bytes {
 			// byte-identity assertions across reorder, rename, toggle, and opacity true, and keeps a
 			// Workspace kept in git from gaining a diff on every Project the day the app is updated.
 			...(canonicalUrl === null ? {} : { canonicalUrl }),
+			// Written only when the author took the Project off the Front Page, for the same reason and
+			// with the same effect: absence *is* the default, so every Project on the Front Page keeps the
+			// bytes it had before ADR-0032 and a Workspace in git gains no diff on the day of the upgrade.
+			//
+			// Last of the named fields, so a Project that already carries a canonical stamp keeps its
+			// existing key order too.
+			...(onFrontPage ? {} : { onFrontPage: false }),
 			...unknownFields
 		},
 		null,
@@ -240,6 +279,7 @@ export function newProjectFile(name: string, updatedAt: Date): ProjectFile {
 		layers: [],
 		baseMap: null,
 		canonicalUrl: null,
+		onFrontPage: true,
 		unknownFields: {}
 	};
 }

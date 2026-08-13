@@ -508,9 +508,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 			const seen = watch(page);
 			await page.goto(served.url);
 
-			await expect(
-				page.getByRole('heading', { level: 1, name: 'Published Projects' })
-			).toBeVisible();
+			await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
 			await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
 
 			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this test
@@ -539,6 +537,53 @@ test.describe('a Published Site a Reader arrives at', () => {
 			expect(served.failures.filter((failure) => !failure.path.includes('/default.jpg'))).toEqual(
 				[]
 			);
+			expect(seen.failures).toEqual([]);
+			page.removeAllListeners('pageerror');
+			page.removeAllListeners('dialog');
+			page.removeAllListeners('request');
+		}
+	});
+
+	/**
+	 * The Front Page lists what the author put on it — and the other Projects are still there
+	 * (SPEC stories 25, 52; ADR-0032).
+	 *
+	 * ⚠ **The second half is the half that matters.** A Project taken off the Front Page is *absent from
+	 * one list* and nothing else: the repository is public, its files are fetchable, and `?p=<folder>`
+	 * opens it for anyone who knows the name. The editor's control says exactly that, and a scholar with
+	 * embargoed material will act on it — so the site had better behave the way the sentence promises,
+	 * with no gate, no warning banner, and no half-rendered page in the way.
+	 *
+	 * Run at both base paths, because the filter is the *viewer's* and a Reader in a subdirectory reads
+	 * the same record through a different prefix.
+	 */
+	test('lists only the Projects on the Front Page, and still opens one that is not', async ({
+		page
+	}) => {
+		site = await published({
+			'ballastella-site.json': siteRecord([
+				{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: false },
+				{ directory: 'boston-1775', name: 'Boston 1775', onFrontPage: true }
+			]),
+			...projectFiles(),
+			...projectFiles({ directory: 'boston-1775', name: 'Boston 1775' })
+		});
+
+		for (const served of site.sites) {
+			const seen = watch(page);
+			await page.goto(served.url);
+
+			await expect(page.getByTestId('published-projects')).toContainText('Boston 1775');
+			await expect(page.getByTestId('published-projects')).not.toContainText('Amsterdam 1625');
+
+			// Not listed, and not withheld: the same Project renders exactly as a listed one does, Layers,
+			// Annotations, map and all.
+			await page.goto(`${served.url}?p=amsterdam-1625`);
+			await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+			await expect(page.getByTestId('reader-layers')).toContainText('Blaeu’s plan of 1625');
+			await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
+			await mapReady(page);
+
 			expect(seen.failures).toEqual([]);
 			page.removeAllListeners('pageerror');
 			page.removeAllListeners('dialog');
@@ -2055,7 +2100,7 @@ test.describe('a Published Site that is not entirely well', () => {
 
 		await page.goto(site.sites[0]!.url);
 
-		await expect(page.getByRole('heading', { level: 1, name: 'Published Projects' })).toBeVisible();
+		await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
 		await expect(page.getByTestId('site-problem')).toContainText('nothing has been published');
 		expect(seen.failures).toEqual([]);
 	});
@@ -2416,7 +2461,13 @@ test.describe('a Reader on a phone', () => {
 
 		for (const where of ['', '?p=amsterdam-1625'] as const) {
 			await page.goto(site.sites[0]!.url + where);
-			if (where !== '') await mapReady(page);
+			if (where === '') {
+				// The Front Page's own heading and its list, at the width most Readers arrive at.
+				await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
+				await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
+			} else {
+				await mapReady(page);
+			}
 
 			// No horizontal page scroll. Measured on the document rather than eyeballed: a fixed-width
 			// control or an unbroken string is what produces one, and both are easy to add by accident.

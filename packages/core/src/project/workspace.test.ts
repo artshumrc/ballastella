@@ -92,9 +92,16 @@ describe('Workspace', () => {
 					directory: 'newer',
 					name: 'Newer',
 					updatedAt: '2026-06-01T00:00:00.000Z',
+					onFrontPage: true,
 					problem: null
 				},
-				{ directory: 'older', name: 'Older', updatedAt: '2026-01-01T00:00:00.000Z', problem: null }
+				{
+					directory: 'older',
+					name: 'Older',
+					updatedAt: '2026-01-01T00:00:00.000Z',
+					onFrontPage: true,
+					problem: null
+				}
 			]);
 		});
 
@@ -116,6 +123,7 @@ describe('Workspace', () => {
 					directory: 'from-the-future',
 					name: 'from-the-future',
 					updatedAt: '',
+					onFrontPage: true,
 					problem: 'format-too-new'
 				}
 			]);
@@ -321,6 +329,63 @@ describe('Workspace', () => {
 				name: 'New',
 				baseMap: 'protomaps-light'
 			});
+		});
+	});
+
+	/**
+	 * The Front Page choice, from the Workspace's side (ADR-0032).
+	 *
+	 * The state a hub renders and the state a publish records both come from `project.json`, through
+	 * `listProjects`. Nothing caches it, which is what makes "the choice survives a reload" a property
+	 * of the file rather than of the page.
+	 */
+	describe('choosing whether a Project is on the Front Page', () => {
+		it('starts on it, so publishing lists everything as it always did', async () => {
+			const created = await workspace.createProject('Amsterdam 1625');
+
+			expect(created.onFrontPage).toBe(true);
+			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(true);
+		});
+
+		it('takes a Project off and puts it back, in the file the list is read from', async () => {
+			const { directory } = await workspace.createProject('Amsterdam 1625');
+
+			expect((await workspace.setProjectOnFrontPage(directory, false)).onFrontPage).toBe(false);
+			expect(await readJson(store, `${directory}/project.json`)).toMatchObject({
+				onFrontPage: false
+			});
+			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(false);
+
+			expect((await workspace.setProjectOnFrontPage(directory, true)).onFrontPage).toBe(true);
+			expect((await workspace.listProjects())[0]?.onFrontPage).toBe(true);
+		});
+
+		// Every other file of the Project, and every other field of the manifest: the choice decides one
+		// list and touches nothing else, which is the whole of what the control promises the user.
+		it('changes nothing else about the Project', async () => {
+			await store.write(
+				'p/project.json',
+				new TextEncoder().encode('{"formatVersion":1,"name":"Old","baseMap":"protomaps-light"}')
+			);
+			await store.write('p/annotations/a.geojson', new TextEncoder().encode('{"w":1}'));
+
+			await workspace.setProjectOnFrontPage('p', false);
+
+			expect(await readJson(store, 'p/project.json')).toMatchObject({
+				name: 'Old',
+				baseMap: 'protomaps-light',
+				onFrontPage: false
+			});
+			expect(await store.list('p/')).toEqual(['p/annotations/a.geojson', 'p/project.json']);
+		});
+
+		// A copy is the author's own Project again, so it arrives wherever the original was: a duplicate
+		// of something deliberately kept off the Front Page must not appear on it.
+		it('travels with a duplicate', async () => {
+			const { directory } = await workspace.createProject('Amsterdam 1625');
+			await workspace.setProjectOnFrontPage(directory, false);
+
+			expect((await workspace.duplicateProject(directory)).onFrontPage).toBe(false);
 		});
 	});
 

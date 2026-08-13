@@ -693,11 +693,18 @@ test.describe('the keyboard alone', () => {
 		await page.keyboard.press('Enter');
 		await expect(page.getByRole('link', { name: 'Keyboard Only' })).toBeVisible();
 
-		// Every control on the row is reachable by tabbing forward from the heading link.
+		// Every control on the row is reachable by tabbing forward from the heading link, in the order
+		// it is read in — the Front Page choice sits with the Project's own description, above the
+		// actions, because it is a fact about the Project rather than something done to it.
 		await page.getByRole('link', { name: 'Keyboard Only' }).focus();
-		for (const label of [/^Rename/, /^Duplicate/, /^Export/, /^Delete/]) {
+		for (const control of [
+			page.getByRole('checkbox', { name: /^On the front page/ }),
+			...[/^Rename/, /^Duplicate/, /^Export/, /^Delete/].map((name) =>
+				page.getByRole('button', { name })
+			)
+		]) {
 			await page.keyboard.press('Tab');
-			await expect(page.getByRole('button', { name: label })).toBeFocused();
+			await expect(control).toBeFocused();
 		}
 
 		await page.keyboard.press('Enter');

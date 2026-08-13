@@ -9,7 +9,7 @@ test('the hub page loads', async ({ page }) => {
 	// than throw: the same files are what a half-set-up GitHub Pages repository serves.
 	await page.goto('./');
 
-	await expect(page.getByRole('heading', { level: 1, name: 'Published Projects' })).toBeVisible();
+	await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
 });
 
 test('the built bundle carries no publishing machinery', async () => {

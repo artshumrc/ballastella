@@ -1,12 +1,13 @@
 <script lang="ts">
-	// The Published Site: a hub page listing the Projects, and one Project when `?p=` names it.
+	// The Published Site: a Front Page listing the Projects offered to a Reader, and one Project when
+	// `?p=` names it.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// WHY THE PROJECT LIST IS FETCHED RATHER THAN WALKED
 	//
 	// A static host has no directory listing, so nothing here can discover which folders hold a
 	// Project the way the editor's Workspace does. Publishing therefore writes the list into
-	// `ballastella-site.json` (ADR-0006's HTTP reader, ADR-0008's hub page), and this page reads it.
+	// `ballastella-site.json` (ADR-0006's HTTP reader, ADR-0008's Front Page), and this page reads it.
 	// That record also carries the Base Map catalog the authoring deployment resolved, so a
 	// Published Site keeps working when that deployment later changes its own catalog (ADR-0020).
 	//
@@ -99,7 +100,7 @@
 	 * during prerendering, because a prerendered page is one file serving every query string (see
 	 * {@link openDirectory}); there is no site record to read at build time, since publishing writes it
 	 * and the build does not; and a Base Map preference is one Reader's `localStorage` rather than a fact
-	 * about the file. So the prerendered HTML is the hub's own skeleton and nothing more.
+	 * about the file. So the prerendered HTML is the Front Page's own skeleton and nothing more.
 	 */
 	let hydrated = $state(false);
 	onMount(() => {
@@ -112,14 +113,14 @@
 	});
 
 	/**
-	 * The Project asked for, or `null` for the hub.
+	 * The Project asked for, or `null` for the Front Page.
 	 *
 	 * Gated on `hydrated` because **`page.url.searchParams` throws during prerendering**: SvelteKit
 	 * refuses it outright, since a prerendered page is one file serving every query string and a build
 	 * that read one would bake a single Project's answer into it. That refusal is the mechanism
 	 * ADR-0008 is relying on when it says `?p=` needs no per-Project artefact — the selection is
 	 * client-side by construction. So this is `null` while the static file is being written, and the
-	 * prerendered HTML is the hub's own skeleton.
+	 * prerendered HTML is the Front Page's own skeleton.
 	 */
 	const openDirectory = $derived(hydrated ? page.url.searchParams.get('p') : null);
 
@@ -311,8 +312,9 @@
 		open: { directory: string } | null,
 		content: ReturnType<typeof toContentLayers>
 	): void {
-		// Back at the hub. Cleared rather than left standing, so that opening the same Project again is
-		// a fresh open and frames again — which is what a Reader who has navigated away and back means.
+		// Back at the Front Page. Cleared rather than left standing, so that opening the same Project
+		// again is a fresh open and frames again — which is what a Reader who has navigated away and
+		// back means.
 		if (open === null) {
 			framedProject = '';
 			openingFit = null;
@@ -865,7 +867,17 @@
 		);
 	}
 
-	/** What this site calls itself in the tab. The hub has no name of its own beyond the tool's. */
+	/**
+	 * The Projects the Front Page offers a Reader (ADR-0032).
+	 *
+	 * The record names every Project the site carries, listed or not, so the filter is here rather than
+	 * at publish time — and it is the *only* thing the choice does. `?p=<directory>` reads a Project's
+	 * files straight off the host without consulting this list, so one left out still opens and still
+	 * renders, which is what stops "not on the Front Page" from being mistaken for a privacy setting.
+	 */
+	const frontPage = $derived(site?.projects.filter((project) => project.onFrontPage) ?? []);
+
+	/** What this site calls itself in the tab. The Front Page has no name of its own beyond the tool's. */
 	const title = $derived(
 		openProject ? `${openProject.file.name} — Ballastella` : 'Ballastella — published Projects'
 	);
@@ -888,7 +900,9 @@
 <main class="mx-auto max-w-6xl p-4 sm:p-8">
 	{#if openDirectory === null}
 		<div class="flex flex-wrap items-baseline justify-between gap-4">
-			<h1 class="text-3xl font-bold">Published Projects</h1>
+			<!-- The Front Page: where a Reader arrives (ADR-0032, which renamed ADR-0008's "hub page").
+			     "Hub" now belongs to the editor's own `ProjectHub`, which is a different screen. -->
+			<h1 class="text-3xl font-bold">Front Page</h1>
 			<button type="button" class="btn btn-sm" onclick={() => theme.toggle()}>
 				Switch to {otherTheme(theme.current)} theme
 			</button>
@@ -919,11 +933,11 @@
 			</div>
 		{:else if site === null}
 			<p class="mt-8">Looking for the Projects on this site…</p>
-		{:else if site.projects.length === 0}
+		{:else if frontPage.length === 0}
 			<p class="mt-8">This site has no Projects on it yet.</p>
 		{:else}
 			<ul class="mt-8 flex flex-col gap-3" data-testid="published-projects">
-				{#each site.projects as project (project.directory)}
+				{#each frontPage as project (project.directory)}
 					<li class="card bg-base-100 card-border">
 						<div class="card-body">
 							<h2 class="text-lg font-medium">

@@ -309,9 +309,7 @@ test.describe('publishing a Workspace', () => {
 
 			// The hub, and the Project on it. Rendered by the viewer's own JavaScript, which means the
 			// bundle was found, parsed, and run — none of which a file listing can tell you.
-			await expect(
-				page.getByRole('heading', { level: 1, name: 'Published Projects' })
-			).toBeVisible();
+			await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
 			await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
 
 			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this

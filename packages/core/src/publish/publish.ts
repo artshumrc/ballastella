@@ -80,12 +80,25 @@ import { bundleBytes, type ViewerBundle, type ViewerBundleFile } from './viewer-
  */
 export const PUBLISHED_SITE_FORMAT_VERSION = 2;
 
-/** One Project as the hub page lists it. */
+/** One Project the site carries. */
 export type PublishedProject = {
 	/** Its identity, and what `?p=` names (ADR-0008). */
 	readonly directory: string;
 	/** Its display name. Untrusted text: a Reader's browser must render it as text, never as markup. */
 	readonly name: string;
+	/**
+	 * Whether the Front Page lists it (ADR-0032).
+	 *
+	 * **Every published Project is on the record, listed or not.** A Reader's store cannot enumerate a
+	 * static host, so this record is the only account the site has of itself — and leaving the unlisted
+	 * ones out of it would make "not on the Front Page" into a claim about who can read the Project,
+	 * which it is not: the files are fetchable and `?p=<directory>` opens it for anyone who knows the
+	 * name.
+	 *
+	 * Absent means listed, here as in `project.json`, so a record written before this field is read the
+	 * way it was meant — see {@link parsePublishedSite}.
+	 */
+	readonly onFrontPage: boolean;
 };
 
 /** The record a Published Site carries about itself. */
@@ -218,7 +231,18 @@ export function parsePublishedSite(bytes: Uint8Array): PublishedSite {
 			const project = entry as Record<string, unknown> | null;
 			const directory = project?.directory;
 			if (typeof directory !== 'string' || directory === '') return [];
-			return [{ directory, name: typeof project?.name === 'string' ? project.name : directory }];
+			return [
+				{
+					directory,
+					name: typeof project?.name === 'string' ? project.name : directory,
+					// ⚠ **An entry with no `onFrontPage` is on the Front Page** (ADR-0032). A viewer bundle
+					// published before the field existed is sitting in front of Readers right now, and reading
+					// this strictly would empty its Front Page — every Project still fetchable, none of them
+					// listed, and nothing on the page to say why. Absence has to mean what it meant, which is
+					// the same tolerance `baseMapAssetsBundled` above is written for.
+					onFrontPage: project?.onFrontPage !== false
+				}
+			];
 		}),
 		baseMap: isCatalog(record.baseMap) ? record.baseMap : BASE_MAP_CATALOG,
 		baseMapBundled: record.baseMapBundled === true,
@@ -309,7 +333,10 @@ export type PublishWarning = {
 /** What publishing is about to do, worked out before a single byte is written. */
 export type PublishPlan = {
 	readonly viewerVersion: string;
-	/** The Projects the hub page will list, in the order it will list them. */
+	/**
+	 * Every Project the site will carry, in the order the record will name them — each saying whether
+	 * the Front Page lists it (ADR-0032).
+	 */
 	readonly projects: readonly PublishedProject[];
 	/** Every path publishing will write, with its byte length. The site record is included. */
 	readonly files: readonly ViewerBundleFile[];
@@ -397,9 +424,12 @@ export async function planPublish(
 	const { bundle, projects, includeBaseMap } = options;
 	const catalog = options.catalog ?? BASE_MAP_CATALOG;
 
+	// Every Project, whether or not the Front Page lists it: the record is the site's whole account of
+	// itself, and the listing decision travels on each entry rather than by omission (ADR-0032).
 	const listed: PublishedProject[] = projects.map((project) => ({
 		directory: project.directory,
-		name: project.name
+		name: project.name,
+		onFrontPage: project.onFrontPage
 	}));
 
 	// Before the files are written, so the bundle's own bytes are not counted as bytes the

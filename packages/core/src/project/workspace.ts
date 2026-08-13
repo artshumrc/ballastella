@@ -88,6 +88,13 @@ export interface ProjectSummary {
 	/** ISO 8601, or `''` for a Project whose manifest never recorded one. */
 	readonly updatedAt: string;
 	/**
+	 * Whether the Project is listed on a Published Site's Front Page (ADR-0032).
+	 *
+	 * `true` for a Project whose manifest this build cannot read, which is the same answer an absent
+	 * field gets: a Project we cannot open is one we cannot claim its author took off the list.
+	 */
+	readonly onFrontPage: boolean;
+	/**
 	 * Why this Project cannot be opened, if it cannot. The hub still lists it: a Project from a
 	 * newer version of the app is a thing the user owns and needs to see, and hiding it would
 	 * be a worse failure than refusing to open it (ADR-0010).
@@ -400,6 +407,23 @@ export class Workspace {
 	): Promise<ProjectSummary> {
 		const file = await this.readProject(directory);
 		await this.writeProject(directory, { ...file, name: displayName }, options);
+		return this.#summarise(directory);
+	}
+
+	/**
+	 * Put a Project on the Published Site's Front Page, or take it off (ADR-0032).
+	 *
+	 * A discrete action rather than a continuing edit, so it is written straight through rather than
+	 * debounced: the user pressed one control once, and the answer to "did that stick?" has to be yes
+	 * before they close the tab.
+	 *
+	 * **It changes what a Front Page lists and nothing else.** The Project's files are untouched, its
+	 * `?p=` address still resolves, and on a public Remote anyone who knows the directory name can read
+	 * it — which is why nothing on this path is called private, hidden, or unpublished.
+	 */
+	async setProjectOnFrontPage(directory: string, onFrontPage: boolean): Promise<ProjectSummary> {
+		const file = await this.readProject(directory);
+		await this.writeProject(directory, { ...file, onFrontPage });
 		return this.#summarise(directory);
 	}
 
@@ -736,17 +760,29 @@ export class Workspace {
 
 	async #summarise(directory: string): Promise<ProjectSummary> {
 		try {
+			const file = await this.readProject(directory);
 			return {
 				directory,
-				...identityOf(directory, await this.readProject(directory)),
+				...identityOf(directory, file),
+				onFrontPage: file.onFrontPage,
 				problem: null
 			};
 		} catch (cause) {
 			if (cause instanceof ProjectFormatTooNewError) {
-				return { directory, ...unreadableIdentity(directory), problem: 'format-too-new' };
+				return {
+					directory,
+					...unreadableIdentity(directory),
+					onFrontPage: true,
+					problem: 'format-too-new'
+				};
 			}
 			if (cause instanceof ProjectFileUnreadableError || cause instanceof PathNotFoundError) {
-				return { directory, ...unreadableIdentity(directory), problem: 'unreadable' };
+				return {
+					directory,
+					...unreadableIdentity(directory),
+					onFrontPage: true,
+					problem: 'unreadable'
+				};
 			}
 			throw cause;
 		}

@@ -103,12 +103,12 @@ describe('planning a publish', () => {
 			includeBaseMap: options.includeBaseMap ?? false
 		});
 
-	it('names every Project the hub page will list, by folder and display name', async () => {
+	it('names every Project the site will carry, by folder, display name, and front-page choice', async () => {
 		await workspace.createProject('Boston 1775');
 
 		expect((await plan()).projects).toEqual([
-			{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' },
-			{ directory: 'boston-1775', name: 'Boston 1775' }
+			{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: true },
+			{ directory: 'boston-1775', name: 'Boston 1775', onFrontPage: true }
 		]);
 	});
 
@@ -477,6 +477,23 @@ describe('publishing', () => {
 		expect(record.baseMapBundled).toBe(false);
 	});
 
+	// ADR-0032: the record is the site's whole account of itself, so a Project taken off the Front Page
+	// is *on the record and marked*, never left out of it. Omitting it would make the choice into a
+	// claim about who can read the Project — and the files are on a public host either way.
+	it('records each Project’s front-page choice, listing every Project either way', async () => {
+		await workspace.createProject('Boston 1775');
+		await workspace.setProjectOnFrontPage('boston-1775', false);
+
+		const site = await publish();
+		const record = parsePublishedSite(await store.read('ballastella-site.json'));
+
+		expect(record).toEqual(site);
+		expect(record.projects.map((project) => [project.directory, project.onFrontPage])).toEqual([
+			['amsterdam-1625', true],
+			['boston-1775', false]
+		]);
+	});
+
 	it('writes the site record last, so an interrupted publish leaves a site that works', async () => {
 		const order: string[] = [];
 		vi.spyOn(store, 'write').mockImplementation(async function (
@@ -753,7 +770,7 @@ describe('telling the author a Published Site is behind', () => {
 		formatVersion: 1,
 		viewerVersion: 'v1',
 		publishedAt: '2026-01-01T00:00:00.000Z',
-		projects: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625' }],
+		projects: [{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: true }],
 		baseMap: FORKED_CATALOG,
 		baseMapBundled: false,
 		baseMapAssetsBundled: false,
@@ -763,6 +780,7 @@ describe('telling the author a Published Site is behind', () => {
 		directory,
 		name,
 		updatedAt: '2026-01-01T00:00:00.000Z',
+		onFrontPage: true,
 		problem: null
 	});
 
@@ -971,7 +989,7 @@ describe('the site record a Reader’s page is drawn from', () => {
 		);
 
 		expect(record.baseMap.entries.length).toBeGreaterThan(0);
-		expect(record.projects).toEqual([{ directory: 'x', name: 'x' }]);
+		expect(record.projects).toEqual([{ directory: 'x', name: 'x', onFrontPage: true }]);
 	});
 
 	it('keeps a catalog it does not fully understand, because resolution already falls back', () => {
@@ -1019,11 +1037,41 @@ describe('the site record a Reader’s page is drawn from', () => {
 		expect(record.baseMapAssetsBundled).toBe(false);
 	});
 
+	/**
+	 * ⚠ **An entry with no `onFrontPage` is on the Front Page** (ADR-0032).
+	 *
+	 * Every site published before this field is in front of Readers now, and its entries carry none.
+	 * Reading the field strictly would empty those Front Pages: every Project still on the host, still
+	 * fetchable, none of them listed, and nothing on the page to say why. `parsePublishedSite` is the
+	 * tolerant reader for exactly this class of thing, and this is the case where "must still list the
+	 * Projects" is the whole point rather than a nicety.
+	 */
+	it('lists every Project when the entries predate the front-page choice', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(
+				'{"projects":[{"directory":"a","name":"A"},{"directory":"b","name":"B"}]}'
+			)
+		);
+
+		expect(record.projects.map((project) => project.onFrontPage)).toEqual([true, true]);
+	});
+
+	it('reads a choice the record does carry', () => {
+		const record = parsePublishedSite(
+			new TextEncoder().encode(
+				'{"projects":[{"directory":"a","name":"A","onFrontPage":false},' +
+					'{"directory":"b","name":"B","onFrontPage":true}]}'
+			)
+		);
+
+		expect(record.projects.map((project) => project.onFrontPage)).toEqual([false, true]);
+	});
+
 	it('drops a Project entry with no folder, which is the one field ?p= needs', () => {
 		const record = parsePublishedSite(
 			new TextEncoder().encode('{"projects":[{"name":"nameless"},{"directory":"x","name":"X"}]}')
 		);
 
-		expect(record.projects).toEqual([{ directory: 'x', name: 'X' }]);
+		expect(record.projects).toEqual([{ directory: 'x', name: 'X', onFrontPage: true }]);
 	});
 });
