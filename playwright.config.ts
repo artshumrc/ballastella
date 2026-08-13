@@ -65,6 +65,28 @@ export default defineConfig({
 	testDir: './e2e',
 	testMatch: '**/*.e2e.ts',
 	forbidOnly: !!process.env.CI,
+
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+	// FULLY PARALLEL: THE SCHEDULING FIX, AND IT BUYS MORE THAN ANY OF THE OTHERS.
+	//
+	// Without this, Playwright parallelises across **files** and runs the tests inside one file
+	// serially in a single worker. This suite's files are not the same size — `viewer-reader.e2e.ts`
+	// holds 63 tests and `editor.e2e.ts` holds 1 — so the run could never finish faster than its
+	// longest single file, however many workers were free. Measured on
+	// `editor-alignment-refinement.e2e.ts`: 21 tests, 4 workers configured, and a wall time equal to
+	// the *sum* of the test durations, because 20 of them were queued behind one worker while the
+	// other three had nothing to do.
+	//
+	// **This does not increase concurrency and therefore does not touch the contention argument
+	// below.** `workers: 4` is still the cap; what changes is that four workers are actually used
+	// when the work is in one file. The failure analysis in the `workers` comment stands unaltered.
+	//
+	// ⚠ **It does mean tests in one file no longer share a page or an order.** Every spec here
+	// already builds its own Workspace in a `beforeEach` or in `start()` and empties OPFS first, so
+	// there was nothing to inherit; a spec that ever *did* want to hand state from one test to the
+	// next must say so with `test.describe.serial`, which is the honest spelling of that dependency
+	// and was silently free before.
+	fullyParallel: true,
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	// WORKERS: 4. MEASURED 2026-08-07, ON A 20-CORE LINUX 6.17 MACHINE WITH 62 GB, NOT OTHERWISE
 	// IDLE (THE ORDINARY STATE OF THIS BOX — OTHER AGENTS AND SERVICES WERE RUNNING).
@@ -99,15 +121,31 @@ export default defineConfig({
 	// nothing that survived a retry.** Down from 0.20% and from 6 runs in 10. Thirty measured runs in
 	// all, twelve failures, five distinct causes, no crashes.
 	//
-	// **Eight workers measured 19% faster (360s against 444s) and four is still the right number.**
-	// This repository is worked by several agents at once on one machine, so a run does not have the
-	// box to itself; eight workers each would oversubscribe the cores and make every concurrent run
-	// slower. Note what the 19% says about the ceiling: doubling the workers bought a fifth, so the
-	// suite is already close to what this CPU can do. Real speed is not in this number — it is in
-	// not asking Playwright for work that belongs one seam down. A Vitest browser test costs ~12ms
-	// against ~4.6s here, because it exercises a module rather than booting the built app and
-	// software-rasterising MapLibre.
-	workers: 4,
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+	// ⚠ **"EIGHT WORKERS MEASURED 19% FASTER, SO THE SUITE IS NEAR THIS CPU'S CEILING" WAS WRONG,
+	// AND IT WAS WRONG BECAUSE OF `fullyParallel`.**
+	//
+	// That measurement was taken with file-level parallelism only. A worker's unit of work was then a
+	// whole *file*, and this suite's files run from 1 test to 63 — so the run was bounded by its
+	// longest file and adding workers past "one per long file" could not help. The 19% measured the
+	// scheduling, not the processor, and the conclusion drawn from it does not follow.
+	//
+	// Re-measured 2026-08-13 with `fullyParallel: true` on a 156-test sample of the heaviest specs
+	// (`viewer-reader`, `editor-annotations`, `editor-layers`): **4 workers 314s, 10 workers 206s.**
+	// 1.5× for 2.5× the workers — still sublinear, but now for the real reason: every test drives a
+	// software-rasterised WebGL context, so this is CPU-bound before it is core-bound.
+	//
+	// **It stays at 4 by default, because the reason for 4 was never the benchmark.** This repository
+	// is worked by several agents at once on one machine and a run does not have the box to itself;
+	// ten workers each would oversubscribe the cores and make every *concurrent* run slower — a cost
+	// paid by whoever else is working rather than by this run. `BALLASTELLA_E2E_WORKERS=10` is there
+	// for when the machine is actually yours, and is worth the 1.5× then.
+	//
+	// Real speed is still not in this number — it is in not asking Playwright for work that belongs
+	// one seam down. A Vitest browser test costs ~12ms against ~4.6s here, because it exercises a
+	// module rather than booting the built app and software-rasterising MapLibre. `apps/editor` has a
+	// `editor-browser` project for exactly that since 2026-08-13.
+	workers: Number(process.env.BALLASTELLA_E2E_WORKERS) || 4,
 
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	// THE TWO BUDGETS, RAISED FROM PLAYWRIGHT'S DEFAULTS BECAUSE THE DEFAULTS WERE THE CAUSE.

@@ -1291,30 +1291,6 @@ test.describe('opacity on a map Layer (SPEC story 51)', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await projectJson(page, directory)).layers[0].opacity).toBeCloseTo(opacity, 5);
 	});
-
-	// The union makes this a type error in `@ballastella/core`; here it is the UI honouring it, so
-	// nobody can "fix" an unresponsive slider by threading opacity through label rendering (ADR-0002).
-	test('is offered on a map Layer and on no other kind', async ({ page }) => {
-		const directory = await alignedProject(page);
-		await openLayers(page, directory);
-		await page.getByTestId('add-annotation-layer').click();
-		await expect(rows(page)).toHaveCount(2);
-
-		await expect(rows(page).nth(0)).toHaveAttribute('data-layer-kind', 'annotation');
-
-		// ⚠ **Each row is asserted while its own card is open, and the absence is the reason.**
-		//
-		// Since the Layers revision the slider lives inside the card, and the disclosure is an
-		// accordion — `openLayerId` holds one id, so opening one row closes the other. A version that
-		// opened the map Layer and then asserted `toHaveCount(0)` on the annotation row would pass
-		// because that row had just been *collapsed*, which is true of every control on it and says
-		// nothing about kinds. The absence has to be read on an open card or it is not this test.
-		const annotation = await openLayerRow(page, rows(page).nth(0));
-		await expect(annotation.getByTestId('layer-opacity')).toHaveCount(0);
-
-		const map = await openLayerRow(page, rows(page).nth(1));
-		await expect(map.getByTestId('layer-opacity')).toHaveCount(1);
-	});
 });
 
 test.describe('ordering, including across kinds (ADR-0002)', () => {
@@ -1422,37 +1398,6 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		expect(await warpedTiles(page, mapId)).toBeGreaterThan(0);
 	});
 
-	// SPEC story 53. Layer order is load-bearing, so a drag-only reorder would make core
-	// functionality keyboard-inaccessible (ADR-0016) — and this is the same implementation the drag
-	// drives, so the two routes cannot diverge.
-	test('reorders by keyboard alone, with no pointer involved', async ({ page }) => {
-		// A whole aligned-Project fixture and then a Tab walk to the button — see {@link tabTo}. Both
-		// are honest work this test needs, and together they exhausted the 30 s that used to be the
-		// default in 1 of the 10 runs of 2026-08-07. The default is 60 s now; this stays above it
-		// because the measured cost of the two together is closer to that than to the ordinary test.
-		test.setTimeout(90_000);
-		const { annotationId, mapId } = await stackWithBothKinds(page);
-		// Reorder buttons live inside the open card since the Layers revision, so the card is opened
-		// before the Tab walk — they are not in the DOM to be tabbed to otherwise. Opening is itself a
-		// keyboard-operable step (the disclosure is a plain `<button>`), so "by keyboard alone" holds.
-		const moveDown = (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down');
-
-		await page.keyboard.press('Tab');
-		await tabTo(page, moveDown, 'Move down');
-		await page.keyboard.press('Enter');
-
-		await expect(rows(page).nth(0)).toHaveAttribute('data-layer-id', mapId);
-		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
-		// Announced, because a move changes nothing near the pointer and nothing that has focus.
-		await expect(page.getByTestId('layer-move-status')).toContainText('moved to 2 of 2');
-
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
-		const order = await stackOrder(page);
-		expect(order.indexOf(`ballastella-layer-${annotationId}-fill`)).toBeLessThan(
-			order.indexOf(`ballastella-layer-${mapId}`)
-		);
-	});
-
 	/**
 	 * The case ADR-0002 actually names: an opaque label over the map it describes.
 	 *
@@ -1488,62 +1433,6 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		expect(below.indexOf(`ballastella-layer-${annotationId}-fill`)).toBeLessThan(
 			below.indexOf(`ballastella-layer-${mapId}`)
 		);
-	});
-
-	// The half of SPEC story 53 that "the order changed" cannot see. A keyboard user reorders by
-	// pressing the same button repeatedly, so where focus is *after* a move decides whether they can
-	// make a second one — and the `{#each}` is keyed, so Svelte moves the row's DOM node out from under
-	// the button that was just activated. Losing focus here means Tabbing back in from the top of the
-	// document, past MapLibre's own controls, for every single move.
-	test('leaves the keyboard on the Layer that moved, so a second move needs no Tab', async ({
-		page
-	}) => {
-		const { annotationId, mapId } = await stackWithBothKinds(page);
-		// Opened first: the reorder buttons are inside the card since the Layers revision. The open card
-		// follows the *Layer*, not the position, which is what lets the second keypress below land
-		// without a Tab.
-		const moveDown = (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down');
-
-		await page.keyboard.press('Tab');
-		await tabTo(page, moveDown, 'Move down');
-		await page.keyboard.press('Enter');
-		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', annotationId);
-
-		// At the bottom of the stack "Move down" is a disabled button, so the keyboard is handed the
-		// other half of the same control rather than the document body.
-		await expect(rows(page).nth(1).getByTestId('layer-move-up')).toBeFocused();
-
-		// And it really is operable from there: one keypress, no Tab, and the Layer comes back.
-		await page.keyboard.press('Enter');
-		expect(await rowIds(page)).toEqual([annotationId, mapId]);
-		await expect(page.getByTestId('layer-move-status')).toContainText('moved to 1 of 2');
-	});
-
-	// The same thing away from the ends, where the button that was pressed is still enabled — the case
-	// that is about Svelte moving a keyed node rather than about `disabled`.
-	test('keeps focus on the same button when the move does not reach the end', async ({ page }) => {
-		// As above: an aligned Project, three Layers, and a Tab walk — see {@link tabTo}. It failed in
-		// the same run, for the same reason.
-		test.setTimeout(90_000);
-		const directory = await alignedProject(page);
-		await openLayers(page, directory);
-		await page.getByTestId('add-annotation-layer').click();
-		await expect(rows(page)).toHaveCount(2);
-		await page.getByTestId('add-annotation-layer').click();
-		await expect(rows(page)).toHaveCount(3);
-		const [top] = (await rowIds(page)) as [string, string, string];
-
-		// Opened first: the reorder buttons are inside the card since the Layers revision.
-		const moveDown = (await openLayerRow(page, rows(page).nth(0))).getByTestId('layer-move-down');
-		await page.keyboard.press('Tab');
-		await tabTo(page, moveDown, 'Move down');
-		await page.keyboard.press('Enter');
-
-		await expect(rows(page).nth(1)).toHaveAttribute('data-layer-id', top);
-		await expect(rows(page).nth(1).getByTestId('layer-move-down')).toBeFocused();
-
-		await page.keyboard.press('Enter');
-		expect((await rowIds(page))[2]).toBe(top);
 	});
 
 	// From the handle, which is the drag source: the row is only the drop target, because a pointer
@@ -1991,36 +1880,6 @@ test.describe('leaving the Project screen and coming back', () => {
 });
 
 test.describe('the Layer list reaches assistive technology (SPEC story 96)', () => {
-	test('is an ordered list whose structure and order are announced', async ({ page }) => {
-		const directory = await alignedProject(page);
-		await openLayers(page, directory);
-		await page.getByTestId('add-annotation-layer').click();
-		await expect(rows(page)).toHaveCount(2);
-
-		const list = page.getByRole('list', { name: 'Layers, top first' });
-		await expect(list).toHaveCount(1);
-		// An `<ol>`, so position in the stack comes out of the markup rather than out of a label
-		// somebody has to remember to update.
-		expect(await list.evaluate((element) => element.tagName)).toBe('OL');
-		await expect(list.getByRole('listitem')).toHaveCount(2);
-
-		// Each row's name field says where in the stack it is, because "Layer name" three times over
-		// is three identical controls to a screen reader.
-		//
-		// **One row at a time, because the field is behind the pencil in an open card and the
-		// disclosure is an accordion** (`openLayerId` holds one id). Both labels cannot be in the
-		// document at once, so asserting them together would be asserting something the design does
-		// not do. The *positions* they name are still checked for both rows at once — that is the
-		// `<ol>`/`<li>` structure above, which is where position properly comes from.
-		const first = await openLayerRow(page, rows(page).nth(0));
-		await first.getByTestId('layer-rename').click();
-		await expect(first.getByTestId('layer-name')).toHaveAccessibleName('Name of Layer 1 of 2');
-
-		const second = await openLayerRow(page, rows(page).nth(1));
-		await second.getByTestId('layer-rename').click();
-		await expect(second.getByTestId('layer-name')).toHaveAccessibleName('Name of Layer 2 of 2');
-	});
-
 	test('every control of every Layer is reachable with the keyboard', async ({ page }) => {
 		const directory = await alignedProject(page);
 		await openLayers(page, directory);
@@ -2123,40 +1982,6 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 	const NOT_ALIGNED = 'Not aligned yet, so there is nothing to draw.';
 
 	const disclosure = (page: Page, at: number) => rows(page).nth(at).getByTestId('layer-disclosure');
-
-	test('opening a row closes whichever one was open, and every row can be closed', async ({
-		page
-	}) => {
-		const directory = await alignedProject(page);
-		await openLayers(page, directory);
-		await page.getByTestId('add-annotation-layer').click();
-		await expect(rows(page)).toHaveCount(2);
-
-		// Nothing opens itself: the sidebar arrives as a list of Layers.
-		await expect(page.getByTestId('layer-contents')).toHaveCount(0);
-		await expect(disclosure(page, 0)).toHaveAttribute('aria-expanded', 'false');
-		await expect(disclosure(page, 1)).toHaveAttribute('aria-expanded', 'false');
-
-		// One opens.
-		await openLayerRow(page, 0);
-		await expect(disclosure(page, 0)).toHaveAttribute('aria-expanded', 'true');
-		await expect(disclosure(page, 1)).toHaveAttribute('aria-expanded', 'false');
-		await expect(page.getByTestId('layer-contents')).toHaveCount(1);
-
-		// The other opens, and the first closes without being asked to. **Counted as well as
-		// attributed**: `aria-expanded` is the promise made to a screen reader and the count is the
-		// promise made to the eye, and a version that rendered both and hid one with CSS would satisfy
-		// only the first.
-		await openLayerRow(page, 1);
-		await expect(disclosure(page, 0)).toHaveAttribute('aria-expanded', 'false');
-		await expect(disclosure(page, 1)).toHaveAttribute('aria-expanded', 'true');
-		await expect(page.getByTestId('layer-contents')).toHaveCount(1);
-
-		// And the open one closes, leaving none — the disclosure is a toggle rather than a one-way door.
-		await disclosure(page, 1).click();
-		await expect(disclosure(page, 1)).toHaveAttribute('aria-expanded', 'false');
-		await expect(page.getByTestId('layer-contents')).toHaveCount(0);
-	});
 
 	/**
 	 * The criterion the whole "closed rows stay useful" contract exists for.

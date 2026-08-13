@@ -7,7 +7,7 @@ A **ballastella** — also Jacob's staff — is a graduated pole with a sliding 
 ## Language
 
 **Workspace**:
-The one place a user keeps their work — a directory they choose, holding every project as a subdirectory and every historical map they have brought in. Published, a workspace is a hub page listing the projects inside it.
+The one place a user keeps their work — a directory they choose, holding every project as a subdirectory and every historical map they have brought in. Published, a workspace is a Front Page listing the projects inside it.
 _Avoid_: library, root, vault, home
 
 **Project**:
@@ -15,8 +15,20 @@ One coherent piece of work within a workspace: which of the workspace's historic
 _Avoid_: workspace, document, map (for the whole), collection
 
 **Published Site**:
-A project directory that has had a read-only viewer written into it, so that anyone with a web server — or none, in the case of a local folder — can look at the work without being able to change it. Publishing adds files to a project; it does not produce a separate copy of it.
-_Avoid_: export, build, deployment, website
+A Workspace as a Reader meets it — the same files the author owns, with a read-only viewer written in beside them, answering at a web address. Publishing adds files to the Workspace; it never produces a separate copy of it.
+_Avoid_: build, deployment, website. "Export" belongs to a Project Bundle and a Backup; publishing is never an export.
+
+**Publish**:
+To send a Workspace's files to its Remote, so that the Published Site at that address becomes the work as it now stands. One act and one word: it uploads, and what it uploads is readable by anyone. Never automatic and never silent — an edit is saved locally the moment it is made, and reaches the Remote only when someone presses the button.
+_Avoid_: sync, deploy, upload, push, save to the cloud
+
+**Front Page**:
+The Published Site's root: where a Reader arrives, listing the Projects offered to them. Each Project is either on the Front Page or not, and not being on it says nothing about who can read the Project — the files are public either way.
+_Avoid_: hub, landing page, index, home
+
+**Remote**:
+The one GitHub repository a Workspace can be bound to, where its Published Site lives. At most one per Workspace, and orthogonal to where the Workspace's own bytes are kept — a Workspace in browser storage and a Workspace in a folder can each have one. A Review Workspace can never have one.
+_Avoid_: origin, cloud, backend, server, sync target, host
 
 **Layer**:
 One entry in a project's ordered stack. A layer references its content and carries only how that content is presented — its name, whether it is visible, and where it sits in the stack. Layers come in kinds: an aligned historical map, or a set of annotations.
@@ -41,6 +53,10 @@ _Avoid_: georeference, warp, pin, register, rectify, GeoreferencedMap
 **Offline Copy**:
 A referenced historical map whose tiles have been fetched into the workspace, so it no longer needs the network and survives the library reorganising. The address it came from is kept, so it can still be cited. The user-facing verb is "make an offline copy".
 _Avoid_: mirror, cache, download, localise
+
+**Project Bundle**:
+A tar of one Project and every Historical Map, Alignment, and Annotation its Layers reference, made to be sent to somebody. It opens only into a Review Workspace and is never merged into the recipient's own (ADR-0024). The verb is "export".
+_Avoid_: zip, archive, package, submission, share
 
 **Review Workspace**:
 A throwaway workspace holding one project someone else sent, opened to be looked at and then discarded. Never merged into the user's own workspace, and nothing in it can be promoted out of it.

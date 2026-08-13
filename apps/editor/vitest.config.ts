@@ -1,6 +1,37 @@
+import { playwright } from '@vitest/browser-playwright';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 
+// The editor's two seams below Playwright: `editor` for code with no DOM, `editor-browser` for
+// components rendered in a real browser.
+//
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// WHY THERE IS A SECOND PROJECT, AND WHAT IT IS EXPLICITLY NOT FOR
+//
+// The `node` project's own note below argues — correctly — that `annotation-editing.svelte.ts`
+// needs no browser, and that a browser project for *it* would be the same assertions, slower. That
+// argument covers classes. It does not reach a `.svelte` file, and for a long time nothing did:
+// this app had no DOM at all, so every assertion about a rendered row, a dialog, a focus order or
+// an `aria-live` announcement had exactly one home, the Playwright suite, at roughly four seconds
+// each against a built app and a software-rasterised map.
+//
+// That is why this repository accumulated 675 end-to-end tests. Not because 675 claims need a real
+// MapLibre and a real OPFS — most do not — but because the alternative to Playwright was nothing.
+// `editor-layers.e2e.ts` spent 42 full application boots to assert 42 facts about one list.
+//
+// ⚠ **The new project is not a cheaper Playwright and must not be used as one.** It renders one
+// component against props and fakes. It cannot see MapLibre, OPFS, a service worker, or a static
+// site served at two base paths, and a claim about any of those asserted here is asserted against a
+// mock — which is the vacuous green this repository's testing decisions exist to prevent. The
+// division is: **what the interface itself does** belongs here; **what the application does when
+// its real dependencies are underneath it** stays in `e2e/`.
+//
+// Concretely, these belong here — a row's text for an unaligned Layer, which control holds focus
+// after a delete, what a live region says, whether a dialog is a real `<dialog>`. These do not —
+// that a reordered Layer draws above another on the map, that a rename leaves `alignments/*.json`
+// byte-identical on disk, that a Published Site's relative paths resolve in a subdirectory.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────
 // The editor's unit seam (ticket 06).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -68,14 +99,50 @@ import { defineConfig } from 'vitest/config';
 // `keepProcessEnv`) after this config is merged and never touches `ssr`'s `consumer`, so this
 // survives; vitest sets exactly this field itself for its own `vmThreads` environment.
 export default defineConfig({
-	plugins: [svelte()],
-	environments: { ssr: { consumer: 'client', resolve: { conditions: ['browser'] } } },
 	test: {
-		name: 'editor',
-		environment: 'node',
-		include: ['src/**/*.test.ts', 'vitest-setup/**/*.test.ts'],
-		expect: { requireAssertions: true },
-		// No test may reach the network (the standing rule; see the setup file's own header).
-		setupFiles: ['./vitest-setup/refuse-network.ts']
+		projects: [
+			{
+				plugins: [svelte()],
+				environments: { ssr: { consumer: 'client', resolve: { conditions: ['browser'] } } },
+				test: {
+					name: 'editor',
+					environment: 'node',
+					include: ['src/**/*.test.ts', 'vitest-setup/**/*.test.ts'],
+					// `.browser.test.ts` is the other project's, and without this exclusion the node
+					// project would try to render a component into a DOM it does not have — failing with
+					// `document is not defined`, which reads as a broken test rather than a misrouted one.
+					exclude: ['src/**/*.browser.test.ts', 'vitest-setup/**/*.browser.test.ts'],
+					expect: { requireAssertions: true },
+					// No test may reach the network (the standing rule; see the setup file's own header).
+					setupFiles: ['./vitest-setup/refuse-network.ts']
+				}
+			},
+			{
+				plugins: [svelte()],
+				// ⚠ **Not tuning — see the identical block in `packages/core/vitest.config.ts`.** Vite
+				// re-optimizes dependencies during a browser-mode run and then reloads, which vitest
+				// itself warns can hang the run; that cost a measured forty minutes there and went down
+				// as unexplained flake. Every dependency a component test pulls in belongs here, and
+				// **adding one to a component test means adding it here**.
+				optimizeDeps: { include: ['@lucide/svelte', 'dompurify', 'marked'] },
+				test: {
+					name: 'editor-browser',
+					include: ['src/**/*.browser.test.ts'],
+					expect: { requireAssertions: true },
+					setupFiles: ['./vitest-setup/refuse-network.ts'],
+					browser: {
+						enabled: true,
+						headless: true,
+						provider: playwright(),
+						// Chromium alone, unlike `core`'s browser project. That one runs two engines
+						// because SPEC story 4 is a claim about OPFS across browsers and Firefox is a
+						// different implementation of it. Nothing here touches storage: these tests render
+						// components, and Svelte's own output is not a per-engine question worth doubling
+						// every local run for.
+						instances: [{ browser: 'chromium' }]
+					}
+				}
+			}
+		]
 	}
 });

@@ -13,6 +13,7 @@ import zlib from 'node:zlib';
 import { addHistoricalMapButton, pickHistoricalMapFile } from './historical-maps.js';
 import { openLayerRow } from './layers';
 import { readStoredFileOrNull } from './stored-file';
+import { restoreWorkspace, snapshotWorkspace } from './workspace-snapshot.js';
 
 const crcTable = (() => {
 	const table = new Int32Array(256);
@@ -66,8 +67,16 @@ export function gradientPng(width: number, height: number): Buffer {
 export const IMAGE_WIDTH = 700;
 export const IMAGE_HEIGHT = 500;
 
-/** How long a freshly ingested pyramid may take to decode every tile of its first view. */
-const TILES_READY_MS = 30_000;
+/**
+ * How long the pyramid may take to decode every tile of its first view.
+ *
+ * Halved from thirty seconds when the pyramid stopped being built per test: nine tiles read from
+ * OPFS and decoded is a fraction of the work encoding them was, and a budget sized for the old cost
+ * is a budget that turns a hang into a two-minute hang. Still generous rather than tight, because
+ * the contention argument in `playwright.config.ts` is unchanged — four workers, each a real WebGL
+ * context against one origin's OPFS, on a machine that is not the run's alone.
+ */
+const TILES_READY_MS = 15_000;
 
 export const PROJECT_NAME = 'Amsterdam 1625';
 export const PROJECT_DIRECTORY = 'amsterdam-1625';
@@ -143,13 +152,16 @@ export async function emptyWorkspace(page: Page): Promise<void> {
 }
 
 /**
- * A Project open, one Historical Map ingested, both panes live.
+ * Make the Workspace this module's tests stand on, through the interface, from nothing.
  *
- * @returns the image id, which is the Alignment's file name
+ * **The recorded path.** This is what `start` used to be and what it still is on the first run
+ * against a new build; `workspace-snapshot.ts` keeps what it produced and replays the bytes after
+ * that. It is written as its own function so the thing being recorded stays a real, readable user
+ * journey rather than something inferred from a cache format.
  */
-export async function start(page: Page): Promise<string> {
-	await page.goto('/');
-	await emptyWorkspace(page);
+async function ingestThroughTheInterface(
+	page: Page
+): Promise<{ imageId: string; layerId: string }> {
 	await page.reload();
 
 	await page.getByRole('button', { name: 'New Project' }).click();
@@ -173,12 +185,41 @@ export async function start(page: Page): Promise<string> {
 	// duplicate of the other.
 	const row = page.getByTestId('layer-row').first();
 	await expect(row).toBeVisible({ timeout: 30_000 });
-	const imageId = (await row.getAttribute('data-image-id')) ?? '';
-	expect(imageId).not.toBe('');
+	// The preparing card and the finished row are both in the `<ol>` while an ingest runs, so a
+	// capture taken on the row alone can catch a pyramid that is still being written.
+	await expect(page.getByTestId('preparing-layer')).toHaveCount(0, { timeout: 30_000 });
 
-	// **The workspace is a route of its own since ticket 03**, so getting to it is a navigation and no
-	// longer a scroll.
-	await openAlignment(page);
+	const imageId = (await row.getAttribute('data-image-id')) ?? '';
+	const layerId = (await row.getAttribute('data-layer-id')) ?? '';
+	expect(imageId).not.toBe('');
+	expect(layerId).not.toBe('');
+	return { imageId, layerId };
+}
+
+/**
+ * A Project open, one Historical Map on disk, both panes live.
+ *
+ * The Historical Map is **seeded rather than ingested** — see `workspace-snapshot.ts` for what that
+ * means and what it deliberately does not cover. A test whose subject is the ingest itself must
+ * drive `pickHistoricalMapFile` instead.
+ *
+ * @returns the image id, which is the Alignment's file name
+ */
+export async function start(page: Page): Promise<string> {
+	await page.goto('/');
+	await emptyWorkspace(page);
+
+	const snapshot = await snapshotWorkspace(page, 'alignment', ingestThroughTheInterface);
+	await restoreWorkspace(page, snapshot.files);
+
+	// **Navigated to rather than clicked through.** `openAlignment` is still the way to reach this
+	// surface when *arriving* is the subject — `editor-align-route.e2e.ts` asserts the link, the URL
+	// and the heading — but for the sixty-odd tests that merely need to be here, four interactions
+	// and two client-side navigations are the second-largest cost in this helper now that the ingest
+	// is gone. The route is a contract with its own tests; using it is not going behind the app's
+	// back.
+	await page.goto(`/align/?p=${PROJECT_DIRECTORY}&layer=${snapshot.layerId}`);
+	await expect(page.getByRole('heading', { name: 'Align', exact: true })).toBeVisible();
 	await expect(page.getByTestId('image-pane')).toBeVisible();
 	// **Waited for generously, and the assertion is unchanged.** What is asserted is the real signal —
 	// every tile of the first view decoded — and five seconds is enough for that on an idle machine and
@@ -193,7 +234,7 @@ export async function start(page: Page): Promise<string> {
 	// The pairing status only renders once the Alignment has been read, so waiting for it is waiting
 	// for the whole surface to be live rather than for a timeout.
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
-	return imageId;
+	return snapshot.imageId;
 }
 
 /**

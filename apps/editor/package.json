@@ -36,6 +36,10 @@
 		"tailwindcss": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",
-		"vitest": "catalog:"
+		"vitest": "catalog:",
+		"vitest-browser-svelte": "catalog:",
+		"@vitest/browser-playwright": "catalog:",
+		"@vitest/browser": "catalog:",
+		"playwright": "catalog:"
 	}
 }

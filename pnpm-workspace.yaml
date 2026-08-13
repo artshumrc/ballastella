@@ -25,6 +25,34 @@ catalog:
   '@vitest/browser-playwright': ^4.1.10
   playwright: ^1.62.1
 
+  # `@vitest/browser` arrives underneath `@vitest/browser-playwright` either way; it is declared
+  # because a test that imports `@vitest/browser/context` for its locators is importing it directly,
+  # and pnpm's isolated `node_modules` exists to stop that working by accident — the same argument
+  # the `dompurify` entry below records. Without it here, `vitest` resolves the import and
+  # `svelte-check` does not, which is a type error in a green test.
+  '@vitest/browser': ^4.1.10
+
+  # Rendering a Svelte component in a real browser, for `apps/editor`'s component project.
+  #
+  # **Why this is not a second UI dependency under ADR-0016.** That ADR bans a headless component
+  # library beside daisyUI — a thing that owns focus, keyboard handling and ARIA in the shipped
+  # product. This ships in nothing: it is `devDependencies` of one workspace package and its whole
+  # surface is `render(Component, props)` plus the locators vitest's browser mode already provides.
+  #
+  # **Why it exists at all.** Until now `apps/editor` had `environment: 'node'` and no DOM, so every
+  # assertion about a *rendered* row, dialog, focus order or `aria-live` announcement had nowhere to
+  # go but the Playwright suite at roughly four seconds each. That is the whole reason this
+  # repository had 675 browser tests: not because 675 things need a built app and a real map, but
+  # because there was no seam between a class with no DOM and the entire application.
+  #
+  # ⚠ **A component test is not a substitute for a Playwright test about the same feature**, and
+  # the line is ADR-0019's: this seam renders one component against props and fakes. It cannot see
+  # MapLibre, OPFS, the service worker, or a static site served at two base paths, and a claim about
+  # any of those asserted here would be asserted against a mock. It is for the interface's own
+  # behaviour — what a row says when a Layer is unaligned, which control takes focus after a delete,
+  # what a live region announces.
+  vitest-browser-svelte: ^3.0.0
+
   # IIIF. Exact, no range specifier: pre-1.0, and a bump is a migration event.
   # `@allmaps/types` is type-only. It is listed here because `@allmaps/iiif-parser`
   # re-exports `TileZoomLevel` and `ImageRequest` from it while declaring it only as a
