@@ -101,6 +101,13 @@ const projectWrites = async (page: Page): Promise<number> =>
  *
  * On the Workspace hub rather than inside a Project, because the Workspace is what publishes: the
  * choice decides one entry in one list on the Published Site, and the list is the Workspace's.
+ *
+ * **The wording is the safeguard and is asserted at the component seam** — ADR-0032's refusal to
+ * call an off-the-front-page Project unpublished, private, hidden or a draft is a claim about what
+ * `ProjectHub` composes from a `ProjectSummary`, and it lives in
+ * `apps/editor/src/lib/components/project-hub.dom.test.ts`. What is left here is what needs a real
+ * Workspace: that the choice reaches `project.json`, that it leaves `updatedAt` alone, that it
+ * survives a reload, and that the caution on screen describes the state the file is in.
  */
 test.describe('choosing whether a Project is on the Front Page', () => {
 	test.beforeEach(async ({ context }) => {
@@ -124,6 +131,14 @@ test.describe('choosing whether a Project is on the Front Page', () => {
 		await toggle.uncheck();
 		await expect.poll(async () => JSON.parse(await projectFile(page)).onFrontPage).toBe(false);
 
+		// ⚠ **The caution follows the file, not the click.** The wording matrix — the required
+		// "readable by anyone with the link" and the four refused words, in both states — is
+		// `apps/editor/src/lib/components/project-hub.dom.test.ts`; what only a real Workspace can
+		// show is that the sentence beside the control describes the state `project.json` is now in.
+		const note = page.getByTestId(`front-page-note-${PROJECT_DIRECTORY}`);
+		await expect(note).toContainText('Not on the front page');
+		await expect(toggle).toHaveAttribute('aria-describedby', (await note.getAttribute('id')) ?? '');
+
 		// ⚠ **`updatedAt` is untouched.** The hub is ordered by it and publishing writes the Front Page in
 		// that order, so stamping here would move the row out from under the cursor that just clicked it
 		// and reorder the site — which ADR-0032 leaves alone.
@@ -139,44 +154,6 @@ test.describe('choosing whether a Project is on the Front Page', () => {
 		await page.reload();
 		await expect(toggle).toBeChecked();
 		expect(JSON.parse(await projectFile(page)).updatedAt).toBe(before);
-	});
-
-	/**
-	 * ⚠ **The wording, asserted rather than eyeballed** (ADR-0032, SPEC stories 26 and 27).
-	 *
-	 * A Project off the Front Page is still published, still in the repository, and still opened by
-	 * `?p=<folder>` for anyone who knows the name. Every one of "unpublished", "private", "draft", and
-	 * "hidden" invites the opposite reading, and a scholar with an embargoed archival photograph or a
-	 * manuscript under a library's publication restriction will act on the reading they are given. So
-	 * the four words are refused by test, and the caution is required by test, in **both** states —
-	 * because the state a user is about to leave is the one they are deciding from.
-	 */
-	test('says the Project stays readable by anyone, and never calls it private, hidden, unpublished, or a draft', async ({
-		page
-	}) => {
-		await freshWorkspace(page);
-		const toggle = page.getByRole('checkbox', { name: `On the front page — ${PROJECT_NAME}` });
-		const note = page.getByTestId(`front-page-note-${PROJECT_DIRECTORY}`);
-
-		// The caution is the control's accessible *description*, not merely a paragraph nearby: a screen
-		// reader user is given it along with the control instead of having to go looking.
-		await expect(toggle).toHaveAttribute('aria-describedby', (await note.getAttribute('id')) ?? '');
-
-		for (const state of ['on', 'off'] as const) {
-			if (state === 'off') {
-				await toggle.uncheck();
-				await expect(note).toContainText('Not on the front page');
-			}
-			const words = `${await toggle.evaluate((element) => element.closest('label')!.textContent)} ${await note.textContent()}`;
-			expect(words.toLowerCase(), `the wording while ${state} the front page`).toContain(
-				'readable by anyone with the link'
-			);
-			for (const forbidden of ['unpublished', 'private', 'draft', 'hidden']) {
-				expect(words.toLowerCase(), `“${forbidden}” while ${state} the front page`).not.toContain(
-					forbidden
-				);
-			}
-		}
 	});
 });
 

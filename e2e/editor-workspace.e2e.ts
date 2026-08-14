@@ -322,6 +322,12 @@ test.describe('the Project hub', () => {
  * restoration on the confirmation, and the whole of it working from the keyboard. What the *files*
  * do — which are deleted, which survive a refusal, what the used-by walk reads — is
  * `packages/core/src/project/historical-maps.test.ts`.
+ *
+ * **What each card *says* about a map** — the size and file count, where the tiles are, and the
+ * used-by sentence in each of its shapes including ADR-0010's — is composed by `ProjectHub` from a
+ * `WorkspaceHistoricalMap` record and nothing else, and is asserted against the component in
+ * `apps/editor/src/lib/components/project-hub.dom.test.ts`. What stays here is the wiring: that
+ * those records are the Workspace's own.
  */
 test.describe('the Workspace’s Historical Maps', () => {
 	const manifest = (label: string) => JSON.stringify({ label: { none: [label] } });
@@ -388,29 +394,31 @@ test.describe('the Workspace’s Historical Maps', () => {
 		await expect(page.getByTestId('historical-map')).toHaveCount(4);
 	});
 
-	test('lists every Historical Map with its label, its size, and how many files that is', async ({
+	/**
+	 * That the list on screen is the Workspace's own maps, read from what is really on the disk.
+	 *
+	 * ⚠ **This is a wiring test and it is deliberately one sentence per fact.** The *matrix* — the
+	 * singular "1 file", the unnamed Library, the used-by sentence in each of its five shapes, the
+	 * reclaim clause and its absence — is `apps/editor/src/lib/components/project-hub.dom.test.ts`,
+	 * where it costs milliseconds and cannot pass vacuously because the records are the test's.
+	 * What only a browser can answer is what this asserts: that the hub walks `images/`, weighs it
+	 * through the store, reads the Projects' own documents for used-by, and puts the answers on a
+	 * screen. Each line below is a different join — the pyramid's bytes and file count, a
+	 * `remote.json` naming its Library, and a used-by walk over two Projects — so a component that
+	 * renders perfectly against props it is never given still fails here.
+	 */
+	test('lists the Workspace’s own Historical Maps, weighed and attributed from what is on disk', async ({
 		page
 	}) => {
-		// The file count beside the byte total, because "50 kB in 4 files" and "50 kB in 31 000 files"
-		// are different news for a scholar deciding what to publish.
+		// Four files of seeded pyramid, weighed by the store rather than by the list.
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('50 kB in 4 files');
-		await expect(entry(page, 'Bonner’s Boston')).toContainText('50 kB in 4 files');
-		await expect(entry(page, 'A map nobody kept')).toContainText('50 kB in 4 files');
-		await expect(entry(page, 'Plan de Paris')).toContainText('1 file');
-	});
-
-	test('says whether the tiles are here or names the Library they are on', async ({ page }) => {
-		// Visible text, not a badge colour or a tooltip (SPEC story 111): this is the fact that decides
-		// whether a Layer draws anything on a train.
-		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('Tiles in this Workspace');
+		// The Library comes out of the map's own `remote.json`, which nothing but a real read supplies.
 		await expect(entry(page, 'Plan de Paris')).toContainText('Tiles on iiif.bnf.example');
-	});
-
-	test('names the Projects that use each map, and says plainly when none do', async ({ page }) => {
+		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText('Tiles in this Workspace');
+		// And used-by is the walk over both Projects' `project.json`, in directory order.
 		await expect(entry(page, 'Blaeu’s plan of Amsterdam')).toContainText(
 			'Used by Amsterdam 1625, Boston 1775'
 		);
-		await expect(entry(page, 'Bonner’s Boston')).toContainText('Used by Amsterdam 1625');
 		await expect(entry(page, 'A map nobody kept')).toContainText('No Project uses this map.');
 	});
 

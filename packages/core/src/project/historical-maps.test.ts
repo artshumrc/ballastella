@@ -122,7 +122,7 @@ describe('where a Historical Map’s tiles are', () => {
 });
 
 describe('listWorkspaceHistoricalMaps', () => {
-	it('lists every Historical Map in the Workspace with its label and its size', async () => {
+	it('lists every Historical Map in the Workspace with its label, its size, and how many files that is', async () => {
 		const store = new MemoryProjectStore();
 		await seedLocalMap(store, 'aaa1', 'Amsterdam 1625.tif', 40_000);
 		await seedReferencedMap(store, 'bbb2', 'Plan de Paris');
@@ -135,6 +135,23 @@ describe('listWorkspaceHistoricalMaps', () => {
 		// info.json + manifest + tile, and nothing from any other map.
 		expect(maps[0]?.bytes).toBeGreaterThan(40_000);
 		expect(maps[0]?.bytes).toBeLessThan(42_000);
+		// The count beside the weight, because "50 kB in 3 files" and "50 kB in 31 000 files" are
+		// different news for a scholar deciding what to publish — and because a referenced map is one
+		// small record rather than a pyramid, which is the whole point of the figure.
+		expect(maps[0]?.files).toBe(3);
+		expect(maps[1]?.files).toBe(1);
+	});
+
+	// The Alignment goes with the map when it is deleted, so it is in what the user is told the
+	// deletion reclaims. A map nobody has placed yet has none, which is the ordinary first state.
+	it('counts the Alignment among the files deleting the map would take', async () => {
+		const store = new MemoryProjectStore();
+		await seedLocalMap(store, 'aaa1', 'Amsterdam 1625.tif');
+		await seedAlignmentFixture(store, 'aaa1', 120);
+
+		const maps = await listWorkspaceHistoricalMaps(store);
+
+		expect(maps[0]?.files).toBe(4);
 	});
 
 	it('says whether the tiles are in this Workspace or names the Library they are on', async () => {
