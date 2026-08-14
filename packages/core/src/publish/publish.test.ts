@@ -419,6 +419,22 @@ describe('publishing', () => {
 		).toEqual([]);
 	});
 
+	it('duplicates no tile bytes: the pyramid is in the Workspace exactly once', async () => {
+		// The other half of ADR-0006's refusal to copy, and the half a caller can check without a spy:
+		// after a publish the tile's bytes appear at one path and no other. The read-count test above
+		// says publishing never opened a tile; this says nothing carrying those bytes was written
+		// either, which is what a scholar reading their own folder would look at.
+		const tile = decode(await store.read('images/x/0,0,256,256/256,256/0/default.jpg'));
+
+		await publish({ includeBaseMap: true });
+
+		const carrying: string[] = [];
+		for (const path of await store.list('')) {
+			if (decode(await store.read(path)) === tile) carrying.push(path);
+		}
+		expect(carrying).toEqual(['images/x/0,0,256,256/256,256/0/default.jpg']);
+	});
+
 	it('records exactly the paths it writes, so the data-only zip can exclude them', async () => {
 		await publish({ includeBaseMap: true });
 
@@ -993,6 +1009,31 @@ describe('stamping a canonical URL', () => {
 
 		expect(id).toBe('https://scholar.example/images/aaa');
 		expect(`${id}/${tile}`).toBe(`https://scholar.example/images/aaa/${tile}`);
+	});
+
+	/**
+	 * The other state of the same field, and the one a publish is ordinarily in.
+	 *
+	 * Stamping is opt-in, so a publish that was given no address must leave every `id` at ADR-0004's
+	 * placeholder host rather than guessing at one. A stamp derived from the store's own location
+	 * would be a citation nobody could fetch, and it would be written into the user's folder on every
+	 * publish without their asking.
+	 */
+	it('leaves an unstamped info.json id at the ADR-0004 placeholder', async () => {
+		await publishSite({
+			store,
+			plan: await planPublish(store, {
+				bundle,
+				projects: await workspace.listProjects(),
+				includeBaseMap: true
+			}),
+			readAsset: asset
+		});
+
+		expect((await infoJson('aaa')).id).toBe('https://unset.invalid/aaa');
+		expect((await infoJson('bbb')).id).toBe('https://unset.invalid/bbb');
+		// The site really was written, so this is not passing because publishing did nothing at all.
+		expect(await store.list('index.html')).toEqual(['index.html']);
 	});
 
 	it('keeps every other field of info.json, including one it does not understand', async () => {

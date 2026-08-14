@@ -416,31 +416,12 @@ test.describe('publishing a Workspace', () => {
 		expect(inspected.some((relative) => relative.startsWith('base-map/'))).toBe(true);
 	});
 
-	test('adds the site to the Workspace and copies no Project data', async ({ page }) => {
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-		const before = await takeWorkspace(page);
-
-		await publish(page, { baseMap: true });
-
-		const after = await takeWorkspace(page);
-		// Every Project file, byte for byte, hashed rather than compared by length.
-		const hashes = (files: Record<string, string>) =>
-			Object.fromEntries(
-				Object.entries(files)
-					.filter(
-						([relative]) =>
-							relative.startsWith('amsterdam-1625/') ||
-							relative.startsWith('images/') ||
-							relative.startsWith('alignments/')
-					)
-					.map(([relative, base64]) => [relative, sha256(base64)])
-			);
-		expect(hashes(after)).toEqual(hashes(before));
-
-		// No pyramid was duplicated: the tile exists exactly once in the whole Workspace.
-		const tile = sha256(before['images/aaa/0,0,256,256/256,256/0/default.jpg']!);
-		expect(Object.values(after).filter((base64) => sha256(base64) === tile)).toHaveLength(1);
-	});
+	// "adds the site to the Workspace and copies no Project data" was asked here and is now asked in
+	// `packages/core/src/publish/publish.test.ts`, where the bytes are the assertion rather than a
+	// base64 round trip through OPFS: "writes the viewer and the site record at the Workspace, beside
+	// the Projects" for the file set, "modifies no Project data, asserted on the bytes of every Project
+	// file" and "writes nothing at all inside a Project directory" for the Project half, and
+	// "duplicates no tile bytes: the pyramid is in the Workspace exactly once" for the pyramid.
 
 	/**
 	 * ⚠ **Two different numbers, and the dialog has to say both** (ADR-0032).
@@ -504,37 +485,12 @@ test.describe('publishing a Workspace', () => {
 		expect(withBaseMap.some((path) => path.endsWith('.pmtiles'))).toBe(false);
 	});
 
-	test('removes a Base Map it published before, when the next publish leaves it out', async ({
-		page
-	}) => {
-		// The order the folder gets wrong. Publishing only ever wrote, so ~5 MB of `base-map/` stayed in
-		// the Workspace while the record written beside it said the site carried no Base Map at all —
-		// the folder and the site's own account of itself disagreeing, in a folder the user is about to
-		// push. The other order is covered above; this is the one that leaves litter.
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-		await publish(page, { baseMap: true });
-
-		const bundled = await takeWorkspace(page);
-		expect(
-			Object.keys(bundled).filter((path) => path.startsWith('base-map/')).length
-		).toBeGreaterThan(1);
-
-		await publish(page);
-
-		const after = await takeWorkspace(page);
-		expect(Object.keys(after).filter((path) => path.startsWith('base-map/'))).toEqual([]);
-		expect(await siteRecord(page)).toMatchObject({ baseMapBundled: false });
-		// The site is still whole: the sweep only ever reaches the paths publishing records.
-		expect(Object.keys(after)).toContain('index.html');
-		// And it never reaches a Project. Every Project file is byte-identical across the republish.
-		const hashes = (files: Record<string, string>) =>
-			Object.fromEntries(
-				Object.entries(files)
-					.filter(([relative]) => relative.startsWith('amsterdam-1625/'))
-					.map(([relative, base64]) => [relative, sha256(base64)])
-			);
-		expect(hashes(after)).toEqual(hashes(bundled));
-	});
+	// "removes a Base Map it published before, when the next publish leaves it out" was asked here and
+	// is now asked in `packages/core/src/publish/publish.test.ts` as "removes a Base Map it published
+	// before, when this publish leaves it out" — the same four claims (the sweep, `baseMapBundled`,
+	// `index.html` surviving it, and the Projects beside it byte-identical) against the store the sweep
+	// actually walks, plus the one this could not reach at all: "leaves the offline tile cache alone
+	// when this publish omits the Base Map".
 
 	/**
 	 * Which `baseMapAssetsBundled: false` means the author said no, and which means nobody was asked.
@@ -689,49 +645,17 @@ test.describe('publishing a Workspace', () => {
 		expect(root.failures).toEqual([{ path: `/images/${'aaa'}/info.json`, status: 404 }]);
 	});
 
-	test('names the hosting limit when the Workspace is about to cross it', async ({ page }) => {
-		// Just under the 1 GB budget, so that the site's own bytes take it over. Written as one sparse
-		// file rather than as a real gigabyte: `ProjectStore#size` reports its length without reading it,
-		// which is the whole reason the warning can be computed at all (ADR-0001, ADR-0008).
-		await openWorkspace(page, projectFiles('amsterdam-1625', { name: 'Amsterdam 1625' }));
-		// **Sparse on the disk, but not free of the browser's storage quota.** A `truncate` is charged
-		// at its full length against the origin's quota, and Chromium derives that quota from the free
-		// space on the filesystem holding the browser profile — so this one test has a precondition no
-		// other test in the suite has: ~1 GB of quota must be available to it. On CI it once was not,
-		// and the failure read as a bare `QuotaExceededError` from this `evaluate` with no hint that
-		// the environment rather than the app was short. So the shortfall is named here, with the two
-		// numbers needed to act on it.
-		const quota = await page.evaluate(async () => {
-			try {
-				const root = await workspaceRoot();
-				// At the Workspace root: the ~1 GB budget is the Workspace's, shared by every Project that
-				// publishes together (ADR-0008, ADR-0023).
-				const images = await (await root.getDirectoryHandle('images')).getDirectoryHandle('aaa');
-				const handle = await images.getFileHandle('huge.jpg', { create: true });
-				const writable = await handle.createWritable();
-				await writable.write({ type: 'truncate', size: 999_000_000 });
-				await writable.close();
-				return null;
-			} catch (error) {
-				if (!(error instanceof DOMException && error.name === 'QuotaExceededError')) throw error;
-				return await navigator.storage.estimate();
-			}
-		});
-		expect(
-			quota,
-			'this test needs ~1 GB of browser storage quota to stand a Workspace up at the ADR-0008 ' +
-				'cliff, and the browser refused the write. Chromium sizes the quota from the free space on ' +
-				'the filesystem holding its profile — which is the temporary directory, so check that ' +
-				'`TMPDIR` points somewhere with room. Quota the browser reported: ' +
-				JSON.stringify(quota)
-		).toBeNull();
-
-		const dialog = await openPublishDialog(page);
-
-		const warning = dialog.locator('[data-warning="hosting-limit"]');
-		await expect(warning).toContainText('1.0 GB');
-		await expect(warning).toContainText('GitHub Pages');
-	});
+	// "names the hosting limit when the Workspace is about to cross it" was asked here and is now asked
+	// in `packages/core/src/publish/publish.test.ts` as "names the hosting limit when the site would take
+	// the Workspace past it", which asserts the same two strings and a third this could not — the byte
+	// figure — against arithmetic rather than against a browser's storage quota. The claim that a
+	// planning warning reaches the dialog at all is kept at Seam 2 by the two tests either side of this
+	// one: "states the Base Map's size before adding it" and "warns that a referenced Historical Map
+	// leaves a Reader with no network seeing nothing".
+	//
+	// Retiring it also retires the only precondition in this suite the machine can fail: the fixture was
+	// a 999 MB sparse file, charged in full against the origin's quota, which Chromium sizes from the
+	// free space behind `TMPDIR`.
 
 	test('extends the hub page on a second publish and leaves the first Project untouched', async ({
 		page
