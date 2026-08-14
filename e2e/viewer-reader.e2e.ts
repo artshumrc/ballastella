@@ -2431,14 +2431,25 @@ test.describe('a Published Site that is not entirely well', () => {
 		// And the page still works: one unreachable image does not take the Project screen down.
 		await expect(page.getByTestId('fit-to-project')).toBeVisible();
 		// The Reader's Annotations are drawn too, which is what the sentence promises them.
-		expect(
-			await page.evaluate(
+		//
+		// ⚠ **Polled, because an Annotation Layer is a symbol layer and `queryRenderedFeatures` answers
+		// about placement rather than about the style.** `redrawMapLayer` rebuilds the whole stack, so
+		// this layer has just been re-added; it is present in `getStyle().layers` immediately and
+		// answers no query until the frame that places its symbols. Read once, this asks whether that
+		// frame happened to have run yet — which is a question about the rasteriser's speed, and one
+		// the software rasteriser answers "yes" to only because it is slow enough to have got there.
+		await expect
+			.poll(
 				() =>
-					(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).filter((feature) =>
-						feature.layer.id.startsWith('ballastella-layer-')
-					).length
+					page.evaluate(
+						() =>
+							(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).filter((feature) =>
+								feature.layer.id.startsWith('ballastella-layer-')
+							).length
+					),
+				{ timeout: 60_000 }
 			)
-		).toBeGreaterThan(0);
+			.toBeGreaterThan(0);
 
 		// ── A refused cell is NOT re-asked for, and the notice says so rather than waiting ──────────
 		// **Measured, and it is why the sentence above says what it says.** With the route lifted the
@@ -2500,14 +2511,20 @@ test.describe('a Published Site that is not entirely well', () => {
 		// The rest of the site is unharmed, which is what the sentence promises: the Annotation Layer is
 		// listed, drawn, and clickable, and the controls still work.
 		await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
-		expect(
-			await page.evaluate(
+		// Polled for the same reason as its twin in the test above: the stack was rebuilt a moment ago
+		// and this symbol layer answers no query until the frame that places its symbols.
+		await expect
+			.poll(
 				() =>
-					(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).filter((feature) =>
-						feature.layer.id.startsWith('ballastella-layer-')
-					).length
+					page.evaluate(
+						() =>
+							(window.ballastellaReaderMap?.map.queryRenderedFeatures() ?? []).filter((feature) =>
+								feature.layer.id.startsWith('ballastella-layer-')
+							).length
+					),
+				{ timeout: 60_000 }
 			)
-		).toBeGreaterThan(0);
+			.toBeGreaterThan(0);
 
 		// And nothing was thrown. **This is the assertion the patch to `@allmaps/render` exists for**:
 		// core's shim answers the refusal with a `Response`, `@allmaps/stdlib`'s `fetchUrl` throws its
