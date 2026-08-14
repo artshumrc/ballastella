@@ -1,4 +1,5 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 // The editor's two seams below Playwright: `editor` for code with no DOM, `editor-dom` for
@@ -61,6 +62,35 @@ import { defineConfig } from 'vitest/config';
 // 3. **Focus after a keyed node moves** — the behaviour `moveByButton` exists for. The keyed
 //    `{#each}` really moves the node, the focused element really is blurred to `document.body` by
 //    the move, and the restoration really lands. This is asserted three ways below.
+//
+// 4. **DOMPurify, probed on 2026-08-14 for ticket 07, and it is INERT here.** `DOMPurify.isSupported`
+//    answers `true` against happy-dom 20.11, so `isDescriptionRendererSupported()` says yes and
+//    `renderDescription` runs — and then returns its input essentially untouched. Measured, the whole
+//    string surviving the allowlist:
+//
+//        renderDescription('… and <img src=x onerror=alert(1)>')
+//          → '<p>… and <img src="x" onerror="alert(1)">'
+//
+//    `img` is not in `ALLOWED_TAGS` and `onerror` is in no allowlist at all, so a real browser
+//    removes both; here neither goes. **This is the exact shape of the failure this project's header
+//    exists to refuse** — a fake that answers "supported" and then agrees with whatever it is given —
+//    and it is worse than an unsupported dependency, because it is silently green rather than loudly
+//    absent. So the Annotation *description* surface does not come here at all: "the description
+//    reads as rendered Markdown, not as source" would pass against a component that had dropped the
+//    sanitiser, which is the one bug on that surface that matters. It stays in `e2e/`, and the
+//    payload matrix stays in `packages/core/src/annotation/markdown.browser.test.ts`, over a real
+//    engine. ⚠ Nothing under this project may assert anything about `renderDescription`'s output.
+//
+// 5. **`DragEvent`.** Probed 2026-08-14 (ticket 08), and the answer was no on both members that
+//    matter. happy-dom's `DragEvent` does not extend `MouseEvent`, and its constructor ignores both
+//    `dataTransfer` and `relatedTarget` from the init dictionary — `new DragEvent('dragstart', {
+//    dataTransfer })` arrives with `event.dataTransfer === undefined`. So `LayerList`'s
+//    `dragTheWholeCard` takes its own early return and never calls `setDragImage`, and its
+//    `ondragleave` guard — `relatedTarget` inside this card is not a departure, which is the whole of
+//    the anti-flicker fix — sees `undefined` every time and treats every leave as real. **The
+//    workaround is the trap:** dispatching a `MouseEvent` named `dragleave` makes both pass, and it is
+//    a fake agreeing with a fake about the one member the fake gets wrong. Every drag claim therefore
+//    stays in `e2e/editor-layers.e2e.ts`, which says so beside them.
 //
 // Known-absent and therefore off limits here, rather than worked around:
 //
@@ -193,7 +223,20 @@ export default defineConfig({
 				// The list *replaces* vite's defaults rather than adding to them, so `browser` alone
 				// would drop `module` and the dev/prod condition and resolve other packages wrongly:
 				// vite's own defaults have to be spelled out alongside it.
-				resolve: { conditions: ['module', 'browser', 'development|production'] },
+				resolve: {
+					conditions: ['module', 'browser', 'development|production'],
+					// `$lib` is SvelteKit's alias and this project does not run under SvelteKit, so it has
+					// to be spelled here or a component that uses it fails to resolve at import time.
+					// The `editor` project above needs none because nothing without a DOM imports through
+					// it; the moment something does, it needs the same line in the same place its own
+					// `resolve` note describes.
+					alias: {
+						$lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
+						// SvelteKit generates `$app/paths` at build time and there is no build here. The
+						// stub's own header records why its `base` is `''` and what that forbids.
+						'$app/paths': fileURLToPath(new URL('./vitest-setup/app-paths.ts', import.meta.url))
+					}
+				},
 				// **No `optimizeDeps.include`, deliberately.** `packages/core`'s browser project needs
 				// one because Vite re-optimizes dependencies *during* a browser-mode run and then
 				// reloads, which cost a measured forty minutes there. That failure mode is browser
