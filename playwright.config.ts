@@ -1,5 +1,5 @@
 import { defineConfig, devices, type ReporterDescription } from '@playwright/test';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import process from 'node:process';
 
 import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
@@ -62,16 +62,16 @@ const serveStatic = (app: string, port: number) => ({
 	timeout: 120_000
 });
 
-// Hand Chromium the real GPU, when asked and where there is one.
+// Hand Chromium the real GPU, where there is one to hand it.
 //
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// A HALF-PRICE SUITE THAT TWO TESTS REFUSE, SO IT IS NOT THE DEFAULT YET
+// HALF THE COST OF SEAM 2 IS THE SOFTWARE RASTERISER
 //
 // Headless Chromium rasterises WebGL in software (SwiftShader), and every test here drives a real
 // MapLibre over it. Measured on `editor-layers.e2e.ts`, 35 tests, this box, warm:
 //
 //   software (SwiftShader)          143.7s – 213.0s of worker time     4.10 – 6.09s per test
-//   ANGLE over Vulkan               103.4s / 103.7s / 103.9s           2.96s per test
+//   ANGLE over Vulkan               103.4s / 103.7s / 103.9s           2.96s per test   ← the default
 //   `--headed`, so the real GPU     112.2s                             3.21s per test
 //   ANGLE over GL/EGL               270.3s                             7.72s per test
 //
@@ -82,42 +82,68 @@ const serveStatic = (app: string, port: number) => ({
 // within half a second of each other. The first Vulkan run against a cold shader cache cost 145.4s;
 // 103s is the steady state.
 //
-// ⚠ **These flags do not degrade gracefully, which is why asking for them is not enough.** Set on a
-// machine with no Vulkan driver, Chromium does not quietly fall back: three `editor-project-screen`
-// tests fail outright and fail their retry, on theme flavour, the navigation bar and a part-drawn
-// shape. Verified by hiding the driver with `VK_DRIVER_FILES`. The failure is also unhelpful — it
-// reads as three unrelated product bugs rather than as a missing GPU.
+// ⚠ **Whether these flags degrade gracefully on a GPU-less machine is NOT known, and the obvious
+// experiment does not answer it.** Pointing `VK_DRIVER_FILES` at a file that is not there fails three
+// `editor-project-screen` tests — theme flavour, the navigation bar, a part-drawn shape — but it does
+// so **with these flags off as well**, measured, so it breaks Chromium's whole GPU stack rather than
+// the ANGLE path specifically. A poisoned Vulkan environment is not a model of a machine that simply
+// has no GPU, and reading it as one is how this comment came to claim the opposite for an afternoon.
 //
-// ⚠⚠ **AND IT IS NOT MERELY A RASTERISER SWAP: TWO TESTS DISAGREE WITH IT.** With the GPU,
-// `viewer-reader.e2e.ts:2366` and `:2472` — "keeps what arrived" and "a server that is failing apart
-// from a connection that is gone" — fail deterministically, in about a second, on both attempts. The
-// same spec is 63 green with the software rasteriser, twice over. They fail fast rather than timing
-// out, so it is a difference in what the renderer does with a partly-arrived tile set, not a race.
+// So the detection below is prudence rather than a proven necessity: the flags are asked for only
+// where a render node *and* an installed ICD are both present, and anything else gets the software
+// path. That is cheap, and the cost of being wrong is a red suite on somebody else's laptop. Force it
+// either way when the detection is wrong: `BALLASTELLA_E2E_GPU=1` to insist, `=0` to refuse.
 //
-// **Which of the two is telling the truth is not yet known, and that is the point.** A Reader has a
-// real GPU, so the GPU path is the one that resembles them; these tests may be pinning SwiftShader's
-// behaviour rather than the application's. Until somebody has read them and decided, the rasteriser
-// stays the default — a suite that is 51% faster and 2 tests wrong is not a bargain, and the wrong
-// two would be the ones about telling a Reader their map is broken.
+//     BALLASTELLA_E2E_GPU=0 pnpm test:e2e     # the software rasteriser, wherever you are
 //
-// So it is asked for by name, and only honoured where the device exists:
+// ⚠ **Two tests had to be fixed before this could be the default, and what they were pinning is worth
+// knowing.** `viewer-reader.e2e.ts`'s two outage tests failed under the GPU, deterministically and in
+// about a second. Neither was about tile failure: both read `queryRenderedFeatures` once, immediately
+// after a `redrawMapLayer()` that re-adds the Annotation symbol layer — and that call answers about
+// symbol *placement*, not about the style. Measured, the layer was in the style at t=0 with 0
+// features placed, and 1 from t=1s on; the failure screenshot showed the pin already drawn. Under
+// SwiftShader everything upstream was slow enough that the placement frame had always run by then. So
+// the tests passed for a reason unrelated to what they asserted, and the GPU exposed it rather than
+// broke it. They poll now, which is what the same claim elsewhere in that file already did.
 //
-//     BALLASTELLA_E2E_GPU=1 pnpm test:e2e     # fast, and currently 2 red in viewer-reader
+// The lesson generalises: **a test that only passes under one rasteriser is pinning the rasteriser.**
 //
 // `--headed` is the other way to reach the real GPU and needs no flags, but it opens a window per
 // worker and cannot run unattended.
-const hasRenderNode = (): boolean => {
+/**
+ * Whether this machine can actually serve ANGLE's Vulkan backend.
+ *
+ * Both halves are needed and the second is the one that bites. A render node is the device; an
+ * **installed ICD** is the driver that talks to it, and Chromium asked for Vulkan without one is the
+ * case that fails three tests rather than falling back. `lvp_icd.json` (lavapipe) counts — it is
+ * software Vulkan, so it is merely slow rather than broken, which is the right side of the line.
+ */
+const canUseVulkan = (): boolean => {
 	if (process.platform !== 'linux') return false;
+	const populated = (directory: string): boolean => {
+		try {
+			return readdirSync(directory).length > 0;
+		} catch {
+			return false;
+		}
+	};
+	let renderNode: boolean;
 	try {
-		return readdirSync('/dev/dri').some((node) => node.startsWith('renderD'));
+		renderNode = readdirSync('/dev/dri').some((node) => node.startsWith('renderD'));
 	} catch {
-		return false;
+		renderNode = false;
 	}
+	// A named driver file wins, but only if it is really there: pointing `VK_DRIVER_FILES` at nothing
+	// is how the failing case was reproduced, and it has to read as "no Vulkan" rather than as "yes".
+	const named = process.env.VK_DRIVER_FILES ?? process.env.VK_ICD_FILENAMES;
+	const driver = named
+		? named.split(':').some((file) => existsSync(file))
+		: populated('/usr/share/vulkan/icd.d') || populated('/etc/vulkan/icd.d');
+	return renderNode && driver;
 };
 
 const wantsGpu = process.env.BALLASTELLA_E2E_GPU;
-const useGpu =
-	wantsGpu === undefined || wantsGpu === '' ? false : wantsGpu !== '0' && hasRenderNode();
+const useGpu = wantsGpu === '0' ? false : canUseVulkan();
 
 const gpuLaunchOptions = useGpu
 	? {
