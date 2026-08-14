@@ -211,11 +211,19 @@ describe('keepAskingForMissingTiles', () => {
 		vi.useRealTimers();
 	});
 
+	/** A caller whose every re-ask reaches the screen: it reports the frame delivered at once. */
+	const painting = (): ReturnType<typeof vi.fn> => {
+		const asked = vi.fn();
+		keepAskingForMissingTiles((delivered) => {
+			asked();
+			delivered();
+		});
+		return asked;
+	};
+
 	it('asks again with no gesture at all, and asks soonest while a Reader is still watching', () => {
 		vi.useFakeTimers();
-		const asked = vi.fn();
-
-		keepAskingForMissingTiles(asked);
+		const asked = painting();
 
 		// Nothing has happened but time. This is the whole point: no click, no zoom, no redraw.
 		expect(asked, 'nothing is asked before the first delay').not.toHaveBeenCalled();
@@ -228,11 +236,58 @@ describe('keepAskingForMissingTiles', () => {
 		expect(asked.mock.calls.length).toBeGreaterThanOrEqual(3);
 	});
 
-	it('stops asking a site that stays broken, rather than repainting for ever', () => {
+	// ⚠ This is the test that pins the back-off, and it is written against the clock rather than
+	// against `TILE_RECOVERY_DELAYS` on purpose. Asserting the constant's own arithmetic proves only
+	// that the constant is what it says; it leaves the *schedule* free to wait 250ms eleven times —
+	// which collapses a 151.75-second budget to 2.75 seconds while every assertion about the constant
+	// stays green, silently deleting "a Reader must not go on paying for a broken site".
+	it('waits each of its lengthening delays in turn, and no other', () => {
+		vi.useFakeTimers();
+		const asked = painting();
+
+		// Each moment the nth re-ask is due, straddled: one millisecond short of it and one past it.
+		// Nothing but the real schedule can satisfy every row.
+		const dueAt = [250, 750, 1_750, 3_750, 7_750, 15_750, 31_750, 61_750, 91_750, 121_750, 151_750];
+
+		let now = 0;
+		for (const [index, due] of dueAt.entries()) {
+			vi.advanceTimersByTime(due - 1 - now);
+			expect(asked, `nothing more is asked at ${due - 1}ms`).toHaveBeenCalledTimes(index);
+			vi.advanceTimersByTime(2);
+			expect(asked, `re-ask ${index + 1} has happened by ${due + 1}ms`).toHaveBeenCalledTimes(
+				index + 1
+			);
+			now = due + 1;
+		}
+	});
+
+	it('parks rather than spending the budget on frames a hidden tab never paints', () => {
 		vi.useFakeTimers();
 		const asked = vi.fn();
+		// A backgrounded tab: `triggerRepaint` arms an animation frame that does not run, so no frame
+		// is ever delivered. The step must not be spent — the whole budget collapsing into the one
+		// frame that paints on return is a Reader who gets a single re-ask instead of eleven.
+		let paint: (() => void) | undefined;
+		keepAskingForMissingTiles((delivered) => {
+			asked();
+			paint = delivered;
+		});
 
-		keepAskingForMissingTiles(asked);
+		vi.advanceTimersByTime(24 * 60 * 60 * 1000);
+		expect(asked, 'the budget is not spent while nothing is painting').toHaveBeenCalledTimes(1);
+		expect(vi.getTimerCount(), 'and nothing is left spinning either').toBe(0);
+
+		// The tab comes back and the frame is finally delivered: the schedule picks up where it parked,
+		// with its remaining ten re-asks intact.
+		paint?.();
+		vi.advanceTimersByTime(24 * 60 * 60 * 1000);
+		expect(asked).toHaveBeenCalledTimes(2);
+	});
+
+	it('stops asking a site that stays broken, rather than repainting for ever', () => {
+		vi.useFakeTimers();
+		const asked = painting();
+
 		vi.advanceTimersByTime(24 * 60 * 60 * 1000);
 
 		// A bounded retry and not a loop: the budget is spent, and — the assertion that actually
@@ -242,22 +297,26 @@ describe('keepAskingForMissingTiles', () => {
 		expect(asked).toHaveBeenCalledTimes(TILE_RECOVERY_DELAYS.length);
 		expect(vi.getTimerCount(), 'nothing is still scheduled').toBe(0);
 
-		// And it backs off rather than hammering: every wait is at least as long as the one before it,
-		// and the whole budget is minutes rather than hours.
+		// And it backs off rather than hammering: every wait is at least as long as the one before it.
 		const backingOff = TILE_RECOVERY_DELAYS.every(
 			(delay, index) => index === 0 || delay >= TILE_RECOVERY_DELAYS[index - 1]!
 		);
 		expect(backingOff).toBe(true);
-		expect(TILE_RECOVERY_DELAYS.reduce((total, delay) => total + delay, 0)).toBeLessThan(
-			5 * 60 * 1000
-		);
+		// ADR-0028 and the JSDoc both quote these two numbers to a Reader-facing conclusion — eleven
+		// re-asks over two minutes and thirty-two seconds — so they are pinned here rather than left to
+		// drift out of the prose that cites them.
+		expect(TILE_RECOVERY_DELAYS).toHaveLength(11);
+		expect(TILE_RECOVERY_DELAYS.reduce((total, delay) => total + delay, 0)).toBe(151_750);
 	});
 
 	it('stops the moment it is told the bytes came back', () => {
 		vi.useFakeTimers();
 		const asked = vi.fn();
 
-		const stop = keepAskingForMissingTiles(asked);
+		const stop = keepAskingForMissingTiles((delivered) => {
+			asked();
+			delivered();
+		});
 		vi.advanceTimersByTime(1_000);
 		const askedWhileMissing = asked.mock.calls.length;
 		stop();

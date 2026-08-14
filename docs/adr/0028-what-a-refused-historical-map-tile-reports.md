@@ -105,11 +105,25 @@ reported failing outright, retry included, on 20 to 40 percent of runs.
 
 `keepAskingForMissingTiles` (`packages/core/src/injection/tile-failure.ts`) supplies the frames:
 while the notice is up, `ReaderMapPane` calls `triggerRepaint()` on a doubling schedule — a quarter
-of a second, then a half, out to thirty — and then **stops**, about two minutes and eleven re-asks
-in. It is a bounded retry rather than an animation loop on purpose: every frame is another request to
+of a second, then a half, out to thirty — and then **stops**, eleven re-asks and 151,750ms (2m 32s)
+in. Both figures are pinned in `tile-failure.test.ts`, straddled a millisecond either side of every
+step, so neither this paragraph nor the schedule can drift without a red test.
+
+It is a bounded retry rather than an animation loop on purpose: every frame is another request to
 a server already known to be failing, and a Reader who leaves a broken site open in a tab must not go
 on paying for it. Past the budget, the gesture the sentence already names is the remedy — and it is
 the remedy for the tile-cell half in any case.
+
+**The budget is eleven delivered frames, not 151,750ms of wall clock**, and the difference is a
+Reader switching tabs during an outage — ordinary behaviour, and enough to defeat the whole fix if
+the schedule ran on time alone. `triggerRepaint()` schedules through `requestAnimationFrame` and is
+a no-op while a request is already outstanding, so in a hidden tab the timers would keep firing,
+the first repaint would arm a frame that never runs, and the remaining ten would collapse into it:
+one re-ask on return where this promises eleven, and if the server is still refusing at that instant
+the notice can never come down without a gesture. So `keepAskingForMissingTiles` hands its caller a
+`delivered` callback and arms the next wait only from that; `ReaderMapPane` reports it from
+MapLibre's `render` event. A step that paints no frame parks with nothing pending — no polling, no
+loop — and resumes when the tab does.
 
 It is armed by *whether* something is missing, never by each refusal, because each of these frames
 provokes a refusal of its own: re-arming on those would build the unbounded loop the budget exists to

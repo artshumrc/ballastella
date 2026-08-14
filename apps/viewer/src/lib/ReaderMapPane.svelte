@@ -201,8 +201,11 @@
 	/**
 	 * Whether this pane's map has been taken down, so that nothing asks a removed map anything.
 	 *
-	 * See the teardown note at the top of this file. A plain `let` rather than `$state`, deliberately: it
-	 * is read only inside teardowns, and nothing may re-run because a map was removed.
+	 * See the teardown note at the top of this file. A plain `let` rather than `$state`, deliberately:
+	 * nothing may re-run because a map was removed. Its readers are teardowns and the recovery
+	 * schedule's timer callback, and neither needs a reactive read — the schedule's own teardown clears
+	 * the pending timer before this could matter, so the callback's check is a belt-and-braces guard
+	 * against a frame already in flight rather than something that must observe a change.
 	 */
 	let removed = false;
 
@@ -480,14 +483,33 @@
 	 * The schedule and the reason it ends are core's — see `keepAskingForMissingTiles`. This effect is
 	 * only the wiring, and it runs on **whether** something is missing, so the refusals these frames
 	 * themselves provoke cannot re-arm it.
+	 *
+	 * ⚠ **The step is reported spent by `render`, not by `triggerRepaint` returning.** `triggerRepaint`
+	 * only arms a `requestAnimationFrame`, and does nothing at all while one is already armed; a
+	 * background tab runs no animation frames. Advancing on the call would let a Reader who looked at
+	 * another tab burn all eleven waits on the single frame that paints when they come back. Waiting
+	 * for `render` parks the schedule instead, so the budget is eleven frames the renderer really got.
 	 */
 	$effect(() => {
 		if (!tilesMissing) return;
 		const current = map;
 		if (current === undefined) return;
-		return keepAskingForMissingTiles(() => {
-			if (!removed) current.triggerRepaint();
+		// At most one step is ever outstanding, so one listener is ever waiting.
+		let waiting: (() => void) | undefined;
+		const stop = keepAskingForMissingTiles((delivered) => {
+			if (removed) return;
+			waiting = () => {
+				waiting = undefined;
+				delivered();
+			};
+			current.once('render', waiting);
+			current.triggerRepaint();
 		});
+		return () => {
+			stop();
+			// A step left parked in a hidden tab holds a listener on a map that outlives this effect.
+			if (waiting !== undefined) current.off('render', waiting);
+		};
 	});
 
 	/** The last fit carried out. A plain `let`: recording one must not re-run the effect below. */

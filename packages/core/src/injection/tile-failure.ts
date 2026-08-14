@@ -196,9 +196,13 @@ const WHEN_IT_ANSWERS_AGAIN =
  *
  * **It doubles, and then it stops.** Fast at the start because most outages that recover recover
  * within seconds and that is when a Reader is still watching; slow at the end because by then the
- * server is not coming back on this pageview. The budget totals about two minutes and eleven
- * re-asks, after which the remedy the sentence already names — hide the Layer and show it again, or
- * reload — is the one that applies, and it is a gesture that works for the tile-cell half too.
+ * server is not coming back on this pageview. The budget is eleven re-asks over 151,750ms — two
+ * minutes and thirty-two seconds of *delivered frames*, which is longer in wall-clock time whenever
+ * the tab is not being painted — after which the remedy the sentence already names — hide the Layer
+ * and show it again, or reload — is the one that applies, and it is a gesture that works for the
+ * tile-cell half too.
+ *
+ * Both figures are pinned in `tile-failure.test.ts`, because they are quoted in ADR-0028.
  */
 export const TILE_RECOVERY_DELAYS: readonly number[] = [
 	250, 500, 1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000
@@ -208,37 +212,51 @@ export const TILE_RECOVERY_DELAYS: readonly number[] = [
  * Ask the renderer to draw again, on the schedule above, until it is told to stop.
  *
  * @param askAgain draw one frame — `map.triggerRepaint()` in the viewer, which is what gets
- *   `WebGL2Renderer.render` called and so what re-requests a refused `info.json`
+ *   `WebGL2Renderer.render` called and so what re-requests a refused `info.json`. It is handed
+ *   `delivered`, and **the schedule does not advance until that is called**: see below.
  * @returns stop asking. Called when the bytes come back, and on teardown.
+ *
+ * ⚠ **The step is spent by a frame, not by time passing.** A repaint request is not a frame:
+ * MapLibre's `triggerRepaint` schedules through `requestAnimationFrame` and is a no-op while a
+ * request is already outstanding, and a background tab runs no animation frames at all. A schedule
+ * that armed the next wait from the timer alone would therefore spend its whole budget in a hidden
+ * tab on a single frame that paints, once, on return — one re-ask where the ADR promises eleven, and
+ * for a Reader who did nothing more unusual than look at another tab during an outage. So the next
+ * wait is armed by `delivered`, and a step that never paints simply leaves the schedule parked with
+ * nothing pending until it does.
  *
  * ⚠ **Armed when the notice goes up, never re-armed by the refusals it provokes.** Each nudge that
  * fails reports another refusal, so a caller that re-armed on every refusal would have built exactly
  * the unbounded loop this schedule exists to avoid. The caller therefore drives this off *whether*
  * something is missing and not off each refusal — one armed schedule per outage, and it runs out.
  */
-export function keepAskingForMissingTiles(
-	askAgain: () => void,
-	delays: readonly number[] = TILE_RECOVERY_DELAYS
-): () => void {
+export function keepAskingForMissingTiles(askAgain: (delivered: () => void) => void): () => void {
 	let next = 0;
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let stopped = false;
 
 	const schedule = (): void => {
-		const delay = delays[next];
-		if (delay === undefined) return;
+		const delay = TILE_RECOVERY_DELAYS[next];
+		if (stopped || delay === undefined) return;
 		next += 1;
 		timer = setTimeout(() => {
 			timer = undefined;
-			askAgain();
-			schedule();
+			// One advance per step however many times a caller reports a frame: a map that paints for
+			// its own reasons must not shorten the budget.
+			let spent = false;
+			askAgain(() => {
+				if (spent) return;
+				spent = true;
+				schedule();
+			});
 		}, delay);
 	};
 
 	schedule();
 
 	return () => {
+		stopped = true;
 		if (timer !== undefined) clearTimeout(timer);
 		timer = undefined;
-		next = delays.length;
 	};
 }

@@ -656,7 +656,6 @@ export {
 // no frames when nothing changes, and the renderer only re-asks for a refused record while it is
 // painting.
 export {
-	TILE_RECOVERY_DELAYS,
 	historicalMapTilesUnavailableNotice,
 	keepAskingForMissingTiles,
 	type TileSourceFailure
