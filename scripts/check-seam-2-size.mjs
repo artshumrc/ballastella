@@ -52,11 +52,12 @@ import { fileURLToPath } from 'node:url';
  * | 2026-08-13 | 637 | Tickets 06, 09, 10 and 12: the annotation document, Base Map catalog and arithmetic, Project Bundle refusal and publish output claims now live at Seam 1. |
  * | 2026-08-13 | 634 | The slow-test pass: a footnote-syntax claim already asserted six times at Seam 1 retired from `editor-annotations`, and the transformation picker's option list and disclosure rehoused to Seam 1c. |
  * | 2026-08-14 | 628 | Tickets 07, 08 and 11: the Annotation row, editor panel and tool announcements, the foreign Layer row and the problem-action gating, and the hub's wording all move to Seam 1c. |
+ * | 2026-08-14 | 630 | Binding on the strength of a GitHub sign-in, and the grant record surviving it. The bug was that the *dialog* validated its paste field regardless, so a signed-in scholar was asked for a token anyway — a claim about a component reading a store, which Seam 1 cannot reach (no `WorkspaceStorage` harness exists) and which a fake store at Seam 1c would assert about the fake. |
  *
  * Lowered by the tickets of `the-suite-runs-in-three-minutes` as claims move down a seam; ticket 15
  * sets the final one. **Raising it needs a row above and a reason in it.**
  */
-export const SEAM_2_CEILING = 628;
+export const SEAM_2_CEILING = 630;
 
 /**
  * Whether a suite of this size is over the ceiling, and the sentence saying so.

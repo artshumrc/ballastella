@@ -24,7 +24,7 @@ Current ticket: — all eleven are complete
 
 Last updated: 2026-08-13
 
-## Open question for a human: stories 38 and 50 disagree about the hub
+## Decided: stories 38 and 50 do not disagree — 38 is about the prompt
 
 Raised after this epic closed, by `the-suite-runs-in-three-minutes` ticket 05, and recorded in full —
 reproduction, run counts, and one refuted hypothesis — as **lead 8** in
@@ -36,9 +36,18 @@ published, and `e2e/editor-remote-binding.e2e.ts:344` — which reads 38 as *not
 any screen* — sees it there. Nothing is *requested* of GitHub on a first visit; the sibling test proves
 that and passes. What is offered is the question.
 
-**Not decided here, and not decided by ticket 05 either.** The choice is between narrowing story 38's
-reading to a sign-in prompt specifically, or moving the review entry point behind the same gesture the
-rest of the Remote is behind. It is an ADR-0031 / ADR-0032 question and wants a human.
+**Decided by David on 2026-08-14: story 38's reading narrows to the sign-in prompt specifically**, and
+the review entry point stays on the hub. The two stories were only in conflict under the broader
+reading, and the broader reading was never what 38 protects: a button a scholar chooses is not a
+credential asked of one. What 38 forbids is being made to produce identity before there is anything to
+publish, which nothing on a first visit does.
+
+So `e2e/editor-remote-binding.e2e.ts:344` no longer sweeps for `/GitHub/i`. It asserts the absence of
+the two elements that actually ask for a credential — `remote-sign-in` and `remote-sign-in-field`,
+which `RemoteSettings` is the only mount point for — and the sibling test keeps proving GitHub is not
+so much as spoken to. The narrowed guard was mutation-tested rather than assumed: opening the Remote
+dialog on a first visit turns it red (2 elements found), so it fences the prompt rather than passing
+vacuously.
 
 ## Open question for a human: a rate-limited publish cannot be resumed
 

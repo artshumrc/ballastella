@@ -1166,11 +1166,26 @@ export class WorkspaceStorage {
 	 * GitHub before it writes anything, so a refusal leaves the Workspace unbound and this method
 	 * returns before the credential is written anywhere at all.
 	 *
+	 * `token` is `null` when the credential is one already held — the App sign-in, which acquires it
+	 * before there is anything to bind to. **That case must not go through {@link #keepPasted}**,
+	 * which clears the grant record: the binding would succeed and take the refresh token with it,
+	 * leaving an eight-hour credential that cannot renew and reports itself as an expired sign-in.
+	 *
 	 * @throws ReviewWorkspaceError for a review copy, RemoteBindRefusedError for GitHub's refusals
 	 */
-	async bindRemote(remote: RemoteReference, token: string): Promise<RemoteBindOutcome> {
-		const outcome = await bindWorkspaceToRemote(this.session.store, this.name, { token, remote });
-		this.#keepPasted(token);
+	async bindRemote(remote: RemoteReference, token: string | null): Promise<RemoteBindOutcome> {
+		const held = token ?? this.credential;
+		if (held === null) {
+			throw new Error(
+				`Binding “${this.name}” needs a credential, and none is held. Sign in with GitHub, or ` +
+					`paste a personal access token.`
+			);
+		}
+		const outcome = await bindWorkspaceToRemote(this.session.store, this.name, {
+			token: held,
+			remote
+		});
+		if (token !== null) this.#keepPasted(token);
 		this.remote = outcome.binding;
 		return outcome;
 	}

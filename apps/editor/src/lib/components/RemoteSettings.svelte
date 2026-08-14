@@ -136,15 +136,21 @@
 				`address works too.`;
 			return;
 		}
-		const tokenProblem = describeTokenProblem(token);
-		if (tokenProblem) {
-			problem = tokenProblem;
-			return;
+		// An empty field while signed in is not a mistake: the credential is already held, and asking
+		// for a paste on top of it would make the sign-in button unable to do the one thing it is for.
+		// A paste is still honoured over the sign-in, because somebody who typed one meant it.
+		const pasted = token.trim() === '' && storage.signedIn ? null : token;
+		if (pasted !== null) {
+			const tokenProblem = describeTokenProblem(pasted);
+			if (tokenProblem) {
+				problem = tokenProblem;
+				return;
+			}
 		}
 
 		working = true;
 		try {
-			const result = await storage.bindRemote(reference, token.trim());
+			const result = await storage.bindRemote(reference, pasted?.trim() ?? null);
 			// Cleared only on success. A refused paste stays in the field, because pasting an
 			// eighty-two-character token again to fix a one-character mistake is not a remedy.
 			token = '';
@@ -331,7 +337,10 @@
 						</p>
 					</div>
 					<div class="flex flex-col gap-1">
-						<label class="text-sm font-medium" for={tokenId}>Personal access token</label>
+						<label class="text-sm font-medium" for={tokenId}>
+							Personal access token
+							{#if storage.signedIn}<span class="font-normal opacity-70">(not needed)</span>{/if}
+						</label>
 						<input
 							id={tokenId}
 							class="input w-full max-w-md input-sm"
@@ -341,11 +350,18 @@
 							autocomplete="off"
 							spellcheck="false"
 						/>
-						<p class="text-sm opacity-70">
-							A fine-grained personal access token with “Contents: Read and write” and “Pages: Read
-							and write” for that repository. It is checked the moment you press the button, kept
-							only in this tab, and forgotten when you close it.
-						</p>
+						{#if storage.signedIn}
+							<p class="text-sm opacity-70">
+								You are signed in, so binding will use that. Leave this empty unless you want to
+								bind with a personal access token instead.
+							</p>
+						{:else}
+							<p class="text-sm opacity-70">
+								A fine-grained personal access token with “Contents: Read and write” and “Pages:
+								Read and write” for that repository. It is checked the moment you press the button,
+								kept only in this tab, and forgotten when you close it.
+							</p>
+						{/if}
 					</div>
 					<div>
 						<button

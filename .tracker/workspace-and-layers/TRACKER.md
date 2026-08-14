@@ -110,7 +110,15 @@ Last updated: 2026-08-09.
 
    Kept as a note on method rather than deleted: the reviewer who raised it read the shape and was wrong; the implementer mutated it and was right. **A missing `await` on a web-first assertion is a real vacuity class and worth grepping for — but the grep must be followed by a mutation, because the returning-arrow shape is indistinguishable from it by eye.**
 
-8. **A first visit does show a GitHub affordance, and the test that says otherwise passes under load.** Raised 2026-08-13 by `the-suite-runs-in-three-minutes` ticket 05, at `d8d17d2`. Two separate things are wrong here and they must not be collapsed into one.
+8. **CLOSED 2026-08-14 — the product half was decided, and the test now reads story 38 as the prompt.**
+   David's decision: story 38 forbids being *asked* for a credential, not the word "GitHub" appearing,
+   so story 50's button stays on the hub and the test stops sweeping for `/GitHub/i`. It asserts the
+   absence of `remote-sign-in` and `remote-sign-in-field` instead — mutation-tested by opening the
+   Remote dialog on a first visit, which turns it red at 2 elements, so the narrowing did not make it
+   vacuous. Recorded in full in [`publish-to-a-remote`'s TRACKER](../publish-to-a-remote/TRACKER.md).
+   The test half below stands as written and is why the failure looked intermittent. Kept for the record.
+
+   **A first visit does show a GitHub affordance, and the test that says otherwise passes under load.** Raised 2026-08-13 by `the-suite-runs-in-three-minutes` ticket 05, at `d8d17d2`. Two separate things are wrong here and they must not be collapsed into one.
 
    **The product half.** `e2e/editor-remote-binding.e2e.ts:344` › "a first visit › shows no sign-in affordance anywhere" asserts publish-to-a-remote SPEC story 38 — *a scholar who never publishes is never shown a sign-in prompt*. On a failing attempt the accessibility snapshot names the offending element exactly, so this is observed rather than inferred:
 
@@ -163,6 +171,25 @@ Last updated: 2026-08-09.
    at `viewer-reader.e2e.ts:2565`, the assertion that the notice comes down with no gesture at all once `info.json` answers again. The failing attempt took 49.2 s; the retry passed in 3.4 s. **This is a claim about recovery over a real WebGL renderer with a 45 s ceiling, so a defect and a lost race look alike from the outside, and nothing here separates them yet.** The two candidates are: the renderer does not always re-ask for a refused `info.json` (which would make SPEC story 17's promise to a Reader wrong), or 45 s is not enough under four workers. Deciding between them wants `--repeat-each` at two worker counts, the way lead 2 was settled — the instrument exists and has not been pointed at this.
 
    **Why it matters that this is not absorbed**: the retry budget is 3%, which on a 669-test suite allows 20 retried tests. One habitual flake is invisible in that, and `scripts/retry-budget.mjs`'s own header says the thing the budget is still meant to catch is *a test that needs its retry habitually*. Absorbing this one is exactly the case the threshold was widened to keep catching. **Do not raise the budget to accommodate it, and do not skip either test.**
+
+   **The named experiment has now been run, 2026-08-14, and the family did not reproduce.**
+   `--repeat-each=5` on both tests across four conditions — the two worker counts this lead asked for,
+   crossed with both rasterisers, since the rasteriser turned out to be the variable that matters:
+
+   | Condition | Result |
+   | --- | --- |
+   | GPU, 8 workers | 10 passed, 7.0s |
+   | GPU, 4 workers | 10 passed, 9.2s |
+   | Software, 4 cores, 4 workers | 10 passed, 20.1s |
+   | Software, 4 cores, 8 workers | 10 passed, 19.6s |
+
+   Forty executions, no retries, and the slowest condition ran in a fifth of the 45 s ceiling — so
+   **"the renderer does not always re-ask for a refused `info.json`" is not supported**, and neither is
+   a bare 45 s shortfall at either worker count. What is left is that the habit only appears under
+   whole-suite load, which is where it has always been seen. **It has not appeared since the worker
+   default was made conditional** (CI run 31827571570 and three local full runs, 0 retries each) — but
+   four clean runs is not a disproof of a habit measured at roughly one run in four, and this lead
+   stays open until the suite has a longer clean record. Do not close it on the strength of the above.
 
 ## Standing constraints
 

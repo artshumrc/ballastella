@@ -28,7 +28,7 @@ import {
  *     Workspace, which is where a Backup and a Publish would carry it from;
  *   - a folder Workspace binds exactly as a browser one does, because the binding code branches on
  *     neither backing;
- *   - a first visit has no GitHub affordance anywhere at all.
+ *   - a first visit is never asked to sign in, and asks GitHub nothing.
  *
  * Nothing here publishes. That is ticket 04.
  */
@@ -338,8 +338,15 @@ test.describe('the pasted credential', () => {
 });
 
 // SPEC story 38. A local-first tool stays local-first: a scholar who never publishes must never meet
-// a sign-in prompt, so nothing about GitHub is on any screen until they have opened the menu and
-// named a repository themselves.
+// a sign-in prompt, and is never asked for a credential they have no reason to hold.
+//
+// **Story 38 is read as a sign-in prompt specifically, not as the word "GitHub" being absent** —
+// decided 2026-08-14, closing the question `publish-to-a-remote`'s TRACKER left open. Story 50's
+// "Review a Project from GitHub…" button sits on the hub of a Workspace that has never published, so
+// the two stories only conflict under the broader reading. They are different things: a button a
+// scholar chooses is not a credential asked of one. What 38 protects is that nothing *demands*
+// identity before there is anything to publish, and the sibling test below fences the other half by
+// proving GitHub is not so much as spoken to.
 test.describe('a first visit', () => {
 	test('shows no sign-in affordance anywhere', async ({ page }) => {
 		await start(page);
@@ -351,7 +358,11 @@ test.describe('a first visit', () => {
 		// spec drives elsewhere does not exist, and would fail for the wrong reason. What story 38 is
 		// about is what a scholar *sees*, which is nothing.
 		await expect(page.getByText(/sign in/i).filter({ visible: true })).toHaveCount(0);
-		await expect(page.getByText(/GitHub/i).filter({ visible: true })).toHaveCount(0);
+		// The prompt itself and the field it asks into, by test id rather than by prose: these are the
+		// two elements that make a scholar produce a credential, and `RemoteSettings` is the only place
+		// in the app that mounts either.
+		await expect(page.getByTestId('remote-sign-in').filter({ visible: true })).toHaveCount(0);
+		await expect(page.getByTestId('remote-sign-in-field').filter({ visible: true })).toHaveCount(0);
 	});
 
 	test('asks GitHub nothing at all', async ({ page }) => {

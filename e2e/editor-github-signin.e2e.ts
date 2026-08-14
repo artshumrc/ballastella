@@ -220,6 +220,50 @@ test.describe('signing in with GitHub', () => {
 	});
 });
 
+// ⚠ **The front door's whole point, and it did not work.** A sign-in is acquired *before* there is
+// anything to bind to — that is the order the screen offers — so the binding form is the first thing
+// a signed-in scholar meets, and it used to validate its paste field regardless and refuse an empty
+// one. Signing in and then being told to paste a personal access token leaves the button decorative.
+test.describe('binding while already signed in', () => {
+	test('binds with nothing pasted, on the strength of the sign-in', async ({ page }) => {
+		await start(page, { login: 'ada' });
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('as ada');
+
+		await openRemoteSettings(page);
+		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await expect(page.getByTestId('remote-token-field')).toHaveValue('');
+		await page.getByTestId('bind-remote').click();
+
+		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
+	});
+
+	// ⚠ **The trap in the fix.** Binding by paste clears the grant record, which is right for a paste
+	// and fatal for a sign-in: the record holds the refresh token, so a binding that cleared it would
+	// leave an eight-hour credential that cannot renew — and the scholar would be told their sign-in
+	// had expired an hour into an afternoon's work, having done nothing but bind.
+	test('leaves the grant record intact, so the sign-in can still be renewed', async ({ page }) => {
+		await start(page, { login: 'ada' });
+		await signInWithGitHub(page);
+		await expect(page.getByTestId('sign-in-outcome')).toContainText('as ada');
+		const before = await grantRecord(page);
+		expect(before?.refreshToken).toBeTruthy();
+
+		await openRemoteSettings(page);
+		await page.getByTestId('remote-repository-field').fill(REMOTE);
+		await page.getByTestId('bind-remote').click();
+		await expect(page.getByTestId('remote-outcome')).toContainText(REMOTE);
+
+		expect(await grantRecord(page)).toEqual(before);
+	});
+
+	// ⚠ **Two claims deliberately not made here.** That a paste still wins over the sign-in is
+	// already covered by "shows the account on the bar once the Workspace is bound" above, which
+	// binds with `PASTED` while signed in. That an empty field with nobody signed in is still
+	// refused is a path this change does not touch: `describeTokenProblem` sees the empty string
+	// exactly as it did before.
+});
+
 // ⚠ **The exchange must name the same `redirect_uri` the authorisation did, byte for byte.** GitHub
 // answers `redirect_uri_mismatch` to anything else, so this is the difference between a deployment
 // whose front door works and one where it has never worked at all — and it is invisible at a
