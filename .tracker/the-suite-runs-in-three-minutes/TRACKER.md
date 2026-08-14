@@ -16,7 +16,45 @@ Overall status: `In Progress` — 01–12 landed; 13, 14 and 15 remain.
 
 Current ticket: 01–12 complete; 13 and 14 remain, then 15 closes the epic.
 
-### Measured end state — full run, uninterrupted, 2026-08-14
+### The suite runs in three minutes and forty seconds — 2026-08-14
+
+| | Epic start | Now |
+| --- | --- | --- |
+| Seam 2 tests | 675 | **628** |
+| Wall clock | 13m 04s | **3m 40s** |
+| Average cores busy | — | **2.91 of 20** |
+| Component seam (Node, no browser) | — | **84 tests, 0.66s** |
+
+627 passed, 1 skipped, **0 failed, 0 retries**. One test was deleted in the whole epic.
+
+**The last three quarters of the saving were not migration work at all**, and the epic's premise —
+that the remaining 75% had to come from moving claims down a seam — was wrong about where the time
+was:
+
+| Change | Wall |
+| --- | --- |
+| Epic start | 13m 04s |
+| Migration + the slow-test pass (tickets 06–12, four specs reseeded) | 10m 17s |
+| **Handing Chromium the real GPU** (ANGLE over Vulkan) | **6m 32s** |
+| **Eight workers, which the GPU made affordable** | **3m 40s** |
+
+⚠ **Nobody had checked what was rasterising the WebGL.** Headless Chromium uses SwiftShader, in
+software, on the CPU — and every test here drives a real MapLibre over it. A third to a half of Seam
+2's cost was that, and it was also the reason the worker count could not be raised: each worker held
+a core rasterising, so more workers oversubscribed the box and slowed down whoever else was working.
+Moving the rasterising to the GPU removed the cost *and* the reason for the cap, and the second was
+worth more than the first. **The measurement to reach for was cores-busy, not wall clock** — 8 GPU
+workers cost 2.91 cores against 1.41 for the 4 software workers they replaced.
+
+**Two tests had to be fixed first, and what they were pinning is the lesson.** `viewer-reader`'s two
+outage tests failed under the GPU in about a second. Neither was about tile failure: both read
+`queryRenderedFeatures` once immediately after a redraw that re-adds the Annotation symbol layer, and
+that call reports symbol *placement* rather than the style. Under SwiftShader everything upstream was
+slow enough that the placement frame had always run by then, so the tests had been passing for a
+reason unrelated to what they asserted. They poll now. **A test that only passes under one rasteriser
+is pinning the rasteriser.**
+
+### The migration's own end state — full run, 4 workers, software, 2026-08-14
 
 | | Epic start | Now |
 | --- | --- | --- |
