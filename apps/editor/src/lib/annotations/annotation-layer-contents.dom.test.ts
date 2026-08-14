@@ -22,10 +22,21 @@
 // the screen.
 
 import { type Annotation, type AnnotationCollection } from '@ballastella/core';
+import type { DetachedWindowAPI } from 'happy-dom';
 import { flushSync, mount, tick, unmount, type ComponentProps } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import AnnotationLayerContentsHarness from './AnnotationLayerContentsHarness.svelte';
+
+/**
+ * What this DOM reports about the person using it — here, whether they have asked for less motion.
+ *
+ * happy-dom answers `prefers-reduced-motion` from these settings, so `prefersReducedMotion` out of
+ * `svelte/motion` is reading a real media query against a real `matchMedia` rather than a stub of
+ * Svelte's own signal. The settings are the window's, so {@link afterEach} puts them back.
+ */
+const device = (): DetachedWindowAPI['settings']['device'] =>
+	(window as unknown as { happyDOM: DetachedWindowAPI }).happyDOM.settings.device;
 
 /**
  * A title a stranger wrote, chosen so that a surface which parsed it would be caught twice over.
@@ -55,6 +66,7 @@ afterEach(() => {
 	if (mounted) unmount(mounted);
 	mounted = undefined;
 	document.body.innerHTML = '';
+	device().prefersReducedMotion = 'no-preference';
 });
 
 /** Mount the harness, remember it for {@link afterEach}, and let its effects run. */
@@ -148,8 +160,14 @@ describe('an Annotation’s own words reach the row as text (SPEC story 67, ADR-
 	});
 });
 
-describe('the list is a toggle (SPEC story 60)', () => {
-	test('a row selects its Annotation and pressing it again clears the selection', async () => {
+describe('the row is a disclosure (one-shell-two-apps stories 24–31, 35, 36, 67)', () => {
+	// **Selection and expansion are one state, so there is one property for them.** The row's
+	// `aria-pressed` is gone: an Annotation that was pressed but not open, or open but not pressed,
+	// were two answers to "which one is active" that could disagree, and now there is one. What is
+	// asserted here is therefore `aria-expanded` — the wash the open row wears is a paint claim and
+	// stays in `e2e/`.
+
+	test('a row expands to reveal its own Annotation, and pressing it again collapses it', async () => {
 		const chose = vi.fn();
 		contents({
 			collection: collectionOf(
@@ -161,20 +179,42 @@ describe('the list is a toggle (SPEC story 60)', () => {
 
 		await press(nth('annotation-row', 0));
 		expect(chose).toHaveBeenLastCalledWith('a-1');
-		// `aria-pressed` is what carries the state to a screen reader, so it is asserted rather than
-		// the wash — which is a paint claim and stays in `e2e/`.
-		expect(nth('annotation-row', 0)).toHaveAttribute('aria-pressed', 'true');
-		expect(nth('annotation-row', 1)).toHaveAttribute('aria-pressed', 'false');
+		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'true');
+		expect(nth('annotation-row', 1)).toHaveAttribute('aria-expanded', 'false');
+		expect(nth('annotation-row', 0)).not.toHaveAttribute('aria-pressed');
 		expect(all('annotation-editor')).toHaveLength(1);
 
 		// **The same row again, which is the half a helper that clicked unconditionally would break.**
 		await press(nth('annotation-row', 0));
 		expect(chose).toHaveBeenLastCalledWith(null);
-		expect(nth('annotation-row', 0)).toHaveAttribute('aria-pressed', 'false');
+		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'false');
 		expect(all('annotation-editor')).toHaveLength(0);
 	});
 
-	test('choosing a different row moves the selection rather than adding to it', async () => {
+	test('the revealed region is inside the row, and the button says which region it opens', () => {
+		// The defect this is about: the editor was a *sibling of the list*, so which of four rows the
+		// panel headed "The west quay" belonged to was inferred rather than seen. Asserted as
+		// containment rather than by counting siblings, because that is the claim — and `aria-controls`
+		// is the same fact said to a screen reader, which cannot see containment at all.
+		contents({
+			collection: collectionOf(
+				annotation({ id: 'a-1', title: 'One' }),
+				annotation({ id: 'a-2', title: 'Two' })
+			),
+			selectedId: 'a-2'
+		});
+
+		const editor = one('annotation-editor')!;
+		const row = nth('annotation-row', 1);
+		expect(row.closest('li')).toContainElement(editor);
+		expect(nth('annotation-row', 0).closest('li')).not.toContainElement(editor);
+
+		const region = row.getAttribute('aria-controls');
+		expect(region).not.toBeNull();
+		expect(document.getElementById(region!)).toContainElement(editor);
+	});
+
+	test('opening a second Annotation collapses the first', async () => {
 		contents({
 			collection: collectionOf(
 				annotation({ id: 'a-1', title: 'One' }),
@@ -185,12 +225,57 @@ describe('the list is a toggle (SPEC story 60)', () => {
 
 		await press(nth('annotation-row', 1));
 
-		expect(nth('annotation-row', 0)).toHaveAttribute('aria-pressed', 'false');
-		expect(nth('annotation-row', 1)).toHaveAttribute('aria-pressed', 'true');
+		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'false');
+		expect(nth('annotation-row', 1)).toHaveAttribute('aria-expanded', 'true');
 		// One editor, and it is the second Annotation's: a panel that had merely been re-titled would
 		// pass a count and show the wrong Annotation.
 		expect(all('annotation-editor')).toHaveLength(1);
 		expect(one('annotation-editor')).toHaveAttribute('data-annotation-id', 'a-2');
+	});
+
+	test('the keyboard stays on the row’s own button through opening and closing', async () => {
+		// **Nothing here stops existing**, which is what separates this from the Layer card's delete and
+		// reorder: those move focus only because the element holding it was removed. A disclosure that
+		// took the keyboard would cost a scholar their place in the list for nothing.
+		contents({
+			collection: collectionOf(
+				annotation({ id: 'a-1', title: 'One' }),
+				annotation({ id: 'a-2', title: 'Two' })
+			)
+		});
+
+		nth('annotation-row', 0).focus();
+		expect(document.activeElement).toBe(nth('annotation-row', 0));
+
+		await press(nth('annotation-row', 0));
+		expect(document.activeElement).toBe(nth('annotation-row', 0));
+
+		await press(nth('annotation-row', 0));
+		expect(document.activeElement).toBe(nth('annotation-row', 0));
+	});
+
+	test('the reveal is instant when less motion has been asked for', () => {
+		// ⚠ **The duration is read off the region rather than watched.** There is no paint at this seam
+		// and no Web Animations clock, so what an animation *looks* like has no answer here; what the
+		// component decides does. `prefersReducedMotion` is a real media query against this DOM's own
+		// device settings, so the branch under test is the one the application runs.
+		device().prefersReducedMotion = 'reduce';
+		contents({
+			collection: collectionOf(annotation({ id: 'a-1', title: 'One' })),
+			selectedId: 'a-1'
+		});
+
+		expect(one('annotation-row-contents')).toHaveAttribute('data-reveal-ms', '0');
+	});
+
+	test('and takes the Layer cards’ own 220 ms when it has not been', () => {
+		// The positive control. A duration hard-coded to `0` would satisfy the test above for ever.
+		contents({
+			collection: collectionOf(annotation({ id: 'a-1', title: 'One' })),
+			selectedId: 'a-1'
+		});
+
+		expect(one('annotation-row-contents')).toHaveAttribute('data-reveal-ms', '220');
 	});
 
 	test('a Layer with nothing in it says so instead of drawing an empty list', () => {
