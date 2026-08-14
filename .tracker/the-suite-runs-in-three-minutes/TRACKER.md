@@ -214,6 +214,36 @@ a tile-source failure resolves. The viewer tells a Reader "the map picks up what
 which for a settled map is false. It cannot be made fast, cannot move down a seam, and should not be
 deleted — it is the only thing asserting the promise. **It needs a product decision.**
 
+### Where the suite stands after the slow-test pass — full run, quiet box, 2026-08-13
+
+| | Epic start | Now |
+| --- | --- | --- |
+| Tests | 675 | **634** |
+| Wall clock | 13m 04s | **10m 48s** |
+| Worker-seconds | 2998.6 | **2551.3** |
+| Per test | 4.44 | **4.03** |
+
+**−17% wall, −15% worker time.** One failure, the `editor-remote-binding` product fault of lead 8; zero
+retries against a 3% budget. The `viewer-reader` notice test passed on this run, which is what a
+20–40% intermittent fault does.
+
+The target is two to three minutes and this is ten and a half. What is left, measured:
+
+1. **The `viewer-reader` product fault** — up to 100 worker-seconds, and blocked on a product decision
+   rather than on test work.
+2. **The worker count.** 4 → 10 measured 1.5× on this box. It is one line and it is the only remaining
+   lever that reaches the target; the default of 4 is a shared-machine policy this epic declined to
+   overturn, so it stays a decision rather than a ticket.
+3. **Tickets 07, 08 and 11** — the Seam 1c cluster that the `editor-layers` and `editor-annotations`
+   work both identified independently: roughly 30 tests in `editor-layers` and the annotation panel's
+   fields, picker and keyboard reachability. Worth perhaps another 100–150 worker-seconds, and worth
+   more than that as coverage.
+
+⚠ **Seam 2's floor is now visible.** At 634 tests and ~4s each, the fixed cost of booting the built
+application over software-rasterised WebGL is most of what remains. Cutting tests from here trades
+coverage for time at roughly four seconds a test, which is the trade the epic exists to avoid making
+blindly.
+
 Last updated: 2026-08-13
 
 ## Ledger
