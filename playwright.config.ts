@@ -1,5 +1,6 @@
 import { defineConfig, devices, type ReporterDescription } from '@playwright/test';
 import { existsSync, readdirSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import process from 'node:process';
 
 import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
@@ -153,6 +154,16 @@ const gpuLaunchOptions = useGpu
 		}
 	: {};
 
+/**
+ * Workers to run by default, which is a question about the rasteriser before it is one about cores.
+ *
+ * The long note beside `workers` below has the measurements. In short: with the GPU a worker no
+ * longer holds a core, so 8 is where the GPU itself becomes the bottleneck; on the software path a
+ * worker still costs a core, so the count has to stay under the machine's — and on a four-vCPU CI
+ * runner, eight of them is what turned the suite red.
+ */
+const defaultWorkers = useGpu ? 8 : Math.max(1, Math.min(4, availableParallelism()));
+
 const reporter: ReporterDescription[] = process.env.CI
 	? [['github'], ['html', { open: 'never' }], ['./scripts/retry-budget.mjs']]
 	: [['list'], ['./scripts/retry-budget.mjs']];
@@ -232,10 +243,25 @@ export default defineConfig({
 	// 1.5× for 2.5× the workers — still sublinear, but now for the real reason: every test drives a
 	// software-rasterised WebGL context, so this is CPU-bound before it is core-bound.
 	//
-	// **It was 4 for years because a worker cost a core, and the GPU default changed that.** The reason
-	// for 4 was never the benchmark: this repository is worked by several agents at once on one machine,
-	// and under the software rasteriser each worker held a core rasterising WebGL, so raising the count
-	// oversubscribed the box and slowed down whoever else was working. That is the cost that went away.
+	// **It was 4 because a worker cost a core, and the GPU default changed that — but only where there
+	// is a GPU.** The reason for 4 was never the benchmark: this repository is worked by
+	// several agents at once on one machine, and under the software rasteriser each worker held a core
+	// rasterising WebGL, so raising the count oversubscribed the box and slowed down whoever else was
+	// working. That cost goes away with `useGpu` and stays exactly where it was without it, which is
+	// why the default below is conditional rather than flat.
+	//
+	// ⚠ **A flat 8 was merged on 2026-08-14 and turned CI red the same afternoon.** `ubuntu-latest` is
+	// four vCPUs with no render node, so it takes the software path, and eight workers over four cores
+	// failed five tests and made another five flaky — every one a timeout rather than a wrong answer.
+	// `viewer-reader`'s two outage tests were the sharpest: both waited out `mapReady`'s 30 s while the
+	// pane's 15 s style budget expired under the contention. Reproduced on this box by emulating the
+	// runner — `BALLASTELLA_E2E_GPU=0 BALLASTELLA_E2E_WORKERS=8 taskset -c 0-3`, that spec's 21 tests:
+	//
+	//   4 workers    25.5s    21 passed
+	//   8 workers    44.2s    19 passed, 2 failed at `mapReady`
+	//
+	// Oversubscription cost wall clock *and* correctness, so the software default is also the fast one
+	// there. Hence: cores, when a machine has fewer than the software path's four.
 	//
 	// Re-measured 2026-08-14 on this 20-core box with the GPU default, `editor-layers` +
 	// `editor-annotations`, 72 tests, wall against **average cores busy** — which is what a machine
@@ -256,7 +282,7 @@ export default defineConfig({
 	// in ~0.10s total, in Node with no browser at all — because it exercises a module rather than
 	// booting the built app and software-rasterising MapLibre. `apps/editor` has an `editor-dom`
 	// project for exactly that since 2026-08-13.
-	workers: Number(process.env.BALLASTELLA_E2E_WORKERS) || 8,
+	workers: Number(process.env.BALLASTELLA_E2E_WORKERS) || defaultWorkers,
 
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	// THE TWO BUDGETS, RAISED FROM PLAYWRIGHT'S DEFAULTS BECAUSE THE DEFAULTS WERE THE CAUSE.

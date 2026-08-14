@@ -54,6 +54,24 @@ slow enough that the placement frame had always run by then, so the tests had be
 reason unrelated to what they asserted. They poll now. **A test that only passes under one rasteriser
 is pinning the rasteriser.**
 
+⚠ **The eight-worker default was merged flat and turned CI red the same afternoon** (run
+[31824272503](https://github.com/artshumrc/ballastella/actions/runs/31824272503): 5 failed, 5 flaky,
+every one a timeout). `ubuntu-latest` is four vCPUs with **no render node**, so it takes the software
+path — where a worker still costs a core, which is the whole premise the raise was resting on. Eight
+of them over four cores is the oversubscription the old cap existed to prevent. Reproduced by
+emulating the runner, `BALLASTELLA_E2E_GPU=0 taskset -c 0-3`, on `viewer-reader`'s 21 outage tests:
+
+| Workers | Wall | Result |
+| --- | --- | --- |
+| 4 | 25.5s | 21 passed |
+| 8 | 44.2s | 19 passed, **2 failed** at `mapReady` |
+
+**Oversubscription cost wall clock as well as correctness**, so there was no trade being made. The
+default is now conditional on `useGpu` rather than flat — 8 with the GPU, `min(4, cores)` without —
+which leaves a GPU box exactly where this epic left it and puts CI back at the 4 it was green on. The
+sharpest failures were the two `viewer-reader` outage tests again, this time waiting out `mapReady`'s
+30 s while `ReaderMapPane`'s 15 s style budget expired under the contention.
+
 ### The migration's own end state — full run, 4 workers, software, 2026-08-14
 
 | | Epic start | Now |
