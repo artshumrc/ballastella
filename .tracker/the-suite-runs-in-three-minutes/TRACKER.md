@@ -14,7 +14,58 @@ Scope, the seam boundaries, and the measured baseline are in [SPEC.md](./SPEC.md
 
 Overall status: `In Progress`
 
-Current ticket: 01, 02, 03 and 05 complete; 04, 06, 08, 09, 10, 11, 12 and 13 unblocked.
+Current ticket: 01–12 complete; 13 and 14 remain, then 15 closes the epic.
+
+### Measured end state — full run, uninterrupted, 2026-08-14
+
+| | Epic start | Now |
+| --- | --- | --- |
+| Seam 2 tests | 675 | **628** |
+| Wall clock | 13m 04s | **10m 17s** |
+| Worker-seconds | 2998.6 | **2395.2** |
+| Per test | 4.44 | **3.82** |
+| Component seam (Node, no browser) | — | **84 tests, 0.66s** |
+
+**−21% wall, −20% worker time**, and one test deleted in the whole epic. 626 passed, 1 skipped, 1
+flaky, **0 failed**. The one retry was `viewer-reader:2472`, which a stashed-baseline comparison put
+at 2 failures in 6 unmodified runs — it is not new. `editor-remote-binding`'s sign-in fault did not
+fire this run, which is what a fault that fails *more* on an idle box does; it is still open (lead 8).
+
+⚠ **The target was two to three minutes and this is ten.** What remains is not migration work:
+
+- **The worker count.** 4 → 10 measured 1.5× on this box. One line, no coverage cost, and the only
+  remaining lever that reaches the target. The default of 4 is a shared-machine policy, so it stays a
+  decision rather than a ticket.
+- **Seam 2's floor.** At 628 tests and 3.82s each, most of what is left is the fixed cost of booting
+  the built application over software-rasterised WebGL. Cutting from here trades coverage for time at
+  about four seconds a test, and the dearest tests are disproportionately the map-driven ones that
+  only Seam 2 can prove.
+
+### What the migration found that was not about speed
+
+Each migration had to prove its claim could still fail. That requirement, not the tickets, produced
+the epic's most durable results:
+
+- **DOMPurify is inert under `happy-dom` and reports `isSupported === true`.** `renderDescription`
+  returns `<img src=x onerror=alert(1)>` with the element and the handler intact. The Annotation
+  description surface therefore never moved to Seam 1c, and the config carries a standing prohibition.
+- **`happy-dom`'s `DragEvent` drops `dataTransfer` and `relatedTarget`.** Every drag claim stays at
+  Seam 2; dispatching a `MouseEvent` named `dragleave` would have made them pass against a fake.
+- **The viewer promised Readers something it could not do** — see the tile-recovery entry below.
+- **A back-off guarantee could have been deleted with every test green**, until the test was made to
+  straddle each step.
+
+### The tile recovery fix — a product fault found by a slow test
+
+`viewer-reader:2524` cost 99.6 worker-seconds and was recorded as a habitual flake to be absorbed by
+the retry budget. It was a 20–40% hard failure. The renderer re-asks for a refused `info.json` on
+every painted frame, and MapLibre paints none when nothing changes, so recovery depended on an
+unrelated straggler repaint; in front of a settled map the notice stayed up for ever, while the
+viewer told the Reader the map picks up what it can by itself. A bounded schedule of repaints now
+supplies the frames — **advanced by delivered frames rather than wall clock**, because
+`triggerRepaint()` is a no-op while a frame request is outstanding and `requestAnimationFrame` does
+not fire in a background tab, which cost 5 of 7 re-asks in a measured backgrounding. Eleven re-asks
+over 151,750ms of painted time, then it stops. The test now costs ~3s.
 
 Ticket 03 added the cost profile. **[COST-PROFILE.md](./COST-PROFILE.md) is the measured per-spec table
 every later ticket targets by**, regenerated with one command:
