@@ -169,6 +169,51 @@ test, 0 retries against a 3% budget.
 3. Ticket 06 left the Annotation sidebar row's name surface unasserted at Seam 2; its proper home is
    Seam 1c, which ticket 07 covers.
 
+### The slow-test pass — 2026-08-13, authorised outside the ticket ledger
+
+The user authorised attacking the slow specs directly, and cutting tests where necessary. Four specs
+were worked in isolated worktrees, which is also how the e2e port collisions of the parallel round
+were fixed — a worktree derives its own ports.
+
+| Spec | Worker-seconds | Tests | How |
+| --- | --- | --- | --- |
+| `editor-layers` | 485 → 267 | 36 → 36 | fixtures seeded from a recorded Workspace |
+| `editor-annotations` | 397 → 314 | 40 → 39 | seeded; one claim retired to Seam 1 |
+| `editor-alignment-refinement` | 177 → 123 | 21 → 19 | a shared 3s sleep replaced by a poll; the picker rehoused to Seam 1c |
+| `editor-undo` | 172 → 155 | 14 → 14 | seeded |
+
+**The cost was per-test setup, not the assertions, and not the `waitForTimeout` calls.** 23 of
+`editor-layers`' 36 tests drove the whole journey through the interface — Project, ingest through the
+real file picker, navigation, three Control Point pairs across two live map panes, a warped solve —
+before the first assertion ran. The recorded-Workspace mechanism ticket 01 landed already existed to
+stop exactly that; three specs were not using it. The 32 `waitForTimeout` calls across the suite were
+a red herring: all four in `editor-layers` came to 9.5s out of 400s.
+
+⚠ **A spec's floor is its longest test.** `editor-annotations` lost 11 tests in ticket 06 and ~60% of
+its CPU time, and its wall clock did not move: one Pin-under-a-Historical-Map test cost 24s and the
+file could not finish before it did. That test is now ~11s — it had been driving a full alignment as
+scenery — but the principle holds and is why count was always the wrong axis.
+
+**Three things that did not work, recorded because each was nearly reported as a saving:**
+
+1. A settled-view wait substituted for two sleeps in `editor-layers` reopened the race the sleeps
+   guard — the opening-view fit is a *second* read of the Layer documents, ordered against the
+   sidebar's own by nothing. Its failure mode is a silent vacuous pass, not a red run. Reverted, and
+   the sleeps carry the reasoning now.
+2. `editor-annotations`' first "after" run measured *worse* than its baseline (548s against 529s)
+   because the recordings were cold and each of four workers paid to capture one. Warm, the same code
+   was 404s.
+3. `editor-undo`'s first before/after pair said −29%; the same pair in reverse order said +7%. Under
+   sibling load the drift within a round exceeded the effect. Only an ABBA design over 28 runs gave a
+   number worth quoting.
+
+⚠ **`viewer-reader`'s 99.6s test is a product fault and was left alone.** See lead 8. Six instrumented
+runs: it recovers in under a second when an unrelated repaint happens to follow, and never at all when
+none does — MapLibre paints no frames when nothing changes, and nothing calls `triggerRepaint()` when
+a tile-source failure resolves. The viewer tells a Reader "the map picks up what it can by itself",
+which for a settled map is false. It cannot be made fast, cannot move down a seam, and should not be
+deleted — it is the only thing asserting the promise. **It needs a product decision.**
+
 Last updated: 2026-08-13
 
 ## Ledger
