@@ -29,14 +29,14 @@
 // removed. A gate that fires on something nobody can fix stops being a signal and becomes a toll.
 // A count is at least a number the person who tripped it chose.
 //
-// The count is whatever `playwright test --list` reports, skips included — 669 today, one of which
+// The count is whatever `playwright test --list` reports, skips included — 637 today, one of which
 // is a deliberate skip. Listing does not build the apps or start the web servers, which is what
 // keeps this affordable inside `pnpm lint`; it costs about a second.
 //
 // Override with `BALLASTELLA_SEAM_2_CEILING` to watch the fence fail on purpose, which is the
 // positive control this check's contract requires:
 //
-//     BALLASTELLA_SEAM_2_CEILING=668 node scripts/check-seam-2-size.mjs   # must fail
+//     BALLASTELLA_SEAM_2_CEILING=636 node scripts/check-seam-2-size.mjs   # must fail
 
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -49,11 +49,12 @@ import { fileURLToPath } from 'node:url';
  * | When | Ceiling | Why |
  * | --- | --- | --- |
  * | 2026-08-13 | 669 | Where the epic starts: the count after scheduling and the first migration, so the fence holds the line before it starts moving it. |
+ * | 2026-08-13 | 637 | Tickets 06, 09, 10 and 12: the annotation document, Base Map catalog and arithmetic, Project Bundle refusal and publish output claims now live at Seam 1. |
  *
  * Lowered by the tickets of `the-suite-runs-in-three-minutes` as claims move down a seam; ticket 15
  * sets the final one. **Raising it needs a row above and a reason in it.**
  */
-export const SEAM_2_CEILING = 669;
+export const SEAM_2_CEILING = 637;
 
 /**
  * Whether a suite of this size is over the ceiling, and the sentence saying so.
