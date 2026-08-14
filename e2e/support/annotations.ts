@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 
 import { openLayerRow } from './layers';
 import { readStoredFile } from './stored-file';
+import { restoreWorkspace, snapshotWorkspace } from './workspace-snapshot.js';
 
 export const PROJECT_NAME = 'Amsterdam 1625';
 export const PROJECT_DIRECTORY = 'amsterdam-1625';
@@ -246,6 +247,54 @@ export async function createProject(page: Page, name = PROJECT_NAME): Promise<vo
 }
 
 /**
+ * The journey that is recorded once: a Project created through the dialog, with one Annotation Layer
+ * added through the interface.
+ *
+ * Kept whole and driven for real, because it is what {@link seedAnnotationProject} replays — see
+ * `workspace-snapshot.ts` for why the fixture is a recording rather than a literal.
+ */
+async function projectWithAnnotationLayerThroughTheInterface(page: Page): Promise<string> {
+	await page.reload();
+	await createProject(page);
+	await expect(page.getByRole('link', { name: PROJECT_NAME })).toBeVisible();
+
+	await openLayers(page);
+	await page.getByTestId('add-annotation-layer').click();
+	await expect(page.getByTestId('layer-row')).toHaveCount(1);
+	await expect(page.getByRole('status')).toHaveText('Saved locally');
+
+	return annotationLayerId(page);
+}
+
+/**
+ * A Project with one empty Annotation Layer on disk, seeded — page left on the hub, nothing read yet.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THE PROJECT AND THE LAYER ARE SCENERY IN EVERY TEST IN THIS FAMILY.                           │
+ * └───────────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * Every Annotation test used to boot the application three times before its first assertion: once to
+ * empty storage, once more to see it emptied, and a third time to open the Project the New Project
+ * dialog had just made. None of them is about creating a Project or adding a Layer, and the two
+ * screens that do those things are proved by `editor-project-screen` and `editor-layers`.
+ *
+ * Callers that need a fixture file written behind the app's back use this directly and navigate once
+ * themselves; {@link startAnnotating} is the common case, which navigates straight to the Layer.
+ *
+ * @returns the Annotation Layer's id
+ */
+export async function seedAnnotationProject(page: Page): Promise<string> {
+	await page.goto('/');
+	await emptyWorkspace(page);
+	const snapshot = await snapshotWorkspace(page, 'annotations-one-layer', async (fresh) => ({
+		imageId: '',
+		layerId: await projectWithAnnotationLayerThroughTheInterface(fresh)
+	}));
+	await restoreWorkspace(page, snapshot.files);
+	return snapshot.layerId;
+}
+
+/**
  * A Project open on the Layers pane with one Annotation Layer **open**, ready to draw into.
  *
  * The open row is the step ticket 05 added, and it is the *only* change this suite's helpers needed
@@ -256,21 +305,9 @@ export async function createProject(page: Page, name = PROJECT_NAME): Promise<vo
  * @returns the Annotation Layer's id
  */
 export async function startAnnotating(page: Page): Promise<string> {
-	await page.goto('/');
-	await emptyWorkspace(page);
-	await page.reload();
-	await createProject(page);
-	await expect(page.getByRole('link', { name: PROJECT_NAME })).toBeVisible();
-
-	await openLayers(page);
-	await page.getByTestId('add-annotation-layer').click();
-	await expect(page.getByTestId('layer-row')).toHaveCount(1);
-	await expect(page.getByRole('status')).toHaveText('Saved locally');
-	await openLayerRow(page);
-	await waitForStack(page);
-	await centreOnAmsterdam(page);
-
-	return annotationLayerId(page);
+	const layerId = await seedAnnotationProject(page);
+	await reopenLayers(page);
+	return layerId;
 }
 
 /**

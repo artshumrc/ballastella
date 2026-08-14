@@ -25,6 +25,7 @@ import { AMBIGUOUS_QUERY, candidateAt, routePlaceLookup } from './support/places
 // The one test that needs a warped sheet over the Base Map borrows the alignment suite's ground
 // rather than growing a second PNG encoder — see the header of `support/alignment-workspace.ts`.
 import { makePairs, start as startAlignment } from './support/alignment-workspace.js';
+import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapshot.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -50,6 +51,7 @@ import {
 	selectAnnotation,
 	paintProperty,
 	projectJson,
+	seedAnnotationProject,
 	waitForPaintedAnnotations,
 	waitForStack,
 	startAnnotating,
@@ -518,25 +520,12 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await expect(description.locator('strong')).toHaveText('Certainly');
 	});
 
-	test('footnote syntax renders as literal text, with no anchors and no ids', async ({ page }) => {
-		// ADR-0009 defers footnotes and asks the syntax degrade "as behaviour, not accident". Left to
-		// `marked` it is neither: `^1` is a legal CommonMark link label, so `[^1]: <url>` really is a link
-		// reference definition — it produces no output of its own and turns every `[^1]` into an anchor.
-		await withOnePin(page);
-		const description = page.getByTestId('annotation-description-text');
-
-		await editAnnotationText(page);
-		await page
-			.getByTestId('annotation-description')
-			.fill('A claim[^1] worth noting.\n\n[^1]: https://example.org/note');
-		await page.getByTestId('annotation-text-done').click();
-
-		await expect(description).toContainText('A claim[^1] worth noting.');
-		// The definition line is kept as text rather than silently deleted.
-		await expect(description).toContainText('[^1]: https://example.org/note');
-		await expect(description.locator('a')).toHaveCount(0);
-		await expect(description.locator('[id]')).toHaveCount(0);
-	});
+	// **Footnote syntax is not asserted here.** ADR-0009's "the syntax degrades to literal text" is a
+	// claim about the Markdown pipeline and nothing else, and it is asserted over the same input —
+	// `A claim[^1] worth noting.` with its definition line — in
+	// `packages/core/src/annotation/markdown.browser.test.ts`, over a real DOM and in milliseconds.
+	// What a Seam 2 test can add is that this panel renders through that pipeline at all, and the test
+	// above already fails if it does not.
 
 	test('a description is shown in a popup over the map, rendered', async ({ page }) => {
 		const failures = watchFailures(page);
@@ -666,7 +655,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 	 * renders it. Typing it would also work, and would prove less.
 	 */
 	async function withPayload(page: Page): Promise<string> {
-		const layerId = await startAnnotating(page);
+		const layerId = await seedAnnotationProject(page);
 		await writeProjectFile(
 			page,
 			`annotations/${layerId}.geojson`,
@@ -857,7 +846,7 @@ test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
 		// layers filtered on the bucket — and this is the assertion that they exist, that each Annotation
 		// went to the right one, and that their dash patterns actually differ.
 		const failures = watchFailures(page);
-		const layerId = await startAnnotating(page);
+		const layerId = await seedAnnotationProject(page);
 		await writeProjectFile(
 			page,
 			`annotations/${layerId}.geojson`,
@@ -934,7 +923,7 @@ test.describe('style is on each Annotation (ADR-0009, as amended)', () => {
 		// bytes, and opening a Project must not rewrite it (ADR-0010). So it rides through
 		// `unknownFields` and is written back exactly as it arrived, while nothing resolves against it.
 		const failures = watchFailures(page);
-		const layerId = await startAnnotating(page);
+		const layerId = await seedAnnotationProject(page);
 		await writeProjectFile(
 			page,
 			`annotations/${layerId}.geojson`,
@@ -1523,6 +1512,33 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 // The lookup is routed to the committed fixture in every one of them; nothing here reaches a network.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 
+/**
+ * A Project with an aligned Historical Map **and** an empty Annotation Layer, seeded.
+ *
+ * The one test below that needs a warped sheet under its Pin is about correcting a Pin, not about
+ * ingesting an image or making Control Points: it used to drive a whole alignment — two live map
+ * panes, six clicks, a warped solve — before its first assertion. `alignment-workspace.ts` already
+ * seeds the pyramid; this records the pairs and the Layer on top of it, and the alignment itself is
+ * still proved by `editor-alignment.e2e.ts` where it is the subject.
+ *
+ * @returns the Annotation Layer's id
+ */
+async function seedAlignedProjectWithAnnotationLayer(page: Page): Promise<string> {
+	await page.goto('/');
+	await emptyWorkspace(page);
+	const snapshot = await snapshotWorkspace(page, 'annotations-aligned', async (fresh) => {
+		await startAlignment(fresh);
+		await makePairs(fresh, 3);
+		await expect(fresh.getByRole('status')).toHaveText('Saved locally');
+		await openLayers(fresh);
+		await fresh.getByTestId('add-annotation-layer').click();
+		await expect(fresh.getByRole('status')).toHaveText('Saved locally');
+		return { imageId: '', layerId: await annotationLayerId(fresh) };
+	});
+	await restoreWorkspace(page, snapshot.files);
+	return snapshot.layerId;
+}
+
 test.describe('placing a Pin at a Place', () => {
 	/** The fixture's Springfield, Massachusetts — its point, which is what a Pin is placed at. */
 	const HAMPDEN = { lng: -72.5886727, lat: 42.1018764 };
@@ -1876,18 +1892,13 @@ test.describe('placing a Pin at a Place', () => {
 		test.setTimeout(180_000);
 		const service = await routePlaceLookup(page);
 
-		await startAlignment(page);
-		await makePairs(page, 3);
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
+		const layerId = await seedAlignedProjectWithAnnotationLayer(page);
 		await openLayers(page);
-		// The Historical Map is drawn over the Base Map. Read off the stack's own count, so a sheet that
-		// silently failed to draw would fail here rather than further down as a missing handle.
-		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
+		// Both Layers are drawn: the warped sheet over the Base Map, and the Annotation Layer over it.
+		// Read off the stack's own count, so a sheet that silently failed to draw would fail here rather
+		// than further down as a missing handle.
+		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 
-		await page.getByTestId('add-annotation-layer').click();
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		const layerId = await annotationLayerId(page);
 		await openLayerRow(page, page.locator(`[data-testid="layer-row"][data-layer-id="${layerId}"]`));
 		await waitForStack(page);
 
