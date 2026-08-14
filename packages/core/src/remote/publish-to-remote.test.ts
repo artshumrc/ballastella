@@ -1159,6 +1159,42 @@ describe('a publish that would overwrite another machine', () => {
 	});
 
 	describe('with no manifest at all', () => {
+		// ⚠ **The publish's own seed must not read as somebody else's work.** An empty repository is
+		// opened by writing `.nojekyll` through the Contents API, so a first publish that does not
+		// finish leaves that one file behind with no manifest beside it. Counted as an owned path, the
+		// retry tells the scholar it cannot say whose work is on the Remote — over a file the tool
+		// wrote a minute earlier, which has no content to be anybody's.
+		it('goes ahead against a Remote holding only the seed it wrote itself', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { '.nojekyll': '' } });
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				manifest: null
+			});
+
+			expect(plan.conflict).toBeNull();
+		});
+
+		// A `.nojekyll` with bytes in it is a file somebody wrote on purpose, and gets the refusal.
+		// This is also what keeps `EMPTY_BLOB_SHA` honest: the fake computes real git blob SHAs, so a
+		// constant that drifted from what git gives an empty file would fail the test above.
+		it('still refuses when the marker is not empty, because then it is somebody’s', async () => {
+			const store = await smallWorkspace();
+			const github = await createFakeGitHub({ ...REMOTE, tree: { '.nojekyll': '# mine\n' } });
+
+			const plan = await planRemotePublish(store, {
+				token: TOKEN,
+				remote: REMOTE,
+				fetch: github.fetch,
+				manifest: null
+			});
+
+			expect(plan.conflict?.reason).toBe('unknown');
+		});
+
 		it('refuses a Remote whose owned namespace is not empty, saying we cannot tell', async () => {
 			const store = await smallWorkspace();
 			const github = await createFakeGitHub({ ...REMOTE, tree: { 'README.md': '# Atlas\n' } });

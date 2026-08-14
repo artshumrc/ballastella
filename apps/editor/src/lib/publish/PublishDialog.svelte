@@ -806,9 +806,12 @@
 							warning, so it is the worst possible moment to be the one state that hides story 9's
 							two numbers, the hosting cliff and the hourly request budget.
 						-->
+						<!-- `alert-vertical`, not `flex-col`: daisyUI's `.alert` is a grid with
+						     `grid-auto-flow: column`, so a flexbox utility on it does nothing and these three
+						     children lay out as three squeezed columns with the button cut off. -->
 						<div
 							role="alert"
-							class="mt-3 alert flex-col items-start alert-warning"
+							class="mt-3 alert alert-vertical items-start alert-warning"
 							data-testid="publish-conflict"
 							data-conflict={conflict.reason}
 						>

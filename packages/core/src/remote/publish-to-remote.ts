@@ -372,6 +372,14 @@ const REQUESTS_BEYOND_BLOBS = 3;
 
 const EMPTY_FILE: Bytes = new Uint8Array(0);
 
+/**
+ * git's blob SHA for a file of no bytes — `sha1("blob 0\0")`, and the same in every repository.
+ *
+ * Written out rather than computed because {@link gitBlobSha} is async and this is compared inside a
+ * synchronous decision. `publish-to-remote.test.ts` asserts the two agree, so it cannot drift.
+ */
+const EMPTY_BLOB_SHA = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
+
 /** The one message every publish commit carries. One branch, one commit per publish (SPEC). */
 const COMMIT_MESSAGE = 'Publish from Ballastella';
 
@@ -722,12 +730,21 @@ function blobsToUpload(files: readonly PlannedRemoteFile[]): PlannedRemoteFile[]
  *   whole website
  */
 function detectConflict(
-	owned: readonly RemoteTreeEntry[],
+	all: readonly RemoteTreeEntry[],
 	wouldWrite: ReadonlyMap<string, string>,
 	willArrive: ReadonlySet<string>,
 	manifest: ReadonlyMap<string, string> | null,
 	remote: RemoteRepository
 ): RemotePublishConflict | null {
+	// ⚠ **An empty `.nojekyll` is never somebody's work, and counting it as such accuses the scholar
+	// of a conflict over a file this tool wrote itself.** `seedEmptyRepository` puts exactly that file
+	// in exactly that state to bring the branch into being, so a first publish that does not finish
+	// leaves it behind with no manifest — and the retry, on a repository that holds one empty file and
+	// nothing else, would report that it cannot tell whose work is there. It can: the file has no
+	// content to be anybody's.
+	const owned = all.filter(
+		(entry) => !(entry.path === JEKYLL_OFF_MARKER && entry.sha === EMPTY_BLOB_SHA)
+	);
 	// Nothing of ours is there, so there is nothing to overwrite and nothing to be uncertain about —
 	// which is what makes a first publish to an empty repository, and to one holding only a `README`,
 	// go ahead with no manifest at all.
