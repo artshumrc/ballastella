@@ -41,7 +41,10 @@ export default defineConfig({
 	test: {
 		name: 'ui',
 		environment: 'happy-dom',
-		include: ['src/**/*.dom.test.ts'],
+		// Every test in the package, not only the `.dom.test.ts` ones: a plain `.test.ts` moved here
+		// with a component would otherwise be uncollected — not skipped and not reported, just absent
+		// from a green run. A pure test costs nothing extra under happy-dom.
+		include: ['src/**/*.test.ts'],
 		expect: { requireAssertions: true },
 		// No test may reach the network (CONTRIBUTING, "Five rules the toolchain enforces for you").
 		// One implementation, imported from `core`, never a copy.

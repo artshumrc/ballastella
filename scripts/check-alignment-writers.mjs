@@ -109,7 +109,14 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Source trees an Alignment write could be written in. */
-const scannedRoots = ['packages/core/src', 'apps/editor/src', 'apps/viewer/src', 'scripts', 'e2e'];
+const scannedRoots = [
+	'packages/core/src',
+	'packages/ui/src',
+	'apps/editor/src',
+	'apps/viewer/src',
+	'scripts',
+	'e2e'
+];
 
 /**
  * The one module that may write an Alignment.

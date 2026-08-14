@@ -103,6 +103,28 @@ test('marks an entry that needs the network in the option text a Reader can read
 	]);
 });
 
+test('carries the test id both suites address the control by', () => {
+	// Roughly twenty assertions in `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` reach
+	// this control as `getByTestId('base-map-switcher')`, and a published site is not rebuilt by this
+	// repository's test run — so deleting the attribute here breaks a suite that cannot see this file.
+	const select = render({ entryId: 'parish-roads', catalog: CATALOG, onSelect: () => {} });
+
+	expect(select).toHaveAttribute('data-testid', 'base-map-switcher');
+});
+
+test('marks needs-network on each option as data a test can read, and not only in the text', () => {
+	// The visible text is for the Reader; this attribute is how `e2e/viewer-reader.e2e.ts` asks which
+	// entries of a *published* catalog need the network, having no access to that catalog otherwise.
+	// It reads `option.dataset.needsNetwork === 'true'`, so the value matters as much as the name.
+	const select = render({ entryId: 'parish-roads', catalog: CATALOG, onSelect: () => {} });
+
+	expect([...select.options].map((option) => [option.value, option.dataset.needsNetwork])).toEqual([
+		['harbour-charts', 'false'],
+		['parish-roads', 'false'],
+		['satellite', 'true']
+	]);
+});
+
 test('shows the entry it was given as the one in force', () => {
 	const select = render({ entryId: 'satellite', catalog: CATALOG, onSelect: () => {} });
 

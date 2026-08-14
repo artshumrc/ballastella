@@ -50,7 +50,14 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Source trees a Project-rooted image path could be written in. */
-const scannedRoots = ['packages/core/src', 'apps/editor/src', 'apps/viewer/src', 'scripts', 'e2e'];
+const scannedRoots = [
+	'packages/core/src',
+	'packages/ui/src',
+	'apps/editor/src',
+	'apps/viewer/src',
+	'scripts',
+	'e2e'
+];
 
 /**
  * The modules that own the Workspace's layout, and are therefore allowed to name it.

@@ -47,7 +47,14 @@ const repoRoot = path.resolve(path.dirname(here), '..');
 const appModule = 'packages/core/src/remote/github-app.ts';
 
 /** Source trees the two values could leak into. Static assets and prose are not code. */
-const scannedRoots = ['packages/core/src', 'apps/editor/src', 'apps/viewer/src', 'scripts', 'e2e'];
+const scannedRoots = [
+	'packages/core/src',
+	'packages/ui/src',
+	'apps/editor/src',
+	'apps/viewer/src',
+	'scripts',
+	'e2e'
+];
 
 /**
  * The configuration module, and this fence.

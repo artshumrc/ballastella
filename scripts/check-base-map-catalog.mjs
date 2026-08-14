@@ -26,7 +26,14 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const catalogModule = 'packages/core/src/base-map/catalog.ts';
 
 /** Source trees a Base Map entry could leak into. Static assets and prose are not code. */
-const scannedRoots = ['packages/core/src', 'apps/editor/src', 'apps/viewer/src', 'scripts', 'e2e'];
+const scannedRoots = [
+	'packages/core/src',
+	'packages/ui/src',
+	'apps/editor/src',
+	'apps/viewer/src',
+	'scripts',
+	'e2e'
+];
 
 const exemptFiles = new Set([catalogModule]);
 const isExempt = (relative) =>
