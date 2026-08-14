@@ -1058,101 +1058,39 @@ test.describe('a bundle that is refused, with nothing created', () => {
 		await page.reload();
 	});
 
-	const refuses = async (
-		page: Page,
-		fixture: { name: string; mimeType: string; buffer: Buffer },
-		...expected: (string | RegExp)[]
-	) => {
+	// ⚠ **One test, and it survives because of what it is asking rather than what it asserts.**
+	// Every way a bundle can be malformed — not a tar, truncated, no `project.json`, a `formatVersion`
+	// from the future, a missing `geojsonRef`, an image directory with no `info.json`, an entry that
+	// climbs out, and no room to hold it — is a claim about parsing bytes and about the sentence the
+	// parser produces, and all eight are asserted against real archive bytes in
+	// `packages/core/src/transfer/project-bundle.test.ts`, in Node, in milliseconds.
+	//
+	// What no Seam 1 test can reach is the **wiring**: that a file picked through the real input is
+	// handed to that parser at all, that the refusal it raises reaches a screen instead of a console,
+	// that the dialog stays open so the message is not a flash the user can miss, and that no Review
+	// Workspace is left behind on real OPFS. So exactly one malformed bundle is driven the whole way.
+	test('a malformed bundle picked through the file input is refused on screen', async ({
+		page
+	}) => {
 		const before = await everyByteOf(page, 'My Workspace');
 		// Not {@link openBundle}: that one waits for the dialog to close, and a refused bundle is
 		// precisely the case where it must **not** — the message stays in front of the user.
-		await chooseBundle(page, fixture);
+		await chooseBundle(page, {
+			name: 'holiday.jpg',
+			mimeType: 'application/x-tar',
+			buffer: Buffer.from('not a tar')
+		});
 		await page.getByTestId('confirm-open-bundle').click();
 
 		const alert = page.getByTestId('bundle-error');
-		for (const text of expected) await expect(alert).toContainText(text);
-		// The dialog is still open, so the message is not a flash the user can miss.
+		await expect(alert).toContainText('could not be read as a Ballastella Project bundle');
+		await expect(alert).toContainText('Nothing has been opened.');
 		await expect(
 			page.getByRole('dialog', { name: 'Open a Project someone sent me' })
 		).toBeVisible();
 		// No review copy was left behind, and the user's own Workspace is exactly as it was.
 		expect(await workspaceNames(page)).toEqual(['My Workspace']);
 		expect(await everyByteOf(page, 'My Workspace')).toEqual(before);
-	};
-
-	test('a file that is not a tar at all', async ({ page }) => {
-		await refuses(
-			page,
-			{ name: 'holiday.jpg', mimeType: 'application/x-tar', buffer: Buffer.from('not a tar') },
-			'could not be read as a Ballastella Project bundle',
-			'Nothing has been opened.'
-		);
-	});
-
-	test('a bundle whose download stopped half way', async ({ page }) => {
-		const whole = await buildBundle(projectFiles());
-		await refuses(
-			page,
-			{
-				name: 'amsterdam-1625.project.tar',
-				mimeType: 'application/x-tar',
-				buffer: whole.subarray(0, whole.length - 2048)
-			},
-			'may not have downloaded completely'
-		);
-	});
-
-	test('an archive with no project.json', async ({ page }) => {
-		await refuses(
-			page,
-			await bundleFixture({ 'annotations/x.geojson': '{}' }),
-			'no project.json at its root'
-		);
-	});
-
-	test('a formatVersion from the future, naming the remedy (ADR-0010)', async ({ page }) => {
-		await refuses(
-			page,
-			await bundleFixture({ 'project.json': projectJson({ formatVersion: 2 }) }),
-			'newer version of Ballastella',
-			'https://'
-		);
-	});
-
-	test('a missing geojsonRef, naming what is not there', async ({ page }) => {
-		const files = projectFiles();
-		delete files['annotations/warehouses.geojson'];
-
-		await refuses(page, await bundleFixture(files), 'annotations/warehouses.geojson');
-	});
-
-	test('an image directory with no info.json, naming it', async ({ page }) => {
-		const files = projectFiles();
-		delete files['images/amsterdam-1625/info.json'];
-
-		await refuses(page, await bundleFixture(files), 'images/amsterdam-1625/info.json');
-	});
-
-	test('an entry that climbs out of the Project', async ({ page }) => {
-		// A bundle is a file another person made, and since ticket 12 an escaping entry would land in
-		// another of the user's own Workspaces — including the one they are looking at.
-		await refuses(
-			page,
-			await bundleFixture({ ...projectFiles(), '../../escaped.txt': 'payload' }),
-			'climbs out of the Project'
-		);
-	});
-
-	test('a bundle there is no room for, refused before anything is created', async ({ page }) => {
-		// Asked before the Workspace is made, not discovered part way through. The quota is scripted
-		// because no automated browser can be made genuinely full, and what is being asserted is the
-		// app's sequencing rather than Chromium's accounting.
-		await page.addInitScript(() => {
-			navigator.storage.estimate = async () => ({ quota: 1_000_128, usage: 1_000_000 });
-		});
-		await page.reload();
-
-		await refuses(page, await bundleFixture(projectFiles()), 'needs about', 'free');
 	});
 });
 

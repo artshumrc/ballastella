@@ -630,6 +630,9 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 
 		expect(cause).toBeInstanceOf(BundleRejectedError);
 		expect((cause as BundleRejectedError).reason).toBe('not-a-tar');
+		// The sentence, not only the reason code: a refusal exists to tell a scholar what they picked and
+		// what to do about it, so a test asserting only that something was thrown has dropped half of it.
+		expect((cause as Error).message).toContain('could not be read as a Ballastella Project bundle');
 		expect((cause as Error).message).toContain('Nothing has been opened.');
 		expect(contents(into.store)).toEqual({});
 	});
@@ -655,6 +658,10 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 		);
 
 		expect((cause as BundleRejectedError).reason).toBe('no-project-file');
+		// Naming the file that is absent, and the other archive it might have been: a Workspace backup
+		// picked here is the commonest way to arrive at this refusal.
+		expect((cause as Error).message).toContain('no project.json at its root');
+		expect((cause as Error).message).toContain('Workspace settings');
 		expect(into.discarded()).toBe(true);
 		expect(contents(into.store)).toEqual({});
 	});
@@ -680,7 +687,10 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 
 		expect(cause).toBeInstanceOf(ProjectFormatTooNewError);
 		expect((cause as Error).message).toContain('Nothing has been opened.');
-		// The remedy is named, which is the whole of ADR-0010's refusal.
+		// The remedy is named, which is the whole of ADR-0010's refusal: what is wrong, and the address a
+		// scholar can go to in order to fix it.
+		expect((cause as Error).message).toContain('newer version of Ballastella');
+		expect((cause as Error).message).toContain('https://');
 		expect((cause as Error).message).toContain('ballastella');
 		expect(into.discarded()).toBe(true);
 		expect(contents(into.store)).toEqual({});
@@ -824,8 +834,15 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 
 	// Criterion 14. Refused *beforehand*, with the numbers, rather than discovered at eighty per cent —
 	// and before the Review Workspace exists at all, which is what `asked` being empty asserts.
+	//
+	// ⚠ **"Nothing was created" is asserted against the store's contents before and after**, not
+	// against the absence of an exception and not against an empty store. A store that starts with
+	// files in it is what makes the comparison mean something: `toEqual({})` would pass for an
+	// implementation that created the Workspace, wrote the mark, and then deleted everything.
 	it('refuses a bundle there is no room for, before making a Workspace', async () => {
 		const into = destination();
+		into.store.plant('elsewhere/project.json' as StorePath, encode(projectJson()));
+		const before = contents(into.store);
 
 		const cause = await openProjectBundle(
 			streamOf(await handBuiltFrom({ 'project.json': projectJson() })),
@@ -838,9 +855,11 @@ describe('a bundle that will not be opened leaves nothing behind', () => {
 		).catch((thrown: unknown) => thrown);
 
 		expect((cause as BundleRejectedError).reason).toBe('insufficient-quota');
-		expect((cause as Error).message).toContain('900 MB');
+		// The numbers the user needs in order to act: what it needs, and what there is.
+		expect((cause as Error).message).toContain('needs about 900 MB');
+		expect((cause as Error).message).toContain('free');
 		expect(into.asked).toEqual([]);
-		expect(contents(into.store)).toEqual({});
+		expect(contents(into.store)).toEqual(before);
 	});
 
 	// A browser that will not answer is not a browser that has said no. Refusing because the quota API
