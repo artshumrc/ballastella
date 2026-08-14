@@ -64,12 +64,13 @@ function fakeStorage() {
 }
 
 describe('the App this deployment ships with', () => {
-	// ⚠ **This asserts a deliberate state, not an oversight.** No broker has been deployed and no
-	// GitHub App registered, so the module ships placeholders on `example.org` — a domain RFC 2606
-	// reserves so that it can never be registered by anybody, and therefore can never begin answering
-	// to a stranger. If somebody fills in real values, this test should be updated rather than deleted.
-	it('points at a reserved domain that can never be registered', () => {
-		expect(new URL(GITHUB_APP.brokerOrigin).hostname.endsWith('.example.org')).toBe(true);
+	// A code is exchanged against this address, so it must be an origin and it must be encrypted: a
+	// trailing slash or a path would send `/github/token` to somewhere other than the broker, and
+	// `http:` would put an authorisation code on the wire in front of anyone on the network.
+	it('is an https origin with nothing after it', () => {
+		const broker = new URL(GITHUB_APP.brokerOrigin);
+		expect(broker.protocol).toBe('https:');
+		expect(GITHUB_APP.brokerOrigin).toBe(broker.origin);
 	});
 
 	it('is nonetheless configured, so the sign-in path is offered and can be exercised', () => {

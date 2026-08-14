@@ -164,12 +164,13 @@ part of this one.
 
 #### What ships today
 
-**Neither value is real, and no broker is deployed.** The two placeholders point at
-`github-broker.example.org` — a domain [RFC 2606](https://www.rfc-editor.org/rfc/rfc2606) reserves so
-that nobody can ever register it. So on an unmodified fork the sign-in button is offered, GitHub is
-never reached, and the attempt fails with a sentence telling the scholar to paste a token instead. A
-real-looking address on a domain somebody could buy was deliberately avoided: the danger is not that
-sign-in breaks, it is that one day it silently starts working, to a stranger's server.
+**This repository's own deployment has an App and a broker, and they work.** The sign-in button on
+`artshumrc.github.io/ballastella/` completes.
+
+**A fork cannot use them**, and this is not a policy but a mechanism: the App's callback URL is
+`https://artshumrc.github.io/ballastella/`, so GitHub will redirect there and nowhere else, and the
+broker answers only requests whose `Origin` is on its allowlist. A fork therefore inherits a button
+that fails with a sentence telling the scholar to paste a token, until it does the two steps below.
 
 #### Turning it on for your fork
 
@@ -295,11 +296,12 @@ Copy the token on the screen that follows — that is the only time GitHub shows
 the dialog.
 
 **There may also be a *Sign in with GitHub* button, and its being there does not mean it works.** The
-button appears whenever the instance has App values configured, and an unmodified fork ships
-placeholders, so on most instances the button is on screen, GitHub is never reached, and the attempt
-fails with a sentence telling you to paste a token instead. Only an instance that registered its own
-GitHub App and deployed a broker can complete that sign-in (part 1, step 6). If you do not know which
-kind of instance you are on, paste a token: it is the same publish either way.
+button appears whenever the instance has App values configured, and a fork inherits the ones it was
+forked from — which name an App that will only ever redirect to the instance those values belong to.
+So on a fork the button is on screen and the attempt fails with a sentence telling you to paste a
+token instead. Only an instance that registered its own GitHub App and deployed a broker can complete
+that sign-in (part 1, step 6). If you do not know which kind of instance you are on, paste a token:
+it is the same publish either way.
 
 **The credential is forgotten when you close the tab.** It is kept in the browser tab's own storage,
 never in your Workspace — a token in the Workspace would leave your machine inside the next publish,

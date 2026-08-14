@@ -17,22 +17,17 @@
 // │ recorded lesson, applied here before the fact).                                             │
 // │                                                                                            │
 // │ ═══════════════════════════════════════════════════════════════════════════════════════    │
-// │ ⚠ **NEITHER VALUE BELOW IS DEPLOYED. BOTH ARE PLACEHOLDERS.**                              │
+// │ The values below are this deployment's, and they answer: the broker is an AWS Lambda        │
+// │ behind a shared load balancer, and the App is registered on the `artshumrc` organisation    │
+// │ with its callback URL set to `https://artshumrc.github.io/ballastella/`. The broker's       │
+// │ source and its deployment live in a separate repository (`infrastructure/github_broker`).   │
 // │                                                                                            │
-// │ No broker has been written or deployed, and no GitHub App has been registered. The host     │
-// │ below is on `example.org`, which RFC 2606 reserves so that it can never be registered by    │
-// │ anybody — so it will never answer, and it can never *begin* to answer to a stranger who     │
-// │ bought the name. A real-looking address on a buyable domain was declined for exactly that   │
-// │ reason: the failure mode is not "sign-in breaks", it is "sign-in silently starts working,   │
-// │ to somebody else's server". The client ID is self-evidently not one of GitHub's.            │
-// │                                                                                            │
-// │ **This is a supported state, not a broken one.** With the broker unreachable the sign-in    │
-// │ button is offered and fails legibly, and the pasted personal access token binds and         │
-// │ publishes exactly as it always has. That is what licenses shipping a placeholder at all, so │
-// │ it is asserted in two places rather than assumed: `editor-github-signin.e2e.ts` presses the │
-// │ button with this host unreachable and then binds by paste on the same screen, and           │
-// │ `github-sign-in.test.ts` publishes a Workspace with a pasted token while every request to   │
-// │ this host fails, and asserts the broker was never on the path.                              │
+// │ **The pasted personal access token remains the path that needs none of this**, and it is    │
+// │ asserted rather than assumed: `github-sign-in.test.ts` publishes a Workspace with a pasted  │
+// │ token while every request to the broker fails, and asserts the broker was never on the      │
+// │ path. `editor-github-signin.e2e.ts` presses the button with the broker unreachable and      │
+// │ then binds by paste on the same screen. Both route the hosts named here rather than         │
+// │ reaching them, so no test touches the real broker.                                          │
 // │                                                                                            │
 // │ ⚠ **A GitHub App's callback URL is registered per App.** The App holds the one address      │
 // │ GitHub will redirect back to, so a fork living at a different address cannot borrow another │
@@ -55,16 +50,15 @@ export type GitHubApp = {
 };
 
 /**
- * This deployment's App. **Both values are placeholders** — see the header.
+ * This deployment's App.
  *
  * ⚠ **Replace both, or neither.** A broker with no client ID has nothing to look a secret up by,
  * and a client ID with no broker has nowhere to exchange a code, so a half-replaced pair offers a
  * sign-in that cannot complete. {@link isGitHubAppConfigured} demands both.
  */
 export const GITHUB_APP: GitHubApp = {
-	// `example.org` is reserved by RFC 2606 and can never be registered. Deliberate: see the header.
-	brokerOrigin: 'https://github-broker.example.org',
-	clientId: 'Iv1.not-a-real-client-id'
+	brokerOrigin: 'https://github-broker.darthcrimson.org',
+	clientId: 'Iv23liRxexPEW2AKFG12'
 };
 
 /**
