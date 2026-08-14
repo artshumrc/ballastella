@@ -146,6 +146,29 @@ Passing attempts of the sign-in-affordance test finish in 378–616 ms; failing 
 `toHaveCount` timeout. **The unloaded run is the one that fails**, which is the opposite of the usual
 shape and is why "deterministic" was never quite the right word for it.
 
+### After tickets 06, 09, 10 and 12 — 2026-08-13, quiet box
+
+| Spec | Tests before | Tests after |
+| --- | ---: | ---: |
+| `editor-annotations` | 51 | 40 |
+| `editor-base-map` | 47 | 36 |
+| `editor-transfer` | 37 | 30 |
+| `editor-publish` | 30 | 27 |
+
+Seam 2 total 669 → **637**; the fence is lowered to match. Failures were the two faults ticket 05
+recorded and nothing else: `editor-remote-binding`'s sign-in affordance and `viewer-reader`'s notice
+test, 0 retries against a 3% budget.
+
+**Open, and needing a human:**
+
+1. The epic's priority table was built from figures ticket 03 disproved. Following the measurement
+   means new tickets for `editor-undo` and `editor-alignment-refinement`, which is scope this epic
+   did not authorise.
+2. `viewer-reader` is 330 worker-seconds of coverage story 31 and ADR-0006 protect. The 2–3 minute
+   target is unlikely to be reachable without a decision about it.
+3. Ticket 06 left the Annotation sidebar row's name surface unasserted at Seam 2; its proper home is
+   Seam 1c, which ticket 07 covers.
+
 Last updated: 2026-08-13
 
 ## Ledger
@@ -159,15 +182,15 @@ Tickets 01–05 are groundwork and instrumentation; 06–14 are the migration, o
 | 01     | 01-land-the-scheduling-and-recorded-workspace-groundwork.md      | Completed   | —                                  |
 | 02     | 02-move-the-component-seam-into-node.md                          | Completed   | 01                                 |
 | 03     | 03-profile-seam-2-by-cost-per-test.md                            | Completed   | 01                                 |
-| 04     | 04-fence-the-size-of-seam-2.md                                   | Not Started | 01                                 |
+| 04     | 04-fence-the-size-of-seam-2.md                                   | Completed   | 01                                 |
 | 05     | 05-record-the-two-pre-existing-faults.md                         | Completed   | 01                                 |
-| 06     | 06-rehouse-the-annotation-document-claims.md                     | Not Started | 01                                 |
+| 06     | 06-rehouse-the-annotation-document-claims.md                     | Completed   | 01                                 |
 | 07     | 07-rehouse-the-annotation-interface-claims.md                    | Not Started | 02, 06                             |
 | 08     | 08-finish-the-layer-stack-migration.md                           | Not Started | 02                                 |
-| 09     | 09-rehouse-the-base-map-arithmetic-and-catalog-claims.md         | Not Started | 01                                 |
-| 10     | 10-rehouse-the-project-bundle-refusals.md                        | Not Started | 01                                 |
+| 09     | 09-rehouse-the-base-map-arithmetic-and-catalog-claims.md         | Completed   | 01                                 |
+| 10     | 10-rehouse-the-project-bundle-refusals.md                        | Completed   | 01                                 |
 | 11     | 11-rehouse-the-workspace-and-project-screen-claims.md            | Not Started | 02, 03                             |
-| 12     | 12-rehouse-the-publish-output-claims.md                          | Not Started | 01                                 |
+| 12     | 12-rehouse-the-publish-output-claims.md                          | Completed   | 01                                 |
 | 13     | 13-decide-the-remote-family-by-measurement.md                    | Not Started | 03, 05                             |
 | 14     | 14-consolidate-the-duplicated-platform-and-keyboard-claims.md    | Not Started | 02, 08                             |
 | 15     | 15-close-the-epic-lower-the-fence-and-record-the-cost.md         | Not Started | 04, 06, 07, 08, 09, 10, 11, 12, 13, 14 |
