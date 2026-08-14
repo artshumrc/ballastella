@@ -19,6 +19,7 @@ import {
 	writeCachedTileSource
 } from './offline-cache';
 import {
+	OFFLINE_TILE_LIMIT,
 	baseMapTileDirectory,
 	cachedTilePath,
 	legacyCachedTilePath,
@@ -141,6 +142,19 @@ describe('offlineCoverage', () => {
 		expect(grown.missing.length).toBeGreaterThan(0);
 	});
 
+	it('costs the Workspace nothing to ask, because the plan is only a plan', async () => {
+		// What the dialog does before the user has agreed to anything: it counts, it quotes, and it says
+		// the Project is not available offline — and it writes not one byte doing so. A budget that
+		// touched the cache to answer would have spent somebody else's bandwidth (ADR-0007) on a
+		// question, and the refusal below would already be too late.
+		const store = new MemoryProjectStore();
+		const coverage = await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14);
+
+		expect(describeTileBudget(coverage.budget)).toContain('23 tiles');
+		expect(coverage.complete).toBe(false);
+		expect(await store.list('')).toEqual([]);
+	});
+
 	it('ignores files under the cache directory that are not tiles', async () => {
 		const store = new MemoryProjectStore();
 		await store.write(
@@ -170,6 +184,31 @@ describe('fetchTilesIntoCache', () => {
 		const one = await store.read(cachedTilePath(ARCHIVE, { z: 14, x: 8414, y: 5383 }));
 		expect(one.byteLength).toBe(64);
 		expect(one[0]).toBe(14);
+	});
+
+	it('writes a tile file for every zoom from 0 to the source maximum', async () => {
+		// **Every** zoom, because omitting the low ones makes zooming out go blank inside an area the
+		// user was told is available offline (ADR-0025, SPEC story 6) — and an empty tile is not an
+		// error, so the failure is a blank pane with nothing to show for it.
+		const store = new MemoryProjectStore();
+		await fetchTilesIntoCache({
+			store,
+			archive: ARCHIVE,
+			tiles: tileBudget(CANAL_BELT, 14).tiles,
+			readTile: source().readTile
+		});
+
+		const paths = await store.list(baseMapTileDirectory(ARCHIVE));
+		expect(paths.length).toBe(23);
+		// The zoom is the segment after the archive key: `base-map/tiles/<key>/<z>/…`.
+		const zooms = [...new Set(paths.map((path) => Number(path.split('/')[3])))].sort(
+			(a, b) => a - b
+		);
+		expect(zooms).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+		expect(paths).toContain(`${baseMapTileDirectory(ARCHIVE)}0/0/0.mvt`);
+		expect(paths).toContain(`${baseMapTileDirectory(ARCHIVE)}14/8414/5383.mvt`);
+
+		expect((await offlineCoverage(store, ARCHIVE, CANAL_BELT, 14)).complete).toBe(true);
 	});
 
 	it('fetches only tiles not already present when it is run again', async () => {
@@ -262,6 +301,36 @@ describe('an extent past the threshold', () => {
 		expect(coverage.complete).toBe(false);
 		expect(coverage.missing).toEqual([]);
 		expect(coverage.present).toBe(0);
+	});
+
+	it('is refused with the numbers, and nothing is fetched', async () => {
+		// ADR-0007's courtesy: this fetches from somebody else's server, so the refusal has to carry the
+		// numbers — a tool declining without saying what it declined — and it has to happen *before*
+		// anything is written, which is the half a sentence alone cannot assert.
+		//
+		// A third of a degree square rather than a continent, because the mutation this was watched to
+		// fail against removes the refusal and then really does enumerate and fetch the extent; the
+		// continent case is `tile-cache.test.ts`'s "a continent at hundreds of thousands".
+		const store = new MemoryProjectStore();
+		const spread: GeoBounds = { west: 4.8, south: 52.3, east: 5.1, north: 52.6 };
+		const coverage = await offlineCoverage(store, ARCHIVE, spread, 14);
+
+		const refusal = tileBudgetRefusal(coverage.budget);
+		expect(coverage.budget.count).toBeGreaterThan(OFFLINE_TILE_LIMIT);
+		expect(refusal).toContain(String(coverage.budget.count));
+		expect(refusal).toContain(`${OFFLINE_TILE_LIMIT} tiles`);
+		expect(refusal).toContain('Nothing has been fetched');
+
+		// And the extent carries no work to do, so the caller that hands `missing` to the fetch loop
+		// cannot fetch one tile of it either.
+		const run = await fetchTilesIntoCache({
+			store,
+			archive: ARCHIVE,
+			tiles: coverage.missing,
+			readTile: source().readTile
+		});
+		expect(run.written).toBe(0);
+		expect(await store.list('')).toEqual([]);
 	});
 });
 

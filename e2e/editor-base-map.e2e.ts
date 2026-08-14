@@ -535,95 +535,30 @@ test.describe('the author’s default', () => {
 		await routeBaseMapArchive(context);
 	});
 
-	test('is written to project.json as an id, with no URL anywhere in the file', async ({
-		page
-	}) => {
-		await openPane(page);
-
-		await switcher(page).selectOption('physical');
-
-		await expect.poll(() => readProjectFile(page)).toContain('physical');
-		const contents = await readProjectFile(page);
-		expect(JSON.parse(contents ?? '{}').baseMap).toBe('physical');
-		// ADR-0020: an id, never an address. A URL here is what makes a Project unportable, and the
-		// failure mode is a plausible-looking *wrong* map rather than an error.
-		expect(contents).not.toMatch(/https?:|pmtiles/);
-	});
-
-	test('is restored when the Project is reopened', async ({ page }) => {
-		await openPane(page);
-		await switcher(page).selectOption('muted');
-		await expect.poll(() => readProjectFile(page)).toContain('muted');
-
-		await page.reload();
-		await waitForLoadedMap(page);
-
-		await expect(switcher(page)).toHaveValue('muted');
-	});
-
-	test('falls back to the deployment default when the id is unrecognised, and says so', async ({
-		page
-	}) => {
-		const crashes: Error[] = [];
-		page.on('pageerror', (error) => crashes.push(error));
-
-		await openPane(
-			page,
-			projectJson({ name: 'From another deployment', baseMap: 'ordnance-survey-1888' })
-		);
-
-		// A map, not a blank pane and not an error.
-		await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
-		await expect(switcher(page)).toHaveValue('streets');
-		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
-
-		// Quiet, and in an announced live region rather than a tooltip (ADR-0016). Addressed by test id
-		// rather than by `role="status"`: the save indicator is the app's one `status` role since
-		// ticket 04 put it on the navigation bar, so this region is `aria-live="polite"`.
-		const notice = page.getByTestId('base-map-notice');
-		await expect(notice).toContainText('ordnance-survey-1888');
-		await expect(notice).toContainText('Streets');
-
-		expect(crashes).toEqual([]);
-	});
-
-	test('leaves an unrecognised id in project.json, so moving the Project back restores it', async ({
-		page
-	}) => {
-		// ADR-0020's portability claim, which is the whole reason `project.json` records an id and
-		// not an address: this deployment cannot serve `ordnance-survey-1888`, so it shows its own
-		// default — but the author's choice is *their* data and must survive being shown something
-		// else. Overwriting it with the local default is one line away and would silently destroy
-		// the author's intent the first time a Project were opened on the wrong deployment.
-		await openPane(page, projectJson({ baseMap: 'ordnance-survey-1888' }));
-
-		await expect(switcher(page)).toHaveValue('streets');
-		expect(JSON.parse((await readProjectFile(page)) ?? '{}').baseMap).toBe('ordnance-survey-1888');
-
-		// And it is still there after the pane has been open long enough to have written.
-		await page.reload();
-		await waitForLoadedMap(page);
-		expect(JSON.parse((await readProjectFile(page)) ?? '{}').baseMap).toBe('ordnance-survey-1888');
-	});
-
-	test('stamps updatedAt, because one write path owns the whole document', async ({ page }) => {
-		// The Base Map choice goes through the same `Workspace.writeProject` as every other
-		// mutation, so it keeps the document's own bookkeeping. A second writer for this one field
-		// wrote `baseMap` and nothing else: the hub's "last saved" then went stale, and a stale
-		// in-memory document elsewhere in the app could serialise the choice straight back out.
-		await openPane(page);
-
-		await switcher(page).selectOption('physical');
-		await expect.poll(() => readProjectFile(page)).toContain('physical');
-
-		const written = JSON.parse((await readProjectFile(page)) ?? '{}');
-		expect(written.updatedAt).not.toBe('2026-01-01T00:00:00.000Z');
-		expect(Date.parse(written.updatedAt)).toBeGreaterThan(Date.parse('2026-01-01T00:00:00.000Z'));
-		// And nothing else was lost on the way.
-		expect(written.name).toBe('Amsterdam 1625');
-		expect(written.formatVersion).toBe(1);
-		expect(written.layers).toEqual([]);
-	});
+	// ⚠ **The document half of the author's default is asserted at Seam 1** (epic ticket 09). ADR-0020
+	// makes a Base Map an *id*, never a URL, which makes every one of those claims a question about a
+	// document rather than about a map, and each is now a Vitest test in `packages/core/src/base-map/`:
+	//
+	//   - "is written to project.json as an id, with no URL anywhere in the file"
+	//        → `project.test.ts` › "records the author choice as an id, and nothing that could be an
+	//          address"
+	//   - "is restored when the Project is reopened"
+	//        → `project.test.ts` › "reads back what it wrote" and "reopens a Project onto the Base Map
+	//          the author chose"
+	//   - "falls back to the deployment default when the id is unrecognised, and says so"
+	//        → `resolve.test.ts` › "falls back to the deployment default for an unknown id, without
+	//          throwing" and `baseMapFallbackNotice` › "names both the missing Base Map and the one
+	//          shown instead"
+	//   - "leaves an unrecognised id in project.json, so moving the Project back restores it"
+	//        → `project.test.ts` › "keeps an unrecognised id in the document, so moving the Project
+	//          back restores it"
+	//   - "stamps updatedAt, because one write path owns the whole document"
+	//        → `project.test.ts` › "stamps updatedAt when the choice is saved, because one write path
+	//          owns the document"
+	//
+	// What stays here is the *writing* rather than the *written*: the save state below is the app's
+	// only signal that the choice reached the disk (ADR-0017 rule 5), and the quota failure it is
+	// asserted under is injected at a browser API a fake would not have.
 
 	test('shows the save state, and says so when the choice could not be written', async ({
 		page
@@ -975,44 +910,30 @@ test.describe('making a Project available offline', () => {
 		await seedProjectWithWork(page);
 	});
 
-	test('shows a tile count and a byte estimate before fetching anything', async ({ page }) => {
-		await openProjectScreen(page);
-
-		const archiveTiles: string[] = [];
-		page.on('request', (request) => {
-			if (request.url().includes('.pmtiles')) archiveTiles.push(request.url());
-		});
-
-		await page.getByTestId('make-offline').click();
-		await expect(page.getByTestId('offline-status')).toHaveAttribute('data-step', 'deciding');
-
-		// The numbers, in visible text, before the button that spends them exists in an enabled state.
-		const size = page.getByTestId('offline-budget-size');
-		await expect(size).toContainText(/^\d+ tiles, about [0-9.]+ MB, /);
-		await expect(size).toContainText('every zoom level from 0 to 14');
-		await expect(page.getByTestId('offline-budget-present')).toContainText('Not available offline');
-
-		// And nothing has been written. The plan is a plan.
-		expect(await cachedTilePaths(page)).toEqual([]);
-	});
-
-	test('writes a tile file for every zoom from 0 to the source maximum', async ({ page }) => {
-		await openProjectScreen(page);
-		await makeAvailableOffline(page);
-
-		const paths = await cachedTilePaths(page);
-		expect(paths.length).toBe(23);
-		// **Every** zoom, because omitting the low ones makes zooming out go blank (SPEC story 6).
-		// The zoom is the segment after the archive key: `base-map/tiles/<key>/<z>/…`.
-		const zooms = [...new Set(paths.map((path) => Number(path.split('/')[3])))].sort(
-			(a, b) => a - b
-		);
-		expect(zooms).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
-		expect(paths).toContain(`${TILES}0/0/0.mvt`);
-		expect(paths).toContain(`${TILES}14/8414/5383.mvt`);
-
-		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
-	});
+	// ⚠ **The arithmetic and the record-keeping are asserted at Seam 1** (epic ticket 09). "How many
+	// tiles does this extent need", "what do they weigh", "which of them are already files" and "what
+	// is refused" are questions about a list and a store, and driving them through a browser proved
+	// nothing a `MemoryProjectStore` cannot. Each is now a Vitest test in
+	// `packages/core/src/base-map/offline-cache.test.ts`:
+	//
+	//   - "shows a tile count and a byte estimate before fetching anything"
+	//        → "costs the Workspace nothing to ask, because the plan is only a plan", with the sentence
+	//          itself in "what the user is told before agreeing" › "states the count, the estimate, and
+	//          the zoom range"
+	//   - "writes a tile file for every zoom from 0 to the source maximum"
+	//        → "writes a tile file for every zoom from 0 to the source maximum"
+	//   - "refuses an extent past the threshold with the numbers, and writes nothing"
+	//        → "an extent past the threshold" › "is refused with the numbers, and nothing is fetched"
+	//   - "reports a second Project in the same area as available offline without fetching"
+	//        → "reports a second Project in the same area as available offline, having fetched nothing"
+	//   - "reports a Project whose extent has grown beyond the cache as not available offline"
+	//        → "reports a Project whose extent has outgrown the cache as not available offline"
+	//   - "fetches only the tiles not already present when it is run again"
+	//        → "fetches only tiles not already present when it is run again"
+	//
+	// What stays below needs the browser for a reason it cannot be given one seam down: the map really
+	// drawing from the cache with the network cut, the attribution surviving it, the recorded depth
+	// answering with no connection at all, and the hub's clear acting on the real files.
 
 	test('still answers “is this Project available offline?” with the archive unreachable', async ({
 		page,
@@ -1168,130 +1089,17 @@ test.describe('making a Project available offline', () => {
 		await expect(page.locator('.maplibregl-ctrl-attrib')).toContainText('OpenStreetMap');
 	});
 
-	test('refuses an extent past the threshold with the numbers, and writes nothing', async ({
-		page
-	}) => {
-		// A Project whose Annotations span most of a continent. The count is thousands, which is what
-		// ADR-0007's courtesy is about: this fetches from somebody else's server.
-		await seedProjectWithWork(page, [
-			[-18, -35],
-			[52, -35],
-			[52, 38],
-			[-18, 38],
-			[-18, -35]
-		]);
-		await openProjectScreen(page);
-
-		await page.getByTestId('make-offline').click();
-		await expect(page.getByTestId('offline-status')).toHaveAttribute('data-step', 'deciding');
-
-		const refusal = page.getByTestId('offline-refusal');
-		await expect(refusal).toContainText('500 tiles');
-		await expect(refusal).toContainText('Nothing has been fetched');
-		await expect(page.getByTestId('offline-start')).toBeDisabled();
-
-		expect(await cachedTilePaths(page)).toEqual([]);
-	});
-
-	test('reports a second Project in the same area as available offline without fetching', async ({
-		page
-	}) => {
-		await openProjectScreen(page);
-		await makeAvailableOffline(page);
-		const after = await cachedTilePaths(page);
-
-		// A second Project, a few streets inside the first one's extent.
-		await page.evaluate(
-			async ([json, geojson]) => {
-				const root = await workspaceRoot();
-				const project = await root.getDirectoryHandle('boston-1775', { create: true });
-				const handle = await project.getFileHandle('project.json', { create: true });
-				let writable = await handle.createWritable();
-				await writable.write(json);
-				await writable.close();
-				const folder = await project.getDirectoryHandle('annotations', { create: true });
-				const notes = await folder.getFileHandle('notes.geojson', { create: true });
-				writable = await notes.createWritable();
-				await writable.write(geojson);
-				await writable.close();
-			},
-			[
-				projectWithWork().project,
-				JSON.stringify({
-					type: 'FeatureCollection',
-					features: [
-						{
-							type: 'Feature',
-							id: 'b1',
-							properties: { 'ballastella:id': 'b1' },
-							geometry: {
-								type: 'Polygon',
-								coordinates: [
-									[
-										[4.885, 52.365],
-										[4.9, 52.365],
-										[4.9, 52.375],
-										[4.885, 52.375],
-										[4.885, 52.365]
-									]
-								]
-							}
-						}
-					]
-				})
-			] as const
-		);
-
-		await openProjectScreen(page, 'boston-1775');
-
-		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
-		// The cache is Workspace-level, so the second Project cost nothing at all (ADR-0023).
-		expect(await cachedTilePaths(page)).toEqual(after);
-	});
-
-	test('reports a Project whose extent has grown beyond the cache as not available offline', async ({
-		page
-	}) => {
-		await openProjectScreen(page);
-		await makeAvailableOffline(page);
-		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'yes');
-
-		// The scholar's work spreads east, past what was cached.
-		await seedProjectWithWork(page, [
-			[4.88, 52.36],
-			[5.05, 52.36],
-			[5.05, 52.38],
-			[4.88, 52.38],
-			[4.88, 52.36]
-		]);
-		await page.reload();
-		await waitForLoadedMap(page);
-
-		await expect(page.getByTestId('offline-availability')).toHaveAttribute('data-offline', 'no');
-		await expect(page.getByTestId('offline-availability')).toContainText('Not available offline');
-	});
-
-	test('fetches only the tiles not already present when it is run again', async ({ page }) => {
-		await openProjectScreen(page);
-		await makeAvailableOffline(page);
-		const first = await cachedTilePaths(page);
-		expect(first.length).toBe(23);
-
-		await page.getByTestId('make-offline').click();
-		await expect(page.getByTestId('offline-status')).toHaveAttribute('data-step', 'deciding');
-		// Nothing left to fetch, said in the button and in the sentence beside it.
-		await expect(page.getByTestId('offline-start')).toContainText('Fetch 0 tiles');
-		await expect(page.getByTestId('offline-start')).toBeDisabled();
-		await expect(page.getByTestId('offline-budget-present')).toContainText('Available offline');
-
-		expect(await cachedTilePaths(page)).toEqual(first);
-	});
-
 	test('is cleared from the hub, and the Projects then report themselves not available offline', async ({
 		page
 	}) => {
 		await openProjectScreen(page);
 		await makeAvailableOffline(page);
+
+		// ⚠ **This walk is what holds the harness's copy of `baseMapArchiveKey` to the application's** —
+		// see {@link cachedTilePaths}. It is asserted non-empty here rather than only emptied below,
+		// because `toEqual([])` is satisfied by a directory the app never wrote to. It used to be
+		// "writes a tile file for every zoom", which is at Seam 1 now; the fence is not.
+		expect(await cachedTilePaths(page)).toHaveLength(23);
 
 		await page.goto(HUB);
 		const summary = page.getByTestId('base-map-cache');
