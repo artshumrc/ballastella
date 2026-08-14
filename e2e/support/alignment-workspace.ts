@@ -525,6 +525,14 @@ export const waitForStored = async (page: Page, imageId: string, count: number):
 };
 
 /**
+ * How long {@link warpedTiles} will wait for a tile to arrive and decode.
+ *
+ * Generous, and it costs nothing when the tiles are there: the poll returns on the first non-zero
+ * answer. The same budget `editor-layers.e2e.ts` allows its own copy of this wait.
+ */
+const WARPED_TILE_WAIT_MS = 30_000;
+
+/**
  * How many warped tiles have arrived **and decoded**.
  *
  * `CacheableTile.isCachedTile()` is `data !== undefined`, and `data` is the ImageData the tile worker
@@ -532,16 +540,26 @@ export const waitForStored = async (page: Page, imageId: string, count: number):
  * tiles that were merely asked for. It is the honest signal for "the Historical Map renders warped":
  * the failure this path used to have was an error `@allmaps/render` logged and swallowed, so a check
  * for an absence of console errors went green while the map rendered blank.
+ *
+ * **Polled, not slept for, and the assertion is unchanged.** Every caller asks whether the count is
+ * above zero, and a cached tile is a real barrier: it is bytes that arrived *and* decoded through the
+ * ADR-0011 shim, so it cannot be true before the thing being awaited has happened. The poll returns on
+ * the first non-zero answer and a renderer that draws nothing still spends the whole budget and still
+ * answers 0. A fixed three seconds was enough on an idle machine and not on a loaded one; a longer
+ * fixed sleep would be the same defect, slower.
  */
 export const warpedTiles = async (page: Page): Promise<number> =>
-	page.evaluate(async () => {
+	page.evaluate(async (ceiling) => {
 		const warped = (window as { ballastellaWarped?: WarpedHandle }).ballastellaWarped;
 		if (!warped) return -1;
 		// Bring the warped map into view, or the renderer has no reason to ask for a tile.
 		warped.map.fitBounds(warped.layer.getBounds(), { animate: false });
-		await new Promise((resolve) => setTimeout(resolve, 3000));
-		return (warped.layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
-	});
+		const cached = () => (warped.layer.renderer?.tileCache?.getCachedTiles?.() ?? []).length;
+		for (let waited = 0; waited < ceiling && cached() === 0; waited += 200) {
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		}
+		return cached();
+	}, WARPED_TILE_WAIT_MS);
 
 /** What the renderer thinks it has been asked to draw. `null` when there is no warped map. */
 export const drawnMap = (page: Page) =>

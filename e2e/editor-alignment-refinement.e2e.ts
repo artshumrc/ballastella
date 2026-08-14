@@ -48,7 +48,6 @@ import { routeBaseMapArchive } from './support/editor-deployment';
 const picker = (page: Page) => page.getByTestId('transformation-select');
 const guidance = (page: Page) => page.getByTestId('transformation-guidance');
 const advancedToggle = (page: Page) => page.getByTestId('transformation-advanced');
-const shortfalls = (page: Page) => page.getByTestId('transformation-shortfalls');
 const foldWarning = (page: Page) => page.getByTestId('fold-warning');
 const distortionControls = (page: Page) => page.getByTestId('distortion-controls');
 const distortionToggle = (page: Page) => page.getByTestId('distortion-toggle');
@@ -130,20 +129,6 @@ async function dragBy(
 const worstDistortion = async (page: Page): Promise<number> =>
 	(await drawnMap(page))?.worstDistortion ?? -1;
 
-/** Every `<option>` in the picker, disabled or not, as `[value, text]`. */
-const options = (page: Page) =>
-	page.evaluate(() => {
-		const select = document.querySelector<HTMLSelectElement>(
-			'[data-testid="transformation-select"]'
-		);
-		return Array.from(select?.options ?? []).map((option) => ({
-			value: option.value,
-			text: option.textContent?.trim() ?? '',
-			disabled: option.disabled,
-			group: option.parentElement instanceof HTMLOptGroupElement ? option.parentElement.label : ''
-		}));
-	});
-
 /** What the accessibility tree says about the picker: its name, and its description. */
 const pickerDescription = (page: Page) =>
 	page.evaluate(() => {
@@ -161,131 +146,44 @@ const pickerDescription = (page: Page) =>
 		};
 	});
 
+/**
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THE PICKER'S OPTION LIST IS ASSERTED AT THE COMPONENT SEAM NOW.                            │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * `apps/editor/src/lib/alignment/transformation-picker.dom.test.ts` carries the tiers and their
+ * order, the guidance-before-label option text, the named `Advanced` optgroup, the disclosure's
+ * `aria-expanded` in both directions, the forced disclosure when a stored advanced type is current,
+ * the disabled options and shortfall sentences at a given Control Point count, and the refusal to
+ * choose a type the count cannot support. `TransformationPicker` computes every one of those from two
+ * props, so booting the application and clicking ten pairs onto two canvases to read a `<select>` was
+ * scenery: those two tests were retired here and their claims rehoused there, each watched to fail
+ * against a broken component first.
+ *
+ * What stays below is what only Seam 2 can ask: that the guidance is **painted** rather than merely
+ * present (`offsetParent` is layout, and the component seam has none), and everything about what
+ * reaches the Alignment on disk and what the renderer is told.
+ */
 test.describe('the transformation picker (ADR-0013)', () => {
-	test('offers four primary types with the guidance as the primary text, and two behind Advanced', async ({
-		page
-	}) => {
-		await start(page);
-		await makePairs(page, 10);
-
-		// Four to begin with. The Advanced tier is not merely styled differently — it is not there.
-		let listed = await options(page);
-		expect(listed.map((one) => one.value)).toEqual([
-			'helmert',
-			'polynomial1',
-			'projective',
-			'thinPlateSpline'
-		]);
-
-		// **Guidance first, label second.** ADR-0013: "Most printed maps" is what a historian can act
-		// on; "Standard" is not. Asserted as a prefix so the order is the assertion, not the presence.
-		expect(listed[0]?.text).toBe('Accurate modern maps — rotate, scale, and move only (Simple)');
-		expect(listed[1]?.text).toBe('Most printed and scanned maps (Standard)');
-		expect(listed[2]?.text).toBe('Maps photographed at an angle (Perspective)');
-		expect(listed[3]?.text).toBe('Hand-drawn or geometrically inconsistent maps (Flexible)');
-
-		// The disclosure. Announced as a disclosure, not merely drawn as one.
-		await expect(advancedToggle(page)).toHaveAttribute('aria-expanded', 'false');
-		await advancedToggle(page).click();
-		await expect(advancedToggle(page)).toHaveAttribute('aria-expanded', 'true');
-
-		listed = await options(page);
-		expect(listed.map((one) => one.value)).toEqual([
-			'helmert',
-			'polynomial1',
-			'projective',
-			'thinPlateSpline',
-			'polynomial2',
-			'polynomial3'
-		]);
-		// Grouped and named, so the tier is announced rather than being a matter of position.
-		expect(listed[4]?.group).toBe('Advanced');
-		expect(listed[5]?.group).toBe('Advanced');
-		expect(listed[4]?.text).toBe('Only with many well-spread points (Higher-order (2nd))');
-
-		// And it closes again.
-		await advancedToggle(page).click();
-		await expect(advancedToggle(page)).toHaveAttribute('aria-expanded', 'false');
-		expect((await options(page)).length).toBe(4);
-	});
-
 	// ADR-0016: "anything a user *needs* is visible text or `aria-describedby`", because a daisyUI
 	// tooltip renders through CSS `::before` — screen readers do not announce it and it cannot be
-	// dismissed. This copy is named in the ADR as exactly the text that would otherwise be buried in
-	// one, so it is asserted on both counts: reachable through the accessibility tree, and visible.
-	test('puts the guidance in the accessibility tree and on the page, never in a tooltip', async ({
+	// dismissed. That the picker carries no tooltip and that the description resolves to the right
+	// text are the component seam's; that the text is **laid out** is this one's, and it is the half a
+	// DOM implementation cannot answer at all.
+	test('paints the guidance on the page and names it in the accessibility tree', async ({
 		page
 	}) => {
 		await start(page);
-		await makePairs(page, 3);
 
 		const described = await pickerDescription(page);
 		expect(described.describedById).not.toBe('');
 		expect(described.describedText).toBe('Most printed and scanned maps');
+		// **`offsetParent`, which is why this is still here**: null for anything `display: none`, so
+		// this is "actually laid out" rather than "in the DOM".
 		expect(described.describedIsVisible).toBe(true);
 
-		// The same text, found by role, which is what an assistive technology would traverse.
 		await expect(guidance(page)).toHaveText('Most printed and scanned maps');
 		await expect(guidance(page)).toBeVisible();
-
-		// Nothing on this control leans on a tooltip. `title` is the native one and daisyUI's is a
-		// `tooltip` class; neither may be how the guidance reaches the user.
-		const leansOnTooltip = await page.evaluate(() => {
-			const group = document.querySelector('[data-testid="transformation-picker"]');
-			if (!group) return 'the picker is not on the page';
-			if (group.querySelector('[title]')) return 'a native title attribute';
-			if (group.querySelector('[class*="tooltip"]')) return 'a daisyUI tooltip class';
-			return '';
-		});
-		expect(leansOnTooltip).toBe('');
-
-		// It follows the selection, so it describes the type in the control rather than the default.
-		await advancedToggle(page).click();
-		await picker(page).selectOption('thinPlateSpline');
-		await expect(guidance(page)).toHaveText('Hand-drawn or geometrically inconsistent maps');
-	});
-
-	test('disables a type below its minimum and names the shortfall', async ({ page }) => {
-		await start(page);
-		// Two pairs: enough for Simple, one short of Standard and Flexible, two short of Perspective.
-		await makePairs(page, 2);
-		await advancedToggle(page).click();
-
-		const listed = await options(page);
-		const byValue = (value: string) => listed.find((one) => one.value === value);
-
-		expect(byValue('helmert')?.disabled, 'Simple needs 2 and there are 2').toBe(false);
-		expect(byValue('polynomial1')?.disabled).toBe(true);
-		expect(byValue('projective')?.disabled).toBe(true);
-		expect(byValue('thinPlateSpline')?.disabled).toBe(true);
-		expect(byValue('polynomial2')?.disabled).toBe(true);
-		expect(byValue('polynomial3')?.disabled).toBe(true);
-
-		// **The shortfall is named**, on the option itself, with both numbers — not merely greyed out.
-		// ADR-0013's own example sentence.
-		expect(byValue('thinPlateSpline')?.text).toContain(
-			'Flexible needs at least 3 Control Points — you have 2'
-		);
-		expect(byValue('polynomial3')?.text).toContain(
-			'Higher-order (3rd) needs at least 10 Control Points — you have 2'
-		);
-
-		// And on the page, so it answers a question the user has while placing points rather than one
-		// they have while browsing a list.
-		await expect(shortfalls(page)).toContainText(
-			'Flexible needs at least 3 Control Points — you have 2'
-		);
-		await expect(shortfalls(page)).toContainText(
-			'Perspective needs at least 4 Control Points — you have 2'
-		);
-		await expect(shortfalls(page)).toContainText(
-			'Higher-order (3rd) needs at least 10 Control Points — you have 2'
-		);
-
-		// A third pair takes Standard and Flexible off the list and leaves Perspective on it.
-		await makePairs(page, 3);
-		await expect(shortfalls(page)).not.toContainText('Flexible needs');
-		await expect(shortfalls(page)).toContainText('Perspective needs at least 4');
 	});
 
 	// The obvious implementation — reset on change — destroys the user's actual labour (ADR-0013).
