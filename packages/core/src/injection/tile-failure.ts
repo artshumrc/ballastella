@@ -157,7 +157,8 @@ function remedy(failure: TileSourceFailure): string {
  * drives both shapes and the two do not recover alike:
  *
  *   - a refused **`info.json`** DOES heal with no gesture at all, because `WebGL2Renderer.render`
- *     calls `loadMissingImagesInViewport()` on every frame and re-asks for it until it arrives;
+ *     calls `loadMissingImagesInViewport()` on every frame and re-asks for it until it arrives —
+ *     given frames to run in, which is what {@link keepAskingForMissingTiles} is for;
  *   - a refused **tile cell** does NOT. The renderer never asks for it again — **not even after a
  *     zoom**, which was measured too, because the failed cell is already in its tile cache. Only a
  *     rebuilt layer re-requests it.
@@ -174,3 +175,70 @@ function remedy(failure: TileSourceFailure): string {
 const WHEN_IT_ANSWERS_AGAIN =
 	'When it is answering again the map picks up what it can by itself; anything still missing ' +
 	'comes back if you hide this Layer and show it again, or reload the page.';
+
+/**
+ * How long to wait before each successive re-ask, in milliseconds.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THERE IS A SCHEDULE HERE AT ALL, AND WHY IT ENDS
+ *
+ * `loadMissingImagesInViewport()` runs on every painted frame — but **MapLibre does not paint when
+ * nothing changes.** So the self-healing half of the sentence above held only for a Reader whose map
+ * happened to still be settling: an unrelated straggler repaint, the tail of the Base Map's tiles,
+ * had to land after the bytes became fetchable. In front of a map that had fully settled — no click,
+ * no zoom, nobody touching anything — zero frames were painted, the record was never re-requested,
+ * and the notice stayed up for ever. That is precisely the Reader this sentence is addressed to, and
+ * for them it was false.
+ *
+ * The fix is to give the renderer frames of its own while something is missing. Not a permanent
+ * animation loop: a site that stays broken must not cost a Reader their battery, and each frame is
+ * another request to a server already known to be failing.
+ *
+ * **It doubles, and then it stops.** Fast at the start because most outages that recover recover
+ * within seconds and that is when a Reader is still watching; slow at the end because by then the
+ * server is not coming back on this pageview. The budget totals about two minutes and eleven
+ * re-asks, after which the remedy the sentence already names — hide the Layer and show it again, or
+ * reload — is the one that applies, and it is a gesture that works for the tile-cell half too.
+ */
+export const TILE_RECOVERY_DELAYS: readonly number[] = [
+	250, 500, 1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000
+];
+
+/**
+ * Ask the renderer to draw again, on the schedule above, until it is told to stop.
+ *
+ * @param askAgain draw one frame — `map.triggerRepaint()` in the viewer, which is what gets
+ *   `WebGL2Renderer.render` called and so what re-requests a refused `info.json`
+ * @returns stop asking. Called when the bytes come back, and on teardown.
+ *
+ * ⚠ **Armed when the notice goes up, never re-armed by the refusals it provokes.** Each nudge that
+ * fails reports another refusal, so a caller that re-armed on every refusal would have built exactly
+ * the unbounded loop this schedule exists to avoid. The caller therefore drives this off *whether*
+ * something is missing and not off each refusal — one armed schedule per outage, and it runs out.
+ */
+export function keepAskingForMissingTiles(
+	askAgain: () => void,
+	delays: readonly number[] = TILE_RECOVERY_DELAYS
+): () => void {
+	let next = 0;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+
+	const schedule = (): void => {
+		const delay = delays[next];
+		if (delay === undefined) return;
+		next += 1;
+		timer = setTimeout(() => {
+			timer = undefined;
+			askAgain();
+			schedule();
+		}, delay);
+	};
+
+	schedule();
+
+	return () => {
+		if (timer !== undefined) clearTimeout(timer);
+		timer = undefined;
+		next = delays.length;
+	};
+}

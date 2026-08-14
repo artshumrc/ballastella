@@ -425,6 +425,11 @@
 	 * with no gesture at all; a refused tile cell is never re-asked for, not even after a zoom. That is
 	 * why the sentence names hiding and showing the Layer — and why this notice can legitimately stay
 	 * up over a map whose server is answering again.
+	 *
+	 * Which half of that is true is not the map's to discover unprompted: while this is set, the pane
+	 * is asked to paint on `keepAskingForMissingTiles`' schedule, because the renderer re-asks for a
+	 * refused record only on a painted frame and a settled map paints none. It is handed **whether**
+	 * this is `null`, never each refusal — see `ReaderMapPane`'s `tilesMissing`.
 	 */
 	let tileFailure = $state.raw<{
 		failure: TileSourceFailure;
@@ -1292,6 +1297,7 @@
 									layers={drawn}
 									{openingFit}
 									{fetchTile}
+									tilesMissing={tileFailure !== null}
 									popupAnnotation={selectedAnnotation}
 									popupAt={selected?.at ?? null}
 									onclickannotation={(hit) => (selected = hit)}

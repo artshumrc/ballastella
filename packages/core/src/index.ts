@@ -652,8 +652,13 @@ export {
 // The sentence a person is shown when a Historical Map's tiles stop arriving. One function, rendered
 // by the published viewer (ticket 04) and by the editor (ticket 05), so that one outage cannot be
 // described two ways at the same scholar.
+// `keepAskingForMissingTiles` is what makes that sentence's self-healing clause true: MapLibre paints
+// no frames when nothing changes, and the renderer only re-asks for a refused record while it is
+// painting.
 export {
+	TILE_RECOVERY_DELAYS,
 	historicalMapTilesUnavailableNotice,
+	keepAskingForMissingTiles,
 	type TileSourceFailure
 } from './injection/tile-failure.js';
 export {

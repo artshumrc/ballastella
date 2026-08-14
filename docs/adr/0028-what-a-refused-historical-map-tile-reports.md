@@ -91,6 +91,31 @@ zoom does not shift it. Only a rebuilt layer re-requests it.
 The sentence therefore says *"When it is answering again the map picks up what it can by itself;
 anything still missing comes back if you hide this Layer and show it again, or reload the page."*
 
+### "On every frame" is a promise about frames, and a settled map paints none
+
+The first row of that table was true only of a map that happened to still be moving. MapLibre paints
+when something changes, and nothing here changed anything: no repaint was triggered when a refusal
+was recorded, and nothing retried the refused record on a timer. So a Reader sitting still in front
+of a settled map — the ordinary case, and precisely the one the sentence is addressed to — got no
+frames, no re-request, and a notice that stayed up for ever. Recovery worked only when an unrelated
+straggler repaint, the tail of the Base Map's tiles, happened to land after the bytes became
+fetchable. Measured on the end-to-end test that asserts it: six runs took 6.1s, 15.5s, 15.6s, 16.2s,
+27.5s and 41.7s against a 45-second budget, which is a coin toss written down — and the test was
+reported failing outright, retry included, on 20 to 40 percent of runs.
+
+`keepAskingForMissingTiles` (`packages/core/src/injection/tile-failure.ts`) supplies the frames:
+while the notice is up, `ReaderMapPane` calls `triggerRepaint()` on a doubling schedule — a quarter
+of a second, then a half, out to thirty — and then **stops**, about two minutes and eleven re-asks
+in. It is a bounded retry rather than an animation loop on purpose: every frame is another request to
+a server already known to be failing, and a Reader who leaves a broken site open in a tab must not go
+on paying for it. Past the budget, the gesture the sentence already names is the remedy — and it is
+the remedy for the tile-cell half in any case.
+
+It is armed by *whether* something is missing, never by each refusal, because each of these frames
+provokes a refusal of its own: re-arming on those would build the unbounded loop the budget exists to
+avoid. The bound is asserted at Seam 1, in `tile-failure.test.ts`, since an end-to-end test cannot
+tell a schedule that ends from one that does not.
+
 ⚠ It previously said *"The map finishes drawing on its own once the tiles start arriving again, so it
 is worth checking your connection and waiting rather than reloading."* That was false for the
 tile-cell half: a Reader who followed it waited in front of a warning that would never go, over a map

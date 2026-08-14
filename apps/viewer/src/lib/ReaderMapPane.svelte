@@ -40,6 +40,7 @@
 		baseMapStyle,
 		defaultEntry,
 		isAbsoluteUrl,
+		keepAskingForMissingTiles,
 		type Annotation,
 		type BaseMapCatalog,
 		type FetchFn,
@@ -79,6 +80,7 @@
 		layers = [],
 		openingFit = null,
 		fetchTile,
+		tilesMissing = false,
 		popupAnnotation = null,
 		popupAt = null,
 		onclickannotation,
@@ -144,6 +146,16 @@
 		openingFit?: OpeningViewFit | null;
 		/** Where an aligned Historical Map's tiles are read from (ADR-0011). */
 		fetchTile: FetchFn;
+		/**
+		 * Whether some of a Historical Map's bytes were refused and have not come back.
+		 *
+		 * ⚠ **Whether, not which, and not each refusal** — the page's own notice state, passed down
+		 * because the map is here and the outcomes are there. While it is `true` this pane paints
+		 * frames on {@link keepAskingForMissingTiles}' schedule so the renderer re-asks for the refused
+		 * record; a signal that changed on every refusal would re-arm that schedule with the very
+		 * requests it makes, which is an unbounded loop rather than a bounded retry.
+		 */
+		tilesMissing?: boolean;
 		/** The Annotation whose popup is open, and where, or `null` for none (SPEC story 67). */
 		popupAnnotation?: Annotation | null;
 		popupAt?: GeoPoint | null;
@@ -448,6 +460,34 @@
 		// One call, driven by one signal: the Base Map flavor changes in the same action that changes the
 		// interface, which is the whole of ADR-0016's "not two independent toggles that agree".
 		current.setStyle(styleFor(entryId));
+	});
+
+	/**
+	 * Give the renderer frames to notice with while a Historical Map's bytes are missing.
+	 *
+	 * ─────────────────────────────────────────────────────────────────────────────────────────
+	 * WHAT A READER SITTING PERFECTLY STILL USED TO GET
+	 *
+	 * `WebGL2Renderer.render` re-asks for a refused `info.json` on every painted frame, which is the
+	 * whole of the sentence's promise that the map "picks up what it can by itself". **MapLibre paints
+	 * no frames when nothing changes.** So on a map that had fully settled — the commonest case for a
+	 * Reader who is looking rather than navigating — the record was never re-requested and the notice
+	 * stayed up for ever, however healthy the server became. Recovery worked only when an unrelated
+	 * straggler repaint happened to land after the bytes came back, which is why the end-to-end test
+	 * for it took anywhere from 6 to 42 seconds against a 45-second budget, and failed outright often
+	 * enough to be reported as the suite's worst flake. See ADR-0028 for the measurements.
+	 *
+	 * The schedule and the reason it ends are core's — see `keepAskingForMissingTiles`. This effect is
+	 * only the wiring, and it runs on **whether** something is missing, so the refusals these frames
+	 * themselves provoke cannot re-arm it.
+	 */
+	$effect(() => {
+		if (!tilesMissing) return;
+		const current = map;
+		if (current === undefined) return;
+		return keepAskingForMissingTiles(() => {
+			if (!removed) current.triggerRepaint();
+		});
 	});
 
 	/** The last fit carried out. A plain `let`: recording one must not re-run the effect below. */

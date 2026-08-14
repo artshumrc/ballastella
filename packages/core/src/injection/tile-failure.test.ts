@@ -7,9 +7,14 @@
 // four of them, each with a different remedy — and three of the four are reachable from the viewer
 // suite, which makes the fourth exactly the kind of row a browser test cannot defend.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { historicalMapTilesUnavailableNotice, type TileSourceFailure } from './tile-failure.js';
+import {
+	TILE_RECOVERY_DELAYS,
+	historicalMapTilesUnavailableNotice,
+	keepAskingForMissingTiles,
+	type TileSourceFailure
+} from './tile-failure.js';
 
 /** Every row, with a host on the ones that can carry one and without on the ones that cannot. */
 const EVERY_ROW: readonly TileSourceFailure[] = [
@@ -183,5 +188,84 @@ describe('historicalMapTilesUnavailableNotice', () => {
 			expect(safe, failure.kind).toBeGreaterThan(stopped);
 			expect(remedy, failure.kind).toBeGreaterThan(safe);
 		}
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// THE HALF OF THE SENTENCE THAT IS NOT WORDING
+//
+// "The map picks up what it can by itself" is a claim about behaviour, and it was **false for a
+// Reader who was sitting still**. `WebGL2Renderer.render` re-asks for a refused `info.json` on every
+// painted frame; MapLibre paints no frames when nothing changes; so on a settled map the record was
+// never re-requested and the notice never came down. `viewer-reader.e2e.ts` is where a Reader's
+// experience of that is asserted — the notice going away with no gesture — and it is the right place
+// for it, because only a browser has a renderer that stops painting.
+//
+// What that test cannot show is the shape of the schedule: that it backs off, and above all that it
+// **ends**. A budget that ran for ever would pass exactly the same end-to-end assertions while
+// costing a Reader their battery on a site that is simply broken. So the bound lives here, where it
+// can be driven off a clock.
+
+describe('keepAskingForMissingTiles', () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('asks again with no gesture at all, and asks soonest while a Reader is still watching', () => {
+		vi.useFakeTimers();
+		const asked = vi.fn();
+
+		keepAskingForMissingTiles(asked);
+
+		// Nothing has happened but time. This is the whole point: no click, no zoom, no redraw.
+		expect(asked, 'nothing is asked before the first delay').not.toHaveBeenCalled();
+		// Most outages that recover recover within seconds, which is also the window in which somebody
+		// is still looking at the map — so the first re-ask is within half a second of the refusal and
+		// the ones after it are close behind.
+		vi.advanceTimersByTime(500);
+		expect(asked).toHaveBeenCalled();
+		vi.advanceTimersByTime(2_000);
+		expect(asked.mock.calls.length).toBeGreaterThanOrEqual(3);
+	});
+
+	it('stops asking a site that stays broken, rather than repainting for ever', () => {
+		vi.useFakeTimers();
+		const asked = vi.fn();
+
+		keepAskingForMissingTiles(asked);
+		vi.advanceTimersByTime(24 * 60 * 60 * 1000);
+
+		// A bounded retry and not a loop: the budget is spent, and — the assertion that actually
+		// distinguishes the two — nothing is left waiting to run. Each frame is another request to a
+		// server already known to be failing, and a Reader who leaves a broken site open must not go
+		// on paying for it.
+		expect(asked).toHaveBeenCalledTimes(TILE_RECOVERY_DELAYS.length);
+		expect(vi.getTimerCount(), 'nothing is still scheduled').toBe(0);
+
+		// And it backs off rather than hammering: every wait is at least as long as the one before it,
+		// and the whole budget is minutes rather than hours.
+		const backingOff = TILE_RECOVERY_DELAYS.every(
+			(delay, index) => index === 0 || delay >= TILE_RECOVERY_DELAYS[index - 1]!
+		);
+		expect(backingOff).toBe(true);
+		expect(TILE_RECOVERY_DELAYS.reduce((total, delay) => total + delay, 0)).toBeLessThan(
+			5 * 60 * 1000
+		);
+	});
+
+	it('stops the moment it is told the bytes came back', () => {
+		vi.useFakeTimers();
+		const asked = vi.fn();
+
+		const stop = keepAskingForMissingTiles(asked);
+		vi.advanceTimersByTime(1_000);
+		const askedWhileMissing = asked.mock.calls.length;
+		stop();
+		vi.advanceTimersByTime(24 * 60 * 60 * 1000);
+
+		// Called by the caller when the notice comes down and on teardown, and both have to be final:
+		// a schedule that outlived a removed map would repaint something that is gone.
+		expect(asked).toHaveBeenCalledTimes(askedWhileMissing);
+		expect(vi.getTimerCount()).toBe(0);
 	});
 });
