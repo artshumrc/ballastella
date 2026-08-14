@@ -424,9 +424,33 @@ describe('the fake GitHub', () => {
 			expect(response.status).toBe(200);
 		});
 
-		it('takes its first commit through a created ref', async () => {
+		// ⚠ **This is the fake's most expensive mistake, corrected.** It used to accept blobs into a
+		// repository with no commits, so every first-publish test passed while the first publish
+		// anybody made failed at its first blob — against the repository the tool's own link tells a
+		// scholar to create. Real GitHub answers 409 `Git Repository is empty.` to the whole Git Data
+		// API until one commit exists, and the Contents API is the only way to make that commit.
+		it('refuses the git database until the repository holds a commit', async () => {
 			const empty = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
+			const response = await call(empty, `${repository}/git/blobs`, {
+				method: 'POST',
+				body: JSON.stringify({ content: '', encoding: 'base64' })
+			});
+
+			expect([response.status, ((await response.json()) as { message: string }).message]).toEqual([
+				409,
+				'Git Repository is empty.'
+			]);
+		});
+
+		it('takes its first commit through the Contents API, and opens the git database with it', async () => {
+			const empty = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
+
+			const opened = await call(empty, `${repository}/contents/.nojekyll`, {
+				method: 'PUT',
+				body: JSON.stringify({ message: 'Publish', content: '', branch: 'main' })
+			});
+			expect(opened.status).toBe(201);
 			await commitThrough(empty, { 'index.html': utf8('<!doctype html>') });
 
 			expect([...empty.files().keys()]).toEqual(['index.html']);

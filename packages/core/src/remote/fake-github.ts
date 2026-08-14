@@ -57,8 +57,10 @@ export type FakeGitHubOptions = {
 	/**
 	 * What the repository already holds, committed as its first commit.
 	 *
-	 * **Omit it for an empty repository** — no commit, no ref at all, so `GET /git/trees/{branch}`
-	 * is a 404 and the first publish has to create the ref rather than move it.
+	 * **Omit it for an empty repository** — no commit and no ref at all, which is the repository
+	 * `github.com/new` makes with nothing ticked. Reads and writes of the git database both answer
+	 * 409 `Git Repository is empty.` in that state, so a first publish has to open it through the
+	 * Contents API before it can send anything.
 	 */
 	readonly tree?: Readonly<Record<string, string | Uint8Array>>;
 	/**
@@ -527,6 +529,19 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 	const emptyOrMissing = (ref: string): Response =>
 		refs.size === 0 ? problem(409, 'Git Repository is empty.') : notFound(`${ref} is not a ref.`);
 
+	/**
+	 * The same 409, for the **writes**.
+	 *
+	 * ⚠ **A repository with no commits refuses the whole Git Data API, not only the ref read.**
+	 * `POST /git/blobs` answers 409 `Git Repository is empty.` on real GitHub, so there is no order of
+	 * blob, tree and commit calls that opens an empty repository — the Contents API below is the only
+	 * way in. A fake that accepted objects here was more permissive than GitHub in the one direction
+	 * that mattered: every first-publish test passed while the first publish anybody actually made
+	 * failed at its first blob, on the repository the tool's own link tells them to create.
+	 */
+	const emptyForWrites = (): Response | null =>
+		refs.size === 0 ? problem(409, 'Git Repository is empty.') : null;
+
 	const answerApi = async (
 		url: URL,
 		method: string,
@@ -575,6 +590,41 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			// token at all, which is the one field deciding whether the scholar is told the credential
 			// cannot push (ADR-0033).
 			return json(credentialed ? { permissions: { ...state.permissions } } : {});
+		}
+
+		// `PUT /repos/{owner}/{repo}/contents/{path}` — the one write an empty repository accepts, and
+		// the only reason it is modelled here. It is what github.com's "create a new file" uses, and a
+		// publish uses it once, to bring the branch into being before the Git Data API is asked for
+		// anything. Only the create case is implemented: this fake has no `sha` parameter and so no
+		// update-an-existing-file path, because nothing in this epic overwrites a file that way.
+		if (rest[0] === 'contents' && rest.length > 1 && method === 'PUT') {
+			return write(async () => {
+				const path = rest.slice(1).join('/');
+				const { content, branch, message } = (await body()) as {
+					content?: string;
+					branch?: string;
+					message?: string;
+				};
+				if (typeof content !== 'string') {
+					return problem(400, 'This fake takes file content as base64 and nothing else.');
+				}
+				const target = typeof branch === 'string' && branch !== '' ? branch : defaultBranch;
+				// A repository that already has this branch is not what this endpoint is used for here,
+				// and a fake that quietly committed over it would hide a publish taking the slow road.
+				if (refs.has(target)) {
+					return problem(
+						422,
+						`${target} already exists; this fake seeds an empty repository only.`
+					);
+				}
+				const bytes = decodeBase64(content);
+				const sha = await gitBlobSha(bytes);
+				blobs.set(sha, bytes);
+				const tree = await storeTree(new Map([[path, { sha, mode: '100644' }]]));
+				const commit = await storeCommit({ message: message ?? '', tree, parents: [] });
+				refs.set(target, commit);
+				return json({ content: { path, sha }, commit: { sha: commit } }, 201);
+			});
 		}
 
 		if (rest[0] === 'pages' && rest.length === 1 && method === 'POST') {
@@ -657,6 +707,8 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 			// counter that only counted accepted posts would read as zero either way.
 			blobPosts += 1;
 			return write(async () => {
+				const empty = emptyForWrites();
+				if (empty !== null) return empty;
 				const { content, encoding } = (await body()) as { content?: string; encoding?: string };
 				if (typeof content !== 'string' || encoding !== 'base64') {
 					return problem(400, 'This fake takes blob content as base64 and nothing else.');
@@ -670,6 +722,8 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 		if (rest[1] === 'trees' && rest.length === 2 && method === 'POST') {
 			return write(async () => {
+				const empty = emptyForWrites();
+				if (empty !== null) return empty;
 				const posted = await body();
 				if ('base_tree' in posted) {
 					// Refused rather than ignored: a `base_tree` silently dropped is a commit that keeps
@@ -720,6 +774,8 @@ export async function createFakeGitHub(options: FakeGitHubOptions): Promise<Fake
 
 		if (rest[1] === 'commits' && rest.length === 2 && method === 'POST') {
 			return write(async () => {
+				const empty = emptyForWrites();
+				if (empty !== null) return empty;
 				const { message, tree, parents } = (await body()) as {
 					message?: string;
 					tree?: string;

@@ -153,17 +153,26 @@ describe('publishing a Workspace to its Remote', () => {
 		]);
 	});
 
-	it('creates the ref when the repository is empty', async () => {
+	// ⚠ **An empty repository refuses the Git Data API entirely**, `POST /git/blobs` included, so the
+	// branch has to exist before the first blob is sent. The publish opens it through the Contents
+	// API with `.nojekyll` — the file it must write anyway — and then commits onto that.
+	it('opens an empty repository and publishes into it', async () => {
 		const store = await seeded({ 'index.html': '<!doctype html>' });
 		const github = await createFakeGitHub({ owner: 'ada', repository: 'atlas' });
 
 		const { commit } = await publish(store, github);
 
-		expect([github.head(), github.history(), [...github.files().keys()]]).toEqual([
+		const history = github.history();
+		expect([github.head(), history.length, [...github.files().keys()]]).toEqual([
 			commit,
-			[commit],
+			// The seed, and the publish parented onto it. Nothing is force-pushed over.
+			2,
 			['.nojekyll', 'index.html']
 		]);
+		expect(history[0]).toBe(commit);
+		// The seed carried `.nojekyll` and nothing else: a Reader who arrived between the two commits
+		// would find no half-published site, only a repository with the marker in it.
+		expect([...github.files(history[1]).keys()]).toEqual(['.nojekyll']);
 	});
 });
 

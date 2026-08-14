@@ -570,6 +570,51 @@ async function readHead(api: RemoteApi, remote: RemoteRepository): Promise<strin
 }
 
 /**
+ * Give a repository with no commits its branch, and answer the commit that now heads it.
+ *
+ * ⚠ **The Git Data API cannot do this.** `POST /git/blobs`, `/git/trees` and `/git/commits` all
+ * answer 409 `Git Repository is empty.` until a repository holds one commit — the same refusal the
+ * ref read gets — so there is no order of those three calls that opens an empty repository. The
+ * Contents API is the exception, and it is what github.com's own "create a new file" button uses.
+ *
+ * `.nojekyll` is what gets written, because it is the one file the publish has to put there anyway
+ * (ADR-0006): without it Pages hands the whole site to Jekyll, which drops `_app/`, and the reader
+ * gets a blank page. So the seed is not scaffolding to be cleaned up later — it is the first of this
+ * publish's own files, arriving one commit early.
+ *
+ * The commit it makes is the parent of the publish's own, so the history reads as a repository that
+ * was opened and then published into, and nothing is force-pushed over.
+ *
+ * @throws RemotePublishRefusedError when GitHub refuses to open the repository
+ */
+async function seedEmptyRepository(
+	api: RemoteApi,
+	remote: RemoteRepository,
+	sent: number,
+	total: () => number
+): Promise<string> {
+	const response = await api.call(`/contents/${JEKYLL_OFF_MARKER}`, {
+		method: 'PUT',
+		body: JSON.stringify({
+			message: COMMIT_MESSAGE,
+			// An empty file: `.nojekyll`'s content is its existence. Base64 of nothing is nothing.
+			content: '',
+			branch: remote.branch
+		})
+	});
+	if (!response.ok) throw await failureFrom(response, api, 'blobs', sent, total());
+	const body = (await response.json()) as { commit?: { sha?: unknown } };
+	const sha = body.commit?.sha;
+	if (typeof sha !== 'string' || sha === '') {
+		throw new RemotePublishRefusedError(
+			`GitHub opened ${remote.owner}/${remote.repository} but did not say which commit it made, ` +
+				`so this publish has nothing to build on. Try publishing again.`
+		);
+	}
+	return sha;
+}
+
+/**
  * Every path the Remote's commit holds, with the SHA that says whether we already have it.
  *
  * Listed at the **commit** rather than at the branch, so the file list and the parent cannot come
@@ -926,6 +971,15 @@ export async function publishToRemote(
 			requestsRemaining: api.budget.remaining
 		});
 
+	// ⚠ **The Git Data API refuses everything until a repository has one commit.** `POST /git/blobs`
+	// answers 409 `Git Repository is empty.` exactly as the ref read does, so a repository made the way
+	// this tool tells a scholar to make it — `github.com/new` with nothing ticked — cannot be published
+	// into at all: the refusal arrives at the first blob, after the plan has promised it would work.
+	// The Contents API is the one endpoint that does write to an empty repository, and it is how
+	// github.com's own "create a new file" works. So the branch is brought into being with the file
+	// that has to be there anyway, and the publish proceeds as it does for every later one.
+	const head = plan.head === null ? await seedEmptyRepository(api, remote, sent, total) : plan.head;
+
 	report();
 	/** What this publish put there, path by path — the tree's other half and the whole manifest. */
 	const written: RemoteTreeEntry[] = [];
@@ -977,23 +1031,19 @@ export async function publishToRemote(
 			tree: await shaOf(tree),
 			// Parented onto whatever the branch held, so a commit the scholar made on github.com is
 			// still in the history afterwards. An orphan here would be a force push over their work.
-			parents: plan.head === null ? [] : [plan.head]
+			// On a first publish that parent is the seed commit above, which exists for the same reason.
+			parents: [head]
 		})
 	});
 	if (!commit.ok) throw await failureFrom(commit, api, 'commit', sent, total());
 	const commitSha = await shaOf(commit);
 
-	// The one moment anything becomes visible. An empty repository has no ref and gets one created.
-	const moved =
-		plan.head === null
-			? await api.call('/git/refs', {
-					method: 'POST',
-					body: JSON.stringify({ ref: `refs/heads/${remote.branch}`, sha: commitSha })
-				})
-			: await api.call(`/git/refs/heads/${branchPath(remote.branch)}`, {
-					method: 'PATCH',
-					body: JSON.stringify({ sha: commitSha, force: false })
-				});
+	// The one moment anything becomes visible. The branch always exists by now — an empty repository
+	// was given one by `seedEmptyRepository` before the first blob was sent — so this is always a move.
+	const moved = await api.call(`/git/refs/heads/${branchPath(remote.branch)}`, {
+		method: 'PATCH',
+		body: JSON.stringify({ sha: commitSha, force: false })
+	});
 	if (!moved.ok) throw await failureFrom(moved, api, 'ref', sent, total());
 
 	return {
