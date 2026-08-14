@@ -108,6 +108,34 @@ session that only looked` test in `editor-annotations`, extended to open and clo
 show the test goes red — remove the `aria-expanded` binding, remove the collapse-on-second-open rule,
 and remove the reduced-motion branch, one at a time.
 
+## Contract correction
+
+**"Do this after `await tick()`" cannot satisfy story 30, and the Contract above is wrong on that
+point.** One microtask after the click the header has not moved: the revealed region is *below* the
+button in the same `<li>` and cannot push it anywhere. What moves the header is `AnnotationEditor`'s
+own `panel?.scrollIntoView({ behavior: 'smooth' })` on the panel that has just appeared, and the
+compositor performs that over later frames. So the guard measured a header that was still comfortably
+in view, returned, and the smooth scroll then carried it off the top. Measured in Chromium with eight
+Annotations in a 260 px column: at the microtask the header sat 225 px inside the column; when the
+scroll finished it was 38 px above the top edge. Identical under `prefers-reduced-motion: reduce`.
+
+The measurement now waits for the column to be still — no `scroll` event for 200 ms, capped at 900 ms
+— and then runs the same measure-and-scroll. A single `scrollend` was tried and is not enough:
+opening a half-visible row scrolls the column twice, and the first, instant scroll's `scrollend`
+arrives in or beside the click's own task. After the change the same measurement puts the header on
+the column's top edge, in view.
+
+## Coverage gap
+
+**Stories 25 and 26 have no assertion on the animation itself, at any seam.** The reduced-motion test
+reads `data-reveal-ms` off the revealed region, which is the number the component computed and
+nothing more. Two mutations were run and both stayed green across the whole editor suite: hard-coding
+`transition:slide={{ duration: 220, easing: cubicOut }}` while the attribute still reports 0, and
+deleting `transition:slide` outright. The comments in `AnnotationLayerContents.svelte` and
+`annotation-layer-contents.dom.test.ts` now say so rather than implying otherwise. Closing it needs a
+Seam 2 test, and the Seam 2 budget is at its ceiling with nothing spare, so it is recorded here
+rather than spent.
+
 ## Blocked by
 
 None — can start immediately.

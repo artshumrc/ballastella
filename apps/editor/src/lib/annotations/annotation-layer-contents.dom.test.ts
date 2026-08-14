@@ -254,11 +254,17 @@ describe('the row is a disclosure (one-shell-two-apps stories 24–31, 35, 36, 6
 		expect(document.activeElement).toBe(nth('annotation-row', 0));
 	});
 
-	test('the reveal is instant when less motion has been asked for', () => {
-		// ⚠ **The duration is read off the region rather than watched.** There is no paint at this seam
-		// and no Web Animations clock, so what an animation *looks* like has no answer here; what the
-		// component decides does. `prefersReducedMotion` is a real media query against this DOM's own
-		// device settings, so the branch under test is the one the application runs.
+	test('the component computes a zero duration when less motion has been asked for', () => {
+		// ⚠ **This asserts the number the component computed, and not that the row animated.** There is
+		// no paint at this seam and no Web Animations clock, so what an animation looks like has no
+		// answer here. `prefersReducedMotion` is a real media query against this DOM's own device
+		// settings, so the branch that produced the number is the one the application runs.
+		//
+		// ⚠ **What it therefore does not catch**, both measured: a `transition:slide` hard-coded to
+		// `{ duration: 220 }` while this attribute goes on reporting 0 — a reduced-motion user watching
+		// a 220 ms slide — and `transition:slide` deleted altogether. Story 25 ("expand and collapse
+		// with a short animation") is unasserted at every seam; the ticket records it under "Coverage
+		// gap". Do not read a green here as coverage of the animation.
 		device().prefersReducedMotion = 'reduce';
 		contents({
 			collection: collectionOf(annotation({ id: 'a-1', title: 'One' })),
@@ -268,7 +274,7 @@ describe('the row is a disclosure (one-shell-two-apps stories 24–31, 35, 36, 6
 		expect(one('annotation-row-contents')).toHaveAttribute('data-reveal-ms', '0');
 	});
 
-	test('and takes the Layer cards’ own 220 ms when it has not been', () => {
+	test('and the Layer cards’ own 220 ms when it has not been', () => {
 		// The positive control. A duration hard-coded to `0` would satisfy the test above for ever.
 		contents({
 			collection: collectionOf(annotation({ id: 'a-1', title: 'One' })),

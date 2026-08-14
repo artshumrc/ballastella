@@ -1,7 +1,12 @@
 // `Element.animate()` for the `editor-dom` project, because happy-dom implements no Web Animations
-// API and Svelte drives **every** `transition:` through one — including a transition whose duration
-// is zero, since the directive opens with a dummy animation for the delay before it looks at the
-// duration at all.
+// API and Svelte drives a `transition:` through one whenever it has a duration or a delay to serve.
+//
+// **A transition with neither never reaches it.** `svelte/src/internal/client/dom/elements/
+// transitions.js` (5.56.8) short-circuits on `if (!options?.duration && !options?.delay)`, calling
+// `on_begin()` and `on_finish()` and returning before any animation is constructed — so the
+// reduced-motion branch, whose duration is zero, does not touch this file at all. Measured by
+// deleting the setup file: the two reduced-motion tests still pass and only the two that cross a
+// real 220 ms transition fail.
 //
 // Without this, mounting a component with a `transition:` and then opening or closing the block it
 // sits in throws `element.animate is not a function` from inside Svelte's own runtime. It surfaces

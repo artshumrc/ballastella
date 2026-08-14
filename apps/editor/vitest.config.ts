@@ -93,9 +93,9 @@ import { defineConfig } from 'vitest/config';
 //    stays in `e2e/editor-layers.e2e.ts`, which says so beside them.
 //
 // 6. **The Web Animations API.** Probed 2026-08-14 (the Annotation row disclosure): `Element`
-//    has no `animate`, in happy-dom 20.11 and in jsdom 30 alike. Svelte's `transition:` calls it
-//    unconditionally, so a component with a transition throws from inside Svelte's runtime the
-//    moment its block opens or closes — in a microtask, so the run fails as an unhandled exception
+//    has no `animate`, in happy-dom 20.11 and in jsdom 30 alike. Svelte's `transition:` calls it for
+//    any transition with a duration or a delay, so such a component throws from inside Svelte's
+//    runtime the moment its block opens or closes — in a microtask, so the run fails as an unhandled exception
 //    somewhere other than the test that caused it. `vitest-setup/web-animations.ts` supplies the
 //    smallest object that runtime reads, and its header states the rule that goes with it:
 //    **nothing here may assert anything about an animation.** What a component *decides* about one

@@ -127,8 +127,8 @@
 	 * Each row's own button, so an opened row can be brought back into the column.
 	 *
 	 * A plain object rather than `$state`, for the reason `LayerList`'s button references are: nothing
-	 * renders from these, they are read once in the microtask after a row opens, and making them
-	 * reactive would turn writing a `bind:this` into a state change.
+	 * renders from these, they are read once after a row opens, and making them reactive would turn
+	 * writing a `bind:this` into a state change.
 	 */
 	const rowButton: Record<string, HTMLButtonElement | undefined> = {};
 
@@ -141,6 +141,40 @@
 		return null;
 	};
 
+	/** How still the column has to be before it counts as stopped. Two smooth-scroll frames and more. */
+	const STILL_MS = 200;
+
+	/** The longest the measurement will wait, however busy the column is. */
+	const SETTLE_MS = 900;
+
+	/**
+	 * Resolve once nothing has scrolled `column` for {@link STILL_MS}, or once {@link SETTLE_MS} is up.
+	 *
+	 * ⚠ **A single `scrollend` is not enough, and the reason is worth keeping.** Opening a row that is
+	 * only half in view scrolls the column *twice*: once to bring the button the pointer or the
+	 * keyboard is on into view, and again when the panel underneath it appears. The first of those is
+	 * instant, so its `scrollend` can land in the same task as the click — before this ever gets a
+	 * listener on — or immediately after it, and a `once: true` listener that caught it would report
+	 * "settled" while the second scroll had not begun. Measured in Chromium: `scrollend` at 47 ms,
+	 * then a smooth scroll running from 81 ms to 347 ms. Stillness answers "has it stopped" for both.
+	 */
+	const scrollSettled = (column: HTMLElement): Promise<void> =>
+		new Promise((resolve) => {
+			const done = (): void => {
+				clearTimeout(still);
+				clearTimeout(cap);
+				column.removeEventListener('scroll', restart);
+				resolve();
+			};
+			const restart = (): void => {
+				clearTimeout(still);
+				still = setTimeout(done, STILL_MS);
+			};
+			let still = setTimeout(done, STILL_MS);
+			const cap = setTimeout(done, SETTLE_MS);
+			column.addEventListener('scroll', restart);
+		});
+
 	/**
 	 * Open a row, or close whatever is open, and keep the row that opened on screen.
 	 *
@@ -148,6 +182,19 @@
 	 * taller than the column has left below it, and the column scrolls to show it. Only when the
 	 * header has really left, though — scrolling a row that is already in view moves the page under a
 	 * pointer that asked for nothing of the sort.
+	 *
+	 * ⚠ **The measurement waits for the column to stop moving, and `await tick()` is not that.** What
+	 * takes the header off the top is not the reveal — the revealed region is *below* the button in
+	 * the same `<li>` and cannot push it anywhere — it is `AnnotationEditor`'s own
+	 * `scrollIntoView({ behavior: 'smooth' })` on the panel that has just appeared, which the
+	 * compositor performs over frames that have not happened yet one microtask after the click.
+	 * Measured in Chromium with eight Annotations in a 260 px column: at the microtask the header sat
+	 * 225 px inside the column, so the guard below found it in view and returned; when the scroll
+	 * finished it was 38 px *above* the top edge. Identical under `prefers-reduced-motion: reduce` —
+	 * Chrome does not make a smooth scroll synchronous for that setting.
+	 *
+	 * {@link scrollSettled} is what waits for it, and it waits for stillness rather than for a single
+	 * `scrollend`, for the reason recorded there.
 	 *
 	 * **Nothing is focused.** The button that was pressed is still there and still has the keyboard;
 	 * this moves the viewport and nothing else.
@@ -160,6 +207,7 @@
 		if (!button) return;
 		const column = scrollingAncestor(button);
 		if (!column) return;
+		await scrollSettled(column);
 		const header = button.getBoundingClientRect();
 		const box = column.getBoundingClientRect();
 		if (header.top >= box.top && header.bottom <= box.bottom) return;
@@ -353,12 +401,17 @@
 								item — grid, its own padding, and a background on hover — which is right for the row
 								above and wrong for a panel of controls that happens to sit under it.
 
-								`data-reveal-ms` is the duration `reveal` asked for, written out because it is
-								otherwise visible only to something that can watch an animation. The one thing that
-								must never silently stop working here is the reduced-motion branch, and a value
-								nobody can read is a branch nobody can test. Same reason `LayerList` writes out
-								`data-drop-target`: a state that only exists mid-transition is not a state a test
-								can see.
+								`data-reveal-ms` is the number `reveal` computed, written out because it is otherwise
+								visible only to something that can watch an animation — the same reason `LayerList`
+								writes out `data-drop-target`. It is what lets a test read the reduced-motion branch's
+								result where there is no paint.
+
+								⚠ **It is evidence about the computation and about nothing else.** The attribute and
+								the directive read one `$derived`, so a test on the attribute goes red when that
+								number is wrong — and stays green when the transition is hard-coded past it, or
+								deleted outright. Whether the row *animates*, and for how long, is unasserted at
+								every seam; `.tracker/one-shell-two-apps/tickets/01-an-annotation-opens-in-its-own-row.md`
+								records the gap under "Coverage gap".
 							-->
 							<div
 								id="annotation-contents-{annotation.id}"
