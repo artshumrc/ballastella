@@ -62,16 +62,16 @@ const serveStatic = (app: string, port: number) => ({
 	timeout: 120_000
 });
 
-// Hand Chromium the real GPU, on a machine that has one.
+// Hand Chromium the real GPU, when asked and where there is one.
 //
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// WHY THE DEFAULT IS THE GPU, AND WHY IT IS STILL CONDITIONAL
+// A HALF-PRICE SUITE THAT TWO TESTS REFUSE, SO IT IS NOT THE DEFAULT YET
 //
 // Headless Chromium rasterises WebGL in software (SwiftShader), and every test here drives a real
 // MapLibre over it. Measured on `editor-layers.e2e.ts`, 35 tests, this box, warm:
 //
 //   software (SwiftShader)          143.7s – 213.0s of worker time     4.10 – 6.09s per test
-//   ANGLE over Vulkan               103.4s / 103.7s / 103.9s           2.96s per test   ← the default
+//   ANGLE over Vulkan               103.4s / 103.7s / 103.9s           2.96s per test
 //   `--headed`, so the real GPU     112.2s                             3.21s per test
 //   ANGLE over GL/EGL               270.3s                             7.72s per test
 //
@@ -88,15 +88,21 @@ const serveStatic = (app: string, port: number) => ({
 // shape. Verified by hiding the driver with `VK_DRIVER_FILES`. The failure is also unhelpful — it
 // reads as three unrelated product bugs rather than as a missing GPU.
 //
-// So the flags are used when a render node is actually present, and not otherwise. `/dev/dri/renderD*`
-// is the device Chromium needs and its absence is exactly the case that breaks; a machine that has one
-// gets the fast path with nothing to remember, and a container, a VM or a GPU-less runner gets the
-// software path without a red suite. `CI` opts out too, because a hosted runner can carry a render
-// node it will not let a sandboxed renderer open, and a gate is the wrong place to find that out.
+// ⚠⚠ **AND IT IS NOT MERELY A RASTERISER SWAP: TWO TESTS DISAGREE WITH IT.** With the GPU,
+// `viewer-reader.e2e.ts:2366` and `:2472` — "keeps what arrived" and "a server that is failing apart
+// from a connection that is gone" — fail deterministically, in about a second, on both attempts. The
+// same spec is 63 green with the software rasteriser, twice over. They fail fast rather than timing
+// out, so it is a difference in what the renderer does with a partly-arrived tile set, not a race.
 //
-// Force it either way when the guess is wrong — `BALLASTELLA_E2E_GPU=1` to insist, `=0` to refuse:
+// **Which of the two is telling the truth is not yet known, and that is the point.** A Reader has a
+// real GPU, so the GPU path is the one that resembles them; these tests may be pinning SwiftShader's
+// behaviour rather than the application's. Until somebody has read them and decided, the rasteriser
+// stays the default — a suite that is 51% faster and 2 tests wrong is not a bargain, and the wrong
+// two would be the ones about telling a Reader their map is broken.
 //
-//     BALLASTELLA_E2E_GPU=0 pnpm test:e2e     # the software rasteriser, wherever you are
+// So it is asked for by name, and only honoured where the device exists:
+//
+//     BALLASTELLA_E2E_GPU=1 pnpm test:e2e     # fast, and currently 2 red in viewer-reader
 //
 // `--headed` is the other way to reach the real GPU and needs no flags, but it opens a window per
 // worker and cannot run unattended.
@@ -111,7 +117,7 @@ const hasRenderNode = (): boolean => {
 
 const wantsGpu = process.env.BALLASTELLA_E2E_GPU;
 const useGpu =
-	wantsGpu === undefined || wantsGpu === '' ? !process.env.CI && hasRenderNode() : wantsGpu !== '0';
+	wantsGpu === undefined || wantsGpu === '' ? false : wantsGpu !== '0' && hasRenderNode();
 
 const gpuLaunchOptions = useGpu
 	? {
