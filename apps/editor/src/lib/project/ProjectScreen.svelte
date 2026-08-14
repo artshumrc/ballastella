@@ -53,7 +53,7 @@
 		type Place
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome, ReadCachedTile } from '@ballastella/core/render';
-	import { BaseMapSwitcher } from '@ballastella/ui';
+	import { BaseMapSwitcher, KIND_STYLE, LayerList } from '@ballastella/ui';
 	import { untrack } from 'svelte';
 
 	import AnnotationLayerContents from '$lib/annotations/AnnotationLayerContents.svelte';
@@ -66,8 +66,6 @@
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import AddHistoricalMap from '$lib/historical-maps/AddHistoricalMap.svelte';
-	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
-	import LayerList from '$lib/layers/LayerList.svelte';
 	import { useInstalledApp } from '$lib/pwa/installed-app.svelte.js';
 	import OfflineCopyDialog from '$lib/remote-iiif/OfflineCopyDialog.svelte';
 	import { OfflineCopyJob } from '$lib/remote-iiif/offline-copy-job.svelte.js';

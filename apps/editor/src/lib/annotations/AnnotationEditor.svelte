@@ -31,10 +31,9 @@
 		type Annotation,
 		type LineStyle
 	} from '@ballastella/core';
+	import { KIND_STYLE } from '@ballastella/ui';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import { onMount, tick } from 'svelte';
-
-	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
 
 	import ColorPicker from './ColorPicker.svelte';
 	import LineStylePicker from './LineStylePicker.svelte';

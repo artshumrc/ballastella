@@ -18,6 +18,24 @@
 	// an Annotation Layer's tools and Annotations — which is one idea applied twice rather than two
 	// panels that have to be kept agreeing.
 	//
+	// ═════════════════════════════════════════════════════════════════════════════════════════════
+	// EVERY WRITE IS AN OPTIONAL CALLBACK, AND THERE IS NO `readOnly` PROP
+	//
+	// Both apps render this stack, and the difference between them is *absence*: a control a consumer
+	// does not want is a callback that consumer does not pass. `ontypename`/`oncommit` carry the rename
+	// pencil, `onmove` the two reorder buttons and the drag handle, `ondelete` the Delete,
+	// `ondragopacity` the opacity slider, `onshow` the visibility toggle, and `referencedImageIds` the
+	// tiles badge. Each is optional; each guard below tests the prop it belongs to and nothing else.
+	//
+	// ⚠ **Do not add a `readOnly`, `mode` or `editable` boolean.** A flag and a set of callbacks are two
+	// descriptions of the same thing, and the failure is not hypothetical: the moment they can disagree,
+	// `readOnly` false with no `ondelete` renders a button that throws, and `readOnly` true with an
+	// `ondelete` renders one that quietly works. An absent callback cannot be got wrong in either
+	// direction, because the control and the thing it calls arrive together or not at all.
+	//
+	// `layers`, `outcomes`, `openLayerId` and `onopen` stay required: they are what makes this a stack a
+	// reader can look through rather than a list, and no consumer has a reason to omit them.
+	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
 	// WHAT A CLOSED CARD SHOWS, AND WHY IT IS NOW SO LITTLE
 	//
@@ -134,8 +152,13 @@
 		 * is an observation of the files beside it — `info.json` of ours, or only `remote.json` — which
 		 * only the page holding the store can make. A stored flag was what let a Layer claim the library
 		 * for tiles that had already been copied into the folder.
+		 *
+		 * **Optional, and its absence removes the badge rather than emptying it.** Where a Historical
+		 * Map's tiles are held is a fact about the author's publishing decision, and a consumer whose
+		 * user cannot copy a pyramid or repoint a service has no reason to say it — see the note at the
+		 * head of this file on why that is an absent prop rather than a flag.
 		 */
-		referencedImageIds: ReadonlySet<string>;
+		referencedImageIds?: ReadonlySet<string>;
 		/**
 		 * Which Layer is open, or `null` for none. At most one, which is what makes it one value.
 		 *
@@ -146,15 +169,23 @@
 		openLayerId: string | null;
 		/** Open this Layer, or `null` to close whatever is open. */
 		onopen: (id: string | null) => void;
-		ontypename: (id: string, name: string) => void;
+		/** Rename the Layer, keystroke by keystroke. Without it **and** {@link oncommit}, no pencil. */
+		ontypename?: (id: string, name: string) => void;
 		/** The edit that was in flight is over — a field blurred, a slider released (ADR-0017 rule 1). */
-		oncommit: () => void;
-		onshow: (id: string, visible: boolean) => void;
-		ondragopacity: (id: string, opacity: number) => void;
-		/** Move the Layer to a position in the stack, 0 being the top. */
-		onmove: (id: string, toIndex: number) => void;
+		oncommit?: () => void;
+		/** Without it the visibility toggle is not rendered. */
+		onshow?: (id: string, visible: boolean) => void;
+		/** Without it the opacity slider is not rendered. */
+		ondragopacity?: (id: string, opacity: number) => void;
 		/**
-		 * Delete the Layer **and the file it draws** (SPEC story 49, ticket 11).
+		 * Move the Layer to a position in the stack, 0 being the top.
+		 *
+		 * Without it there are no Move up / Move down buttons and no drag handle — both halves of
+		 * ADR-0016's pair go together, because the contract and its convenience are one affordance.
+		 */
+		onmove?: (id: string, toIndex: number) => void;
+		/**
+		 * Delete the Layer **and the file it draws** (SPEC story 49, ticket 11). Without it, no Delete.
 		 *
 		 * No confirmation dialog, and that is a decision rather than an omission: ticket 09 deliberately
 		 * shipped `removeLayer` with no button at all, on the reasoning that the affordance belongs with
@@ -162,7 +193,7 @@
 		 * autosave has written the deletion — which a dialog does not give you, since a user who means to
 		 * delete confirms without reading and one who does not needs the way back either way.
 		 */
-		ondelete: (id: string) => void;
+		ondelete?: (id: string) => void;
 		/**
 		 * The card of a Historical Map being prepared right now, or `undefined` when none is (ticket 06).
 		 *
@@ -251,7 +282,7 @@
 		`${name || 'Untitled Layer'} moved to ${toIndex + 1} of ${layers.length}`;
 
 	const move = (id: string, name: string, toIndex: number): boolean => {
-		if (toIndex < 0 || toIndex >= layers.length) return false;
+		if (!onmove || toIndex < 0 || toIndex >= layers.length) return false;
 		onmove(id, toIndex);
 		moved = describeMove(name, toIndex);
 		return true;
@@ -316,7 +347,7 @@
 	 * element that had it no longer exists.
 	 */
 	const deleteByButton = async (id: string, index: number): Promise<void> => {
-		ondelete(id);
+		ondelete?.(id);
 		await tick();
 		if (document.activeElement !== document.body) return;
 		const remaining = layers.filter((layer) => layer.id !== id);
@@ -374,9 +405,18 @@
 	 * not rewrite `project.json` with a fresh `updatedAt` (ADR-0010, ADR-0017).
 	 */
 	const finishRename = (): void => {
-		oncommit();
+		oncommit?.();
 		renaming = '';
 	};
+
+	/**
+	 * Whether this consumer offers renaming at all — the pencil, and behind it the name as a field.
+	 *
+	 * **Both callbacks or neither.** Typing reports each keystroke and the commit ends the edit
+	 * (ADR-0017 rule 1); a consumer that passed one without the other would get a field whose
+	 * keystrokes went nowhere, or one whose edit never ended.
+	 */
+	const canRename = $derived(Boolean(ontypename && oncommit));
 
 	/**
 	 * How long a card takes to slide to its new position.
@@ -610,23 +650,25 @@
 						class="flex items-center gap-1.5 py-2 pr-2 pl-1 {headerTint(layer)}"
 						data-testid="layer-header"
 					>
-						<span
-							class="cursor-grab leading-none opacity-30 transition-opacity select-none group-focus-within:opacity-70 group-hover:opacity-70"
-							draggable="true"
-							aria-hidden="true"
-							data-testid="layer-drag-handle"
-							ondragstart={(event) => {
-								dragging = layer.id;
-								event.dataTransfer?.setData('text/plain', layer.id);
-								dragTheWholeCard(event, layer.id);
-							}}
-							ondragend={() => {
-								dragging = '';
-								over = '';
-							}}
-						>
-							<GripVertical size={14} />
-						</span>
+						{#if onmove}
+							<span
+								class="cursor-grab leading-none opacity-30 transition-opacity select-none group-focus-within:opacity-70 group-hover:opacity-70"
+								draggable="true"
+								aria-hidden="true"
+								data-testid="layer-drag-handle"
+								ondragstart={(event) => {
+									dragging = layer.id;
+									event.dataTransfer?.setData('text/plain', layer.id);
+									dragTheWholeCard(event, layer.id);
+								}}
+								ondragend={() => {
+									dragging = '';
+									over = '';
+								}}
+							>
+								<GripVertical size={14} />
+							</span>
+						{/if}
 
 						<span class={kindInk(layer)} aria-hidden="true">
 							<Icon size={18} strokeWidth={2} />
@@ -662,11 +704,11 @@
 									value={layer.name}
 									aria-label="Name of Layer {index + 1} of {layers.length}"
 									data-testid="layer-name"
-									oninput={(event) => ontypename(layer.id, event.currentTarget.value)}
+									oninput={(event) => ontypename?.(layer.id, event.currentTarget.value)}
 									onkeydown={(event) => {
 										if (event.key === 'Enter' || event.key === 'Escape') event.currentTarget.blur();
 									}}
-									onchange={() => oncommit()}
+									onchange={() => oncommit?.()}
 									onblur={() => finishRename()}
 								/>
 							{:else}
@@ -680,11 +722,15 @@
 							{/if}
 						</div>
 
-						{#if open && renaming !== layer.id}
+						{#if canRename && open && renaming !== layer.id}
 							<!--
 								Renaming, offered on the open card only. Its accessible name carries the Layer's own
 								name for the same reason every other control here does: four buttons called "Rename"
 								are four identical controls to a screen reader.
+
+								**This is the only way into the name field**, so `canRename` is the single guard behind
+								both halves of that row of the contract: without the callbacks there is no pencil, and
+								with no pencil `renaming` is never set and the name is never anything but text.
 							-->
 							<button
 								type="button"
@@ -703,14 +749,16 @@
 							the accessible name, because the toggle is the one control here whose meaning a glyph
 							never carried in the first place — and the header it sits in is drained when it is off.
 						-->
-						<input
-							type="checkbox"
-							class="toggle shrink-0 toggle-sm {kindToggle(layer)}"
-							checked={layer.visible}
-							aria-label="Show {layer.name || 'Untitled Layer'} on the map"
-							data-testid="layer-visible"
-							onchange={(event) => onshow(layer.id, event.currentTarget.checked)}
-						/>
+						{#if onshow}
+							<input
+								type="checkbox"
+								class="toggle shrink-0 toggle-sm {kindToggle(layer)}"
+								checked={layer.visible}
+								aria-label="Show {layer.name || 'Untitled Layer'} on the map"
+								data-testid="layer-visible"
+								onchange={(event) => onshow(layer.id, event.currentTarget.checked)}
+							/>
+						{/if}
 
 						<!--
 							The disclosure, and it is a plain `<button>` with `aria-expanded` — ADR-0016's shape
@@ -795,35 +843,45 @@
 							data-layer-id={layer.id}
 						>
 							{#if layer.kind === 'map'}
-								{@const referenced = referencedImageIds.has(layer.imageId)}
-								<!-- ADR-0016 mandates the native range for opacity; there is nothing custom here. -->
-								<label class="flex items-center gap-2 text-xs">
-									<span class="shrink-0">Opacity</span>
-									<input
-										type="range"
-										class="range grow range-xs {kindRange(layer)}"
-										min="0"
-										max="1"
-										step="0.05"
-										value={layer.opacity}
-										aria-label="Opacity of {layer.name || 'Untitled Layer'}"
-										data-testid="layer-opacity"
-										oninput={(event) => ondragopacity(layer.id, Number(event.currentTarget.value))}
-										onchange={() => oncommit()}
-									/>
+								{#if ondragopacity}
 									<!--
-										A `<span>`, not an `<output>`: `<output>` carries an implicit `role="status"`, and the
-										save indicator already owns that role on this page — a second one makes
-										`getByRole('status')` ambiguous, which is a hint that a screen-reader user would have
-										to disambiguate too. The value is already announced by the range's own label.
-									-->
-									<span
-										class="w-9 shrink-0 text-right tabular-nums"
-										data-testid="layer-opacity-value">{Math.round(layer.opacity * 100)}%</span
-									>
-								</label>
+										ADR-0016 mandates the native range for opacity; there is nothing custom here.
 
-								<!--
+										The `<label>` goes with the slider rather than staying behind it: the word "Opacity"
+										and the percentage are the control's own name and value, and a consumer that cannot
+										change the opacity would be left with a reading of it that looks like a control.
+									-->
+									<label class="flex items-center gap-2 text-xs">
+										<span class="shrink-0">Opacity</span>
+										<input
+											type="range"
+											class="range grow range-xs {kindRange(layer)}"
+											min="0"
+											max="1"
+											step="0.05"
+											value={layer.opacity}
+											aria-label="Opacity of {layer.name || 'Untitled Layer'}"
+											data-testid="layer-opacity"
+											oninput={(event) =>
+												ondragopacity(layer.id, Number(event.currentTarget.value))}
+											onchange={() => oncommit?.()}
+										/>
+										<!--
+											A `<span>`, not an `<output>`: `<output>` carries an implicit `role="status"`, and the
+											save indicator already owns that role on this page — a second one makes
+											`getByRole('status')` ambiguous, which is a hint that a screen-reader user would have
+											to disambiguate too. The value is already announced by the range's own label.
+										-->
+										<span
+											class="w-9 shrink-0 text-right tabular-nums"
+											data-testid="layer-opacity-value">{Math.round(layer.opacity * 100)}%</span
+										>
+									</label>
+								{/if}
+
+								{#if referencedImageIds}
+									{@const referenced = referencedImageIds.has(layer.imageId)}
+									<!--
 									Whether this Layer's tiles are bytes in this Workspace or a URL somewhere else. Shown
 									here rather than only warned about at publish time, because it is what decides whether
 									a reader needs the network and whether the work survives the host disappearing — and by
@@ -837,21 +895,22 @@
 									Read from `referencedImageIds`, which is what the folder says, rather than from the
 									Layer, which no longer claims anything about it (ADR-0023).
 								-->
-								<span
-									class="badge gap-1.5 badge-sm"
-									class:badge-success={!referenced}
-									class:badge-warning={referenced}
-									data-testid="layer-image-mode"
-									data-image-mode={referenced ? 'referenced' : 'offline-copy'}
-								>
-									{#if referenced}
-										<Cloud size={12} aria-hidden="true" />
-										Remote reference — needs the network
-									{:else}
-										<HardDrive size={12} aria-hidden="true" />
-										Local copy — no network needed
-									{/if}
-								</span>
+									<span
+										class="badge gap-1.5 badge-sm"
+										class:badge-success={!referenced}
+										class:badge-warning={referenced}
+										data-testid="layer-image-mode"
+										data-image-mode={referenced ? 'referenced' : 'offline-copy'}
+									>
+										{#if referenced}
+											<Cloud size={12} aria-hidden="true" />
+											Remote reference — needs the network
+										{:else}
+											<HardDrive size={12} aria-hidden="true" />
+											Local copy — no network needed
+										{/if}
+									</span>
+								{/if}
 
 								{@render mapContents?.(layer)}
 							{:else if layer.kind === 'annotation'}
@@ -878,53 +937,62 @@
 								the words are on the buttons rather than left to a glyph, and the drag handle stays
 								faint. What is bought is that no arrow on a closed card can be mistaken for the
 								control that opens it, which is what a stack of near-identical cards was failing at.
+
+								The row itself goes when both of its controls do, rather than leaving a bordered
+								strip with nothing in it.
 							-->
-							<div class="flex items-center gap-1 border-t border-base-300 pt-3">
-								<button
-									bind:this={upButton[layer.id]}
-									class="btn gap-1 btn-xs"
-									disabled={index === 0}
-									data-testid="layer-move-up"
-									onclick={() => void moveByButton(layer.id, layer.name, index - 1, 'up')}
-								>
-									<ArrowUp size={13} aria-hidden="true" />
-									Move up<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
-								</button>
-								<button
-									bind:this={downButton[layer.id]}
-									class="btn gap-1 btn-xs"
-									disabled={index === layers.length - 1}
-									data-testid="layer-move-down"
-									onclick={() => void moveByButton(layer.id, layer.name, index + 1, 'down')}
-								>
-									<ArrowDown size={13} aria-hidden="true" />
-									Move down<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
-								</button>
-								<span class="grow"></span>
-								<!--
-									The Layer's name is in the accessible name for the same reason it is on the two
-									buttons beside it: "Delete" four times over is four identical controls to a screen
-									reader, and this is the one of them that cannot be shrugged off.
-								-->
-								<!--
-									The trash is `error`-coloured and the word is not. `error` is a 71%-lightness red in
-									the stock light theme: 2.9:1 against the card, which is a small label's 4.5:1 missed
-									by a mile and a graphical object's 3:1 missed by a hair. The word carries the meaning
-									at full contrast, so the glyph repeats it rather than being the only way to know what
-									this button does — which is the one arrangement in which 2.9:1 is honestly
-									acceptable. It is deliberately not mixed toward `base-content` like the kind line and
-									the problem triangle: a Delete whose red has been diluted to pass a bar it does not
-									have to meet is a Delete that reads as ordinary.
-								-->
-								<button
-									class="btn gap-1 btn-ghost btn-xs"
-									data-testid="layer-delete"
-									onclick={() => void deleteByButton(layer.id, index)}
-								>
-									<Trash2 size={13} class="text-error" aria-hidden="true" />
-									Delete<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
-								</button>
-							</div>
+							{#if onmove || ondelete}
+								<div class="flex items-center gap-1 border-t border-base-300 pt-3">
+									{#if onmove}
+										<button
+											bind:this={upButton[layer.id]}
+											class="btn gap-1 btn-xs"
+											disabled={index === 0}
+											data-testid="layer-move-up"
+											onclick={() => void moveByButton(layer.id, layer.name, index - 1, 'up')}
+										>
+											<ArrowUp size={13} aria-hidden="true" />
+											Move up<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+										</button>
+										<button
+											bind:this={downButton[layer.id]}
+											class="btn gap-1 btn-xs"
+											disabled={index === layers.length - 1}
+											data-testid="layer-move-down"
+											onclick={() => void moveByButton(layer.id, layer.name, index + 1, 'down')}
+										>
+											<ArrowDown size={13} aria-hidden="true" />
+											Move down<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+										</button>
+									{/if}
+									<span class="grow"></span>
+									{#if ondelete}
+										<!--
+											The Layer's name is in the accessible name for the same reason it is on the two
+											buttons beside it: "Delete" four times over is four identical controls to a screen
+											reader, and this is the one of them that cannot be shrugged off.
+										-->
+										<!--
+											The trash is `error`-coloured and the word is not. `error` is a 71%-lightness red in
+											the stock light theme: 2.9:1 against the card, which is a small label's 4.5:1 missed
+											by a mile and a graphical object's 3:1 missed by a hair. The word carries the meaning
+											at full contrast, so the glyph repeats it rather than being the only way to know what
+											this button does — which is the one arrangement in which 2.9:1 is honestly
+											acceptable. It is deliberately not mixed toward `base-content` like the kind line and
+											the problem triangle: a Delete whose red has been diluted to pass a bar it does not
+											have to meet is a Delete that reads as ordinary.
+										-->
+										<button
+											class="btn gap-1 btn-ghost btn-xs"
+											data-testid="layer-delete"
+											onclick={() => void deleteByButton(layer.id, index)}
+										>
+											<Trash2 size={13} class="text-error" aria-hidden="true" />
+											Delete<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+										</button>
+									{/if}
+								</div>
+							{/if}
 						</div>
 					{/if}
 				</li>

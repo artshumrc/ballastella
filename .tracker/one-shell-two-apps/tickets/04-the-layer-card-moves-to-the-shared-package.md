@@ -111,6 +111,30 @@ custom property in both builds.
 absent-half assertion goes red. An absence asserted without its positive control passes when a test
 id is renamed, which is the vacuous green this repository's testing decisions exist to prevent.
 
+## What the viewer's bundle cost
+
+ADR-0034 requires the viewer's bundle to be measured across every move into `packages/ui` and the
+number recorded in the ticket that made it, so that sharing components cannot silently make every
+published site larger (SPEC story 61). `pnpm --filter @ballastella/viewer build`, before and after:
+
+| | before | after | delta |
+| --- | --- | --- | --- |
+| whole `build/` | 2,802,711 B | 2,820,730 B | **+18,019 B (+0.64%)** |
+| CSS | 235,868 B | 253,849 B | +17,981 B |
+| JavaScript | 2,563,457 B | 2,563,496 B | +39 B |
+
+**Effectively all of it is CSS.** The viewer still renders `ReaderLayerControls` and imports no
+Layer card, so neither the component nor `@lucide/svelte` — which the shared package now depends
+on, and which the viewer therefore reaches in its dependency graph — is in the bundle:
+`grep -rl lucide apps/viewer/build` finds nothing, and the only `Untitled Layer` in it is
+`ReaderLayerControls`'s own. What grew is the stylesheet, because `@source '.'` in
+`@ballastella/ui/layout.css` now scans a component carrying the kind tints, the toggle and range
+modifiers and the tiles badge. That is this ticket paying a cost of ticket 05's a ticket early
+rather than avoiding one: those are the rules the shared card will need.
+
+The 39 bytes of JavaScript are content-hashed asset names moving in the chunks that reference the
+rebuilt stylesheet; no module entered the graph, which is what the two greps above say directly.
+
 ## Blocked by
 
 - 02 — a shared UI package, proved by the Base Map switcher

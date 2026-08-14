@@ -22,8 +22,8 @@
 		type LineStyle,
 		type Place
 	} from '@ballastella/core';
+	import { KIND_STYLE } from '@ballastella/ui';
 
-	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
 	import PlaceSearch from '$lib/places/PlaceSearch.svelte';
 
 	import AnnotationEditor from './AnnotationEditor.svelte';
