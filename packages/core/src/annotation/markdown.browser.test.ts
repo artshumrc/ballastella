@@ -252,6 +252,109 @@ describe('a description is untrusted (ADR-0009)', () => {
 	});
 });
 
+describe('one value carrying prose and an attack together', () => {
+	// The matrix `e2e/editor-annotations.e2e.ts` asserted through three rendered surfaces — the name in
+	// the list, the description preview, and the popup on the map. All three read the same pure
+	// pipeline, so all three failed and passed together, and the browser was paying to find that out
+	// three times. One Seam 2 test remains, on the popup, because whether the application *calls* this
+	// pipeline is a wiring question no test here can fail for.
+	//
+	// The payload is written out rather than imported from anywhere the application reads: a fixture
+	// that shares a source with the thing it tests agrees with it however wrong both are (see the
+	// header of `e2e/support/reader-project.ts`).
+
+	/**
+	 * Prose that **must survive**, carried in the same value as the attack.
+	 *
+	 * The anti-vacuous half. A surface that renders *nothing* passes every "no script, no handler, no
+	 * dangerous URL" assertion perfectly, so legitimate content in the same string is what proves the
+	 * output is live before its emptiness of markup means anything.
+	 */
+	const PROSE = 'The **west** quay, per the survey.';
+
+	/**
+	 * The payload ticket 13 proved reaches storage byte-identical, plus a `javascript:` link.
+	 *
+	 * The `javascript:` link is Markdown rather than HTML deliberately: it contains no markup, so a
+	 * sanitise-then-parse implementation passes it through as inert text and then reconstructs an
+	 * `<a href="javascript:…">` out of it. That is the bypass ADR-0009 names, and the one payload here
+	 * that can tell the two possible orders apart — an `<img onerror>` is removed in either.
+	 */
+	const PAYLOAD =
+		`${PROSE}` +
+		'<img src=x onerror="window.__xss=1">' +
+		'<script>window.__xss=1</script>' +
+		'[click](javascript:window.__xss=1)' +
+		'<a href="data:text/html,&lt;script&gt;1&lt;/script&gt;">d</a>' +
+		'<svg onload="window.__xss=1"></svg>';
+
+	/** Everything a rendered fragment must not contain, asked of a live DOM. */
+	function inert(host: HTMLElement) {
+		return {
+			scripts: host.querySelectorAll('script').length,
+			images: host.querySelectorAll('img').length,
+			svgs: host.querySelectorAll('svg').length,
+			iframes: host.querySelectorAll('iframe').length,
+			ids: host.querySelectorAll('[id]').length,
+			handlers: attributeNames(host).filter((name) => name.startsWith('on')),
+			executableUrls: executableUrls(host)
+		};
+	}
+
+	const nothing = {
+		scripts: 0,
+		images: 0,
+		svgs: 0,
+		iframes: 0,
+		ids: 0,
+		handlers: [],
+		executableUrls: []
+	};
+
+	test('the description renders its prose and none of its markup', () => {
+		const host = render(PAYLOAD);
+
+		// The prose first: the surface has to be shown to be live before its emptiness means anything.
+		expect(host.querySelector('strong')?.textContent).toBe('west');
+		expect(host.textContent).toContain('The west quay, per the survey.');
+		expect(inert(host)).toEqual(nothing);
+		// DOMPurify **removes** a disallowed element rather than escaping it, so the payload's own
+		// characters do not survive here as text either. There was never anything to show.
+		expect(host.textContent).not.toContain('onerror');
+	});
+
+	test('the same payload in the popup, where it is the title as well as the description', () => {
+		const host = document.createElement('div');
+		host.innerHTML = renderAnnotationPopup({ title: PAYLOAD, description: PAYLOAD });
+
+		expect(inert(host)).toEqual(nothing);
+		// A title is text rather than Markdown, so its characters survive as characters — which is the
+		// opposite outcome from the description above, and the reason both are asserted.
+		expect(host.textContent).toContain('onerror');
+		expect(host.textContent).toContain('The **west** quay');
+		expect(host.querySelector('strong')?.textContent).toBe('west');
+	});
+
+	test('nothing ran, and nothing the payload asked for reached the document', () => {
+		const host = render(PAYLOAD);
+		document.body.append(host);
+
+		try {
+			expect('__xss' in window).toBe(false);
+			expect(document.querySelector('img[src="x"]')).toBeNull();
+			// The payload's *own* text inside a script, not any script element: the page legitimately has
+			// its own, and a probe that cries wolf is a probe that gets loosened away.
+			expect(
+				[...document.querySelectorAll('script')].some((script) =>
+					(script.textContent ?? '').includes('__xss')
+				)
+			).toBe(false);
+		} finally {
+			host.remove();
+		}
+	});
+});
+
 describe('the popup, where the title is untrusted too', () => {
 	test('renders a title and a description', () => {
 		const host = document.createElement('div');

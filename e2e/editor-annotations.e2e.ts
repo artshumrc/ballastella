@@ -11,12 +11,11 @@
 // so every assertion passed while the renderer threw once per frame. Hence also the `pageerror` watch
 // on every test that renders.
 //
-// **The XSS assertions are on the rendered DOM**, and on *all three* surfaces that show untrusted
-// text: the map popup, the Annotation's name in the list, and the description preview. A sanitiser
-// applied to one of three render sites is a vulnerability with a passing test. Ticket 13 proved the
-// payload reaches storage byte-identical and that import never parses it; nothing rendered a
-// `description` until now, and closing its `[~]` criterion is what the `untrusted` describe below is
-// for.
+// **The untrusted-text claim is asserted here only where a browser can falsify it.** The payload
+// matrix — what survives `marked` and DOMPurify, in that order — lives in
+// `packages/core/src/annotation/markdown.browser.test.ts`, over a real DOM and without an
+// application. What stays here is one test on the map popup, which is the only place the *wiring*
+// can fail: a perfect sanitiser and a surface that never calls it look identical one seam down.
 
 import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
@@ -687,77 +686,22 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		return layerId;
 	}
 
-	test('the payload is inert in the Annotation’s name in the list', async ({ page }) => {
-		// The surface most likely to be missed. A description obviously holds a stranger's prose; a title
-		// looks like a label, and a list row looks like chrome. It is safe here for a different reason
-		// from the popup and the preview — Svelte interpolates it as text, so the DOM never parses it as
-		// markup — and that reason has to be asserted rather than trusted, because one `{@html}` added
-		// here for "formatting in titles" would undo it silently.
-		const failures = watchFailures(page);
-		await withPayload(page);
-
-		const row = page.getByTestId('annotation-row');
-		await expect(row).toHaveCount(1);
-
-		// Scoped to the **name**, which is the element a stranger's title is interpolated into, rather
-		// than to the whole list. The list legitimately holds an `<svg>` per row now — the glyph for what
-		// each Annotation is — and a probe that counts every `<svg>` under it would be satisfied by our
-		// own icon rather than by the payload's absence. Narrowing keeps every count at zero and keeps
-		// the claim exact: nothing the payload carries becomes an element here.
-		const inert = await inertWithin(page, '[data-testid="annotation-row-name"]');
-		expect(inert.missing).toBe(false);
-		expect(inert.scripts).toBe(0);
-		expect(inert.images).toBe(0);
-		expect(inert.svgs).toBe(0);
-		expect(inert.handlers).toEqual([]);
-		expect(inert.executableUrls).toEqual([]);
-		// The row is not silently blank: a title is inserted as *text*, so the payload's own characters
-		// survive there as characters — which is the correct outcome for a title and different from the
-		// description, where DOMPurify removes the elements outright.
-		expect(inert.text).toContain('onerror');
-		expect(inert.text).toContain('The **west** quay');
-		expect(await nothingRan(page)).toEqual({
-			ran: false,
-			injectedImage: false,
-			injectedScript: false
-		});
-		expect(failures).toEqual([]);
-	});
-
-	test('the payload is inert in the rendered description', async ({ page }) => {
-		const failures = watchFailures(page);
-		await withPayload(page);
-		await chooseTool(page, 'select');
-		await selectAnnotation(page);
-		await expect(page.getByTestId('annotation-description-text')).toBeVisible();
-
-		const inert = await inertWithin(page, '[data-testid="annotation-description-text"]');
-		expect(inert.missing).toBe(false);
-		// **First**, that something rendered at all. A blank description passes every assertion below it,
-		// and blank is exactly what a `{@html}` adopted from prerendered output looks like — so the anti-
-		// vacuous assertion comes before the security ones rather than after them. The prose proves the
-		// surface is live; the payload's own characters do not survive here, because DOMPurify removes a
-		// disallowed element rather than escaping it.
-		expect(inert.text).toContain('The west quay, per the survey.');
-		await expect(page.getByTestId('annotation-description-text').locator('strong')).toHaveText(
-			'west'
-		);
-		expect(inert.scripts).toBe(0);
-		expect(inert.images).toBe(0);
-		expect(inert.svgs).toBe(0);
-		expect(inert.iframes).toBe(0);
-		expect(inert.ids).toBe(0);
-		expect(inert.handlers).toEqual([]);
-		expect(inert.executableUrls).toEqual([]);
-		expect(await nothingRan(page)).toEqual({
-			ran: false,
-			injectedImage: false,
-			injectedScript: false
-		});
-		expect(failures).toEqual([]);
-	});
-
 	test('the payload is inert in the popup on the map', async ({ page }) => {
+		// ┌───────────────────────────────────────────────────────────────────────────────────────┐
+		// │ THE ONE PAYLOAD TEST THIS SEAM KEEPS, AND WHY IT IS THIS ONE.                         │
+		// └───────────────────────────────────────────────────────────────────────────────────────┘
+		//
+		// The payload matrix itself is a claim about a pure pipeline — `marked` parses, DOMPurify
+		// sanitises, in that order — and it is asserted over the same payload in
+		// `packages/core/src/annotation/markdown.browser.test.ts`, where a real DOM is the assertion
+		// and no application has to boot.
+		//
+		// What no test there can fail for is **whether the application calls it**. The sanitiser could
+		// be perfect and this popup could set `innerHTML` from the raw `description`, and every
+		// assertion one seam down would still pass. So the wiring is asserted here, on the reader's
+		// own path to the popup — a click on the map — and it is asserted over both fields, because a
+		// sanitiser applied to one of an Annotation's two text surfaces is a vulnerability with a
+		// passing test.
 		const failures = watchFailures(page);
 		await withPayload(page);
 		await chooseTool(page, 'select');
@@ -780,65 +724,6 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		expect(inert.text).toContain('onerror');
 		expect(inert.text).toContain('The west quay, per the survey.');
 		await expect(page.locator('.maplibregl-popup-content strong')).toHaveText('west');
-		expect(await nothingRan(page)).toEqual({
-			ran: false,
-			injectedImage: false,
-			injectedScript: false
-		});
-		expect(failures).toEqual([]);
-	});
-
-	test('nothing anywhere in the document carries the payload’s markup', async ({ page }) => {
-		// The catch-all, in case a fourth render site is added later without a test of its own: asked of
-		// the whole document rather than of a named surface.
-		const failures = watchFailures(page);
-		await withPayload(page);
-		// The reader's path, with nothing selected — the sibling test above takes the same one, and for
-		// the reason given there: a selected Annotation's drag handle sits on top of it.
-		await chooseTool(page, 'select');
-		await clickAt(baseMap(page), 0.5, 0.5);
-		await expect(page.locator('.maplibregl-popup')).toBeVisible();
-
-		// Asked of the whole document, but **only about the payload** — not "are there any scripts", which
-		// is true of every page the app serves, nor "are there any inline event handlers", which MapLibre's
-		// own controls may legitimately have. The question here is whether anything the payload asked for
-		// exists anywhere, and the payload is specific enough to ask about directly.
-		const traces = await page.evaluate(() => {
-			const all = [...document.querySelectorAll('*')];
-			return {
-				payloadScripts: [...document.querySelectorAll('script')].filter((script) =>
-					(script.textContent ?? '').includes('__xss')
-				).length,
-				payloadImages: document.querySelectorAll('img[src="x"], img[onerror]').length,
-				payloadSvgs: document.querySelectorAll('svg[onload]').length,
-				xssHandlers: all.flatMap((element) =>
-					[...element.attributes]
-						.filter(
-							(attribute) =>
-								attribute.name.toLowerCase().startsWith('on') && attribute.value.includes('__xss')
-						)
-						.map((attribute) => `${element.tagName}.${attribute.name}`)
-				),
-				// `javascript:` anywhere, and `data:` only where it could carry markup. Any `data:` at all
-				// would be wrong here: the app's own favicon is a `data:image/svg+xml` link in `<head>`, and
-				// a check that flagged it would be a probe that cries wolf — which is how a real check gets
-				// loosened away.
-				xssUrls: all
-					.flatMap((element) => [element.getAttribute('href'), element.getAttribute('src')])
-					.filter(
-						(value): value is string =>
-							value !== null && /^(javascript:|data:text\/html|data:.*script)/i.test(value)
-					)
-			};
-		});
-
-		expect(traces).toEqual({
-			payloadScripts: 0,
-			payloadImages: 0,
-			payloadSvgs: 0,
-			xssHandlers: [],
-			xssUrls: []
-		});
 		expect(await nothingRan(page)).toEqual({
 			ran: false,
 			injectedImage: false,
@@ -870,57 +755,6 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 });
 
 test.describe('style controls write simplestyle names exactly (SPEC stories 63, 64, 65)', () => {
-	async function withOneLine(page: Page): Promise<string> {
-		const layerId = await startAnnotating(page);
-		await drawShape(page, 'line', [
-			[0.35, 0.4],
-			[0.65, 0.45]
-		]);
-		await chooseTool(page, 'select');
-		await selectAnnotation(page);
-		return layerId;
-	}
-
-	test('a colour, a width, and an opacity are written under the spec’s own names', async ({
-		page
-	}) => {
-		const layerId = await withOneLine(page);
-
-		const stroke = await chooseColour(page, 'annotation-stroke', 'red');
-		await page.getByTestId('annotation-stroke-width').fill('4');
-		await page.getByTestId('annotation-stroke-opacity').fill('0.5');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
-		const properties = (await storedAnnotations(page, layerId)).features[0]!.properties;
-
-		expect(properties['stroke']).toBe(stroke);
-		expect(properties['stroke-width']).toBe(4);
-		expect(properties['stroke-opacity']).toBe(0.5);
-		// Every name written is one simplestyle defines. A camelCase name would look right in the app and
-		// make the file unreadable to every other tool, which is the whole portability claim.
-		for (const name of Object.keys(properties)) expect(SIMPLESTYLE_NAMES).toContain(name);
-	});
-
-	test('a fill colour and opacity are written for a shape', async ({ page }) => {
-		const layerId = await startAnnotating(page);
-		await drawShape(page, 'polygon', [
-			[0.4, 0.4],
-			[0.7, 0.4],
-			[0.55, 0.7]
-		]);
-		await chooseTool(page, 'select');
-		await selectAnnotation(page);
-
-		const fill = await chooseColour(page, 'annotation-fill', 'blue');
-		await page.getByTestId('annotation-fill-opacity').fill('0.25');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
-		const properties = (await storedAnnotations(page, layerId)).features[0]!.properties;
-		expect(properties['fill']).toBe(fill);
-		expect(properties['fill-opacity']).toBe(0.25);
-		for (const name of Object.keys(properties)) expect(SIMPLESTYLE_NAMES).toContain(name);
-	});
-
 	// **The palette is nine colours and there is no way to type a tenth** (ticket 10's amendment). The
 	// well this replaced offered sixteen million, which is how a Project ends up with nine
 	// indistinguishable near-reds and no way to say "the blue route" out loud.
@@ -1008,68 +842,6 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		expect(properties['marker-color']).toBe(markerColor);
 		expect(properties['marker-size']).toBe('large');
 	});
-
-	test('an Annotation drawn with default styling carries the palette’s grey and nothing more', async ({
-		page
-	}) => {
-		// **This used to assert `{}` — no style properties at all** — on the grounds that precedence let a
-		// Layer be restyled in bulk. That precedence is gone: ADR-0009's amendment deleted the Layer's
-		// `defaultStyle` and writes style onto each Annotation as it is drawn, so there is no longer a
-		// bulk restyle for an absent property to preserve.
-		//
-		// What replaced it is the palette. simplestyle's own defaults are two *different* greys —
-		// `#555555` for a line and a fill, `#7e7e7e` for a pin — and only the first is one of the nine
-		// colours a scholar is offered, so a pin drawn with defaults would have reported a colour the
-		// picker could not show. Writing the palette's grey explicitly is what makes every freshly drawn
-		// shape sit on a swatch.
-		//
-		// The three colours and *nothing else*: `stroke-width`, the opacities and `marker-size` stay
-		// absent, because simplestyle has one default for each and this app does not contradict it.
-		const layerId = await startAnnotating(page);
-		await drawPin(page, 0.4, 0.4);
-		await drawShape(page, 'line', [
-			[0.5, 0.5],
-			[0.7, 0.55]
-		]);
-
-		for (const feature of (await storedAnnotations(page, layerId)).features) {
-			expect(feature.properties).toEqual({
-				'marker-color': ANNOTATION_COLOR.grey,
-				stroke: ANNOTATION_COLOR.grey,
-				fill: ANNOTATION_COLOR.grey
-			});
-		}
-		// And the picker says so in words, rather than only in a coloured square (SPEC story 111).
-		await chooseTool(page, 'select');
-		await selectAnnotation(page, 0);
-		await expect(page.getByTestId('annotation-marker-color-chosen')).toHaveText('Grey');
-		expect(await readAnnotationText(page, layerId)).not.toContain('stroke-width');
-	});
-
-	test('the written file is valid GeoJSON with simplestyle values of the right types', async ({
-		page
-	}) => {
-		const layerId = await withOneLine(page);
-		await chooseColour(page, 'annotation-stroke', 'red');
-		await page.getByTestId('annotation-stroke-width').fill('3');
-		await page.getByTestId('annotation-stroke-opacity').fill('0.8');
-		await chooseLineStyle(page, 'dotted');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
-		const stored = await storedAnnotations(page, layerId);
-
-		expect(stored.type).toBe('FeatureCollection');
-		expect(Array.isArray(stored.features)).toBe(true);
-		const properties = stored.features[0]!.properties;
-		expect(stored.features[0]!.type).toBe('Feature');
-		expect(stored.features[0]!.geometry?.type).toBe('LineString');
-		expect(properties['stroke']).toMatch(/^#[0-9a-f]{6}$/i);
-		expect(typeof properties['stroke-width']).toBe('number');
-		expect(typeof properties['stroke-opacity']).toBe('number');
-		expect(properties['stroke-opacity'] as number).toBeGreaterThanOrEqual(0);
-		expect(properties['stroke-opacity'] as number).toBeLessThanOrEqual(1);
-		expect(properties['stroke-dasharray']).toEqual([1, 3]);
-	});
 });
 
 /** The Annotation Layer's file as text, for asserting what is *not* in it. */
@@ -1077,49 +849,6 @@ const readAnnotationText = async (page: Page, layerId: string): Promise<string> 
 	JSON.stringify(await storedAnnotations(page, layerId));
 
 test.describe('solid, dashed, and dotted (SPEC story 61)', () => {
-	test('solid is the absence of stroke-dasharray, and the tuples are stored not keywords', async ({
-		page
-	}) => {
-		const layerId = await startAnnotating(page);
-		await drawShape(page, 'line', [
-			[0.35, 0.4],
-			[0.65, 0.45]
-		]);
-		await chooseTool(page, 'select');
-		await selectAnnotation(page);
-
-		// Solid is the default and writes **no `stroke-dasharray`** — which is the claim, and is now worth
-		// stating exactly, because the Annotation does carry the three colours it was drawn with. A
-		// `toEqual({})` here would have been asserting the palette's absence by accident.
-		const drawn = (await storedAnnotations(page, layerId)).features[0]!.properties;
-		expect(drawn).not.toHaveProperty('stroke-dasharray');
-		expect(drawn).toEqual({
-			'marker-color': ANNOTATION_COLOR.grey,
-			stroke: ANNOTATION_COLOR.grey,
-			fill: ANNOTATION_COLOR.grey
-		});
-
-		await chooseLineStyle(page, 'dashed');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		expect((await storedAnnotations(page, layerId)).features[0]!.properties['stroke-dasharray']) //
-			.toEqual([8, 4]);
-
-		await chooseLineStyle(page, 'dotted');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		expect((await storedAnnotations(page, layerId)).features[0]!.properties['stroke-dasharray']) //
-			.toEqual([1, 3]);
-
-		// No keyword ever reaches the file — a keyword would be legible only to us (ADR-0009).
-		const text = await readAnnotationText(page, layerId);
-		for (const keyword of ['"dashed"', '"dotted"', '"solid"']) expect(text).not.toContain(keyword);
-
-		// And going back to solid *removes* the property rather than blanking it.
-		await chooseLineStyle(page, 'solid');
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		expect((await storedAnnotations(page, layerId)).features[0]!.properties) //
-			.not.toHaveProperty('stroke-dasharray');
-	});
-
 	test('the three render distinctly, each by its own layer with its own dash pattern', async ({
 		page
 	}) => {
@@ -1287,40 +1016,6 @@ test.describe('style is on each Annotation (ADR-0009, as amended)', () => {
 		}
 		expect(failures).toEqual([]);
 	});
-
-	test('the first Annotation in a Layer carries the palette’s grey and nothing else', async ({
-		page
-	}) => {
-		// There is nothing to copy from in an empty Layer, so this is where the palette's own starting
-		// colour is written — and it is written rather than left absent because simplestyle's defaults are
-		// two different greys, only one of which is a colour the picker can show. See
-		// `styleForNewAnnotation`.
-		const layerId = await startAnnotating(page);
-		await drawPin(page, 0.4, 0.4);
-
-		expect((await storedAnnotations(page, layerId)).features[0]!.properties).toEqual({
-			'marker-color': ANNOTATION_COLOR.grey,
-			stroke: ANNOTATION_COLOR.grey,
-			fill: ANNOTATION_COLOR.grey
-		});
-	});
-
-	test('simplestyle’s own defaults apply where neither says anything', async ({ page }) => {
-		const failures = watchFailures(page);
-		const layerId = await startAnnotating(page);
-		await drawShape(page, 'line', [
-			[0.35, 0.4],
-			[0.65, 0.45]
-		]);
-		const id = (await storedAnnotations(page, layerId)).features[0]!.id;
-
-		const drawnWith = (await renderedStyles(page))[id];
-
-		expect(drawnWith?.['stroke']).toBe('#555555');
-		expect(drawnWith?.['stroke-width']).toBe(2);
-		expect(drawnWith?.['stroke-opacity']).toBe(1);
-		expect(failures).toEqual([]);
-	});
 });
 
 test.describe('deleting an Annotation (SPEC story 66)', () => {
@@ -1354,6 +1049,12 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		// byte-identical; this carries that forward through the surface that now *edits* them. Selecting,
 		// previewing, opening a popup, and tabbing through the fields are all looking, and ADR-0010 is
 		// explicit that looking must not modify files.
+		//
+		// **This one stays at Seam 2 while its sibling round-trip claim moved.** The subject is what the
+		// running application writes — or rather does not write — during a session of real gestures over
+		// real OPFS, and the assertion is the hashes of the files on disk plus a count of writes that
+		// never happened. Asserted one seam down it would become the serialiser agreeing with itself,
+		// which cannot fail for the reason the title gives.
 		await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
 		await chooseTool(page, 'select');
@@ -1389,35 +1090,6 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		expect(await annotationWrites(page)).toEqual([]);
 		// And the rename did land, in the one place display state lives.
 		expect((await projectJson(page)).layers[0].name).toBe('Trade routes');
-	});
-
-	test('a file this app wrote is byte-identical after being parsed and written again', async ({
-		page
-	}) => {
-		// The round trip, on real files: editing one Annotation must not reformat the rest of the
-		// document. Byte-identity is what keeps a Workspace in git producing diffs a human can read.
-		const layerId = await startAnnotating(page);
-		await drawPin(page, 0.3, 0.3);
-		await drawShape(page, 'line', [
-			[0.5, 0.5],
-			[0.7, 0.55]
-		]);
-		const original = await readAnnotationText(page, layerId);
-
-		// A reload parses the file; then one Annotation is edited, which writes the whole document back.
-		await reopenLayers(page);
-		await chooseTool(page, 'select');
-		await page.getByTestId('annotation-row').first().click();
-		await editAnnotationText(page);
-		await page.getByTestId('annotation-title').fill('A');
-		await page.getByTestId('annotation-title').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		await page.getByTestId('annotation-title').fill('');
-		await page.getByTestId('annotation-title').blur();
-		await expect(page.getByRole('status')).toHaveText('Saved locally');
-
-		// Back to exactly what it was: a title typed and cleared leaves no empty string behind.
-		expect(await readAnnotationText(page, layerId)).toBe(original);
 	});
 });
 

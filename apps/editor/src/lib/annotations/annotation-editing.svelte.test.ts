@@ -19,8 +19,12 @@
 // the project compiles to, and why the default one made the reactivity assertions vacuous.
 
 import {
+	DEFAULT_ANNOTATION_COLOR,
 	newAnnotation,
 	newAnnotationLayer,
+	parseAnnotations,
+	serialiseAnnotations,
+	simpleStyleViolations,
 	type Annotation,
 	type AnnotationCollection,
 	type AnnotationLayer,
@@ -79,11 +83,15 @@ class FakeWriter implements AnnotationWriter {
  * being deleted" would pass without any reactivity in the class at all. Mutate `it_.layers` (the
  * proxy this returns), not the array passed in — only writes through the proxy are writes to a
  * signal.
+ *
+ * `documents` is `$state` for the same reason, and it matters as soon as a test makes two edits: the
+ * screen's own edge is signal-backed, so a plain object here would leave `activeCollection` reading
+ * the collection as it was before the first write for ever after.
  */
 function screen(initialLayers: Layer[]) {
 	const session = new FakeWriter();
 	const layers = $state(initialLayers);
-	let documents: Record<string, unknown> = {};
+	let documents = $state<Record<string, unknown>>({});
 	const annotations = new AnnotationEditing({
 		session: () => session,
 		layers: () => layers,
@@ -364,5 +372,207 @@ describe('merely looking at a Project modifies nothing (ADR-0010)', () => {
 		await it_.annotations.lineStyleSelected('dotted');
 
 		expect(it_.session.writes.map((write) => write.debounce)).toEqual([true, false]);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// What ends up in the GeoJSON (ticket 06)
+//
+// These claims were asserted through the running application, a real MapLibre and real OPFS, and
+// none of them needed any of it: what a style control writes is a fact about the document this
+// screen commits, and the write is right here. What stays at Seam 2 is what a browser can still
+// falsify — that the controls exist, that a pin is offered no fill, that nine swatches sit on one
+// line inside the sidebar, and that a session which only looked left the file byte-identical.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The property names simplestyle 1.1.0 defines, plus ADR-0009's one extension.
+ *
+ * Written out rather than imported from `core`'s own `SIMPLESTYLE_PROPERTIES`: the claim is that this
+ * screen writes *the spec's* names, and a list copied from the spec is a better witness to that than
+ * one that would agree with the code however wrong both were.
+ */
+const SIMPLESTYLE_NAMES = [
+	'title',
+	'description',
+	'marker-size',
+	'marker-symbol',
+	'marker-color',
+	'stroke',
+	'stroke-opacity',
+	'stroke-width',
+	'fill',
+	'fill-opacity',
+	'stroke-dasharray'
+];
+
+const utf8 = (encoded: Uint8Array): string => new TextDecoder().decode(encoded);
+
+/** The collection of the most recent write, which is what is on disk after a gesture. */
+const written = (it_: ReturnType<typeof screen>): AnnotationCollection => {
+	const last = it_.session.writes.at(-1);
+	if (last === undefined) throw new Error('nothing was written');
+	return last.collection;
+};
+
+const propertiesOf = (it_: ReturnType<typeof screen>, index = 0): Record<string, unknown> =>
+	written(it_).annotations[index]!.properties as Record<string, unknown>;
+
+/** A screen with one Annotation Layer open, and the tool in hand. */
+function drawing(tool: 'point' | 'line' | 'polygon') {
+	const it_ = screen([layerNamed('one')]);
+	it_.annotations.openLayer('one');
+	it_.annotations.drawing.choose(tool);
+	return it_;
+}
+
+/** Draw a shape, end the gesture, and select what it made — the ordinary path to the style controls. */
+async function draw(it_: ReturnType<typeof screen>, points: [number, number][]): Promise<void> {
+	for (const [lng, lat] of points) await it_.annotations.placePoint({ lng, lat });
+	if (points.length > 1) await it_.annotations.finishShape();
+	it_.annotations.selectAnnotation(written(it_).annotations.at(-1)!.id);
+}
+
+describe('the style controls write simplestyle names exactly (SPEC stories 63, 64, 65)', () => {
+	it('writes a colour, a width, and an opacity under the spec’s own names', async () => {
+		const it_ = drawing('line');
+		await draw(it_, [
+			[4.8, 52.3],
+			[5, 52.3]
+		]);
+
+		await it_.annotations.styleSelected({
+			stroke: '#d32f2f',
+			'stroke-width': 4,
+			'stroke-opacity': 0.5
+		});
+
+		const properties = propertiesOf(it_);
+		expect(properties['stroke']).toBe('#d32f2f');
+		expect(properties['stroke-width']).toBe(4);
+		expect(properties['stroke-opacity']).toBe(0.5);
+		// Every name written is one simplestyle defines. A camelCase name would look right in the app
+		// and make the file unreadable to every other tool, which is the whole portability claim.
+		for (const name of Object.keys(properties)) expect(SIMPLESTYLE_NAMES).toContain(name);
+	});
+
+	it('writes a fill colour and opacity for a shape', async () => {
+		const it_ = drawing('polygon');
+		await draw(it_, [
+			[4.8, 52.3],
+			[5, 52.3],
+			[4.9, 52.4]
+		]);
+
+		await it_.annotations.styleSelected({ fill: '#1976d2', 'fill-opacity': 0.25 });
+
+		const properties = propertiesOf(it_);
+		expect(properties['fill']).toBe('#1976d2');
+		expect(properties['fill-opacity']).toBe(0.25);
+		for (const name of Object.keys(properties)) expect(SIMPLESTYLE_NAMES).toContain(name);
+	});
+
+	it('gives an Annotation drawn with default styling the palette’s grey and nothing more', async () => {
+		// simplestyle's own defaults are two *different* greys — `#555555` for a line and a fill,
+		// `#7e7e7e` for a pin — and only the first is one of the nine colours a scholar is offered, so a
+		// pin drawn with defaults would report a colour the picker cannot show. The three colours and
+		// **nothing else**: `stroke-width`, the opacities and `marker-size` stay absent, because
+		// simplestyle has one default for each and this app does not contradict it.
+		const it_ = drawing('point');
+		await draw(it_, [[4.9, 52.37]]);
+		it_.annotations.drawing.choose('line');
+		await draw(it_, [
+			[4.8, 52.3],
+			[5, 52.3]
+		]);
+
+		const grey = {
+			'marker-color': DEFAULT_ANNOTATION_COLOR,
+			stroke: DEFAULT_ANNOTATION_COLOR,
+			fill: DEFAULT_ANNOTATION_COLOR
+		};
+		expect(written(it_).annotations.map((one) => one.properties)).toEqual([grey, grey]);
+		expect(utf8(serialiseAnnotations(written(it_)))).not.toContain('stroke-width');
+	});
+
+	it('writes valid GeoJSON with simplestyle values of the right types', async () => {
+		const it_ = drawing('line');
+		await draw(it_, [
+			[4.8, 52.3],
+			[5, 52.3]
+		]);
+		await it_.annotations.styleSelected({
+			stroke: '#d32f2f',
+			'stroke-width': 3,
+			'stroke-opacity': 0.8
+		});
+		await it_.annotations.lineStyleSelected('dotted');
+
+		const file = JSON.parse(utf8(serialiseAnnotations(written(it_))));
+
+		expect(file.type).toBe('FeatureCollection');
+		expect(file.features[0].type).toBe('Feature');
+		expect(file.features[0].geometry.type).toBe('LineString');
+		const properties = file.features[0].properties;
+		expect(properties['stroke']).toMatch(/^#[0-9a-f]{6}$/i);
+		expect(typeof properties['stroke-width']).toBe('number');
+		expect(properties['stroke-opacity']).toBeGreaterThanOrEqual(0);
+		expect(properties['stroke-opacity']).toBeLessThanOrEqual(1);
+		expect(properties['stroke-dasharray']).toEqual([1, 3]);
+		// The portability claim, made checkable rather than asserted property by property.
+		expect(simpleStyleViolations(properties)).toEqual([]);
+	});
+});
+
+describe('solid, dashed, and dotted (SPEC story 61)', () => {
+	it('stores the tuples and writes solid as the absence of stroke-dasharray', async () => {
+		const it_ = drawing('line');
+		await draw(it_, [
+			[4.8, 52.3],
+			[5, 52.3]
+		]);
+
+		// Solid is the default, and it is worth stating exactly: a freshly drawn Annotation does carry
+		// the palette's three colours, so asserting an empty `properties` here would be asserting the
+		// palette's absence by accident.
+		expect(propertiesOf(it_)).not.toHaveProperty('stroke-dasharray');
+
+		await it_.annotations.lineStyleSelected('dashed');
+		expect(propertiesOf(it_)['stroke-dasharray']).toEqual([8, 4]);
+
+		await it_.annotations.lineStyleSelected('dotted');
+		expect(propertiesOf(it_)['stroke-dasharray']).toEqual([1, 3]);
+
+		// No keyword ever reaches the file — a keyword would be legible only to us (ADR-0009).
+		const file = utf8(serialiseAnnotations(written(it_)));
+		for (const keyword of ['"dashed"', '"dotted"', '"solid"']) expect(file).not.toContain(keyword);
+
+		// And going back to solid *removes* the property rather than blanking it.
+		await it_.annotations.lineStyleSelected('solid');
+		expect(propertiesOf(it_)).not.toHaveProperty('stroke-dasharray');
+	});
+});
+
+describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', () => {
+	it('writes back byte-identical bytes after a title is typed and cleared', async () => {
+		// The round trip through the screen that edits the file: parsing what was written and writing it
+		// again must not reformat the document, and a title typed and then cleared must leave no empty
+		// string behind. Byte-identity is what keeps a Workspace in git producing diffs a human can read.
+		const it_ = drawing('point');
+		await draw(it_, [[4.9, 52.37]]);
+		it_.annotations.drawing.choose('line');
+		await draw(it_, [
+			[4.8, 52.3],
+			[5, 52.3]
+		]);
+		const original = utf8(serialiseAnnotations(written(it_)));
+
+		// Reopened from the bytes, the way a reload reaches them, then edited and unedited.
+		it_.put(layerNamed('one'), parseAnnotations(serialiseAnnotations(written(it_))));
+		it_.annotations.selectAnnotation(written(it_).annotations[0]!.id);
+		await it_.annotations.typeText({ title: 'A' });
+		await it_.annotations.typeText({ title: '' });
+
+		expect(utf8(serialiseAnnotations(written(it_)))).toBe(original);
 	});
 });
