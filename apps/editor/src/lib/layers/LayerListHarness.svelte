@@ -21,7 +21,7 @@
 	// tests; what is under test here is what `LayerList` does about focus and announcement once a
 	// parent has reordered.
 
-	import { moveLayer, type Layer } from '@ballastella/core';
+	import { moveLayer, type Layer, type MapLayer } from '@ballastella/core';
 	import type { DrawnOutcome } from '@ballastella/core/render';
 
 	import LayerList from './LayerList.svelte';
@@ -48,7 +48,33 @@
 	export const order = (): string[] => layers.map((layer) => layer.id);
 </script>
 
+<!--
+	The three snippets the Project screen supplies, as markers that carry nothing but the Layer they
+	were rendered for.
+
+	`LayerList` decides **whether and where** each is drawn — beside a refused Layer's sentence, inside
+	an open map card, inside an open Annotation card — and the screen decides what goes in them. So a
+	marker is the whole of what can honestly be asserted from here: that the card asked, and for which
+	Layer. What the screen puts inside is `ProjectScreen`'s, and asserting it against a snippet written
+	in this file would be asserting this file. The Align link, its href and which refusals are
+	actionable therefore stay in `e2e/editor-layers.e2e.ts`.
+-->
+{#snippet problemAction(layer: Layer)}
+	<span data-testid="harness-problem-action" data-layer-id={layer.id}></span>
+{/snippet}
+
+{#snippet mapContents(layer: MapLayer)}
+	<span data-testid="harness-map-contents" data-layer-id={layer.id}></span>
+{/snippet}
+
+{#snippet annotationContents()}
+	<span data-testid="harness-annotation-contents"></span>
+{/snippet}
+
 <LayerList
+	{problemAction}
+	{mapContents}
+	{annotationContents}
 	{layers}
 	{outcomes}
 	{referencedImageIds}

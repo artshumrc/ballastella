@@ -1537,6 +1537,16 @@ test.describe('ordering, including across kinds (ADR-0002)', () => {
 		);
 	});
 
+	// ⚠ **Every claim in this describe about a *drag* stays here, and it was probed rather than
+	// assumed** (ticket 08). happy-dom's `DragEvent` is not a `MouseEvent` and its constructor drops
+	// both members these three tests turn on: `dataTransfer` comes back `undefined`, so
+	// `dragTheWholeCard` takes its own early return and never calls `setDragImage` at all, and
+	// `relatedTarget` comes back `undefined`, so every `dragleave` reads as a real departure and the
+	// flicker fix below is unreachable. Dispatching a `MouseEvent` named `dragleave` would make them
+	// pass, which is the working-around `vitest.config.ts` forbids: it would be a fake agreeing with a
+	// fake about the one member the fake gets wrong. The drag ghost's *offset* needs real layout on top
+	// of that, which no DOM implementation has.
+	//
 	// From the handle, which is the drag source: the row is only the drop target, because a pointer
 	// drag beginning anywhere inside a `draggable` element is claimed by the drag machinery rather than
 	// by the slider or the name field under the cursor.
@@ -1828,6 +1838,20 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 // ADR-0014 records image-space annotation as the expected next feature, so a build from before that
 // kind existed has to open a colleague's Project, reorder it, and save without destroying the Layer
 // it cannot draw.
+//
+// ⚠ **What is left here is the wiring, and that is the whole of why it stays.** What such a row
+// *says* — the kind it declares, the sentence its open card carries, that neither drawable kind's
+// contents are rendered into it, that it can still be renamed and moved — moved to
+// `apps/editor/src/lib/layers/layer-list.dom.test.ts`'s `a Layer kind this build has never heard of
+// (ADR-0014)` in ticket 08, where it is asserted in milliseconds against a `ForeignLayer` handed
+// straight to the component. What `parseLayers` and `serialiseLayers` do with an unknown kind has
+// its own tests in `packages/core/src/project/layer.test.ts`.
+//
+// This test is neither of those and cannot be replaced by both: it is the one place that asks
+// whether a foreign kind survives the *journey* — off disk, through the parser, into a row that
+// really rendered, past a renderer that really skipped it while drawing the map below it, through
+// two edits made with a pointer, and back onto disk with its unknown field intact. A Seam 1c test
+// cannot fail because the application forgot to wire the component up; this one can.
 test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 	test('is listed, is reorderable, and is written back intact', async ({ page }) => {
 		const directory = await alignedProject(page);
@@ -1858,26 +1882,12 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 
 		await openLayers(page, directory);
 
+		// It really rendered as a row of its own kind — the parser's `foreign` reached the markup — and
+		// the map Layer below it still drew, so the kind was skipped at the render boundary rather than
+		// throwing. What that row *says* is `layer-list.dom.test.ts`'s.
 		await expect(rows(page)).toHaveCount(2);
 		await expect(rows(page).nth(0)).toHaveAttribute('data-layer-kind', 'foreign');
-		await expect(rows(page).nth(0).getByTestId('layer-kind')).toContainText(
-			'Not shown by this version'
-		);
-		// Skipped at the render boundary rather than throwing: the map Layer below it still drew.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
-
-		// **It opens too, and says what it is** (ticket 05, ADR-0014). A row that could not be opened at
-		// all would be a second kind of row; a row that opened onto nothing would read as contents that
-		// failed to load. Asserted on the sentence rather than on the absence of anything, because the
-		// honest thing here is a sentence.
-		const foreign = await openLayerRow(page, 0);
-		await expect(foreign.getByTestId('layer-foreign-note')).toContainText(
-			'a kind this version of Ballastella does not understand'
-		);
-		await expect(foreign.getByTestId('layer-foreign-note')).toContainText('nothing');
-		// And nothing of the two kinds this build *can* draw was rendered into it.
-		await expect(foreign.getByTestId('align-historical-map')).toHaveCount(0);
-		await expect(foreign.getByTestId('annotation-tools')).toHaveCount(0);
 
 		// Renaming starts at the pencil in an open card since the Layers revision.
 		const renamingForeign = await openLayerRow(page, rows(page).nth(0));
@@ -2158,6 +2168,16 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		await expect(open.getByTestId('align-historical-map')).toHaveCount(1);
 	});
 
+	/**
+	 * **Kept as the wiring for `layer-list.dom.test.ts`'s `draws each kind’s contents in its own open
+	 * card and in no other`** (ticket 08). That the card renders `mapContents` only when it is open and
+	 * only for a map Layer is the component's, and is asserted there in milliseconds against a marker
+	 * snippet. That the snippet the *application* passes is this link, with a `(directory, layer id)`
+	 * pair that is true together, is not derivable from anything `LayerList` is handed: the directory
+	 * comes from `session.openDirectory` and the id from a Layer read off disk, which is the pair
+	 * `alignLink` exists to keep from drifting. So this is a Seam 2 test and the other is a Seam 1c
+	 * test asserting the same sentence, which SPEC says are not duplicates.
+	 */
 	test("the Layer's own Align is inside it, and is not on the screen until it is opened", async ({
 		page
 	}) => {
@@ -2187,6 +2207,12 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 	 * The href is asserted, not just the presence, because this link and the open row's carry the same
 	 * `(directory, layer id)` pair out of one snippet, and the way that goes wrong is a pair that is
 	 * individually plausible and never true together.
+	 *
+	 * **Kept as the wiring for `layer-list.dom.test.ts`'s `draws the problem action beside the sentence
+	 * of a Layer that was refused`** (ticket 08). That the card renders a `problemAction` beside a
+	 * refused Layer's sentence, and only there, is the component's. That the screen answers *this*
+	 * refusal with an Align, and where that Align goes, is the screen's — and only a real Project on
+	 * disk, unaligned, produces the refusal that decides it.
 	 */
 	test('a closed, unaligned map Layer offers Align now beside the sentence', async ({ page }) => {
 		const directory = await projectWithImage(page);
@@ -2209,20 +2235,15 @@ test.describe('one Layer opens at a time (ticket 05)', () => {
 		expect(new URL(page.url()).searchParams.get('layer')).toBe(layerId);
 	});
 
-	/**
-	 * An aligned Layer has nothing to warn about, so it has nothing to offer beside the warning.
-	 *
-	 * The negative half matters more than usual here: the closed row is the one place on the screen
-	 * where an Align could appear for every Layer in the stack at once, which would be four buttons
-	 * competing with the sentence they no longer answer.
-	 */
-	test('a closed, aligned map Layer offers no Align now', async ({ page }) => {
-		const directory = await alignedProject(page);
-		await openLayers(page, directory);
-
-		await expect(rows(page).first().getByTestId('layer-problem')).toHaveCount(0);
-		await expect(page.getByTestId('align-historical-map-now')).toHaveCount(0);
-	});
+	// **Retired (ticket 08): `a closed, aligned map Layer offers no Align now`.** Two claims, and
+	// neither of them needed a Project on disk. That a Layer which drew carries no `problemAction` at
+	// all — the negative that matters, since the closed row is the one place on the screen where an
+	// Align could appear for every Layer in the stack at once — is
+	// `layer-list.dom.test.ts`'s `draws no problem action for a Layer that drew`, asserted against a
+	// snippet the harness supplies unconditionally, so it is the *card's* refusal to ask rather than
+	// the screen's refusal to answer. That an aligned Layer has no `layer-problem` band is still
+	// asserted here, by `an aligned map Layer never claims it needs aligning, hidden or shown` below,
+	// which is where it belongs: the outcome comes from a real renderer reading a real Alignment.
 
 	/**
 	 * The same narrowing the open row makes, made here: an Alignment that is *there and unreadable* is

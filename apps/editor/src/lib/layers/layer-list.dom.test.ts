@@ -16,6 +16,13 @@
 // dependencies and asserting it here would assert it against the props this file passes in.
 // The sentence itself is `ProjectScreen`'s — see the note on {@link NOT_ALIGNED}.
 //
+// Ticket 08 added the foreign-kind row and the three snippets, and the snippets are where the line is
+// drawn most finely: **whether and where the card renders one is `LayerList`'s and is asserted here;
+// what goes inside one is `ProjectScreen`'s and is not.** `LayerListHarness.svelte` supplies markers
+// rather than the real Align link for exactly that reason. Nothing about a *drag* moved, and that was
+// probed rather than assumed — happy-dom's `DragEvent` carries neither `dataTransfer` nor
+// `relatedTarget`, which is entry 4 in `vitest.config.ts`'s catalog.
+//
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THIS RUNS IN NODE, AGAINST A DOM IMPLEMENTATION
 //
@@ -58,6 +65,23 @@ const mapLayer = (id: string, name: string): Layer => ({
 	order: 0,
 	opacity: 1,
 	imageId: `image-${id}`
+});
+
+/**
+ * A Layer of a kind this build has never heard of (ADR-0014).
+ *
+ * `declaredKind` is the kind the file carried; `kind: 'foreign'` is what the parser turned it into.
+ * Built here rather than through `parseLayers`, because what the parser does with an unknown kind has
+ * its own tests in `packages/core/src/project/layer.test.ts` and this file's subject is what the list
+ * renders when handed one.
+ */
+const foreignLayer = (id: string, name: string): Layer => ({
+	kind: 'foreign',
+	id,
+	name,
+	visible: true,
+	order: 0,
+	declaredKind: 'image-annotation'
 });
 
 const annotationLayer = (id: string, name: string): Layer => ({
@@ -458,5 +482,128 @@ describe('reordering leaves the keyboard where it can move again (SPEC story 53)
 		// And it really is operable from there: one more press, no Tab, and the Layer moves again.
 		await press(nth('layer-move-down', 0));
 		expect(renderedOrder()).toEqual(['l-middle', 'l-map', 'l-top']);
+	});
+});
+
+describe('a Layer kind this build has never heard of (ADR-0014)', () => {
+	/**
+	 * ⚠ **What is asserted here is the row, never the file.** That such a Layer is read out of
+	 * `project.json`, skipped at the render boundary rather than throwing, and **written back with
+	 * every field it arrived with** is `e2e/editor-layers.e2e.ts`'s and
+	 * `packages/core/src/project/layer.test.ts`'s. A version of the round-trip written here would
+	 * round-trip the object literal above.
+	 */
+	test('is listed, and names the kind it cannot draw rather than pretending', () => {
+		stack({
+			layers: [foreignLayer('l-cartouche', 'Cartouche'), mapLayer('l-map', 'La Floride')]
+		});
+
+		expect(all('layer-row')).toHaveLength(2);
+		expect(nth('layer-row', 0)).toHaveAttribute('data-layer-kind', 'foreign');
+		// The kind the *file* carried, in the words, rather than only "unknown": a colleague reading
+		// this row needs to know which feature of a newer build their Project is carrying.
+		expect(nth('layer-kind', 0)).toHaveTextContent('Not shown by this version (image-annotation)');
+		expect(nth('layer-name-text', 0)).toHaveTextContent('Cartouche');
+	});
+
+	test('opens onto a sentence rather than onto nothing', async () => {
+		liveStack({ layers: [foreignLayer('l-cartouche', 'Cartouche')] });
+		await openRow(0);
+
+		// A row that opened onto an empty panel would read as contents that failed to load, which is a
+		// different and much more alarming state than the true one.
+		expect(one('layer-foreign-note')).toHaveTextContent(
+			'a kind this version of Ballastella does not understand'
+		);
+		expect(one('layer-foreign-note')).toHaveTextContent('nothing');
+
+		// And nothing of the two kinds this build *can* draw was rendered into it. The screen's own
+		// snippets are markers here — see `LayerListHarness.svelte` — so this is the card declining to
+		// ask for them rather than the screen declining to answer.
+		expect(one('harness-map-contents')).not.toBeInTheDocument();
+		expect(one('harness-annotation-contents')).not.toBeInTheDocument();
+		expect(one('layer-opacity')).not.toBeInTheDocument();
+	});
+
+	test('can still be moved in the stack and renamed', async () => {
+		liveStack({
+			layers: [foreignLayer('l-cartouche', 'Cartouche'), mapLayer('l-map', 'La Floride')]
+		});
+		await openRow(0);
+
+		// The move first, so the rename below is asked of a card that has just been moved — which is
+		// the order the end-to-end test drives, and the order in which a keyed node has already moved.
+		await press(nth('layer-move-down', 0));
+		expect(renderedOrder()).toEqual(['l-map', 'l-cartouche']);
+
+		// One rename button on the screen, because one card is open: the foreign one, which followed
+		// its Layer down.
+		await press(nth('layer-rename', 0));
+		expect(one('layer-name')).toHaveValue('Cartouche');
+	});
+});
+
+describe('what the screen supplies is drawn only where the card asks for it', () => {
+	// ⚠ **Whose claim this is.** `problemAction`, `mapContents` and `annotationContents` are snippets
+	// the Project screen passes in, so there are two claims in every sentence about them and they
+	// belong at different seams. *Whether and where the card renders one* is `LayerList`'s and is
+	// asserted here, against markers the harness supplies. *What goes inside* — the Align link, its
+	// `(directory, layer id)` href, and which of the three refusals is answerable by aligning — is
+	// `ProjectScreen`'s, is not derivable from anything this component is handed, and stays in
+	// `e2e/editor-layers.e2e.ts`.
+
+	test('draws the problem action beside the sentence of a Layer that was refused', () => {
+		liveStack({
+			layers: [mapLayer('l-map', 'La Floride')],
+			outcomes: { 'l-map': { status: 'refused', reason: NOT_ALIGNED } }
+		});
+
+		// Still closed: the whole point of an action here is that the warning a user can notice without
+		// opening anything can also be acted on without opening anything.
+		expect(disclosure(0)).toHaveAttribute('aria-expanded', 'false');
+		expect(one('layer-problem')).toHaveTextContent(NOT_ALIGNED);
+		expect(one('harness-problem-action')).toHaveAttribute('data-layer-id', 'l-map');
+	});
+
+	test('draws no problem action for a Layer that drew', () => {
+		liveStack({
+			layers: [mapLayer('l-map', 'La Floride')],
+			outcomes: { 'l-map': { status: 'drawn' } }
+		});
+
+		// The closed row is the one place on the screen where an action could appear for every Layer in
+		// the stack at once, which would be four buttons competing with sentences they no longer answer.
+		expect(one('layer-problem')).not.toBeInTheDocument();
+		expect(one('harness-problem-action')).not.toBeInTheDocument();
+	});
+
+	test('draws no problem action for a Layer it was told nothing about', () => {
+		liveStack({ layers: [mapLayer('l-map', 'La Floride')] });
+
+		// The state every Layer is in before the first render of the stack has come back, and the one
+		// an implementation that keyed the band off the Layer rather than off the outcome gets wrong.
+		expect(one('harness-problem-action')).not.toBeInTheDocument();
+	});
+
+	test('draws each kind’s contents in its own open card and in no other', async () => {
+		liveStack({
+			layers: [annotationLayer('l-notes', 'Notes'), mapLayer('l-map', 'La Floride')]
+		});
+
+		// Nothing is open, so nothing has been asked for — which is what makes every other spec's
+		// "open the row first" a step the user really takes rather than a formality.
+		expect(all('harness-map-contents')).toHaveLength(0);
+		expect(all('harness-annotation-contents')).toHaveLength(0);
+
+		await openRow(1);
+		expect(one('harness-map-contents')).toHaveAttribute('data-layer-id', 'l-map');
+		expect(all('harness-annotation-contents')).toHaveLength(0);
+
+		// ⚠ **Each kind asserted while its own card is open**, for the reason the opacity spec above
+		// gives: the disclosure is an accordion, so a version that opened the map card and then found no
+		// annotation contents would be reporting that the other row was *collapsed*.
+		await openRow(0);
+		expect(all('harness-annotation-contents')).toHaveLength(1);
+		expect(all('harness-map-contents')).toHaveLength(0);
 	});
 });
