@@ -191,38 +191,32 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		expect(await annotationWrites(page)).toEqual([]);
 	});
 
-	test('a newly drawn Annotation is selected, and its row toggles the selection', async ({
-		page
-	}) => {
-		// Drawing selects what was drawn, so it can be titled straight away — which is the reason for
-		// drawing it. Asserted rather than assumed because it is load-bearing for the rest of this suite:
-		// a row is a toggle, so a helper that clicked one unconditionally would *deselect* the new shape
-		// and take the editor and the vertex handles with it.
+	/**
+	 * **The wiring of the selection, which is the half of it a browser is needed for.**
+	 *
+	 * That a row is a *toggle* — pressed once it selects, pressed again it clears, and a second row
+	 * displaces the first rather than joining it — is `AnnotationLayerContents`' own behaviour and is
+	 * asserted against the component in `annotation-layer-contents.dom.test.ts`, handed a collection
+	 * and a selection by the test. What that seam cannot fail for is the reason this test's title
+	 * gives: that a shape *drawn on the map* becomes the selection, which is `AnnotationDrawing` and
+	 * `ProjectScreen` and the canvas, none of which the component can see.
+	 *
+	 * Load-bearing for the rest of this suite, which is why it is asserted rather than assumed: a
+	 * helper that clicked a row unconditionally would deselect the new shape and take the editor and
+	 * the vertex handles with it.
+	 */
+	test('a shape drawn on the map arrives selected, in an editor of its own', async ({ page }) => {
 		await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
 		// The list is back once the tools are put away; the new pin is selected in it.
 		await chooseTool(page, 'select');
 
-		const row = page.getByTestId('annotation-row');
-		await expect(row).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-pressed', 'true');
 		await expect(page.getByTestId('annotation-editor')).toBeVisible();
 
-		await row.click();
-		await expect(row).toHaveAttribute('aria-pressed', 'false');
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
-
-		await row.click();
-		await expect(row).toHaveAttribute('aria-pressed', 'true');
-		await expect(page.getByTestId('annotation-editor')).toBeVisible();
-	});
-
-	test('“New Annotation” closes the Annotation that was open', async ({ page }) => {
-		// The editor is not part of the list, so it used to stay on screen when the list stepped aside for
-		// the shape buttons: a panel titled after the *previous* Annotation, sitting directly under the
-		// tool that is about to draw a different one, in the place the new one's own panel will appear.
-		await startAnnotating(page);
-		await drawPin(page, 0.4, 0.4);
-		await chooseTool(page, 'select');
+		// And it is the drawn one's panel rather than the previous Annotation's. "New Annotation"
+		// deselects — the component seam asserts that it does — and this is the other end of it: the
+		// panel that appears next belongs to the shape that was just drawn.
 		await selectAnnotation(page);
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('The west quay');
@@ -230,9 +224,6 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
 
 		await page.getByTestId('annotation-new').click();
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
-
-		// And the shape drawn next opens in an editor of its own, which is the panel that belongs there.
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(baseMap(page), 0.6, 0.6);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
@@ -287,12 +278,14 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		}
 	});
 
+	// **The gesture, not the region.** That the announcement lives in a `polite`, `atomic` region that
+	// is on the page before there is anything to say — so a screen reader announces a change of text
+	// rather than an arrival — is `AnnotationTools`' own markup and is asserted in
+	// `annotation-tools.dom.test.ts`. What needs a canvas is that each click on the map advances the
+	// sentence, and that is the whole of what is left here.
 	test('the gesture is announced, so it is legible without seeing the canvas', async ({ page }) => {
 		await startAnnotating(page);
 		const status = page.getByTestId('annotation-status');
-
-		await expect(status).toHaveAttribute('aria-live', 'polite');
-		await expect(status).toHaveAttribute('aria-atomic', 'true');
 
 		await chooseTool(page, 'polygon');
 		await expect(status).toContainText('to start a shape');
@@ -431,27 +424,15 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await expect(page.getByTestId('annotation-description')).toHaveValue('The *west* quay.');
 	});
 
-	test('typing a whole sentence does not shut the fields', async ({ page }) => {
-		// The regression this is here for: the panel resets its editing state when **a different
-		// Annotation arrives**, and `annotation` is a fresh object after every save — which is after
-		// every keystroke. Written as an effect that merely read `annotation.id`, that reset fired on
-		// each character, and a scholar could type exactly one letter before the fields turned back into
-		// text and they had to press the pencil again. Typed character by character, because `fill()`
-		// sets the value once and would never have seen it.
-		await withOnePin(page);
-		await editAnnotationText(page);
-
-		const title = page.getByTestId('annotation-title');
-		await title.click();
-		await page.keyboard.type('Fort Amsterdam', { delay: 60 });
-		await expect(title).toHaveValue('Fort Amsterdam');
-
-		const description = page.getByTestId('annotation-description');
-		await description.click();
-		await page.keyboard.type('Built in 1625.', { delay: 60 });
-		await expect(description).toHaveValue('Built in 1625.');
-	});
-
+	// **"Typing a whole sentence does not shut the fields" is no longer here.** It is
+	// `annotation-editor.dom.test.ts`'s test of the same name, and the move is exact rather than
+	// approximate: the regression is that `annotation` is a *fresh object with the same id* after
+	// every save — which is after every keystroke — and a panel that resets on identity rather than on
+	// id slams the fields shut after one letter. `AnnotationEditorHarness.svelte` rebuilds the
+	// Annotation on every write for precisely that reason, so the state the bug needs is constructed
+	// there rather than merely arrived at. The wiring that this file still proves is the test above:
+	// the fields are really reached from the running application, really write, and really survive a
+	// reload.
 	test('typing does not rebuild the Layer stack, so the map does not thrash', async ({ page }) => {
 		// The bug: the collection was part of the key the stack was built from, so every keystroke —
 		// each of which writes the file and hands the page a new collection — tore down and re-added
@@ -744,21 +725,30 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 });
 
 test.describe('style controls write simplestyle names exactly (SPEC stories 63, 64, 65)', () => {
-	// **The palette is nine colours and there is no way to type a tenth** (ticket 10's amendment). The
-	// well this replaced offered sixteen million, which is how a Project ends up with nine
-	// indistinguishable near-reds and no way to say "the blue route" out loud.
-	test('an Annotation can only be one of the nine colours, each named and legibly ticked', async ({
+	/**
+	 * **The nine swatches fit on one line inside the sidebar**, which is the half of this claim that
+	 * needs a laid-out page.
+	 *
+	 * That there are nine and no more, that each is a real radio named "Red" rather than "option 4",
+	 * that the chosen one wears a tick in the ink the contrast table calls for, and that the choice is
+	 * said in words, are all `ColorPicker`'s own markup and are asserted in
+	 * `annotation-editor.dom.test.ts`. None of them needed a Project, a boot, or a map: the six
+	 * `chooseColour` round trips this test used to make to check the tick's ink were most of its
+	 * thirty-six seconds.
+	 *
+	 * The measurement cannot follow them. There is no layout at the component seam — no
+	 * `getBoundingClientRect`, no sidebar to be inside — and `vitest.config.ts` records that as a
+	 * known absence rather than a gap to work around. So what stays is the geometry, plus one
+	 * choice made end to end, which is what proves this picker is really mounted in the Annotation
+	 * panel and really writes.
+	 */
+	test('the nine colours fit on one line inside the sidebar, and choosing one writes', async ({
 		page
 	}) => {
 		await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
-
-		// Nine swatches, each a real radio: the count *and* the element, because a row of nine
-		// `<div>`s that looked identical would pass a count and be unreachable from a keyboard.
-		const swatches = page.getByTestId('annotation-marker-color').locator('input[type=radio]');
-		await expect(swatches).toHaveCount(9);
 
 		// **All nine on one line, and inside the sidebar.** This was a 3×3 grid, and three of these
 		// pickers made the selected Annotation's card the tallest thing in the column. A wrapped row is
@@ -780,50 +770,30 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 			Math.round(sidebar.x + sidebar.width)
 		);
 
-		// Every swatch is named, so the accessible name is "Red" rather than "option 4" (SPEC story 111).
-		for (const [name, hex] of Object.entries(ANNOTATION_COLOR)) {
-			const swatch = page.getByTestId(`annotation-marker-color-${name}`);
-			await expect(swatch).toHaveText(new RegExp(name, 'i'));
-			await expect(swatch.locator('input')).toHaveValue(hex);
-		}
-
-		// The tick is white on the seven dark swatches and black on the two light ones, which is a
-		// contrast fact rather than a taste one: a white tick carries 1.7:1 on Yellow and 1.0:1 on White.
-		// `ColorPicker.svelte` records the measured ratio for all nine.
-		for (const [name, ink] of [
-			['black', '#ffffff'],
-			['blue', '#ffffff'],
-			['green', '#ffffff'],
-			['orange', '#ffffff'],
-			['white', '#000000'],
-			['yellow', '#000000']
-		] as const) {
-			await chooseColour(page, 'annotation-marker-color', name);
-			await expect(
-				page.getByTestId(`annotation-marker-color-${name}`).locator('[data-ink]')
-			).toHaveAttribute('data-ink', ink);
-		}
-
-		// And the choice is said in words, which is the channel that survives a monochrome screen.
-		await chooseColour(page, 'annotation-marker-color', 'purple');
+		// One choice, made the way a scholar makes it, reaching the file. The *vocabulary* — which nine,
+		// what each is called, which ink its tick takes — is the component seam's; what this adds is
+		// that the control is wired to the Annotation in front of it.
+		const chosen = await chooseColour(page, 'annotation-marker-color', 'purple');
 		await expect(page.getByTestId('annotation-marker-color-chosen')).toHaveText('Purple');
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
+		expect(chosen).toBe(ANNOTATION_COLOR.purple);
 	});
 
-	test('a pin gets marker properties and no line or fill controls', async ({ page }) => {
+	// **Which controls a pin is offered is `AnnotationEditor`'s and has moved** — that there is no
+	// fill on a pin so there is no control for one, and that the whole Line group is absent rather
+	// than empty, are asserted per geometry in `annotation-editor.dom.test.ts` against a component
+	// handed a `Point`. What that seam cannot see is the other end of the same union: that what those
+	// controls write lands in the Layer's own file under simplestyle's exact names, which is storage
+	// and stays here.
+	test('a pin’s marker properties reach the file under simplestyle’s own names', async ({
+		page
+	}) => {
 		const layerId = await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
 
-		// The union doing its job in the UI: there is no fill on a pin, so there is no control for one.
-		await expect(page.getByTestId('annotation-fill')).toHaveCount(0);
-		await expect(page.getByTestId('annotation-marker-color')).toHaveCount(1);
-
 		const markerColor = await chooseColour(page, 'annotation-marker-color', 'purple');
-		// There is no line on a pin either, so the whole Line group is absent rather than empty.
-		await expect(page.getByTestId('annotation-stroke')).toHaveCount(0);
-		await expect(page.getByTestId('annotation-stroke-width')).toHaveCount(0);
 		await page.getByTestId('annotation-marker-size-large').click();
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
