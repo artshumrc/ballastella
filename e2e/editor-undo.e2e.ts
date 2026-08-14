@@ -9,6 +9,7 @@ test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
 import {
 	clickAt,
+	emptyWorkspace,
 	historicalMap,
 	imagePoints,
 	makePairs,
@@ -35,6 +36,7 @@ import {
 	waitForPaintedAnnotations,
 	waitForStack
 } from './support/annotations.js';
+import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapshot.js';
 
 /**
  * SPEC's Seam 2 for single-level undo (story 38, ADR-0014): the four destructive actions undone in the
@@ -216,15 +218,102 @@ async function throughLayersAndBack(page: Page, resuming: number): Promise<void>
 /**
  * A Project with one aligned Historical Map: three pairs, written, and drawn warped.
  *
- * @returns the image id, which is the Alignment's file name
+ * **The recorded journey.** This is what every aligned test in this file used to run for itself, and
+ * it is still what runs on the first test through a cold worker; {@link alignedWorkspace} keeps the
+ * files it produced and replays them after that. Kept as its own function so what gets recorded stays
+ * a real user journey rather than something inferred from a cache format.
  */
-async function alignedProject(page: Page): Promise<string> {
+async function alignedProjectThroughTheInterface(
+	page: Page
+): Promise<{ imageId: string; layerId: string }> {
 	const imageId = await start(page);
 	await makePairs(page, 3);
 	await waitForStored(page, imageId, 3);
 	await expectWarpedDrawn(page);
 	await saved(page);
+	const layer = (await projectJson(page)).layers.find(
+		(entry: { kind: string }) => entry.kind === 'map'
+	);
+	return { imageId, layerId: layer.id as string };
+}
+
+/**
+ * Replay a Workspace this build's own interface once produced, instead of producing it again.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ NOTHING IN THIS FILE IS ABOUT INGESTING AN IMAGE OR ABOUT MAKING A CONTROL POINT PAIR.         │
+ * └───────────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * Every test here is about undo. The pyramid, the Annotation Layer and the three pairs are the ground
+ * a destructive action is performed on, and building them through two live map panes per test — a
+ * Base Map load, three click-pairs and a warped solve — was the largest cost in the file.
+ *
+ * `workspace-snapshot.ts` carries the full argument for why the fixture is a **recording** rather
+ * than a literal or a construction from `core`'s own functions, and it is the argument this file
+ * depends on more than any other: the assertions here are byte-identity assertions, and they are only
+ * a comparison of the application against itself because these bytes are by construction what this
+ * build wrote. The recording is keyed to the build fingerprint, so a changed tiler or serialiser
+ * discards it.
+ *
+ * Leaves the page on the hub with the files on disk and nothing read yet, because every caller's next
+ * move is a navigation.
+ */
+async function seededWorkspace(
+	page: Page,
+	name: string,
+	capture: (page: Page) => Promise<{ imageId: string; layerId: string }>
+): Promise<{ imageId: string; layerId: string }> {
+	await page.goto('/');
+	await emptyWorkspace(page);
+	const snapshot = await snapshotWorkspace(page, name, capture);
+	await restoreWorkspace(page, snapshot.files);
+	return { imageId: snapshot.imageId, layerId: snapshot.layerId };
+}
+
+/** A Project with one aligned Historical Map on disk — seeded. See {@link seededWorkspace}. */
+const alignedWorkspace = (page: Page) =>
+	seededWorkspace(page, 'undo-aligned', alignedProjectThroughTheInterface);
+
+/**
+ * …and on the alignment route, with the three recorded pairs resumed and clickable.
+ *
+ * **The rows are the barrier, not the pane**, for the reason {@link throughLayersAndBack} records:
+ * `pairing` is `undefined` until the Alignment has been read, and a click before then is dropped.
+ *
+ * @returns the image id, which is the Alignment's file name
+ */
+async function alignedProject(page: Page): Promise<string> {
+	const { imageId, layerId } = await alignedWorkspace(page);
+	await page.goto(`/align/?p=amsterdam-1625&layer=${layerId}`);
+	await waitForSurface(page);
+	await expect(controlPointRows(page)).toHaveCount(3);
 	return imageId;
+}
+
+/**
+ * A Project with one empty Annotation Layer on disk — seeded from {@link startAnnotating}'s journey.
+ *
+ * @returns the Annotation Layer's id
+ */
+async function annotatingWorkspace(page: Page): Promise<string> {
+	const { layerId } = await seededWorkspace(page, 'undo-annotating', async (fresh) => ({
+		// The ingest's two ids are the recording's vocabulary and there is no Historical Map here, so
+		// the image id is deliberately empty: nothing in this fixture has a pyramid to name.
+		imageId: '',
+		layerId: await startAnnotating(fresh)
+	}));
+	return layerId;
+}
+
+/**
+ * …and on the Project with that Layer open, ready to draw into — {@link startAnnotating}'s end state.
+ *
+ * @returns the Annotation Layer's id
+ */
+async function annotating(page: Page): Promise<string> {
+	const layerId = await annotatingWorkspace(page);
+	await reopenLayers(page);
+	return layerId;
 }
 
 test.describe('a moved Control Point (SPEC story 38)', () => {
@@ -426,7 +515,7 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 	 */
 	test('comes back with every property, and painted again', async ({ page }) => {
 		test.setTimeout(90_000);
-		const layerId = await startAnnotating(page);
+		const layerId = await annotating(page);
 		// A line rather than a pin, because `stroke-dasharray` is what the criterion names and a pin has
 		// no line style to set — a conjectural route is exactly the case where the property carries the
 		// scholarly claim.
@@ -478,7 +567,7 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		page
 	}) => {
 		test.setTimeout(90_000);
-		const routes = await startAnnotating(page);
+		const routes = await annotating(page);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(layerRows(page)).toHaveCount(2);
 		await saved(page);
@@ -547,7 +636,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 	 */
 	test('restores the project.json entry and the Alignment byte-for-byte', async ({ page }) => {
 		test.setTimeout(120_000);
-		await alignedProject(page);
+		await alignedWorkspace(page);
 		await openLayers(page, 1);
 		// A second Layer, so the map Layer is not at the top: restoring it anywhere but its own position
 		// would discard the user's ordering, which is display state ADR-0002 makes load-bearing.
@@ -604,7 +693,7 @@ test.describe('a deleted Layer (SPEC stories 38 and 49)', () => {
 		page
 	}) => {
 		test.setTimeout(90_000);
-		const layerId = await startAnnotating(page);
+		const layerId = await annotating(page);
 		await drawPin(page, 0.4, 0.45);
 		await selectAnnotation(page);
 		await editAnnotationText(page);
@@ -679,7 +768,7 @@ test.describe('a deleted map Layer does not come back (the resurrection trap)', 
 		page
 	}) => {
 		test.setTimeout(150_000);
-		const imageId = await alignedProject(page);
+		const { imageId } = await alignedWorkspace(page);
 		await openLayers(page, 1);
 		const layerBefore = (await projectJson(page)).layers[0];
 
@@ -759,7 +848,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 	 */
 	test('a visibility toggle and a rename leave the delete still undoable', async ({ page }) => {
 		test.setTimeout(90_000);
-		await startAnnotating(page);
+		await annotating(page);
 		await page.getByTestId('add-annotation-layer').click();
 		await expect(layerRows(page)).toHaveCount(2);
 		await saved(page);
@@ -797,7 +886,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 	// ADR-0014: the record does not persist. Closing the Project is where it goes.
 	test('the record is cleared when the Project is closed', async ({ page }) => {
 		test.setTimeout(90_000);
-		await startAnnotating(page);
+		await annotating(page);
 		await drawPin(page, 0.5, 0.5);
 		await selectAnnotation(page);
 		await page.getByTestId('annotation-delete').click();
@@ -822,7 +911,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		page
 	}) => {
 		test.setTimeout(90_000);
-		const layerId = await startAnnotating(page);
+		const layerId = await annotating(page);
 		await drawPin(page, 0.5, 0.5);
 		await selectAnnotation(page);
 		await page.getByTestId('annotation-delete').click();
@@ -847,7 +936,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 	 */
 	test('Ctrl+Z inside a text field is the field’s own undo, not ours', async ({ page }) => {
 		test.setTimeout(90_000);
-		const layerId = await startAnnotating(page);
+		const layerId = await annotating(page);
 		await drawPin(page, 0.5, 0.5);
 		await drawPin(page, 0.6, 0.55);
 		await selectAnnotation(page, 1);
