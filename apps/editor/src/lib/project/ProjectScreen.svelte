@@ -34,6 +34,7 @@
 
 	import { resolve } from '$app/paths';
 	import {
+		BASE_MAP_CATALOG,
 		baseMapArchiveHost,
 		baseMapFallbackNotice,
 		baseMapUnavailableNotice,
@@ -52,12 +53,12 @@
 		type Place
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome, ReadCachedTile } from '@ballastella/core/render';
+	import { BaseMapSwitcher } from '@ballastella/ui';
 	import { untrack } from 'svelte';
 
 	import AnnotationLayerContents from '$lib/annotations/AnnotationLayerContents.svelte';
 	import { AnnotationEditing } from '$lib/annotations/annotation-editing.svelte.js';
 	import BaseMapPane from '$lib/base-map/BaseMapPane.svelte';
-	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import MakeOfflineDialog from '$lib/base-map/MakeOfflineDialog.svelte';
 	import { MakeProjectOffline, readOfflineCoverage } from '$lib/base-map/make-offline.svelte.js';
 	import { fitToProjectContent } from '$lib/base-map/opening-view';
@@ -839,8 +840,17 @@
 			<h1 class="text-lg font-semibold" data-testid="project-name">{session.openProject.name}</h1>
 
 			<!-- The one Base Map switcher in the app that writes this Project's author default
-			     (ADR-0020). On the Project screen, because that is whose choice it is. -->
-			<BaseMapSwitcher entryId={resolution.entry.id} onSelect={(id) => session.chooseBaseMap(id)} />
+			     (ADR-0020). On the Project screen, because that is whose choice it is.
+
+			     The catalog is passed rather than assumed, because the shared component is the same one a
+			     Published Site renders and that site keeps the catalog it was published with. This app is
+			     simply the caller whose catalog is this build's. -->
+			<BaseMapSwitcher
+				entryId={resolution.entry.id}
+				catalog={BASE_MAP_CATALOG}
+				class="max-w-xs"
+				onSelect={(id) => session.chooseBaseMap(id)}
+			/>
 
 			<!--
 				The Project menu (ADR-0016: the Popover API, never `<details>` and never a CSS-focus

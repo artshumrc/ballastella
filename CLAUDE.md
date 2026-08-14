@@ -1,7 +1,7 @@
 # Ballastella
 
 `CONTRIBUTING.md` is the contributor guide and takes precedence on anything it covers — layout, the
-five toolchain rules, the deployment checks, the test seams. Read it before changing build or
+six toolchain rules, the deployment checks, the test seams. Read it before changing build or
 publish behaviour.
 
 ## Scripts

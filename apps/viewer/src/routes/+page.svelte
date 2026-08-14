@@ -78,9 +78,9 @@
 		type TileSourceFailure
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
+	import { BaseMapSwitcher } from '@ballastella/ui';
 	import { onMount, untrack } from 'svelte';
 
-	import BaseMapSwitcher from '$lib/BaseMapSwitcher.svelte';
 	import { online } from '$lib/online.svelte';
 	import { readLayerDocuments, toContentLayers, type ReadDocuments } from '$lib/project-documents';
 	import ReaderLayerControls from '$lib/ReaderLayerControls.svelte';
@@ -1144,11 +1144,22 @@
 				-->
 				<div class="mt-4 grid items-start gap-6 lg:grid-cols-[22rem_1fr]">
 					<div class="flex flex-col gap-4">
-						<BaseMapSwitcher
-							entryId={baseMap.entry.id}
-							{catalog}
-							onSelect={(id) => chooseBaseMap(id)}
-						/>
+						<!--
+							The label sits above the select here, so the pair is a column of its own inside the
+							controls column — the gap between them is the switcher's, not the 1rem the surrounding
+							stack puts between its children.
+
+							`w-full sm:w-56` because at 375 px a fixed-width control is what pushes a page into
+							horizontal scroll.
+						-->
+						<div class="flex flex-col">
+							<BaseMapSwitcher
+								entryId={baseMap.entry.id}
+								{catalog}
+								class="sm:w-56"
+								onSelect={(id) => chooseBaseMap(id)}
+							/>
+						</div>
 
 						{#if baseMapNotice}
 							<p class="text-sm text-warning" aria-live="polite" data-testid="base-map-notice">

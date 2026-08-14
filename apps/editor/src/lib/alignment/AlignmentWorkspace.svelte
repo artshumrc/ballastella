@@ -40,6 +40,7 @@
 	// so there is exactly one place that decides an edit is over.
 
 	import {
+		BASE_MAP_CATALOG,
 		DEFAULT_DISTORTION_VIEW,
 		MINIMUM_CONTROL_POINTS,
 		MINIMUM_MASK_VERTICES,
@@ -58,10 +59,10 @@
 		type ResourcePoint
 	} from '@ballastella/core';
 	import type { WarpedRender } from '@ballastella/core/render';
+	import { BaseMapSwitcher } from '@ballastella/ui';
 	import { onDestroy } from 'svelte';
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
-	import BaseMapSwitcher from '$lib/base-map/BaseMapSwitcher.svelte';
 	import { fitToAlignment } from '$lib/base-map/opening-view';
 	import HistoricalMapPane from '$lib/image-pane/HistoricalMapPane.svelte';
 	import ImageDetails, { type ImageReadout } from '$lib/image-pane/ImageDetails.svelte';
@@ -989,6 +990,8 @@
 					<div class="max-w-xs grow">
 						<BaseMapSwitcher
 							entryId={baseMapId}
+							catalog={BASE_MAP_CATALOG}
+							class="max-w-xs"
 							labelSrOnly
 							onSelect={(id) => session.chooseBaseMap(id)}
 						/>

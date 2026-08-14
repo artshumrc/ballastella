@@ -6,20 +6,23 @@ import globals from 'globals';
 import path from 'node:path';
 import ts from 'typescript-eslint';
 
+import uiSvelteConfig from './packages/ui/svelte.config.js';
+
 import editorSvelteConfig from './apps/editor/svelte.config.js';
 import viewerSvelteConfig from './apps/viewer/svelte.config.js';
 
 const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 
 /**
- * Each app carries its own svelte.config.js, so the parser has to be told which one
- * applies to which files — there is no single config at the workspace root to infer.
+ * Each app and the shared component package carry their own svelte.config.js, so the parser has to
+ * be told which one applies to which files — there is no single config at the workspace root to
+ * infer.
  *
- * @param {string} app
+ * @param {string} directory
  * @param {import('@sveltejs/kit').Config} svelteConfig
  */
-const appSvelteFiles = (app, svelteConfig) => ({
-	files: [`apps/${app}/**/*.svelte`, `apps/${app}/**/*.svelte.ts`, `apps/${app}/**/*.svelte.js`],
+const svelteFiles = (directory, svelteConfig) => ({
+	files: [`${directory}/**/*.svelte`, `${directory}/**/*.svelte.ts`, `${directory}/**/*.svelte.js`],
 	languageOptions: {
 		parserOptions: {
 			projectService: true,
@@ -46,6 +49,7 @@ export default defineConfig(
 			'no-undef': 'off'
 		}
 	},
-	appSvelteFiles('editor', editorSvelteConfig),
-	appSvelteFiles('viewer', viewerSvelteConfig)
+	svelteFiles('apps/editor', editorSvelteConfig),
+	svelteFiles('apps/viewer', viewerSvelteConfig),
+	svelteFiles('packages/ui', uiSvelteConfig)
 );

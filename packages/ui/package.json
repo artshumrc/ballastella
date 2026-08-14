@@ -1,0 +1,30 @@
+{
+	"name": "@ballastella/ui",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./layout.css": "./src/layout.css"
+	},
+	"scripts": {
+		"check": "svelte-check --tsconfig ./tsconfig.json",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@ballastella/core": "workspace:*"
+	},
+	"peerDependencies": {
+		"svelte": "catalog:"
+	},
+	"devDependencies": {
+		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@testing-library/jest-dom": "catalog:",
+		"happy-dom": "catalog:",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	}
+}

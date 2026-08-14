@@ -1,0 +1,24 @@
+{
+	"compilerOptions": {
+		"target": "ES2023",
+		"module": "Preserve",
+		"moduleResolution": "bundler",
+		// Components render into a document, so the DOM libs are the whole of what this package
+		// needs. There is no Worker half here: OPFS and the sync access handle are `core`'s.
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"strict": true,
+		"noEmit": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"sourceMap": true
+	},
+	"include": ["src/**/*.ts", "src/**/*.svelte", "vitest.config.ts", "vitest-setup/**/*.ts"]
+}

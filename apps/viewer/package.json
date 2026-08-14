@@ -12,6 +12,7 @@
 	},
 	"dependencies": {
 		"@ballastella/core": "workspace:*",
+		"@ballastella/ui": "workspace:*",
 		"dompurify": "catalog:",
 		"maplibre-gl": "catalog:",
 		"marked": "catalog:",

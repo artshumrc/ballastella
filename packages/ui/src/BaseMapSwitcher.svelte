@@ -1,0 +1,69 @@
+<script lang="ts">
+	// Choosing a Base Map — the one control, rendered by both apps.
+	//
+	// It is driven by **the catalog it is handed** rather than by this build's, which is the whole of
+	// ADR-0020: a Published Site goes on offering what it was published with when the authoring
+	// deployment later changes its own catalog, and the editor is simply the caller that passes
+	// `BASE_MAP_CATALOG`.
+	//
+	// The switcher IS the catalog: no per-entry markup, no icon table, no special case. Adding or
+	// removing an entry changes the catalog and nothing here (SPEC story 100).
+
+	import { baseMapOptions, type BaseMapCatalog } from '@ballastella/core';
+
+	let {
+		entryId,
+		catalog,
+		onSelect,
+		labelSrOnly = false,
+		class: width
+	}: {
+		entryId: string;
+		catalog: BaseMapCatalog;
+		onSelect: (id: string) => void;
+		/**
+		 * Keep the label for screen readers but take it off the screen.
+		 *
+		 * For a caller whose own heading already says "Base Map" beside the select — the alignment
+		 * route, where the two sat a few pixels apart and the second one was the word repeated rather
+		 * than anything added. The label itself never goes: the `<select>` needs an accessible name,
+		 * and ADR-0016 keeps that out of a `title`.
+		 */
+		labelSrOnly?: boolean;
+		/**
+		 * How wide the select is, in the caller's own terms.
+		 *
+		 * The two apps put this control in columns of different widths, and neither width is a fact
+		 * about the switcher. What the component owns is what makes it a daisyUI select and fill its
+		 * container; where that container ends is the page's business.
+		 */
+		class?: string;
+	} = $props();
+
+	const options = $derived(baseMapOptions(catalog));
+</script>
+
+<!--
+	ADR-0016 mandates a native `<select>` for this surface: few options, nothing custom needed, and
+	the platform's own keyboard handling — which on a phone is the OS picker, and this is the one
+	control in the interface with a real mobile requirement.
+
+	The needs-network marking is in each option's **visible text** (`baseMapOptions` composes it), not
+	a tooltip and not colour: daisyUI renders tooltips via CSS `::before` where no screen reader
+	announces them, and a Reader offline needs to know *before* choosing — otherwise they pick
+	satellite imagery and get a blank map with no explanation (ADR-0020).
+-->
+<label class={labelSrOnly ? 'sr-only' : 'label'} for="base-map-switcher">
+	<span class="label-text">Base Map</span>
+</label>
+<select
+	id="base-map-switcher"
+	class={['select-bordered select w-full', width]}
+	data-testid="base-map-switcher"
+	value={entryId}
+	onchange={(event) => onSelect(event.currentTarget.value)}
+>
+	{#each options as option (option.id)}
+		<option value={option.id} data-needs-network={option.needsNetwork}>{option.text}</option>
+	{/each}
+</select>

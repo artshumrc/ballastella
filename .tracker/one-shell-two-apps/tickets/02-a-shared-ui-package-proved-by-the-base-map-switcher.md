@@ -88,18 +88,18 @@ should move it by approximately nothing; the number matters because ticket 05 wi
 
 ## Acceptance criteria
 
-- [ ] `packages/ui` exists, is picked up by the workspace, declares `svelte` as a peer dependency,
+- [x] `packages/ui` exists, is picked up by the workspace, declares `svelte` as a peer dependency,
       and has no `build` script.
-- [ ] Both apps import the Base Map switcher from `@ballastella/ui`; neither app has a local copy.
-- [ ] The shared stylesheet is imported by both apps and carries the kind-ink custom properties; the
+- [x] Both apps import the Base Map switcher from `@ballastella/ui`; neither app has a local copy.
+- [x] The shared stylesheet is imported by both apps and carries the kind-ink custom properties; the
       editor's stylesheet no longer declares them and still declares the overlay-point rules.
-- [ ] `packages/ui` has a component test that mounts the switcher against a catalog and asserts the
+- [x] `packages/ui` has a component test that mounts the switcher against a catalog and asserts the
       options it renders.
-- [ ] A new lint check fails when a module under `packages/ui` imports from `apps/`.
-- [ ] `scripts/check-viewer-deps.mjs` walks `packages/ui`'s manifest, demonstrated by making it fail
+- [x] A new lint check fails when a module under `packages/ui` imports from `apps/`.
+- [x] `scripts/check-viewer-deps.mjs` walks `packages/ui`'s manifest, demonstrated by making it fail
       on purpose and then reverting.
-- [ ] Both apps build, and the editor's staged viewer bundle still builds with them.
-- [ ] The viewer's built bundle size is recorded before and after.
+- [x] Both apps build, and the editor's staged viewer bundle still builds with them.
+- [x] The viewer's built bundle size is recorded before and after.
 
 ```bash
 pnpm install
@@ -129,3 +129,55 @@ where a component lives, not what it does.
 ## Blocked by
 
 None — can start immediately.
+
+## Completion note
+
+**The viewer's bundle, `du -sb apps/viewer/build`:**
+
+| | bytes |
+| --- | --- |
+| before | 2 802 211 |
+| after | 2 802 727 |
+| difference | **+516** (0.018%) |
+
+Approximately nothing, as expected: the same component, compiled from one file instead of two, plus
+the two kind-ink custom properties the viewer's stylesheet did not carry before. Ticket 05 is the one
+that will move this number, and this is the figure it moves from.
+
+The new ADR is
+[ADR-0034](../../../docs/adr/0034-a-shared-ui-package-for-the-components-both-apps-render.md), and
+ADR-0019 carries an amendment banner pointing at it.
+
+**⚠ The two copies differed by more than their catalog**, which "Where to start" above says they did
+not. Reconciling them without changing either app's appearance — which "Out of scope" requires —
+needed one decision the ticket does not make, and it is recorded here rather than left in the diff:
+
+- The viewer's copy wrapped the label and select in `<div class="flex flex-col">`; the editor's did
+  not, and on the Project screen that wrapper would have moved the label from beside the select to
+  above it. **The wrapper stayed with the viewer's page**, where it is layout rather than a fact
+  about the switcher.
+- The select's width differed (`max-w-xs` against `sm:w-56`). **It is now a `class` prop the caller
+  passes**, on top of the `select-bordered select w-full` the component owns. No `mode` prop and no
+  `readOnly` prop: the caller states its own width, which is the same shape as the viewer removing a
+  control by not passing it.
+- The viewer's copy carried `data-testid="base-map-switcher"` and `data-needs-network` on each
+  option; the editor's carried neither. **Both are emitted unconditionally now.** They are test
+  seams, invisible on screen, and no editor spec asserted their absence — the editor's own specs
+  address the control by role (`getByRole('combobox', { name: 'Base Map' })`).
+
+Both apps' rendered markup is otherwise byte-for-byte what it was.
+
+**The mutation check.** Seven mutations of the component were each run against the new component
+test, and each turned the test that claims that behaviour red and no other: reversing the option
+order, dropping the needs-network marking from the option text, dropping `value={entryId}`, dropping
+the callback, unlinking the label from the select, ignoring the caller's width, and ignoring
+`labelSrOnly`.
+
+**`@source '.'` in the shared stylesheet is measured and not currently load-bearing** — both apps
+build identical stylesheets without it, because Tailwind's automatic source detection crawls the
+repository rather than the importing app. It is written down anyway, with that measurement beside it,
+because the failure it forecloses is silent: narrow that base and every utility written in this
+package is simply absent from both builds, with nothing erroring.
+
+**No Seam 2 test was added or removed.** `check-seam-2-size` reports 630 against a ceiling of 630,
+unchanged.

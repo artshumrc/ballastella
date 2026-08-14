@@ -35,6 +35,8 @@ compiled artefact under a different licence from its wrapper — need an entry i
 ```
 packages/core          @ballastella/core — domain model, ProjectStore + adapters,
                        IIIF glue, alignment serialisation, annotation styling
+packages/ui            @ballastella/ui — the Svelte components and the stylesheet
+                       both apps render
 apps/editor            @ballastella/editor — the authoring app
 apps/viewer            @ballastella/viewer — the read-only viewer written into
                        published sites
@@ -42,11 +44,18 @@ e2e/                   Playwright browser tests, run against both built apps
 scripts/               repository checks
 ```
 
-One `core` package, deliberately, until a seam proves itself
-([ADR-0019](docs/adr/0019-minimal-pnpm-monorepo.md)). `core` publishes its TypeScript source
-rather than a build artefact, so there is no build step to keep in sync and no stale `dist`
-to debug; the apps' bundlers compile it. That is why `core` has `check` and `test` scripts
-but no `build`.
+Two packages, and the second one waited for its seam to prove itself
+([ADR-0019](docs/adr/0019-minimal-pnpm-monorepo.md), amended by
+[ADR-0034](docs/adr/0034-a-shared-ui-package-for-the-components-both-apps-render.md)). Both publish
+their source rather than a build artefact, so there is no build step to keep in sync and no stale
+`dist` to debug; the apps' bundlers compile them. That is why each has `check` and `test` scripts but
+no `build`.
+
+`packages/ui` is where a component both apps render lives, with its stylesheet
+(`@ballastella/ui/layout.css`, imported by each app's own `routes/layout.css`) and its tests — a
+shared component tested from the app it used to live in is tested through a consumer. `svelte` is a
+**peer** dependency there: the framework belongs to the app doing the compiling. `theme.svelte.ts`
+deliberately stays two modules, and the viewer's own header argues why.
 
 ## Commands
 
@@ -100,7 +109,7 @@ Everything above the deployment build in `ci.yml` runs against the *ordinary* bu
 what the specs drive. CI therefore produces the deployment artifact last and checks it, so the shape
 that actually ships is not the one shape nothing looks at.
 
-## Five rules the toolchain enforces for you
+## Six rules the toolchain enforces for you
 
 **`apps/viewer` must never depend on `terra-draw` or the tiler**
 ([ADR-0019](docs/adr/0019-minimal-pnpm-monorepo.md)). The viewer is a separate build so that
@@ -108,7 +117,8 @@ its leanness is enforced by the dependency graph rather than by tree-shaking, be
 tree-shaking is not a boundary: one incautious import and every published site silently
 grows by megabytes, with no error and nobody looking. `scripts/check-viewer-deps.mjs` runs
 as part of `pnpm lint` and fails if either appears in the viewer's manifest, or in the manifest
-of a workspace package the viewer reaches.
+of a workspace package the viewer reaches — `@ballastella/ui` included, which is checked rather
+than assumed: adding `terra-draw` to that manifest makes it fail, naming the package.
 
 This was a pair of checks until [ADR-0027](docs/adr/0027-no-streaming-tiler-in-v1.md).
 `scripts/check-tiler-lazy.mjs` fenced the half no manifest can see — `wasm-vips` reachable only by
@@ -116,6 +126,15 @@ dynamic import — and that package is no longer in the repository, so the scrip
 `pnpm check:bundles` step were deleted rather than left inspecting an absence. The tiler that
 remains is `createImageBitmap` and an `OffscreenCanvas`, injected by whichever app has one, and it
 draws in no dependency for a manifest to name.
+
+**Nothing in `packages/ui` may import from `apps/`**
+([ADR-0034](docs/adr/0034-a-shared-ui-package-for-the-components-both-apps-render.md)). A shared
+package that reaches back into a consumer is not shared: it is one app's directory that a second app
+happens to compile half of, and the module's meaning then depends on which app compiled it. The
+likeliest spelling is not an app's package name but a SvelteKit alias — `$lib` and `$app/*` are what
+every component in this repository is written with, and neither exists outside an app — so
+`scripts/check-ui-package-imports.mjs` refuses those too, and runs in `pnpm lint`. What a shared
+component needs from an app arrives as a prop.
 
 **No asset may be referenced by an absolute path.** `paths.relative: true` is set in both
 apps' `svelte.config.js` and is mandatory

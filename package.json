@@ -18,7 +18,7 @@
 		"precommit": "node scripts/precommit.mjs",
 		"flake:check": "node scripts/flake-check.mjs",
 		"check": "tsc --noEmit && pnpm -r check",
-		"lint": "node scripts/check-viewer-deps.mjs && node scripts/check-base-map-catalog.mjs && node scripts/check-place-service.mjs && node scripts/check-github-broker.mjs && node scripts/check-workspace-rooted-paths.mjs && node scripts/check-alignment-writers.mjs && node scripts/check-allmaps-patch.mjs && node scripts/check-e2e-network-fence.mjs && node scripts/check-seam-2-size.mjs && prettier --check . && eslint .",
+		"lint": "node scripts/check-viewer-deps.mjs && node scripts/check-ui-package-imports.mjs && node scripts/check-base-map-catalog.mjs && node scripts/check-place-service.mjs && node scripts/check-github-broker.mjs && node scripts/check-workspace-rooted-paths.mjs && node scripts/check-alignment-writers.mjs && node scripts/check-allmaps-patch.mjs && node scripts/check-e2e-network-fence.mjs && node scripts/check-seam-2-size.mjs && prettier --check . && eslint .",
 		"check:deployment": "node scripts/check-deployment.mjs",
 		"check:places": "node scripts/check-places.mjs",
 		"check:dev": "node scripts/check-dev-boot.mjs",
