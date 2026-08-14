@@ -232,18 +232,31 @@ export default defineConfig({
 	// 1.5× for 2.5× the workers — still sublinear, but now for the real reason: every test drives a
 	// software-rasterised WebGL context, so this is CPU-bound before it is core-bound.
 	//
-	// **It stays at 4 by default, because the reason for 4 was never the benchmark.** This repository
-	// is worked by several agents at once on one machine and a run does not have the box to itself;
-	// ten workers each would oversubscribe the cores and make every *concurrent* run slower — a cost
-	// paid by whoever else is working rather than by this run. `BALLASTELLA_E2E_WORKERS=10` is there
-	// for when the machine is actually yours, and is worth the 1.5× then.
+	// **It was 4 for years because a worker cost a core, and the GPU default changed that.** The reason
+	// for 4 was never the benchmark: this repository is worked by several agents at once on one machine,
+	// and under the software rasteriser each worker held a core rasterising WebGL, so raising the count
+	// oversubscribed the box and slowed down whoever else was working. That is the cost that went away.
+	//
+	// Re-measured 2026-08-14 on this 20-core box with the GPU default, `editor-layers` +
+	// `editor-annotations`, 72 tests, wall against **average cores busy** — which is what a machine
+	// feels, and what the old default was really protecting:
+	//
+	//   4 workers    65.0s    1.03 cores
+	//   8 workers    39.6s    1.90 cores   ← here
+	//   12 workers   34.1s    2.54 cores
+	//
+	// Full suite at 8: **3m 40s and 2.91 cores of 20**, against 6m 32s and 1.56 cores at 4 — nearly
+	// twice as fast for a third of a core more than the *old* four-worker software default cost. Past
+	// 8 the GPU is the shared bottleneck rather than the cores: 12 workers buys 14% for 34% more CPU,
+	// which is why the default stops here. `BALLASTELLA_E2E_WORKERS` overrides it in both directions —
+	// lower it when the box is shared with something that matters more than this run.
 	//
 	// Real speed is still not in this number — it is in not asking Playwright for work that belongs
 	// one seam down. A Vitest component test costs ~7ms against ~4.6s here — its fourteen tests run
 	// in ~0.10s total, in Node with no browser at all — because it exercises a module rather than
 	// booting the built app and software-rasterising MapLibre. `apps/editor` has an `editor-dom`
 	// project for exactly that since 2026-08-13.
-	workers: Number(process.env.BALLASTELLA_E2E_WORKERS) || 4,
+	workers: Number(process.env.BALLASTELLA_E2E_WORKERS) || 8,
 
 	// ═════════════════════════════════════════════════════════════════════════════════════════════
 	// THE TWO BUDGETS, RAISED FROM PLAYWRIGHT'S DEFAULTS BECAUSE THE DEFAULTS WERE THE CAUSE.
