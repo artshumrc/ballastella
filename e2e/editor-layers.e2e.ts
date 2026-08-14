@@ -12,6 +12,7 @@ import {
 } from './support/historical-maps.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { projectNameField } from './support/project-screen.js';
+import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapshot.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
 
@@ -469,7 +470,7 @@ async function addHistoricalMap(page: Page): Promise<void> {
  *
  * @returns the Project directory
  */
-async function projectWithImage(page: Page): Promise<string> {
+async function projectWithImageThroughTheInterface(page: Page): Promise<string> {
 	const directory = await emptyProject(page);
 	await addHistoricalMap(page);
 	await expect(page.getByRole('status')).toHaveText('Saved locally');
@@ -482,8 +483,15 @@ async function projectWithImage(page: Page): Promise<string> {
  * Separate from {@link projectWithImage} because most of this file never needs the panes — it is
  * about the Layer stack — and because the two tests that are about what *adding* the map does have to
  * stay on the Project page to see it.
+ *
+ * **It opens the Project screen itself.** A seeded Workspace leaves the page on the hub with the
+ * files already on disk (see {@link seededWorkspace}), so there is no Layer row to press Align in
+ * until this navigates to one — and a caller that is already on the Project screen loses nothing but
+ * a load it was about to pay for anyway.
  */
-async function openAlignment(page: Page): Promise<void> {
+async function openAlignment(page: Page, directory: string): Promise<void> {
+	await page.goto(`/?p=${directory}`);
+	await expect(page.getByTestId('layer-sidebar')).toBeVisible();
 	// The Align link is inside the Layer's own row since ticket 05, so getting there opens it.
 	await alignFromLayer(page);
 	await expect(page).toHaveURL(/\/align\/?\?p=[^&]+&layer=[^&]+/);
@@ -508,9 +516,9 @@ async function pairAt(page: Page, fx: number, fy: number): Promise<void> {
  *
  * @returns the Project directory
  */
-async function alignedProject(page: Page): Promise<string> {
-	const directory = await projectWithImage(page);
-	await openAlignment(page);
+async function alignedProjectThroughTheInterface(page: Page): Promise<string> {
+	const directory = await projectWithImageThroughTheInterface(page);
+	await openAlignment(page, directory);
 	await expect(page.getByTestId('pairing-status')).toContainText('first Control Point');
 
 	// Three pairs, which is the minimum a first-order polynomial can be solved from (ADR-0013), so
@@ -527,6 +535,80 @@ async function alignedProject(page: Page): Promise<string> {
 
 	return directory;
 }
+
+/**
+ * The Project directory every fixture in this file builds in — spelled out because a seeded
+ * Workspace is restored before any page has read it, so there is nothing on screen to ask.
+ */
+const PROJECT_DIRECTORY = 'amsterdam-1625';
+
+/** The map Layer's two ids, read out of `project.json` rather than off a screen that may not be up. */
+const mapLayerIds = async (page: Page): Promise<{ imageId: string; layerId: string }> => {
+	const layer = (await projectJson(page, PROJECT_DIRECTORY)).layers.find(
+		(entry: { kind: string }) => entry.kind === 'map'
+	);
+	return { imageId: layer.imageId as string, layerId: layer.id as string };
+};
+
+/**
+ * Replay a Workspace this build's own interface once produced, instead of producing it again.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ THE PYRAMID AND THE THREE CONTROL POINTS ARE SCENERY IN ALL BUT FIVE OF THESE TESTS.          │
+ * └───────────────────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * Thirty of the thirty-six tests here are about the Layer *stack* — what a row says, what order
+ * MapLibre draws in, which files an edit touches — and every one of them used to pay for a real
+ * ingest and then for three Control Point pairs made by clicking two live map panes, which is two
+ * client-side navigations, a Base Map load and a warped solve before the first assertion. That is
+ * the single largest cost in this file.
+ *
+ * `workspace-snapshot.ts` carries the full argument for why the fixture is a **recording** rather
+ * than a literal or a construction from `core`'s own functions; the short version is that these
+ * bytes are by construction what this build's ingest and this build's alignment writer produce, so
+ * nothing asserted about them changes meaning. The recording is keyed to the build fingerprint, so
+ * a changed tiler or serialiser discards it.
+ *
+ * ⚠ **A test whose subject is the add itself must not use this.** Three below drive
+ * {@link emptyProject} and {@link addHistoricalMap} directly — the one that asserts what adding a
+ * map writes, the one that fails the starter Alignment write, and the one that renames the Project
+ * inside the add's own window. They are what keeps the recording honest.
+ *
+ * Leaves the page on the hub with the files on disk and nothing read yet: every caller's next move
+ * is a navigation, so landing on the Project screen here would be a page load thrown away.
+ */
+async function seededWorkspace(
+	page: Page,
+	name: string,
+	capture: (page: Page) => Promise<string>
+): Promise<string> {
+	await page.goto('/');
+	await emptyWorkspace(page);
+	const snapshot = await snapshotWorkspace(page, name, async (fresh) => {
+		await capture(fresh);
+		return mapLayerIds(fresh);
+	});
+	await restoreWorkspace(page, snapshot.files);
+	return PROJECT_DIRECTORY;
+}
+
+/**
+ * A Project with one ingested Historical Map and not one Control Point yet — seeded.
+ *
+ * See {@link seededWorkspace} for what "seeded" costs and does not cover, and
+ * {@link projectWithImageThroughTheInterface} for the journey that was recorded to make it.
+ */
+const projectWithImage = (page: Page): Promise<string> =>
+	seededWorkspace(page, 'layers-with-image', projectWithImageThroughTheInterface);
+
+/**
+ * A Project with one aligned Historical Map — seeded.
+ *
+ * See {@link seededWorkspace}, and {@link alignedProjectThroughTheInterface} for the journey that
+ * was recorded to make it.
+ */
+const alignedProject = (page: Page): Promise<string> =>
+	seededWorkspace(page, 'layers-aligned', alignedProjectThroughTheInterface);
 
 /** How long the stack may take to reach the map. See {@link openLayers}. */
 const STACK_READY_MS = 20_000;
@@ -801,7 +883,9 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	test('adding a Historical Map produces a kind: map Layer in project.json, with no Control Point', async ({
 		page
 	}) => {
-		const directory = await projectWithImage(page);
+		// Through the real file input, not seeded: this test's subject *is* what adding a map writes,
+		// and asserting it against a recording would be asserting the recording.
+		const directory = await projectWithImageThroughTheInterface(page);
 
 		const file = await projectJson(page, directory);
 
@@ -869,6 +953,13 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		// hand, and a Layer with no Alignment reads as not aligned too — so asserting the sentence on
 		// the first paint would go green on the state that exists before anything has been opened, which
 		// is the vacuous version of this test.
+		//
+		// ⚠ **Still a sleep, and it was measured against the alternative.** The settled opening view
+		// `openLayers` waits for looks like the signal — it is computed from a read of every Layer's
+		// documents (ADR-0026) — but it is a *second* read, started in the same flush as the sidebar's
+		// own and ordered against it by nothing. Substituting it leaves the window this guards open, and
+		// the failure would be a silent vacuous pass rather than a red run. Replacing this needs a
+		// signal the sidebar itself emits, which is a change to the application.
 		await page.waitForTimeout(2000);
 		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
 
@@ -891,22 +982,22 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 	test('stops saying it once there are enough Control Points, and not before', async ({ page }) => {
 		test.setTimeout(90_000);
 		const directory = await projectWithImage(page);
-		await openAlignment(page);
+		await openAlignment(page, directory);
 
 		await pairAt(page, 0.3, 0.3);
 		await pairAt(page, 0.7, 0.35);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		await openLayers(page, directory, { drawn: 0 });
-		// Settled, for the reason the test above gives: a Layer whose Alignment has not been read yet
-		// reads as not aligned, so the sentence has to still be there once it has.
+		// Settled, for the reason the test above gives — including why this is still a sleep: a Layer
+		// whose Alignment has not been read yet reads as not aligned, so the sentence has to still be
+		// there once it has.
 		await page.waitForTimeout(2000);
 		await expect(rows(page).first().getByTestId('layer-problem')).toHaveText(NOT_ALIGNED);
 
 		// The third pair clears it, and the Layer is on the map. Back through the Project page, because
 		// the alignment view is a route of its own since ticket 03 and its `?layer=` is not a URL this
 		// test knows how to write.
-		await page.goto(`/?p=${directory}`);
-		await openAlignment(page);
+		await openAlignment(page, directory);
 		await expect(page.getByTestId('control-point-row')).toHaveCount(2);
 		await pairAt(page, 0.5, 0.7);
 		// The barrier, and the honest one: the alignment workspace's own warped preview is drawn, so the
@@ -929,6 +1020,9 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		page
 	}) => {
 		const directory = await alignedProject(page);
+		// The panes are where the next pair is made, and a seeded Workspace has not opened them.
+		await openAlignment(page, directory);
+		await expect(page.getByTestId('control-point-row')).toHaveCount(3);
 		const before = await projectJson(page, directory);
 
 		await clickAt(page.getByTestId('image-pane'), 0.4, 0.5);
@@ -1056,16 +1150,18 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		await name.fill('Amsterdam, 1625');
 		await name.blur();
 
-		// Long enough for the delayed read and the write it leads to. A fixed wait rather than a signal,
-		// because the claim is about a write that must *not* undo an earlier one.
-		await page.waitForTimeout(5000);
+		// **The Layer's own row is the barrier**, and it is the honest one: the write this test is about
+		// is the one that creates the Layer, so the row cannot be on screen until the delayed
+		// `manifest.json` read has resolved and that write has happened. A fixed sleep here was five
+		// seconds spent waiting for a three-second delay, and it would have gone green early had the
+		// delay ever been raised.
+		await expect(page.getByTestId('layer-row')).toHaveCount(1, { timeout: 15_000 });
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		// The Layer was made, and the rename survived it — on screen and in the file.
 		const file = await projectJson(page, directory);
 		expect(file.layers).toHaveLength(1);
 		expect(file.name).toBe('Amsterdam, 1625');
-		await expect(page.getByTestId('layer-row')).toHaveCount(1);
 		await expect(name).toHaveValue('Amsterdam, 1625');
 		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam, 1625');
 	});
@@ -1107,6 +1203,12 @@ test.describe('a Layer for a Historical Map that has just been added', () => {
 		page
 	}) => {
 		const directory = await alignedProject(page);
+		// The pane that has to come down is the alignment route's, with a warped layer really on it —
+		// so a seeded Workspace has to be driven there, and the warped render waited for, before the
+		// hop this test is about can destroy anything.
+		await openAlignment(page, directory);
+		await expectWarpedDrawn(page);
+
 		const crashes: string[] = [];
 		page.on('pageerror', (error) => crashes.push(error.message));
 
