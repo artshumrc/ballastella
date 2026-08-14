@@ -1,4 +1,5 @@
 import { defineConfig, devices, type ReporterDescription } from '@playwright/test';
+import { readdirSync } from 'node:fs';
 import process from 'node:process';
 
 import { editorPort, viewerPort } from './scripts/e2e-port.mjs';
@@ -60,6 +61,65 @@ const serveStatic = (app: string, port: number) => ({
 	reuseExistingServer: false,
 	timeout: 120_000
 });
+
+// Hand Chromium the real GPU, on a machine that has one.
+//
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// WHY THE DEFAULT IS THE GPU, AND WHY IT IS STILL CONDITIONAL
+//
+// Headless Chromium rasterises WebGL in software (SwiftShader), and every test here drives a real
+// MapLibre over it. Measured on `editor-layers.e2e.ts`, 35 tests, this box, warm:
+//
+//   software (SwiftShader)          143.7s – 213.0s of worker time     4.10 – 6.09s per test
+//   ANGLE over Vulkan               103.4s / 103.7s / 103.9s           2.96s per test   ← the default
+//   `--headed`, so the real GPU     112.2s                             3.21s per test
+//   ANGLE over GL/EGL               270.3s                             7.72s per test
+//
+// **A third to a half of Seam 2's cost is the software rasteriser**, which is worth knowing before
+// anyone deletes another test to save four seconds. Note the spread: the software path varies with
+// load across a 70-second band on the same box and the Vulkan path does not, so the saving is
+// somewhere between 28% and 51% rather than a single figure — three back-to-back Vulkan runs landed
+// within half a second of each other. The first Vulkan run against a cold shader cache cost 145.4s;
+// 103s is the steady state.
+//
+// ⚠ **These flags do not degrade gracefully, which is why asking for them is not enough.** Set on a
+// machine with no Vulkan driver, Chromium does not quietly fall back: three `editor-project-screen`
+// tests fail outright and fail their retry, on theme flavour, the navigation bar and a part-drawn
+// shape. Verified by hiding the driver with `VK_DRIVER_FILES`. The failure is also unhelpful — it
+// reads as three unrelated product bugs rather than as a missing GPU.
+//
+// So the flags are used when a render node is actually present, and not otherwise. `/dev/dri/renderD*`
+// is the device Chromium needs and its absence is exactly the case that breaks; a machine that has one
+// gets the fast path with nothing to remember, and a container, a VM or a GPU-less runner gets the
+// software path without a red suite. `CI` opts out too, because a hosted runner can carry a render
+// node it will not let a sandboxed renderer open, and a gate is the wrong place to find that out.
+//
+// Force it either way when the guess is wrong — `BALLASTELLA_E2E_GPU=1` to insist, `=0` to refuse:
+//
+//     BALLASTELLA_E2E_GPU=0 pnpm test:e2e     # the software rasteriser, wherever you are
+//
+// `--headed` is the other way to reach the real GPU and needs no flags, but it opens a window per
+// worker and cannot run unattended.
+const hasRenderNode = (): boolean => {
+	if (process.platform !== 'linux') return false;
+	try {
+		return readdirSync('/dev/dri').some((node) => node.startsWith('renderD'));
+	} catch {
+		return false;
+	}
+};
+
+const wantsGpu = process.env.BALLASTELLA_E2E_GPU;
+const useGpu =
+	wantsGpu === undefined || wantsGpu === '' ? !process.env.CI && hasRenderNode() : wantsGpu !== '0';
+
+const gpuLaunchOptions = useGpu
+	? {
+			launchOptions: {
+				args: ['--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist']
+			}
+		}
+	: {};
 
 const reporter: ReporterDescription[] = process.env.CI
 	? [['github'], ['html', { open: 'never' }], ['./scripts/retry-budget.mjs']]
@@ -216,6 +276,7 @@ export default defineConfig({
 	reporter,
 	use: {
 		...devices['Desktop Chrome'],
+		...gpuLaunchOptions,
 		// A retried test is one nobody has explained yet, so the second attempt keeps everything
 		// needed to explain it. Only on the retry: a trace per test would cost more than the suite.
 		trace: 'on-first-retry',
