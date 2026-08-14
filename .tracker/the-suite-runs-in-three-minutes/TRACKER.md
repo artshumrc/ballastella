@@ -12,7 +12,7 @@ Scope, the seam boundaries, and the measured baseline are in [SPEC.md](./SPEC.md
 
 ## Current Status
 
-Overall status: `In Progress`
+Overall status: `In Progress` — 01–12 landed; 13, 14 and 15 remain.
 
 Current ticket: 01–12 complete; 13 and 14 remain, then 15 closes the epic.
 
@@ -311,11 +311,11 @@ Tickets 01–05 are groundwork and instrumentation; 06–14 are the migration, o
 | 04     | 04-fence-the-size-of-seam-2.md                                   | Completed   | 01                                 |
 | 05     | 05-record-the-two-pre-existing-faults.md                         | Completed   | 01                                 |
 | 06     | 06-rehouse-the-annotation-document-claims.md                     | Completed   | 01                                 |
-| 07     | 07-rehouse-the-annotation-interface-claims.md                    | Not Started | 02, 06                             |
-| 08     | 08-finish-the-layer-stack-migration.md                           | Not Started | 02                                 |
+| 07     | 07-rehouse-the-annotation-interface-claims.md                    | Completed   | 02, 06                             |
+| 08     | 08-finish-the-layer-stack-migration.md                           | Completed   | 02                                 |
 | 09     | 09-rehouse-the-base-map-arithmetic-and-catalog-claims.md         | Completed   | 01                                 |
 | 10     | 10-rehouse-the-project-bundle-refusals.md                        | Completed   | 01                                 |
-| 11     | 11-rehouse-the-workspace-and-project-screen-claims.md            | Not Started | 02, 03                             |
+| 11     | 11-rehouse-the-workspace-and-project-screen-claims.md            | Completed   | 02, 03                             |
 | 12     | 12-rehouse-the-publish-output-claims.md                          | Completed   | 01                                 |
 | 13     | 13-decide-the-remote-family-by-measurement.md                    | Not Started | 03, 05                             |
 | 14     | 14-consolidate-the-duplicated-platform-and-keyboard-claims.md    | Not Started | 02, 08                             |
