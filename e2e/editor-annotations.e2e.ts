@@ -899,6 +899,47 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		expect(inert.text).toContain('onerror');
 		expect(inert.text).toContain('The west quay, per the survey.');
 		await expect(page.locator('.maplibregl-popup-content strong')).toHaveText('west');
+
+		// ─────────────────────────────────────────────────────────────────────────────────────
+		// AND THE SAME PAYLOAD IN THE ROW, WHICH IS WHERE AN ANNOTATION IS READ (ticket 06)
+		//
+		// ⚠ **The row's claim is the one that has to survive.** The popup retires from the Project
+		// screen in both apps (ticket 07), so the claim is asserted on the row here, before the
+		// surface that carries it today goes — and it is folded into this test rather than added
+		// beside it because the Seam 2 budget has none to spare.
+		//
+		// **Two hosts rather than one**, because the panel around them is full of this app's own
+		// controls: Lucide glyphs are first-party `<svg>`, which the probe counts as an embed
+		// because in a *stranger's description* an `<svg>` is an execution route. Probing the whole
+		// editor would be asking about the swatches rather than about the author's string.
+		const description = await inertWithin(page, '[data-testid="annotation-description-text"]');
+		expect(description.missing).toBe(false);
+		// **The prose first.** A description that renders nothing at all passes every assertion
+		// below it, and nothing is exactly what `{@html}` produces when Svelte has adopted
+		// prerendered nodes for it.
+		expect(description.text).toContain('The west quay, per the survey.');
+		await expect(page.getByTestId('annotation-description-text').locator('strong')).toHaveText(
+			'west'
+		);
+		expect(description.scripts).toBe(0);
+		expect(description.images).toBe(0);
+		expect(description.svgs).toBe(0);
+		expect(description.iframes).toBe(0);
+		expect(description.ids).toBe(0);
+		expect(description.handlers).toEqual([]);
+		expect(description.executableUrls).toEqual([]);
+
+		// The title reached the row as characters — a Svelte interpolation, which is a different
+		// mechanism from the description's and is why it is asserted separately.
+		const title = await inertWithin(page, '[data-testid="annotation-title-text"]');
+		expect(title.missing).toBe(false);
+		expect(title.text).toContain('onerror');
+		expect(title.scripts).toBe(0);
+		expect(title.images).toBe(0);
+		expect(title.svgs).toBe(0);
+		expect(title.handlers).toEqual([]);
+		expect(title.executableUrls).toEqual([]);
+
 		expect(await nothingRan(page)).toEqual({
 			ran: false,
 			injectedImage: false,
