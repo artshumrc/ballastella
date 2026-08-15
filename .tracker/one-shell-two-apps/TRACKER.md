@@ -18,7 +18,7 @@ below.
 
 Overall status: `In Progress`
 
-Current ticket: 08 (wave 5), 11 (in review)
+Current ticket: 08 (wave 5); 07 held until 08 merges (both edit the map panes)
 
 Last updated: 2026-08-14
 
@@ -36,7 +36,7 @@ Last updated: 2026-08-14
 | 08 | [08-annotations-are-numbered-on-the-map-and-on-the-row.md](./tickets/08-annotations-are-numbered-on-the-map-and-on-the-row.md) | In Progress | 06 | run-epic wave 5 |
 | 09 | [09-the-hub-and-the-front-page-are-one-list.md](./tickets/09-the-hub-and-the-front-page-are-one-list.md) | Completed | 02 | — |
 | 10 | [10-the-alignment-route-joins-the-shell.md](./tickets/10-the-alignment-route-joins-the-shell.md) | Not Started | 03, 08 | — |
-| 11 | [11-the-map-panes-notices-are-one-component.md](./tickets/11-the-map-panes-notices-are-one-component.md) | In Progress | 05 | run-epic wave 4 |
+| 11 | [11-the-map-panes-notices-are-one-component.md](./tickets/11-the-map-panes-notices-are-one-component.md) | Completed | 05 | — |
 | 12 | [12-the-leader-line.md](./tickets/12-the-leader-line.md) | Not Started | 08, 10 | — |
 
 ## Notes on the shape of this epic
