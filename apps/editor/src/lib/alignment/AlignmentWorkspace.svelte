@@ -827,9 +827,7 @@
 			Layer sidebar already has. A gutter would read as a panel sitting beside the maps rather than
 			a column docked to them.
 		-->
-		<div
-			class="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:min-w-0 lg:shrink lg:grow lg:flex-row lg:pr-6"
-		>
+		<div class="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:min-w-0 lg:shrink lg:grow lg:flex-row">
 			<!--
 				⚠ **`lg:flex-1` and never `lg:grow`, and that is what makes the panes exactly equal**
 				(SPEC story 48). `flex-1` is `flex: 1 1 0%`: both panes start from nothing and split the
@@ -842,7 +840,7 @@
 				That is not a preference. Neither the sheet nor the earth may be privileged by the layout:
 				a scholar comparing a feature across the two panes is comparing two views of one place, and
 				a wider pane is a claim that one of them matters more. `editor-align-route.e2e.ts` measures
-				the rendered boxes at 1120 px and at 1440 px rather than reading the class name.
+				the rendered boxes at 768 px, 1120 px and 1440 px rather than reading the class name.
 			-->
 			<section
 				aria-labelledby="historical-map-pane-heading"

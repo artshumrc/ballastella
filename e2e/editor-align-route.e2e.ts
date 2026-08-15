@@ -95,8 +95,10 @@ const layerParam = (page: Page): string => new URL(page.url()).searchParams.get(
  * of them produced panes of 308 px and 378 px because the Base Map's heading carries two more
  * controls than the Historical Map's. An assertion on the markup would have passed on that layout.
  *
- * Two widths rather than one, because a difference proportional to the content is invisible at
- * whichever single width the difference happens to be small at.
+ * Three widths rather than one. Two above the breakpoint, because a difference proportional to the
+ * content is invisible at whichever single width the difference happens to be small at; and one
+ * below it, because "overlaps neither pane **at any width**" is the criterion and the stacked layout
+ * is where a horizontal-only comparison would have reported an overlap that does not exist.
  *
  * Polled rather than read once: a viewport change reflows two live map panes, and a measurement
  * taken between the resize and the layout is a measurement of the previous width.
@@ -149,23 +151,54 @@ async function expectEqualPanesAndDockedColumn(page: Page, width: number): Promi
 	).toBe(false);
 
 	// ─── And it overlaps neither pane ────────────────────────────────────────────────────────────
-	const [earthBox, columnBox] = await Promise.all([earth.boundingBox(), column.boundingBox()]);
+	//
+	// A full rect intersection against **both** panes rather than a horizontal comparison, because the
+	// criterion is "overlaps neither pane at any width" and the column is beside the panes only above
+	// `lg`. Below the breakpoint it stacks underneath them, horizontally coincident and vertically
+	// clear — so `column.x >= earth.right` is false there while nothing overlaps anything. Two boxes
+	// intersect only when they overlap on *both* axes, which is the claim at every width.
+	const [sheetBox, earthBox, columnBox] = await Promise.all([
+		sheet.boundingBox(),
+		earth.boundingBox(),
+		column.boundingBox()
+	]);
+	expect(sheetBox).not.toBeNull();
 	expect(earthBox).not.toBeNull();
 	expect(columnBox).not.toBeNull();
+	// Half a device pixel of tolerance, the same allowance the width comparison makes: two boxes that
+	// share an edge are adjacent, not overlapping, and sub-pixel rounding can put them a hair apart.
+	const overlaps = (box: { x: number; y: number; width: number; height: number }): boolean =>
+		columnBox!.x < box.x + box.width - 0.5 &&
+		box.x < columnBox!.x + columnBox!.width - 0.5 &&
+		columnBox!.y < box.y + box.height - 0.5 &&
+		box.y < columnBox!.y + columnBox!.height - 0.5;
 	expect(
-		columnBox!.x,
+		overlaps(sheetBox!),
+		`the Control Point column overlaps the Historical Map pane at ${width} px`
+	).toBe(false);
+	expect(
+		overlaps(earthBox!),
 		`the Control Point column overlaps the Base Map pane at ${width} px`
-	).toBeGreaterThanOrEqual(earthBox!.x + earthBox!.width - 0.5);
+	).toBe(false);
 
 	// Geometry is not the whole claim: what a click lands on is. A point well inside the Base Map
 	// pane must reach the pane, which is what says nothing is drawn over the canvas a scholar is
 	// aiming at to sub-pixel accuracy.
+	//
+	// Aimed at the middle of the pane's *visible* band rather than of the whole box:
+	// `document.elementFromPoint` takes viewport coordinates and answers `null` for anything below the
+	// fold, and below `lg` the stacked panes run past the bottom of a 900 px viewport.
+	const top = Math.max(earthBox!.y, 0);
+	const bottom = Math.min(earthBox!.y + earthBox!.height, 900);
+	expect(bottom, `the Base Map pane is entirely below the fold at ${width} px`).toBeGreaterThan(
+		top
+	);
 	const hit = await page.evaluate(
 		({ x, y }) => {
 			const element = document.elementFromPoint(x, y);
-			return element?.closest('[data-testid="alignment-sidebar"]') === null;
+			return element !== null && element.closest('[data-testid="alignment-sidebar"]') === null;
 		},
-		{ x: earthBox!.x + earthBox!.width - 4, y: earthBox!.y + earthBox!.height / 2 }
+		{ x: earthBox!.x + earthBox!.width - 4, y: (top + bottom) / 2 }
 	);
 	expect(hit, `something is drawn over the Base Map pane at ${width} px`).toBe(true);
 }
@@ -229,6 +262,7 @@ test.describe('the alignment route', () => {
 		await expect(bar.getByTestId('save-slot')).toBeVisible();
 		await expect(bar.getByTestId('undo-slot')).toBeAttached();
 
+		await expectEqualPanesAndDockedColumn(page, 768);
 		await expectEqualPanesAndDockedColumn(page, 1120);
 		await expectEqualPanesAndDockedColumn(page, 1440);
 	});

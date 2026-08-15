@@ -68,7 +68,7 @@ contracts are not in scope and must not regress.
 ## Acceptance criteria
 
 - [x] The two panes have equal width at 1120 px and at 1440 px, measured from the rendered boxes.
-      Measured 332/332 at 1120 px and 492/492 at 1440 px.
+      Measured 344/344 at 1120 px and 504/504 at 1440 px.
 - [x] The Control Point column is opaque, docked, and overlaps neither pane at any width.
 - [x] Each Control Point row shows the same ordinal as its marker on both panes.
 - [x] Selecting a point highlights both halves and its row, as ADR-0022 contract 4 requires.
@@ -77,6 +77,9 @@ contracts are not in scope and must not regress.
       actions produced before this ticket. Nothing on the write path was touched.
 - [x] The route fills the shared bar's page-chrome slot with the same heading and way back as before.
 - [x] `/align` appears nowhere in the viewer's build.
+      Asserted by `e2e/viewer.e2e.ts`'s "…no alignment route": six marker strings from the alignment
+      and publishing code, each proved present in the editor's own chunks, and no `align*` page in
+      the viewer's build root. Not a grep — see below for why one cannot work here.
 
 ```bash
 pnpm lint
@@ -90,7 +93,7 @@ pnpm test:e2e editor-alignment-refinement
 pnpm test:e2e editor-align-referenced
 
 pnpm -r build
-grep -rl "AlignmentWorkspace\|align" apps/viewer/build/_app/*.js | head || echo "clean"
+pnpm test:e2e viewer.e2e.ts -g "no alignment route"
 ```
 
 Success: everything exits 0 and no alignment module is found in the viewer's build. The alignment
@@ -118,8 +121,22 @@ rather than assumed — which is the whole of what changed for them:
 `ControlPoint.ordinal` is read as it stands. It is derived from position in `core` already —
 `collectControlPoints` for the pairs being made and `toControlPoint` for the pairs read from a file —
 and carries ADR-0002's argument on its own doc comment. A `controlPointOrdinal(index)` mirroring
-`annotationOrdinal` would have been a third spelling of `index + 1` guaranteeing nothing new: the two
-existing derivations are deliberately different (complete pairs only, versus file position).
+`annotationOrdinal` would have been a third spelling of `index + 1` guaranteeing nothing new: the
+row and the two markers cannot disagree, because they are not three derivations but three renders of
+**one array**. `AlignmentWorkspace`'s sheet half, earth half and row all read `point.ordinal` off the
+same `controlPoints`, so divergence is structurally impossible and a shared helper would guarantee
+nothing that is not already guaranteed. (Both `core` derivations do apply the same rule — output
+index + 1, which is `annotationOrdinal`'s — over different inputs.)
+
+**The acceptance block's viewer check was replaced.** It read
+`grep -rl "AlignmentWorkspace\|align" apps/viewer/build/_app/*.js | head || echo "clean"`, and that
+command could not work: the viewer's chunks are under `apps/viewer/build/_app/immutable/`, so the
+glob matched no file at all, and `head` swallows `grep`'s exit code so the pipeline reported success
+on nothing. Repairing the path does not save it either — `align` is a substring of MapLibre's
+`text-rotation-alignment`, `icon-pitch-alignment`, `align-items` and `alignedProjMatrix`, so a
+working grep matches four chunks in every build for ever. The SPEC's *Testing Decisions* rules out a
+grep over built JavaScript as a check any ticket may be asked to pass; `e2e/viewer.e2e.ts` is where
+the claim actually lives.
 
 ## Blocked by
 
