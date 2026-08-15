@@ -18,11 +18,10 @@
 	// announced through the status region below rather than only drawn, because "which tool am I
 	// holding" is otherwise invisible to anyone not looking at the highlight.
 
-	import { KIND_STYLE } from '@ballastella/ui';
+	import { KIND_STYLE, TOOL_ICONS } from '@ballastella/ui';
 	import Plus from '@lucide/svelte/icons/plus';
 
 	import { toolName, type AnnotationTool } from './drawing.svelte';
-	import { TOOL_ICONS } from './shape-icons';
 
 	let {
 		tool,
@@ -125,8 +124,9 @@
 
 			The glyph goes **beside** each shape's name, never instead of it (SPEC story 111): the words
 			stay on the button, so the icon is a second channel rather than the only one. It is the same
-			glyph the list of Annotations marks each drawn shape with — one mapping, in `shape-icons.ts`,
-			so a scholar learns the pin once and then recognises it in the list.
+			glyph the list of Annotations marks each drawn shape with — one mapping, in
+			`@ballastella/ui`'s `shape-icons.ts`, so a scholar learns the pin once and then recognises it
+			in the list, and a Reader meets the same glyph on a published site.
 
 			Cancel sits outside the group, because it is not a fourth shape.
 		-->

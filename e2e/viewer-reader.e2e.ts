@@ -452,6 +452,58 @@ async function openAnnotationPopup(page: Page): Promise<Locator> {
 	return page.locator('.maplibregl-popup-content');
 }
 
+/**
+ * Open the fixture Annotation's own row in its Layer's card, and hand back what the row reveals.
+ *
+ * **This is where a Reader actually reads an Annotation** (SPEC stories 32–34): the Annotation Layer
+ * is the top card in the fixture's stack, its card lists what is in it, and a row opens on itself.
+ * No pin, no map and no popup are involved in getting here, which is the whole point — the row is
+ * reachable from the sidebar by somebody who has not found the pin.
+ *
+ * Idempotent for the same reason `openLayerRow` is, and here it is load-bearing rather than
+ * defensive: clicking a pin on the map opens that Annotation's row too — one Annotation is active and
+ * there is one answer to which — so a caller that has opened the popup first arrives with the row
+ * already expanded, and an unconditional click would close it.
+ */
+async function openAnnotationRow(page: Page): Promise<Locator> {
+	const card = await openLayerRow(page, layerRow(page, ANNOTATION_LAYER_ID));
+	const row = card.getByTestId('annotation-row').first();
+	await expect(row).toBeVisible();
+	if ((await row.getAttribute('aria-expanded')) !== 'true') await row.click();
+	await expect(row).toHaveAttribute('aria-expanded', 'true');
+	return card.getByTestId('annotation-row-contents');
+}
+
+/**
+ * Everything an author can do to an Annotation, which must reach no Reader (SPEC story 19).
+ *
+ * ⚠ **Asserted against an open row rather than against the page**, which is what stops it passing
+ * vacuously: with the Annotation Layer's card closed, every id below is absent because there is no
+ * row on the screen at all, and the assertion would say nothing about what a row contains.
+ *
+ * ⚠ **`annotation-place-search` and the drawing tools are the sharpest of these.** A place search
+ * issues a lookup to a third-party service, and a Published Site quietly doing that for a Reader who
+ * asked for nothing is the outcome ADR-0029 is written against. They are absent because this app
+ * passes `AnnotationList` no `tools` snippet — not because a flag turned them off.
+ *
+ * Each is asserted **present** against the editor's own prop set, so none of these can go quietly
+ * green on a renamed id: `annotation-tools` and `annotation-new` in
+ * `apps/editor/src/lib/annotations/annotation-layer-contents.dom.test.ts`, the editor's own fields
+ * and Delete in `apps/editor/src/lib/annotations/annotation-editor.dom.test.ts`, and
+ * `annotation-place-search` in `e2e/editor-annotations.e2e.ts`.
+ */
+const ANNOTATION_EDITING_CONTROLS = [
+	'annotation-editor',
+	'annotation-edit-text',
+	'annotation-title',
+	'annotation-description',
+	'annotation-delete',
+	'annotation-stroke-width',
+	'annotation-new',
+	'annotation-tools',
+	'annotation-place-search'
+] as const;
+
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // SANITISATION. The one place in this epic where a bug is a security vulnerability.
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -463,18 +515,28 @@ test.describe('untrusted text on a Published Site', () => {
 	 * `maps.digitalhumanities.harvard.edu` — and the Project it renders may have arrived from a stranger
 	 * by zip import (ticket 13) or from a remote library (ticket 14).
 	 *
-	 * **Two surfaces, and they are safe for different reasons.** That distinction is inherited from
+	 * **Three surfaces, and they are safe for different reasons.** That distinction is inherited from
 	 * ticket 10 rather than rediscovered, and it is what stops a future edit "simplifying" the wrong one:
 	 *
-	 *   1. the **Annotation popup** — `renderAnnotationPopup`: the title HTML-escaped, the description
-	 *      through `marked` then DOMPurify, and the assembled document through DOMPurify again;
-	 *   2. the **names** — a Project's on the hub and a Layer's in the controls — where safety is
+	 *   1. the **Annotation row** — `AnnotationReading` in `@ballastella/ui`: the title interpolated as
+	 *      text by Svelte, the description through core's `renderDescription`, which is `marked` then
+	 *      DOMPurify in that order and not separately reachable;
+	 *   2. the **Annotation popup** — `renderAnnotationPopup`: the title HTML-escaped, the description
+	 *      through the same pipeline, and the assembled document through DOMPurify again;
+	 *   3. the **names** — a Project's on the hub and a Layer's in the controls — where safety is
 	 *      **Svelte's text interpolation** and DOMPurify is not involved at all.
 	 *
-	 * Breaking the sanitiser therefore reddens the first and correctly leaves the second green. That
+	 * Breaking the sanitiser therefore reddens the first two and correctly leaves the third green. That
 	 * asymmetry was verified by mutation, not assumed: `sanitise` in
 	 * `packages/core/src/annotation/markdown.ts` was made to return its input, and the popup tests
-	 * below went red while the name test stayed green.
+	 * below went red while the name test stayed green. The row's half was verified the same way — see
+	 * the mutation check recorded on ticket 06.
+	 *
+	 * ⚠ **The row's claim is the one that has to survive.** The popup retires from the Project screen
+	 * in both apps (ticket 07): the row is where an Annotation is read. So the claim is asserted on the
+	 * row here, before the popup that carries it today goes, and it is folded into these tests rather
+	 * than added beside them because the Seam 2 budget has none to spare and the popup half is about to
+	 * be deleted out of them.
 	 *
 	 * **There was a third surface and it is deliberately gone.** The hub page used to author its own
 	 * blurb as a pseudo-Annotation and `{@html}` it, so that the shared renderer stayed live in the
@@ -493,7 +555,7 @@ test.describe('untrusted text on a Published Site', () => {
 	});
 
 	for (const payload of PAYLOADS) {
-		test(`an Annotation popup renders ${payload.what} inert, and its prose visibly`, async ({
+		test(`an Annotation renders ${payload.what} inert in its row and its popup, and its prose visibly`, async ({
 			page
 		}) => {
 			site = await published(
@@ -530,7 +592,39 @@ test.describe('untrusted text on a Published Site', () => {
 			// output rather than a string some of which happens to have been sanitised, and because an absence
 			// assertion alone cannot tell "stripped" from "never rendered".
 			expect(await popup.locator('[class*="ballastella"]').count()).toBe(0);
+
+			// ─────────────────────────────────────────────────────────────────────────────────────
+			// AND THE SAME PAYLOAD IN THE ROW, WHICH IS WHERE A READER READS IT (SPEC stories 32–34)
+			//
+			// Reached from the sidebar rather than from the map: the Layer's card lists what is in it
+			// and the row opens on itself, so a Reader who never found the pin still meets this text.
+			// The popup above retires from this screen in ticket 07; this half is what stays.
+			const reading = await openAnnotationRow(page);
+
+			// **The prose first**, for the reason the popup's is: `{@html}` is not re-rendered during
+			// hydration, so a surface that renders nothing at all — permanently, with no warning —
+			// passes every assertion about what is absent.
+			await expect(reading).toContainText(payload.prose);
+			// The title reached the row as characters, including the parts that look like markup. It
+			// is on the row's own button too, by a different mechanism: a Svelte interpolation, which
+			// `packages/ui/src/annotation-list.dom.test.ts` pins as text with a negative control.
+			await expect(reading.getByTestId('annotation-title-text')).toContainText('Warehouse');
+
+			expect(await dangerousIn(reading)).toEqual(INERT);
+			expect(await page.evaluate(() => '__xss' in window)).toBe(false);
+
+			// Nothing in the open row could change the author's work, and nothing in it reaches a
+			// third-party service. See {@link ANNOTATION_EDITING_CONTROLS} for where each of these is
+			// asserted *present*, which is what stops this passing on a renamed id.
+			for (const control of ANNOTATION_EDITING_CONTROLS) {
+				await expect(page.getByTestId(control), `${control} in the viewer`).toHaveCount(0);
+			}
+
 			expect(seen.failures).toEqual([]);
+			// **No lookup was issued**, which is the ADR-0029 half said as a fact about the network
+			// rather than about a missing control: the fence already refuses a non-localhost request,
+			// so this catches the shape it cannot — a lookup at an origin the fence would allow.
+			expect(seen.requests.filter((made) => /search|geocod|nominatim/i.test(made.url))).toEqual([]);
 		});
 	}
 
@@ -632,6 +726,30 @@ test.describe('untrusted text on a Published Site', () => {
 		// And the dangerous one kept its words and lost its destination.
 		expect(links).toContainEqual({ text: 'the 1625 plan', href: null });
 		expect(await dangerousIn(popup)).toEqual(INERT);
+
+		// ─────────────────────────────────────────────────────────────────────────────────────
+		// AND THE SAME TWO-SIDED CLAIM ON THE ROW (SPEC story 33)
+		//
+		// **This is what says the row renders the description rather than showing its source.** The
+		// payload tests above assert the prose is present, and prose survives either way — a row
+		// showing `[the modern survey](https://example.org/survey)` verbatim contains those words
+		// too. An anchor does not: it exists only if `marked` ran, which is the whole difference
+		// between reading what the scholar wrote and reading their punctuation.
+		const reading = await openAnnotationRow(page);
+		await expect(reading).toContainText('Compare the modern survey with the 1625 plan.');
+		const rowLinks = await reading.evaluate((element) =>
+			[...element.querySelectorAll('a')].map((anchor) => ({
+				text: anchor.textContent,
+				href: anchor.getAttribute('href')
+			}))
+		);
+		expect(rowLinks).toContainEqual({
+			text: 'the modern survey',
+			href: 'https://example.org/survey'
+		});
+		expect(rowLinks).toContainEqual({ text: 'the 1625 plan', href: null });
+		expect(await dangerousIn(reading)).toEqual(INERT);
+
 		expect(await page.evaluate(() => '__xss' in window)).toBe(false);
 		expect(seen.failures).toEqual([]);
 	});

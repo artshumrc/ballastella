@@ -97,7 +97,13 @@
 		type TileSourceFailure
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
-	import { BaseMapSwitcher, LayerList, pageChrome } from '@ballastella/ui';
+	import {
+		AnnotationList,
+		AnnotationReading,
+		BaseMapSwitcher,
+		LayerList,
+		pageChrome
+	} from '@ballastella/ui';
 	import { onMount, untrack } from 'svelte';
 
 	import { online } from '$lib/online.svelte';
@@ -916,20 +922,36 @@
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// Annotation popups (SPEC story 67) — the highest-stakes surface in the epic
+	// The open Annotation (SPEC stories 32–34) — the highest-stakes surface in the epic
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
-	let selected = $state.raw<{ layerId: string; annotationId: string; at: GeoPoint } | null>(null);
+	/**
+	 * The Annotation a Reader is looking at, or `null`.
+	 *
+	 * **One value, because "which Annotation is active" has one answer.** The open row in the Layer
+	 * card and the popup on the map are two views of this, never two states that can disagree.
+	 *
+	 * `at` is where on the earth the popup should sit, and it is `null` when the Annotation was opened
+	 * from its **row** rather than from its pin: a Reader who pressed a row in the sidebar asked to
+	 * read the Annotation, not to have the map grow a bubble over a pin they may not be looking at.
+	 * `ReaderMapPane` draws no popup without a point.
+	 */
+	let selected = $state.raw<{
+		layerId: string;
+		annotationId: string;
+		at: GeoPoint | null;
+	} | null>(null);
 
 	/**
 	 * The open Annotation, out of the collection the map is drawing.
 	 *
 	 * Its `title` and `description` are **untrusted text**: a Published Site runs on the author's own
 	 * domain, and the Project may have arrived from a stranger by zip import (ticket 13) or from a remote
-	 * library (ticket 14). Neither is turned into HTML here. `showAnnotationPopup` in
-	 * `@ballastella/core/render` builds the popup from `renderAnnotationPopup`, which escapes the title
-	 * and runs the description through `marked` then DOMPurify in that order, and holds this repository's
-	 * one `setHTML` (ADR-0009).
+	 * library (ticket 14). Neither is turned into HTML here, and neither may be. The popup is built by
+	 * `showAnnotationPopup` in `@ballastella/core/render` out of `renderAnnotationPopup`; the row is
+	 * `AnnotationReading` in `@ballastella/ui`, which renders the title as text and the description
+	 * through `renderDescription`. Both are core's own `marked`-then-DOMPurify pipeline, and this app
+	 * composes no markup of its own — there is no `{@html}` in this app's source at all.
 	 */
 	const selectedAnnotation = $derived.by((): Annotation | null => {
 		if (!selected) return null;
@@ -938,6 +960,33 @@
 		const collection = read.annotations as AnnotationCollection | null | undefined;
 		return collection?.annotations.find((one) => one.id === selected?.annotationId) ?? null;
 	});
+
+	/**
+	 * The Annotations inside the open Layer's card, or none.
+	 *
+	 * **No fetch of its own**: `documents` already holds every visible Layer's parsed collection,
+	 * because the map is drawing from it. A card that is open on a Layer whose documents have not
+	 * arrived yet lists nothing rather than guessing.
+	 */
+	const openAnnotations = $derived.by((): readonly Annotation[] => {
+		if (openLayerId === null) return [];
+		const read = documents[openLayerId];
+		if (read?.status !== 'ready') return [];
+		const collection = read.annotations as AnnotationCollection | null | undefined;
+		return collection?.annotations ?? [];
+	});
+
+	/**
+	 * Which row in the open card is expanded.
+	 *
+	 * Derived rather than held, so that opening a *different* Annotation Layer cannot leave a row
+	 * marked open in a card that does not contain it. The selection itself survives the card being
+	 * closed, which is what lets a pin clicked on the map still be the open row when its Layer is
+	 * opened again.
+	 */
+	const openAnnotationId = $derived(
+		selected !== null && selected.layerId === openLayerId ? selected.annotationId : null
+	);
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Reading a Historical Map as a document (SPEC story 85)
@@ -1314,8 +1363,8 @@
 
 							<!--
 								**The props not passed are the point**; see the note at the head of this file. The
-								one snippet offered is `mapContents`, and what goes in it is a Reader's own reading
-								of the sheet rather than anything that changes it.
+								two snippets offered are `mapContents` and `annotationContents`, and what goes in
+								each is a Reader's own reading of the work rather than anything that changes it.
 							-->
 							<LayerList
 								{layers}
@@ -1325,6 +1374,7 @@
 								onshow={showLayer}
 								ondragopacity={dragLayerOpacity}
 								{mapContents}
+								{annotationContents}
 							/>
 						</div>
 
@@ -1454,6 +1504,45 @@
 	The editor has no unwarped view; its own was removed in an earlier epic, and this is offered here
 	because a Reader who wants to read the sheet as a document has nowhere else to go.
 -->
+{#snippet annotationReading(annotation: Annotation)}
+	<AnnotationReading {annotation} />
+{/snippet}
+
+<!--
+	What is inside an Annotation Layer for a Reader: its Annotations, each in a row that opens on
+	itself (SPEC stories 32–34).
+
+	**The same list and the same row a scholar authors on**, and the whole of the difference is what
+	an open row reveals: the editor puts its Annotation editor in it, and this puts the title and the
+	rendered description. So a Reader can read an Annotation without first hunting for its pin.
+
+	⚠ **No `tools` snippet, and that absence is the point.** The editor's holds the drawing surface and
+	the place search, and a place search issues a lookup to a third-party service — a Published Site
+	quietly doing that for a Reader who asked for nothing is what ADR-0029 is written against. It is
+	not withheld by a flag: it is a prop this app does not pass, so neither component is reachable from
+	this bundle at all.
+
+	⚠ **`AnnotationReading` is `@ballastella/ui`'s rather than markup composed here**, and that is the
+	security boundary rather than tidiness. A `description` is a stranger's Markdown, and the only
+	thing that may render it is core's `renderDescription` — `marked` then DOMPurify, in that order and
+	not separately reachable (ADR-0009). Keeping the `{@html}` in the shared component is what keeps
+	this app's own source free of one, so there is no expression here for a later edit to feed
+	something unsanitised into. `e2e/viewer-reader.e2e.ts` asserts a payload is inert **in this row**,
+	in a real published build.
+-->
+{#snippet annotationContents()}
+	<AnnotationList
+		annotations={openAnnotations}
+		openId={openAnnotationId}
+		onopen={(id) =>
+			(selected =
+				id === null || openLayerId === null
+					? null
+					: { layerId: openLayerId, annotationId: id, at: null })}
+		contents={annotationReading}
+	/>
+{/snippet}
+
 {#snippet mapContents(layer: MapLayer)}
 	<div>
 		<button
