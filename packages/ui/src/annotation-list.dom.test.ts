@@ -72,6 +72,20 @@ const list = (props: ComponentProps<typeof AnnotationListHarness>): void => {
 	flushSync();
 };
 
+/**
+ * Hand the list already on the screen a different collection, the way a consumer does after a delete.
+ *
+ * A prop update rather than a second mount, which for anything a row computes from its place in the
+ * collection is the only shape the claim has: a component that read the number once, at mount, is
+ * right in a freshly mounted list and wrong in the one the scholar is looking at.
+ */
+const show = (annotations: readonly Annotation[] | null): void => {
+	const harness = mounted as { show?: (next: readonly Annotation[] | null) => void } | undefined;
+	if (!harness?.show) throw new Error('nothing is mounted that can be handed new Annotations');
+	harness.show(annotations);
+	flushSync();
+};
+
 /** Take the mounted list down mid-test, so a second prop set can be mounted into a clean document. */
 const takeDown = (): void => {
 	if (mounted) unmount(mounted);
@@ -198,21 +212,29 @@ describe('every Annotation is numbered on its row (stories 37, 38, 42)', () => {
 		expect(button.textContent?.replace(/\s+/g, ' ').trim()).toBe('3 shape Untitled shape 3');
 	});
 
-	test('deleting an Annotation renumbers the rest, by rendering again', () => {
+	test('deleting an Annotation renumbers the rest, in the rows already on the screen', () => {
 		// The whole of ADR-0002 at this seam: the consumer hands the list a shorter collection and the
 		// survivors are numbered from what is in front of them. Nothing was written to renumber them —
 		// `packages/core/src/annotation/ordinal.test.ts` asserts the bytes, and the Annotations here are
 		// the same objects handed back.
+		//
+		// ⚠ **A prop update and not a second mount**, which is the whole of what this asserts. Mounting
+		// the shorter collection into a clean document is a claim about mounting: a row that read its
+		// number once, when it was first rendered, would satisfy it and would go on showing "3" beside
+		// the Annotation now second in the sidebar. So the survivor's own element is held across the
+		// change and asserted to be the same node, still in the list, now numbered 2.
 		const before = three();
 		list({ annotations: before });
 		expect(ordinals()).toEqual(['1', '2', '3']);
+		const survivor = nth('annotation-row', 2);
 
-		takeDown();
-		list({ annotations: [before[0]!, before[2]!] });
+		show([before[0]!, before[2]!]);
 
 		expect(ordinals()).toEqual(['1', '2']);
 		expect(all('annotation-row-name').map((row) => row.textContent?.trim())) //
 			.toEqual(['The west quay', 'Untitled shape 2']);
+		expect(nth('annotation-row', 1)).toBe(survivor);
+		expect(survivor.textContent?.replace(/\s+/g, ' ').trim()).toBe('2 shape Untitled shape 2');
 	});
 });
 

@@ -208,7 +208,16 @@ export function createAnnotationOrdinals(map: MapLibreMap): AnnotationOrdinals {
 				// Negative y is up. Re-set on every update because `marker-size` is a control the scholar
 				// can change while the mark is on the map.
 				held.marker.setOffset([0, -mark.clearance]);
-				held.marker.setLngLat([mark.at.lng, mark.at.lat]).addTo(map);
+				held.marker.setLngLat([mark.at.lng, mark.at.lat]);
+				// ⚠ **Only a mark that is not already on the map is added to it.** `Marker.addTo` begins with
+				// an unconditional `this.remove()` — which takes the element out of the container and unbinds
+				// eleven map listeners along with the element's own click handler — and then appends the node
+				// and binds them all again. Calling it on every update is therefore the flicker the
+				// reconciliation above exists to prevent: measured in the running editor, three marks over
+				// four keystrokes of a title were detached and re-attached twelve times, and not at all once
+				// this was gated. Asked of the element rather than of "was it just created", so a mark taken
+				// off by anything else finds its way back.
+				if (!held.element.isConnected) held.marker.addTo(map);
 			}
 			for (const [id, held] of marks) {
 				if (seen.has(id)) continue;

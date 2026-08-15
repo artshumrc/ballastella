@@ -119,6 +119,38 @@ is already in `packages/ui/src/layout.css`.
 in both themes, rasterising each colour into a 1 × 1 canvas — because
 `getComputedStyle(element).color` in Chrome preserves `oklch()` rather than serialising to `rgb()`.
 
+## Known limits
+
+Two things found in review, recorded rather than changed. Neither was introduced by this ticket and
+neither is a defect in what it built.
+
+### The mark's position is asserted on the boundary of its own rounding
+
+`e2e/editor-annotations.e2e.ts` compares the mark's box centre with `map.project()` of the coordinate
+using `toBeCloseTo(…, 0)`, which is `|difference| < 0.5`. MapLibre rounds a `Marker`'s transform to
+whole pixels except while a `move` is in flight, and `project()` returns fractional pixels, so the
+error is bounded by exactly 0.5 and the assertion sits on its own boundary: a projection landing on
+an exact `.5` fraction would fail it. Measured on the fix above, the drift was 0.5–0.52 px at every
+check — pan, zoom, delete, hide and show, and a Project left and reopened.
+
+Left as it is because the tolerance is this file's existing convention rather than a choice made
+here: the Annotation vertex handle's own position is asserted against `map.project()` with the
+identical pair of `toBeCloseTo(…, 0)` calls, in "leaves the Pin draggable and arrow-key movable under
+a Historical Map". Changing one pair alone would leave the file saying two things about the same
+measurement.
+
+### Two Annotations with the same id would share one mark
+
+`annotation-ordinals.ts` keys its marks by Annotation id, and `parseAnnotations`
+(`packages/core/src/annotation/geojson.ts`) does not de-duplicate ids. A stranger's file with two
+features both `"id": 1` — QGIS writes integer ids counted from 1 — would produce one mark carrying
+the later Annotation's number and none at all for the earlier.
+
+This is an input-validation gap in `parseAnnotations` and predates this ticket: `AnnotationList`'s
+`{#each … (annotation.id)}` throws on a duplicate key, so such a file already breaks the sidebar more
+loudly than it breaks the numbers. It belongs to whoever owns reading a stranger's GeoJSON, not to
+the marks drawn from what was read.
+
 ## Acceptance criteria
 
 - [x] Every Annotation shows the same ordinal on its map mark and on its sidebar row, in both apps.

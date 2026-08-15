@@ -78,6 +78,9 @@ function watchFailures(page: Page): string[] {
 	return failures;
 }
 
+/** How many ordinal marks left the document and how many entered it, counted in the page. */
+type OrdinalChurn = { added: number; removed: number };
+
 /**
  * The style property names simplestyle 1.1.0 defines, plus ADR-0009's one extension.
  *
@@ -618,12 +621,46 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').click();
+
+		// ── AND THE NUMBER OVER THE PIN IS NOT TORN OFF AND PUT BACK EITHER ─────────────────
+		//
+		// The same thrash arriving through the DOM instead of through the stack, and it was here:
+		// `annotation-ordinals.ts` reconciles its marks by Annotation id so that a mark survives a
+		// keystroke, and then called `Marker.addTo` on every one of them on every update. MapLibre's
+		// `addTo` begins with an unconditional `remove()` — the element out of the container, eleven map
+		// listeners and the element's own click handler unbound — and then appends and binds them all
+		// again. Measured with this observer before the gate: three marks over four keystrokes of a
+		// title, twelve removals and twelve insertions. Counted rather than looked at, because a
+		// detach and a re-attach inside one frame is invisible to every assertion about what is on
+		// screen afterwards.
+		await page.evaluate(() => {
+			const holder = window as unknown as { ballastellaOrdinalChurn?: OrdinalChurn };
+			const churn: OrdinalChurn = { added: 0, removed: 0 };
+			holder.ballastellaOrdinalChurn = churn;
+			const isMark = (node: Node): boolean =>
+				node instanceof HTMLElement && node.dataset['testid'] === 'annotation-ordinal';
+			new MutationObserver((records) => {
+				for (const record of records) {
+					for (const node of record.addedNodes) if (isMark(node)) churn.added++;
+					for (const node of record.removedNodes) if (isMark(node)) churn.removed++;
+				}
+			}).observe(document.body, { childList: true, subtree: true });
+		});
+
 		await page.keyboard.type('The old mill', { delay: 40 });
 		await page.getByTestId('annotation-description').click();
 		await page.keyboard.type('Built 1780.', { delay: 40 });
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect(await builds()).toBe(before);
+		// The mark is still the one it was: not replaced, and not left off the map by not replacing it.
+		await expect(page.getByTestId('annotation-ordinal')).toHaveCount(1);
+		expect(
+			await page.evaluate(
+				() =>
+					(window as unknown as { ballastellaOrdinalChurn?: OrdinalChurn }).ballastellaOrdinalChurn
+			)
+		).toEqual({ added: 0, removed: 0 });
 		// And the words did land, so this is not passing by having typed into nothing.
 		expect((await storedAnnotations(page, await annotationLayerId(page))).features[0]?.properties) //
 			.toMatchObject({ title: 'The old mill', description: 'Built 1780.' });
