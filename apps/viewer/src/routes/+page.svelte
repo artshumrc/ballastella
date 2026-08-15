@@ -27,11 +27,31 @@
 	// Layer visibility and opacity are **view** controls over an in-memory copy of the stack. They call
 	// core's own `setLayerVisible` and `setMapLayerOpacity` — the same pure functions the editor calls —
 	// and then stop: there is no store `write` in this app to call next, and `project.json` is read-only
-	// over HTTP anyway. Ticket 17 names the failure being avoided: a naive reuse of the editor's controls
-	// would try to persist, fail, and surface a confusing error at a Reader.
+	// over HTTP anyway.
 	//
 	// The one thing that *is* remembered is the Base Map choice, in `localStorage`, keyed per site
 	// (ADR-0020) — never in Project data.
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// THE STACK IS THE EDITOR'S `LayerList`, AND SUBTRACTION IS WHAT MAKES IT A READER'S
+	//
+	// A Reader reads the same card a scholar authored on — kind tint, kind line, disclosure, the drained
+	// header of a hidden Layer, the problem band — because a published Project that looks like a
+	// different application is the thing this was for. The viewer's own `ReaderLayerControls` was a
+	// second implementation of that idea, written when every write `LayerList` emitted was a required
+	// prop; **that is no longer true**, so reuse no longer implies a write. Every editing callback is
+	// optional there, and the controls a Reader must never see are the callbacks this page does not
+	// pass: no `ontypename`/`oncommit`, no `onmove`, no `ondelete`, no `problemAction`.
+	//
+	// `referencedImageIds` is withheld for a different reason, and it is not a safety one: where a
+	// Historical Map's tiles are held is the author's publishing decision, and a Reader cannot copy a
+	// pyramid or repoint a service. The badge stays in the editor, where the fact is actionable (SPEC
+	// stories 20 and 21). {@link needsNetwork} below is not that badge and stays: it names what will not
+	// draw without a connection, which is a thing a Reader meets.
+	//
+	// ⚠ **There is no `readOnly`, `mode` or `editable` prop to pass, and adding one would be wrong.** A
+	// flag beside the callbacks is a second description of the same thing and the two can disagree; the
+	// argument is at the head of `LayerList.svelte`.
 
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -78,12 +98,11 @@
 		type TileSourceFailure
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
-	import { BaseMapSwitcher } from '@ballastella/ui';
+	import { BaseMapSwitcher, LayerList } from '@ballastella/ui';
 	import { onMount, untrack } from 'svelte';
 
 	import { online } from '$lib/online.svelte';
 	import { readLayerDocuments, toContentLayers, type ReadDocuments } from '$lib/project-documents';
-	import ReaderLayerControls from '$lib/ReaderLayerControls.svelte';
 	import ReaderMapPane from '$lib/ReaderMapPane.svelte';
 	import { readSiteFile, siteStore, sitePrefix } from '$lib/site-files';
 	import { startTheme, theme } from '$lib/theme.svelte';
@@ -278,11 +297,49 @@
 	 */
 	let layers = $state.raw<readonly Layer[]>([]);
 
+	/**
+	 * Which Layer card is open, or `null` for none. At most one, which is what makes it one value.
+	 *
+	 * Held here rather than inside the card for the reason `LayerList` gives: the screen owns it, so
+	 * nothing downstream can hold a second copy that disagrees.
+	 */
+	let openLayerId = $state<string | null>(null);
+
 	/** Reset to the author's own stack whenever a different Project is opened. */
 	$effect(() => {
 		const file = openProject?.file ?? null;
 		layers = file?.layers ?? [];
+		// A card opened in the Project being left names a Layer the incoming one does not have.
+		openLayerId = null;
 	});
+
+	/**
+	 * What the last view change did, announced.
+	 *
+	 * Hiding a Layer changes the map and nothing near the control that changed it, so without this a
+	 * screen-reader user toggles a Layer and is told only that a checkbox is unchecked — not that a
+	 * Historical Map has left the map (SPEC story 22).
+	 *
+	 * **On the page rather than inside the card**, which is the choice this ticket was given between:
+	 * the card announces the one change it makes on its own — a reorder — and every other announcement
+	 * belongs to whichever consumer performed the change. This page is what applies a Reader's
+	 * visibility and opacity, so it is what can say what happened.
+	 */
+	let announced = $state('');
+
+	/** How a Layer reads in the announcement, matching the accessible names on its own controls. */
+	const layerName = (id: string): string =>
+		layers.find((layer) => layer.id === id)?.name || 'Untitled Layer';
+
+	function showLayer(id: string, visible: boolean): void {
+		announced = `${layerName(id)} ${visible ? 'shown' : 'hidden'}`;
+		layers = setLayerVisible(layers, id, visible);
+	}
+
+	function dragLayerOpacity(id: string, opacity: number): void {
+		announced = `${layerName(id)} at ${Math.round(opacity * 100)}%`;
+		layers = setMapLayerOpacity(layers, id, opacity);
+	}
 
 	/**
 	 * The Layers a Reader has left visible, and of a kind this build can draw.
@@ -1246,14 +1303,42 @@
 							</div>
 						{/if}
 
-						<ReaderLayerControls
-							{layers}
-							{outcomes}
-							{referencedImageIds}
-							onshow={(id, visible) => (layers = setLayerVisible(layers, id, visible))}
-							onopacity={(id, opacity) => (layers = setMapLayerOpacity(layers, id, opacity))}
-							onunwarped={readAsDocument}
-						/>
+						<!--
+							The Layer stack, as the shared card (SPEC stories 1, 10–19). `base-300` under
+							`base-100` cards for the reason `LayerList`'s header measures: on the page's own
+							surface a `base-100` card has only its hairline to separate it, which is invisible in
+							light and a smudge in dark. The editor's `layer-sidebar` is the same pairing.
+						-->
+						<div class="rounded-lg bg-base-300 p-3">
+							<!--
+								What the Reader's last change did, in words. Above the stack rather than under it,
+								because a live region a Reader may have to scroll to find is one they will not read
+								— and this is the only feedback that the map has changed at all.
+							-->
+							<div
+								aria-live="polite"
+								aria-atomic="true"
+								class="min-h-6 text-sm"
+								data-testid="layer-view-status"
+							>
+								{announced}
+							</div>
+
+							<!--
+								**The props not passed are the point**; see the note at the head of this file. The
+								one snippet offered is `mapContents`, and what goes in it is a Reader's own reading
+								of the sheet rather than anything that changes it.
+							-->
+							<LayerList
+								{layers}
+								{outcomes}
+								{openLayerId}
+								onopen={(id) => (openLayerId = id)}
+								onshow={showLayer}
+								ondragopacity={dragLayerOpacity}
+								{mapContents}
+							/>
+						</div>
 
 						{#if needsNetwork.length > 0}
 							<p class="text-sm text-warning" data-testid="project-needs-network">
@@ -1368,3 +1453,29 @@
 		{/if}
 	{/if}
 </main>
+
+<!--
+	What is inside a Historical Map Layer for a Reader: the sheet on its own, unwarped (SPEC story 85).
+
+	**A snippet rather than a callback prop on the card**, for the reason `ProjectScreen`'s own
+	`mapContents` gives: what this button does is a navigation on this app's one route, and the shared
+	card knows nothing about routes. It is also the whole of the difference between the two apps'
+	Historical Map cards — the editor's slot holds Align and the library the tiles came from, and this
+	one holds the only thing a Reader can do to a sheet.
+
+	The editor has no unwarped view; its own was removed in an earlier epic, and this is offered here
+	because a Reader who wants to read the sheet as a document has nowhere else to go.
+-->
+{#snippet mapContents(layer: MapLayer)}
+	<div>
+		<button
+			class="btn btn-xs"
+			type="button"
+			data-testid="read-as-document"
+			onclick={() => readAsDocument(layer.id)}
+		>
+			<!-- Four buttons called "Read as a document" are four identical controls to a screen reader. -->
+			Read as a document<span class="sr-only"> — {layer.name || 'Untitled Layer'}</span>
+		</button>
+	</div>
+{/snippet}
