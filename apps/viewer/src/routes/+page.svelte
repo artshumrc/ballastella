@@ -915,6 +915,23 @@
 		})
 	);
 
+	/**
+	 * Whether a Project's map is what is on screen — the only state the two Base Map notices speak in.
+	 *
+	 * ⚠ **The notices are rendered outside every branch and this is what keeps them silent.** They sit
+	 * at the top of `<main>`, above the Front-Page/Project split, because a live region has to be on
+	 * the page *before* its sentence arrives for the arrival to be a change a screen reader announces
+	 * — and everything below that split is built client-side once the Project file resolves, so a
+	 * region rendered inside it is inserted with its text already in it and announced to nobody. This
+	 * moves the element and not the moment: they say something on a Project's map, and nothing on the
+	 * Front Page, on a Project that would not open, or on a sheet being read as a document.
+	 *
+	 * `baseMapNotPublished` in particular is true from the first frame — `bundledBaseMapAvailable` is
+	 * `false` until the site record is read — so without this gate the sentence would be in the
+	 * prerendered HTML, which is the same defect one step earlier.
+	 */
+	const showingTheMap = $derived(openProject !== null && unwarpedLayerId === null);
+
 	/** Remember the Reader's choice for this site, and for no other (ADR-0020). Never Project data. */
 	function chooseBaseMap(id: string): void {
 		chosen = id;
@@ -1092,6 +1109,39 @@
 	sideways (ticket 17's criterion, and SPEC story 84 — a phone is where most Readers arrive).
 -->
 <main class="mx-auto max-w-6xl p-4 sm:p-8">
+	<!--
+		Why the Base Map on screen is not the one the Project asked for (ADR-0020), and what this site
+		was published without.
+
+		⚠ **Above the Front-Page/Project split rather than beside the switcher, and that placement is
+		the mechanism.** Both are `aria-live` regions, which are announced when their text *changes*
+		and not when the element carrying them is inserted — so each has to be on the page before its
+		sentence exists. Everything below this point is built client-side once the site record and the
+		Project file have been read, and both sentences are settled before that happens: `baseMapNotice`
+		falls out of `resolveBaseMap` with the Project file, and `baseMapNotPublished` is true from the
+		first frame. A region rendered down there arrives *with* its text however few `{#if}` blocks
+		are left around it, which is what made these two inaudible when they sat in the controls column.
+		Here they are in the prerendered HTML, empty, and the sentence arriving is a change.
+
+		{@link showingTheMap} keeps *when* they speak unchanged: a Project's map, and nowhere else.
+		`max-w-prose` because this column is the page's full width rather than the switcher's 22rem.
+	-->
+	<MapNotice
+		shape="always-present"
+		variant="plain"
+		class="max-w-prose text-sm text-warning"
+		testid="base-map-notice"
+		text={showingTheMap ? baseMapNotice : ''}
+	/>
+
+	<MapNotice
+		shape="always-present"
+		variant="plain"
+		class="max-w-prose text-sm text-warning"
+		testid="base-map-not-published"
+		text={showingTheMap ? baseMapNotPublished : ''}
+	/>
+
 	{#if openDirectory === null}
 		<!--
 			The site's own sentence about itself, as ordinary markup.
@@ -1237,44 +1287,18 @@
 						</div>
 
 						<!--
-							Why the Base Map on screen is not the one the Project asked for (ADR-0020), and what
-							this site was published without.
-
-							**Both are rendered whether or not they have anything to say**, which is the fix for
-							the defect this file's own comment used to report: each sat inside an `{#if}` and was
-							an `aria-live` region, so each was inserted *with* its text and never announced. A
-							live region has to be on the page before the text arrives for the arrival to be a
-							change. `MapNotice` owns that rule for both apps now.
-						-->
-						<MapNotice
-							shape="always-present"
-							variant="plain"
-							class="text-sm text-warning"
-							testid="base-map-notice"
-							text={baseMapNotice}
-						/>
-
-						<MapNotice
-							shape="always-present"
-							variant="plain"
-							class="text-sm text-warning"
-							testid="base-map-not-published"
-							text={baseMapNotPublished}
-						/>
-
-						<!--
 							The archive answered nothing while the connection is fine (ticket 22). It comes and
 							goes with the outage, so `MapNotice` makes it an `alert` and renders nothing at all
-							while the archive is answering — the two notices above are the other shape, and the
-							component's header carries the rule and the reason it is not each call site's.
+							while the archive is answering — the two at the top of the page are the other shape, and
+							the component's header carries the rule and the reason it is not each call site's.
 
 							It is the same alert whether the Base Map is somebody else's or this site's own; what
 							differs is the remedy, and that is `baseMapUnavailableNotice`'s to decide rather than
 							this template's, so the editor and the viewer cannot drift apart.
 
-							Above the map in the DOM, with the other Base Map notices, because the controls come
-							first here deliberately (see the grid comment): the account of why the rectangle is
-							empty should be read before the rectangle, not found underneath it.
+							Above the map in the DOM, because the controls come first here deliberately (see the
+							grid comment): the account of why the rectangle is empty should be read before the
+							rectangle, not found underneath it.
 						-->
 						<MapNotice
 							shape="comes-and-goes"

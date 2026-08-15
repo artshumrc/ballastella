@@ -92,6 +92,8 @@ declare global {
 		ballastellaReaderMap?: ReaderMapHandle;
 		/** Cached Base Map tiles the protocol handler answered **with bytes** (ticket 11). */
 		ballastellaServedBaseMapTiles?: { z: number; x: number; y: number; bytes: number }[];
+		/** What {@link watchNoticeArrivals} has recorded, in this page's own DOM order. */
+		__noticeArrivals?: { kind: 'insert' | 'change'; text: string }[];
 	}
 }
 
@@ -121,6 +123,70 @@ function watch(page: Page): PageWatch {
 	page.on('request', (request) => requests.push({ method: request.method(), url: request.url() }));
 	return { failures, requests };
 }
+
+/**
+ * How an always-present notice's sentence reached the page: with the element, or after it.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════
+ * WHY THE ATTRIBUTES ARE NOT ENOUGH, AND WHAT THIS ASSERTS INSTEAD
+ *
+ * `aria-live` announces a **change of text inside a region that is already there**. So asserting
+ * `aria-live="polite"` and `aria-atomic="true"` on a notice says only that the mechanism is spelled
+ * right; it says nothing about whether the browser ever performed a change for that mechanism to
+ * announce. A region inserted with its sentence already in it carries both attributes, reads
+ * correctly in every snapshot, and is heard by nobody — which is exactly what these two notices did
+ * while they sat in the map's controls column, because that column is built client-side once the
+ * Project file resolves and both sentences are settled before it exists.
+ *
+ * A `MutationObserver` installed from document creation is the only thing that can tell the two
+ * apart, because the difference is a sequence rather than a state and nothing is left on the page
+ * afterwards to read. The consecutive-duplicate collapse is what makes the log an assertion instead
+ * of a transcript: hydration writes the same empty string several times over.
+ */
+type NoticeArrival = { kind: 'insert' | 'change'; text: string };
+
+/**
+ * Record every arrival of one notice's text, from document creation, before the page has any of
+ * its own script.
+ */
+async function watchNoticeArrivals(page: Page, testid: string): Promise<void> {
+	await page.addInitScript((id) => {
+		const selector = `[data-testid="${id}"]`;
+		const arrivals: NoticeArrival[] = [];
+		window.__noticeArrivals = arrivals;
+		let last: string | null = null;
+		const say = (kind: NoticeArrival['kind'], element: Element) => {
+			const text = (element.textContent ?? '').trim();
+			if (text === last) return;
+			last = text;
+			arrivals.push({ kind, text });
+		};
+		const asElement = (node: Node): Element | null =>
+			node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+		new MutationObserver((records) => {
+			for (const record of records) {
+				let inserted = false;
+				for (const node of record.addedNodes) {
+					const element = asElement(node);
+					const found = element?.matches(selector)
+						? element
+						: (element?.querySelector(selector) ?? null);
+					if (found === null || found === undefined) continue;
+					say('insert', found);
+					inserted = true;
+				}
+				// Anything that is not the element arriving is text moving inside one already on the page.
+				if (inserted) continue;
+				const host = asElement(record.target)?.closest(selector) ?? null;
+				if (host !== null) say('change', host);
+			}
+		}).observe(document, { childList: true, subtree: true, characterData: true });
+	}, testid);
+}
+
+/** What {@link watchNoticeArrivals} saw, in order. */
+const noticeArrivals = (page: Page): Promise<NoticeArrival[]> =>
+	page.evaluate(() => window.__noticeArrivals ?? []);
 
 /**
  * The dangerous shapes inside `host`, as the **rendered DOM** has them.
@@ -352,15 +418,25 @@ const EDITING_CONTROLS = [
  *
  * Each phrase is one the editor really says: the two Add labels are the words on
  * `ProjectScreen`'s own buttons, "this Workspace" is the concept a published site does not have, and
- * the last is the open card of a Layer this build cannot draw promising three editing affordances a
+ * the fourth is the open card of a Layer this build cannot draw promising three editing affordances a
  * Reader is offered none of two of. That one was the same bug found a second time, in a sentence
  * rather than in an empty state, which is why this list is a list rather than a special case.
+ *
+ * The last three are the sentences the map pane's shared components carry past (ticket 11): the
+ * editor's own empty-stack line, which `MapCommentary` renders through a snippet rather than
+ * composing, and its offline reassurance, which `MapNotice` takes as children. Both are one edit away
+ * from being written into shared code — that edit has been made four times in this epic — and neither
+ * was matched by anything above: "this Workspace" is not "your Workspace", and an `sr-only`
+ * commentary is invisible to every control sweep. This one reads `textContent`, so it reaches both.
  */
 const EDITOR_ONLY_PROSE = [
 	'Add a Historical Map',
 	'Add an Annotation Layer',
 	'this Workspace',
-	'you can still rename'
+	'you can still rename',
+	'Nothing is on the map yet.',
+	'Everything in your Workspace still works',
+	'you can add a Historical Map now'
 ] as const;
 
 /**
@@ -1650,6 +1726,7 @@ test.describe('a Published Site that is not entirely well', () => {
 	}) => {
 		site = await published(oneProject({ baseMap: 'a-base-map-from-another-deployment' }));
 		const seen = watch(page);
+		await watchNoticeArrivals(page, 'base-map-notice');
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
@@ -1658,6 +1735,18 @@ test.describe('a Published Site that is not entirely well', () => {
 			'a-base-map-from-another-deployment'
 		);
 		await expect(page.getByTestId('base-map-notice')).toContainText('not available here');
+		// **And a screen reader was told**, which the sentence being on screen does not establish: this
+		// is a live region, so it has to have been on the page *before* the sentence for the arrival to
+		// be a change. See {@link watchNoticeArrivals} — the fallback is decided by `resolveBaseMap` the
+		// moment the Project file lands, so a region rendered anywhere inside the Project's own markup
+		// is inserted with this text and announced to nobody.
+		expect(
+			await noticeArrivals(page),
+			'the fallback sentence arrived with the element rather than as a change'
+		).toEqual([
+			{ kind: 'insert', text: '' },
+			{ kind: 'change', text: expect.stringContaining('not available here') }
+		]);
 		// A working map, not a blank pane: the switcher settled on something the site can serve.
 		const chosen = await page.getByTestId('base-map-switcher').inputValue();
 		expect(chosen).not.toBe('a-base-map-from-another-deployment');
@@ -2160,6 +2249,7 @@ test.describe('a Published Site that is not entirely well', () => {
 			withoutBaseMap: true
 		});
 		const seen = watch(page);
+		await watchNoticeArrivals(page, 'base-map-not-published');
 
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
 		await expect(page.getByTestId('base-map-unavailable')).toBeVisible({ timeout: 45_000 });
@@ -2176,6 +2266,17 @@ test.describe('a Published Site that is not entirely well', () => {
 		await expect(notPublished).toHaveAttribute('aria-live', 'polite');
 		await expect(notPublished).toHaveAttribute('aria-atomic', 'true');
 		await expect(notPublished).not.toHaveAttribute('role', /.*/);
+		// ⚠ **And the change those attributes exist for actually happened**, which the attributes cannot
+		// say. This sentence is true from the first frame — the site record has not been read, so no
+		// bundled assets are known — so it is the notice most easily inserted already carrying its text,
+		// and it was. {@link watchNoticeArrivals} records the sequence from document creation.
+		expect(
+			await noticeArrivals(page),
+			'the missing-labels sentence arrived with the element rather than as a change'
+		).toEqual([
+			{ kind: 'insert', text: '' },
+			{ kind: 'change', text: expect.stringContaining('no place names at all') }
+		]);
 		await expect(notPublished).toHaveText(
 			'This site was published without the Base Map’s labels and symbols, so the modern ' +
 				'reference map here carries no place names at all. The Historical Maps and the ' +

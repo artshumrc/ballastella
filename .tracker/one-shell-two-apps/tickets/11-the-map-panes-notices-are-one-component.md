@@ -130,11 +130,34 @@ element on the page with an empty string so that its text arriving is a *change*
 switch on one element, so no notice can carry both and none can be `role="status"`. **There is no
 `readOnly`, `mode` or `editable` prop**, here or anywhere in this epic.
 
-**The viewer's two broken notices are fixed.** `base-map-notice` and `base-map-not-published` were
-`aria-live` regions inside `{#if}` blocks — inserted with their text, and therefore announced to
-nobody — which the viewer's own comment recorded as shipping. Both are always-present regions now.
-Three `toHaveCount(0)` assertions in `viewer-reader.e2e.ts` became `toHaveText('')`: the element is
-meant to be there and silent, and that is the fix rather than a weakened assertion.
+**The viewer's two broken notices are fixed, and the shape alone did not fix them.**
+`base-map-notice` and `base-map-not-published` were `aria-live` regions inside `{#if}` blocks —
+inserted with their text, and therefore announced to nobody — which the viewer's own comment
+recorded as shipping. Giving them the `always-present` shape was necessary and not sufficient: it
+moved the `{#if}` out by one level, and the block they were still inside — the whole controls column
+— is itself built client-side once the Project file resolves, with both sentences settled before it
+exists. A `MutationObserver` installed from document creation, against the built viewer on a site
+published with `baseMapAssetsBundled: false` and `withoutBaseMap: true`, still logged two inserts
+each carrying its full sentence and **no change record at all**.
+
+So the regions are rendered at the top of `<main>`, above the Front-Page/Project split, where they
+are part of the prerendered HTML and hold an empty string from the first frame. A `showingTheMap`
+gate on the *text* keeps when they speak exactly where it was — a Project's map, and not the Front
+Page, a Project that would not open, or a sheet read as a document. The same measurement now reads
+`insert` with an empty string while the document is still parsing, then `change` carrying the
+sentence some 200 ms later, for both notices.
+
+**Two `toHaveCount(0)` assertions in `viewer-reader.e2e.ts` became `toHaveText('')`**: the element is
+meant to be there and silent, and that is the fix rather than a weakened assertion. A third site
+gained the mechanism assertions and never held a `toHaveCount(0)` of its own.
+
+**The sequence is asserted, and not the attributes.** `aria-live`, `aria-atomic` and the absent
+`role` are identical whether the region was mounted before its text or with it, so no attribute
+assertion could have caught the first attempt — and `map-notice.dom.test.ts`'s transition test drives
+the component directly, which is a sequence the app never performs. `watchNoticeArrivals` in
+`viewer-reader.e2e.ts` records the arrivals from document creation and two existing specs assert the
+pair — insert with an empty string, then a change carrying the sentence — one for each notice, on the
+arrival path a Reader meets. Both go red against the un-hoisted template.
 
 **What each sentence's source is.** The four core sentences are untouched and still come from
 `baseMapFallbackNotice`, `baseMapUnavailableNotice`, `baseMapNotPublishedNotice` and
@@ -152,6 +175,14 @@ core would be adding sentences to core, which the Contract reserves for a differ
 `base-map-offline` and `referenced-offline` bodies are still the editor's own template prose, as they
 were: neither is a core sentence and neither is rendered by the viewer.
 
+**The prose sweep covers this ticket's sentences.** `EDITOR_ONLY_PROSE` in `viewer-reader.e2e.ts`
+reads `body` `textContent` on a Project page, so it reaches the `sr-only` commentary, but its phrases
+were leftovers from tickets 05 and 06: not one of the sentences this ticket moved into a per-app
+snippet was listed, and "this Workspace" does not match "your Workspace". The editor's empty-stack
+line and its offline reassurance are in the list now, so hard-coding either into `MapCommentary` or
+`MapNotice` fails the sweep as well as the component tests. This epic has produced that defect four
+times.
+
 **Mutation checks, all red as required, all reverted.**
 
 | Mutation | What went red |
@@ -160,6 +191,8 @@ were: neither is a core sentence and neither is rendered by the viewer.
 | `always-present` moved inside the `{#if}` | the live-region test — the element is gone when empty |
 | the `{#if}` removed, so an alert never leaves | the alert test's absence half |
 | an editor sentence written into `MapNotice` itself | four tests, including the prose sweep |
+| the two always-present notices left in the controls column | the arrival-sequence assertions, both notices |
+| the editor's empty-stack and offline sentences rendered by `MapNotice` | the widened prose sweep |
 | `MapCommentary` saying "Nothing is on the map yet." itself | the paired empty-stack test's Reader half |
 | the `emptyStackNote` render dropped | the same test's editor half |
 | the `children` render dropped | the paired extras test's presence half |
@@ -172,19 +205,22 @@ were: neither is a core sentence and neither is rendered by the viewer.
 assertion (element absent) and the mechanism assertion (`aria-atomic` missing). Reverted, and both
 pass again.
 
-**Seam 2 is unchanged at 630 of 630.** No browser test was added; the three new browser claims are
+**Seam 2 is unchanged at 630 of 630.** No browser test was added; the five new browser claims are
 assertions folded into existing specs — `role="alert"` and no `aria-live` on `base-map-unavailable`,
-and `aria-live`/`aria-atomic`/no `role` on `base-map-not-published`.
+`aria-live`/`aria-atomic`/no `role` on `base-map-not-published`, and the arrival sequence of each of
+the two always-present notices.
 
-**The viewer's bundle** (`du -sb apps/viewer/build`): 2 857 086 bytes before, 2 858 154 after — 1 068
-bytes.
+**The viewer's bundle** (`du -sb apps/viewer/build`): 2 857 086 bytes before, 2 858 656 after — 1 570
+bytes, of which 502 are the hoist and the gate that made the two notices audible.
 
 **The zoom controls and attribution were skipped**, as the ticket's last out-of-scope line asks to be
 told: they are not written in either app's template. Both are MapLibre's own, added inside
 `BaseMapPane` and `ReaderMapPane`, which this ticket must not merge.
 
-**One accepted consequence.** In the viewer's controls column the two always-present notices are two
-zero-height children of a `gap-4` column, so an untroubled site now has 2 rem more space between the
-Base Map switcher and the Layer stack than it did. Reserving space for an always-present live region
-is the trade the editor already makes everywhere (`min-h-6`), and the alternatives — `display:none`
-when empty, or a class that hides it — are the defect this ticket exists to remove.
+**The controls column is the width it was.** The two always-present notices were briefly two
+zero-height children of a `gap-4` column, which put 2 rem of extra air between the Base Map switcher
+and the Layer stack on an untroubled site — three 16 px gaps where there had been one. Hoisting them
+out of the column for the announcement above took that back with it: measured on a published site
+with nothing wrong, switcher bottom to Layer stack top is 16 px, as it was before this ticket. Above
+the split they are zero-height and margin-free when empty, so they cost the page nothing there
+either.

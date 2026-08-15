@@ -24,6 +24,13 @@
 	// blocks — correct-looking at each call site, and inaudible. `shape` names what the notice *is*,
 	// and the mapping to a mechanism is made here; a caller can no longer spell it a third way.
 	//
+	// ⚠ **`always-present` is a promise the caller has to keep, and this component cannot check it.**
+	// It keeps the element rendered with an empty string; it cannot know whether the markup *around*
+	// the call site is itself inserted after the text is decided. Both viewer notices were still
+	// silent under this shape while they sat in a column built client-side once the Project file
+	// resolved. Render an `always-present` notice where it exists from the first frame — see
+	// ADR-0016's amendment, which carries the measurement.
+	//
 	// **`role="status"` is not available.** The save indicator owns that role for the whole editor, and
 	// a second one makes `getByRole('status')` ambiguous — which is a hint that a screen-reader user
 	// would have to disambiguate too.
