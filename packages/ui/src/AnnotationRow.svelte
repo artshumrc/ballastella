@@ -13,7 +13,7 @@
 	// `mode` prop — a control a Reader must not have is a snippet the viewer does not pass.
 
 	import { annotationOrdinal, type Annotation } from '@ballastella/core';
-	import { tick, type Snippet } from 'svelte';
+	import type { Snippet } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { slide } from 'svelte/transition';
@@ -80,7 +80,13 @@
 	 */
 	let button: HTMLButtonElement | undefined = undefined;
 
-	/** The nearest ancestor that scrolls, or `null` when nothing above this one does. */
+	/**
+	 * The nearest ancestor that scrolls, or `null` when the page itself is what scrolls.
+	 *
+	 * Both answers are real layouts rather than one being a fallback: the editor's sidebar is a
+	 * `overflow-y-auto` column, and a published site's Layer list is an ordinary block in a page that
+	 * scrolls as a whole — which is also what the editor's sidebar becomes on a phone.
+	 */
 	const scrollingAncestor = (from: HTMLElement): HTMLElement | null => {
 		for (let node = from.parentElement; node !== null; node = node.parentElement) {
 			const overflow = getComputedStyle(node).overflowY;
@@ -106,7 +112,7 @@
 	 * "settled" while the second scroll had not begun. Measured in Chromium: `scrollend` at 47 ms,
 	 * then a smooth scroll running from 81 ms to 347 ms. Stillness answers "has it stopped" for both.
 	 */
-	const scrollSettled = (column: HTMLElement): Promise<void> =>
+	const scrollSettled = (column: HTMLElement | Document): Promise<void> =>
 		new Promise((resolve) => {
 			const done = (): void => {
 				clearTimeout(still);
@@ -124,7 +130,7 @@
 		});
 
 	/**
-	 * Open this row, or close it, and keep it on screen either way.
+	 * Bring this row's header back onto the screen if opening it has taken it off.
 	 *
 	 * **A 24 rem sidebar can push a row off its own screen by opening it**: what the row reveals is
 	 * taller than the column has left below it, and the column scrolls to show it. Only when the
@@ -144,25 +150,35 @@
 	 * {@link scrollSettled} is what waits for it, and it waits for stillness rather than for a single
 	 * `scrollend`, for the reason recorded there.
 	 *
-	 * **Nothing is focused.** The button that was pressed is still there and still has the keyboard;
-	 * this moves the viewport and nothing else.
+	 * **Nothing is focused.** Whatever had the keyboard keeps it; this moves the viewport and nothing
+	 * else — which is what lets it run for a row opened from the map without stealing the pointer's
+	 * place on the canvas.
 	 */
-	const toggle = async (): Promise<void> => {
-		if (open) {
-			onopen(null);
-			return;
-		}
-		onopen(annotation.id);
-		await tick();
-		if (!button) return;
-		const column = scrollingAncestor(button);
-		if (!column) return;
-		await scrollSettled(column);
-		const header = button.getBoundingClientRect();
-		const box = column.getBoundingClientRect();
-		if (header.top >= box.top && header.bottom <= box.bottom) return;
-		button.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	const keepInView = async (header: HTMLButtonElement): Promise<void> => {
+		const column = scrollingAncestor(header);
+		await scrollSettled(column ?? document);
+		// ⚠ **Taken as an argument and checked afterwards**, because the wait outlives the row: `bind:this`
+		// writes `null` back when the `<li>` goes, and a Layer card closed while the column was still
+		// settling left this reading a property of nothing.
+		if (!header.isConnected) return;
+		const at = header.getBoundingClientRect();
+		const box = column ? column.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+		if (at.top >= box.top && at.bottom <= box.bottom) return;
+		header.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 	};
+
+	/**
+	 * An open row is on the screen, **however it came to be open**.
+	 *
+	 * An effect rather than the tail of the click handler, because pressing this button is not the
+	 * only way in: clicking an Annotation on the map opens its Layer's card and its row, and on a
+	 * phone that row is a screen away from the pin that was tapped. One rule serves both, and it is
+	 * the rule the row already owned for its own gesture.
+	 */
+	$effect(() => {
+		if (!open || !button) return;
+		void keepInView(button);
+	});
 
 	/**
 	 * How one Annotation reads in the list.
@@ -216,7 +232,7 @@
 		aria-controls={open ? `annotation-contents-${annotation.id}` : undefined}
 		data-testid="annotation-row"
 		data-annotation-id={annotation.id}
-		onclick={() => void toggle()}
+		onclick={() => onopen(open ? null : annotation.id)}
 	>
 		<!--
 			**The number, so that "look at 3" identifies one Annotation across a desk** (stories 37, 38).

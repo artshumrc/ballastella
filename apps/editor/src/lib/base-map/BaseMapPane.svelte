@@ -25,7 +25,6 @@
 		openingViewFit,
 		resolveBaseMap,
 		type Alignment,
-		type Annotation,
 		type DistortionView,
 		type FetchFn,
 		type HistoricalMapSource,
@@ -44,7 +43,6 @@
 		registerCachedBaseMapTiles,
 		registerPmtilesProtocol,
 		showAlignment,
-		showAnnotationPopup,
 		updateAlignment,
 		type DrawnLayer,
 		type DrawnOutcome,
@@ -77,12 +75,9 @@
 		openingFit = null,
 		distortion = DEFAULT_DISTORTION_VIEW,
 		fetchTile,
-		popupAnnotation = null,
-		popupAt = null,
 		onclickpoint,
 		onclickannotation,
 		onfinishshape,
-		onpopupclose,
 		onwarped,
 		onstack,
 		onbasemapstatus
@@ -180,16 +175,6 @@
 		 */
 		fetchTile?: FetchFn;
 		/**
-		 * The Annotation whose popup is open, and where it is anchored, or `null` for none (ticket 10).
-		 *
-		 * The pane owns MapLibre's `Popup` because it owns the map; the page owns *which* Annotation is
-		 * open, because that is a question about the user's selection. The HTML is neither's: it comes
-		 * from `renderAnnotationPopup` in `core`, which escapes the title and sanitises the description,
-		 * and is the same function the Published Site uses (ADR-0009, ADR-0019).
-		 */
-		popupAnnotation?: Annotation | null;
-		popupAt?: GeoPoint | null;
-		/**
 		 * A place on the earth the user asked for — a click on the pane, or Enter while it has focus.
 		 *
 		 * Enter reports the **centre of the map**, which is what makes drawing an Annotation reachable
@@ -207,8 +192,12 @@
 		 * vertex and the Annotation underneath is irrelevant, and with the select tool it is the other
 		 * way round. The page knows which; the pane does not, and guessing here would make the pane hold
 		 * a copy of the toolbar's state.
+		 *
+		 * **Where on the earth the click landed is not reported with it**, and no longer needs to be:
+		 * nothing is drawn over the map for an Annotation. The click opens that Annotation's row in the
+		 * sidebar, which is where an Annotation is read (ticket 07), and a row has no anchor.
 		 */
-		onclickannotation?: (hit: { layerId: string; annotationId: string; at: GeoPoint }) => void;
+		onclickannotation?: (hit: { layerId: string; annotationId: string }) => void;
 		/**
 		 * The gesture is over: a double-click, or Shift+Enter while the pane has focus.
 		 *
@@ -220,8 +209,6 @@
 		 * MapLibre's own double-click zoom is the price of it — see {@link drawingInProgress}.
 		 */
 		onfinishshape?: () => void;
-		/** The reader dismissed the popup with its own close button or with Escape. */
-		onpopupclose?: () => void;
 		/**
 		 * What the warped renderer did with the current Alignment, for the page to surface.
 		 *
@@ -376,7 +363,7 @@
 			// and restricted to this stack's Annotation layers, so a click on the Base Map's own label or
 			// road never reads as a hit.
 			const hit = annotationAt(created, event.point);
-			if (hit) onclickannotation?.({ ...hit, at });
+			if (hit) onclickannotation?.(hit);
 			onclickpoint?.(at);
 		});
 
@@ -794,22 +781,6 @@
 			stack = undefined;
 			onstack?.({});
 		};
-	});
-
-	/**
-	 * The open Annotation's popup (SPEC story 67).
-	 *
-	 * Rebuilt whenever the Annotation, its text, or its anchor changes, so that editing a description
-	 * updates the popup the author is looking at — which is half of what makes the preview trustworthy:
-	 * the popup and the preview are the same renderer, and seeing them agree is the assurance.
-	 */
-	$effect(() => {
-		const annotation = popupAnnotation;
-		const at = popupAt;
-		const current = map;
-		if (!current || !annotation || !at) return;
-		const shown = showAnnotationPopup({ map: current, annotation, at, onclose: onpopupclose });
-		return () => shown?.destroy();
 	});
 
 	/**

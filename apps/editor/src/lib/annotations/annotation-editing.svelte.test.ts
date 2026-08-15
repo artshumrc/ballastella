@@ -140,13 +140,11 @@ describe('which Layer is drawn into', () => {
 		it_.annotations.drawing.choose('polygon');
 		it_.annotations.drawing.place({ lng: 0, lat: 0 });
 		it_.annotations.selectedAnnotationId = 'kept';
-		it_.annotations.popupAt = { lng: 0, lat: 0 };
 
 		it_.annotations.openLayer('two');
 
 		expect(it_.annotations.drawing.drawing).toBe(false);
 		expect(it_.annotations.selectedAnnotationId).toBeNull();
-		expect(it_.annotations.popupAt).toBeNull();
 	});
 
 	it('keeps the selection when an Annotation is opened from the map', () => {
@@ -154,11 +152,10 @@ describe('which Layer is drawn into', () => {
 		// *making* a selection, and clearing it would be clearing the thing the user just pointed at.
 		const it_ = screen([layerNamed('one'), layerNamed('two')]);
 
-		it_.annotations.openFromMap('two', 'a1', { lng: 4, lat: 52 });
+		it_.annotations.openFromMap('two', 'a1');
 
 		expect(it_.annotations.openLayerId).toBe('two');
 		expect(it_.annotations.selectedAnnotationId).toBe('a1');
-		expect(it_.annotations.popupAt).toEqual({ lng: 4, lat: 52 });
 	});
 
 	it('follows the open Layer being deleted rather than pointing at a Layer that is gone', () => {

@@ -10,7 +10,7 @@
 	// tools, no Control Point manipulation, no writes of any kind.
 	//
 	// What the two panes genuinely share is in `@ballastella/core/render` rather than duplicated between
-	// them — `drawLayerStack`, `createWarpedMapLayer`, `showAlignment`, `showAnnotationPopup`,
+	// them — `drawLayerStack`, `createWarpedMapLayer`, `showAlignment`,
 	// `registerPmtilesProtocol`. That is where ADR-0002's cross-kind drawing order lives, and where the
 	// three upstream `@allmaps/*` defects are documented and worked around. Every one of those fails
 	// *silently*, so a second copy of them would agree with the first right up to the day one was edited
@@ -41,10 +41,8 @@
 		defaultEntry,
 		isAbsoluteUrl,
 		keepAskingForMissingTiles,
-		type Annotation,
 		type BaseMapCatalog,
 		type FetchFn,
-		type GeoPoint,
 		type OpeningViewFit
 	} from '@ballastella/core';
 	import {
@@ -55,7 +53,6 @@
 		isDrawnMap,
 		registerCachedBaseMapTiles,
 		registerPmtilesProtocol,
-		showAnnotationPopup,
 		type DrawnLayer,
 		type DrawnOutcome,
 		type ReadCachedTile,
@@ -81,10 +78,7 @@
 		openingFit = null,
 		fetchTile,
 		tilesMissing = false,
-		popupAnnotation = null,
-		popupAt = null,
 		onclickannotation,
-		onpopupclose,
 		onstack,
 		onbasemapstatus
 	}: {
@@ -156,13 +150,14 @@
 		 * requests it makes, which is an unbounded loop rather than a bounded retry.
 		 */
 		tilesMissing?: boolean;
-		/** The Annotation whose popup is open, and where, or `null` for none (SPEC story 67). */
-		popupAnnotation?: Annotation | null;
-		popupAt?: GeoPoint | null;
-		/** An Annotation the Reader clicked, by its Layer and its own id. */
-		onclickannotation?: (hit: { layerId: string; annotationId: string; at: GeoPoint }) => void;
-		/** The Reader dismissed the popup with its own close button or with Escape. */
-		onpopupclose?: () => void;
+		/**
+		 * An Annotation the Reader clicked, by its Layer and its own id.
+		 *
+		 * **Where on the earth the click landed is not reported with it**, and no longer needs to be:
+		 * nothing is drawn over the map for an Annotation. The click opens that Annotation's row in the
+		 * Layer list, which is where a Reader reads one (ticket 07), and a row has no anchor.
+		 */
+		onclickannotation?: (hit: { layerId: string; annotationId: string }) => void;
 		/**
 		 * What became of each Layer the map was given, keyed by Layer id.
 		 *
@@ -413,11 +408,10 @@
 		// a Reader cannot draw, so a click on empty geography is a click on empty geography.
 		created.on('click', (event) => {
 			const hit = annotationAt(created, event.point);
-			if (hit)
-				onclickannotation?.({ ...hit, at: { lng: event.lngLat.lng, lat: event.lngLat.lat } });
+			if (hit) onclickannotation?.(hit);
 		});
 
-		// Enter opens the Annotation at the centre of the map, which is what makes an Annotation popup
+		// Enter opens the Annotation at the centre of the map, which is what makes an Annotation
 		// reachable without a pointer (SPEC story 95). MapLibre already pans the canvas with the arrow
 		// keys and zooms with `+` and `-`, so "move the map to it, then press Enter" is a whole route with
 		// nothing new to learn. Bound to MapLibre's own canvas rather than to the container, because the
@@ -426,9 +420,8 @@
 			if (event.key !== 'Enter') return;
 			event.preventDefault();
 			const centre = created.getCenter();
-			const at = { lng: centre.lng, lat: centre.lat };
-			const hit = annotationAt(created, created.project([at.lng, at.lat]));
-			if (hit) onclickannotation?.({ ...hit, at });
+			const hit = annotationAt(created, created.project([centre.lng, centre.lat]));
+			if (hit) onclickannotation?.(hit);
 		});
 
 		painted = paintKey(entryId, theme.current, cachedBaseMap?.maxZoom ?? null);
@@ -657,25 +650,6 @@
 			stack = undefined;
 			onstack?.({});
 		};
-	});
-
-	/**
-	 * The open Annotation's popup (SPEC story 67).
-	 *
-	 * **This is the untrusted-text surface that matters most in the epic.** The HTML is
-	 * `renderAnnotationPopup`'s — core's one function that escapes the title and runs the description
-	 * through `marked` then DOMPurify, in that order — and it is built inside `showAnnotationPopup`,
-	 * which holds this repository's single `setHTML` call. Nothing here assembles markup, and nothing
-	 * here may start to: a Published Site runs on the author's own domain, and the Project it renders may
-	 * have arrived from a stranger (ADR-0009).
-	 */
-	$effect(() => {
-		const annotation = popupAnnotation;
-		const at = popupAt;
-		const current = map;
-		if (!current || !annotation || !at) return;
-		const shown = showAnnotationPopup({ map: current, annotation, at, onclose: onpopupclose });
-		return () => shown?.destroy();
 	});
 
 	/**

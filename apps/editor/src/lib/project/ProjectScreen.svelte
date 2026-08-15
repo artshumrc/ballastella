@@ -773,7 +773,9 @@
 </script>
 
 <!--
-	Escape abandons a part-drawn shape from anywhere on the screen, and closes an open popup.
+	Escape abandons a part-drawn shape from anywhere on the screen, and then collapses the open
+	Annotation row. **In that order**, because a gesture in progress is what somebody pressing Escape
+	almost always means, and the row is what is left when there is no gesture to abandon (ticket 07).
 
 	On the window rather than on the pane, for the reason ADR-0022 gives for the pending Control Point
 	half: the user may have tabbed away to the toolbar or the Annotation list, and "Escape only works if
@@ -797,7 +799,7 @@
 		// pressed *after* closing the menu, which is the cancel they actually meant.
 		if (menu?.isOpen()) return;
 		if (drawing.cancel()) return;
-		if (annotations.popupAt !== null) annotations.popupAt = null;
+		if (annotations.selectedAnnotationId !== null) annotations.selectAnnotation(null);
 	}}
 />
 
@@ -1192,8 +1194,6 @@
 						layers={drawn}
 						{openingFit}
 						overlayPoints={annotations.annotationPoints}
-						popupAnnotation={annotations.selectedAnnotation}
-						popupAt={annotations.popupAt}
 						{fetchTile}
 						onbasemapstatus={(status) => {
 							baseMapStatus = status;
@@ -1203,14 +1203,15 @@
 							// Only when nothing is being drawn: with a tool in hand the click places a vertex,
 							// and the Annotation underneath is not what the user is pointing at.
 							if (drawing.tool !== 'select') return;
-							// **Opens that Layer's row**, so the user is shown where the thing they clicked
-							// lives rather than left to find it. `openFromMap` rather than `openLayer`, which
-							// clears the selection — and a selection is precisely what this is making. Nothing
-							// is part-drawn here: the guard above is that guarantee.
-							annotations.openFromMap(hit.layerId, hit.annotationId, hit.at);
+							// **Opens that Layer's card and the Annotation's own row**, which is where an
+							// Annotation is read (ticket 07) — so a click on the canvas is answered in the
+							// sidebar rather than by a bubble over the shape it is describing.
+							// `openFromMap` rather than `openLayer`, which clears the selection — and a
+							// selection is precisely what this is making. Nothing is part-drawn here: the
+							// guard above is that guarantee.
+							annotations.openFromMap(hit.layerId, hit.annotationId);
 						}}
 						onfinishshape={() => void annotations.finishShape()}
-						onpopupclose={() => (annotations.popupAt = null)}
 						onstack={(reported) => (rendered = reported)}
 					/>
 				</div>

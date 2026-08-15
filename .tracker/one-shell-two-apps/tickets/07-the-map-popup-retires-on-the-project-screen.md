@@ -65,15 +65,15 @@ and add its replacement in the same commit.
 
 ## Acceptance criteria
 
-- [ ] Clicking an Annotation on the Base Map opens its Layer's card and its own row, in both apps.
-- [ ] The opened row is scrolled into view when it is outside the sidebar's scroll container.
-- [ ] No popup element is created over the Base Map on the Project screen in either app.
-- [ ] With a drawing tool armed, a click on the map still places a vertex and does not open a row.
-- [ ] Escape abandons a part-drawn shape first, and collapses the open row when there is no gesture
+- [x] Clicking an Annotation on the Base Map opens its Layer's card and its own row, in both apps.
+- [x] The opened row is scrolled into view when it is outside the sidebar's scroll container.
+- [x] No popup element is created over the Base Map on the Project screen in either app.
+- [x] With a drawing tool armed, a click on the map still places a vertex and does not open a row.
+- [x] Escape abandons a part-drawn shape first, and collapses the open row when there is no gesture
       to abandon.
-- [ ] Escape still does nothing while a dialog or the Project menu is open.
-- [ ] The untrusted-description inertness assertion on the row passes before and after this ticket.
-- [ ] `renderDescription` and the sanitiser path are still exercised by the payload matrix.
+- [x] Escape still does nothing while a dialog or the Project menu is open.
+- [x] The untrusted-description inertness assertion on the row passes before and after this ticket.
+- [x] `renderDescription` and the sanitiser path are still exercised by the payload matrix.
 
 ```bash
 pnpm lint
@@ -93,6 +93,67 @@ a payload is inert where a description is rendered — moved to the row, not mis
 **Mutation check:** break the click-to-open-row wiring and show a test goes red in both apps. Then
 confirm the payload assertion goes red when the sanitiser is bypassed, so that retiring the popup did
 not quietly retire the only thing asserting it.
+
+## What was built
+
+**The popup is gone from both map panes.** `BaseMapPane` and `ReaderMapPane` no longer take
+`popupAnnotation`, `popupAt` or `onpopupclose`, and neither imports `showAnnotationPopup`. Their
+`onclickannotation` no longer reports *where* on the earth the click landed either: a row has no
+anchor, and the coordinate existed only to place a bubble.
+
+**A click on an Annotation opens its row, in both apps.** In the editor that is `openFromMap`'s
+existing behaviour with the anchor dropped; `selectAnnotation` takes an id and nothing else, and
+`popupAt` is gone from `AnnotationEditing`. In the viewer the click now opens the Layer's card as
+well as naming the Annotation — a row inside a closed card is not on the screen, so opening one
+without the other would have answered a tap with nothing.
+
+**The row brings itself into view however it was opened.** `AnnotationRow`'s scroll-settle moved out
+of the click handler into an effect on `open`, and it now measures against the viewport where there
+is no scrolling ancestor. That second half is what makes the phone story real: a published site's
+Layer list is an ordinary block in a page that scrolls as a whole, so a tap on a pin below the fold
+used to open a row a screen away with nothing to bring the Reader to it.
+
+**Escape's ordering survives.** The window handler on the Project screen still returns early for a
+dialog and for the Project menu, still abandons a part-drawn shape first, and now collapses the open
+row where it used to close the popup.
+
+### The sanitiser did not retire with the popup
+
+`renderAnnotationPopup` and `showAnnotationPopup` are untouched, and
+`packages/core/src/annotation/markdown.browser.test.ts` still exercises the whole payload matrix
+through both. ⚠ **`showAnnotationPopup` now has no caller anywhere in either app.** That is recorded
+rather than acted on: deleting it would delete this repository's one `setHTML` and the one worked
+example of how a popup surface is built safely. The decision to remove it belongs to a reviewer, and
+the module's header now says so in as many words.
+
+### The inertness claim, and the order it moved in
+
+The row's claim was **passing in both apps before the popup's was touched**, and in two commits so a
+reviewer can see it:
+
+1. `980cf4d` added the editor's row assertions — `annotation-description-text` and
+   `annotation-title-text` probed separately, because the panel around them is full of this app's own
+   Lucide `<svg>` — beside the popup's, and was verified green with the popup still in place. The
+   viewer's half has been passing since ticket 06 (`e2e/viewer-reader.e2e.ts`, the eight payload
+   tests).
+2. The retirement commit then deleted the popup half out of both suites.
+
+### Seams and budget
+
+`check-seam-2-size` reads **630 against a ceiling of 630 before and after**. No Seam 2 test was added
+and none was removed: the popup halves were folded into tests that keep their row halves, and the
+phone's `an Annotation popup is readable inside the viewport` became `tapping an Annotation opens its
+row and brings the row onto the screen`.
+
+### Mutation checks
+
+**The click-to-open-row wiring**, broken in both apps at once (the two `onclickannotation` handlers
+made no-ops): `editor-annotations` went red on 2 tests, `viewer-reader` on 9.
+
+**The sanitiser bypassed** (`sanitise` in `packages/core/src/annotation/markdown.ts` made to return
+its input): `the payload is inert in the row where the Annotation is read` went red in the editor and
+all eight payload tests went red in the viewer — so retiring the popup did not quietly retire the only
+thing asserting it.
 
 ## Blocked by
 

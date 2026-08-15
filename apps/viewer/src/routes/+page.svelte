@@ -85,7 +85,6 @@
 		type Annotation,
 		type AnnotationCollection,
 		type AnnotationLayer,
-		type GeoPoint,
 		type Layer,
 		type MapLayer,
 		type OpeningViewFit,
@@ -947,38 +946,19 @@
 	/**
 	 * The Annotation a Reader is looking at, or `null`.
 	 *
-	 * **One value, because "which Annotation is active" has one answer.** The open row in the Layer
-	 * card and the popup on the map are two views of this, never two states that can disagree.
-	 *
-	 * `at` is where on the earth the popup should sit, and it is `null` when the Annotation was opened
-	 * from its **row** rather than from its pin: a Reader who pressed a row in the sidebar asked to
-	 * read the Annotation, not to have the map grow a bubble over a pin they may not be looking at.
-	 * `ReaderMapPane` draws no popup without a point.
-	 */
-	let selected = $state.raw<{
-		layerId: string;
-		annotationId: string;
-		at: GeoPoint | null;
-	} | null>(null);
-
-	/**
-	 * The open Annotation, out of the collection the map is drawing.
+	 * **One value, because "which Annotation is active" has one answer.** It is the open row in the
+	 * Layer card, and it is what a pin on the map opens: clicking a pin names the Annotation to read
+	 * and its Layer's card opens with it, so the answer to "what is this pin?" is in the sidebar
+	 * rather than in a bubble over the map (ticket 07).
 	 *
 	 * Its `title` and `description` are **untrusted text**: a Published Site runs on the author's own
-	 * domain, and the Project may have arrived from a stranger by zip import (ticket 13) or from a remote
-	 * library (ticket 14). Neither is turned into HTML here, and neither may be. The popup is built by
-	 * `showAnnotationPopup` in `@ballastella/core/render` out of `renderAnnotationPopup`; the row is
+	 * domain, and the Project may have arrived from a stranger by zip import (ticket 13) or from a
+	 * remote library (ticket 14). Neither is turned into HTML here, and neither may be. The row is
 	 * `AnnotationReading` in `@ballastella/ui`, which renders the title as text and the description
-	 * through `renderDescription`. Both are core's own `marked`-then-DOMPurify pipeline, and this app
-	 * composes no markup of its own — there is no `{@html}` in this app's source at all.
+	 * through `renderDescription` — core's own `marked`-then-DOMPurify pipeline. This app composes no
+	 * markup of its own: there is no `{@html}` in its source at all.
 	 */
-	const selectedAnnotation = $derived.by((): Annotation | null => {
-		if (!selected) return null;
-		const read = documents[selected.layerId];
-		if (read?.status !== 'ready') return null;
-		const collection = read.annotations as AnnotationCollection | null | undefined;
-		return collection?.annotations.find((one) => one.id === selected?.annotationId) ?? null;
-	});
+	let selected = $state.raw<{ layerId: string; annotationId: string } | null>(null);
 
 	/**
 	 * The Annotations inside the open Layer's card, or `null` where its collection has not been read.
@@ -1147,7 +1127,11 @@
 
 <svelte:head><title>{title}</title></svelte:head>
 
-<!-- Escape closes an open Annotation popup from anywhere on the page, not only over the map. -->
+<!--
+	Escape collapses the open Annotation's row, from anywhere on the page rather than only over the
+	map: a Reader who opened a row from a pin has their pointer on the canvas, and a Reader who opened
+	one from the sidebar has the keyboard on its button.
+-->
 <svelte:window
 	onkeydown={(event) => {
 		if (event.key === 'Escape' && selected !== null) selected = null;
@@ -1200,9 +1184,9 @@
 			It was Markdown put through `renderAnnotationPopup` and `{@html}`-ed, which made this page's
 			marketing copy into a pseudo-Annotation: an Annotation is a scholar's content (CONTEXT.md), and
 			the shared renderer's job is a stranger's untrusted text rather than a string in this file. The
-			shared path is live in this bundle where it belongs — `ReaderMapPane` builds every Annotation
-			popup through `showAnnotationPopup`, which is `renderAnnotationPopup` and this repository's one
-			`setHTML` — and `e2e/viewer-reader.e2e.ts` asserts a payload is inert there, on the surface a
+			shared path is live in this bundle where it belongs — an Annotation's row renders its
+			description through `AnnotationReading`, which is `renderDescription` and the package's one
+			`{@html}` — and `e2e/viewer-reader.e2e.ts` asserts a payload is inert there, on the surface a
 			stranger's Project actually writes. There is now no `{@html}` anywhere in this app.
 		-->
 		<p class="max-w-prose">
@@ -1484,10 +1468,15 @@
 									{openingFit}
 									{fetchTile}
 									tilesMissing={tileFailure !== null}
-									popupAnnotation={selectedAnnotation}
-									popupAt={selected?.at ?? null}
-									onclickannotation={(hit) => (selected = hit)}
-									onpopupclose={() => (selected = null)}
+									onclickannotation={(hit) => {
+										// **The pin opens the Annotation's row, and its Layer's card with it.** A
+										// row inside a closed card is not on the screen, so opening one without the
+										// other would answer a tap with nothing (ticket 07). The row brings itself
+										// into view, which is what makes this work on a phone, where the sidebar
+										// sits under the map.
+										openLayerId = hit.layerId;
+										selected = hit;
+									}}
 									onstack={(reported) => (rendered = reported)}
 									onbasemapstatus={(status) => {
 										baseMapUnavailable = status === 'unavailable';
@@ -1564,9 +1553,7 @@
 		openId={openAnnotationId}
 		onopen={(id) =>
 			(selected =
-				id === null || openLayerId === null
-					? null
-					: { layerId: openLayerId, annotationId: id, at: null })}
+				id === null || openLayerId === null ? null : { layerId: openLayerId, annotationId: id })}
 		contents={annotationReading}
 	/>
 {/snippet}

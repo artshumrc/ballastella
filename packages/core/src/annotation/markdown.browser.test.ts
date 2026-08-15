@@ -256,8 +256,9 @@ describe('one value carrying prose and an attack together', () => {
 	// The matrix `e2e/editor-annotations.e2e.ts` asserted through three rendered surfaces — the name in
 	// the list, the description preview, and the popup on the map. All three read the same pure
 	// pipeline, so all three failed and passed together, and the browser was paying to find that out
-	// three times. One Seam 2 test remains, on the popup, because whether the application *calls* this
-	// pipeline is a wiring question no test here can fail for.
+	// three times. One Seam 2 test remains, on the Annotation's row — which is where an Annotation is
+	// read since the map popup retired — because whether the application *calls* this pipeline is a
+	// wiring question no test here can fail for.
 	//
 	// The payload is written out rather than imported from anywhere the application reads: a fixture
 	// that shares a source with the thing it tests agrees with it however wrong both are (see the
