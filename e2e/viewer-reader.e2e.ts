@@ -352,15 +352,22 @@ const EDITING_CONTROLS = [
  *
  * Each phrase is one the editor really says: the two Add labels are the words on
  * `ProjectScreen`'s own buttons, "this Workspace" is the concept a published site does not have, and
- * the last is the open card of a Layer this build cannot draw promising three editing affordances a
+ * the fourth is the open card of a Layer this build cannot draw promising three editing affordances a
  * Reader is offered none of two of. That one was the same bug found a second time, in a sentence
  * rather than in an empty state, which is why this list is a list rather than a special case.
+ *
+ * **The fifth is that bug a third time, one level further in**: the shared Annotation list's empty
+ * state said "Nothing in this Layer yet", and on a Published Site there is no control that could ever
+ * put anything in it — so "yet" promised a Reader something that cannot happen. The word is the whole
+ * of the phrase that matters, and it is the editor's own guidance now, beside the button it names.
  */
 const EDITOR_ONLY_PROSE = [
 	'Add a Historical Map',
 	'Add an Annotation Layer',
 	'this Workspace',
-	'you can still rename'
+	'you can still rename',
+	'Nothing in this Layer yet',
+	'New Annotation'
 ] as const;
 
 /**
@@ -381,6 +388,18 @@ async function expectNothingEditable(page: Page): Promise<void> {
 	}
 	await expect(page.getByRole('button', { name: /^Add a/ })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: /^Add an/ })).toHaveCount(0);
+	await expectNoEditorProse(page);
+}
+
+/**
+ * No sentence on this page was written for somebody who can edit.
+ *
+ * Its own function because the Annotation sweep needs it too and had only ids: nine `data-testid`s
+ * would catch a renamed control and never an editor-only sentence, which is the defect that has now
+ * been found in shared code four times — twice in `LayerList`, once in a Layer card body, and once in
+ * the Annotation list's empty state.
+ */
+async function expectNoEditorProse(page: Page): Promise<void> {
 	for (const phrase of EDITOR_ONLY_PROSE) {
 		await expect(page.locator('body'), `“${phrase}” in the viewer`).not.toContainText(phrase);
 	}
@@ -485,6 +504,10 @@ async function openAnnotationRow(page: Page): Promise<Locator> {
  * issues a lookup to a third-party service, and a Published Site quietly doing that for a Reader who
  * asked for nothing is the outcome ADR-0029 is written against. They are absent because this app
  * passes `AnnotationList` no `tools` snippet — not because a flag turned them off.
+ *
+ * ⚠ **Ids alone are not the whole sweep**, which is why {@link expectNoEditorProse} runs beside this
+ * list: nine `data-testid`s catch a renamed control and never an editor-only sentence, and a sentence
+ * is how this same defect reached the shared Annotation list's empty state.
  *
  * Each is asserted **present** against the editor's own prop set, so none of these can go quietly
  * green on a renamed id: `annotation-tools` and `annotation-new` in
@@ -619,6 +642,9 @@ test.describe('untrusted text on a Published Site', () => {
 			for (const control of ANNOTATION_EDITING_CONTROLS) {
 				await expect(page.getByTestId(control), `${control} in the viewer`).toHaveCount(0);
 			}
+			// And nothing on the page is *written* for somebody who can edit, which the ids above
+			// cannot see: an editor-only sentence in shared code has no `data-testid` of its own.
+			await expectNoEditorProse(page);
 
 			expect(seen.failures).toEqual([]);
 			// **No lookup was issued**, which is the ADR-0029 half said as a fact about the network
@@ -3328,6 +3354,18 @@ test.describe('a Published Site opens on the Project’s content', () => {
 		expect(at.lat).toBeCloseTo(DEPLOYMENT_VIEW.lat, 4);
 		expect(at.zoom).toBeCloseTo(DEPLOYMENT_VIEW.zoom, 4);
 		await expect(page.getByTestId('opening-view')).toContainText('default view');
+
+		// **And what that Layer's card says when a Reader opens it**, folded in here because this is the
+		// suite's only Project with an Annotation Layer a Reader can open and find nothing in — the
+		// state the shared empty state is *entitled* to describe, having been given a collection that
+		// really is empty. The bare fact, in words that are true in both apps; the editor's "Nothing in
+		// this Layer yet" is its own guidance now and is swept for by {@link expectNoEditorProse},
+		// because on a Published Site nothing will ever be put in this Layer.
+		const card = await openLayerRow(page, layerRow(page, ANNOTATION_LAYER_ID));
+		await expect(card.getByTestId('annotation-list-empty')).toHaveText(
+			'This Layer has no Annotations in it.'
+		);
+		await expectNothingEditable(page);
 	});
 
 	test('frames on a sheet whose Alignment reads, even when its image record does not', async ({

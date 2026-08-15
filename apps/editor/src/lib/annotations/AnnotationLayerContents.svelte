@@ -173,6 +173,21 @@
 	<AnnotationEditor {annotation} {ontext} {oncommit} {onstyle} {onlinestyle} {ondelete} />
 {/snippet}
 
+{#snippet noAnnotationsGuidance()}
+	<!--
+		What an empty Annotation Layer tells a scholar, and **it names the button that is actually
+		there** — "New Annotation" is the word on the control above this sentence, not a description of
+		it.
+
+		**Here rather than in `AnnotationList`, for the reason `noLayersGuidance` is in this app**: a
+		published site renders the same list and has no drawing tools, so "yet" there promised a Reader
+		something that can never happen in a Layer nobody can add to. `AnnotationList` keeps the half
+		that is true in both apps — that the Layer is empty — and this is the half that is only true
+		where there is something to draw with.
+	-->
+	Nothing in this Layer yet. Press <strong>New Annotation</strong> and draw one on the map.
+{/snippet}
+
 {#if choosing}
 	<!--
 		**The list stands aside while a shape is armed, but what has just been made does not.** The list
@@ -215,5 +230,12 @@
 		{/if}
 	</section>
 {:else}
-	<AnnotationList {annotations} openId={selectedId} onopen={onselect} {contents} {tools} />
+	<AnnotationList
+		{annotations}
+		openId={selectedId}
+		onopen={onselect}
+		{contents}
+		{tools}
+		{noAnnotationsGuidance}
+	/>
 {/if}

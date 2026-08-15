@@ -26,14 +26,17 @@
 		openId: initialOpenId = null,
 		withContents = false,
 		withTools = false,
+		withGuidance = false,
 		onopen
 	}: {
-		annotations: readonly Annotation[];
+		annotations: readonly Annotation[] | null;
 		openId?: string | null;
 		/** Whether this consumer reveals anything at all inside an open row. */
 		withContents?: boolean;
 		/** Whether this consumer has a drawing surface to offer. A published site has none. */
 		withTools?: boolean;
+		/** Whether this consumer has anything to say about an empty Layer. A Reader is told nothing. */
+		withGuidance?: boolean;
 		/** Reported as well as applied, so a test can assert what the component asked for. */
 		onopen?: (id: string | null) => void;
 	} = $props();
@@ -53,6 +56,10 @@
 	<div data-testid="harness-annotation-tools">Draw</div>
 {/snippet}
 
+{#snippet noAnnotationsGuidance()}
+	<span data-testid="harness-annotation-guidance">Nothing in this Layer yet. Draw one.</span>
+{/snippet}
+
 <!--
 	Spread rather than `contents={withContents ? contents : undefined}`, because the two are not the
 	same prop set: under `exactOptionalPropertyTypes` a consumer that passes `undefined` has still
@@ -67,4 +74,5 @@
 	}}
 	{...withContents ? { contents } : {}}
 	{...withTools ? { tools } : {}}
+	{...withGuidance ? { noAnnotationsGuidance } : {}}
 />

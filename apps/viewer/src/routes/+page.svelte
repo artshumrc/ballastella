@@ -962,16 +962,22 @@
 	});
 
 	/**
-	 * The Annotations inside the open Layer's card, or none.
+	 * The Annotations inside the open Layer's card, or `null` where its collection has not been read.
 	 *
 	 * **No fetch of its own**: `documents` already holds every visible Layer's parsed collection,
-	 * because the map is drawing from it. A card that is open on a Layer whose documents have not
-	 * arrived yet lists nothing rather than guessing.
+	 * because the map is drawing from it.
+	 *
+	 * ⚠ **`null` rather than an empty array for the three states that are not `ready`.** They are not
+	 * the same fact: an empty array is a collection somebody read and found nothing in, and the list
+	 * says so in as many words. Collapsing `loading` and `unreadable` into it told a Reader "This Layer
+	 * has no Annotations in it" about a Layer whose GeoJSON had not arrived or would not parse — beside
+	 * a problem band saying the file could not be read, and with nothing at all beside it when the
+	 * Reader had hidden the Layer, since `outcomes` is built from the Layers that are shown.
 	 */
-	const openAnnotations = $derived.by((): readonly Annotation[] => {
-		if (openLayerId === null) return [];
+	const openAnnotations = $derived.by((): readonly Annotation[] | null => {
+		if (openLayerId === null) return null;
 		const read = documents[openLayerId];
-		if (read?.status !== 'ready') return [];
+		if (read?.status !== 'ready') return null;
 		const collection = read.annotations as AnnotationCollection | null | undefined;
 		return collection?.annotations ?? [];
 	});
@@ -1493,19 +1499,11 @@
 </main>
 
 <!--
-	What is inside a Historical Map Layer for a Reader: the sheet on its own, unwarped (SPEC story 85).
-
-	**A snippet rather than a callback prop on the card**, for the reason `ProjectScreen`'s own
-	`mapContents` gives: what this button does is a navigation on this app's one route, and the shared
-	card knows nothing about routes. It is also the whole of the difference between the two apps'
-	Historical Map cards — the editor's slot holds Align and the library the tiles came from, and this
-	one holds the only thing a Reader can do to a sheet.
-
-	The editor has no unwarped view; its own was removed in an earlier epic, and this is offered here
-	because a Reader who wants to read the sheet as a document has nowhere else to go.
+	One Annotation as a Reader meets it, inside the row it belongs to. The row hands its own `index`
+	down so an untitled Annotation reads as the same "Untitled pin 3" on the button and beneath it.
 -->
-{#snippet annotationReading(annotation: Annotation)}
-	<AnnotationReading {annotation} />
+{#snippet annotationReading(annotation: Annotation, index: number)}
+	<AnnotationReading {annotation} {index} />
 {/snippet}
 
 <!--
@@ -1543,6 +1541,18 @@
 	/>
 {/snippet}
 
+<!--
+	What is inside a Historical Map Layer for a Reader: the sheet on its own, unwarped (SPEC story 85).
+
+	**A snippet rather than a callback prop on the card**, for the reason `ProjectScreen`'s own
+	`mapContents` gives: what this button does is a navigation on this app's one route, and the shared
+	card knows nothing about routes. It is also the whole of the difference between the two apps'
+	Historical Map cards — the editor's slot holds Align and the library the tiles came from, and this
+	one holds the only thing a Reader can do to a sheet.
+
+	The editor has no unwarped view; its own was removed in an earlier epic, and this is offered here
+	because a Reader who wants to read the sheet as a document has nowhere else to go.
+-->
 {#snippet mapContents(layer: MapLayer)}
 	<div>
 		<button

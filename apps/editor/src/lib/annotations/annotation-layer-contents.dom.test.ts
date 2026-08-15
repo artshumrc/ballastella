@@ -163,3 +163,18 @@ describe('the Annotation just drawn stays under the tools', () => {
 		expect(all('annotation-editor')).toHaveLength(0);
 	});
 });
+
+describe('a Layer with nothing in it yet', () => {
+	test('tells a scholar how to fill it, in this app’s own words', () => {
+		contents({ collection: collectionOf() });
+
+		// **The positive control for an absence asserted in two other places.** `AnnotationList` supplies
+		// only the bare fact — "This Layer has no Annotations in it." — and this app supplies the half
+		// that is true only where there is something to draw with. A Reader gets the fact alone:
+		// `packages/ui/src/annotation-list.dom.test.ts` asserts both directions against the component,
+		// and `e2e/viewer-reader.e2e.ts` sweeps a Published Site for the word "yet" itself.
+		expect(one('annotation-list-empty')).toHaveTextContent(
+			'Nothing in this Layer yet. Press New Annotation and draw one on the map.'
+		);
+	});
+});

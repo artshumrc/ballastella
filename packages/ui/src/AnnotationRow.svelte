@@ -18,6 +18,7 @@
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { slide } from 'svelte/transition';
 
+	import { annotationName, shapeWord } from './annotation-name.js';
 	import { KIND_STYLE } from './layer-kind-style.js';
 	import { iconForGeometry } from './shape-icons.js';
 
@@ -32,21 +33,27 @@
 		/**
 		 * Where this Annotation sits in its collection, counted from zero.
 		 *
-		 * Only ever read for the untitled fallback's number, which is why it is the *collection's*
-		 * position rather than this row's: the one Annotation shown on its own under the drawing tools
-		 * must read as the same "Untitled pin 3" it reads as in the list.
+		 * Only ever read for the untitled fallback's number — here and in whatever the open row reveals,
+		 * which is handed the same number — and that is why it is the *collection's* position rather
+		 * than this row's: the one Annotation shown on its own under the drawing tools must read as the
+		 * same "Untitled pin 3" it reads as in the list.
 		 */
 		index: number;
 		open: boolean;
 		/** The row was pressed: this Annotation's id to open it, `null` to close it. */
 		onopen: (id: string | null) => void;
 		/**
-		 * What the open row reveals. Without it the row still opens, on nothing.
+		 * What the open row reveals, given this Annotation and its place in the collection. Without it
+		 * the row still opens, on nothing.
+		 *
+		 * The index goes with it because a consumer that names the Annotation must be able to name it
+		 * the way the button above does — see `annotation-name.ts`. A snippet that has no use for it
+		 * simply declares one parameter.
 		 *
 		 * Explicitly `| undefined` because `AnnotationList` forwards whatever it was given, and
 		 * `exactOptionalPropertyTypes` distinguishes "absent" from "present and undefined".
 		 */
-		contents?: Snippet<[Annotation]> | undefined;
+		contents?: Snippet<[Annotation, number]> | undefined;
 	} = $props();
 
 	/**
@@ -160,30 +167,10 @@
 	/**
 	 * How one Annotation reads in the list.
 	 *
-	 * Its title, which is **the user's own words and therefore untrusted text** — this is one of the
-	 * places a stranger's `title` reaches the screen, and it is safe for a different reason from the
-	 * rendered description below it: Svelte interpolates it, so the DOM never parses it as markup.
-	 * Nothing may turn this into `{@html}`; a title that needs rendering is one that needs core's
-	 * sanitiser.
+	 * `annotation-name.ts`'s rather than this component's, because what the open row reveals names the
+	 * same Annotation a few pixels below this button and the two must not be able to disagree.
 	 */
-	const name = $derived.by((): string => {
-		const title = annotation.properties.title;
-		if (title !== undefined && title !== '') return title;
-		return `Untitled ${shapeWord(annotation)} ${index + 1}`;
-	});
-
-	const shapeWord = (one: Annotation): string => {
-		switch (one.geometry?.type) {
-			case 'Point':
-				return 'pin';
-			case 'LineString':
-				return 'line';
-			case 'Polygon':
-				return 'shape';
-			default:
-				return 'Annotation';
-		}
-	};
+	const name = $derived(annotationName(annotation, index));
 
 	const Icon = $derived(iconForGeometry(annotation.geometry?.type));
 </script>
@@ -272,7 +259,7 @@
 			data-reveal-ms={reveal.duration}
 			transition:slide={reveal}
 		>
-			{@render contents?.(annotation)}
+			{@render contents?.(annotation, index)}
 		</div>
 	{/if}
 </li>

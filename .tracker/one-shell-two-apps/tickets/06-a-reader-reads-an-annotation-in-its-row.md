@@ -160,6 +160,33 @@ and after.
 2,853,261 bytes before, 2,869,435 bytes after: **+16,174 bytes (+0.57%)** for the list, the row, the
 shape glyphs and the sanitised reading surface.
 
+### What review found, and what changed
+
+**An unread Layer no longer reads as an empty one.** `openAnnotations` collapsed `loading` and
+`unreadable` into `[]`, and `AnnotationList` renders `[]` as the positive claim that the Layer is
+empty — so a Layer whose GeoJSON would not parse told a Reader there was nothing in it, beside a
+problem band saying the file could not be read, and with nothing beside it at all when the Reader had
+hidden the Layer (`outcomes` is built from the Layers that are *shown*). `annotations` is now
+`readonly Annotation[] | null`, and `null` says nothing.
+
+**The empty state is the bare fact and the guidance is the consumer's**, which is the shape
+`LayerList`'s own empty state already takes: "This Layer has no Annotations in it." in shared code,
+and "Nothing in this Layer yet. Press **New Annotation**…" in the editor's own snippet. On a Published
+Site nothing will ever be put in that Layer, so "yet" promised a Reader something that cannot happen.
+`e2e/viewer-reader.e2e.ts` sweeps a Published Site for the phrase itself now, and the Annotation
+sweep — nine `data-testid`s and no prose — sweeps for prose too.
+
+**One Annotation has one name.** The row said "Untitled pin 3" and the reading surface under it said
+"Untitled". The wording is `packages/ui/src/annotation-name.ts`'s, used by both, and the row hands
+its `index` to whatever the open row reveals.
+
+**The description is named on an element that can carry a name.** `aria-label` sat on a bare `<div>`,
+whose implicit `generic` role prohibits it in ARIA 1.2 and which browsers drop from the accessibility
+tree; it is a `<section>`.
+
+No Seam 2 test was added: `check-seam-2-size` reads 630 against a ceiling of 630, as before. The
+viewer's bundle is 2,869,752 bytes, **+317** on what this ticket landed.
+
 ## Blocked by
 
 - 01 — an Annotation opens in its own row

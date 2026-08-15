@@ -33,7 +33,22 @@
 	} from '@ballastella/core';
 	import { onMount } from 'svelte';
 
-	let { annotation }: { annotation: Annotation } = $props();
+	import { annotationName } from './annotation-name.js';
+
+	let {
+		annotation,
+		index
+	}: {
+		annotation: Annotation;
+		/**
+		 * Where this Annotation sits in its collection, counted from zero.
+		 *
+		 * Read for one thing: an untitled Annotation's number. Without it this surface had wording of
+		 * its own — "Untitled" under a button reading "Untitled pin 3", one Annotation named two ways a
+		 * few pixels apart.
+		 */
+		index: number;
+	} = $props();
 
 	const properties = $derived(annotation.properties);
 
@@ -65,15 +80,30 @@
 </script>
 
 <div class="min-w-0">
+	<!--
+		The same name the button above it carries, from `annotation-name.ts` rather than from wording
+		invented here: one Annotation, one name.
+	-->
 	<p class="font-semibold" data-testid="annotation-title-text">
 		{#if properties.title}
 			{properties.title}
 		{:else}
-			<span class="font-normal opacity-60">Untitled</span>
+			<span class="font-normal opacity-60">{annotationName(annotation, index)}</span>
 		{/if}
 	</p>
 
-	<div
+	<!--
+		**A `<section>` rather than a `<div>`, because `aria-label` on a bare `<div>` names nothing.** A
+		`<div>` has the implicit `generic` role, for which ARIA 1.2 prohibits `aria-label` and which
+		browsers drop from the accessibility tree — so a Reader on a screen reader heard the title and
+		then the description with no boundary between them, while the source read as though a name were
+		being supplied. Named rather than anonymous because the prose is a stranger's Markdown and can
+		be anything, including nothing.
+
+		One of these is on screen at a time — one Layer card open, one row open inside it — which is
+		what makes a fixed name safe here, the same argument `AnnotationList` makes for its own.
+	-->
+	<section
 		class="prose-sm mt-1 prose max-w-none"
 		data-testid="annotation-description-text"
 		aria-label="Description"
@@ -84,5 +114,5 @@
 			<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 			{@html rendered}
 		{/if}
-	</div>
+	</section>
 </div>

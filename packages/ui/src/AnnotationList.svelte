@@ -26,16 +26,34 @@
 		openId,
 		onopen,
 		contents,
-		tools
+		tools,
+		noAnnotationsGuidance
 	}: {
-		annotations: readonly Annotation[];
+		/**
+		 * The Annotations in this Layer, or `null` where its collection has not been read.
+		 *
+		 * ⚠ **The two are not the same fact and an empty array must not stand in for both.** "This Layer
+		 * has no Annotations in it" is a positive claim about a collection somebody has read; a Layer
+		 * that is still loading, or whose GeoJSON would not parse, is a Layer nobody can say that about
+		 * — and saying it anyway told a Reader that a Layer holding the scholar's work was empty, in the
+		 * same card whose problem band said the file could not be read. So `null` says nothing at all,
+		 * which is the only honest thing this component knows.
+		 */
+		annotations: readonly Annotation[] | null;
 		/** The open row, which is the selected Annotation — one fact, so one value. */
 		openId: string | null;
 		onopen: (id: string | null) => void;
-		/** What an open row reveals, given the Annotation it belongs to. */
-		contents?: Snippet<[Annotation]>;
+		/** What an open row reveals, given the Annotation it belongs to and its place in the collection. */
+		contents?: Snippet<[Annotation, number]>;
 		/** Whatever this consumer offers above the list. Editor only; a Reader is offered none of it. */
 		tools?: Snippet;
+		/**
+		 * What an empty Layer says beyond the bare fact that it is empty. Editor only.
+		 *
+		 * See the empty state below: guidance is instructions for controls the consumer renders, and a
+		 * Reader has none of them.
+		 */
+		noAnnotationsGuidance?: Snippet;
 	} = $props();
 </script>
 
@@ -49,8 +67,28 @@
 <section aria-label="Annotations" class="flex flex-col gap-3">
 	{@render tools?.()}
 
-	{#if annotations.length === 0}
-		<p class="text-sm opacity-70" data-testid="annotation-list-empty">Nothing in this Layer yet.</p>
+	{#if annotations === null}
+		<!--
+			A collection nobody has read yet, and therefore nothing said about what is in it. The card
+			around this one is where a Layer that could not be read says so; a list that has been handed
+			no Annotations knows only that it has been handed none.
+		-->
+	{:else if annotations.length === 0}
+		<!--
+			The empty state. **What it says beyond "there is nothing here" is the consumer's**, which is
+			the shape `LayerList`'s own empty state already takes one level up: guidance is instructions
+			for using the controls that consumer renders, and a Reader has none of them. On a Published
+			Site nothing will ever be put in this Layer, so an editor's "yet" promises a Reader something
+			that cannot happen. Without the snippet this is the fact and nothing else, which is the
+			sentence that is true in both apps.
+		-->
+		<p class="text-sm opacity-70" data-testid="annotation-list-empty">
+			{#if noAnnotationsGuidance}
+				{@render noAnnotationsGuidance()}
+			{:else}
+				This Layer has no Annotations in it.
+			{/if}
+		</p>
 	{:else}
 		<!--
 			**Outlined, headed and divided, because it did not read as a list.** Ghost buttons in a gap-1

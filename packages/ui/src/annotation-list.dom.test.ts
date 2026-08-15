@@ -25,6 +25,7 @@ import { flushSync, mount, tick, unmount, type ComponentProps } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import AnnotationListHarness from './AnnotationListHarness.svelte';
+import AnnotationReading from './AnnotationReading.svelte';
 
 /**
  * What this DOM reports about the person using it — here, whether they have asked for less motion.
@@ -290,6 +291,40 @@ describe('the row is a disclosure (one-shell-two-apps stories 24–32, 35)', () 
 		expect(all('annotation-row')).toHaveLength(0);
 	});
 
+	test('and says nothing at all about a Layer whose collection has not been read', () => {
+		// ⚠ **"This Layer has no Annotations in it" is a claim about a collection somebody has read.**
+		// A Layer still loading, and a Layer whose GeoJSON will not parse, are Layers nobody can say
+		// that about — and the viewer said it about both, because `openAnnotations` collapsed all three
+		// document states into `[]`. A Reader who had hidden that Layer got the sentence with nothing
+		// beside it: the problem band is built from the Layers that are *shown*, so there was no
+		// "could not be read" anywhere on the screen to contradict it.
+		list({ annotations: null });
+
+		expect(one('annotation-list-empty')).not.toBeInTheDocument();
+		expect(one('annotation-list')).not.toBeInTheDocument();
+		expect(all('annotation-row')).toHaveLength(0);
+	});
+
+	test('the empty state is the bare fact, and guidance about it is the consumer’s', () => {
+		// Both halves, in both directions, for the reason the `tools` and `contents` pairs below are
+		// asserted both ways: an absence on its own goes quietly green when the wording changes.
+		//
+		// **"yet" is the word this is about.** On a Published Site nothing will ever be put in this
+		// Layer — there is no control that could — so an editor's "yet" promises a Reader something
+		// that cannot happen. It is the same defect `LayerList`'s empty state already had.
+		list({ annotations: [], withGuidance: true });
+
+		expect(one('harness-annotation-guidance')).toBeInTheDocument();
+		expect(one('annotation-list-empty')).toHaveTextContent('Nothing in this Layer yet');
+
+		takeDown();
+		list({ annotations: [] });
+
+		expect(one('harness-annotation-guidance')).not.toBeInTheDocument();
+		expect(one('annotation-list-empty')).toHaveTextContent('This Layer has no Annotations in it.');
+		expect(one('annotation-list-empty')?.textContent).not.toMatch(/yet/i);
+	});
+
 	test('the caption counts what is in the Layer, in the singular and the plural', () => {
 		// **Exact rather than containing**, because "1 Annotations" contains "1 Annotation": a caption
 		// that never singularised would satisfy a substring assertion and be the defect this is about.
@@ -358,5 +393,41 @@ describe('a surface the consumer does not ask for is not there (SPEC stories 58,
 		expect(one('annotation-row-contents')).toBeInTheDocument();
 		expect(one('harness-annotation-contents')).not.toBeInTheDocument();
 		expect(one('harness-annotation-delete')).not.toBeInTheDocument();
+	});
+});
+
+describe('what an open row reveals is the same Annotation the button above it names', () => {
+	/** Mount `AnnotationReading` on its own, which is what a Reader's open row puts in the row. */
+	const reading = (props: ComponentProps<typeof AnnotationReading>): void => {
+		mounted = mount(AnnotationReading, { target: document.body, props });
+		flushSync();
+	};
+
+	test('an untitled Annotation is “Untitled pin 3” on the button and beneath it', () => {
+		// The row's name first, so the claim is that the two *agree* rather than that each matches a
+		// literal written twice. The reading surface had wording of its own — "Untitled" — so an
+		// untitled Annotation was named two ways a few pixels apart.
+		list({
+			annotations: [annotation({ id: 'a-1' }), annotation({ id: 'a-2' }), annotation({ id: 'a-3' })]
+		});
+		const onTheButton = nth('annotation-row-name', 2).textContent?.trim();
+		expect(onTheButton).toBe('Untitled pin 3');
+
+		takeDown();
+		reading({ annotation: annotation({ id: 'a-3' }), index: 2 });
+
+		expect(one('annotation-title-text')).toHaveTextContent(onTheButton!);
+	});
+
+	test('names the description on an element that can carry a name', () => {
+		// A bare `<div>` has the implicit `generic` role, for which ARIA 1.2 prohibits `aria-label` and
+		// which browsers drop from the accessibility tree: the attribute was there, and named nothing.
+		// A `<section>` with a name is a `region`, so a Reader on a screen reader meets a boundary
+		// between the title and a stranger's prose instead of running straight from one into the other.
+		reading({ annotation: annotation({ id: 'a-1', title: 'The west quay' }), index: 0 });
+
+		const description = one('annotation-description-text');
+		expect(description?.tagName).toBe('SECTION');
+		expect(description).toHaveAttribute('aria-label', 'Description');
 	});
 });
