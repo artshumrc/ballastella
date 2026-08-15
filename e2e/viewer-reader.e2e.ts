@@ -491,6 +491,15 @@ async function expectNoEditorProse(page: Page): Promise<void> {
 const ANNOTATION_AT: [number, number] = [4.9, 52.3676];
 
 /**
+ * The Annotation that sits at {@link ANNOTATION_AT}, and so the one a click there opens.
+ *
+ * Must match `annotation()`'s default id in `support/reader-project`. Named because a fixture with
+ * more than one Annotation has more than one row, and "the first row in the DOM" is then a different
+ * Annotation from the one the test tapped.
+ */
+const TAPPED_ANNOTATION_ID = '11111111-1111-4111-8111-111111111111';
+
+/**
  * The archive every entry in this deployment's catalog points at (ADR-0020).
  *
  * Named here because a site's cached tiles sit in a directory keyed on it (ticket 12), and because
@@ -511,18 +520,25 @@ const ARCHIVE = 'https://data.source.coop/protomaps/openstreetmap/v4.pmtiles';
 const ARCHIVE_HOST = new URL(ARCHIVE).host;
 
 /**
- * Open the fixture Annotation's popup, and hand back the popup.
+ * Click the fixture Annotation's pin on the map, and hand back the row it opens.
+ *
+ * **A pin opens the Annotation's own row, and no popup is drawn** (ticket 07). The row is where an
+ * Annotation is read, in both apps, so the answer to "what is this pin?" is in one place rather than
+ * two — which is why this waits on the row's `aria-expanded` rather than on a bubble over the map.
+ * Its Layer's card opens with it, because a row inside a closed card is not on the screen at all.
  *
  * The click lands on the Annotation's **projected screen position** rather than on the middle of the
  * pane, and that distinction is why this helper exists: the Base Map catalog's initial centre is
  * deployment configuration a fork may change, so "the middle of the pane" is the Annotation's position
  * only by coincidence. It was off by about 24 px, so the first run of this suite clicked empty geography
- * — a failure that looked like a broken popup.
+ * — a failure that looked like a broken feature.
  *
  * Retried, because the GeoJSON source may not have painted on the first frame: `queryRenderedFeatures`
  * answers about what is *rendered*, so a click one frame early is a genuine miss rather than a defect.
+ * Clicking a pin is not a toggle — it names the Annotation to open rather than flipping it — so a
+ * second click while the first is settling cannot close what it just opened.
  */
-async function openAnnotationPopup(page: Page): Promise<Locator> {
+async function openAnnotationFromMap(page: Page): Promise<Locator> {
 	const pane = page.getByTestId('reader-map-pane');
 	// **Scrolled into view, and the box re-read inside the loop.** `page.mouse.click` takes *viewport*
 	// coordinates while `boundingBox()` gives page ones, so on the 375 px layout — where the controls come
@@ -539,12 +555,15 @@ async function openAnnotationPopup(page: Page): Promise<Locator> {
 					ANNOTATION_AT
 				);
 				await page.mouse.click(box.x + at.x, box.y + at.y);
-				return page.locator('.maplibregl-popup-content').count();
+				return page.locator('[data-testid="annotation-row"][aria-expanded="true"]').count();
 			},
 			{ timeout: 30_000, intervals: [250, 500, 1000] }
 		)
 		.toBeGreaterThan(0);
-	return page.locator('.maplibregl-popup-content');
+	// Nothing was drawn over the map: the row is the destination, and a bubble over the pin would be a
+	// second place to read the same Annotation.
+	await expect(page.locator('.maplibregl-popup')).toHaveCount(0);
+	return page.getByTestId('annotation-row-contents');
 }
 
 /**
@@ -614,37 +633,35 @@ test.describe('untrusted text on a Published Site', () => {
 	 * `maps.digitalhumanities.harvard.edu` — and the Project it renders may have arrived from a stranger
 	 * by zip import (ticket 13) or from a remote library (ticket 14).
 	 *
-	 * **Three surfaces, and they are safe for different reasons.** That distinction is inherited from
+	 * **Two surfaces, and they are safe for different reasons.** That distinction is inherited from
 	 * ticket 10 rather than rediscovered, and it is what stops a future edit "simplifying" the wrong one:
 	 *
 	 *   1. the **Annotation row** — `AnnotationReading` in `@ballastella/ui`: the title interpolated as
 	 *      text by Svelte, the description through core's `renderDescription`, which is `marked` then
 	 *      DOMPurify in that order and not separately reachable;
-	 *   2. the **Annotation popup** — `renderAnnotationPopup`: the title HTML-escaped, the description
-	 *      through the same pipeline, and the assembled document through DOMPurify again;
-	 *   3. the **names** — a Project's on the hub and a Layer's in the controls — where safety is
+	 *   2. the **names** — a Project's on the hub and a Layer's in the controls — where safety is
 	 *      **Svelte's text interpolation** and DOMPurify is not involved at all.
 	 *
-	 * Breaking the sanitiser therefore reddens the first two and correctly leaves the third green. That
+	 * Breaking the sanitiser therefore reddens the first and correctly leaves the second green. That
 	 * asymmetry was verified by mutation, not assumed: `sanitise` in
-	 * `packages/core/src/annotation/markdown.ts` was made to return its input, and the popup tests
-	 * below went red while the name test stayed green. The row's half was verified the same way — see
-	 * the mutation check recorded on ticket 06.
+	 * `packages/core/src/annotation/markdown.ts` was made to return its input, and the row tests below
+	 * went red while the name test stayed green.
 	 *
-	 * ⚠ **The row's claim is the one that has to survive.** The popup retires from the Project screen
-	 * in both apps (ticket 07): the row is where an Annotation is read. So the claim is asserted on the
-	 * row here, before the popup that carries it today goes, and it is folded into these tests rather
-	 * than added beside them because the Seam 2 budget has none to spare and the popup half is about to
-	 * be deleted out of them.
+	 * ⚠ **The row is now the only place a Reader meets a stranger's description.** The map popup
+	 * retired from the Project screen in both apps (ticket 07), so this claim has no second surface
+	 * behind it: nothing else on a Published Site turns a `description` into HTML. `showAnnotationPopup`
+	 * and `renderAnnotationPopup` are still in `core` — the sanitiser did not retire with the popup, and
+	 * `packages/core/src/annotation/markdown.browser.test.ts` still exercises the payload matrix through
+	 * it — but no screen in this app calls them.
 	 *
 	 * **There was a third surface and it is deliberately gone.** The hub page used to author its own
 	 * blurb as a pseudo-Annotation and `{@html}` it, so that the shared renderer stayed live in the
 	 * shipped bundle and a `{@html}` hydrating permanently blank would be caught. Ticket 10's review
-	 * found that surface was Reader-side popup behaviour this ticket owns, so it was removed along with
-	 * the app's last `{@html}`. Nothing was lost: the popup tests above load a Published Site in this
-	 * build and open a real popup, so they already prove the shared path is live here — and each of
-	 * them asserts the prose arrived *before* asserting what did not, which is the same blank-surface
-	 * guard the prose block was carrying.
+	 * found that surface was Reader-side popup behaviour, so it was removed along with the app's last
+	 * `{@html}`. Nothing was lost: the tests below load a Published Site in this build and open a real
+	 * row, so they already prove the shared path is live here — and each of them asserts the prose
+	 * arrived *before* asserting what did not, which is the same blank-surface guard the prose block
+	 * was carrying.
 	 */
 	let site: { sites: StaticSite[]; directory: string; close(): Promise<void> } | null = null;
 
@@ -654,7 +671,7 @@ test.describe('untrusted text on a Published Site', () => {
 	});
 
 	for (const payload of PAYLOADS) {
-		test(`an Annotation renders ${payload.what} inert in its row and its popup, and its prose visibly`, async ({
+		test(`an Annotation renders ${payload.what} inert in its row, and its prose visibly`, async ({
 			page
 		}) => {
 			site = await published(
@@ -673,31 +690,20 @@ test.describe('untrusted text on a Published Site', () => {
 
 			await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 			await mapReady(page);
-			const popup = await openAnnotationPopup(page);
 
-			// **The prose first.** A blank popup passes every assertion below it, and blank is exactly what
-			// `{@html}` and `setHTML` look like when something upstream has quietly stopped producing HTML.
-			await expect(popup).toContainText(payload.prose);
-			// And the title arrived, as text, including the parts of the payload that look like markup.
-			await expect(popup).toContainText('Warehouse');
-
-			expect(await dangerousIn(popup)).toEqual(INERT);
-			expect(await page.evaluate(() => '__xss' in window)).toBe(false);
-			// **A positive fingerprint that DOMPurify ran on the assembled document**, not only on the
-			// description. `renderAnnotationPopup` wraps the title in
-			// `<p class="ballastella-annotation-title">` and then sanitises the whole thing again, and `class`
-			// is absent from the allowlist — so the class surviving would mean the second pass did not happen.
-			// Worth asserting because that pass is what makes the function's *return value* always DOMPurify's
-			// output rather than a string some of which happens to have been sanitised, and because an absence
-			// assertion alone cannot tell "stripped" from "never rendered".
-			expect(await popup.locator('[class*="ballastella"]').count()).toBe(0);
+			// **The pin's own path, which is the only wiring a browser is needed for.** Clicking the
+			// Annotation on the map opens its Layer's card and its row rather than a popup over it, so
+			// this is where the click-to-open-row wiring is falsifiable — and the surface it lands on
+			// is the one the rest of this test then probes.
+			await openAnnotationFromMap(page);
 
 			// ─────────────────────────────────────────────────────────────────────────────────────
-			// AND THE SAME PAYLOAD IN THE ROW, WHICH IS WHERE A READER READS IT (SPEC stories 32–34)
+			// AND THE SAME ROW REACHED FROM THE SIDEBAR, WHICH IS WHERE A READER READS IT
+			// (SPEC stories 32–34)
 			//
 			// Reached from the sidebar rather than from the map: the Layer's card lists what is in it
 			// and the row opens on itself, so a Reader who never found the pin still meets this text.
-			// The popup above retires from this screen in ticket 07; this half is what stays.
+			// Idempotent, so it finds the row the click above already opened rather than closing it.
 			const reading = await openAnnotationRow(page);
 
 			// **The prose first**, for the reason the popup's is: `{@html}` is not re-rendered during
@@ -813,24 +819,9 @@ test.describe('untrusted text on a Published Site', () => {
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
-		const popup = await openAnnotationPopup(page);
-
-		await expect(popup).toContainText('Compare the modern survey with the 1625 plan.');
-		const links = await popup.evaluate((element) =>
-			[...element.querySelectorAll('a')].map((anchor) => ({
-				text: anchor.textContent,
-				href: anchor.getAttribute('href')
-			}))
-		);
-		// The legitimate anchor is an anchor — proof the parser ran and produced markup for the sanitiser
-		// to inspect, which is the half that fails if the two stages are swapped.
-		expect(links).toContainEqual({ text: 'the modern survey', href: 'https://example.org/survey' });
-		// And the dangerous one kept its words and lost its destination.
-		expect(links).toContainEqual({ text: 'the 1625 plan', href: null });
-		expect(await dangerousIn(popup)).toEqual(INERT);
 
 		// ─────────────────────────────────────────────────────────────────────────────────────
-		// AND THE SAME TWO-SIDED CLAIM ON THE ROW (SPEC story 33)
+		// THE TWO-SIDED CLAIM, ON THE ROW (SPEC story 33)
 		//
 		// **This is what says the row renders the description rather than showing its source.** The
 		// payload tests above assert the prose is present, and prose survives either way — a row
@@ -3273,10 +3264,31 @@ test.describe('a Reader on a phone', () => {
 		expect(seen.failures).toEqual([]);
 	});
 
-	test('an Annotation popup is readable inside the viewport', async ({ page }) => {
+	test('tapping an Annotation opens its row and brings the row onto the screen', async ({
+		page
+	}) => {
+		// **The phone is why the popup retired** (ticket 07). A 375 px screen has no room for a bubble
+		// over the pin *and* the words in it, and the sidebar sits under the map here rather than beside
+		// it — so a tap that opened a popup put the Annotation in one place and the row that names it in
+		// another, several screens apart. One destination, and the page comes to it.
+		//
+		// ⚠ **Fifteen Annotations, and the tapped one is the last of them**, because the scroll is the
+		// subject and a one-Annotation fixture cannot fail for it: the list would be one screen long,
+		// the row already inside the viewport, and an assertion that it is inside the viewport true
+		// whether the code runs or not. Fourteen rows above it are what put it past the fold. The
+		// fillers share a coordinate inside the sheet's own extent — far enough from the tapped pin in
+		// screen pixels that they cannot take its click, close enough that they do not widen the
+		// opening view and move it.
 		site = await published(
 			await oneProject({
 				annotations: [
+					...Array.from({ length: 14 }, (_, index) =>
+						annotation({
+							id: `22222222-2222-4222-8222-${String(index).padStart(12, '0')}`,
+							title: `A warehouse on the west quay, number ${index + 1}`,
+							coordinates: [4.885, 52.361]
+						})
+					),
 					annotation({
 						title: 'The east warehouse',
 						description: 'Rebuilt in **1663** after the fire, and rebuilt again a century later.'
@@ -3288,14 +3300,42 @@ test.describe('a Reader on a phone', () => {
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
-		const popup = await openAnnotationPopup(page);
+		const reading = await openAnnotationFromMap(page);
 
-		await expect(popup).toContainText('The east warehouse');
-		await expect(popup).toContainText('Rebuilt in 1663');
-		await expect(popup.locator('strong')).toHaveText('1663');
-		// Inside the viewport horizontally, which is what "readable" means on a 375 px screen: a popup
-		// wider than the screen is one whose prose is cut off with no way to scroll to it.
-		const box = (await popup.boundingBox())!;
+		await expect(reading).toContainText('The east warehouse');
+		await expect(reading).toContainText('Rebuilt in 1663');
+		await expect(reading.locator('strong')).toHaveText('1663');
+
+		// **The row that was tapped, addressed by the Annotation it names.** The first row in the DOM is
+		// a different Annotation here, and asking for it would be asking about a row nobody touched.
+		const tapped = page.locator('[data-testid="annotation-row"][aria-expanded="true"]');
+		await expect(tapped).toHaveAttribute('data-annotation-id', TAPPED_ANNOTATION_ID);
+
+		// The fixture still puts that row below the fold: its offset down the *document* is more than a
+		// screen, so at the scroll position the tap left behind it is off screen and the assertion
+		// below has something to fail for. Read after the settle, because a document offset does not
+		// move when the page scrolls.
+		const [offset, height] = await tapped.evaluate((row) => [
+			row.getBoundingClientRect().top + window.scrollY,
+			window.innerHeight
+		]);
+		expect(offset, 'the tapped row is within the first screen of the document').toBeGreaterThan(
+			height
+		);
+
+		// **Brought onto the screen, which is the half the tap cannot do on its own.** The map is above
+		// the sidebar on a phone, so the row the tap opens is below the viewport when it opens: a Reader
+		// who tapped a pin and was shown nothing has been told less than the popup told them. Polled
+		// because the scroll is smooth, so a single read lands mid-travel.
+		await expect
+			.poll(async () => {
+				const box = await tapped.boundingBox();
+				return box !== null && box.y >= -1 && box.y + box.height <= height + 1;
+			})
+			.toBe(true);
+
+		// And inside the viewport horizontally, which is what "readable" means on a 375 px screen.
+		const box = (await reading.boundingBox())!;
 		expect(box.width).toBeLessThanOrEqual(375);
 		expect(box.x).toBeGreaterThanOrEqual(-1);
 		expect(seen.failures).toEqual([]);
@@ -3378,9 +3418,9 @@ test.describe('a Reader using a keyboard', () => {
 	test('opens the Annotation at the centre of the map with Enter, and closes it with Escape', async ({
 		page
 	}) => {
-		// The keyboard route to a popup, which is the Reader-facing half of story 67. MapLibre already pans
-		// with the arrow keys and zooms with `+`/`-`, so "move the map to it, then press Enter" is a whole
-		// path with nothing new to learn — and without it the popups would be pointer-only.
+		// The keyboard route to an Annotation's row. MapLibre already pans with the arrow keys and zooms
+		// with `+`/`-`, so "move the map to it, then press Enter" is a whole path with nothing new to
+		// learn — and without it opening an Annotation from the canvas would be pointer-only.
 		site = await published(
 			await oneProject({
 				annotations: [annotation({ title: 'The east warehouse', description: 'Rebuilt in 1663.' })]
@@ -3399,19 +3439,24 @@ test.describe('a Reader using a keyboard', () => {
 			ANNOTATION_AT
 		);
 		await page.getByTestId('reader-map-pane').locator('canvas').focus();
+		const row = page.getByTestId('annotation-row').first();
 		await expect
 			.poll(
 				async () => {
 					await page.keyboard.press('Enter');
-					return page.locator('.maplibregl-popup-content').count();
+					return page.locator('[data-testid="annotation-row"][aria-expanded="true"]').count();
 				},
 				{ timeout: 30_000, intervals: [250, 500, 1000] }
 			)
 			.toBeGreaterThan(0);
-		await expect(page.locator('.maplibregl-popup-content')).toContainText('Rebuilt in 1663');
+		await expect(page.getByTestId('annotation-row-contents')).toContainText('Rebuilt in 1663');
 
+		// Escape collapses the row it opened. It is the whole of what Escape does on this screen — there
+		// is nothing else on it a Reader can put away — and the row is where an Annotation is read, so
+		// the key that dismissed the popup dismisses its replacement.
 		await page.keyboard.press('Escape');
-		await expect(page.locator('.maplibregl-popup-content')).toHaveCount(0);
+		await expect(row).toHaveAttribute('aria-expanded', 'false');
+		await expect(page.getByTestId('annotation-row-contents')).toHaveCount(0);
 		expect(seen.failures).toEqual([]);
 	});
 });

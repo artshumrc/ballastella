@@ -14,6 +14,10 @@
 // all, so nothing gains a dependency it did not need — and ADR-0019's forbidden names
 // (`terra-draw`, the tiler) are still absent, which is what `scripts/check-viewer-deps.mjs` polices.
 
+// ⚠ **`showAnnotationPopup` has no caller and is kept on purpose** (ticket 07): it is this
+// repository's one worked example of building a popup surface safely, and the only caller of the one
+// `setHTML` (ADR-0009). A dead-code sweep starts at a barrel, which is why the warning is repeated
+// here as well as in `annotation-popup.ts`. Removing it is a decision, not a tidy-up.
 export { showAnnotationPopup, type AnnotationPopup } from './annotation-popup.js';
 // The number drawn on each Annotation's mark. Built by `drawLayerStack` rather than by either app —
 // exported for the assertions about where a mark sits, and for ticket 12's leader, which needs a

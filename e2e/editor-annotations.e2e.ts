@@ -14,8 +14,9 @@
 // **The untrusted-text claim is asserted here only where a browser can falsify it.** The payload
 // matrix — what survives `marked` and DOMPurify, in that order — lives in
 // `packages/core/src/annotation/markdown.browser.test.ts`, over a real DOM and without an
-// application. What stays here is one test on the map popup, which is the only place the *wiring*
-// can fail: a perfect sanitiser and a surface that never calls it look identical one seam down.
+// application. What stays here is one test on the Annotation's row, which is where an Annotation is
+// read and the only place the *wiring* can fail: a perfect sanitiser and a surface that never calls
+// it look identical one seam down.
 
 import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
@@ -337,20 +338,90 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		expect(failures).toEqual([]);
 	});
 
-	test('a part-drawn shape is abandoned by Escape and writes nothing', async ({ page }) => {
+	test('Escape abandons a part-drawn shape first, and then collapses the open row', async ({
+		page
+	}) => {
+		// **The ordering is the subject** (ticket 07). With no popup on this screen, Escape has two
+		// jobs left and they are in a fixed order: a gesture in progress is what somebody pressing
+		// Escape almost always means, and the open row is what is left when there is no gesture. An
+		// Escape that collapsed the row first would throw away a shape's worth of clicks.
 		const layerId = await startAnnotating(page);
+		// **Two pins, and the second one is the selected one.** The first is therefore an Annotation
+		// on the map carrying no drag handle of its own, which is what lets the click below land on it.
+		await drawPin(page, 0.3, 0.3);
+		await drawPin(page, 0.6, 0.6);
+		const row = page.getByTestId('annotation-row');
+		await expect(row).toHaveCount(1);
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		const openId = await row.getAttribute('data-annotation-id');
+
+		// **An Escape the row's own fields already answered is not this screen's to act on.** The
+		// title input treats it as "leave this field" and the description textarea ignores it, and
+		// neither stops it propagating — so a window handler that collapsed the row on it would shut
+		// the panel the scholar was typing in, on a keypress that meant far less. Asserted for both
+		// fields, because they answer Escape differently and only one of them answers it at all.
+		await editAnnotationText(page);
+		await page.getByTestId('annotation-title').focus();
+		await page.keyboard.press('Escape');
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+
+		await page.getByTestId('annotation-description').focus();
+		await page.keyboard.press('Escape');
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+
+		// **And nor is the Escape that closed a dialog.** `MakeOfflineDialog` is one of the two on this
+		// screen the handler holds no flag for, so it stands for the class: a `<dialog>` consumes
+		// Escape and keeps it propagating, and the row behind it was never what the user was dismissing.
+		await page.getByTestId('make-offline').click();
+		await expect(page.locator('dialog[open]')).toHaveCount(1);
+		await page.keyboard.press('Escape');
+		await expect(page.locator('dialog[open]')).toHaveCount(0);
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+
+		const ids = (await storedAnnotations(page, layerId)).features.map((one) => one.id as string);
+		await waitForPaintedAnnotations(page, ids);
 		await watchAnnotationWrites(page);
 
+		// **With a tool armed, a click on the map is a vertex** — including this one, which lands
+		// straight on the first pin. Without the guard on the page it would open that Annotation's row
+		// instead of placing a point. The other half of the pair is `clicking an Annotation on the Base
+		// Map opens its Layer and selects it`, which is the same click with the select tool in hand.
 		await chooseTool(page, 'polygon');
-		await clickAt(baseMap(page), 0.4, 0.4);
-		await clickAt(baseMap(page), 0.6, 0.4);
+		await clickAt(baseMap(page), 0.3, 0.3);
+		await expect(page.getByTestId('annotation-status')).toContainText('1 point placed');
+		await clickAt(baseMap(page), 0.5, 0.4);
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'true');
+		// The open row is untouched by either click: still one row, and still the same Annotation's.
+		await expect(row).toHaveCount(1);
+		await expect(row).toHaveAttribute('data-annotation-id', openId!);
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
 
 		await page.keyboard.press('Escape');
 
+		// The gesture went, and the row that was open stayed: one Escape, one job.
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'false');
-		expect((await storedAnnotations(page, layerId)).features).toEqual([]);
-		// Escape leaves no trace on disk, which is the whole of it: nothing was ever written.
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+
+		// And the next Escape, with nothing left to abandon, collapses it.
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await chooseTool(page, 'select');
+		await expect(page.getByTestId('annotation-row')).toHaveCount(2);
+		await expect(page.getByTestId('annotation-row').nth(0)).toHaveAttribute(
+			'aria-expanded',
+			'false'
+		);
+		await expect(page.getByTestId('annotation-row').nth(1)).toHaveAttribute(
+			'aria-expanded',
+			'false'
+		);
+
+		// Escape leaves no trace on disk, which is the whole of the first half: the abandoned polygon
+		// was never written, and the two pins drawn before the watch started are all the Layer holds.
+		expect((await storedAnnotations(page, layerId)).features).toHaveLength(2);
 		expect(await annotationWrites(page)).toEqual([]);
 	});
 
@@ -713,26 +784,34 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 	// What a Seam 2 test can add is that this panel renders through that pipeline at all, and the test
 	// above already fails if it does not.
 
-	test('a description is shown in a popup over the map, rendered', async ({ page }) => {
+	test('clicking the Annotation on the map opens its row, where the description is rendered', async ({
+		page
+	}) => {
+		// **The map draws no popup on this screen** (ticket 07). Clicking an Annotation opens its own
+		// row instead, which is where an Annotation is read in both apps — so "what is this shape?" has
+		// one answer rather than a bubble over the map and a row in the sidebar that can disagree.
 		const failures = watchFailures(page);
 		await withOnePin(page);
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-description').fill('The *west* quay.');
-		await page.getByTestId('annotation-description').blur();
+		// **Put away rather than blurred**, because the panel's resting state is the rendered
+		// description and its editing state is the fields: what a click on the map opens is the
+		// former, and leaving the fields up would be asserting against the wrong half of the panel.
+		await page.getByTestId('annotation-text-done').click();
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
-		// Clicking the Annotation on the map is what a reader does, and it is the same popup. **With
-		// nothing selected**, which is the state a reader is in: a selected Annotation carries its
-		// drag handle on top of itself, and the handle is a drag target rather than a way into the
-		// popup. That was true before and invisible, because the handle was drawn in the wrong place
-		// (see the note in `layout.css`).
-		await page.getByTestId('annotation-row').click();
+		// Clicked **with nothing selected**, which is the state somebody reading is in: a selected
+		// Annotation carries its drag handle on top of itself, and the handle is a drag target rather
+		// than a way into the Annotation.
+		const row = page.getByTestId('annotation-row');
+		await row.click();
+		await expect(row).toHaveAttribute('aria-expanded', 'false');
 		await expect(page.getByTestId('pane-overlay-point-annotation-vertex')).toHaveCount(0);
 		await clickAt(baseMap(page), 0.4, 0.4);
 
-		const popup = page.locator('.maplibregl-popup');
-		await expect(popup).toBeVisible();
-		await expect(popup.locator('em')).toHaveText('west');
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-description-text').locator('em')).toHaveText('west');
+		await expect(page.locator('.maplibregl-popup')).toHaveCount(0);
 		expect(failures).toEqual([]);
 	});
 });
@@ -861,7 +940,7 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		return layerId;
 	}
 
-	test('the payload is inert in the popup on the map', async ({ page }) => {
+	test('the payload is inert in the row where the Annotation is read', async ({ page }) => {
 		// ┌───────────────────────────────────────────────────────────────────────────────────────┐
 		// │ THE ONE PAYLOAD TEST THIS SEAM KEEPS, AND WHY IT IS THIS ONE.                         │
 		// └───────────────────────────────────────────────────────────────────────────────────────┘
@@ -869,36 +948,57 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		// The payload matrix itself is a claim about a pure pipeline — `marked` parses, DOMPurify
 		// sanitises, in that order — and it is asserted over the same payload in
 		// `packages/core/src/annotation/markdown.browser.test.ts`, where a real DOM is the assertion
-		// and no application has to boot.
+		// and no application has to boot. That file still exercises `renderAnnotationPopup` as well as
+		// `renderDescription`: the sanitiser did not retire with the popup (ticket 07).
 		//
 		// What no test there can fail for is **whether the application calls it**. The sanitiser could
-		// be perfect and this popup could set `innerHTML` from the raw `description`, and every
-		// assertion one seam down would still pass. So the wiring is asserted here, on the reader's
-		// own path to the popup — a click on the map — and it is asserted over both fields, because a
-		// sanitiser applied to one of an Annotation's two text surfaces is a vulnerability with a
-		// passing test.
+		// be perfect and this row could set `innerHTML` from the raw `description`, and every assertion
+		// one seam down would still pass. So the wiring is asserted here, on the reader's own path to
+		// the Annotation — a click on the map, which opens its row — and it is asserted over both
+		// fields, because a sanitiser applied to one of an Annotation's two text surfaces is a
+		// vulnerability with a passing test.
 		const failures = watchFailures(page);
 		await withPayload(page);
 		await chooseTool(page, 'select');
 
-		// Clicked on the map, which is the reader's own path to it and the one ticket 17 inherits.
+		// Clicked on the map, which is the reader's own path to it. The row it opens is the surface,
+		// and no popup is drawn over the Base Map at all.
 		await clickAt(baseMap(page), 0.5, 0.5);
-		await expect(page.locator('.maplibregl-popup')).toBeVisible();
+		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.locator('.maplibregl-popup')).toHaveCount(0);
 
-		const inert = await inertWithin(page, '.maplibregl-popup-content');
-		expect(inert.missing).toBe(false);
-		expect(inert.scripts).toBe(0);
-		expect(inert.images).toBe(0);
-		expect(inert.svgs).toBe(0);
-		expect(inert.iframes).toBe(0);
-		expect(inert.ids).toBe(0);
-		expect(inert.handlers).toEqual([]);
-		expect(inert.executableUrls).toEqual([]);
-		// Both the title and the description are in this popup, so these cover both fields: the title's
-		// characters survive as text, and the description's prose renders with its emphasis.
-		expect(inert.text).toContain('onerror');
-		expect(inert.text).toContain('The west quay, per the survey.');
-		await expect(page.locator('.maplibregl-popup-content strong')).toHaveText('west');
+		// **Two hosts rather than one**, because the panel around them is full of this app's own
+		// controls: Lucide glyphs are first-party `<svg>`, which the probe counts as an embed
+		// because in a *stranger's description* an `<svg>` is an execution route. Probing the whole
+		// editor would be asking about the swatches rather than about the author's string.
+		const description = await inertWithin(page, '[data-testid="annotation-description-text"]');
+		expect(description.missing).toBe(false);
+		// **The prose first.** A description that renders nothing at all passes every assertion
+		// below it, and nothing is exactly what `{@html}` produces when Svelte has adopted
+		// prerendered nodes for it.
+		expect(description.text).toContain('The west quay, per the survey.');
+		await expect(page.getByTestId('annotation-description-text').locator('strong')).toHaveText(
+			'west'
+		);
+		expect(description.scripts).toBe(0);
+		expect(description.images).toBe(0);
+		expect(description.svgs).toBe(0);
+		expect(description.iframes).toBe(0);
+		expect(description.ids).toBe(0);
+		expect(description.handlers).toEqual([]);
+		expect(description.executableUrls).toEqual([]);
+
+		// The title reached the row as characters — a Svelte interpolation, which is a different
+		// mechanism from the description's and is why it is asserted separately.
+		const title = await inertWithin(page, '[data-testid="annotation-title-text"]');
+		expect(title.missing).toBe(false);
+		expect(title.text).toContain('onerror');
+		expect(title.scripts).toBe(0);
+		expect(title.images).toBe(0);
+		expect(title.svgs).toBe(0);
+		expect(title.handlers).toEqual([]);
+		expect(title.executableUrls).toEqual([]);
+
 		expect(await nothingRan(page)).toEqual({
 			ran: false,
 			injectedImage: false,
@@ -914,11 +1014,11 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		const layerId = await withPayload(page);
 		const before = await hashesUnder(page, 'annotations/');
 
-		// Selected *by the click on the map*, with nothing selected before it — see the popup test above
+		// Selected *by the click on the map*, with nothing selected before it — see the row test above
 		// for why the click is not made on top of a drag handle.
 		await chooseTool(page, 'select');
 		await clickAt(baseMap(page), 0.5, 0.5);
-		await expect(page.locator('.maplibregl-popup')).toBeVisible();
+		await expect(page.getByTestId('annotation-description-text')).toBeVisible();
 		// Tab out of the title field, which is the shape ticket 02 got wrong: a blur must not rewrite.
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').focus();
@@ -1670,6 +1770,9 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 			'aria-expanded',
 			'true'
 		);
+		// And nothing was drawn over the map: the row is the destination, so a bubble over the pin
+		// would be a second place to read one Annotation (ticket 07).
+		await expect(page.locator('.maplibregl-popup')).toHaveCount(0);
 
 		expect(failures).toEqual([]);
 	});

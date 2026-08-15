@@ -492,9 +492,11 @@ export type {
 // the scholarly content a user places on the map. `geojson.js` is the only module here permitted
 // GeoJSON's own vocabulary — `Feature`, `FeatureCollection` — for the same reason.
 //
-// Both apps: the editor draws and edits them, and the published viewer renders them and their
-// popups through the very same `renderAnnotationPopup` (ADR-0019), which is what makes ticket 17's
-// assertion that the same payload is inert in a Published Site mean anything at all.
+// Both apps: the editor draws and edits them, and the published viewer renders them through the very
+// same `renderDescription` (ADR-0019), which is what makes the assertion that the same payload is
+// inert in a Published Site mean anything at all. `renderAnnotationPopup` is the same pipeline with a
+// title assembled onto it; no screen calls it since the map popup retired, and it is kept because the
+// sanitiser did not retire with the popup.
 export {
 	ANNOTATION_COLORS,
 	DASHED_DASHARRAY,

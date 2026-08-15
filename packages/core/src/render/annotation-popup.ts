@@ -1,10 +1,16 @@
-// An Annotation's popup on the Base Map (SPEC story 67).
+// An Annotation's popup on a MapLibre map.
+//
+// ⚠ **No screen calls this today, and it is kept deliberately.** The map popup retired from the
+// Project screen in both apps (`one-shell-two-apps` ticket 07): an Annotation is read in its own row
+// in the Layer sidebar, which is one destination for one gesture instead of two that can disagree.
+// What did *not* retire is the sanitiser — this is the module the payload matrix in
+// `../annotation/markdown.browser.test.ts` exercises, and it is the shape any future popup surface
+// has to take rather than a shape somebody would have to rediscover.
 //
 // **The rendering is not here.** `renderAnnotationPopup` in `../annotation/markdown.ts` builds the
 // HTML, escaping the title and sanitising the description, and this module only puts the result on the
-// map. That split is the whole reason ticket 17 can assert the same payload is inert in a Published
-// Site: the viewer draws its popups with this very function, and there is no second place where a
-// `description` becomes HTML (ADR-0009).
+// map. That split is what lets the same payload be asserted inert wherever an Annotation is rendered:
+// there is no second place where a `description` becomes HTML (ADR-0009).
 //
 // **There is one `setHTML` call in this repository and it is below.** That is why this module is in
 // `core` rather than duplicated per app: a second copy would be a second place for an edit to reach

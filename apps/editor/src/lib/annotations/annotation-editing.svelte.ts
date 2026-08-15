@@ -134,15 +134,6 @@ export class AnnotationEditing {
 	undoRefusal = $state('');
 
 	/**
-	 * Where the open popup is anchored, or `null` for none.
-	 *
-	 * The *place* rather than the popup, because MapLibre's `Popup` belongs inside the pane that owns
-	 * the map — the screen says which Annotation is open and where, and the pane puts it on the map. A
-	 * page holding a `Popup` would be a second thing reaching into MapLibre from outside it.
-	 */
-	popupAt = $state.raw<GeoPoint | null>(null);
-
-	/**
 	 * The open Layer, when it is an Annotation Layer. `null` when nothing is open, when a map or a
 	 * `foreign` Layer is open, and when the open Layer has since been deleted.
 	 *
@@ -202,21 +193,18 @@ export class AnnotationEditing {
 	openLayer(id: string | null): void {
 		this.openLayerId = id;
 		this.selectedAnnotationId = null;
-		this.popupAt = null;
 		this.drawing.cancel();
 	}
 
 	/**
-	 * Select an Annotation, and where asked, show what it says.
+	 * Select an Annotation, which is the same act as opening its row (ticket 07).
 	 *
-	 * The popup is the reader-facing surface and is shown to the author too, because an author needs to
-	 * see what a reader will — it is the only place the rendered Markdown appears over the map rather
-	 * than beside it. Selecting from the list opens no popup: there is no place on the map the user
-	 * pointed at, and one appearing at an arbitrary coordinate would be worse than none.
+	 * One value rather than two: the selected Annotation is the open row, wherever the selection was
+	 * made. Nothing is drawn over the map for it — a click on a shape is answered in the sidebar,
+	 * which is where an Annotation is read in both apps.
 	 */
-	selectAnnotation(id: string | null, at: GeoPoint | null = null): void {
+	selectAnnotation(id: string | null): void {
 		this.selectedAnnotationId = id;
-		this.popupAt = id === null ? null : at;
 	}
 
 	/**
@@ -226,9 +214,9 @@ export class AnnotationEditing {
 	 * precisely what this is making. Nothing is part-drawn here: the caller's guard is that the select
 	 * tool is in hand.
 	 */
-	openFromMap(layerId: string, annotationId: string, at: GeoPoint | null): void {
+	openFromMap(layerId: string, annotationId: string): void {
 		this.openLayerId = layerId;
-		this.selectAnnotation(annotationId, at);
+		this.selectAnnotation(annotationId);
 	}
 
 	/** Replace the active Layer's collection in memory and write it. */
@@ -321,7 +309,6 @@ export class AnnotationEditing {
 			style: styleForNewAnnotation(collection)
 		});
 		this.selectedAnnotationId = annotation.id;
-		this.popupAt = null;
 		await this.commitAnnotations(addAnnotation(collection, annotation));
 	}
 
@@ -435,7 +422,6 @@ export class AnnotationEditing {
 		// A refusal is about the record that is being replaced, so it goes with it.
 		this.undoRefusal = '';
 		this.selectedAnnotationId = null;
-		this.popupAt = null;
 		await this.commitAnnotations(removeAnnotation(collection, id));
 		if (!annotation) return;
 		const record: AnnotationDeletedUndo = {
@@ -498,7 +484,6 @@ export class AnnotationEditing {
 		}
 		this.openLayerId = layer.id;
 		this.selectedAnnotationId = record.annotation.id;
-		this.popupAt = null;
 		await this.commitAnnotationsIn(
 			layer,
 			insertAnnotationAt(collection, record.annotation, record.at)
