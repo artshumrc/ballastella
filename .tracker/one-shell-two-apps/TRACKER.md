@@ -18,7 +18,7 @@ below.
 
 Overall status: `In Progress`
 
-Current ticket: 07, 10 (wave 6, parallel)
+Current ticket: 07 (in review); 12 queued behind it
 
 Last updated: 2026-08-14
 
@@ -35,7 +35,7 @@ Last updated: 2026-08-14
 | 07 | [07-the-map-popup-retires-on-the-project-screen.md](./tickets/07-the-map-popup-retires-on-the-project-screen.md) | In Progress | 06 | run-epic wave 6 |
 | 08 | [08-annotations-are-numbered-on-the-map-and-on-the-row.md](./tickets/08-annotations-are-numbered-on-the-map-and-on-the-row.md) | Completed | 06 | — |
 | 09 | [09-the-hub-and-the-front-page-are-one-list.md](./tickets/09-the-hub-and-the-front-page-are-one-list.md) | Completed | 02 | — |
-| 10 | [10-the-alignment-route-joins-the-shell.md](./tickets/10-the-alignment-route-joins-the-shell.md) | In Progress | 03, 08 | run-epic wave 6 |
+| 10 | [10-the-alignment-route-joins-the-shell.md](./tickets/10-the-alignment-route-joins-the-shell.md) | Completed | 03, 08 | — |
 | 11 | [11-the-map-panes-notices-are-one-component.md](./tickets/11-the-map-panes-notices-are-one-component.md) | Completed | 05 | — |
 | 12 | [12-the-leader-line.md](./tickets/12-the-leader-line.md) | Not Started | 08, 10 | — |
 
