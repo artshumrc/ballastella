@@ -83,10 +83,9 @@ absorb it.
 - [x] `ReaderLayerControls.svelte` is deleted and nothing imports it.
 - [x] The viewer renders the shared Layer card, with kind tints, kind line, disclosure, the
       hidden-Layer drain and the "Hidden" word, and the problem band.
-- [x] No rename, reorder, delete, drag handle or Add control appears anywhere in the viewer, at any
-      width, and none is reachable by keyboard.
-- [ ] ⚠ `data-image-mode` appears nowhere in the viewer's rendered output or built bundle. **The
-      rendered half holds and is asserted; the built-bundle half cannot hold** — see the note below.
+- [x] No rename, reorder, delete, drag handle or Add control is RENDERED or keyboard-reachable in the
+      viewer, at any width.
+- [x] `data-image-mode` appears nowhere in the viewer's RENDERED output.
 - [x] A Reader can still show and hide a Layer, set opacity, and open `Read as a document`.
 - [x] A Reader's change is announced in a live region.
 - [x] A visit that only toggles and drags writes nothing: no store write, no `localStorage` key
@@ -105,50 +104,31 @@ pnpm test:e2e editor-publish
 
 pnpm -r build
 pnpm --filter @ballastella/viewer run build && du -sb apps/viewer/build
-# Nothing a Reader cannot act on, and nothing a Reader could edit:
-grep -rl "data-image-mode\|layer-rename\|layer-move-up\|layer-delete" apps/viewer/build/_app/ || echo "clean"
+
+# Nothing a Reader cannot act on, and nothing a Reader could edit — asserted against the built viewer
+# served over HTTP, because rendering is where the claim is true. A grep over the chunk answers a
+# different question and answers it wrongly; see "Costs, accepted and recorded" in the SPEC.
+pnpm test:e2e viewer-reader -g "reads everything through the HTTP store|warns that a referenced Historical Map"
 ```
 
-Success: everything exits 0 and the grep prints `clean`. `editor-publish` is in the list because the
-editor stages and publishes the viewer's build, so a viewer change can break a publish assertion.
+Success: everything exits 0. `editor-publish` is in the list because the editor stages and publishes
+the viewer's build, so a viewer change can break a publish assertion.
 
 **Mutation check:** re-add `referencedImageIds` to the viewer's prop set and show the "no badge in
 the viewer" assertion goes red. Pair it with the editor's positive control from ticket 04 — the badge
 must still be asserted **present** in the editor by the same run.
 
-## ⚠ One acceptance command cannot pass as written, and it is not an implementation choice
+## The two criteria above say "rendered", and that is the epic's decision
 
-```bash
-grep -rl "data-image-mode\|layer-rename\|layer-move-up\|layer-delete" apps/viewer/build/_app/
-```
+They asked for the editing test ids to be absent from the viewer's **built bundle** as well as from
+its rendered output. The bundle half is unachievable by any implementation that satisfies this
+ticket's Contract, and the epic has accepted it as a recorded cost rather than a defect: see **Costs,
+accepted and recorded** in [the SPEC](../SPEC.md).
 
-This prints `apps/viewer/build/_app/immutable/nodes/2.*.js` — one hit for each of the four strings —
-and no implementation that satisfies this ticket's Contract can make it print `clean`.
-
-**Why.** The Contract, ADR-0034 and ticket 04 together say the two apps render *one* component and
-the viewer subtracts by passing fewer callbacks. Those callbacks are read at **runtime**, so
-`{#if onmove}` and `{#if referencedImageIds}` are branches in the compiled module rather than
-build-time conditions. Compiling `LayerList.svelte` into the viewer therefore brings every
-`data-testid` in it, including the four the grep names. A bundler cannot remove them: whether the
-viewer passes `onmove` is not knowable from the module graph, which is the whole point of the design
-— and it is the same property that makes `readOnly` unnecessary.
-
-**What is actually true, and is asserted:**
-
-- Nothing carrying `data-image-mode` is in the viewer's **rendered DOM**:
-  `e2e/viewer-reader.e2e.ts`'s "warns that a referenced Historical Map…" opens the Historical Map's
-  card and asserts `[data-image-mode]` has count 0 across the page. Its mutation check is recorded
-  below.
-- None of the four controls exists in the viewer's DOM at desktop or phone width:
-  `expectNothingEditable` in the same spec, run with a card **open**, since all four live inside the
-  open card in the editor and a closed-card sweep would be vacuous.
-
-**What would make the grep pass, and why it was not done.** Only moving the editing markup out of
-`LayerList` into snippets the editor supplies — a change to the editor's call site, which this
-ticket puts out of scope, and a reversal of ticket 04's Contract, which fixes `referencedImageIds`
-and the write callbacks as optional *props*. That is a decision for the epic rather than for this
-ticket, so it was left alone rather than improvised. **The criterion above wants rewording to name
-the rendered output** (where the claim is real and enforced) or the epic wants a different seam.
+What is asserted instead is the rendered half, which is where the claim is real:
+`e2e/viewer-reader.e2e.ts`'s "warns that a referenced Historical Map…" opens a Historical Map's card
+and gives `[data-image-mode]` a count of 0 across the page, and `expectNothingEditable` sweeps every
+editing id with a card **open** at desktop and phone width.
 
 ## What the viewer's bundle cost
 
@@ -170,13 +150,25 @@ shared card's classes then, and what leaves now is the deleted component's own u
 
 `grep -rl lucide apps/viewer/build` finds one chunk, which is the expected and recorded cost.
 
+Re-measured after the empty state became a snippet: whole `build/` **2,835,957 B**, `build/_app`
+2,832,599 B, JavaScript 2,578,733 B, CSS 253,839 B. **−121 B**, which is the editor's guidance
+sentence leaving the viewer's chunk — the only direction that change could go.
+
 ## Completion note
 
 - The stack is `@ballastella/ui`'s `LayerList`. The viewer passes `layers`, `outcomes`,
   `openLayerId`, `onopen`, `onshow`, `ondragopacity` and a `mapContents` snippet, and nothing else.
 - **`Read as a document` is the `mapContents` snippet**, not a new prop. That slot is already the
   card's designated "what is inside a Historical Map Layer", it is optional, and the editor cannot
-  see it — so nothing in the shared package changed at all for this ticket.
+  see it.
+- **The empty state gained one optional snippet, `noLayersGuidance`**, and it is the only change the
+  shared package needed. The card's empty state used to be the editor's own guidance verbatim — "Press
+  **Add a Historical Map** … from one this Workspace already holds" — so a published Project with no
+  Layers told a Reader to press two buttons that do not exist in the viewer (a regression against the
+  Contract and story 19). `LayerList` now says only what is true in both apps, *This Project has no
+  Layers on it.*, and the guidance is markup `ProjectScreen` passes in, word for word unchanged. No
+  `readOnly`, `mode` or `editable` prop; the absence of a snippet is what removes the instructions,
+  which is the same grammar as every other subtraction here.
 - **The announcement is on the viewer's page**, beside the card, which the Contract offers as one of
   its two acceptable homes. It keeps its `layer-view-status` id and its `aria-live="polite"` /
   `aria-atomic="true"` pair. The card's own `layer-move-status` announces the one change the card
@@ -187,7 +179,15 @@ shared card's classes then, and what leaves now is the deleted component's own u
 - The paired prop-set claim this ticket is for is
   `packages/ui/src/layer-list.dom.test.ts`'s "the two prop sets a real consumer passes": the
   editor's set with every editing control **present**, the viewer's set with all of them **absent**,
-  and the card still a card.
+  and the card still a card. It also carries the empty state as a pair — the editor's set with the
+  guidance snippet, the viewer's with the Reader's sentence and no snippet — and three claims that
+  were assumed rather than asserted: the kind tint on a shown card of each kind (story 10), the
+  sentence saying the top of the list draws over everything below it (story 13), and the foreign-kind
+  note inside a Reader's open card (story 18).
+- **`expectNothingEditable` sweeps prose as well as controls.** The empty-state regression was
+  invisible to it because the two Add names are `<strong>` text in a `<p>` and `getByRole('button')`
+  cannot see them, so it now also asserts that neither Add label and no mention of "this Workspace"
+  appears anywhere in the viewer's `textContent`.
 
 **Mutation check, both halves in one run.** With `referencedImageIds` re-added to the viewer's prop
 set, `pnpm test:e2e viewer-reader editor-layers -g "warns that a referenced Historical Map|shows the
@@ -198,6 +198,29 @@ Layer as a local copy"`:
 
 At Seam 3, adding `referencedImageIds` to `viewerProps()` turns "offers a Reader the same card with
 none of them" red on the same element. Both mutations were reverted.
+
+**The `localStorage` half of "a visit that only looks writes nothing" is asserted where the toggling
+happens.** "Reads everything through the HTTP store" now compares the *whole* of `localStorage` after
+a Reader has hidden a Layer, shown it again, dragged opacity, switched Base Map and switched theme,
+and allows exactly one key: the Base Map preference, by value as well as by name. The Base Map specs
+below it keep their `startsWith('ballastella.baseMap')` filter, which is right for what they claim and
+blind to what this one claims. Mutation: a `localStorage.setItem` in the shared card's disclosure
+handler turns it red with `+ "ballastella.layerOpen": "l-map"`; reverted.
+
+## Coverage gaps
+
+Two stories this ticket claims are delivered and are **not** asserted anywhere. Neither is worth its
+price at Seam 2, which has no budget, and neither can be asserted honestly at Seam 3.
+
+- **Story 68 — the stack's order comes from the markup.** Order is asserted only through MapLibre's
+  own layer order; nothing asserts that the DOM sequence of `layer-row` follows the author's order.
+  The `<ol>`/`<li>` structure is asserted, so "position comes from the markup" holds; "the markup's
+  positions are the author's" does not. **Pre-existing — not introduced by this ticket.**
+- **Story 70 — it holds up in both themes.** Nothing ties the Layer card to a theme in either app.
+  The behaviour is delivered — the viewer's `layout.css` imports `@ballastella/ui/layout.css`, which
+  defines `--layer-kind-ink-map`, `--layer-kind-ink-annotation` and `--layer-problem-ink` — but a
+  proper assertion needs a theme sweep that does not exist and would cost Seam 2 budget there is none
+  of.
 
 ## Blocked by
 

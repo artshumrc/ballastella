@@ -192,6 +192,7 @@ Nothing in this epic writes a different byte to disk. No `formatVersion` bump, n
 - **`@lucide/svelte` becomes a viewer dependency.** Per-glyph imports, so the weight is small; `scripts/check-viewer-deps.mjs` permits it. The before-and-after bundle size is recorded.
 - **`terra-draw` is not in the way.** It is not a dependency anywhere in this repository — every mention is a comment arguing why it was declined, three tickets running — and the tiler draws in no dependency of its own. The drawing surface can therefore live in the shared package like anything else; it is simply not passed to the viewer.
 - **Every moved component's harness moves with it**, and the component seam must exist in `packages/ui` or the shared components are tested in the app they left.
+- **The viewer's chunk carries the editor's markup as dead branches.** One shared component means every `data-testid` in it — `layer-delete`, `layer-rename`, the two reorder buttons — is compiled into the viewer's bundle inside an `{#if}` the viewer never enters. Runtime props cannot be tree-shaken: whether a consumer passes `onmove` is not knowable from the module graph, which is the same property that makes a `readOnly` flag unnecessary. So every absence claim in this epic is made against **rendered output**, and a grep over built JavaScript is not a check any ticket may be asked to pass.
 
 ## Testing Decisions
 

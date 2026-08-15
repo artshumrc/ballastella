@@ -943,6 +943,7 @@
 					ondragopacity={(id, opacity) => session.dragLayerOpacity(id, opacity)}
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
 					ondelete={(id) => void session.deleteLayer(id)}
+					{noLayersGuidance}
 					preparing={session.ingest ? preparingLayer : undefined}
 					{mapContents}
 					problemAction={layerProblemAction}
@@ -1383,6 +1384,24 @@
 	Nothing here says the opposite when a map *is* aligned — the Align button is that affordance either
 	way, and an unrequested "Aligned" line was the first cut's other mistake.
 -->
+{#snippet noLayersGuidance()}
+	<!--
+		What an empty stack tells a scholar, and **it names the two buttons that are actually there**
+		(SPEC story 106). "Add a Historical Map" and "Add an Annotation Layer" are the words on the
+		controls below the stack, not a description of them: guidance that names something the user then
+		has to translate into what is on screen is guidance they have to solve first.
+
+		**Here rather than in `LayerList`, because it is instructions for this screen's own controls.**
+		The published viewer renders the same stack and has neither button and no Workspace, so a Reader
+		who opened a Project with nothing on it was being sent to look for a control that does not exist.
+		`LayerList` keeps the half that is true in both apps — that there are no Layers — and this is the
+		half that is only true here.
+	-->
+	No Layers yet. Press <strong>Add a Historical Map</strong> to bring one in — from a file, from a
+	library, or from one this Workspace already holds — and it appears here straight away, aligned or
+	not. <strong>Add an Annotation Layer</strong> is for whenever you have something to say over it.
+{/snippet}
+
 {#snippet preparingLayer()}
 	<!--
 		The Historical Map being prepared, as its own card at the top of the stack (ticket 06).

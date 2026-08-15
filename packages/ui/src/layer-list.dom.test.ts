@@ -198,6 +198,7 @@ type OptionalProps = {
 	onmove?: (id: string, toIndex: number) => void;
 	ondelete?: (id: string) => void;
 	referencedImageIds?: ReadonlySet<string>;
+	noLayersGuidance?: Snippet;
 	mapContents?: Snippet<[MapLayer]>;
 	annotationContents?: Snippet<[]>;
 	problemAction?: Snippet<[Layer]>;
@@ -433,6 +434,29 @@ describe('an empty stack', () => {
 
 		expect(one('no-layers')).toBeInTheDocument();
 		expect(all('layer-row')).toHaveLength(0);
+	});
+});
+
+describe('what the stack says about itself (SPEC story 13)', () => {
+	test('says in words that the top of the list draws over everything below it', () => {
+		// The order means something a user can check, and the only place it is *said* is here — the `<ol>`
+		// carries the sequence to a screen reader but nothing in the markup says which end is on top.
+		// Asserted against the section the heading names, so a sentence moved out of the stack into some
+		// other part of a consumer's screen does not keep this green.
+		stack({ layers: [mapLayer('l-map', 'La Floride')] });
+
+		const section = document.querySelector('section[aria-labelledby="layer-stack-heading"]');
+		expect(section).toHaveTextContent('The top of this list draws over everything below it.');
+	});
+
+	test('says it to a Reader too, whose stack it is equally true of', () => {
+		// The sentence is the card's own rather than a consumer's, so it survives the prop set that
+		// removes every control — which is what makes it true of the app where the order was fixed by
+		// somebody else and can only be read.
+		offering({ onshow: vi.fn() }, { layers: [mapLayer('l-map', 'La Floride')] });
+
+		const section = document.querySelector('section[aria-labelledby="layer-stack-heading"]');
+		expect(section).toHaveTextContent('The top of this list draws over everything below it.');
 	});
 });
 
@@ -977,6 +1001,60 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 		expect(one('layer-visible')).toBeInTheDocument();
 		expect(one('layer-opacity')).toBeInTheDocument();
 		expect(all('layer-disclosure')).toHaveLength(2);
+	});
+
+	test('tells a Reader an empty Project is empty, and leaves the instructions to the editor', () => {
+		// ⚠ **The regression this pair exists for.** The empty state used to be the editor's guidance
+		// unconditionally, so a published Project with no Layers told a Reader to press *Add a Historical
+		// Map* and mentioned "this Workspace" — two controls and a concept a published site does not have
+		// (SPEC story 19). The fact is shared; the instructions are the consumer's markup.
+		//
+		// A marker rather than the editor's own words, because `packages/ui` may not import from `apps/`
+		// (ADR-0034) and a sentence spelled out here would be this file agreeing with itself. The words
+		// are held against the buttons they name by `e2e/editor-add-historical-map.e2e.ts`'s "the empty
+		// Project names the button that fills it".
+		offering(
+			{ ...editorProps(), noLayersGuidance: marker<[]>('supplied-no-layers-guidance') },
+			{ layers: [] }
+		);
+
+		expect(one('supplied-no-layers-guidance')).toBeInTheDocument();
+		// The consumer's guidance replaces the bare fact rather than being added under it: an editor that
+		// said both would be telling a scholar the same thing twice.
+		expect(one('no-layers')).not.toHaveTextContent('This Project has no Layers on it.');
+
+		takeDown();
+		offering(viewerProps(), { layers: [] });
+
+		expect(one('supplied-no-layers-guidance')).not.toBeInTheDocument();
+		expect(one('no-layers')).toHaveTextContent('This Project has no Layers on it.');
+	});
+
+	test('tints a shown Layer’s header in its own kind’s colour for a Reader (SPEC story 10)', () => {
+		offering(viewerProps(), { layers: stackOfBoth() });
+
+		// Written out rather than read from `KIND_STYLE`, for the reason {@link NOT_ALIGNED} gives: a
+		// class read off the table would agree with the table whatever either of them said. What is
+		// asserted is that two kinds differ before a word has been read — and that neither is wearing the
+		// drained wash the hidden test below asserts, which is the state that would make them the same.
+		expect(nth('layer-header', 0)).toHaveClass('bg-accent/10');
+		expect(nth('layer-header', 1)).toHaveClass('bg-info/10');
+		expect(nth('layer-header', 0)).not.toHaveClass('bg-base-content/5');
+		expect(nth('layer-header', 1)).not.toHaveClass('bg-base-content/5');
+	});
+
+	test('tells a Reader a Layer of a kind this build cannot draw is left alone (SPEC story 18)', () => {
+		offering(viewerProps(), {
+			layers: [foreignLayer('l-cartouche', 'Cartouche')],
+			openLayerId: 'l-cartouche'
+		});
+
+		// A site published by a newer version still opens, and the Layer it could not draw says which
+		// kind it was rather than going missing — in the app where nobody can open the file to find out.
+		expect(one('layer-kind')).toHaveTextContent('Not shown by this version (image-annotation)');
+		expect(one('layer-foreign-note')).toHaveTextContent(
+			'a kind this version of Ballastella does not understand'
+		);
 	});
 
 	test('drains a hidden Layer’s card and says "Hidden" for a Reader too', () => {

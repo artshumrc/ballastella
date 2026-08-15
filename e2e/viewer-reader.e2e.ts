@@ -318,14 +318,18 @@ const layerVisible = (page: Page, id: string): Locator =>
 /**
  * Every control the shared card offers the editor and must never offer a Reader (SPEC story 19).
  *
- * ⚠ **These absences are not asserted alone**, which is the rule this epic keeps: each id below is
- * asserted *present* against the editor's prop set in `packages/ui/src/layer-list.dom.test.ts`, and
- * `layer-image-mode` is asserted present in the running editor by
- * `e2e/editor-layers.e2e.ts`'s "shows the Layer as a local copy". Rename one of these strings and
- * those go red rather than these going quietly green.
+ * ⚠ **These absences are not asserted alone**, which is the rule this epic keeps: every id below
+ * except `layer-name` is asserted *present* against the editor's prop set in
+ * `packages/ui/src/layer-list.dom.test.ts`, and `layer-image-mode` is asserted present in the running
+ * editor by `e2e/editor-layers.e2e.ts`'s "shows the Layer as a local copy". Rename one of these
+ * strings and those go red rather than these going quietly green.
  *
  * `layer-name` is the rename *field*, which only exists behind the pencil — so its absence here says
- * the pencil could not have been pressed either.
+ * the pencil could not have been pressed either. Its positive control is the pencil being *pressed*
+ * rather than a prop set: `layer-list.dom.test.ts`'s "offers the rename pencil, and the name as a
+ * field, only with ontypename and oncommit" and `e2e/editor-layers.e2e.ts`'s "reorder, rename, toggle,
+ * and opacity leave alignments and annotations byte-identical" both press it and then fill the field
+ * that appears.
  */
 const EDITING_CONTROLS = [
 	'layer-rename',
@@ -338,12 +342,34 @@ const EDITING_CONTROLS = [
 ] as const;
 
 /**
- * Nothing on this page could change the author's work.
+ * Words that only make sense to somebody who can edit, which must reach no Reader.
+ *
+ * ⚠ **Prose, because a sweep that looks only for controls misses the sentences about them.** The
+ * shared card's empty state was the editor's own guidance verbatim, so a published Project with no
+ * Layers told a Reader to press two buttons that do not exist there and named the Workspace they draw
+ * from — invisible to every assertion above, because the two Add names are `<strong>` text inside a
+ * `<p>` and nothing on that page is a `button` at all.
+ *
+ * Each phrase is one the editor really says: the two Add labels are the words on
+ * `ProjectScreen`'s own buttons, and "this Workspace" is the concept a published site does not have.
+ */
+const EDITOR_ONLY_PROSE = [
+	'Add a Historical Map',
+	'Add an Annotation Layer',
+	'this Workspace'
+] as const;
+
+/**
+ * Nothing on this page could change the author's work, or tell a Reader how to.
  *
  * A count of zero rather than "not visible": a control that is not in the document cannot be clicked,
  * cannot be tabbed to, and cannot be reached by a screen reader — which is the whole of the claim,
  * and stronger than anything a focus walk could assert. The Add controls are the editor's Project
  * screen's rather than the card's, and are named by the words on them for the same reason.
+ *
+ * The prose sweep reads `textContent` rather than `innerText`, so a sentence in an `sr-only` region
+ * is caught too: an instruction only a screen-reader user is given is the worst version of this bug,
+ * not an acceptable one.
  */
 async function expectNothingEditable(page: Page): Promise<void> {
 	for (const control of EDITING_CONTROLS) {
@@ -351,6 +377,9 @@ async function expectNothingEditable(page: Page): Promise<void> {
 	}
 	await expect(page.getByRole('button', { name: /^Add a/ })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: /^Add an/ })).toHaveCount(0);
+	for (const phrase of EDITOR_ONLY_PROSE) {
+		await expect(page.locator('body'), `“${phrase}” in the viewer`).not.toContainText(phrase);
+	}
 }
 
 /**
@@ -862,6 +891,23 @@ test.describe('a Published Site a Reader arrives at', () => {
 
 		expect(seen.requests.filter((request) => request.method !== 'GET')).toEqual([]);
 		expect(seen.failures).toEqual([]);
+
+		// **And nothing was written to this origin either** — the other half of "a visit that only looks
+		// writes nothing", and the half the wire cannot see.
+		//
+		// ⚠ **The whole of `localStorage`, with no filter before the comparison.** The Base Map tests
+		// below read the same storage through a `startsWith('ballastella.baseMap')` filter, which is right
+		// for what *they* claim — that the preference is keyed by site — and useless for this one: a key
+		// this app should not be writing at all is exactly the key such a filter drops. The Layer card is
+		// now shared with the editor, so a card that learned to remember its open row would start writing
+		// on every published site, and this is the assertion that would go red for it.
+		//
+		// The one key allowed is the Base Map choice this test just made, asserted by its value as well as
+		// its name so that "the preference" means the preference rather than anything of that shape.
+		const chosenBaseMap = await page.getByTestId('base-map-switcher').inputValue();
+		expect(await page.evaluate(() => ({ ...window.localStorage }))).toEqual({
+			[`ballastella.baseMap:${site.sites[0]!.url}`]: chosenBaseMap
+		});
 
 		// And the Project's own bytes on disk are untouched — the stronger form of the same claim, since a
 		// static host would refuse a write and the app must not even have tried.
