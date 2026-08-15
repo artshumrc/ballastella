@@ -18,7 +18,7 @@ below.
 
 Overall status: `In Progress`
 
-Current ticket: 06 (in review), 11 (wave 4)
+Current ticket: 08 (wave 5), 11 (in review)
 
 Last updated: 2026-08-14
 
@@ -31,9 +31,9 @@ Last updated: 2026-08-14
 | 03 | [03-one-bar-shell-and-the-viewer-gets-a-navigation-bar.md](./tickets/03-one-bar-shell-and-the-viewer-gets-a-navigation-bar.md) | Completed | 02 | — |
 | 04 | [04-the-layer-card-moves-to-the-shared-package.md](./tickets/04-the-layer-card-moves-to-the-shared-package.md) | Completed | 02 | — |
 | 05 | [05-the-readers-stack-becomes-the-layer-card.md](./tickets/05-the-readers-stack-becomes-the-layer-card.md) | Completed | 04 | — |
-| 06 | [06-a-reader-reads-an-annotation-in-its-row.md](./tickets/06-a-reader-reads-an-annotation-in-its-row.md) | In Progress | 01, 05 | run-epic wave 4 (in review) |
+| 06 | [06-a-reader-reads-an-annotation-in-its-row.md](./tickets/06-a-reader-reads-an-annotation-in-its-row.md) | Completed | 01, 05 | — |
 | 07 | [07-the-map-popup-retires-on-the-project-screen.md](./tickets/07-the-map-popup-retires-on-the-project-screen.md) | Not Started | 06 | — |
-| 08 | [08-annotations-are-numbered-on-the-map-and-on-the-row.md](./tickets/08-annotations-are-numbered-on-the-map-and-on-the-row.md) | Not Started | 06 | — |
+| 08 | [08-annotations-are-numbered-on-the-map-and-on-the-row.md](./tickets/08-annotations-are-numbered-on-the-map-and-on-the-row.md) | In Progress | 06 | run-epic wave 5 |
 | 09 | [09-the-hub-and-the-front-page-are-one-list.md](./tickets/09-the-hub-and-the-front-page-are-one-list.md) | Completed | 02 | — |
 | 10 | [10-the-alignment-route-joins-the-shell.md](./tickets/10-the-alignment-route-joins-the-shell.md) | Not Started | 03, 08 | — |
 | 11 | [11-the-map-panes-notices-are-one-component.md](./tickets/11-the-map-panes-notices-are-one-component.md) | In Progress | 05 | run-epic wave 4 |
