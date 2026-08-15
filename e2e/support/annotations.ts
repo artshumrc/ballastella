@@ -454,7 +454,9 @@ export async function chooseTool(
  * **Puts the drawing tools away first**, because the list stands aside while a shape is armed —
  * somebody who has just pressed "New Annotation" is asking what to draw, not what is already here.
  * Drawing leaves the tool in hand, so a test that draws and then reaches for a row arrives while the
- * list is still out of the way. The editor is inside the open row, so it stands aside with it.
+ * list is still out of the way. The one exception is the Annotation just drawn, whose row stays open
+ * under the tools so that it can be titled straight away — but this helper is asked for *any* row,
+ * including one the tools are hiding, so it puts them away regardless.
  *
  * **Waits for the row that was left to finish closing.** A row collapses over 220 ms, so for that
  * long the Annotation being left still has its editor in the document alongside the one being opened

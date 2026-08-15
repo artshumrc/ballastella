@@ -361,3 +361,47 @@ describe('“New Annotation” clears the way for the one about to be drawn', ()
 		expect(all('annotation-list')).toHaveLength(0);
 	});
 });
+
+describe('the Annotation just drawn stays under the tools', () => {
+	// ⚠ **The regression these two are the fence around.** Before the editor moved into the row it was
+	// rendered outside this branch, so it survived the list stepping aside for the shape buttons.
+	// Inside the row it went behind the same curtain — and drawing deliberately leaves the tool in
+	// hand, so titling a shape then began with pressing "Done", which is the opposite of what drawing
+	// something is for. Armed *and* selected is the state the page is in the instant a shape lands.
+	//
+	// Asserted as a pair on purpose. "The row is there when something is selected" alone would pass a
+	// component that showed a row whatever happened; "no row when nothing is" alone would pass one
+	// that had gone back to hiding everything.
+
+	test('with a tool armed and an Annotation selected, that row and its editor are on screen', () => {
+		contents({
+			collection: collectionOf(
+				annotation({ id: 'a-1', title: 'The west quay' }),
+				annotation({ id: 'a-2', title: 'The east quay' })
+			),
+			selectedId: 'a-2',
+			tool: 'point'
+		});
+
+		// The tools are still out, so this is not merely the resting list under another name.
+		expect(one('annotation-tools')).toBeInTheDocument();
+		expect(all('annotation-list')).toHaveLength(0);
+
+		// One row, and it is the selected one rather than the first thing in the collection.
+		expect(all('annotation-row')).toHaveLength(1);
+		expect(one('annotation-row')).toHaveAttribute('data-annotation-id', 'a-2');
+		expect(one('annotation-row')).toHaveAttribute('aria-expanded', 'true');
+		expect(one('annotation-editor')).toHaveAttribute('data-annotation-id', 'a-2');
+	});
+
+	test('with a tool armed and nothing selected, no row is', () => {
+		contents({
+			collection: collectionOf(annotation({ id: 'a-1', title: 'The west quay' })),
+			tool: 'point'
+		});
+
+		expect(one('annotation-tools')).toBeInTheDocument();
+		expect(all('annotation-row')).toHaveLength(0);
+		expect(all('annotation-editor')).toHaveLength(0);
+	});
+});

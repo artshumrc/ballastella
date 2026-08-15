@@ -209,29 +209,32 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 	test('a shape drawn on the map arrives selected, in an editor of its own', async ({ page }) => {
 		await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
-		// The list is back once the tools are put away; the new pin is selected in it.
-		await chooseTool(page, 'select');
 
+		// **With the tool still in hand**, which is the flow rather than a shortcut: drawing does not
+		// disarm the tool, so a row that stood aside with the rest of the list would mean pressing
+		// "Done" before the shape just drawn could be titled. One row is on screen and it is that one.
+		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
 		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
 		await expect(page.getByTestId('annotation-editor')).toBeVisible();
 
-		// And it is the drawn one's panel rather than the previous Annotation's. "New Annotation"
-		// deselects — the component seam asserts that it does — and this is the other end of it: the
-		// panel that appears next belongs to the shape that was just drawn.
-		await selectAnnotation(page);
+		// And it can be titled from there, with the tool still armed.
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('The west quay');
 		await page.getByTestId('annotation-text-done').click();
 		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
 
+		// The list is back once the tools are put away, and the drawn Annotation is the selected one in
+		// it rather than something the tools left behind.
+		await selectAnnotation(page);
+		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
+
+		// And the panel that appears next belongs to the shape that was just drawn rather than to the
+		// previous Annotation. "New Annotation" deselects — the component seam asserts that it does —
+		// and this is the other end of it.
 		await page.getByTestId('annotation-new').click();
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(baseMap(page), 0.6, 0.6);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		// **Read once the tool is put down.** The editor lives inside its Annotation's own row now, so
-		// it stands aside with the list while a shape is armed — which is the same answer the list has
-		// always given to "what is already in this Layer" while somebody is drawing the next thing.
-		await chooseTool(page, 'select');
 		await expect(page.getByTestId('annotation-editor')).not.toContainText('The west quay');
 	});
 

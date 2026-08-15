@@ -136,6 +136,29 @@ deleting `transition:slide` outright. The comments in `AnnotationLayerContents.s
 Seam 2 test, and the Seam 2 budget is at its ceiling with nothing spare, so it is recorded here
 rather than spent.
 
+## Drawing flow
+
+**Re-parenting the editor into the row put it behind the drawing curtain, and that was a
+regression.** The editor used to render outside the `{#if choosing}` chain, so it stayed on screen
+while the list stepped aside for the shape buttons. Inside the row it steps aside with the list — and
+drawing deliberately does not disarm the tool, so three pins in a row are three clicks on the map. A
+scholar who drew a shape therefore had to press "Done" before they could title it, which is the
+opposite of the reason `selectAnnotation` gives for its own existence: "a newly drawn shape is
+selected so that it can be titled straight away, which is the point of drawing it."
+
+**Decided: the drawn row stays.** While a tool is armed the sidebar shows the tools and, if an
+Annotation is selected, that one row — open, with its editor inside it. The rest of the list stays
+away, because "what is already in this Layer" is still not the question somebody drawing is asking.
+There is no detached panel and no `readOnly` or `mode` prop: the row markup is one snippet rendered
+in both places. A selection can only be there because a shape was just drawn or a Place just pinned —
+"New Annotation" deselects — so the row on screen is always the one about to be titled.
+
+`e2e/editor-annotations.e2e.ts`'s "a shape drawn on the map arrives selected" asserted this by
+putting the tool down first, which is what hid the defect; it now draws, asserts, and titles with the
+tool still in hand. The pair of Seam 3 tests is in `annotation-layer-contents.dom.test.ts` under "the
+Annotation just drawn stays under the tools" — presence with a selection and absence without, so
+neither half can pass vacuously.
+
 ## Blocked by
 
 None — can start immediately.

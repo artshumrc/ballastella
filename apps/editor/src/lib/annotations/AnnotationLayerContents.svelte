@@ -109,6 +109,18 @@
 	const choosing = $derived(picking || tool !== 'select');
 
 	/**
+	 * The one Annotation that stays on screen while a tool is armed: the selected one, if there is
+	 * one.
+	 *
+	 * There can only be one, and it can only have just been made. "New Annotation" deselects, so
+	 * arriving here with a selection means a shape was drawn on the map or a Place was pinned since
+	 * the tools came out — which is exactly the Annotation somebody is about to title.
+	 */
+	const drawn = $derived(
+		choosing ? (annotations.find((annotation) => annotation.id === selectedId) ?? null) : null
+	);
+
+	/**
 	 * How long a row takes to open or close.
 	 *
 	 * The same pair the Layer cards' reorder uses, read from the same signal — see `moveAnimation` in
@@ -293,13 +305,131 @@
 		onchoose={onplace}
 	/>
 
+	<!--
+		One Annotation's row, rendered in two places: the whole list, and — while a shape is armed — on
+		its own under the drawing tools. A snippet rather than a second copy, because the two places
+		differ only in what surrounds them, and a row that drifted between them would be a disclosure
+		that behaved differently depending on whether a tool happened to be in hand.
+	-->
+	{#snippet annotationRow(annotation: Annotation, index: number)}
+		{@const Icon = iconForGeometry(annotation.geometry?.type)}
+		{@const chosen = annotation.id === selectedId}
+		<li class="border-b border-base-200 last:border-b-0">
+			<!--
+							**The chosen row is marked by the Annotation Layer's own wash, and nothing else.**
+							`KIND_STYLE.annotation.tint` is the same 10% the card's header wears, from the one table
+							every colour in this card comes from (`layer-kind-style.ts`).
+
+							It was `border-primary` with daisyUI's `menu-active`, which is two colours making two
+							claims: `primary` is the *app's* action colour, reserved for the controls outside the
+							Layer cards, and `menu-active` paints `base-content` — near-black in the light theme —
+							so a blue rule sat against a black slab in a card whose every other control is `info`.
+							Reported as clashing, and it was: nothing about either colour said "this belongs to the
+							Annotations".
+
+							**The rule down the left edge went with them.** It was the third mark on a row that
+							needed one, in a column that already draws a hairline between every row and a border
+							around the whole list — a fourth vertical line, two pixels from the box's own. The wash
+							alone says which row it is, and it is a wash rather than a fill for a reason: at 10%
+							over `base-100` the row's text stays on the colour it was already legible on, where a
+							`base-content` slab has to re-solve its own contrast and then repaint the text to win.
+
+							Colour is not the only channel (SPEC story 111): the name goes semibold, which survives
+							a monochrome screen, and `aria-expanded` is what carries the state to a screen reader.
+
+							**That button is also the disclosure, and its expanded state is the selection.** There
+							is deliberately no `aria-pressed` beside it: a row that was pressed but not open, or
+							open but not pressed, would be two answers to "which Annotation is active", and two
+							properties for one fact are two things that can disagree. `aria-expanded` is ADR-0016's
+							shape for a disclosure, which is what this is, and it is the Layer card's own convention
+							one level down rather than a second one invented here. There is no separate control
+							beside the name for the same reason: the gesture that chooses an Annotation is the
+							gesture that opens it.
+						-->
+			<button
+				bind:this={rowButton[annotation.id]}
+				type="button"
+				class={[
+					'flex w-full items-center gap-2 rounded-none py-2',
+					chosen && `font-semibold ${KIND_STYLE.annotation.tint}`
+				]}
+				aria-expanded={chosen}
+				aria-controls={chosen ? `annotation-contents-${annotation.id}` : undefined}
+				data-testid="annotation-row"
+				data-annotation-id={annotation.id}
+				onclick={() => void chooseRow(chosen ? null : annotation.id)}
+			>
+				<!--
+								The same glyph the tool that drew it carries, and **beside the word rather than
+								instead of it** (SPEC story 111) — the word is what a screen reader reads and what a
+								glyph alone would have taken away.
+							-->
+				<Icon class="size-4 shrink-0 opacity-60" aria-hidden="true" />
+				<span class="shrink-0 text-xs opacity-60">{shapeWord(annotation)}</span>
+				<span class="truncate" data-testid="annotation-row-name">
+					{describe(annotation, index)}
+				</span>
+			</button>
+
+			{#if chosen}
+				<!--
+								Everything this Annotation is, inside the row it belongs to. One row is open at a
+								time, because one Annotation is selected at a time and they are the same fact.
+
+								**`block` and `hover:bg-transparent` are undoing daisyUI's `menu`, not decoration.**
+								Every child of a `menu` `<li>` that is not a list or a `.btn` is laid out as a menu
+								item — grid, its own padding, and a background on hover — which is right for the row
+								above and wrong for a panel of controls that happens to sit under it.
+
+								`data-reveal-ms` is the number `reveal` computed, written out because it is otherwise
+								visible only to something that can watch an animation — the same reason `LayerList`
+								writes out `data-drop-target`. It is what lets a test read the reduced-motion branch's
+								result where there is no paint.
+
+								⚠ **It is evidence about the computation and about nothing else.** The attribute and
+								the directive read one `$derived`, so a test on the attribute goes red when that
+								number is wrong — and stays green when the transition is hard-coded past it, or
+								deleted outright. Whether the row *animates*, and for how long, is unasserted at
+								every seam; `.tracker/one-shell-two-apps/tickets/01-an-annotation-opens-in-its-own-row.md`
+								records the gap under "Coverage gap".
+							-->
+				<div
+					id="annotation-contents-{annotation.id}"
+					class="block px-1 pb-2 hover:bg-transparent"
+					data-testid="annotation-row-contents"
+					data-reveal-ms={reveal.duration}
+					transition:slide={reveal}
+				>
+					<AnnotationEditor {annotation} {ontext} {oncommit} {onstyle} {onlinestyle} {ondelete} />
+				</div>
+			{/if}
+		</li>
+	{/snippet}
+
 	{#if choosing}
 		<!--
-			Nothing here while a new Annotation is being drawn. The list is not hidden to save space: it
-			is the answer to "what is already in this Layer", and somebody who has just pressed "New
-			Annotation" is asking the opposite question. The list is back as soon as they are done, with
-			what they drew open in its own row.
+			**The list stands aside while a shape is armed, but what has just been made does not.** The
+			list is not hidden to save space: it is the answer to "what is already in this Layer", and
+			somebody who has just pressed "New Annotation" is asking the opposite question. It is back as
+			soon as they are done.
+
+			⚠ **The Annotation just drawn is the exception, and leaving it out was a regression.** The
+			editor used to sit outside this branch, so it stayed on screen while the list stepped aside;
+			moving it into the row moved it behind the same curtain. Drawing does not disarm the tool —
+			that is deliberate, so three pins in a row are three clicks on the map — so a scholar who
+			drew a shape and wanted to title it had to press "Done" first, and titling a shape straight
+			after drawing it is the point of drawing it. So the tools are followed by that one row, open,
+			with its editor inside it, and the rest of the list stays away.
 		-->
+		{#if drawn}
+			<ol
+				class="menu w-full gap-0 overflow-hidden menu-sm rounded-lg border border-base-300 p-0"
+				aria-label="The new Annotation"
+				data-testid="annotation-drawn"
+			>
+				{@render annotationRow(drawn, annotations.indexOf(drawn))}
+			</ol>
+		{/if}
 	{:else if annotations.length === 0}
 		<p class="text-sm opacity-70" data-testid="annotation-list-empty">Nothing in this Layer yet.</p>
 	{:else}
@@ -332,105 +462,7 @@
 				data-testid="annotation-list"
 			>
 				{#each annotations as annotation, index (annotation.id)}
-					{@const Icon = iconForGeometry(annotation.geometry?.type)}
-					{@const chosen = annotation.id === selectedId}
-					<li class="border-b border-base-200 last:border-b-0">
-						<!--
-							**The chosen row is marked by the Annotation Layer's own wash, and nothing else.**
-							`KIND_STYLE.annotation.tint` is the same 10% the card's header wears, from the one table
-							every colour in this card comes from (`layer-kind-style.ts`).
-
-							It was `border-primary` with daisyUI's `menu-active`, which is two colours making two
-							claims: `primary` is the *app's* action colour, reserved for the controls outside the
-							Layer cards, and `menu-active` paints `base-content` — near-black in the light theme —
-							so a blue rule sat against a black slab in a card whose every other control is `info`.
-							Reported as clashing, and it was: nothing about either colour said "this belongs to the
-							Annotations".
-
-							**The rule down the left edge went with them.** It was the third mark on a row that
-							needed one, in a column that already draws a hairline between every row and a border
-							around the whole list — a fourth vertical line, two pixels from the box's own. The wash
-							alone says which row it is, and it is a wash rather than a fill for a reason: at 10%
-							over `base-100` the row's text stays on the colour it was already legible on, where a
-							`base-content` slab has to re-solve its own contrast and then repaint the text to win.
-
-							Colour is not the only channel (SPEC story 111): the name goes semibold, which survives
-							a monochrome screen, and `aria-expanded` is what carries the state to a screen reader.
-
-							**That button is also the disclosure, and its expanded state is the selection.** There
-							is deliberately no `aria-pressed` beside it: a row that was pressed but not open, or
-							open but not pressed, would be two answers to "which Annotation is active", and two
-							properties for one fact are two things that can disagree. `aria-expanded` is ADR-0016's
-							shape for a disclosure, which is what this is, and it is the Layer card's own convention
-							one level down rather than a second one invented here. There is no separate control
-							beside the name for the same reason: the gesture that chooses an Annotation is the
-							gesture that opens it.
-						-->
-						<button
-							bind:this={rowButton[annotation.id]}
-							type="button"
-							class={[
-								'flex w-full items-center gap-2 rounded-none py-2',
-								chosen && `font-semibold ${KIND_STYLE.annotation.tint}`
-							]}
-							aria-expanded={chosen}
-							aria-controls={chosen ? `annotation-contents-${annotation.id}` : undefined}
-							data-testid="annotation-row"
-							data-annotation-id={annotation.id}
-							onclick={() => void chooseRow(chosen ? null : annotation.id)}
-						>
-							<!--
-								The same glyph the tool that drew it carries, and **beside the word rather than
-								instead of it** (SPEC story 111) — the word is what a screen reader reads and what a
-								glyph alone would have taken away.
-							-->
-							<Icon class="size-4 shrink-0 opacity-60" aria-hidden="true" />
-							<span class="shrink-0 text-xs opacity-60">{shapeWord(annotation)}</span>
-							<span class="truncate" data-testid="annotation-row-name">
-								{describe(annotation, index)}
-							</span>
-						</button>
-
-						{#if chosen}
-							<!--
-								Everything this Annotation is, inside the row it belongs to. One row is open at a
-								time, because one Annotation is selected at a time and they are the same fact.
-
-								**`block` and `hover:bg-transparent` are undoing daisyUI's `menu`, not decoration.**
-								Every child of a `menu` `<li>` that is not a list or a `.btn` is laid out as a menu
-								item — grid, its own padding, and a background on hover — which is right for the row
-								above and wrong for a panel of controls that happens to sit under it.
-
-								`data-reveal-ms` is the number `reveal` computed, written out because it is otherwise
-								visible only to something that can watch an animation — the same reason `LayerList`
-								writes out `data-drop-target`. It is what lets a test read the reduced-motion branch's
-								result where there is no paint.
-
-								⚠ **It is evidence about the computation and about nothing else.** The attribute and
-								the directive read one `$derived`, so a test on the attribute goes red when that
-								number is wrong — and stays green when the transition is hard-coded past it, or
-								deleted outright. Whether the row *animates*, and for how long, is unasserted at
-								every seam; `.tracker/one-shell-two-apps/tickets/01-an-annotation-opens-in-its-own-row.md`
-								records the gap under "Coverage gap".
-							-->
-							<div
-								id="annotation-contents-{annotation.id}"
-								class="block px-1 pb-2 hover:bg-transparent"
-								data-testid="annotation-row-contents"
-								data-reveal-ms={reveal.duration}
-								transition:slide={reveal}
-							>
-								<AnnotationEditor
-									{annotation}
-									{ontext}
-									{oncommit}
-									{onstyle}
-									{onlinestyle}
-									{ondelete}
-								/>
-							</div>
-						{/if}
-					</li>
+					{@render annotationRow(annotation, index)}
 				{/each}
 			</ol>
 		</div>

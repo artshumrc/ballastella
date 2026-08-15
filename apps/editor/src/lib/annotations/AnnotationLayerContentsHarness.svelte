@@ -27,6 +27,7 @@
 	let {
 		collection,
 		selectedId: initialSelectedId = null,
+		tool: initialTool = 'select',
 		status = '',
 		drawing = false,
 		canFinish = false,
@@ -36,6 +37,11 @@
 	}: {
 		collection: AnnotationCollection | null;
 		selectedId?: string | null;
+		/**
+		 * The tool in hand at mount, for the state the page is in the moment a shape is drawn: armed,
+		 * with the new Annotation selected. Seeded like `selectedId`, and the harness's own afterwards.
+		 */
+		tool?: AnnotationTool;
 		status?: string;
 		drawing?: boolean;
 		canFinish?: boolean;
@@ -48,7 +54,7 @@
 	// Seeded once, then the harness's own: after the first render the selection is whatever the last
 	// gesture asked for, which is the point of the harness.
 	let selectedId = $state(untrack(() => initialSelectedId));
-	let tool = $state<AnnotationTool>('select');
+	let tool = $state<AnnotationTool>(untrack(() => initialTool));
 
 	// The place-search control three levels down reads the one `InstalledApp` from context, which the
 	// root layout provides and there is no root layout here. This is the real one rather than a fake:
