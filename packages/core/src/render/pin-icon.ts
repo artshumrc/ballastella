@@ -60,6 +60,20 @@ export const PIN_PIXEL_RATIO = 2;
 export const PIN_ICON_SIZE: Record<string, number> = { small: 0.5, medium: 0.7, large: 0.95 };
 
 /**
+ * How tall a pin of this `marker-size` stands above the coordinate it points at, in CSS pixels.
+ *
+ * The pin is anchored at its tip, so anything else that has to sit clear of it — the popup above it,
+ * the ordinal above that — needs this number. It is here, beside the size table it is computed from,
+ * because two call sites measuring the same drawing separately is how a repositioned popup and a
+ * mispositioned number arrive one resize later.
+ */
+export const pinHeight = (markerSize: string | undefined): number =>
+	Math.round(
+		(SIZE / PIN_PIXEL_RATIO) *
+			(PIN_ICON_SIZE[markerSize ?? 'medium'] ?? PIN_ICON_SIZE['medium'] ?? 0.7)
+	);
+
+/**
  * A one-dimensional squared-distance transform (Felzenszwalb & Huttenlocher).
  *
  * The lower envelope of a set of parabolas, one per sample, in linear time. Run once per row and

@@ -1138,7 +1138,17 @@ test.describe('exploring a Project', () => {
 	}) => {
 		// ADR-0002's cross-kind rule, asserted through the mechanism that implements it: MapLibre's own
 		// layer order. Asking the app's array instead would only prove the app agrees with itself.
-		site = await published(oneProject());
+		//
+		// Three Annotations rather than the fixture's one, because this test also carries the Reader's
+		// half of the numbering claim below and one Annotation cannot show an order.
+		const numbered = ['a', 'b', 'c'].map((letter, at) =>
+			annotation({
+				id: `1111111${at}-1111-4111-8111-11111111111${at}`,
+				title: `Warehouse ${letter}`,
+				coordinates: [4.9 + at * 0.01, 52.3676]
+			})
+		);
+		site = await published(oneProject({ annotations: numbered }));
 		const seen = watch(page);
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
@@ -1179,6 +1189,46 @@ test.describe('exploring a Project', () => {
 			.toBeGreaterThan(0);
 
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+
+		// ─────────────────────────────────────────────────────────────────────────────────────
+		// AND THE READER SEES THE SAME NUMBERS THE SCHOLAR DOES (SPEC story 38)
+		//
+		// A scholar's written reference to "3" has to name the same Annotation on a Published Site as
+		// it does in the editor, which is why the rule is one function in `core` rather than an
+		// `index + 1` in each app. The editor's half of this claim is in `e2e/editor-annotations.e2e.ts`
+		// against a pin, a line and a shape; this is the same rule reaching a real published build over
+		// HTTP, on the map and in the sidebar at once.
+		//
+		// Folded in here rather than given a test of its own because the Seam 2 budget is spent
+		// (`scripts/check-seam-2-size.mjs`), and because this test already has a published Project with
+		// a drawn Annotation Layer on a real map.
+		await expect
+			.poll(() =>
+				page
+					.locator('[data-testid="annotation-ordinal"]')
+					.evaluateAll((marks) =>
+						marks.map((mark) => [
+							(mark as HTMLElement).dataset['annotationId'],
+							mark.textContent?.trim()
+						])
+					)
+			)
+			.toEqual(numbered.map((one, at) => [one.id, String(at + 1)]));
+
+		const card = await openLayerRow(page, layerRow(page, ANNOTATION_LAYER_ID));
+		expect(await card.getByTestId('annotation-row-ordinal').allTextContents()).toEqual([
+			'1',
+			'2',
+			'3'
+		]);
+		// The number is added to the row rather than put in place of what it said, so a Reader still
+		// meets the Annotation's own name beside it.
+		expect(await card.getByTestId('annotation-row-name').allTextContents()).toEqual([
+			'Warehouse a',
+			'Warehouse b',
+			'Warehouse c'
+		]);
+
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -1953,6 +2003,12 @@ test.describe('a Published Site that is not entirely well', () => {
 		// The scholar's own work is still drawn, and so is the geography: this is a reference map
 		// missing its lettering, not a missing Project.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
+		// **Including the Annotation's number**, which is the site that decided how it is drawn. A
+		// MapLibre `text-field` needs the glyphs this site does not carry, and `ReaderMapPane` drops
+		// every symbol layer here — so an ordinal drawn that way would be silently absent for exactly
+		// these Readers, with no error and no missing image to notice it by. It is a DOM marker
+		// instead, and this is where that shows: see `packages/core/src/render/annotation-ordinals.ts`.
+		await expect(page.getByTestId('annotation-ordinal')).toHaveText('1');
 		// And not one request for a file the site does not hold — the 404s the old empty-rectangle
 		// path existed to prevent are still prevented, glyph ranges and sprites included.
 		expect(seen.requests.filter((request) => request.url.includes('/base-map/'))).toEqual([]);

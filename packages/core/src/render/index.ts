@@ -15,6 +15,15 @@
 // (`terra-draw`, the tiler) are still absent, which is what `scripts/check-viewer-deps.mjs` polices.
 
 export { showAnnotationPopup, type AnnotationPopup } from './annotation-popup.js';
+// The number drawn on each Annotation's mark. Built by `drawLayerStack` rather than by either app —
+// exported for the assertions about where a mark sits, and for ticket 12's leader, which needs a
+// class to find one end by.
+export {
+	ANNOTATION_ORDINAL_CLASS,
+	annotationMarks,
+	type AnnotationMark,
+	type AnnotationOrdinals
+} from './annotation-ordinals.js';
 export { distortionRamp } from './distortion-ramp.js';
 export { registerPmtilesProtocol } from './pmtiles-protocol.js';
 // The Workspace's own Base Map tiles, behind ADR-0011's third `addProtocol` handler (ADR-0025).

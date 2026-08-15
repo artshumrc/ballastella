@@ -155,6 +155,67 @@ describe('an Annotation’s own words reach the row as text (SPEC story 34, ADR-
 	});
 });
 
+describe('every Annotation is numbered on its row (stories 37, 38, 42)', () => {
+	// **The number is the same fact the map's mark draws**, and it is `annotationOrdinal`'s in both
+	// places — see `packages/core/src/annotation/ordinal.ts` for why the rule is one function rather
+	// than an `index + 1` written wherever a number is wanted. That the mark carries it too is asserted
+	// in a real browser, against a real map, in `e2e/editor-annotations.e2e.ts` and
+	// `e2e/viewer-reader.e2e.ts`; what is asserted here is the row's half and the rule behind it.
+
+	const three = (): Annotation[] => [
+		annotation({ id: 'a-1', title: 'The west quay' }),
+		annotation({ id: 'a-2', type: 'LineString', title: 'The tow path' }),
+		annotation({ id: 'a-3', type: 'Polygon' })
+	];
+
+	const ordinals = (): (string | undefined)[] =>
+		all('annotation-row-ordinal').map((mark) => mark.textContent?.trim());
+
+	test('the ordinals start at 1 and follow the collection’s order', () => {
+		list({ annotations: three() });
+
+		expect(ordinals()).toEqual(['1', '2', '3']);
+	});
+
+	test('the number is added to the row, not put in place of anything it already said', () => {
+		// The Contract's own words: the row keeps its name and its shape word, and the marker keeps
+		// whatever accessible name it has. A number that displaced the name would read as a tidier list
+		// and would have taken away the only thing that says what an Annotation *is*.
+		list({ annotations: three() });
+
+		expect(all('annotation-row-name').map((row) => row.textContent?.trim())) //
+			.toEqual(['The west quay', 'The tow path', 'Untitled shape 3']);
+		expect(nth('annotation-row', 1)).toHaveTextContent('line');
+	});
+
+	test('the number is inside the row’s own button, so it is heard as well as seen', () => {
+		// Story 42: nothing about which Annotation is which may depend on seeing a line, so the ordinal
+		// is part of the button's accessible name rather than a decoration positioned beside it.
+		list({ annotations: three() });
+
+		const button = nth('annotation-row', 2);
+		expect(button.querySelector('[data-testid="annotation-row-ordinal"]')).not.toBeNull();
+		expect(button.textContent?.replace(/\s+/g, ' ').trim()).toBe('3 shape Untitled shape 3');
+	});
+
+	test('deleting an Annotation renumbers the rest, by rendering again', () => {
+		// The whole of ADR-0002 at this seam: the consumer hands the list a shorter collection and the
+		// survivors are numbered from what is in front of them. Nothing was written to renumber them —
+		// `packages/core/src/annotation/ordinal.test.ts` asserts the bytes, and the Annotations here are
+		// the same objects handed back.
+		const before = three();
+		list({ annotations: before });
+		expect(ordinals()).toEqual(['1', '2', '3']);
+
+		takeDown();
+		list({ annotations: [before[0]!, before[2]!] });
+
+		expect(ordinals()).toEqual(['1', '2']);
+		expect(all('annotation-row-name').map((row) => row.textContent?.trim())) //
+			.toEqual(['The west quay', 'Untitled shape 2']);
+	});
+});
+
 describe('the row is a disclosure (one-shell-two-apps stories 24–32, 35)', () => {
 	// **Openness and selection are one state, so there is one property for them.** The row carries no
 	// `aria-pressed`: an Annotation that was pressed but not open, or open but not pressed, were two

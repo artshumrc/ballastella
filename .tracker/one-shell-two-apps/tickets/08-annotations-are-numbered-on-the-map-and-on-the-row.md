@@ -63,17 +63,73 @@ decision to make and record — a label point that is stable as the map moves, n
 - **Do not write anything to a file.**
 - **Do not change the marker's colour, size or style controls.**
 
+## Decisions taken
+
+### The ordinal is a DOM marker, not a symbol layer
+
+`packages/core/src/render/annotation-ordinals.ts` creates one MapLibre `Marker` per drawn Annotation,
+built inside `drawLayerStack` so both apps get it from the one call they both already make. A
+`text-field` on a symbol layer beside the pin was the obvious answer and is wrong for three reasons,
+the first of which is decisive:
+
+- **MapLibre text needs a glyph source and a Published Site is allowed not to have one.**
+  `ReaderMapPane.styleFor` deletes `glyphs` and filters *every* symbol layer out of the style for a
+  site published without its Base Map files, recording that nothing the Layer stack draws needs them.
+  A `text-field` ordinal would be silently absent for exactly those Readers — no error, no missing
+  image, just no numbers. `viewer-reader.e2e.ts`'s "says so when the site carries no copy of the Base
+  Map's labels and symbols" now asserts the number is still there, which is that decision's guard.
+- **A MapLibre paint value is not CSS**, so it cannot be `var(--color-info)` and cannot be the
+  `oklch()` behind it either. A DOM element reads the theme's own custom properties directly.
+- **The prior art for a numbered mark here is a DOM element** — `.pane-overlay-point-control-point`.
+
+Its cost, accepted: one DOM node per drawn Annotation, repositioned by MapLibre on every map move —
+the arrangement the alignment route already runs with its Control Points.
+
+### A line's and a shape's ordinal is anchored at the middle of the geometry's extent
+
+`annotationAnchor`'s answer, reused rather than reinvented: it is already where the Annotation's
+popup points, so the number, the popup and (ticket 12) the leader name one point instead of three. It
+is a pure function of the coordinates, so it is the same place at every zoom and every centre.
+
+The alternatives, and why not: the **first vertex** puts a label at the end of a coastline or in a
+corner of a parish and reads as belonging to the vertex; **letting MapLibre place the symbol** is
+computed per *tile* for a polygon, so the label moves as the map is zoomed and the shape is clipped
+differently. Its known limit is `annotationAnchor`'s own and is accepted here as it is there: for a
+crescent the middle of the extent is outside the shape.
+
+A Pin's ordinal sits directly above its pin, cleared by the pin's own height plus the mark's radius,
+because a pin is anchored at its tip.
+
+### Contrast, measured
+
+`--color-info-content` on `--color-info`, in the shipped daisyUI palette
+`oklch(29% .066 243.157)` on `oklch(74% .16 232.661)` — which the two themes happen to share:
+
+| Theme | Ink on its own mark | Needed |
+| --- | --- | --- |
+| light | **6.31:1** | 4.5:1 |
+| dark | **6.31:1** | 4.5:1 |
+
+For comparison the Control Point's own `primary-content` on `primary` is 6.76:1 light and 4.14:1
+dark, so this pair is the better of the two in the flavour where it matters. The row's ordinal uses
+`--layer-kind-ink-annotation`, whose measured sweep (6.01:1 light, 8.76:1 dark on the row's own wash)
+is already in `packages/ui/src/layout.css`.
+
+`editor-annotations.e2e.ts` re-measures the mark from the running application's own computed styles
+in both themes, rasterising each colour into a 1 × 1 canvas — because
+`getComputedStyle(element).color` in Chrome preserves `oklch()` rather than serialising to `rgb()`.
+
 ## Acceptance criteria
 
-- [ ] Every Annotation shows the same ordinal on its map mark and on its sidebar row, in both apps.
-- [ ] Ordinals start at 1 and follow the collection's order.
-- [ ] Deleting an Annotation renumbers the rest with no file write beyond the deletion itself.
-- [ ] Drawing, selecting and deleting Annotations produces a `.geojson` byte-identical to the one the
+- [x] Every Annotation shows the same ordinal on its map mark and on its sidebar row, in both apps.
+- [x] Ordinals start at 1 and follow the collection's order.
+- [x] Deleting an Annotation renumbers the rest with no file write beyond the deletion itself.
+- [x] Drawing, selecting and deleting Annotations produces a `.geojson` byte-identical to the one the
       same actions produced before this ticket.
-- [ ] The ordinal meets contrast against its mark in both the light and dark themes, measured and
+- [x] The ordinal meets contrast against its mark in both the light and dark themes, measured and
       recorded.
-- [ ] Lines and polygons carry an ordinal at a stable anchor as the map pans and zooms.
-- [ ] The Reader sees the same numbers as the scholar for the same Project.
+- [x] Lines and polygons carry an ordinal at a stable anchor as the map pans and zooms.
+- [x] The Reader sees the same numbers as the scholar for the same Project.
 
 ```bash
 pnpm lint
@@ -92,6 +148,24 @@ the ordinal reached the screen and not the file.
 
 **Mutation check:** write the ordinal into a feature's `properties` and show the byte-identity test
 goes red. That is the failure this ticket's central constraint exists to prevent.
+
+Run twice, and the pair is worth keeping because they catch different things:
+
+1. **`serialiseAnnotations` stamps `ordinal: index + 1` into every feature's `properties`.**
+   `packages/core/src/annotation/ordinal.test.ts` → "the bytes an Annotation Layer is written as carry
+   no number at all" goes **red**, and three `editor-annotations` browser specs go red with it.
+2. **`removeAnnotation` renumbers the survivors by rewriting their `properties`** — the Contract's own
+   named failure, renumbering as a write. `ordinal.test.ts` → "deleting the first Annotation renumbers
+   the rest without changing their bytes" goes **red**, and **nothing at Seam 2 sees it at all**: all
+   37 `editor-annotations` specs stay green, because the delete spec asserts ids rather than bytes.
+
+⚠ **Neither mutation reddens "an unchanged Annotation Layer stays byte-identical across a session
+that only looked", and that is a property of what that spec measures rather than a gap here.** It
+compares hashes *before and after a session in which nothing is written*, so a stamp that is present
+on both sides of the comparison is invisible to it. It catches a display path that **writes**; the
+Seam 1 byte assertions catch a display value that reaches **the bytes**. The ticket's criterion —
+byte-identical to what the same actions produced *before* this ticket — needs the second, which is
+why `ordinal.test.ts` pins the written document down to its exact keys.
 
 ## Blocked by
 
