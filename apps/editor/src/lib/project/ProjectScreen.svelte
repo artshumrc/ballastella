@@ -51,11 +51,17 @@
 		type OpeningViewOutcome,
 		type Place
 	} from '@ballastella/core';
-	import type { DrawnLayer, DrawnOutcome, ReadCachedTile } from '@ballastella/core/render';
+	import {
+		ANNOTATION_ORDINAL_CLASS,
+		type DrawnLayer,
+		type DrawnOutcome,
+		type ReadCachedTile
+	} from '@ballastella/core/render';
 	import {
 		BaseMapSwitcher,
 		KIND_STYLE,
 		LayerList,
+		LeaderLine,
 		MapCommentary,
 		MapNotice
 	} from '@ballastella/ui';
@@ -463,6 +469,47 @@
 
 	/** The Base Map pane, for the one thing this screen asks of its camera. */
 	let baseMapPane = $state<BaseMapPane | undefined>();
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// The leader (ticket 12, SPEC stories 39–42)
+	//
+	// **Both ends already share an identity**, which is what tickets 08 and 10 bought: the number on
+	// the map carries `data-annotation-id` and so does its row. So this screen contributes only the
+	// two boxes and the way to find the two ends in them, and `LeaderLine` owns everything about when
+	// a line is drawn at all.
+	//
+	// **Found by querying rather than passed**, because the mark is a MapLibre `Marker` created by
+	// `annotation-ordinals.ts` and is outside this component's tree entirely — `ANNOTATION_ORDINAL_CLASS`
+	// is exported by `core` for exactly this.
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * The two columns the leader is drawn between.
+	 *
+	 * `$state` rather than plain `let`s, unlike the button references elsewhere in this epic: the
+	 * accessors below are read inside `LeaderLine`'s effects, and a non-reactive binding assigned
+	 * during mount would leave the first of those effects observing nothing at all.
+	 */
+	let layerSidebar = $state<HTMLElement | undefined>();
+	let mapColumn = $state<HTMLElement | undefined>();
+
+	/** The selected Annotation's number on the map, or `null` when there is nothing to point at. */
+	const selectedMark = (): Element | null => {
+		const id = annotations.selectedAnnotationId;
+		if (id === null || !mapColumn) return null;
+		return mapColumn.querySelector(
+			`.${ANNOTATION_ORDINAL_CLASS}[data-annotation-id="${CSS.escape(id)}"]`
+		);
+	};
+
+	/** That Annotation's row, which is on screen only while its Layer's card is open. */
+	const selectedRow = (): Element | null => {
+		const id = annotations.selectedAnnotationId;
+		if (id === null || !layerSidebar) return null;
+		return layerSidebar.querySelector(
+			`[data-testid="annotation-row"][data-annotation-id="${CSS.escape(id)}"]`
+		);
+	};
 
 	/**
 	 * A Place was chosen on the open Annotation Layer: **frame the map on it, and drop a Pin there.**
@@ -932,7 +979,12 @@
 			<a class="link text-sm" href={resolve('/')}>Back to all Projects</a>
 		</div>
 
-		<div class="flex min-h-0 grow">
+		<!--
+			`relative` establishes the containing block the leader's own layer is `inset-0` of — it spans
+			the sidebar and the map together, which is the whole reason it is a child of this element
+			rather than of either column. Nothing else here positions itself against it.
+		-->
+		<div class="relative flex min-h-0 grow">
 			<!--
 				The sidebar is a **fixed column** and the map takes what is left, which is the whole of
 				"the map gets the larger share of the screen": a proportional sidebar grows with the
@@ -956,6 +1008,7 @@
 				See the note at the top of `LayerList.svelte`, which owns the other half of this.
 			-->
 			<div
+				bind:this={layerSidebar}
 				class="w-96 shrink-0 overflow-y-auto border-r border-base-content/10 bg-base-300 p-4"
 				data-testid="layer-sidebar"
 			>
@@ -1204,7 +1257,7 @@
 					text={unavailableNotice}
 				/>
 
-				<div class="min-h-0 grow overflow-hidden" data-testid="project-map">
+				<div bind:this={mapColumn} class="min-h-0 grow overflow-hidden" data-testid="project-map">
 					<BaseMapPane
 						bind:this={baseMapPane}
 						entryId={resolution.entry.id}
@@ -1284,6 +1337,22 @@
 					</p>
 				</MapCommentary>
 			</div>
+
+			<!--
+				The leader, last so that it paints over both columns (SPEC stories 39–42).
+
+				⚠ **Nothing about which Annotation is active depends on it.** The number is on the mark and
+				on the row and the row's `aria-expanded` says which one is open, so this adds no fact —
+				which is why it is `aria-hidden`, takes no pointer events, and is simply not drawn when
+				either end has left its own column.
+			-->
+			<LeaderLine
+				mark={selectedMark}
+				row={selectedRow}
+				canvas={() => mapColumn}
+				sidebar={() => layerSidebar}
+				watch={(redraw) => baseMapPane?.onCameraMove(redraw) ?? (() => {})}
+			/>
 		</div>
 	</div>
 

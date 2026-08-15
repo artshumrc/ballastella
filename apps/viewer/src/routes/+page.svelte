@@ -94,12 +94,17 @@
 		type RemoteBinding,
 		type TileSourceFailure
 	} from '@ballastella/core';
-	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
+	import {
+		ANNOTATION_ORDINAL_CLASS,
+		type DrawnLayer,
+		type DrawnOutcome
+	} from '@ballastella/core/render';
 	import {
 		AnnotationList,
 		AnnotationReading,
 		BaseMapSwitcher,
 		LayerList,
+		LeaderLine,
 		MapCommentary,
 		MapNotice,
 		ProjectCardList,
@@ -994,6 +999,43 @@
 	);
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// The leader (ticket 12, SPEC stories 39–42, 46)
+	//
+	// The same line the editor draws, from the same component, between the same two identities: the
+	// number on the map carries `data-annotation-id` and so does its row. A Reader gets it because it
+	// is the answer to "which pin is this row about" — the question the retired map popup used to
+	// answer — and gets it drawn from the same code, so the two apps cannot disagree about where it
+	// goes.
+	//
+	// Below `lg` the grid is one column and the map sits under the stack: `LeaderLine` measures that
+	// and draws nothing, which is story 46 without a breakpoint being written down twice.
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/** The map pane, for the one thing this page asks of its camera. */
+	let readerMapPane = $state<ReaderMapPane | undefined>();
+	/** The two columns the leader is drawn between. `$state` for the reason `ProjectScreen` records. */
+	let layerColumn = $state<HTMLElement | undefined>();
+	let mapColumn = $state<HTMLElement | undefined>();
+
+	/** The open Annotation's number on the map, or `null` when there is nothing to point at. */
+	const selectedMark = (): Element | null => {
+		const id = openAnnotationId;
+		if (id === null || !mapColumn) return null;
+		return mapColumn.querySelector(
+			`.${ANNOTATION_ORDINAL_CLASS}[data-annotation-id="${CSS.escape(id)}"]`
+		);
+	};
+
+	/** That Annotation's row, which is on screen only while its Layer's card is open. */
+	const selectedRow = (): Element | null => {
+		const id = openAnnotationId;
+		if (id === null || !layerColumn) return null;
+		return layerColumn.querySelector(
+			`[data-testid="annotation-row"][data-annotation-id="${CSS.escape(id)}"]`
+		);
+	};
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Reading a Historical Map as a document (SPEC story 85)
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
@@ -1302,8 +1344,13 @@
 					tabbing reaches them before MapLibre's canvas and its zoom buttons, and on a narrow screen
 					they are what a Reader sees under the heading rather than below a full-height map.
 				-->
-				<div class="mt-4 grid items-start gap-6 lg:grid-cols-[22rem_1fr]">
-					<div class="flex flex-col gap-4">
+				<!--
+					`relative` establishes the containing block the leader's own layer is `inset-0` of — it
+					spans the stack and the map together, which is why it is a child of this element rather
+					than of either column.
+				-->
+				<div class="relative mt-4 grid items-start gap-6 lg:grid-cols-[22rem_1fr]">
+					<div bind:this={layerColumn} class="flex flex-col gap-4">
 						<!--
 							The label sits above the select here, so the pair is a column of its own inside the
 							controls column — the gap between them is the switcher's, not the 1rem the surrounding
@@ -1456,10 +1503,12 @@
 							a 667 px-tall phone leaves the controls below the fold and nothing above it.
 						-->
 						<div
+							bind:this={mapColumn}
 							class="h-[60vh] overflow-hidden rounded border border-base-300 sm:h-[32rem] lg:h-[36rem]"
 						>
 							{#if siteRecordKnown}
 								<ReaderMapPane
+									bind:this={readerMapPane}
 									entryId={baseMap.entry.id}
 									{catalog}
 									{bundledBaseMapAvailable}
@@ -1502,6 +1551,20 @@
 							{emptyStackNote}
 						/>
 					</div>
+
+					<!--
+						The leader, last so that it paints over both columns. ⚠ It says nothing a Reader is not
+						already told: the number is on the mark and on the row, and `aria-expanded` says which
+						row is open — so it is `aria-hidden`, takes no pointer events, and its absence on a
+						phone costs nothing.
+					-->
+					<LeaderLine
+						mark={selectedMark}
+						row={selectedRow}
+						canvas={() => mapColumn}
+						sidebar={() => layerColumn}
+						watch={(redraw) => readerMapPane?.onCameraMove(redraw) ?? (() => {})}
+					/>
 				</div>
 			{/if}
 		{/if}

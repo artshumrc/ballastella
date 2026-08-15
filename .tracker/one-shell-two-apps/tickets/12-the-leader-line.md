@@ -77,16 +77,16 @@ leader's canvas end against `map.project()` of the coordinate on disk, the way
 
 ## Acceptance criteria
 
-- [ ] Selecting an Annotation draws exactly one leader from its mark to its row, in both apps.
-- [ ] The leader's canvas end sits within a small tolerance of `map.project()` of the Annotation's
+- [x] Selecting an Annotation draws exactly one leader from its mark to its row, in both apps.
+- [x] The leader's canvas end sits within a small tolerance of `map.project()` of the Annotation's
       coordinate as stored on disk, asserted against the file rather than against the element.
-- [ ] Panning and zooming move the leader with the map; it never lags a frame behind at rest.
-- [ ] Scrolling the sidebar so the row leaves its container removes the leader.
-- [ ] Below the stacking breakpoint no leader is drawn, and the open row is highlighted instead.
-- [ ] Selecting a Control Point draws one leader to its row on the alignment route.
-- [ ] Selecting an Annotation costs zero store reads and zero store writes.
-- [ ] Typing in an Annotation's description still does not rebuild the Layer stack.
-- [ ] The leader layer is `aria-hidden` and not in the tab order.
+- [x] Panning and zooming move the leader with the map; it never lags a frame behind at rest.
+- [x] Scrolling the sidebar so the row leaves its container removes the leader.
+- [x] Below the stacking breakpoint no leader is drawn, and the open row is highlighted instead.
+- [x] Selecting a Control Point draws one leader to its row on the alignment route.
+- [x] Selecting an Annotation costs zero store reads and zero store writes.
+- [x] Typing in an Annotation's description still does not rebuild the Layer stack.
+- [x] The leader layer is `aria-hidden` and not in the tab order.
 
 ```bash
 pnpm lint

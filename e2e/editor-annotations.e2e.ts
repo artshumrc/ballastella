@@ -22,6 +22,8 @@ import { expect, test } from './support/test.js';
 import { type Locator, type Page } from '@playwright/test';
 import { routeBaseMapArchive } from './support/editor-deployment.js';
 import { openLayerRow } from './support/layers.js';
+import { leaderIsDrawn, leaderLayer, leaderPoints } from './support/leader.js';
+import { countFileReads, countFileWrites, fileReads, fileWrites } from './support/store-traffic.js';
 import { AMBIGUOUS_QUERY, candidateAt, routePlaceLookup } from './support/places.js';
 // The one test that needs a warped sheet over the Base Map borrows the alignment suite's ground
 // rather than growing a second PNG encoder — see the header of `support/alignment-workspace.ts`.
@@ -81,6 +83,16 @@ function watchFailures(page: Page): string[] {
 
 /** How many ordinal marks left the document and how many entered it, counted in the page. */
 type OrdinalChurn = { added: number; removed: number };
+
+/**
+ * How far short of a mark's own coordinate the leader stops, in page pixels.
+ *
+ * The mark is a 20 px disc (`annotation-ordinals.ts`) and the line clears it by two, so the end sits
+ * twelve pixels back along its own direction. Written out here rather than imported, for the reason
+ * `SIMPLESTYLE_NAMES` gives: the Playwright project resolves nothing from `@ballastella/core`, and a
+ * number copied from the design is a better witness than one imported from the code under test.
+ */
+const MARK_RADIUS = 12;
 
 /**
  * The style property names simplestyle 1.1.0 defines, plus ADR-0009's one extension.
@@ -281,6 +293,129 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// And the map really did move: an assertion that survives a viewport that ignored the zoom
 		// would be saying nothing about following it.
 		expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(20);
+
+		// ── AND THE LEADER JOINS THAT MARK TO ITS ROW (ticket 12, stories 39–42) ─────────────
+		//
+		// Folded in here rather than given a test of its own, for the reason the ordinals above were:
+		// this is already the suite's one Project holding a pin, a line and a shape at once, already
+		// zoomed and panned off centre, and already carrying the projection helpers the claim needs.
+		// The Seam 2 budget (`scripts/check-seam-2-size.mjs`) is spent.
+		//
+		// ⚠ **The canvas end is asserted against `map.project()` of the shape's coordinates as stored
+		// on disk**, never against the leader's own box or the mark's. That is the defect shape this
+		// repository has already been bitten by — a handle drawn 334 px from the geography it named,
+		// missed by a whole browser suite because every assertion started from wherever the element
+		// was. The mutation check for this criterion is to offset `projected` by a constant and watch
+		// these two assertions go red.
+		// Drawing a shape leaves it selected, so this is idempotent: the helper opens the row only if
+		// it is not already open.
+		await selectAnnotation(page, 2);
+		const shapeRow = page.getByTestId('annotation-row').nth(2);
+
+		/**
+		 * Where the leader ought to end, given a place on the earth.
+		 *
+		 * The line stops at the edge of the mark rather than under it, so the end is the mark's own
+		 * radius short of the coordinate — *along the line*, which is why the stub is read off the
+		 * drawn line and the coordinate is not. The stub sets the direction; the projection sets the
+		 * place.
+		 */
+		const endFor = (target: { x: number; y: number }, stub: { x: number; y: number }) => {
+			const run = Math.hypot(target.x - stub.x, target.y - stub.y);
+			return {
+				x: target.x - ((target.x - stub.x) * MARK_RADIUS) / run,
+				y: target.y - ((target.y - stub.y) * MARK_RADIUS) / run
+			};
+		};
+
+		const drawn = await leaderPoints(page);
+		expect(drawn, 'no leader was drawn for the selected Annotation').not.toBeNull();
+		// One polyline, three points: the row's near edge, a stub out of the column, and the mark.
+		expect(drawn).toHaveLength(3);
+		const [atRow, stub, atMark] = drawn as { x: number; y: number }[];
+
+		const wanted = endFor(await projected(middle), stub as { x: number; y: number });
+		expect(
+			Math.hypot((atMark as { x: number }).x - wanted.x, (atMark as { y: number }).y - wanted.y),
+			'the leader’s canvas end is not where map.project() puts the coordinate on disk'
+		).toBeLessThan(2);
+
+		// The negative control the criterion is written against, exactly as the mark's own has one: the
+		// first vertex of this triangle is a long way from its middle, and a leader drawn to it would
+		// pass any assertion that only asked "is there a line".
+		const wrongEnd = endFor(await projected(firstVertex), stub as { x: number; y: number });
+		expect(
+			Math.hypot((atMark as { x: number }).x - wrongEnd.x, (atMark as { y: number }).y - wrongEnd.y)
+		).toBeGreaterThan(20);
+
+		// The sidebar end is on the row's own edge, which is the one end that has no truth on disk to
+		// be checked against — a row is a DOM element and nothing else.
+		const rowBox = (await shapeRow.boundingBox())!;
+		expect((atRow as { x: number }).x).toBeCloseTo(rowBox.x + rowBox.width, 0);
+		expect((atRow as { y: number }).y).toBeCloseTo(rowBox.y + rowBox.height / 2, 0);
+
+		// ── IT CARRIES NOTHING, AND CANNOT BE REACHED ───────────────────────────────────────
+		//
+		// Story 42: the ordinal and `aria-expanded` are what say which Annotation is active, so this
+		// layer must add nothing to either the accessibility tree or the tab order.
+		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');
+		expect(
+			await leaderLayer(page).evaluate(
+				(svg) => svg.querySelectorAll('a, button, input, [tabindex]').length
+			)
+		).toBe(0);
+		expect(await leaderLayer(page).evaluate((svg) => getComputedStyle(svg).pointerEvents)).toBe(
+			'none'
+		);
+
+		// ── AND IT IS NOT DRAWN TO SOMEWHERE THE MARK IS NOT (story 41) ─────────────────────
+		//
+		// Panned until the shape's mark has left the canvas. A line to nowhere is worse than no line.
+		await page.evaluate(async (at) => {
+			const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+			map.setCenter([at[0] + 4, at[1] + 2]);
+			await Promise.race([
+				new Promise<void>((resolve) => map.once('idle', () => resolve())),
+				new Promise<void>((resolve) => setTimeout(resolve, 3000))
+			]);
+		}, middle);
+		await expect.poll(() => leaderIsDrawn(page)).toBe('no');
+
+		// And back, so this is a leader that follows the map rather than one that was taken down.
+		await page.evaluate(async (at) => {
+			const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+			map.setCenter(at as [number, number]);
+			await Promise.race([
+				new Promise<void>((resolve) => map.once('idle', () => resolve())),
+				new Promise<void>((resolve) => setTimeout(resolve, 3000))
+			]);
+		}, middle);
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
+		const followed = (await leaderPoints(page)) as { x: number; y: number }[];
+		const followedWanted = endFor(await projected(middle), followed[1] as { x: number; y: number });
+		expect(
+			Math.hypot(
+				(followed[2] as { x: number }).x - followedWanted.x,
+				(followed[2] as { y: number }).y - followedWanted.y
+			),
+			'the leader did not follow the map back'
+		).toBeLessThan(2);
+
+		// ── AND NOT TO A ROW THAT HAS LEFT ITS COLUMN ───────────────────────────────────────
+		//
+		// The other end's half of story 41. The column is scrolled until the row's own middle passes
+		// the top edge, which is the moment the line would start pointing at the card above it.
+		const scrolled = await page.getByTestId('layer-sidebar').evaluate((column) => {
+			column.scrollTop = column.scrollHeight;
+			return column.scrollTop;
+		});
+		expect(
+			scrolled,
+			'the sidebar did not scroll, so nothing was taken off its top'
+		).toBeGreaterThan(rowBox.height);
+		await expect.poll(() => leaderIsDrawn(page)).toBe('no');
+		await page.getByTestId('layer-sidebar').evaluate((column) => (column.scrollTop = 0));
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
 
 		// ── AND THE NUMBER IS LEGIBLE ON ITS OWN MARK, IN BOTH THEMES ────────────────────────
 		//
@@ -690,6 +825,29 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		const before = await builds();
 		expect(before).toBeGreaterThan(0);
 
+		// ── AND SELECTING ONE COSTS THE STORE NOTHING AT ALL (ticket 12) ────────────────────
+		//
+		// The leader recomputes on every frame of a pan, and the way that goes wrong is not a slow
+		// frame — it is a redraw that reaches back through the application for the coordinate it is
+		// drawing to. So the gesture that turns the leader on is counted: choosing an Annotation must
+		// not open a file for reading and must not open one for writing. `project.json` in particular:
+		// a selection written as display state would restamp `updatedAt` on every click (ADR-0002).
+		//
+		// Here rather than in a test of its own because it is the same subject as the paragraph above
+		// — what drawing over the map is allowed to cost — and the Seam 2 budget is spent.
+		const onlyRow = page.getByTestId('annotation-row').first();
+		// `withOnePin` leaves the row open, and the gesture under test is *opening* one — so it is put
+		// away first, and the closing click is outside the count.
+		await onlyRow.click();
+		await expect(onlyRow).toHaveAttribute('aria-expanded', 'false');
+		await countFileReads(page);
+		await countFileWrites(page);
+		await onlyRow.click();
+		await expect(onlyRow).toHaveAttribute('aria-expanded', 'true');
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
+		expect(await fileReads(page), 'selecting an Annotation read from the store').toEqual({});
+		expect(await fileWrites(page), 'selecting an Annotation wrote to the store').toEqual([]);
+
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').click();
 
@@ -735,6 +893,14 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		// And the words did land, so this is not passing by having typed into nothing.
 		expect((await storedAnnotations(page, await annotationLayerId(page))).features[0]?.properties) //
 			.toMatchObject({ title: 'The old mill', description: 'Built 1780.' });
+		// **The positive control for the two empty assertions above**, and the same watchers: typing did
+		// reach the store, so "selecting wrote nothing" is a fact about the gesture rather than about an
+		// instrumentation that was never installed. An absence asserted alone passes when the hook
+		// silently stops working.
+		expect(
+			(await fileWrites(page)).length,
+			'nothing was counted at all, so the empty assertions above are vacuous'
+		).toBeGreaterThan(0);
 	});
 
 	test('recolouring an Annotation does not rebuild the stack either', async ({ page }) => {

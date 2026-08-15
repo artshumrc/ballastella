@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { unavailableNotice } from './support/base-map-notice.js';
 import { openLayerRow } from './support/layers.js';
+import { leaderIsDrawn, leaderLayer, leaderPoints } from './support/leader.js';
 import {
 	baseMapArchiveFixture,
 	byteRange,
@@ -1295,6 +1296,90 @@ test.describe('exploring a Project', () => {
 			'Warehouse b',
 			'Warehouse c'
 		]);
+
+		// ─────────────────────────────────────────────────────────────────────────────────────
+		// AND THE LEADER JOINS THE OPEN ROW TO ITS PIN (ticket 12, SPEC stories 39, 46)
+		//
+		// The line the editor draws, drawn by the same component in a real published build. Folded in
+		// here for the reason the numbering above was: the Seam 2 budget is spent, and this test
+		// already has a published Project with a drawn Annotation Layer on a real map.
+		//
+		// ⚠ **The canvas end is asserted against `map.project()` of the coordinate in the published
+		// GeoJSON on disk**, never against the leader's own box or the mark's — the defect shape
+		// recorded in `apps/editor/src/routes/layout.css`, where a mark 334 px from the geography it
+		// named passed a whole browser suite. The mutation check is to offset the projection by a
+		// constant and watch this go red.
+		const projectFile = JSON.parse(
+			await readFile(path.join(site.directory, 'amsterdam-1625/project.json'), 'utf8')
+		);
+		const geojsonRef = projectFile.layers.find(
+			(layer: { kind: string }) => layer.kind === 'annotation'
+		).geojsonRef;
+		const collection = JSON.parse(
+			await readFile(path.join(site.directory, 'amsterdam-1625', geojsonRef), 'utf8')
+		);
+		const at = collection.features[0].geometry.coordinates as [number, number];
+
+		// Framed on the Annotation, because the tile assertion above left the camera on the Historical
+		// Map's bounds — a mark outside the canvas is deliberately not pointed at.
+		await page.evaluate(
+			(centre) =>
+				window.ballastellaReaderMap!.map.jumpTo({ center: centre as [number, number], zoom: 14 }),
+			at
+		);
+		const firstRow = card.getByTestId('annotation-row').first();
+		await firstRow.click();
+		await expect(firstRow).toHaveAttribute('aria-expanded', 'true');
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
+
+		const drawn = (await leaderPoints(page)) as { x: number; y: number }[];
+		expect(drawn, 'more than one line was drawn for one open row').toHaveLength(3);
+		const pane = (await page.getByTestId('reader-map-pane').boundingBox())!;
+		const projected = await page.evaluate(
+			(centre) => window.ballastellaReaderMap!.map.project(centre as [number, number]),
+			at
+		);
+		// ⚠ **A Pin is anchored at its tip, so its number is drawn above the coordinate rather than on
+		// it** — the pin's own height plus the mark's own radius, which is `annotationMarks`'
+		// `clearance`. The pin is a 96 px sprite at a device pixel ratio of 2, scaled by the
+		// Annotation's `marker-size`, and the mark's radius is 12. Restated here rather than imported,
+		// for the reason every other constant in this suite is: the Playwright project resolves nothing
+		// from `@ballastella/core`, and numbers stated from the design are a better witness than ones
+		// taken from the code under test. Read off the *stored* `marker-size`, so a fixture drawn at
+		// another size moves this assertion rather than quietly breaking it.
+		const pinScale: Record<string, number> = { small: 0.5, medium: 0.7, large: 0.95 };
+		const markerSize = (collection.features[0].properties['marker-size'] ?? 'medium') as string;
+		const clearance = Math.round(48 * (pinScale[markerSize] ?? 0.7)) + 12;
+		const target = { x: pane.x + projected.x, y: pane.y + projected.y - clearance };
+		// The line then stops at the edge of the 20 px ordinal mark and two pixels clear of it, along
+		// its own direction — so the stub sets the direction and the file sets the place.
+		const stub = drawn[1]!;
+		const run = Math.hypot(target.x - stub.x, target.y - stub.y);
+		const wanted = {
+			x: target.x - ((target.x - stub.x) * 12) / run,
+			y: target.y - ((target.y - stub.y) * 12) / run
+		};
+		expect(
+			Math.hypot(drawn[2]!.x - wanted.x, drawn[2]!.y - wanted.y),
+			'the leader’s canvas end is not where map.project() puts the coordinate on disk'
+		).toBeLessThan(2);
+
+		// It says nothing a Reader is not already told: the ordinal is on the mark and on the row, and
+		// `aria-expanded` says which row is open (story 42).
+		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');
+
+		// ── AND ON A NARROW SCREEN THERE IS NO LINE AT ALL (story 46) ────────────────────────
+		//
+		// Below the breakpoint the map sits under the stack, and a line drawn across a stacked layout
+		// claims a left-to-right relationship the layout does not have. What is left is the row being
+		// open and washed in its kind's colour, which is what carries the connection there — so the
+		// row is asserted to still be open rather than the absence being asserted on its own.
+		const viewport = page.viewportSize()!;
+		await page.setViewportSize({ width: 800, height: viewport.height });
+		await expect.poll(() => leaderIsDrawn(page)).toBe('no');
+		await expect(firstRow).toHaveAttribute('aria-expanded', 'true');
+		await page.setViewportSize(viewport);
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
 
 		expect(seen.failures).toEqual([]);
 	});

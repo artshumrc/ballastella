@@ -12,6 +12,7 @@ import {
 } from './support/historical-maps.js';
 import { alignFromLayer, openLayerRow } from './support/layers.js';
 import { projectNameField } from './support/project-screen.js';
+import { countFileReads, countFileWrites, fileReads, fileWrites } from './support/store-traffic.js';
 import { restoreWorkspace, snapshotWorkspace } from './support/workspace-snapshot.js';
 
 test.beforeEach(async ({ page }) => routeBaseMapArchive(page));
@@ -104,63 +105,8 @@ declare global {
 			>;
 			builds: number;
 		};
-		/** How many times each file has been opened for reading — see `countFileReads`. */
-		ballastellaFileReads?: Record<string, number>;
-		/** Every file opened for writing, in order — see `countFileWrites`. */
-		ballastellaFileWrites?: string[];
 	}
 }
-
-/**
- * Count every file the page opens for reading from now on, by file name.
- *
- * The only way to assert "this edit costs no read of the store" from outside, and the store is the
- * thing being claimed about rather than an internal: OPFS issues no requests, so there is nothing on
- * the network to watch. `getFile()` is the one call every read in `DirectoryHandleStore` goes through.
- */
-async function countFileReads(page: Page): Promise<void> {
-	await page.evaluate(() => {
-		const counts: Record<string, number> = {};
-		window.ballastellaFileReads = counts;
-		const proto = FileSystemFileHandle.prototype;
-		const original = proto.getFile;
-		proto.getFile = function (this: FileSystemFileHandle) {
-			counts[this.name] = (counts[this.name] ?? 0) + 1;
-			return original.call(this);
-		};
-	});
-}
-
-const fileReads = (page: Page): Promise<Record<string, number>> =>
-	page.evaluate(() => ({ ...window.ballastellaFileReads }));
-
-/**
- * Record every file the page opens for **writing** from now on, by file name.
- *
- * The other half of {@link countFileReads}, and the only way to assert "this gesture costs no write"
- * from outside: OPFS issues no requests, so there is nothing on the network to watch, and a
- * `project.json` that happens to be byte-identical afterwards cannot distinguish "nothing was written"
- * from "the same bytes were written again with a fresh `updatedAt` that happened to round the same
- * way". `createWritable()` is the one call every write in `DirectoryHandleStore` goes through,
- * atomic temp file included.
- */
-async function countFileWrites(page: Page): Promise<void> {
-	await page.evaluate(() => {
-		const written: string[] = [];
-		window.ballastellaFileWrites = written;
-		const proto = FileSystemFileHandle.prototype;
-		const original = proto.createWritable;
-		proto.createWritable = function (this: FileSystemFileHandle, ...args: unknown[]) {
-			written.push(this.name);
-			return (original as (...args: unknown[]) => unknown).apply(this, args) as ReturnType<
-				typeof original
-			>;
-		};
-	});
-}
-
-const fileWrites = (page: Page): Promise<string[]> =>
-	page.evaluate(() => [...(window.ballastellaFileWrites ?? [])]);
 
 /**
  * A row's text **as assistive technology receives it**: `aria-hidden` subtrees removed.

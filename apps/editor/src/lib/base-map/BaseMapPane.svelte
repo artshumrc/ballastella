@@ -336,6 +336,16 @@
 		});
 		created.addControl(new NavigationControl({}), 'top-right');
 
+		// The camera's own events, for anything drawn over this pane in the page's coordinates rather
+		// than in MapLibre's — see {@link onCameraMove}. `move` covers a pan and the frames of a zoom;
+		// `zoom` is bound as well because a `setZoom` with no pan is the case a reader of this would
+		// check for, and the work behind it is idempotent.
+		const cameraMoved = (): void => {
+			for (const watcher of cameraWatchers) watcher();
+		};
+		created.on('move', cameraMoved);
+		created.on('zoom', cameraMoved);
+
 		// ──────────────────────────────────────────────────────────────────────────────────────
 		// THE BASE MAP'S SOURCE, AND ONLY THAT SOURCE
 		//
@@ -483,6 +493,34 @@
 	 */
 	export function frameOnPlace(place: Place): void {
 		applyOpeningFit(map, openingViewFit(place.bounds), null);
+	}
+
+	/**
+	 * Whoever wants to be told the camera has moved. The leader line (ticket 12), and nothing else.
+	 *
+	 * A set held here rather than the map handed out, because "the camera moved" is the whole of what
+	 * the caller needs and a MapLibre instance is every gesture on this pane. It is also the only
+	 * shape that works before the map exists: `onMount` binds the two events once, to this list, so a
+	 * subscriber that arrived first is called from the first frame.
+	 *
+	 * An array rather than a `Set`, which is `workspace-storage.svelte.ts`'s reading of
+	 * `svelte/prefer-svelte-reactivity`: the rule would have a `SvelteSet` here, and reactivity is the
+	 * one property this must not have — nothing may re-render because something started watching.
+	 */
+	const cameraWatchers: (() => void)[] = [];
+
+	/**
+	 * Run `watcher` on every camera move, until the returned function is called.
+	 *
+	 * **Imperative on purpose.** Its one consumer redraws an SVG attribute per frame of a pan; routed
+	 * through a prop or a `$state` counter it would schedule a component flush per frame instead.
+	 */
+	export function onCameraMove(watcher: () => void): () => void {
+		cameraWatchers.push(watcher);
+		return () => {
+			const at = cameraWatchers.indexOf(watcher);
+			if (at !== -1) cameraWatchers.splice(at, 1);
+		};
 	}
 
 	// Built once per map. The points themselves are updated by the effect below, so that moving one

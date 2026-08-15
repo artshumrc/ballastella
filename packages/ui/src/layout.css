@@ -93,3 +93,51 @@
 :root {
 	--layer-problem-ink: color-mix(in oklab, var(--color-warning) 50%, var(--color-base-content));
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+   The leader: the dashed line from the selected mark on a canvas to its row in the sidebar.
+
+   Here rather than in a `<style>` block on `LeaderLine.svelte` for the same reason the kind inks
+   are here: the element the geometry is written to is reached imperatively, and the layer has to
+   sit above two columns it is not inside — a scoped rule would be right and would still leave the
+   consumer's stacking order to chance, so the whole of what makes this a decoration is stated in
+   one place.
+
+   ⚠ **`pointer-events: none` is not decoration.** The layer covers the sidebar and the map together,
+   so anything it intercepted would be a control the user could see and not press. Together with
+   `aria-hidden` on the element and its holding nothing focusable, that is the whole of "it carries
+   no information of its own": there is no way to reach it by pointer, by keyboard or by screen
+   reader, and nothing is lost if it is never drawn.
+
+   The dashes are `base-content` with a `base-100` shadow under them, because this is drawn over
+   whatever the Base Map happens to show — a coastline, a dark forest, a printed sheet — and a single
+   flat stroke is legible over some of those and not others. Both are theme tokens, so it holds up in
+   either flavour without a colour being written twice.
+
+   `z-index: 5` puts it over both columns and under MapLibre's own navigation control, which is at 2
+   inside a stacking context of its own; nothing here may cover a control. */
+
+/* ⚠ `width` and `height` are not redundant beside `inset: 0`. An `<svg>` is a replaced element with
+   an intrinsic 300 × 150, and an absolutely positioned replaced element with `width: auto` takes that
+   intrinsic size and ignores the `right`/`bottom` that would have stretched it — so without these the
+   layer measured 300 × 150 while claiming to span two columns, which is the box the drawn line's
+   coordinates are stated against. */
+.leader-line {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	z-index: 5;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.leader-line-path {
+	fill: none;
+	stroke: var(--color-base-content);
+	stroke-width: 1.5;
+	stroke-dasharray: 6 4;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	filter: drop-shadow(0 0 2px var(--color-base-100));
+}

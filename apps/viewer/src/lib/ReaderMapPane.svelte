@@ -194,6 +194,34 @@
 	let map = $state<MapLibreMap | undefined>(undefined);
 
 	/**
+	 * Whoever wants to be told the camera has moved. The leader line (ticket 12), and nothing else.
+	 *
+	 * A set held here rather than the map handed out, because "the camera moved" is the whole of what
+	 * the caller needs. It is also the only shape that works before the map exists: `onMount` binds
+	 * the two events once, to this list, so a subscriber that arrived first is called from the first
+	 * frame.
+	 *
+	 * An array rather than a `Set`, for the reason `BaseMapPane`'s twin records: a `SvelteSet` is what
+	 * `svelte/prefer-svelte-reactivity` would have, and reactivity is the one property this must not
+	 * have.
+	 */
+	const cameraWatchers: (() => void)[] = [];
+
+	/**
+	 * Run `watcher` on every camera move, until the returned function is called.
+	 *
+	 * **Imperative on purpose.** Its one consumer redraws an SVG attribute per frame of a pan; routed
+	 * through a prop or a `$state` counter it would schedule a component flush per frame instead.
+	 */
+	export function onCameraMove(watcher: () => void): () => void {
+		cameraWatchers.push(watcher);
+		return () => {
+			const at = cameraWatchers.indexOf(watcher);
+			if (at !== -1) cameraWatchers.splice(at, 1);
+		};
+	}
+
+	/**
 	 * Whether this pane's map has been taken down, so that nothing asks a removed map anything.
 	 *
 	 * See the teardown note at the top of this file. A plain `let` rather than `$state`, deliberately:
@@ -337,6 +365,15 @@
 			locale: { 'Map.Title': 'Base Map' }
 		});
 		created.addControl(new NavigationControl({}), 'top-right');
+
+		// The camera's own events, for anything drawn over this pane in the page's coordinates rather
+		// than in MapLibre's — see {@link onCameraMove}. Identical to `BaseMapPane`'s pair in the
+		// editor, because the leader over a Reader's map is the same line over the same component.
+		const cameraMoved = (): void => {
+			for (const watcher of cameraWatchers) watcher();
+		};
+		created.on('move', cameraMoved);
+		created.on('zoom', cameraMoved);
 
 		// ──────────────────────────────────────────────────────────────────────────────────────
 		// THE BASE MAP'S SOURCE, AND ONLY THAT SOURCE

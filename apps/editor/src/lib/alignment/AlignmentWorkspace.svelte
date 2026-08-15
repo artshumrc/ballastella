@@ -59,7 +59,7 @@
 		type ResourcePoint
 	} from '@ballastella/core';
 	import type { WarpedRender } from '@ballastella/core/render';
-	import { BaseMapSwitcher } from '@ballastella/ui';
+	import { BaseMapSwitcher, LeaderLine } from '@ballastella/ui';
 	import { onDestroy } from 'svelte';
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
@@ -553,6 +553,49 @@
 	const pending = $derived(pairing?.pending ?? null);
 	const selectedId = $derived(pairing?.selectedId ?? null);
 
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// The leader (ticket 12, SPEC story 45)
+	//
+	// **One line, from the Base Map half only**, and the two rules that decide that are both already
+	// written down. ADR-0022 contract 4 says a selected Control Point highlights *both* halves, which
+	// is what joins the two panes — so a line between the panes would be a second answer to a question
+	// already answered, eleven times over on a dense Alignment. And SPEC story 49 says nothing may be
+	// drawn over a pane a scholar is clicking to sub-pixel accuracy: a line from the *sheet's* half to
+	// the docked column on the right would cross the Base Map pane to get there.
+	//
+	// So the mark the leader leaves from is the one in the pane adjacent to the column, and that is
+	// the Base Map's.
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+
+	/** The Base Map pane, for the one thing this screen asks of its camera. */
+	let baseMapPane = $state<BaseMapPane | undefined>();
+	/** The two boxes the leader is drawn between. `$state` for the reason `ProjectScreen` records. */
+	let controlPointColumn = $state<HTMLElement | undefined>();
+	let baseMapFrame = $state<HTMLElement | undefined>();
+
+	/** The selected pair's ordinal, which is the identity both ends of the line are found by. */
+	const selectedOrdinal = $derived(
+		controlPoints.find((point) => point.id === selectedId)?.ordinal ?? null
+	);
+
+	/** The selected pair's Base Map half, drawn by `overlay-points.ts` outside this component's tree. */
+	const selectedMark = (): Element | null =>
+		selectedOrdinal === null || !baseMapFrame
+			? null
+			: baseMapFrame.querySelector(
+					`[data-testid="pane-overlay-point-control-point"][data-ordinal="${selectedOrdinal}"]`
+				);
+
+	/** Its row in the docked column. */
+	const selectedRow = (): Element | null =>
+		selectedOrdinal === null || !controlPointColumn
+			? null
+			: (controlPointColumn
+					.querySelector(
+						`[data-testid="control-point-row-ordinal"][data-ordinal="${selectedOrdinal}"]`
+					)
+					?.closest('[data-testid="control-point-row"]') ?? null);
+
 	/**
 	 * The Alignment handed to the warped renderer, or `null` while it cannot be solved.
 	 *
@@ -816,7 +859,12 @@
 		The route's own container scrolls, so nothing here is ever *cut off*: on a display too short for
 		the minimums below, the page grows and scrolls exactly as it used to.
 	-->
-	<div class="flex min-h-0 grow flex-col gap-4 lg:flex-row lg:gap-0">
+	<!--
+		`relative` establishes the containing block the leader's own layer is `inset-0` of — it spans the
+		panes and the Control Point column together, which is why it is a child of this element rather
+		than of either.
+	-->
+	<div class="relative flex min-h-0 grow flex-col gap-4 lg:flex-row lg:gap-0">
 		<!--
 			The pane column. `shrink-0` until `lg`, where the two sit side by side and each takes half:
 			without `min-w-0` a WebGL canvas's own width wins the flex negotiation and the pair overflow
@@ -1056,9 +1104,11 @@
 				</div>
 				<!-- The same height contract as the sheet beside it — see `frameClass` above. -->
 				<div
+					bind:this={baseMapFrame}
 					class="h-[45dvh] overflow-hidden rounded border border-base-300 lg:h-auto lg:min-h-64 lg:grow"
 				>
 					<BaseMapPane
+						bind:this={baseMapPane}
 						entryId={baseMapId}
 						overlayPoints={basePoints}
 						alignment={solvable}
@@ -1117,6 +1167,7 @@
 			border, that `ProjectScreen` docks its Layer stack in — one arrangement, not two.
 		-->
 		<div
+			bind:this={controlPointColumn}
 			class="flex shrink-0 flex-col gap-3 bg-base-300 p-4 lg:min-h-0 lg:w-96 lg:overflow-y-auto lg:border-l lg:border-base-content/10"
 			data-testid="alignment-sidebar"
 		>
@@ -1546,5 +1597,23 @@
 				<ImageDetails {...readout} />
 			{/if}
 		</div>
+
+		<!--
+			The leader, last so that it paints over the panes and the column (SPEC story 45).
+
+			**One line, and it leaves from the Base Map half** — the reasoning is in the script, and its
+			two halves are ADR-0022 contract 4 (the pairing highlight already joins the two panes) and
+			SPEC story 49 (nothing is drawn over a pane being clicked to sub-pixel accuracy).
+
+			Below `lg` this is a stack, the column sits under the maps, and `LeaderLine` measures that and
+			draws nothing.
+		-->
+		<LeaderLine
+			mark={selectedMark}
+			row={selectedRow}
+			canvas={() => baseMapFrame}
+			sidebar={() => controlPointColumn}
+			watch={(redraw) => baseMapPane?.onCameraMove(redraw) ?? (() => {})}
+		/>
 	</div>
 {/if}

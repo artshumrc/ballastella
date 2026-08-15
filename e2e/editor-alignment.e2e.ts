@@ -7,6 +7,7 @@ import { expectWarpedDrawn } from './support/alignment-workspace';
 import { routeBaseMapArchive } from './support/editor-deployment';
 import { addHistoricalMapButton, pickHistoricalMapFile } from './support/historical-maps.js';
 import { alignFromLayer } from './support/layers';
+import { leaderIsDrawn, leaderLayer, leaderPoints } from './support/leader.js';
 import { readStoredJsonOrNull } from './support/stored-file';
 
 /**
@@ -519,7 +520,7 @@ test.describe('Control Point pairing', () => {
 	});
 
 	test('selecting either half highlights its partner in the other pane', async ({ page }) => {
-		await start(page);
+		const imageId = await start(page);
 		await makePair(page, 0.3, 0.3);
 		await makePair(page, 0.65, 0.6);
 
@@ -568,6 +569,77 @@ test.describe('Control Point pairing', () => {
 		await expect(imagePoints(page).nth(0)).not.toHaveClass(/pane-overlay-point-selected/);
 		expect(await background(imagePoints(page).nth(1))).toBe(selectedColour);
 		expect(await background(imagePoints(page).nth(0))).toBe(unselectedColour);
+
+		// ── AND ONE LEADER JOINS THAT PAIR TO ITS ROW (ticket 12, SPEC story 45) ─────────────
+		//
+		// Folded in beside the highlight rather than given a test of its own, because the two are one
+		// subject and the Seam 2 budget is spent (`scripts/check-seam-2-size.mjs`). It is also the
+		// clearest place to state what the leader deliberately does **not** do: there is no line
+		// between the panes for any pair, selected or not. The highlight asserted above is what joins
+		// them (ADR-0022 contract 4), and eleven lines across two canvases is noise.
+		//
+		// **The line leaves from the Base Map half**, which is the pane adjacent to the docked column
+		// — a line from the sheet's half would have to cross the Base Map pane to reach the column,
+		// and SPEC story 49 is that nothing is drawn over a pane being clicked to sub-pixel accuracy.
+		//
+		// ⚠ **Asserted against `map.project()` of the coordinate in the Alignment on disk**, never
+		// against the leader's own box or the mark's — the defect shape recorded in
+		// `apps/editor/src/routes/layout.css`. The mutation check is to offset the projection by a
+		// constant and watch this go red.
+		await waitForStored(page, imageId, 2);
+		const written = JSON.parse((await storedAlignment(page, imageId)) as string);
+		const geo = written.body.features[1].geometry.coordinates as [number, number];
+
+		const drawn = await leaderPoints(page);
+		expect(drawn, 'no leader was drawn for the selected Control Point').not.toBeNull();
+		expect(drawn, 'more than one line was drawn for one selection').toHaveLength(3);
+		const [atRow, stub, atMark] = drawn as { x: number; y: number }[];
+
+		const pane = (await baseMap(page).boundingBox())!;
+		const projected = await page.evaluate(
+			(coordinate) =>
+				(
+					window as unknown as {
+						ballastellaBaseMap: { project(at: [number, number]): { x: number; y: number } };
+					}
+				).ballastellaBaseMap.project(coordinate as [number, number]),
+			geo
+		);
+		const target = { x: pane.x + projected.x, y: pane.y + projected.y };
+		// The line stops at the edge of the 24 px Control Point marker (`layout.css`) and two pixels
+		// clear of it — along its own direction, which is what the stub is read for. The stub sets the
+		// direction; the file sets the place.
+		const run = Math.hypot(
+			target.x - (stub as { x: number }).x,
+			target.y - (stub as { y: number }).y
+		);
+		const wanted = {
+			x: target.x - ((target.x - (stub as { x: number }).x) * 14) / run,
+			y: target.y - ((target.y - (stub as { y: number }).y) * 14) / run
+		};
+		expect(
+			Math.hypot((atMark as { x: number }).x - wanted.x, (atMark as { y: number }).y - wanted.y),
+			'the leader’s canvas end is not where map.project() puts the coordinate on disk'
+		).toBeLessThan(2);
+
+		// Its row's near edge is the **left** one here, because the docked column is to the right of
+		// the panes — the mirror of the Project screen, from one rule stated as "the edge facing the
+		// mark" rather than as a side.
+		const rowBox = (await rows(page).nth(1).boundingBox())!;
+		expect((atRow as { x: number }).x).toBeCloseTo(rowBox.x, 0);
+		expect((atRow as { y: number }).y).toBeCloseTo(rowBox.y + rowBox.height / 2, 0);
+		expect((stub as { x: number }).x, 'the line left the row on the far side').toBeLessThan(
+			rowBox.x
+		);
+
+		// Decoration only: nothing about which pair is current may depend on seeing it (story 42's
+		// rule, applied here).
+		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');
+
+		// And deselecting takes it away, which is the other half of "exactly one thing is selected".
+		await page.getByTestId('control-point-select').nth(1).click();
+		await expect(basePoints(page).nth(1)).toHaveAttribute('data-selected', 'false');
+		await expect.poll(() => leaderIsDrawn(page)).toBe('no');
 	});
 
 	test('deleting removes both halves, never one', async ({ page }) => {
