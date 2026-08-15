@@ -26,7 +26,7 @@ Last updated: 2026-08-14
 
 | Number | Filename | Status | Depends On | Claimed By |
 | --- | --- | --- | --- | --- |
-| 01 | [01-an-annotation-opens-in-its-own-row.md](./tickets/01-an-annotation-opens-in-its-own-row.md) | In Progress | — | run-epic wave 1 |
+| 01 | [01-an-annotation-opens-in-its-own-row.md](./tickets/01-an-annotation-opens-in-its-own-row.md) | Completed | — | — |
 | 02 | [02-a-shared-ui-package-proved-by-the-base-map-switcher.md](./tickets/02-a-shared-ui-package-proved-by-the-base-map-switcher.md) | Completed | — | — |
 | 03 | [03-one-bar-shell-and-the-viewer-gets-a-navigation-bar.md](./tickets/03-one-bar-shell-and-the-viewer-gets-a-navigation-bar.md) | In Progress | 02 | run-epic wave 2 |
 | 04 | [04-the-layer-card-moves-to-the-shared-package.md](./tickets/04-the-layer-card-moves-to-the-shared-package.md) | In Progress | 02 | run-epic wave 2 |
