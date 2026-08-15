@@ -537,6 +537,10 @@ export {
 	parseAnnotations,
 	serialiseAnnotations
 } from './annotation/geojson.js';
+// The number an Annotation is known by. Display state, derived from the collection's order and
+// written nowhere (ADR-0002) — read by the row in `packages/ui` and by the mark in `render/`, so
+// that "look at 3" means one Annotation in both apps and on both surfaces.
+export { annotationOrdinal } from './annotation/ordinal.js';
 // The `description` pipeline: `marked` → DOMPurify → insert, in one function so the order cannot be
 // reversed by a later edit (ADR-0009). **The one place in this epic where a bug is a security
 // vulnerability rather than a defect.**

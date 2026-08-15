@@ -12,7 +12,7 @@
 	// title and the rendered description with nothing to press. There is no `readOnly` prop and no
 	// `mode` prop — a control a Reader must not have is a snippet the viewer does not pass.
 
-	import type { Annotation } from '@ballastella/core';
+	import { annotationOrdinal, type Annotation } from '@ballastella/core';
 	import { tick, type Snippet } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
 	import { prefersReducedMotion } from 'svelte/motion';
@@ -33,10 +33,10 @@
 		/**
 		 * Where this Annotation sits in its collection, counted from zero.
 		 *
-		 * Only ever read for the untitled fallback's number — here and in whatever the open row reveals,
-		 * which is handed the same number — and that is why it is the *collection's* position rather
-		 * than this row's: the one Annotation shown on its own under the drawing tools must read as the
-		 * same "Untitled pin 3" it reads as in the list.
+		 * Read for the ordinal this row draws, for the untitled fallback's number, and by whatever the
+		 * open row reveals, which is handed the same number — and that is why it is the *collection's*
+		 * position rather than this row's: the one Annotation shown on its own under the drawing tools
+		 * must read as the same "Untitled pin 3" it reads as in the list.
 		 */
 		index: number;
 		open: boolean;
@@ -218,6 +218,28 @@
 		data-annotation-id={annotation.id}
 		onclick={() => void toggle()}
 	>
+		<!--
+			**The number, so that "look at 3" identifies one Annotation across a desk** (stories 37, 38).
+			It is the same number the mark on the map draws, from `annotationOrdinal` in `core` — one
+			rule, so the canvas and the sidebar cannot disagree — and it is *inside the button* rather
+			than positioned beside it, so a screen reader hears "3, shape, Untitled shape 3" and nothing
+			about which Annotation is which depends on seeing a line (story 42).
+
+			⚠ **Nothing writes it.** The number is this row's place in the collection it was handed, and
+			deleting an Annotation renumbers the rest because the list renders again (ADR-0002).
+
+			The kind's own ink rather than a plain `opacity-60` like the shape word: the number is what
+			the mark on the map is wearing, and the ink is the measured mix `layout.css` computes from
+			`--color-info` — 6.0:1 in the light theme and 8.8:1 in dark, on the row's own 10% wash. The
+			raw token is 2.2:1 there and could not carry text this size.
+		-->
+		<span
+			class={['shrink-0 text-xs font-semibold tabular-nums', KIND_STYLE.annotation.ink]}
+			data-testid="annotation-row-ordinal"
+		>
+			{annotationOrdinal(index)}
+		</span>
+
 		<!--
 			The same glyph the tool that drew it carries, and **beside the word rather than instead of
 			it** (SPEC story 111) — the word is what a screen reader reads and what a glyph alone would

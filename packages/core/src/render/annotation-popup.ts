@@ -13,7 +13,7 @@
 
 import { annotationAnchor, type Annotation } from '../annotation/annotation.js';
 import { renderAnnotationPopup } from '../annotation/markdown.js';
-import { PIN_ICON_SIZE, PIN_PIXEL_RATIO } from './pin-icon.js';
+import { pinHeight } from './pin-icon.js';
 import { Popup, type Map as MapLibreMap } from 'maplibre-gl';
 
 /** The id of the one stylesheet below, so it is added once per document. */
@@ -109,17 +109,14 @@ function ensurePopupStyle(): void {
  * How far above the anchor the popup floats, in pixels.
  *
  * For a Point that is the height of its own pin: the anchor is the coordinate, the pin stands on it,
- * and a popup offset by nothing covers the mark it is describing. The pin is
- * `48px × icon-size` tall (`pin-icon.ts`), so this asks the same numbers the renderer does rather
- * than repeating a measurement that would drift the next time the pin is resized.
+ * and a popup offset by nothing covers the mark it is describing. {@link pinHeight} is where that
+ * measurement lives, rather than repeating it here — the ordinal above the pin needs the same number.
  *
  * A number rather than a per-anchor object, so MapLibre offsets radially from the anchor point.
  */
 function clearance(annotation: Annotation): number {
 	if (annotation.geometry?.type !== 'Point') return 10;
-	const size = annotation.properties['marker-size'] ?? 'medium';
-	const iconHeight = 96 / PIN_PIXEL_RATIO;
-	return Math.round(iconHeight * (PIN_ICON_SIZE[size] ?? PIN_ICON_SIZE['medium'] ?? 0.7)) + 4;
+	return pinHeight(annotation.properties['marker-size']) + 4;
 }
 
 /** A popup on the map, and the way to take it off again. */

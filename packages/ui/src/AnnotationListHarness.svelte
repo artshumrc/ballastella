@@ -44,6 +44,25 @@
 	// Seeded once, then the harness's own: after the first render the open row is whatever the last
 	// gesture asked for, which is the point of the harness.
 	let openId = $state(untrack(() => initialOpenId));
+
+	/**
+	 * The Annotations on screen now, seeded from the prop and then changed through {@link show}.
+	 *
+	 * **So that a shorter collection can arrive as a prop update rather than as a second mount.** A
+	 * consumer that deletes an Annotation hands this list the survivors and nothing else happens: the
+	 * component is not unmounted, and a row that had captured its number when it was first rendered
+	 * would go on showing the old one. A test that mounted twice could not tell the two apart.
+	 *
+	 * `$state.raw` because the collection is replaced whole and never mutated in place, which is what
+	 * the consumer does — and it keeps the Annotations the test passed the same objects the list is
+	 * handed.
+	 */
+	let shown = $state.raw(untrack(() => annotations));
+
+	/** Hand the list a different collection, the way a consumer does after a delete. */
+	export const show = (next: readonly Annotation[] | null): void => {
+		shown = next;
+	};
 </script>
 
 {#snippet contents(annotation: Annotation)}
@@ -66,7 +85,7 @@
 	passed the prop. What is being tested is a consumer that never mentions it.
 -->
 <AnnotationList
-	{annotations}
+	annotations={shown}
 	{openId}
 	onopen={(id) => {
 		onopen?.(id);

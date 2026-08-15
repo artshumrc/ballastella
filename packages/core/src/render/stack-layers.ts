@@ -23,6 +23,7 @@ import {
 	type AnnotationCollection,
 	type LineStyle
 } from '../annotation/annotation.js';
+import { createAnnotationOrdinals, type AnnotationOrdinals } from './annotation-ordinals.js';
 import { PIN_ICON_SIZE, PIN_IMAGE_ID, PIN_PIXEL_RATIO, pinImage } from './pin-icon.js';
 import {
 	LINE_STYLES,
@@ -403,6 +404,8 @@ export function drawLayerStack(options: {
 	const warped: Record<string, ReturnType<typeof createWarpedMapLayer>> = {};
 	const added: string[] = [];
 	const sources: string[] = [];
+	/** Each Annotation Layer's numbers, by Layer id — display state, drawn beside the marks. */
+	const ordinals: Record<string, AnnotationOrdinals> = {};
 
 	for (const drawn of drawingOrder(layers)) {
 		const layerId = drawn.layer.id;
@@ -435,6 +438,12 @@ export function drawLayerStack(options: {
 			map.addLayer({ id, ...spec } as never);
 			added.push(id);
 		}
+		// The numbers over the marks (SPEC stories 37, 38). Outside the source and outside the style:
+		// they are DOM elements MapLibre positions, so a Published Site with no glyphs still shows them
+		// — see `annotation-ordinals.ts` for why that decided it.
+		const numbers = createAnnotationOrdinals(map);
+		numbers.update(drawn.annotations);
+		ordinals[layerId] = numbers;
 		outcomes[layerId] = { status: 'drawn' };
 	}
 
@@ -451,9 +460,16 @@ export function drawLayerStack(options: {
 			// a `setStyle` there is nothing there at all.
 			const geojson = source as { setData?: (data: unknown) => void } | undefined;
 			geojson?.setData?.(toRenderCollection(collection));
+			// Renumbering is this call and nothing else: an Annotation deleted here leaves the ones after
+			// it counted again from a shorter list, with no file written to say so (ADR-0002).
+			ordinals[layerId]?.update(collection);
 		},
 		destroy({ mapIsGone = false } = {}) {
 			unexpose();
+			// The marks are DOM elements rather than style layers, so they have to be taken off whether or
+			// not the map survives — a removed map takes its container's children with it, but a `setStyle`
+			// does not, and a mark left behind would outlive the Layer it belongs to.
+			for (const numbers of Object.values(ordinals)) numbers.destroy();
 			if (mapIsGone) return;
 			// `setStyle` on a theme change removes our layers along with everything else, so removing one
 			// that has already gone has to be survivable rather than an exception in a teardown.
