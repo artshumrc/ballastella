@@ -21,6 +21,8 @@
 export { default as AppBar } from './AppBar.svelte';
 export { default as BaseMapSwitcher } from './BaseMapSwitcher.svelte';
 export { default as LayerList } from './LayerList.svelte';
+export { default as MapCommentary } from './MapCommentary.svelte';
+export { default as MapNotice } from './MapNotice.svelte';
 export { default as MenuPopover } from './MenuPopover.svelte';
 export { default as ProjectCardList } from './ProjectCardList.svelte';
 export { KIND_STYLE } from './layer-kind-style';

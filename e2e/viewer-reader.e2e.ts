@@ -1690,9 +1690,15 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.goto(`${served.url}?p=amsterdam-1625`);
 		await mapReady(page);
 
-		await expect(page.getByTestId('base-map-not-published')).toHaveCount(0);
+		// **Empty rather than absent**, and that is the mechanism rather than a detail (ticket 11): this
+		// notice is a live region, so it has to be on the page before its sentence arrives for the
+		// arrival to be a *change* — a live region inserted with its text already in it is announced to
+		// nobody. It says nothing here, and `aria-live` is asserted with the sentence up below.
+		await expect(page.getByTestId('base-map-not-published')).toHaveText('');
 		// And no outage claimed either: the archive answered, so `base-map-unavailable` — the notice for
 		// an archive that did not — must stay off the screen. A warning that is always on is unreadable.
+		// This one *does* come and go, so it is absent outright: `MapNotice` gives the two shapes the two
+		// mechanisms, and `packages/ui/src/map-notice.dom.test.ts` holds the rule.
 		await expect(page.getByTestId('base-map-unavailable')).toHaveCount(0);
 		const options = page.getByTestId('base-map-switcher').locator('option');
 		await expect(options).toHaveCount(4);
@@ -1882,7 +1888,13 @@ test.describe('a Published Site that is not entirely well', () => {
 		// should go, and go in the commit that made it so: they were documentation dressed as coverage,
 		// and they made this criterion look four times as well covered as it is.
 		await expect(notice.locator('p')).toHaveText(UNAVAILABLE_NOTICE);
-		await expect(page.getByTestId('base-map-not-published')).toHaveCount(0);
+		// An alert, because it was inserted with its text already in it: an `aria-live` region is
+		// announced when its text changes, so this notice as a live region would reach nobody at all
+		// (ticket 11, and the amendment to ADR-0016 the shared component now holds).
+		await expect(notice).toHaveAttribute('role', 'alert');
+		await expect(notice).not.toHaveAttribute('aria-live', /.*/);
+		// Nothing about the site's own files is wrong here, so that notice is up and empty.
+		await expect(page.getByTestId('base-map-not-published')).toHaveText('');
 
 		// ── The notice explains an absence; it does not replace the map ─────────────────────────────
 		// A fix that blanked the pane on error would satisfy every assertion above. So the Reader's own
@@ -2157,6 +2169,13 @@ test.describe('a Published Site that is not entirely well', () => {
 		// Reader's to work around by switching Base Map, the missing labels are the publisher's to fix.
 		const notPublished = page.getByTestId('base-map-not-published');
 		await expect(notPublished).toBeVisible();
+		// The other mechanism, on the same screen as the alert above: this notice is always on the page
+		// and says nothing until there is something to say, so what a screen reader hears is the text
+		// changing. Both halves are asserted here because a page that got them the same way round would
+		// silently lose one of the two announcements (ticket 11).
+		await expect(notPublished).toHaveAttribute('aria-live', 'polite');
+		await expect(notPublished).toHaveAttribute('aria-atomic', 'true');
+		await expect(notPublished).not.toHaveAttribute('role', /.*/);
 		await expect(notPublished).toHaveText(
 			'This site was published without the Base Map’s labels and symbols, so the modern ' +
 				'reference map here carries no place names at all. The Historical Maps and the ' +
