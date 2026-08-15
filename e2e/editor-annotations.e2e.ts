@@ -194,8 +194,9 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 	/**
 	 * **The wiring of the selection, which is the half of it a browser is needed for.**
 	 *
-	 * That a row is a *toggle* — pressed once it selects, pressed again it clears, and a second row
-	 * displaces the first rather than joining it — is `AnnotationLayerContents`' own behaviour and is
+	 * That a row is a *disclosure* — pressed once it opens and selects, pressed again it collapses and
+	 * clears, and a second row displaces the first rather than joining it — is
+	 * `AnnotationLayerContents`' own behaviour and is
 	 * asserted against the component in `annotation-layer-contents.dom.test.ts`, handed a collection
 	 * and a selection by the test. What that seam cannot fail for is the reason this test's title
 	 * gives: that a shape *drawn on the map* becomes the selection, which is `AnnotationDrawing` and
@@ -208,21 +209,28 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 	test('a shape drawn on the map arrives selected, in an editor of its own', async ({ page }) => {
 		await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
-		// The list is back once the tools are put away; the new pin is selected in it.
-		await chooseTool(page, 'select');
 
-		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-pressed', 'true');
+		// **With the tool still in hand**, which is the flow rather than a shortcut: drawing does not
+		// disarm the tool, so a row that stood aside with the rest of the list would mean pressing
+		// "Done" before the shape just drawn could be titled. One row is on screen and it is that one.
+		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
+		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
 		await expect(page.getByTestId('annotation-editor')).toBeVisible();
 
-		// And it is the drawn one's panel rather than the previous Annotation's. "New Annotation"
-		// deselects — the component seam asserts that it does — and this is the other end of it: the
-		// panel that appears next belongs to the shape that was just drawn.
-		await selectAnnotation(page);
+		// And it can be titled from there, with the tool still armed.
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('The west quay');
 		await page.getByTestId('annotation-text-done').click();
 		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
 
+		// The list is back once the tools are put away, and the drawn Annotation is the selected one in
+		// it rather than something the tools left behind.
+		await selectAnnotation(page);
+		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
+
+		// And the panel that appears next belongs to the shape that was just drawn rather than to the
+		// previous Annotation. "New Annotation" deselects — the component seam asserts that it does —
+		// and this is the other end of it.
 		await page.getByTestId('annotation-new').click();
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(baseMap(page), 0.6, 0.6);
@@ -1032,6 +1040,17 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		await reopenLayers(page);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
+
+		// **Opening and closing the row, which is now where the Annotation is read.** The editor lives
+		// inside its own row, so a disclosure that saved on open or on close would charge a write per
+		// press — and pressing a row is the most ordinary thing a scholar does in this list.
+		const row = page.getByTestId('annotation-row').first();
+		await row.click();
+		await expect(row).toHaveAttribute('aria-expanded', 'false');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await row.click();
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+
 		await clickAt(baseMap(page), 0.4, 0.4);
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').focus();
@@ -1451,7 +1470,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		await expect(page.getByTestId('annotation-editor')).toBeVisible();
 		await expect(page.getByTestId('annotation-title-text')).toHaveText('Fort Amsterdam');
 		await expect(rowFor(page, routes).getByTestId('annotation-row').first()).toHaveAttribute(
-			'aria-pressed',
+			'aria-expanded',
 			'true'
 		);
 
@@ -1638,10 +1657,10 @@ test.describe('placing a Pin at a Place', () => {
 		expect(Math.max(across, down)).toBeGreaterThan(0.5);
 
 		// **Selected on placement**, exactly as a drawn one is, so retitling it does not begin with
-		// hunting for it. Asserted on the editor and on the row's own pressed state rather than on a
+		// hunting for it. Asserted on the editor and on the row's own expanded state rather than on a
 		// highlight.
 		await expect(page.getByTestId('annotation-editor')).toBeVisible();
-		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
 		// And its vertex handle is on the map, which is the affordance the correction is made with.
 		await expect(page.getByTestId('pane-overlay-point-annotation-vertex')).toHaveCount(1);
 

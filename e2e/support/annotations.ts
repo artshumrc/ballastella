@@ -445,7 +445,7 @@ export async function chooseTool(
 /**
  * Make sure the Annotation at `index` in the list is the selected one.
  *
- * **Not simply a click**, because a row is a toggle and drawing something already selects it — a
+ * **Not simply a click**, because a row is a disclosure and drawing something already selects it — a
  * newly drawn shape is selected so that it can be titled straight away, which is the point of
  * drawing it. Clicking it unconditionally would therefore *deselect* it, and the editor and the
  * vertex handles would both vanish. That is not a hypothetical: it is what the first run of this
@@ -454,15 +454,27 @@ export async function chooseTool(
  * **Puts the drawing tools away first**, because the list stands aside while a shape is armed —
  * somebody who has just pressed "New Annotation" is asking what to draw, not what is already here.
  * Drawing leaves the tool in hand, so a test that draws and then reaches for a row arrives while the
- * list is still out of the way.
+ * list is still out of the way. The one exception is the Annotation just drawn, whose row stays open
+ * under the tools so that it can be titled straight away — but this helper is asked for *any* row,
+ * including one the tools are hiding, so it puts them away regardless.
+ *
+ * **Waits for the row that was left to finish closing.** A row collapses over 220 ms, so for that
+ * long the Annotation being left still has its editor in the document alongside the one being opened
+ * — which is what an animated collapse means. Every caller that reaches into "the editor" without
+ * naming an Annotation would otherwise find two of them for a fifth of a second, and Playwright's
+ * strict mode is right to refuse to guess which.
  */
 export async function selectAnnotation(page: Page, index = 0): Promise<void> {
 	await chooseTool(page, 'select');
 	const row = page.getByTestId('annotation-row').nth(index);
 	await expect(row).toBeVisible();
-	if ((await row.getAttribute('aria-pressed')) !== 'true') await row.click();
-	await expect(row).toHaveAttribute('aria-pressed', 'true');
-	await expect(page.getByTestId('annotation-editor')).toBeVisible();
+	if ((await row.getAttribute('aria-expanded')) !== 'true') await row.click();
+	await expect(row).toHaveAttribute('aria-expanded', 'true');
+	const id = await row.getAttribute('data-annotation-id');
+	await expect(
+		page.locator(`[data-testid="annotation-editor"][data-annotation-id="${id}"]`)
+	).toBeVisible();
+	await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
 }
 
 /**

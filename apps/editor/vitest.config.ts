@@ -92,6 +92,15 @@ import { defineConfig } from 'vitest/config';
 //    a fake agreeing with a fake about the one member the fake gets wrong. Every drag claim therefore
 //    stays in `e2e/editor-layers.e2e.ts`, which says so beside them.
 //
+// 6. **The Web Animations API.** Probed 2026-08-14 (the Annotation row disclosure): `Element`
+//    has no `animate`, in happy-dom 20.11 and in jsdom 30 alike. Svelte's `transition:` calls it for
+//    any transition with a duration or a delay, so such a component throws from inside Svelte's
+//    runtime the moment its block opens or closes — in a microtask, so the run fails as an unhandled exception
+//    somewhere other than the test that caused it. `vitest-setup/web-animations.ts` supplies the
+//    smallest object that runtime reads, and its header states the rule that goes with it:
+//    **nothing here may assert anything about an animation.** What a component *decides* about one
+//    it can put in the DOM, and that is where the reduced-motion claim is asserted.
+//
 // Known-absent and therefore off limits here, rather than worked around:
 //
 // - **No layout.** No `offsetWidth`, no scroll geometry, no visibility derived from paint. Any
@@ -247,7 +256,11 @@ export default defineConfig({
 					environment: 'happy-dom',
 					include: ['src/**/*.dom.test.ts'],
 					expect: { requireAssertions: true },
-					setupFiles: ['./vitest-setup/refuse-network.ts', './vitest-setup/dom-matchers.ts']
+					setupFiles: [
+						'./vitest-setup/refuse-network.ts',
+						'./vitest-setup/dom-matchers.ts',
+						'./vitest-setup/web-animations.ts'
+					]
 				}
 			}
 		]

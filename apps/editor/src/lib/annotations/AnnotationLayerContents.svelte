@@ -15,6 +15,19 @@
 	// there is no second answer available. **The Layer itself is no longer among them**: it was here
 	// for its `defaultStyle`, and a Layer no longer has one (ADR-0009, as amended) — style lives on
 	// each Annotation, put there when it is drawn.
+	//
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+	// AN ANNOTATION OPENS IN ITS OWN ROW
+	//
+	// The editor used to be a **sibling of the list**: a box headed "The west quay" sitting under a
+	// list in which "The west quay" is one of four rows, with nothing joining the two. With four
+	// Annotations in a 24 rem column, which row the panel belonged to was inferred rather than seen,
+	// and the panel was often far enough down that the row and its own contents were not on screen
+	// together.
+	//
+	// So the row *is* the disclosure. The same idea the Layer card one level up already follows —
+	// a stack of rows, one of them open, revealing what is inside it — applied to the Annotations
+	// inside a Layer rather than reimplemented beside them.
 
 	import {
 		type Annotation,
@@ -22,6 +35,10 @@
 		type LineStyle,
 		type Place
 	} from '@ballastella/core';
+	import { tick } from 'svelte';
+	import { cubicOut } from 'svelte/easing';
+	import { prefersReducedMotion } from 'svelte/motion';
+	import { slide } from 'svelte/transition';
 
 	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
 	import PlaceSearch from '$lib/places/PlaceSearch.svelte';
@@ -90,7 +107,124 @@
 	 */
 	let picking = $state(false);
 	const choosing = $derived(picking || tool !== 'select');
-	const selected = $derived(annotations.find((one) => one.id === selectedId) ?? null);
+
+	/**
+	 * The one Annotation that stays on screen while a tool is armed: the selected one, if there is
+	 * one.
+	 *
+	 * There can only be one, and it can only have just been made. "New Annotation" deselects, so
+	 * arriving here with a selection means a shape was drawn on the map or a Place was pinned since
+	 * the tools came out — which is exactly the Annotation somebody is about to title.
+	 */
+	const drawn = $derived(
+		choosing ? (annotations.find((annotation) => annotation.id === selectedId) ?? null) : null
+	);
+
+	/**
+	 * How long a row takes to open or close.
+	 *
+	 * The same pair the Layer cards' reorder uses, read from the same signal — see `moveAnimation` in
+	 * `LayerList.svelte`. A row that simply appeared would leave a scholar to work out where a panel
+	 * of controls had come from; the slide is what says "out of this row".
+	 *
+	 * Zero when the user has asked for less motion, which is the whole of respecting that here: the
+	 * row still opens, it simply arrives rather than travels.
+	 */
+	const reveal = $derived({
+		duration: prefersReducedMotion.current ? 0 : 220,
+		easing: cubicOut
+	});
+
+	/**
+	 * Each row's own button, so an opened row can be brought back into the column.
+	 *
+	 * A plain object rather than `$state`, for the reason `LayerList`'s button references are: nothing
+	 * renders from these, they are read once after a row opens, and making them reactive would turn
+	 * writing a `bind:this` into a state change.
+	 */
+	const rowButton: Record<string, HTMLButtonElement | undefined> = {};
+
+	/** The nearest ancestor that scrolls, or `null` when nothing above this one does. */
+	const scrollingAncestor = (from: HTMLElement): HTMLElement | null => {
+		for (let node = from.parentElement; node !== null; node = node.parentElement) {
+			const overflow = getComputedStyle(node).overflowY;
+			if (overflow === 'auto' || overflow === 'scroll') return node;
+		}
+		return null;
+	};
+
+	/** How still the column has to be before it counts as stopped. Two smooth-scroll frames and more. */
+	const STILL_MS = 200;
+
+	/** The longest the measurement will wait, however busy the column is. */
+	const SETTLE_MS = 900;
+
+	/**
+	 * Resolve once nothing has scrolled `column` for {@link STILL_MS}, or once {@link SETTLE_MS} is up.
+	 *
+	 * ⚠ **A single `scrollend` is not enough, and the reason is worth keeping.** Opening a row that is
+	 * only half in view scrolls the column *twice*: once to bring the button the pointer or the
+	 * keyboard is on into view, and again when the panel underneath it appears. The first of those is
+	 * instant, so its `scrollend` can land in the same task as the click — before this ever gets a
+	 * listener on — or immediately after it, and a `once: true` listener that caught it would report
+	 * "settled" while the second scroll had not begun. Measured in Chromium: `scrollend` at 47 ms,
+	 * then a smooth scroll running from 81 ms to 347 ms. Stillness answers "has it stopped" for both.
+	 */
+	const scrollSettled = (column: HTMLElement): Promise<void> =>
+		new Promise((resolve) => {
+			const done = (): void => {
+				clearTimeout(still);
+				clearTimeout(cap);
+				column.removeEventListener('scroll', restart);
+				resolve();
+			};
+			const restart = (): void => {
+				clearTimeout(still);
+				still = setTimeout(done, STILL_MS);
+			};
+			let still = setTimeout(done, STILL_MS);
+			const cap = setTimeout(done, SETTLE_MS);
+			column.addEventListener('scroll', restart);
+		});
+
+	/**
+	 * Open a row, or close whatever is open, and keep the row that opened on screen.
+	 *
+	 * **A 24 rem sidebar can push a row off its own screen by opening it**: what the row reveals is
+	 * taller than the column has left below it, and the column scrolls to show it. Only when the
+	 * header has really left, though — scrolling a row that is already in view moves the page under a
+	 * pointer that asked for nothing of the sort.
+	 *
+	 * ⚠ **The measurement waits for the column to stop moving, and `await tick()` is not that.** What
+	 * takes the header off the top is not the reveal — the revealed region is *below* the button in
+	 * the same `<li>` and cannot push it anywhere — it is `AnnotationEditor`'s own
+	 * `scrollIntoView({ behavior: 'smooth' })` on the panel that has just appeared, which the
+	 * compositor performs over frames that have not happened yet one microtask after the click.
+	 * Measured in Chromium with eight Annotations in a 260 px column: at the microtask the header sat
+	 * 225 px inside the column, so the guard below found it in view and returned; when the scroll
+	 * finished it was 38 px *above* the top edge. Identical under `prefers-reduced-motion: reduce` —
+	 * Chrome does not make a smooth scroll synchronous for that setting.
+	 *
+	 * {@link scrollSettled} is what waits for it, and it waits for stillness rather than for a single
+	 * `scrollend`, for the reason recorded there.
+	 *
+	 * **Nothing is focused.** The button that was pressed is still there and still has the keyboard;
+	 * this moves the viewport and nothing else.
+	 */
+	const chooseRow = async (id: string | null): Promise<void> => {
+		onselect(id);
+		if (id === null) return;
+		await tick();
+		const button = rowButton[id];
+		if (!button) return;
+		const column = scrollingAncestor(button);
+		if (!column) return;
+		await scrollSettled(column);
+		const header = button.getBoundingClientRect();
+		const box = column.getBoundingClientRect();
+		if (header.top >= box.top && header.bottom <= box.bottom) return;
+		button.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	};
 
 	/**
 	 * How one Annotation reads in the list.
@@ -137,12 +271,11 @@
 		{canFinish}
 		onnew={() => {
 			picking = true;
-			// **"New Annotation" closes whatever was open.** The editor is not part of the list, so it
-			// stayed on screen while the list stepped aside — a panel titled "The west quay" sitting
-			// directly under the shape buttons, which reads as the thing about to be drawn and is not. It
-			// is the same panel the shape that gets drawn will appear in, a few pixels from where the
-			// pointer is, so the two were as close to indistinguishable as the interface can make them.
-			// Deselecting is also what the gesture means: a new Annotation is not an edit to the old one.
+			// **"New Annotation" collapses whatever row was open**, and deselecting is what does it: the
+			// open row is the selected Annotation, so there is one thing to say rather than two. It is
+			// also what the gesture means — a new Annotation is not an edit to the old one — and it is
+			// why the row that was open cannot survive into the moment the next shape is drawn, when the
+			// panel under the pointer would be the wrong Annotation's.
 			onselect(null);
 		}}
 		onchoose={(chosen) => {
@@ -172,49 +305,17 @@
 		onchoose={onplace}
 	/>
 
-	{#if choosing}
-		<!--
-			Nothing here while a new Annotation is being drawn. The list is not hidden to save space: it
-			is the answer to "what is already in this Layer", and somebody who has just pressed "New
-			Annotation" is asking the opposite question. What they draw appears in its own editor below,
-			and the list is back as soon as they are done.
-		-->
-	{:else if annotations.length === 0}
-		<p class="text-sm opacity-70" data-testid="annotation-list-empty">Nothing in this Layer yet.</p>
-	{:else}
-		<!--
-			**Outlined, headed and divided, because it did not read as a list.** Ghost buttons in a gap-1
-			column are the shape a toolbar has: nothing said where the Annotations began, where they
-			ended, or that the rows were siblings rather than four unrelated controls stacked in a
-			sidebar. The box draws the edge, the caption says what is inside it and how many, and the
-			hairlines between rows are what make them read as items of one thing.
-
-			daisyUI's own `menu`, which is the component for a list of choices — ADR-0016 mandates no
-			method for a list, and reaching for `menu` rather than restyling `btn` keeps the hover, focus
-			and active states the theme already defines. Still an `<ol>`, so the structure reaches
-			assistive technology from the markup rather than from the class; still a `<button>` per row
-			with `aria-pressed`, which is ADR-0016's shape for a selection toggle and what makes the list
-			operable by keyboard with nothing added.
-		-->
-		<div class="overflow-hidden rounded-lg border border-base-300">
-			<p
-				class="border-b border-base-300 bg-base-200 px-3 py-1 text-[0.65rem] font-semibold uppercase opacity-70"
-				id="annotation-list-caption"
-			>
-				{annotations.length}
-				{annotations.length === 1 ? 'Annotation' : 'Annotations'}
-			</p>
-
-			<ol
-				class="menu w-full gap-0 menu-sm p-0"
-				aria-labelledby="annotation-list-caption"
-				data-testid="annotation-list"
-			>
-				{#each annotations as annotation, index (annotation.id)}
-					{@const Icon = iconForGeometry(annotation.geometry?.type)}
-					{@const chosen = annotation.id === selectedId}
-					<li class="border-b border-base-200 last:border-b-0">
-						<!--
+	<!--
+		One Annotation's row, rendered in two places: the whole list, and — while a shape is armed — on
+		its own under the drawing tools. A snippet rather than a second copy, because the two places
+		differ only in what surrounds them, and a row that drifted between them would be a disclosure
+		that behaved differently depending on whether a tool happened to be in hand.
+	-->
+	{#snippet annotationRow(annotation: Annotation, index: number)}
+		{@const Icon = iconForGeometry(annotation.geometry?.type)}
+		{@const chosen = annotation.id === selectedId}
+		<li class="border-b border-base-200 last:border-b-0">
+			<!--
 							**The chosen row is marked by the Annotation Layer's own wash, and nothing else.**
 							`KIND_STYLE.annotation.tint` is the same 10% the card's header wears, from the one table
 							every colour in this card comes from (`layer-kind-style.ts`).
@@ -234,44 +335,136 @@
 							`base-content` slab has to re-solve its own contrast and then repaint the text to win.
 
 							Colour is not the only channel (SPEC story 111): the name goes semibold, which survives
-							a monochrome screen, and `aria-pressed` is what carries the state to a screen reader.
+							a monochrome screen, and `aria-expanded` is what carries the state to a screen reader.
+
+							**That button is also the disclosure, and its expanded state is the selection.** There
+							is deliberately no `aria-pressed` beside it: a row that was pressed but not open, or
+							open but not pressed, would be two answers to "which Annotation is active", and two
+							properties for one fact are two things that can disagree. `aria-expanded` is ADR-0016's
+							shape for a disclosure, which is what this is, and it is the Layer card's own convention
+							one level down rather than a second one invented here. There is no separate control
+							beside the name for the same reason: the gesture that chooses an Annotation is the
+							gesture that opens it.
 						-->
-						<button
-							type="button"
-							class={[
-								'flex w-full items-center gap-2 rounded-none py-2',
-								chosen && `font-semibold ${KIND_STYLE.annotation.tint}`
-							]}
-							aria-pressed={chosen}
-							data-testid="annotation-row"
-							data-annotation-id={annotation.id}
-							onclick={() => onselect(chosen ? null : annotation.id)}
-						>
-							<!--
+			<button
+				bind:this={rowButton[annotation.id]}
+				type="button"
+				class={[
+					'flex w-full items-center gap-2 rounded-none py-2',
+					chosen && `font-semibold ${KIND_STYLE.annotation.tint}`
+				]}
+				aria-expanded={chosen}
+				aria-controls={chosen ? `annotation-contents-${annotation.id}` : undefined}
+				data-testid="annotation-row"
+				data-annotation-id={annotation.id}
+				onclick={() => void chooseRow(chosen ? null : annotation.id)}
+			>
+				<!--
 								The same glyph the tool that drew it carries, and **beside the word rather than
 								instead of it** (SPEC story 111) — the word is what a screen reader reads and what a
 								glyph alone would have taken away.
 							-->
-							<Icon class="size-4 shrink-0 opacity-60" aria-hidden="true" />
-							<span class="shrink-0 text-xs opacity-60">{shapeWord(annotation)}</span>
-							<span class="truncate" data-testid="annotation-row-name">
-								{describe(annotation, index)}
-							</span>
-						</button>
-					</li>
+				<Icon class="size-4 shrink-0 opacity-60" aria-hidden="true" />
+				<span class="shrink-0 text-xs opacity-60">{shapeWord(annotation)}</span>
+				<span class="truncate" data-testid="annotation-row-name">
+					{describe(annotation, index)}
+				</span>
+			</button>
+
+			{#if chosen}
+				<!--
+								Everything this Annotation is, inside the row it belongs to. One row is open at a
+								time, because one Annotation is selected at a time and they are the same fact.
+
+								**`block` and `hover:bg-transparent` are undoing daisyUI's `menu`, not decoration.**
+								Every child of a `menu` `<li>` that is not a list or a `.btn` is laid out as a menu
+								item — grid, its own padding, and a background on hover — which is right for the row
+								above and wrong for a panel of controls that happens to sit under it.
+
+								`data-reveal-ms` is the number `reveal` computed, written out because it is otherwise
+								visible only to something that can watch an animation — the same reason `LayerList`
+								writes out `data-drop-target`. It is what lets a test read the reduced-motion branch's
+								result where there is no paint.
+
+								⚠ **It is evidence about the computation and about nothing else.** The attribute and
+								the directive read one `$derived`, so a test on the attribute goes red when that
+								number is wrong — and stays green when the transition is hard-coded past it, or
+								deleted outright. Whether the row *animates*, and for how long, is unasserted at
+								every seam; `.tracker/one-shell-two-apps/tickets/01-an-annotation-opens-in-its-own-row.md`
+								records the gap under "Coverage gap".
+							-->
+				<div
+					id="annotation-contents-{annotation.id}"
+					class="block px-1 pb-2 hover:bg-transparent"
+					data-testid="annotation-row-contents"
+					data-reveal-ms={reveal.duration}
+					transition:slide={reveal}
+				>
+					<AnnotationEditor {annotation} {ontext} {oncommit} {onstyle} {onlinestyle} {ondelete} />
+				</div>
+			{/if}
+		</li>
+	{/snippet}
+
+	{#if choosing}
+		<!--
+			**The list stands aside while a shape is armed, but what has just been made does not.** The
+			list is not hidden to save space: it is the answer to "what is already in this Layer", and
+			somebody who has just pressed "New Annotation" is asking the opposite question. It is back as
+			soon as they are done.
+
+			⚠ **The Annotation just drawn is the exception, and leaving it out was a regression.** The
+			editor used to sit outside this branch, so it stayed on screen while the list stepped aside;
+			moving it into the row moved it behind the same curtain. Drawing does not disarm the tool —
+			that is deliberate, so three pins in a row are three clicks on the map — so a scholar who
+			drew a shape and wanted to title it had to press "Done" first, and titling a shape straight
+			after drawing it is the point of drawing it. So the tools are followed by that one row, open,
+			with its editor inside it, and the rest of the list stays away.
+		-->
+		{#if drawn}
+			<ol
+				class="menu w-full gap-0 overflow-hidden menu-sm rounded-lg border border-base-300 p-0"
+				aria-label="The new Annotation"
+				data-testid="annotation-drawn"
+			>
+				{@render annotationRow(drawn, annotations.indexOf(drawn))}
+			</ol>
+		{/if}
+	{:else if annotations.length === 0}
+		<p class="text-sm opacity-70" data-testid="annotation-list-empty">Nothing in this Layer yet.</p>
+	{:else}
+		<!--
+			**Outlined, headed and divided, because it did not read as a list.** Ghost buttons in a gap-1
+			column are the shape a toolbar has: nothing said where the Annotations began, where they
+			ended, or that the rows were siblings rather than four unrelated controls stacked in a
+			sidebar. The box draws the edge, the caption says what is inside it and how many, and the
+			hairlines between rows are what make them read as items of one thing.
+
+			daisyUI's own `menu`, which is the component for a list of choices — ADR-0016 mandates no
+			method for a list, and reaching for `menu` rather than restyling `btn` keeps the hover, focus
+			and active states the theme already defines. Still an `<ol>`, so the structure reaches
+			assistive technology from the markup rather than from the class; still a `<button>` per row,
+			now carrying `aria-expanded` — ADR-0016's shape for a disclosure — and what makes the list
+			operable by keyboard with nothing added.
+		-->
+		<div class="overflow-hidden rounded-lg border border-base-300">
+			<p
+				class="border-b border-base-300 bg-base-200 px-3 py-1 text-[0.65rem] font-semibold uppercase opacity-70"
+				id="annotation-list-caption"
+			>
+				{annotations.length}
+				{annotations.length === 1 ? 'Annotation' : 'Annotations'}
+			</p>
+
+			<ol
+				class="menu w-full gap-0 menu-sm p-0"
+				aria-labelledby="annotation-list-caption"
+				data-testid="annotation-list"
+			>
+				{#each annotations as annotation, index (annotation.id)}
+					{@render annotationRow(annotation, index)}
 				{/each}
 			</ol>
 		</div>
-	{/if}
-
-	{#if selected !== null}
-		<AnnotationEditor
-			annotation={selected}
-			{ontext}
-			{oncommit}
-			{onstyle}
-			{onlinestyle}
-			{ondelete}
-		/>
 	{/if}
 </section>
