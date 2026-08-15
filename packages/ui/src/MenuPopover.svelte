@@ -2,23 +2,18 @@
 	import type { Snippet } from 'svelte';
 
 	/**
-	 * The one menu in the app.
-	 *
-	 * ⚠ **This file has moved to `@ballastella/ui` and both copies are the same component.** The bar
-	 * and the published site render the shared one; `ProjectScreen.svelte` is the last consumer here,
-	 * and it is being rewritten by another ticket of this epic — so its one import moves with that
-	 * rewrite and this file goes with it. Until then, change both or neither.
+	 * The one menu, in both apps.
 	 *
 	 * The Popover API — `popover` plus `popovertarget` — is **mandated, not merely available**
 	 * (ADR-0016), and for the same reason `<dialog>` is: daisyUI documents a `<details>` dropdown and
 	 * a CSS-`:focus` dropdown as well, neither of which dismisses on Escape or on a click elsewhere,
 	 * and an implementer copying whichever snippet they land on produces a different accessibility
 	 * outcome each time. Both of those are named as *banned* in CONTRIBUTING. This component exists so
-	 * the decision is made once and every later slice inherits it — {@link ModalDialog} beside it is
-	 * the same argument for modals, and its comment says so.
+	 * the decision is made once and every later slice inherits it.
 	 *
-	 * The second call site is already scheduled: ticket 12 puts Workspace switching on this menu and
-	 * the transfer tickets add theirs, so the alternative to this file is three hand-rolled popovers.
+	 * ⚠ **`apps/editor/src/lib/components/MenuPopover.svelte` is the same file and has not gone yet.**
+	 * Its remaining consumer is `ProjectScreen.svelte`, which another ticket of this epic is rewriting;
+	 * moving that one import here belongs to whichever of the two lands second. Change both or neither.
 	 *
 	 * ─────────────────────────────────────────────────────────────────────────────────────────
 	 * WHAT IT OWNS THAT A HAND-ROLLED ONE FORGETS
@@ -47,6 +42,7 @@
 		label,
 		open = $bindable(false),
 		buttonClass = 'btn btn-sm',
+		align = 'start',
 		testid,
 		children
 	}: {
@@ -55,6 +51,15 @@
 		/** Whether the menu is showing. Bindable, so a page can tell an Escape for it from its own. */
 		open?: boolean;
 		buttonClass?: string;
+		/**
+		 * Which of the button's edges the menu hangs from.
+		 *
+		 * `end` for a button at the right-hand end of a bar: at 375 px a 16 rem menu opening rightward
+		 * from there is a menu three quarters of the way off the screen. It is not a preference — it is
+		 * the difference between a usable menu and an unreachable one on the width most Readers arrive
+		 * at.
+		 */
+		align?: 'start' | 'end';
 		/** Test id for the button; the popover gets `<testid>-menu`. */
 		testid?: string;
 		/** The menu's items, rendered inside its `<ul>`. Each should be a `<li>` with a control. */
@@ -70,9 +75,9 @@
 	 * Close the menu and put focus back on the button that opens it.
 	 *
 	 * Exported so a menu item can hand focus back *before* it opens something else — see
-	 * `ProjectScreen`'s settings item. `ModalDialog` restores focus to whatever was focused when it
-	 * called `showModal()`, and a menu item inside a popover that no longer exists by then is not a
-	 * place to land.
+	 * `ProjectScreen`'s settings item. A modal restores focus to whatever was focused when it called
+	 * `showModal()`, and a menu item inside a popover that no longer exists by then is not a place to
+	 * land.
 	 */
 	export function dismiss(): void {
 		popover?.hidePopover();
@@ -124,6 +129,7 @@
 	bind:this={popover}
 	data-testid={testid ? `${testid}-menu` : undefined}
 	class="menu-popover rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
+	class:menu-popover-end={align === 'end'}
 	aria-label={label}
 	style="position-anchor: --{id}"
 	ontoggle={(event) => (open = (event as ToggleEvent).newState === 'open')}
@@ -148,6 +154,11 @@
 		margin: 0;
 	}
 
+	.menu-popover-end {
+		left: auto;
+		right: 1rem;
+	}
+
 	/*
 		⚠ **The fallback's insets have to be given back.** `position-area` does not replace `top`/`left`,
 		it changes what they resolve against: the area box rather than the viewport. Left in place, they
@@ -159,6 +170,10 @@
 			inset: auto;
 			position-area: bottom span-right;
 			margin-top: 0.25rem;
+		}
+
+		.menu-popover-end {
+			position-area: bottom span-left;
 		}
 	}
 </style>

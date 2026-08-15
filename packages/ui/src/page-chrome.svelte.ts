@@ -1,10 +1,12 @@
 /**
- * Which screen you are on, and the way off it — for the app's one navigation bar.
+ * Which screen you are on, and the way off it — for each app's one navigation bar.
  *
  * One generic slot, not a route switch: a screen says what it is called and where its way back goes,
- * and a screen that says nothing (the hub, which is the top of the app) renders nothing. What it
- * replaces is a second full-width header strip per route, which on `/align` cost two live map panes
- * the height they had least of.
+ * and a screen that says nothing renders nothing. What it replaces is a second full-width header
+ * strip per route, which on `/align` cost two live map panes the height they had least of.
+ *
+ * Shared because both apps ask the same question of a screen — which one am I on, and where does the
+ * way off it go — and the answer is drawn by one bar shell (ADR-0034).
  */
 
 /**

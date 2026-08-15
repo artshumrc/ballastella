@@ -51,7 +51,6 @@
 		createStoreImageFetch,
 		historicalMapTilesUnavailableNotice,
 		imageInfoPath,
-		otherTheme,
 		parseProjectFile,
 		parsePublishedSite,
 		projectFilePath,
@@ -78,15 +77,16 @@
 		type TileSourceFailure
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
-	import { BaseMapSwitcher } from '@ballastella/ui';
+	import { BaseMapSwitcher, pageChrome } from '@ballastella/ui';
 	import { onMount, untrack } from 'svelte';
 
 	import { online } from '$lib/online.svelte';
 	import { readLayerDocuments, toContentLayers, type ReadDocuments } from '$lib/project-documents';
 	import ReaderLayerControls from '$lib/ReaderLayerControls.svelte';
 	import ReaderMapPane from '$lib/ReaderMapPane.svelte';
+	import { returnLink } from '$lib/return-link.svelte.js';
 	import { readSiteFile, siteStore, sitePrefix } from '$lib/site-files';
-	import { startTheme, theme } from '$lib/theme.svelte';
+	import { startTheme } from '$lib/theme.svelte';
 	import UnwarpedView from '$lib/UnwarpedView.svelte';
 	import {
 		parseServedImageInfo,
@@ -208,6 +208,56 @@
 					project: openProject.directory
 				})
 	);
+
+	// ─────────────────────────────────────────────────────────────────────────────────────────
+	// WHAT THE NAVIGATION BAR SAYS ABOUT THIS SCREEN (SPEC stories 3, 5 and 9)
+	//
+	// The bar is mounted in the layout, above this page and outside it, so what it says arrives
+	// through two slots rather than through props: the shared page-chrome slot for where you are and
+	// the way off it, and this app's own return-link slot for the way back to Ballastella. Before
+	// this, all three screens rendered their own heading, their own theme button and their own way
+	// back, each in a different place — which is the whole of what a Reader could not rely on.
+
+	/** Where the Reader is, in the bar's `<h1>`. Empty while a Project is still opening or refused. */
+	const barHeading = $derived(
+		openDirectory === null ? 'Front Page' : (openProject?.file.name ?? '')
+	);
+
+	/**
+	 * The way off this screen, or `null` when the only way off it is the bar's own links.
+	 *
+	 * Only the unwarped view has one: it is the one screen inside a Project, and "back to the map" is
+	 * a different destination from All Projects.
+	 */
+	const barBack = $derived(
+		unwarpedLayerId !== null && openDirectory !== null && openProject !== null
+			? {
+					label: 'Back to this Project’s map',
+					project: openDirectory,
+					testid: 'back-to-project'
+				}
+			: null
+	);
+
+	$effect(() => {
+		const said = barHeading;
+		pageChrome.show(said, barBack);
+		return () => pageChrome.clear(said);
+	});
+
+	$effect(() => {
+		// The whole-Workspace invitation belongs to the Front Page and the Project's to a Project: a
+		// Reader looking at one piece of work is offered that piece of work.
+		if (openDirectory === null) {
+			returnLink.current =
+				cloneLink === null ? null : { href: cloneLink, label: 'Open in Ballastella' };
+			return;
+		}
+		returnLink.current =
+			reviewLink === null
+				? null
+				: { href: reviewLink, label: 'Review this Project in Ballastella' };
+	});
 
 	/**
 	 * Why the site record could not be read, in a Reader's terms.
@@ -965,15 +1015,6 @@
 -->
 <main class="mx-auto max-w-6xl p-4 sm:p-8">
 	{#if openDirectory === null}
-		<div class="flex flex-wrap items-baseline justify-between gap-4">
-			<!-- The Front Page: where a Reader arrives (ADR-0032, which renamed ADR-0008's "hub page").
-			     "Hub" now belongs to the editor's own `ProjectHub`, which is a different screen. -->
-			<h1 class="text-3xl font-bold">Front Page</h1>
-			<button type="button" class="btn btn-sm" onclick={() => theme.toggle()}>
-				Switch to {otherTheme(theme.current)} theme
-			</button>
-		</div>
-
 		<!--
 			The site's own sentence about itself, as ordinary markup.
 
@@ -985,30 +1026,12 @@
 			`setHTML` — and `e2e/viewer-reader.e2e.ts` asserts a payload is inert there, on the surface a
 			stranger's Project actually writes. There is now no `{@html}` anywhere in this app.
 		-->
-		<p class="mt-4 max-w-prose">
+		<p class="max-w-prose">
 			These are the Projects published from one Ballastella Workspace. A Reader can look at the work
 			— the aligned Historical Maps and the Annotations written over them — and cannot change it.
 			Published with
 			<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
 		</p>
-
-		<!--
-			The way back to the editor that published this site (SPEC stories 49 and 51).
-
-			**No sign-in is mentioned and none is implied**, because a Clone reads a public repository and
-			needs no credential at all — which is the whole reason a student with no GitHub account can
-			follow this link.
-		-->
-		{#if cloneLink}
-			<p class="mt-4 max-w-prose">
-				<!-- `resolve()` is for this site's own pages; the editor that published it is another
-				     origin entirely (ADR-0032), so the rule is disabled for the one case it does not
-				     cover. Same exemption, and the same reason, as the `github.com` link above. -->
-				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-				<a class="link" href={cloneLink}>Open this Workspace in Ballastella</a> to take a copy of all
-				of it onto your own computer. You do not need an account, and nothing published here is changed.
-			</p>
-		{/if}
 
 		{#if siteError}
 			<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
@@ -1061,42 +1084,16 @@
 			</ul>
 		{/if}
 	{:else}
-		<!--
-			Through `resolve`, which under `paths.relative: true` emits a relative URL — so the link works
-			at a domain root and in a subdirectory alike (ADR-0006), and the prerendered HTML carries no
-			absolute path for the CI fence to find.
-		-->
-		<p><a class="link" data-testid="all-projects" href={resolve('/')}>All Projects</a></p>
-
 		{#if projectError}
-			<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
-				<h1 class="text-xl font-semibold">This Project cannot be shown</h1>
+			<div role="alert" class="alert flex-col items-start alert-warning">
+				<!-- `<h2>`: the bar carries the page's one `<h1>`, and this alert is a section of the page
+				     rather than the page's own name. -->
+				<h2 class="text-xl font-semibold">This Project cannot be shown</h2>
 				<p data-testid="project-problem">{projectError}</p>
 			</div>
 		{:else if openProject === null}
-			<p class="mt-4">Opening…</p>
+			<p>Opening…</p>
 		{:else}
-			<div class="mt-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-				<h1 class="text-3xl font-bold" data-testid="project-name">{openProject.file.name}</h1>
-				<button type="button" class="btn btn-sm" onclick={() => theme.toggle()}>
-					Switch to {otherTheme(theme.current)} theme
-				</button>
-			</div>
-
-			<!--
-				One Project, rather than the Workspace the Front Page offers (SPEC story 50). What it opens
-				is a review copy, so the sentence says the two things a reader of somebody else's work needs
-				to know before following it: it is throwaway, and it takes nothing of theirs.
-			-->
-			{#if reviewLink}
-				<p class="mt-2 max-w-prose text-sm">
-					<!-- Another origin, so `resolve()` does not apply. See the Front Page's link above. -->
-					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-					<a class="link" href={reviewLink}>Review this Project in Ballastella</a> to look at just this
-					Project on your own computer. No account is needed, and it opens into a copy you can throw away.
-				</p>
-			{/if}
-
 			{#if unwarpedLayerId !== null}
 				<!--
 					Reading one Historical Map on its own. A separate branch rather than a panel beside the
@@ -1109,15 +1106,6 @@
 					puts a `pageerror` assertion on it in both directions and on both ways in (by link, and by
 					loading the URL directly).
 				-->
-				<p class="mt-4">
-					<a
-						class="link"
-						data-testid="back-to-project"
-						href="{resolve('/')}?p={encodeURIComponent(openDirectory)}"
-					>
-						Back to this Project’s map
-					</a>
-				</p>
 				{#if unwarpedError}
 					<div role="alert" class="mt-4 alert flex-col items-start alert-warning">
 						<p data-testid="unwarped-problem">{unwarpedError}</p>

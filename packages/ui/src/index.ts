@@ -18,4 +18,7 @@
 // the signal behind it is not. Merging them would settle that argument by deleting it, so a
 // contributor who comes here looking for the theme should read that header first.
 
+export { default as AppBar } from './AppBar.svelte';
 export { default as BaseMapSwitcher } from './BaseMapSwitcher.svelte';
+export { default as MenuPopover } from './MenuPopover.svelte';
+export { pageChrome, type WayBack } from './page-chrome.svelte.js';

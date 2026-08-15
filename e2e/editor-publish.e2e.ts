@@ -348,7 +348,8 @@ test.describe('publishing a Workspace', () => {
 			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this
 			// test composed — so the link is relative in the way the base path needs.
 			await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-			await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+			// The Project's name is the site's bar saying where the Reader is (SPEC story 5).
+			await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
 			await expect(page).toHaveURL(`${site.url}?p=amsterdam-1625`);
 
 			// The Project's own data was read over HTTP, relative to the site: the Layer names come out

@@ -1,5 +1,11 @@
 <script lang="ts">
-	// The app's navigation bar: the things that are true on every screen (ticket 04).
+	// The editor's navigation bar: the things that are true on every screen (ticket 04).
+	//
+	// **The container is `AppBar`, in `@ballastella/ui`, and the items below are this app's alone**
+	// (ADR-0034). Everything here reaches into the editor — the Workspace switcher into
+	// `workspace-storage.svelte.ts`, the remote settings into the GitHub broker, publishing into the
+	// planner — and moving the bar itself into the shared package would put all of that in the
+	// viewer's reachable graph. So the shell is shared and the filling is not.
 	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// WHAT BELONGS HERE
@@ -13,8 +19,8 @@
 	// Project settings all belong to the Project screen, because on the hub they would have to either
 	// disappear or lie.
 	//
-	// The screen's own name and way back arrive through `page-chrome.svelte.ts` — one generic slot a
-	// route fills, not a switch on the route. Ticket 04 read the rule more strictly and had each such
+	// The screen's own name and way back arrive through the shell's page-chrome slot — one generic
+	// slot a route fills, not a switch on the route. Ticket 04 read the rule more strictly and had each such
 	// route carry its own header strip beneath this bar; on `/align`, with two live map panes, that was
 	// a second header costing height the maps needed.
 	//
@@ -27,7 +33,8 @@
 	// be a throwaway Review Workspace, which is a thing a user must never be in doubt about.
 
 	import { resolve } from '$app/paths';
-	import { describeRemote, otherTheme } from '@ballastella/core';
+	import { describeRemote } from '@ballastella/core';
+	import { AppBar, MenuPopover } from '@ballastella/ui';
 	// Every one `aria-hidden`: each sits beside its own label, and an icon that names itself as well
 	// is the same word twice for a screen reader — and would change the accessible name the tests and
 	// a user's own "click the button called…" both go by (SPEC story 111).
@@ -45,8 +52,6 @@
 	import { theme } from '$lib/theme.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
-	import MenuPopover from './MenuPopover.svelte';
-	import { pageChrome } from './page-chrome.svelte.js';
 	import RemoteSettings from './RemoteSettings.svelte';
 	import SaveIndicator from './SaveIndicator.svelte';
 	import WorkspaceSettings from './WorkspaceSettings.svelte';
@@ -204,14 +209,10 @@
 </script>
 
 <!--
-	`<header>` with a `banner` role by placement, holding the four. Not `<nav>`: nothing here
-	navigates in this slice, and announcing a navigation landmark with no links in it is a promise
-	the bar does not keep.
+	The shell's identity slot — which Workspace you are in, and what is true of it. A published site
+	puts its own name in the same place, which is the whole of what makes the two bars one bar.
 -->
-<header
-	data-testid="navigation-bar"
-	class="flex flex-wrap items-center gap-4 border-b border-base-300 bg-base-200 px-4 py-2"
->
+{#snippet start()}
 	<!--
 		1. Which Workspace, and the way to another one.
 
@@ -467,46 +468,16 @@
 		screen already shows the answer; the announcement is for the reader who cannot see it change.
 	-->
 	<p class="sr-only" aria-live="polite" data-testid="workspace-announcement">{announcement}</p>
+{/snippet}
 
-	<!--
-		2. Which screen this is, and the way off it — whatever the screen said it was, and nothing when a
-		screen (the hub) says nothing.
+<!--
+	The editor's own controls, at the far end of the bar.
 
-		A real `<h1>`: the bar is before `children()`, so this is the first heading a screen reader
-		reaches. The link is spelled out here rather than handed over finished because
-		`svelte/no-navigation-without-resolve` checks the literal start of an `href` — hence
-		{@link WayBack} carrying a Project directory.
-	-->
-	{#if pageChrome.heading !== ''}
-		<div class="flex min-w-0 items-center gap-3" data-testid="page-chrome">
-			<h1 class="truncate text-base font-bold" data-testid="page-heading">
-				{pageChrome.heading}
-			</h1>
-			{#if pageChrome.back}
-				<a
-					class="btn btn-sm"
-					data-testid={pageChrome.back.testid}
-					href="{resolve('/')}?p={encodeURIComponent(pageChrome.back.project)}"
-				>
-					{pageChrome.back.label}
-				</a>
-			{/if}
-		</div>
-	{/if}
-
-	<div class="grow"></div>
-
-	<!-- 3. The theme, for the interface and the Base Map together (SPEC stories 109, 110). One
-	     control in the whole app, and it says what it will do rather than what it is. -->
-	<button
-		type="button"
-		class="btn btn-sm"
-		data-testid="theme-toggle"
-		onclick={() => theme.toggle()}
-	>
-		Switch to {otherTheme(theme.current)} theme
-	</button>
-
+	Two things that used to be written out here are the shell's now, and neither has moved on screen:
+	which screen this is and the way off it (the page-chrome slot, filled by whichever route is on),
+	and the theme control, which is the one thing both apps offer outright.
+-->
+{#snippet end()}
 	{#if session !== null}
 		<!--
 			4. The way back from the last destructive action (SPEC story 12, ADR-0014). A slot rather
@@ -625,10 +596,22 @@
 			{/if}
 		</div>
 	{/if}
-</header>
+{/snippet}
 
 <!--
-	Outside the `<header>` so the bar's own layout does not have to make room for a modal, and mounted
+	No `menu`: authoring is desktop-only (ADR-0014), so this bar does not fold, and it behaves at every
+	width exactly as it did before there was a shell to hold it.
+-->
+<AppBar
+	{start}
+	{end}
+	theme={theme.current}
+	onToggleTheme={() => theme.toggle()}
+	homeHref={resolve('/')}
+/>
+
+<!--
+	Outside the bar so its own layout does not have to make room for a modal, and mounted
 	unconditionally so the `<dialog>` element exists before `showModal()` is asked for.
 -->
 {#if storage !== null}
