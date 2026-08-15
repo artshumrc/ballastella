@@ -1,35 +1,13 @@
 @import 'tailwindcss';
 
-/* What belongs to the components both apps render, rather than to this app's routes — the kind-ink
-   custom properties among them, and the `@source` that lets Tailwind see the classes those
-   components are written with (ADR-0034). */
+/* What belongs to the components both apps render, rather than to this app's routes — the Layer
+   card's ink custom properties among them, and the `@source` that lets Tailwind see the classes
+   those components are written with (ADR-0034). */
 @import '@ballastella/ui/layout.css';
 
 /* ADR-0016: daisyUI is the only UI dependency. Tracy's generated theme replaces the
    stock ones here, and ships in the published viewer as well as the authoring app. */
 @plugin 'daisyui';
-
-/* ─────────────────────────────────────────────────────────────────────────────────────────
-   The ink of the triangle on a Layer's problem band.
-
-   The same treatment as the kind inks in `@ballastella/ui/layout.css`, and for the same reason:
-   `warning` is an 82%-lightness amber in the stock light theme, which is 1.6:1 on the band's own 15%
-   wash — an amber glyph on pale amber, effectively invisible. The sentence beside it is
-   `base-content` and carries the meaning at 16:1, so the icon is not *required* to understand the
-   notice; it is still meant to be seen, and 1.6:1 is not seen. Mixed half-and-half it clears 5:1 in
-   both themes and stays plainly amber.
-
-   A solid `alert-warning` would have got its contrast from daisyUI's own pairing, and that is what
-   the rest of the app uses for a notice that owns its own block. It is deliberately not used here:
-   a Layer card is 24rem wide and a solid amber band across it reads as an error in the application
-   rather than as work for the user, which is not what "this map still needs aligning" is.
-
-   Here rather than in the shared stylesheet because a problem band is the author's business: it says
-   a Historical Map still needs aligning, which is work only the editor offers. */
-
-:root {
-	--layer-problem-ink: color-mix(in oklab, var(--color-warning) 50%, var(--color-base-content));
-}
 
 /* ─────────────────────────────────────────────────────────────────────────────────────────
    Overlay points on a map pane.

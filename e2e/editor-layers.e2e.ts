@@ -1842,7 +1842,7 @@ test.describe('display state never reaches a portability document (ADR-0002)', (
 // ⚠ **What is left here is the wiring, and that is the whole of why it stays.** What such a row
 // *says* — the kind it declares, the sentence its open card carries, that neither drawable kind's
 // contents are rendered into it, that it can still be renamed and moved — moved to
-// `apps/editor/src/lib/layers/layer-list.dom.test.ts`'s `a Layer kind this build has never heard of
+// `packages/ui/src/layer-list.dom.test.ts`'s `a Layer kind this build has never heard of
 // (ADR-0014)` in ticket 08, where it is asserted in milliseconds against a `ForeignLayer` handed
 // straight to the component. What `parseLayers` and `serialiseLayers` do with an unknown kind has
 // its own tests in `packages/core/src/project/layer.test.ts`.

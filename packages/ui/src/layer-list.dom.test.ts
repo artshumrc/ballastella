@@ -714,6 +714,21 @@ describe('a control the consumer does not ask for is not there (SPEC stories 58,
 		// The name itself never goes: what the pencil hid was the *field*, and a card that stopped
 		// saying what the Layer is called would be a different change altogether.
 		expect(one('layer-name-text')).toHaveTextContent('La Floride');
+
+		// ⚠ **Both callbacks or neither, and the one-sided halves are what pin the `&&`.** With only
+		// the two sets above, `ontypename || oncommit` and either callback alone are all indis-
+		// tinguishable from the pair — no mount ever hands the component one without the other. A
+		// pencil offered to a consumer that passed only `ontypename` gives a field whose keystrokes
+		// reach the store and whose edit never ends, so the typing never coalesces into a committed
+		// write (ADR-0017 rule 1); one offered for `oncommit` alone gives a field that reports
+		// nothing at all.
+		takeDown();
+		offering({ ontypename: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+		expect(one('layer-rename')).not.toBeInTheDocument();
+
+		takeDown();
+		offering({ oncommit: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+		expect(one('layer-rename')).not.toBeInTheDocument();
 	});
 
 	test('offers Move up, Move down and the drag handle only with onmove', () => {
@@ -738,6 +753,34 @@ describe('a control the consumer does not ask for is not there (SPEC stories 58,
 		expect(one('layer-move-down')).not.toBeInTheDocument();
 		expect(one('layer-drag-handle')).not.toBeInTheDocument();
 		expect(one('layer-delete')).toBeInTheDocument();
+	});
+
+	test('lights a card up as a drop target only with onmove', () => {
+		// ⚠ **The drop target is a control `onmove` drives, not part of the drag machinery.** A card
+		// that highlights and calls `preventDefault` on `dragover` is telling the pointer the drop
+		// will be accepted, so a consumer with no `onmove` would light every card a Reader dragged a
+		// word or a file across and then do nothing on release. The handle — the drag *source* — is
+		// already withheld by the test above; this is the other end.
+		//
+		// A plain `Event` rather than a `DragEvent`: happy-dom's carries no `dataTransfer`, which is
+		// why nothing else about a drag is asserted at this seam. The highlight is not a drag — it is
+		// what one `dragover` does to one card.
+		const dragOver = (row: HTMLElement): void => {
+			row.dispatchEvent(new Event('dragover', { bubbles: true, cancelable: true }));
+			flushSync();
+		};
+
+		offering({ onmove: vi.fn() }, { layers: oneMap() });
+
+		expect(nth('layer-row', 0)).toHaveAttribute('data-drop-target', 'false');
+		dragOver(nth('layer-row', 0));
+		expect(nth('layer-row', 0)).toHaveAttribute('data-drop-target', 'true');
+
+		takeDown();
+		offering({}, { layers: oneMap() });
+
+		dragOver(nth('layer-row', 0));
+		expect(nth('layer-row', 0)).toHaveAttribute('data-drop-target', 'false');
 	});
 
 	test('drops the row the two share when it would have nothing in it', () => {

@@ -27,6 +27,14 @@
 	// `ondragopacity` the opacity slider, `onshow` the visibility toggle, and `referencedImageIds` the
 	// tiles badge. Each is optional; each guard below tests the prop it belongs to and nothing else.
 	//
+	// **`oncommit` is the one prop that is not a single control's.** It ends whichever edit was in
+	// flight (ADR-0017 rule 1), and two of them are: leaving the rename field *and* releasing the
+	// opacity slider. So it is paired with `ontypename` behind the pencil, and it is also what the
+	// range's `onchange` calls — a consumer passing `ondragopacity` without it would get a slider that
+	// reports every position it is dragged through and never commits one. No consumer does that, so
+	// there is one prop rather than two; this is the note that says so, because the table in the
+	// ticket's Contract lists `oncommit` on the rename's row alone.
+	//
 	// ⚠ **Do not add a `readOnly`, `mode` or `editable` boolean.** A flag and a set of callbacks are two
 	// descriptions of the same thing, and the failure is not hypothetical: the moment they can disagree,
 	// `readOnly` false with no `ondelete` renders a button that throws, and `readOnly` true with an
@@ -595,6 +603,12 @@
 					draws. It is written out as an attribute as well because a highlight that *flickers* is a
 					sequence of states rather than a state, and a test cannot watch a class over time without
 					reading the stylesheet's mind. See `ondragleave`.
+
+					**The three drop handlers go with `onmove`, exactly as the handle does.** A card that
+					highlights and calls `preventDefault` on `dragover` is telling the pointer that a drop here
+					will be accepted; without `onmove` it would be accepting one it cannot perform, so a user
+					dragging a word or a file across the stack would light up every card they crossed and get
+					nothing on release. Absence removes the affordance rather than leaving it inert.
 				-->
 				<li
 					bind:this={card[layer.id]}
@@ -608,37 +622,40 @@
 					data-image-id={layer.kind === 'map' ? layer.imageId : undefined}
 					data-drop-target={over === layer.id && dragging !== layer.id ? 'true' : 'false'}
 					animate:flip={moveAnimation}
-					ondragover={(event) => {
-						// Without this the drop never fires: the default action of `dragover` is to refuse.
-						event.preventDefault();
-						over = layer.id;
-					}}
-					ondragleave={(event) => {
-						// **Only when the pointer has really left this card.** `dragleave` fires on every
-						// descendant and bubbles, so crossing from the card's padding onto the name, the kind
-						// icon or the toggle inside it delivers a leave *for the card* — which cleared the
-						// highlight until the next `dragover` put it back, once per element crossed. The card a
-						// drop is about flickered while a user held a Layer over it, worst exactly where they
-						// were aiming, because that is where the text and the icons are.
-						//
-						// `relatedTarget` is what the leave is *for* — the element the pointer entered — so a
-						// leave into this card's own subtree is not a leave at all. It is null when the pointer
-						// goes somewhere with no element to name, such as out of the window, and that is a real
-						// departure: the highlight has to go, or a drag abandoned outside the app leaves a card
-						// looking like a target for ever.
-						const entered = event.relatedTarget;
-						if (entered instanceof Node && event.currentTarget.contains(entered)) return;
-						if (over === layer.id) over = '';
-					}}
-					ondrop={(event) => {
-						event.preventDefault();
-						const id = event.dataTransfer?.getData('text/plain') || dragging;
-						over = '';
-						dragging = '';
-						if (!id || id === layer.id) return;
-						const from = layers.findIndex((other) => other.id === id);
-						move(id, layers[from]?.name ?? '', index);
-					}}
+					ondragover={onmove &&
+						((event) => {
+							// Without this the drop never fires: the default action of `dragover` is to refuse.
+							event.preventDefault();
+							over = layer.id;
+						})}
+					ondragleave={onmove &&
+						((event) => {
+							// **Only when the pointer has really left this card.** `dragleave` fires on every
+							// descendant and bubbles, so crossing from the card's padding onto the name, the kind
+							// icon or the toggle inside it delivers a leave *for the card* — which cleared the
+							// highlight until the next `dragover` put it back, once per element crossed. The card a
+							// drop is about flickered while a user held a Layer over it, worst exactly where they
+							// were aiming, because that is where the text and the icons are.
+							//
+							// `relatedTarget` is what the leave is *for* — the element the pointer entered — so a
+							// leave into this card's own subtree is not a leave at all. It is null when the pointer
+							// goes somewhere with no element to name, such as out of the window, and that is a real
+							// departure: the highlight has to go, or a drag abandoned outside the app leaves a card
+							// looking like a target for ever.
+							const entered = event.relatedTarget;
+							if (entered instanceof Node && event.currentTarget.contains(entered)) return;
+							if (over === layer.id) over = '';
+						})}
+					ondrop={onmove &&
+						((event) => {
+							event.preventDefault();
+							const id = event.dataTransfer?.getData('text/plain') || dragging;
+							over = '';
+							dragging = '';
+							if (!id || id === layer.id) return;
+							const from = layers.findIndex((other) => other.id === id);
+							move(id, layers[from]?.name ?? '', index);
+						})}
 				>
 					<!-- The header: what this Layer is, what it is called, whether it is showing, the way in. -->
 					<!--
@@ -807,7 +824,9 @@
 							this replaces was carrying about 1.7:1 against `base-100` — a colour that reads as
 							decoration to anyone looking and as nothing at all to anyone with a screen reader. It is
 							16:1 now. The triangle keeps the hue but not the token: amber on its own wash is 1.6:1, so
-							it takes the mixed ink `layout.css` defines, at 5:1.
+							it takes the mixed ink `@ballastella/ui/layout.css` defines, at 5:1 — declared there
+							rather than in a consumer's stylesheet, or the triangle falls back to the inherited text
+							colour wherever this card is rendered by an app that never declared it.
 						-->
 						<div
 							class="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-warning/40 bg-warning/15 px-2.5 py-1.5 text-xs"

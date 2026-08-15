@@ -67,3 +67,29 @@
 		var(--color-base-content)
 	);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+   The ink of the triangle on a Layer's problem band.
+
+   The same treatment as the kind inks above, and for the same reason: `warning` is an
+   82%-lightness amber in the stock light theme, which is 1.6:1 on the band's own 15% wash — an amber
+   glyph on pale amber, effectively invisible. The sentence beside it is `base-content` and carries
+   the meaning at 16:1, so the icon is not *required* to understand the notice; it is still meant to
+   be seen, and 1.6:1 is not seen. Mixed half-and-half it clears 5:1 in both themes and stays plainly
+   amber.
+
+   A solid `alert-warning` would have got its contrast from daisyUI's own pairing, and that is what
+   the rest of the editor uses for a notice that owns its own block. It is deliberately not used here:
+   a Layer card is 24rem wide and a solid amber band across it reads as an error in the application
+   rather than as work for the user, which is not what "this map still needs aligning" is.
+
+   Here rather than in the editor's own stylesheet — where it lived while the card did — for the
+   reason the kind inks give above, and the band is the case that makes it sharpest: a *refused*
+   outcome is the one state a closed card is meant to be noticed in, and a consumer that renders this
+   card without declaring this property draws the triangle in the theme's plain text colour with
+   nothing failing. Which apps offer work on a refused Layer is a question about `problemAction`, not
+   about where the colour is declared. */
+
+:root {
+	--layer-problem-ink: color-mix(in oklab, var(--color-warning) 50%, var(--color-base-content));
+}
