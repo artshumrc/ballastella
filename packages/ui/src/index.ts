@@ -18,10 +18,14 @@
 // the signal behind it is not. Merging them would settle that argument by deleting it, so a
 // contributor who comes here looking for the theme should read that header first.
 
+export { default as AnnotationList } from './AnnotationList.svelte';
+export { default as AnnotationReading } from './AnnotationReading.svelte';
+export { default as AnnotationRow } from './AnnotationRow.svelte';
 export { default as AppBar } from './AppBar.svelte';
 export { default as BaseMapSwitcher } from './BaseMapSwitcher.svelte';
 export { default as LayerList } from './LayerList.svelte';
 export { default as MenuPopover } from './MenuPopover.svelte';
 export { default as ProjectCardList } from './ProjectCardList.svelte';
 export { KIND_STYLE } from './layer-kind-style';
+export { TOOL_ICONS, iconForGeometry } from './shape-icons';
 export { pageChrome, type WayBack } from './page-chrome.svelte.js';

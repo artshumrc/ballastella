@@ -48,6 +48,12 @@ export default defineConfig({
 		expect: { requireAssertions: true },
 		// No test may reach the network (CONTRIBUTING, "Five rules the toolchain enforces for you").
 		// One implementation, imported from `core`, never a copy.
-		setupFiles: ['@ballastella/core/test-fence', './vitest-setup/dom-matchers.ts']
+		setupFiles: [
+			'@ballastella/core/test-fence',
+			'./vitest-setup/dom-matchers.ts',
+			// happy-dom implements no Web Animations API, and Svelte drives every `transition:` with a
+			// duration through one. See the file's header for what it is and what it is not evidence of.
+			'./vitest-setup/web-animations.ts'
+		]
 	}
 });
