@@ -12,7 +12,7 @@ test('the hub page loads', async ({ page }) => {
 	await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
 });
 
-test('the built bundle carries no publishing machinery', async () => {
+test('the built bundle carries no publishing machinery and no alignment route', async () => {
 	// ADR-0019's boundary, in the direction ticket 16 pushed on it. The publish planner, its warnings,
 	// and the canonical stamp all live in `@ballastella/core`, which `apps/viewer` imports **wholesale**
 	// — so `scripts/check-viewer-deps.mjs` cannot see them, exactly as a review of that fence found.
@@ -24,11 +24,24 @@ test('the built bundle carries no publishing machinery', async () => {
 	const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 	const build = path.join(repoRoot, 'apps/viewer/build');
 
+	// ─── And no alignment route (ticket 10, SPEC story 50) ───────────────────────────────────────
+	//
+	// `/align` is the editor's, and a screen no Reader can use must not cost a published site bytes:
+	// `AlignmentWorkspace` reaches two live map contexts, the pairing state, the transformation
+	// solver and the distortion overlay. It stays in `apps/editor` for that reason and is deliberately
+	// **not** in `packages/ui` — moving it there would put an alignment tool in every Published Site's
+	// reachable graph, where nothing but a check like this one would ever notice.
+	//
+	// Asserted rather than assumed. Both strings below are plain string literals rather than
+	// identifiers, so a minifier cannot rename them away, and the positive control at the bottom of
+	// this test is what says they are still the strings the editor ships.
 	const markers = [
 		'a free static host such as GitHub Pages will publish',
 		'VIEWER_FILE_PATHS does not record',
 		'still fetched from the library that holds',
-		'is a Project whose folder has'
+		'is a Project whose folder has',
+		'Waiting for the matching place on the Base Map',
+		'the Alignment on screen is no longer the one it was recorded against'
 	];
 
 	const files: string[] = [];
@@ -68,4 +81,18 @@ test('the built bundle carries no publishing machinery', async () => {
 
 	expect(offenders).toEqual([]);
 	expect([...inEditor].sort()).toEqual([...markers].sort());
+
+	// The route itself, as a file rather than as a string. The editor prerenders `align.html`
+	// (`editor-align-route.e2e.ts` reads it), so its absence here is the same claim from the other
+	// side: the viewer has no such route to prerender.
+	const viewerPages = (await readdir(build)).filter((name) => /align/i.test(name));
+	expect(viewerPages, 'the viewer build carries an alignment route').toEqual([]);
+
+	const editorPrerendersIt = await stat(path.join(repoRoot, 'apps/editor/build/align.html')).then(
+		(entry) => entry.isFile(),
+		() => false
+	);
+	expect(editorPrerendersIt, 'the editor no longer prerenders /align, so this proves nothing').toBe(
+		true
+	);
 });

@@ -368,6 +368,32 @@ test.describe('Control Point pairing', () => {
 			'Point 2',
 			'Point 3'
 		]);
+
+		// ─── And the row wears it too (ticket 10, SPEC story 44) ─────────────────────────────────
+		//
+		// Three surfaces, one number: the half on the sheet, the half on the earth, and the row. The
+		// list is where the ordinals are unambiguously readable — the numbers drawn on the panes are
+		// small and on a dense Alignment they overlap — so a row that disagreed with its marker would
+		// be the one surface a scholar trusts telling them the wrong thing.
+		const rowOrdinals = page.getByTestId('control-point-row-ordinal');
+		await expect(rowOrdinals).toHaveText(['1', '2', '3']);
+		// Compared against what the panes are actually drawing rather than against a literal, so this
+		// cannot go green with the panes renumbered and the list left behind.
+		expect(await rowOrdinals.allInnerTexts()).toEqual(await imagePoints(page).allInnerTexts());
+		expect(await rowOrdinals.allInnerTexts()).toEqual(await basePoints(page).allInnerTexts());
+
+		// Tabular figures, which is the marker's own `font-variant-numeric`: a column of ordinals that
+		// shifts as it gains a digit is a column that cannot be scanned.
+		expect(
+			await rowOrdinals.first().evaluate((element) => getComputedStyle(element).fontVariantNumeric)
+		).toContain('tabular-nums');
+
+		// Deleting the first pair renumbers the rest on every surface at once, because the ordinal is
+		// the pair's position and nothing on disk holds it (ADR-0002).
+		await page.getByTestId('control-point-delete').first().click();
+		await expect(rowOrdinals).toHaveText(['1', '2']);
+		await expect(imagePoints(page)).toHaveText(['1', '2']);
+		await expect(basePoints(page)).toHaveText(['1', '2']);
 	});
 
 	test('Escape cancels the pending half, leaving no trace in the page or on disk', async ({

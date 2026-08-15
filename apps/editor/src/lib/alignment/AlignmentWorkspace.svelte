@@ -816,13 +816,34 @@
 		The route's own container scrolls, so nothing here is ever *cut off*: on a display too short for
 		the minimums below, the page grows and scrolls exactly as it used to.
 	-->
-	<div class="flex min-h-0 grow flex-col gap-4 lg:flex-row lg:gap-6">
+	<div class="flex min-h-0 grow flex-col gap-4 lg:flex-row lg:gap-0">
 		<!--
 			The pane column. `shrink-0` until `lg`, where the two sit side by side and each takes half:
 			without `min-w-0` a WebGL canvas's own width wins the flex negotiation and the pair overflow
 			the row.
+
+			No gutter between this column and the Control Point column at `lg`: the two are adjacent and
+			the border between them is what separates them, which is the arrangement `ProjectScreen`'s
+			Layer sidebar already has. A gutter would read as a panel sitting beside the maps rather than
+			a column docked to them.
 		-->
-		<div class="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:min-w-0 lg:shrink lg:grow lg:flex-row">
+		<div
+			class="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:min-w-0 lg:shrink lg:grow lg:flex-row lg:pr-6"
+		>
+			<!--
+				⚠ **`lg:flex-1` and never `lg:grow`, and that is what makes the panes exactly equal**
+				(SPEC story 48). `flex-1` is `flex: 1 1 0%`: both panes start from nothing and split the
+				row, so neither can be widened by what is written above it. `grow` leaves the basis `auto`,
+				which measures each pane's own content first and hands out only the *remainder* equally —
+				and on this screen the two panes' contents differ, because the Base Map's heading carries a
+				Base Map switcher and an opacity slider and the Historical Map's carries a checkbox. Drawn
+				that way on this repository's own mockups the pair measured 308 px and 378 px.
+
+				That is not a preference. Neither the sheet nor the earth may be privileged by the layout:
+				a scholar comparing a feature across the two panes is comparing two views of one place, and
+				a wider pane is a claim that one of them matters more. `editor-align-route.e2e.ts` measures
+				the rendered boxes at 1120 px and at 1440 px rather than reading the class name.
+			-->
 			<section
 				aria-labelledby="historical-map-pane-heading"
 				class="flex shrink-0 flex-col lg:min-h-0 lg:min-w-0 lg:flex-1"
@@ -1087,9 +1108,18 @@
 			A fixed 24rem column that scrolls on its own at `lg`, so a long Control Point list cannot take
 			height away from the maps it is a list of — the failure the whole of this arrangement exists to
 			remove. Below `lg` it is a footer under the panes and the page scrolls as one.
+
+			┌───────────────────────────────────────────────────────────────────────────────────────────┐
+			│ SOLID AND DOCKED, AND ON THIS SCREEN THAT RULE IS ABSOLUTE (SPEC story 49).                │
+			└───────────────────────────────────────────────────────────────────────────────────────────┘
+			`bg-base-300` rather than the page's own background showing through: a scholar is placing
+			Control Points to sub-pixel accuracy on the two canvases to the left, so this column must be
+			a surface of its own that nothing is drawn through, and it must be in the flow beside them
+			rather than over them. It is the same `base-300` column, with the same `base-content/10`
+			border, that `ProjectScreen` docks its Layer stack in — one arrangement, not two.
 		-->
 		<div
-			class="flex shrink-0 flex-col gap-3 border-base-300 lg:min-h-0 lg:w-96 lg:overflow-y-auto lg:border-l lg:pl-6"
+			class="flex shrink-0 flex-col gap-3 bg-base-300 p-4 lg:min-h-0 lg:w-96 lg:overflow-y-auto lg:border-l lg:border-base-content/10"
 			data-testid="alignment-sidebar"
 		>
 			<!--
@@ -1429,7 +1459,32 @@
 									data-ordinal={point.ordinal}
 									onclick={() => pairing?.toggleSelected(point.id)}
 								>
-									Point {point.ordinal}
+									<!--
+										**The number the marker already wears, on the row** (SPEC story 44). Both halves
+										of this pair draw `point.ordinal` inside themselves as text — see
+										`.pane-overlay-point-control-point` — and this is that number's third
+										appearance, so that "point 7" identifies one pair across a desk whether the
+										listener is looking at a canvas or at the list.
+
+										**A `<span>` of its own inside the button, at `tabular-nums`**, which is the
+										marker's own `font-variant-numeric` and `AnnotationRow`'s treatment of the same
+										idea on the Project screen: a column of ordinals that do not shift as they gain
+										a digit is what makes the list scannable. Inside the button rather than beside
+										it, so a screen reader hears "Point 7" as one name and nothing about which pair
+										is which depends on seeing the canvas.
+
+										⚠ **Nothing writes it.** `ControlPoint.ordinal` is the pair's position in the
+										Alignment's list, derived on read and on collect and stored nowhere — a
+										Georeference Annotation has no place to put an index, and inventing one would be
+										the proprietary field ADR-0002 and SPEC story 94 both rule out. Deleting point 3
+										of 5 renumbers the two after it because this list renders again.
+									-->
+									Point
+									<span
+										class="tabular-nums"
+										data-testid="control-point-row-ordinal"
+										data-ordinal={point.ordinal}>{point.ordinal}</span
+									>
 								</button>
 								<code class="opacity-70">
 									{Math.round(point.resource.x)}, {Math.round(point.resource.y)} px →

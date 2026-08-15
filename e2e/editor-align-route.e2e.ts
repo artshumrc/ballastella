@@ -82,6 +82,94 @@ async function projectWithMap(page: Page): Promise<void> {
 /** The `?layer=` of the alignment route the page is currently on. */
 const layerParam = (page: Page): string => new URL(page.url()).searchParams.get('layer') ?? '';
 
+/**
+ * At `width`: the two panes are exactly equal, and the Control Point column is solid and docked
+ * (ticket 10, SPEC stories 48 and 49).
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ MEASURED FROM THE RENDERED BOXES, NEVER READ OFF A CLASS NAME.                             │
+ * └───────────────────────────────────────────────────────────────────────────────────────────┘
+ * "The panes are equal" is a fact about two numbers the browser computed, and the class that is
+ * supposed to produce it is exactly the thing that can be wrong: `grow` and `flex-1` differ only in
+ * their flex *basis*, both read as "share the row", and on this repository's own mockups the first
+ * of them produced panes of 308 px and 378 px because the Base Map's heading carries two more
+ * controls than the Historical Map's. An assertion on the markup would have passed on that layout.
+ *
+ * Two widths rather than one, because a difference proportional to the content is invisible at
+ * whichever single width the difference happens to be small at.
+ *
+ * Polled rather than read once: a viewport change reflows two live map panes, and a measurement
+ * taken between the resize and the layout is a measurement of the previous width.
+ */
+async function expectEqualPanesAndDockedColumn(page: Page, width: number): Promise<void> {
+	await page.setViewportSize({ width, height: 900 });
+
+	const sheet = page.locator('section[aria-labelledby="historical-map-pane-heading"]');
+	const earth = page.locator('section[aria-labelledby="base-map-pane-heading"]');
+	const column = page.getByTestId('alignment-sidebar');
+
+	const measure = async (): Promise<{ sheet: number; earth: number }> => {
+		const [a, b] = await Promise.all([sheet.boundingBox(), earth.boundingBox()]);
+		return { sheet: a?.width ?? -1, earth: b?.width ?? -1 };
+	};
+
+	// Half a device pixel, which is the most a browser's own sub-pixel rounding can put between two
+	// boxes that were told to split a row. Anything a reader could see is far larger than this.
+	await expect
+		.poll(
+			async () => {
+				const { sheet: one, earth: two } = await measure();
+				return Math.abs(one - two);
+			},
+			{ message: `the two panes are not the same width at ${width} px` }
+		)
+		.toBeLessThanOrEqual(0.5);
+
+	const widths = await measure();
+	expect(widths.sheet, `both panes collapsed at ${width} px`).toBeGreaterThan(200);
+
+	// ─── The column is solid, and it is in the flow rather than over it ──────────────────────────
+	const paint = await column.evaluate((element) => {
+		const style = getComputedStyle(element);
+		return {
+			background: style.backgroundColor,
+			opacity: style.opacity,
+			position: style.position
+		};
+	});
+	expect(paint.position, 'the Control Point column is floating rather than docked').toBe('static');
+	expect(paint.opacity, 'the Control Point column is translucent').toBe('1');
+	expect(paint.background, 'the Control Point column has no surface of its own').not.toBe(
+		'rgba(0, 0, 0, 0)'
+	);
+	// An alpha channel is spelled `rgba(…, 0.5)` or `oklch(… / 0.5)`; a colour with neither is opaque.
+	expect(
+		/\/\s*0?\.\d/.test(paint.background) || /rgba\([^)]*,\s*0?\.\d+\s*\)/.test(paint.background),
+		`the Control Point column's background is translucent: ${paint.background}`
+	).toBe(false);
+
+	// ─── And it overlaps neither pane ────────────────────────────────────────────────────────────
+	const [earthBox, columnBox] = await Promise.all([earth.boundingBox(), column.boundingBox()]);
+	expect(earthBox).not.toBeNull();
+	expect(columnBox).not.toBeNull();
+	expect(
+		columnBox!.x,
+		`the Control Point column overlaps the Base Map pane at ${width} px`
+	).toBeGreaterThanOrEqual(earthBox!.x + earthBox!.width - 0.5);
+
+	// Geometry is not the whole claim: what a click lands on is. A point well inside the Base Map
+	// pane must reach the pane, which is what says nothing is drawn over the canvas a scholar is
+	// aiming at to sub-pixel accuracy.
+	const hit = await page.evaluate(
+		({ x, y }) => {
+			const element = document.elementFromPoint(x, y);
+			return element?.closest('[data-testid="alignment-sidebar"]') === null;
+		},
+		{ x: earthBox!.x + earthBox!.width - 4, y: earthBox!.y + earthBox!.height / 2 }
+	);
+	expect(hit, `something is drawn over the Base Map pane at ${width} px`).toBe(true);
+}
+
 test.describe('the alignment route', () => {
 	test('opens from the Project at ?p= and ?layer=, and pairs by click-then-click', async ({
 		page
@@ -130,6 +218,19 @@ test.describe('the alignment route', () => {
 		);
 		await makePair(page, [0.3, 0.3]);
 		await expect(rows(page)).toHaveCount(1);
+
+		// ─── The shell (ticket 10, SPEC stories 47 and 51) ───────────────────────────────────────
+		//
+		// The route wears the application's own bar rather than a header strip of its own: where you
+		// are, the way back, and — because they are on every screen — the save indicator and undo.
+		const bar = page.getByTestId('navigation-bar');
+		await expect(bar.getByTestId('page-heading')).toHaveText('Align');
+		await expect(bar.getByTestId('back-to-project')).toBeVisible();
+		await expect(bar.getByTestId('save-slot')).toBeVisible();
+		await expect(bar.getByTestId('undo-slot')).toBeAttached();
+
+		await expectEqualPanesAndDockedColumn(page, 1120);
+		await expectEqualPanesAndDockedColumn(page, 1440);
 	});
 
 	/**

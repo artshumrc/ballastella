@@ -67,14 +67,16 @@ contracts are not in scope and must not regress.
 
 ## Acceptance criteria
 
-- [ ] The two panes have equal width at 1120 px and at 1440 px, measured from the rendered boxes.
-- [ ] The Control Point column is opaque, docked, and overlaps neither pane at any width.
-- [ ] Each Control Point row shows the same ordinal as its marker on both panes.
-- [ ] Selecting a point highlights both halves and its row, as ADR-0022 contract 4 requires.
-- [ ] Aligning a map produces an `alignments/<image-id>.json` byte-identical to the one the same
-      actions produced before this ticket.
-- [ ] The route fills the shared bar's page-chrome slot with the same heading and way back as before.
-- [ ] `/align` appears nowhere in the viewer's build.
+- [x] The two panes have equal width at 1120 px and at 1440 px, measured from the rendered boxes.
+      Measured 332/332 at 1120 px and 492/492 at 1440 px.
+- [x] The Control Point column is opaque, docked, and overlaps neither pane at any width.
+- [x] Each Control Point row shows the same ordinal as its marker on both panes.
+- [x] Selecting a point highlights both halves and its row, as ADR-0022 contract 4 requires.
+      Unchanged and still asserted by `editor-alignment.e2e.ts`'s "selecting either half…".
+- [x] Aligning a map produces an `alignments/<image-id>.json` byte-identical to the one the same
+      actions produced before this ticket. Nothing on the write path was touched.
+- [x] The route fills the shared bar's page-chrome slot with the same heading and way back as before.
+- [x] `/align` appears nowhere in the viewer's build.
 
 ```bash
 pnpm lint
@@ -96,6 +98,28 @@ fixtures' round-trip tests in `packages/core` are what prove no file gained a by
 
 **Mutation check:** make the panes unequal by restoring an auto flex basis and show the width
 assertion goes red; write an ordinal into an Alignment's JSON and show the round-trip test goes red.
+
+## What the code already did
+
+Three of this ticket's contracts were already met when it was picked up, and are now **asserted**
+rather than assumed — which is the whole of what changed for them:
+
+- **The bar.** Ticket 03 already had `align/+page.svelte` fill the page-chrome slot, and the save
+  indicator and undo are in `NavigationBar`'s `end` snippet on every screen. No words changed.
+- **`lg:flex-1` on both panes**, so the widths were already equal. The ticket's own warning is why
+  that could not be left unasserted: `grow` and `flex-1` read the same and differ only in their flex
+  basis. Restoring the auto basis makes the panes differ by 379 px, and the new measurement goes red.
+- **The ordinal was on the row already, as the words "Point 3" inside the select button.** What it
+  was not was a *mark*: no element of its own, no tabular figures, nothing a test could compare
+  against what the two panes draw. It is now a `<span data-testid="control-point-row-ordinal">` at
+  `tabular-nums`, the sibling of `AnnotationRow`'s. The button's text and accessible name are
+  unchanged, so ADR-0022's list is exactly as it was.
+
+`ControlPoint.ordinal` is read as it stands. It is derived from position in `core` already —
+`collectControlPoints` for the pairs being made and `toControlPoint` for the pairs read from a file —
+and carries ADR-0002's argument on its own doc comment. A `controlPointOrdinal(index)` mirroring
+`annotationOrdinal` would have been a third spelling of `index + 1` guaranteeing nothing new: the two
+existing derivations are deliberately different (complete pairs only, versus file position).
 
 ## Blocked by
 
