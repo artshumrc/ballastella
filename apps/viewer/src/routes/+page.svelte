@@ -1052,14 +1052,21 @@
 			⚠ **The reassurance, and it is load-bearing.** It belonged to the paragraph that carried the
 			way back to the editor, and it survived that paragraph's move into the navigation bar: a
 			student with no GitHub account is exactly the Reader who will not follow a link that looks
-			like it wants one, and the copy a Clone takes changes nothing on this site. Said here rather
-			than beside the link, because the link is in the bar now and is absent altogether on a site
-			published into a folder — while both halves of this sentence are true of every site.
+			like it wants one, and the copy a Clone takes changes nothing on this site.
+
+			**Gated on `cloneLink`, which is the bar's own condition** — `returnLink.current` above is
+			this expression and nothing else — because the sentence is *about* the invitation. A site
+			published into a folder, and every site published before this epic, records no instance or
+			no repository, so the bar carries no "Open in Ballastella" and this would be telling a
+			Reader how a control behaves that is nowhere on the screen. One test, so the two cannot
+			drift into a page that offers the link without the sentence or the sentence without the link.
 		-->
-		<p class="mt-4 max-w-prose" data-testid="no-account-needed">
-			Opening this Workspace in Ballastella takes a copy of all of it onto your own computer. You do
-			not need an account, and nothing published here is changed.
-		</p>
+		{#if cloneLink !== null}
+			<p class="mt-4 max-w-prose" data-testid="no-account-needed">
+				Opening this Workspace in Ballastella takes a copy of all of it onto your own computer. You
+				do not need an account, and nothing published here is changed.
+			</p>
+		{/if}
 
 		{#if siteError}
 			<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
@@ -1078,7 +1085,7 @@
 				link still opens one.
 			-->
 			{#if site.projects.length === 0}
-				<p class="mt-8">This site has no Projects on it yet.</p>
+				<p class="mt-8" data-testid="no-projects-yet">This site has no Projects on it yet.</p>
 			{:else}
 				<p class="mt-8 max-w-prose" data-testid="none-on-front-page">
 					None of this site’s Projects are on the front page. They are still published — anyone with

@@ -110,17 +110,37 @@ the name is interpolated as text by the shared card.
 
 The Front Page's own paragraph regained the reassurance that was deleted with the return-link
 paragraph in ticket 03 — "You do not need an account, and nothing published here is changed" — as
-ordinary markup, on `data-testid="no-account-needed"`, asserted inside the existing
-`serves the hub and one Project over plain HTTP` spec in `e2e/viewer-reader.e2e.ts`. Said as the
-site's own sentence rather than beside the link, because the link is on the bar now and is absent
-altogether on a site published into a folder, while both halves of the sentence are true of every
-site.
+ordinary markup, on `data-testid="no-account-needed"`. **It is gated on `cloneLink`, the same
+expression the bar's return link is built from**, because the sentence describes what "Opening this
+Workspace in Ballastella" costs and that control is offered only when the site records both an
+instance and a repository. A site published into a folder, and every site published before this
+epic, has neither — so the sentence is not said there. The claim is a pair across two existing specs
+in `e2e/viewer-reader.e2e.ts`: present in `leads back to the editor that published it`, absent in
+`serves the hub and one Project over plain HTTP`, whose fixture has no return link.
 
-**Mutation checks, both red as required.** Handing the Front Page's mount the Hub's three snippets
+**Both of ADR-0032's empty states are now asserted**, in the one spec that reads them:
+`says which of the two empty Front Pages a Reader is looking at` serves a site whose Projects are all
+off the Front Page and then a site with no Projects at all, and asserts each says its own sentence
+and not the other's. "This site has no Projects on it yet" carries `data-testid="no-projects-yet"`
+for it.
+
+**The Front Page's card is swept, not only its snippets.** The absent half of
+`packages/ui/src/project-card-list.dom.test.ts`'s paired test named three testids that exist nowhere
+but that file, so a control or a line of editor prose written into `ProjectCardList.svelte` itself
+would have satisfied all three. It now asserts the name link is the card's only interactive element
+and that the card's words are the name and the folder and nothing more.
+
+**Mutation checks, all red as required.** Handing the Front Page's mount the Hub's three snippets
 turned the paired test red (`expected document not to contain element, found <span …>`);
 `{@html project.name}` in the card turned the Seam 3 XSS test red
 (`expected 'Amsterdam 1625alert(1)' to be 'Amsterdam <img src=x onerror=…'`) **and**
-`viewer-reader.e2e.ts`'s `never markup` test red against a real built site. Both were reverted.
+`viewer-reader.e2e.ts`'s `never markup` test red against a real built site.
+
+Ungating the reassurance turned the absence half red (`no-account-needed`, expected 0 received 1) and
+deleting it turned the presence half red; collapsing the two empty states turned the pair red in both
+directions; a `<button>Open</button>` in the shared card turned the sweep red (`expected […] to have
+a length of 1 but got 2`) and a hint line turned the prose assertion red
+(`'Amsterdam 1625 folder amsterdam-1625 Rename this Project from the Hub.'`). Every one was reverted.
 
 **Seam 2 is unchanged at 630 of 630.** No browser test was added; the one new browser claim is an
 assertion folded into an existing spec.

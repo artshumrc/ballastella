@@ -190,6 +190,21 @@ describe('a control the consumer does not ask for is not there (SPEC stories 53,
 		expect(cards()).toHaveLength(2);
 		expect(text(card(0).querySelector('a'))).toBe('Amsterdam 1625');
 		expect(text(card(0))).toContain('folder amsterdam-1625');
+
+		// ⚠ **The card itself, and not only the snippets it was handed.** The three absences above name
+		// testids that exist nowhere but this file, so a control or a line of editor-flavoured prose
+		// written into *this component* — outside every snippet — would satisfy all three while sitting
+		// on the screen of every Published Site. That is the shape that got past a `role=button` sweep
+		// twice while the two lists were separate, and this component is the surface it would land on
+		// now. So the Front Page's card is swept for anything a Reader could operate, and read for
+		// anything it says: the name link is the one control, and the name and the folder are the
+		// whole of the words.
+		const controls = [
+			...card(0).querySelectorAll('button, input, select, textarea, a[href], [role="button"]')
+		];
+		expect(controls).toHaveLength(1);
+		expect(controls[0]).toBe(card(0).querySelector('a'));
+		expect(text(card(0))).toBe('Amsterdam 1625 folder amsterdam-1625');
 	});
 
 	// The facts line is the card's own — the folder is on it in both apps — and what a consumer adds

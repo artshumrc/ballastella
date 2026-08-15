@@ -530,13 +530,15 @@ test.describe('a Published Site a Reader arrives at', () => {
 
 			await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
 			await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
-			// The site's own sentence about itself, and the reassurance inside it (SPEC story 55). ⚠ It
-			// travelled here from the paragraph that used to carry the way back to the editor, and it is
-			// the sentence a student with no GitHub account reads before deciding whether the link is for
-			// them — so it is asserted rather than left to survive on the strength of nobody deleting it.
-			await expect(page.getByTestId('no-account-needed')).toContainText(
-				'You do not need an account, and nothing published here is changed'
-			);
+			// ⚠ **The reassurance about opening this Workspace in Ballastella is absent, and that is the
+			// claim** (SPEC story 55). This fixture records no editor instance and carries no
+			// `remote.json` — the state of a site published into a folder, and of every site published
+			// before this epic — so the bar offers no "Open in Ballastella". A sentence saying what
+			// following that link costs would be describing a control that is nowhere on the screen.
+			// **The other half of this pair is in `leads back to the editor that published it`**, which
+			// asserts the same sentence *present* on a site that does offer the link; neither half means
+			// anything without the other.
+			await expect(page.getByTestId('no-account-needed')).toHaveCount(0);
 
 			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this test
 			// composed — so the link is relative in the way the base path needs (ADR-0006).
@@ -626,10 +628,13 @@ test.describe('a Published Site a Reader arrives at', () => {
 	 * as *the files are missing* — so an author who took every Project off their Front Page would go
 	 * looking for work that is exactly where they left it. The other sentence names what they did and
 	 * repeats what the editor's control promised: the Projects are here, and a link still opens one.
+	 *
+	 * ⚠ **Both empty sites, in one test, each asserted to say its own sentence and not the other's.**
+	 * Either half alone is green on a page that has stopped telling the two apart: collapse the branch
+	 * that chooses between them and whichever sentence survived still matches its own assertion. It is
+	 * the pair that carries the claim.
 	 */
-	test('tells an author whose Projects are all off the Front Page what they are looking at', async ({
-		page
-	}) => {
+	test('says which of the two empty Front Pages a Reader is looking at', async ({ page }) => {
 		site = await published({
 			'ballastella-site.json': siteRecord([
 				{ directory: 'amsterdam-1625', name: 'Amsterdam 1625', onFrontPage: false }
@@ -642,11 +647,25 @@ test.describe('a Published Site a Reader arrives at', () => {
 		const empty = page.getByTestId('none-on-front-page');
 		await expect(empty).toContainText('None of this site’s Projects are on the front page');
 		await expect(empty).toContainText('still published');
+		await expect(page.getByTestId('no-projects-yet')).toHaveCount(0);
 		await expect(page.getByTestId('published-projects')).toHaveCount(0);
 
 		// And the Project itself is untouched by the wording: still there, still opening.
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
 		await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
+
+		// A site nothing has been published to: no Project files at all, and a record listing none.
+		await site.close();
+		site = await published({ 'ballastella-site.json': siteRecord([]) });
+		await page.goto(site.sites[0]!.url);
+
+		await expect(page.getByTestId('no-projects-yet')).toContainText(
+			'This site has no Projects on it yet'
+		);
+		await expect(page.getByTestId('none-on-front-page')).toHaveCount(0);
+		await expect(page.getByTestId('published-projects')).toHaveCount(0);
+		// Nothing published is not a fault: no alert, and no invitation to go looking for the files.
+		await expect(page.getByTestId('site-problem')).toHaveCount(0);
 	});
 
 	/**
@@ -678,6 +697,15 @@ test.describe('a Published Site a Reader arrives at', () => {
 			const clone = bar.getByRole('link', { name: 'Open in Ballastella' });
 			await expect(clone).toHaveAttribute('href', `${EDITOR_INSTANCE}?clone=ada/atlas`);
 
+			// And the sentence that says what following it costs, on the one screen that offers it
+			// (SPEC story 55): a student with no GitHub account is exactly the Reader who will not
+			// follow a link that looks like it wants one. **Present here and absent in `serves the hub
+			// and one Project over plain HTTP`**, whose site has no way back — the reassurance goes
+			// wherever the invitation goes, and nowhere else.
+			await expect(page.getByTestId('no-account-needed')).toContainText(
+				'You do not need an account, and nothing published here is changed'
+			);
+
 			// And the rest of what the bar is for: the way home in the same place on every page, the
 			// list of Projects, and the theme control where the editor keeps its own (stories 3, 4, 7).
 			await expect(bar.getByTestId('site-name')).toBeVisible();
@@ -697,8 +725,10 @@ test.describe('a Published Site a Reader arrives at', () => {
 				`${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`
 			);
 			// The whole-Workspace invitation is the Front Page's, not a Project's: a Reader looking at
-			// one piece of work is offered that piece of work.
+			// one piece of work is offered that piece of work — and the sentence about what that
+			// invitation costs goes with it.
 			await expect(clone).toHaveCount(0);
+			await expect(page.getByTestId('no-account-needed')).toHaveCount(0);
 
 			// And the site's own name is the way home, in the same place on every page (story 4).
 			await bar.getByTestId('site-name').click();
