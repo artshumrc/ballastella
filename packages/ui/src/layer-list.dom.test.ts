@@ -198,6 +198,8 @@ type OptionalProps = {
 	onmove?: (id: string, toIndex: number) => void;
 	ondelete?: (id: string) => void;
 	referencedImageIds?: ReadonlySet<string>;
+	noLayersGuidance?: Snippet;
+	foreignLayerNote?: Snippet;
 	mapContents?: Snippet<[MapLayer]>;
 	annotationContents?: Snippet<[]>;
 	problemAction?: Snippet<[Layer]>;
@@ -433,6 +435,29 @@ describe('an empty stack', () => {
 
 		expect(one('no-layers')).toBeInTheDocument();
 		expect(all('layer-row')).toHaveLength(0);
+	});
+});
+
+describe('what the stack says about itself (SPEC story 13)', () => {
+	test('says in words that the top of the list draws over everything below it', () => {
+		// The order means something a user can check, and the only place it is *said* is here — the `<ol>`
+		// carries the sequence to a screen reader but nothing in the markup says which end is on top.
+		// Asserted against the section the heading names, so a sentence moved out of the stack into some
+		// other part of a consumer's screen does not keep this green.
+		stack({ layers: [mapLayer('l-map', 'La Floride')] });
+
+		const section = document.querySelector('section[aria-labelledby="layer-stack-heading"]');
+		expect(section).toHaveTextContent('The top of this list draws over everything below it.');
+	});
+
+	test('says it to a Reader too, whose stack it is equally true of', () => {
+		// The sentence is the card's own rather than a consumer's, so it survives the prop set that
+		// removes every control — which is what makes it true of the app where the order was fixed by
+		// somebody else and can only be read.
+		offering({ onshow: vi.fn() }, { layers: [mapLayer('l-map', 'La Floride')] });
+
+		const section = document.querySelector('section[aria-labelledby="layer-stack-heading"]');
+		expect(section).toHaveTextContent('The top of this list draws over everything below it.');
 	});
 });
 
@@ -900,5 +925,174 @@ describe('a control the consumer does not ask for is not there (SPEC stories 58,
 
 		expect(one('supplied-annotation-contents')).not.toBeInTheDocument();
 		expect(one('layer-contents')).toBeInTheDocument();
+	});
+});
+
+describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', () => {
+	// The tests above take one prop at a time, which is what pins each guard to the callback it
+	// belongs to. This is the other claim, and it is the one a Reader meets: **the whole editing
+	// surface at once, present for the set the editor passes and absent for the set the viewer
+	// passes.** A card assembled correctly control by control can still be wrong as a card — a guard
+	// keyed to the wrong prop passes every single-prop test above and puts a Delete in front of a
+	// Reader, because the viewer passes `onshow` too.
+	//
+	// **Both sets are written out here rather than imported from either app.** `packages/ui` may not
+	// import from `apps/` (ADR-0034), and it should not want to: a set read off a consumer would agree
+	// with that consumer whatever it said, which is the failure `e2e/support/reader-project.ts`
+	// records for fixtures generally. What keeps these honest is the applications' own suites — the
+	// editor's Layer sidebar in `e2e/editor-layers.e2e.ts` and the published viewer's in
+	// `e2e/viewer-reader.e2e.ts` — which drive the real prop sets against the ids named below.
+
+	/** Every control the editor offers on a Layer, by the id it carries here. */
+	const EDITING = [
+		'layer-rename',
+		'layer-move-up',
+		'layer-move-down',
+		'layer-delete',
+		'layer-drag-handle',
+		'layer-image-mode'
+	];
+
+	const stackOfBoth = (): Layer[] => [
+		mapLayer('l-map', 'La Floride'),
+		annotationLayer('l-notes', 'Notes')
+	];
+
+	/** What the editor's Project screen passes, minus the snippets, which are its own markup. */
+	const editorProps = (): OptionalProps => ({
+		ontypename: vi.fn(),
+		oncommit: vi.fn(),
+		onshow: vi.fn(),
+		ondragopacity: vi.fn(),
+		onmove: vi.fn(),
+		ondelete: vi.fn(),
+		referencedImageIds: new Set(['image-l-map'])
+	});
+
+	/** What the published viewer passes. A Reader shows, hides and fades, and changes nothing. */
+	const viewerProps = (): OptionalProps => ({
+		onshow: vi.fn(),
+		ondragopacity: vi.fn()
+	});
+
+	test('offers the editor every editing control on the card it opens', () => {
+		offering(editorProps(), { layers: stackOfBoth(), openLayerId: 'l-map' });
+
+		// The positive control, and the whole reason the absences below are worth anything: rename one
+		// of these ids in `LayerList.svelte` and this test goes red rather than the next one going
+		// quietly green.
+		for (const control of EDITING) {
+			expect(one(control), `${control} in the editor's card`).toBeInTheDocument();
+		}
+	});
+
+	test('offers a Reader the same card with none of them, at the same prop set', () => {
+		offering(viewerProps(), { layers: stackOfBoth(), openLayerId: 'l-map' });
+
+		for (const control of EDITING) {
+			expect(one(control), `${control} in a Reader's card`).not.toBeInTheDocument();
+		}
+
+		// **And it is still the same card**, which is the half that stops this from being satisfied by a
+		// component that rendered nothing at all. A Reader gets the kind line, the name, the tint's own
+		// header, the disclosure that opens the card, the visibility toggle and the opacity slider.
+		expect(one('layer-kind')).toHaveTextContent('Historical Map');
+		expect(one('layer-name-text')).toHaveTextContent('La Floride');
+		expect(one('layer-header')).toBeInTheDocument();
+		expect(one('layer-visible')).toBeInTheDocument();
+		expect(one('layer-opacity')).toBeInTheDocument();
+		expect(all('layer-disclosure')).toHaveLength(2);
+	});
+
+	test('tells a Reader an empty Project is empty, and leaves the instructions to the editor', () => {
+		// ⚠ **The regression this pair exists for.** The empty state used to be the editor's guidance
+		// unconditionally, so a published Project with no Layers told a Reader to press *Add a Historical
+		// Map* and mentioned "this Workspace" — two controls and a concept a published site does not have
+		// (SPEC story 19). The fact is shared; the instructions are the consumer's markup.
+		//
+		// A marker rather than the editor's own words, because `packages/ui` may not import from `apps/`
+		// (ADR-0034) and a sentence spelled out here would be this file agreeing with itself. The words
+		// are held against the buttons they name by `e2e/editor-add-historical-map.e2e.ts`'s "the empty
+		// Project names the button that fills it".
+		offering(
+			{ ...editorProps(), noLayersGuidance: marker<[]>('supplied-no-layers-guidance') },
+			{ layers: [] }
+		);
+
+		expect(one('supplied-no-layers-guidance')).toBeInTheDocument();
+		// The consumer's guidance replaces the bare fact rather than being added under it: an editor that
+		// said both would be telling a scholar the same thing twice.
+		expect(one('no-layers')).not.toHaveTextContent('This Project has no Layers on it.');
+
+		takeDown();
+		offering(viewerProps(), { layers: [] });
+
+		expect(one('supplied-no-layers-guidance')).not.toBeInTheDocument();
+		expect(one('no-layers')).toHaveTextContent('This Project has no Layers on it.');
+	});
+
+	test('tints a shown Layer’s header in its own kind’s colour for a Reader (SPEC story 10)', () => {
+		offering(viewerProps(), { layers: stackOfBoth() });
+
+		// Written out rather than read from `KIND_STYLE`, for the reason {@link NOT_ALIGNED} gives: a
+		// class read off the table would agree with the table whatever either of them said. What is
+		// asserted is that two kinds differ before a word has been read — and that neither is wearing the
+		// drained wash the hidden test below asserts, which is the state that would make them the same.
+		expect(nth('layer-header', 0)).toHaveClass('bg-accent/10');
+		expect(nth('layer-header', 1)).toHaveClass('bg-info/10');
+		expect(nth('layer-header', 0)).not.toHaveClass('bg-base-content/5');
+		expect(nth('layer-header', 1)).not.toHaveClass('bg-base-content/5');
+	});
+
+	test('tells a Reader a Layer of a kind this build cannot draw is left alone (SPEC story 18)', () => {
+		// ⚠ **The second half of the same defect the empty state had.** This sentence used to end "and you
+		// can still rename it, hide it, and move it in the stack" for everybody — three affordances a
+		// Reader is offered none of two of, promised inside the card the Contract says has no editing on
+		// it. What the card says by itself is what is true wherever the Layer is met; what becomes of it
+		// afterwards is the consumer's.
+		const foreign = (): Layer[] => [foreignLayer('l-cartouche', 'Cartouche')];
+
+		offering(
+			{ ...editorProps(), foreignLayerNote: marker<[]>('supplied-foreign-layer-note') },
+			{ layers: foreign(), openLayerId: 'l-cartouche' }
+		);
+
+		expect(one('supplied-foreign-layer-note')).toBeInTheDocument();
+
+		takeDown();
+		offering(viewerProps(), { layers: foreign(), openLayerId: 'l-cartouche' });
+
+		expect(one('supplied-foreign-layer-note')).not.toBeInTheDocument();
+		// A site published by a newer version still opens, and the Layer it could not draw says which
+		// kind it was rather than going missing — in the app where nobody can open the file to find out.
+		expect(one('layer-kind')).toHaveTextContent('Not shown by this version (image-annotation)');
+		expect(one('layer-foreign-note')).toHaveTextContent(
+			'a kind this version of Ballastella does not understand'
+		);
+		expect(one('layer-foreign-note')).toHaveTextContent('nothing of it is drawn on the map');
+		// And the card stops there: it does not go on to promise a Reader anything about the Layer.
+		expect(one('layer-foreign-note')).not.toHaveTextContent('rename');
+	});
+
+	test('drains a hidden Layer’s card and says "Hidden" for a Reader too', () => {
+		const hidden: Layer[] = [{ ...mapLayer('l-map', 'La Floride'), visible: false }];
+		offering(viewerProps(), { layers: hidden });
+
+		// A colour that is only drained reaches nobody, so the word is what carries it — and it has to
+		// carry it in the app where the Reader cannot open a panel to find out what happened.
+		expect(one('layer-hidden')).toHaveTextContent('Hidden');
+		expect(one('layer-header')).toHaveClass('bg-base-content/5');
+	});
+
+	test('says what is wrong with a Reader’s Layer, on the closed card', () => {
+		offering(viewerProps(), {
+			layers: [mapLayer('l-map', 'La Floride')],
+			outcomes: { 'l-map': { status: 'refused', reason: NOT_ALIGNED } }
+		});
+
+		// SPEC story 17: a blank patch of map has its explanation beside it, without opening anything.
+		// The band is the card's own; only the *action* beside it is a consumer's, and a Reader has none.
+		expect(disclosure(0)).toHaveAttribute('aria-expanded', 'false');
+		expect(one('layer-problem')).toHaveTextContent(NOT_ALIGNED);
 	});
 });

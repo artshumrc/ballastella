@@ -355,13 +355,13 @@ test.describe('publishing a Workspace', () => {
 			// The Project's own data was read over HTTP, relative to the site: the Layer names come out
 			// of `amsterdam-1625/project.json`.
 			//
-			// `reader-layers` rather than ticket 16's `project-layers`: that was a static list of what the
-			// Project contained, and ticket 17 replaced it with the Reader's own Layer controls over the same
-			// data. The claim this test makes is unchanged — those names could only have come from
-			// `project.json`, fetched relative to this document — so it moves to the element that now carries
-			// them rather than being weakened.
-			await expect(page.getByTestId('reader-layers')).toContainText('The 1625 plan');
-			await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
+			// The stack the Reader gets is the editor's own Layer card since ticket 05, so it is addressed
+			// by the label that component gives its `<ol>` rather than by a viewer-only test id. The claim
+			// this test makes is unchanged — those names could only have come from `project.json`, fetched
+			// relative to this document.
+			const stack = page.getByRole('list', { name: 'Layers, top first' });
+			await expect(stack).toContainText('The 1625 plan');
+			await expect(stack).toContainText('Warehouses');
 			// And the Base Map the author chose is the one shown first, resolved against the catalog that
 			// travelled with the site rather than against this build's (ADR-0020, SPEC story 69). The
 			// switcher's *selected* value, since ticket 17 made the choice a Reader's to change.

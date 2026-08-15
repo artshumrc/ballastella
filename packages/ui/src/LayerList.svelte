@@ -143,6 +143,8 @@
 		ondragopacity,
 		onmove,
 		ondelete,
+		noLayersGuidance,
+		foreignLayerNote,
 		preparing,
 		mapContents,
 		problemAction,
@@ -202,6 +204,31 @@
 		 * delete confirms without reading and one who does not needs the way back either way.
 		 */
 		ondelete?: (id: string) => void;
+		/**
+		 * What to tell this consumer's user when the stack is empty, beyond the fact that it is.
+		 *
+		 * **Without it the empty state says only what is true of both apps** — that the Project has no
+		 * Layers on it. The editor's guidance names two buttons and the Workspace they draw from, and a
+		 * consumer whose user has neither cannot say it: a Reader told to press *Add a Historical Map* is
+		 * being sent to look for a control that is not there (SPEC story 19).
+		 *
+		 * A snippet for the same reason as {@link mapContents}, and the sharpest case of it: the words name
+		 * the consumer's own controls, so they belong in the markup that renders them.
+		 */
+		noLayersGuidance?: Snippet;
+		/**
+		 * The rest of what an open card says about a Layer of a kind this build cannot draw (ADR-0014).
+		 *
+		 * **The card says only that there is nothing to show and nothing drawn**, which is true wherever
+		 * the Layer is met. What becomes of it afterwards is not: the editor can promise that the Layer is
+		 * written back untouched and can still be renamed, hidden and moved, and a published site can
+		 * promise none of those — it writes nothing and offers two of the three controls not at all
+		 * (SPEC story 18, and the Contract's "no editing on it").
+		 *
+		 * A snippet for the same reason as {@link noLayersGuidance}: a sentence about a consumer's own
+		 * controls belongs in the markup that renders them.
+		 */
+		foreignLayerNote?: Snippet;
 		/**
 		 * The card of a Historical Map being prepared right now, or `undefined` when none is (ticket 06).
 		 *
@@ -528,16 +555,17 @@
 
 	{#if layers.length === 0 && !preparing}
 		<!--
-			The empty state, and **it names the two buttons that are actually there** (SPEC story 106).
-			"Add a Historical Map" and "Add an Annotation Layer" are the words on the controls below this
-			sentence, not a description of them: guidance that names something the user then has to
-			translate into what is on screen is guidance they have to solve first.
+			The empty state. **What it says beyond "there is nothing here" is the consumer's**, because
+			guidance is instructions for using the controls that consumer renders — and a Reader has none
+			of them. Without the snippet this is the fact and nothing else, which is the sentence that is
+			true in both apps.
 		-->
 		<p class="max-w-prose" data-testid="no-layers">
-			No Layers yet. Press <strong>Add a Historical Map</strong> to bring one in — from a file, from
-			a library, or from one this Workspace already holds — and it appears here straight away,
-			aligned or not. <strong>Add an Annotation Layer</strong> is for whenever you have something to say
-			over it.
+			{#if noLayersGuidance}
+				{@render noLayersGuidance()}
+			{:else}
+				This Project has no Layers on it.
+			{/if}
 		</p>
 	{:else}
 		<!--
@@ -936,16 +964,20 @@
 								{@render annotationContents?.()}
 							{:else}
 								<!--
-									ADR-0014: a Layer of a kind this version does not understand is kept, nameable
-									and reorderable, and not drawn. It has no contents to reveal, and saying so is
-									the honest thing — an empty panel would read as a Layer whose contents failed to
-									load, which is a different and much more alarming state.
+									ADR-0014: a Layer of a kind this version does not understand is kept and not
+									drawn. It has no contents to reveal, and saying so is the honest thing — an
+									empty panel would read as a Layer whose contents failed to load, which is a
+									different and much more alarming state.
+
+									**What becomes of it is the consumer's half of the sentence**, for the same
+									reason the empty state's guidance is: what can still be done to this Layer, and
+									whether it is written anywhere at all, is true of the app the user is in rather
+									than of the card.
 								-->
 								<p class="max-w-prose text-sm" data-testid="layer-foreign-note">
 									This is a Layer of a kind this version of Ballastella does not understand, so
-									there is nothing inside it to show and nothing of it is drawn on the map. It is
-									kept exactly as it was found and written back untouched, and you can still rename
-									it, hide it, and move it in the stack.
+									there is nothing inside it to show and nothing of it is drawn on the map.
+									{#if foreignLayerNote}{@render foreignLayerNote()}{/if}
 								</p>
 							{/if}
 

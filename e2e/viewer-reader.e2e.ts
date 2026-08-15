@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { unavailableNotice } from './support/base-map-notice.js';
+import { openLayerRow } from './support/layers.js';
 import {
 	baseMapArchiveFixture,
 	byteRange,
@@ -282,6 +283,109 @@ async function mapReady(page: Page): Promise<void> {
 		.toBe(true);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// THE LAYER STACK, WHICH IS THE EDITOR'S CARD (ticket 05)
+//
+// A Reader reads the same component a scholar authors on, so these are the *shared* identities
+// rather than a `reader-` alias for them: one element, one id, and a suite that reads the same in
+// both apps. `e2e/support/layers.ts` — written for the editor — drives it here unchanged, which is
+// the property worth having.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The Layer stack, by the name the shared `<ol>` carries.
+ *
+ * By role and accessible name rather than by a test id, because the list has none and should not
+ * gain one for a test: what makes the stack findable is the same label a screen reader is given, and
+ * ADR-0002's ordering claim rides on it being an `<ol>`.
+ */
+const layerStack = (page: Page): Locator => page.getByRole('list', { name: 'Layers, top first' });
+
+/**
+ * One Layer's card.
+ *
+ * ⚠ **The test id is part of the selector, not decoration.** `data-layer-id` is on the card *and* on
+ * the contents it reveals, so a bare attribute selector matches two elements the moment the card is
+ * open and every assertion scoped to it fails Playwright's strict mode instead of failing honestly.
+ */
+const layerRow = (page: Page, id: string): Locator =>
+	page.locator(`[data-testid="layer-row"][data-layer-id="${id}"]`);
+
+/** The visibility toggle of one Layer's card. */
+const layerVisible = (page: Page, id: string): Locator =>
+	layerRow(page, id).getByTestId('layer-visible');
+
+/**
+ * Every control the shared card offers the editor and must never offer a Reader (SPEC story 19).
+ *
+ * ⚠ **These absences are not asserted alone**, which is the rule this epic keeps: every id below
+ * except `layer-name` is asserted *present* against the editor's prop set in
+ * `packages/ui/src/layer-list.dom.test.ts`, and `layer-image-mode` is asserted present in the running
+ * editor by `e2e/editor-layers.e2e.ts`'s "shows the Layer as a local copy". Rename one of these
+ * strings and those go red rather than these going quietly green.
+ *
+ * `layer-name` is the rename *field*, which only exists behind the pencil — so its absence here says
+ * the pencil could not have been pressed either. Its positive control is the pencil being *pressed*
+ * rather than a prop set: `layer-list.dom.test.ts`'s "offers the rename pencil, and the name as a
+ * field, only with ontypename and oncommit" and `e2e/editor-layers.e2e.ts`'s "reorder, rename, toggle,
+ * and opacity leave alignments and annotations byte-identical" both press it and then fill the field
+ * that appears.
+ */
+const EDITING_CONTROLS = [
+	'layer-rename',
+	'layer-name',
+	'layer-move-up',
+	'layer-move-down',
+	'layer-delete',
+	'layer-drag-handle',
+	'layer-image-mode'
+] as const;
+
+/**
+ * Words that only make sense to somebody who can edit, which must reach no Reader.
+ *
+ * ⚠ **Prose, because a sweep that looks only for controls misses the sentences about them.** The
+ * shared card's empty state was the editor's own guidance verbatim, so a published Project with no
+ * Layers told a Reader to press two buttons that do not exist there and named the Workspace they draw
+ * from — invisible to every assertion above, because the two Add names are `<strong>` text inside a
+ * `<p>` and nothing on that page is a `button` at all.
+ *
+ * Each phrase is one the editor really says: the two Add labels are the words on
+ * `ProjectScreen`'s own buttons, "this Workspace" is the concept a published site does not have, and
+ * the last is the open card of a Layer this build cannot draw promising three editing affordances a
+ * Reader is offered none of two of. That one was the same bug found a second time, in a sentence
+ * rather than in an empty state, which is why this list is a list rather than a special case.
+ */
+const EDITOR_ONLY_PROSE = [
+	'Add a Historical Map',
+	'Add an Annotation Layer',
+	'this Workspace',
+	'you can still rename'
+] as const;
+
+/**
+ * Nothing on this page could change the author's work, or tell a Reader how to.
+ *
+ * A count of zero rather than "not visible": a control that is not in the document cannot be clicked,
+ * cannot be tabbed to, and cannot be reached by a screen reader — which is the whole of the claim,
+ * and stronger than anything a focus walk could assert. The Add controls are the editor's Project
+ * screen's rather than the card's, and are named by the words on them for the same reason.
+ *
+ * The prose sweep reads `textContent` rather than `innerText`, so a sentence in an `sr-only` region
+ * is caught too: an instruction only a screen-reader user is given is the worst version of this bug,
+ * not an acceptable one.
+ */
+async function expectNothingEditable(page: Page): Promise<void> {
+	for (const control of EDITING_CONTROLS) {
+		await expect(page.getByTestId(control), `${control} in the viewer`).toHaveCount(0);
+	}
+	await expect(page.getByRole('button', { name: /^Add a/ })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /^Add an/ })).toHaveCount(0);
+	for (const phrase of EDITOR_ONLY_PROSE) {
+		await expect(page.locator('body'), `“${phrase}” in the viewer`).not.toContainText(phrase);
+	}
+}
+
 /**
  * Where the fixture Annotation sits. Must match `annotation()`'s default in `support/reader-project`.
  *
@@ -439,7 +543,28 @@ test.describe('untrusted text on a Published Site', () => {
 		// sanitiser leaves this test green, which is correct and is exactly why it is a separate test.
 		const payload =
 			'Amsterdam <img src=x onerror="window.__xss=1"> 1625<script>window.__xss=1</script>';
-		site = await published(oneProject({ name: payload }));
+		// **The payload is on the Layer as well as on the Project**, which it was not before: the second
+		// half of this test probed the whole stack while the only payload in the file was the Project's
+		// name, so it was asking a region that could not have carried one. The Layer card is where a
+		// Layer's name is drawn, and it is the element the probe is now pointed at.
+		site = await published(
+			oneProject({
+				name: payload,
+				projectOverrides: {
+					layers: [
+						{
+							kind: 'map',
+							id: MAP_LAYER_ID,
+							name: payload,
+							visible: true,
+							order: 0,
+							opacity: 1,
+							imageId: IMAGE_ID
+						}
+					]
+				}
+			})
+		);
 		const seen = watch(page);
 
 		await page.goto(site.sites[0]!.url);
@@ -450,10 +575,15 @@ test.describe('untrusted text on a Published Site', () => {
 		expect(await dangerousIn(list)).toEqual(INERT);
 
 		// And the same again on the Layer name, which is the other place a `project.json` string is drawn.
+		//
+		// ⚠ **The name, not the card around it.** Since ticket 05 the card is the editor's own, and it
+		// carries Lucide glyphs — first-party `<svg>`, which `dangerousIn` counts as an embed because in
+		// a *stranger's description* an `<svg>` is an execution route. Probing the whole stack would
+		// therefore be asking about this repository's icons rather than about the author's string.
 		await page.getByRole('link', { name: /Amsterdam/ }).click();
-		const layers = page.getByTestId('reader-layers');
-		await expect(layers).toContainText('Blaeu’s plan of 1625');
-		expect(await dangerousIn(layers)).toEqual(INERT);
+		const layerName = layerRow(page, MAP_LAYER_ID).getByTestId('layer-name-text');
+		await expect(layerName).toHaveText(payload);
+		expect(await dangerousIn(layerName)).toEqual(INERT);
 
 		expect(await page.evaluate(() => '__xss' in window)).toBe(false);
 		expect(seen.failures).toEqual([]);
@@ -539,8 +669,8 @@ test.describe('a Published Site a Reader arrives at', () => {
 			await expect(page).toHaveURL(`${served.url}?p=amsterdam-1625`);
 
 			// The Project's own data was read over HTTP, relative to the site.
-			await expect(page.getByTestId('reader-layers')).toContainText('Blaeu’s plan of 1625');
-			await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
+			await expect(layerStack(page)).toContainText('Blaeu’s plan of 1625');
+			await expect(layerStack(page)).toContainText('Warehouses');
 			await mapReady(page);
 
 			// Nothing was asked for outside the published folder. This is the assertion that fails when an
@@ -601,8 +731,8 @@ test.describe('a Published Site a Reader arrives at', () => {
 			// Annotations, map and all.
 			await page.goto(`${served.url}?p=amsterdam-1625`);
 			await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
-			await expect(page.getByTestId('reader-layers')).toContainText('Blaeu’s plan of 1625');
-			await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
+			await expect(layerStack(page)).toContainText('Blaeu’s plan of 1625');
+			await expect(layerStack(page)).toContainText('Warehouses');
 			await mapReady(page);
 
 			expect(seen.failures).toEqual([]);
@@ -760,10 +890,23 @@ test.describe('a Published Site a Reader arrives at', () => {
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
 
+		// **And there is nothing here that could be an edit** (SPEC stories 19 and 58). Asserted in the
+		// built viewer a Reader is actually served, once, against the thing that ships — the paired
+		// present/absent claims for each of these controls are at the component seam.
+		//
+		// ⚠ **The card is opened first, and that is the difference between this claim and a vacuous
+		// one.** Rename, Move up, Move down, Delete and the tiles badge live *inside* the open card, so
+		// every one of them is absent from a closed card in the editor too. A version of this sweep run
+		// before the disclosure would be reporting that the card was shut.
+		await openLayerRow(page, layerRow(page, MAP_LAYER_ID));
+		await expectNothingEditable(page);
+
 		// Every kind of view change a Reader can make.
-		await page.getByTestId('reader-layer-visible').first().uncheck();
-		await page.getByTestId('reader-layer-visible').first().check();
-		const opacity = page.getByTestId('reader-layer-opacity');
+		await layerVisible(page, MAP_LAYER_ID).uncheck();
+		await layerVisible(page, MAP_LAYER_ID).check();
+		// Inside the open card, which is where a Layer's contents are since the stack became the shared
+		// one: the row a Reader opened above is the row the slider belongs to.
+		const opacity = page.getByTestId('layer-opacity');
 		await opacity.fill('0.35');
 		await page.getByTestId('base-map-switcher').selectOption({ index: 1 });
 		await page.getByRole('button', { name: /Switch to .* theme/ }).click();
@@ -771,6 +914,23 @@ test.describe('a Published Site a Reader arrives at', () => {
 
 		expect(seen.requests.filter((request) => request.method !== 'GET')).toEqual([]);
 		expect(seen.failures).toEqual([]);
+
+		// **And nothing was written to this origin either** — the other half of "a visit that only looks
+		// writes nothing", and the half the wire cannot see.
+		//
+		// ⚠ **The whole of `localStorage`, with no filter before the comparison.** The Base Map tests
+		// below read the same storage through a `startsWith('ballastella.baseMap')` filter, which is right
+		// for what *they* claim — that the preference is keyed by site — and useless for this one: a key
+		// this app should not be writing at all is exactly the key such a filter drops. The Layer card is
+		// now shared with the editor, so a card that learned to remember its open row would start writing
+		// on every published site, and this is the assertion that would go red for it.
+		//
+		// The one key allowed is the Base Map choice this test just made, asserted by its value as well as
+		// its name so that "the preference" means the preference rather than anything of that shape.
+		const chosenBaseMap = await page.getByTestId('base-map-switcher').inputValue();
+		expect(await page.evaluate(() => ({ ...window.localStorage }))).toEqual({
+			[`ballastella.baseMap:${site.sites[0]!.url}`]: chosenBaseMap
+		});
 
 		// And the Project's own bytes on disk are untouched — the stronger form of the same claim, since a
 		// static host would refuse a write and the app must not even have tried.
@@ -856,18 +1016,21 @@ test.describe('exploring a Project', () => {
 		await mapReady(page);
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 
-		const mapRow = page.locator(`[data-layer-id="${MAP_LAYER_ID}"]`);
-		await mapRow.getByTestId('reader-layer-visible').uncheck();
+		await layerVisible(page, MAP_LAYER_ID).uncheck();
 
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
 		await expect(page.getByTestId('layer-view-status')).toContainText('hidden');
+		// Drained of its colour and marked "Hidden" in words, so the Layer that has gone missing is
+		// findable without relying on colour alone (SPEC story 16).
+		await expect(layerRow(page, MAP_LAYER_ID).getByTestId('layer-hidden')).toHaveText('Hidden');
 		expect(
 			await page.evaluate(() => window.ballastellaReaderMap!.map.getLayersOrder())
 		).not.toContain(`ballastella-layer-${MAP_LAYER_ID}`);
 
-		await mapRow.getByTestId('reader-layer-visible').check();
+		await layerVisible(page, MAP_LAYER_ID).check();
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
 		await expect(page.getByTestId('layer-view-status')).toContainText('shown');
+		await expect(layerRow(page, MAP_LAYER_ID).getByTestId('layer-hidden')).toHaveCount(0);
 		expect(await page.evaluate(() => window.ballastellaReaderMap!.map.getLayersOrder())).toContain(
 			`ballastella-layer-${MAP_LAYER_ID}`
 		);
@@ -887,9 +1050,12 @@ test.describe('exploring a Project', () => {
 		await mapReady(page);
 		const builds = await page.evaluate(() => window.ballastellaReaderMap!.builds);
 
-		await page.getByTestId('reader-layer-opacity').fill('0.25');
+		// The slider is inside the Layer's own card, which a Reader opens — SPEC story 11, and the same
+		// step the editor's suite takes.
+		const card = await openLayerRow(page, layerRow(page, MAP_LAYER_ID));
+		await card.getByTestId('layer-opacity').fill('0.25');
 
-		await expect(page.getByTestId('reader-layer-opacity-value')).toHaveText('25%');
+		await expect(card.getByTestId('layer-opacity-value')).toHaveText('25%');
 		await expect(page.getByTestId('layer-view-status')).toContainText('25%');
 		expect(
 			await page.evaluate(
@@ -933,11 +1099,21 @@ test.describe('exploring a Project', () => {
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
 
-		const row = page.locator('[data-layer-id="l-future"]');
+		const row = layerRow(page, 'l-future');
 		await expect(row).toContainText('Notes on the sheet itself');
-		await expect(row.getByTestId('reader-layer-kind')).toContainText('image-space-annotation');
+		await expect(row.getByTestId('layer-kind')).toContainText('image-space-annotation');
 		// The rest of the Project is unaffected.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
+
+		// **Opened, and swept while open** — this is the one state in the viewer where the foreign-kind
+		// sentence exists at all, and it is where that sentence used to tell a Reader they could still
+		// rename and move the Layer. The sweep in "reads everything through the HTTP store" runs on a
+		// Project of drawable kinds and could never have seen it, which is why it also runs here.
+		const opened = await openLayerRow(page, row);
+		await expect(opened.getByTestId('layer-foreign-note')).toContainText(
+			'nothing of it is drawn on the map'
+		);
+		await expectNothingEditable(page);
 		expect(seen.failures).toEqual([]);
 	});
 });
@@ -1278,7 +1454,9 @@ test.describe('a Historical Map read unwarped', () => {
 				await page.goto(url);
 				await mapReady(page);
 				from = seen.requests.length;
-				await page.getByTestId('reader-layer-unwarped').click();
+				// Offered inside the Historical Map's own card, which is where a Layer's contents are.
+				const card = await openLayerRow(page, layerRow(page, MAP_LAYER_ID));
+				await card.getByTestId('read-as-document').click();
 			} else {
 				await page.goto(`${url}&unwarped=${MAP_LAYER_ID}`);
 			}
@@ -1416,14 +1594,13 @@ test.describe('a Published Site that is not entirely well', () => {
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
 
-		const problem = page
-			.locator(`[data-layer-id="${MAP_LAYER_ID}"]`)
-			.getByTestId('reader-layer-problem');
+		// The problem band on the *closed* card, which is where a Layer that could not be drawn says so.
+		const problem = layerRow(page, MAP_LAYER_ID).getByTestId('layer-problem');
 		await expect(problem).toContainText('Blaeu’s plan of 1625');
 		await expect(problem).toContainText('did not answer');
 		// The **rest of the site still works**: the Annotation Layer is drawn, and the count says one.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
-		await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
+		await expect(layerStack(page)).toContainText('Warehouses');
 		// Not reported drawn from an address that never arrived.
 		expect(
 			await page.evaluate(() => window.ballastellaReaderMap!.map.getLayersOrder())
@@ -2279,9 +2456,21 @@ test.describe('a Published Site that is not entirely well', () => {
 
 		await expect(page.getByTestId('project-needs-network')).toContainText('Blaeu’s plan of 1625');
 		await expect(page.getByTestId('project-needs-network')).toContainText('network');
-		await expect(
-			page.locator(`[data-layer-id="${MAP_LAYER_ID}"]`).getByTestId('reader-layer-image-mode')
-		).toContainText('needs the network');
+
+		// ⚠ **And no per-Layer badge, which is a different thing from the paragraph above** (SPEC
+		// stories 20 and 21, ticket 05). Where a Historical Map's tiles are held is the author's
+		// publishing decision: a Reader cannot copy a pyramid, cannot repoint a service, and cannot make
+		// the badge say the other thing. The warning above survives because it names what will not draw
+		// on a train, which is a consequence a Reader meets.
+		//
+		// **The card is opened first**, because the badge is inside the open card in the editor: asked
+		// of a closed one this would be true of both apps and would say nothing. And its positive
+		// control is the editor's own — `e2e/editor-layers.e2e.ts`'s "shows the Layer as a local copy",
+		// which asserts the same `layer-image-mode` **present** — so passing `referencedImageIds` from
+		// the viewer turns this red rather than leaving the pair silently agreeing.
+		const card = await openLayerRow(page, layerRow(page, MAP_LAYER_ID));
+		await expect(card.getByTestId('layer-image-mode')).toHaveCount(0);
+		await expect(page.locator('[data-image-mode]')).toHaveCount(0);
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -2308,8 +2497,7 @@ test.describe('a Published Site that is not entirely well', () => {
 			MAP_LAYER_ID
 		);
 
-	const mapLayerVisible = (page: Page): Locator =>
-		page.locator(`[data-layer-id="${MAP_LAYER_ID}"]`).getByTestId('reader-layer-visible');
+	const mapLayerVisible = (page: Page): Locator => layerVisible(page, MAP_LAYER_ID);
 
 	/**
 	 * Hide the Historical Map and show it again — the gesture that makes its tiles be fetched afresh.
@@ -2532,7 +2720,7 @@ test.describe('a Published Site that is not entirely well', () => {
 		);
 		// The rest of the site is unharmed, which is what the sentence promises: the Annotation Layer is
 		// listed, drawn, and clickable, and the controls still work.
-		await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
+		await expect(layerStack(page)).toContainText('Warehouses');
 		// Polled for the same reason as its twin in the test above: the stack was rebuilt a moment ago
 		// and this symbol layer answers no query until the frame that places its symbols.
 		await expect
@@ -2661,10 +2849,17 @@ test.describe('a Reader on a phone', () => {
 		// The controls are operable at this width, not merely present.
 		await page.getByTestId('base-map-switcher').selectOption('muted');
 		await expect(page.getByTestId('base-map-switcher')).toHaveValue('muted');
-		await page.getByTestId('reader-layer-visible').first().uncheck();
+		await layerVisible(page, MAP_LAYER_ID).uncheck();
 		await expect(page.getByTestId('layer-view-status')).toContainText('hidden');
-		await page.getByTestId('reader-layer-opacity').fill('0.5');
-		await expect(page.getByTestId('reader-layer-opacity-value')).toHaveText('50%');
+		const card = await openLayerRow(page, layerRow(page, MAP_LAYER_ID));
+		await card.getByTestId('layer-opacity').fill('0.5');
+		await expect(card.getByTestId('layer-opacity-value')).toHaveText('50%');
+
+		// **And nothing a Reader could edit, at the width most Readers arrive at** — the same sweep the
+		// desktop run makes, because a control the desktop layout withholds and a narrow one restores
+		// would be exactly the kind of thing a desktop-only suite never sees. The card is open, which is
+		// where those controls would be.
+		await expectNothingEditable(page);
 		expect(seen.failures).toEqual([]);
 	});
 
@@ -2780,7 +2975,7 @@ test.describe('a Reader using a keyboard', () => {
 		};
 
 		await tabTo(page.getByTestId('base-map-switcher'));
-		await tabTo(page.getByTestId('reader-layer-visible').first());
+		await tabTo(layerVisible(page, ANNOTATION_LAYER_ID));
 		// Space toggles a checkbox — the platform's own behaviour, which is the whole reason ADR-0016
 		// mandates a native one.
 		await page.keyboard.press('Space');
@@ -2797,9 +2992,16 @@ test.describe('a Reader using a keyboard', () => {
 		await page.keyboard.press('Space');
 		await expect(page.getByTestId('layer-view-status')).toContainText('shown');
 
-		// The opacity range, moved by arrow key.
-		const opacity = page.getByTestId('reader-layer-opacity');
-		await tabTo(opacity);
+		// The way into a Layer's contents is a plain `<button>` with `aria-expanded`, so the disclosure
+		// is reached and operated with nothing to learn (SPEC stories 66 and 67).
+		const disclosure = layerRow(page, MAP_LAYER_ID).getByTestId('layer-disclosure');
+		await tabTo(disclosure);
+		await page.keyboard.press('Enter');
+		await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+
+		// The opacity range, moved by arrow key, inside the card that has just been opened.
+		const opacity = page.getByTestId('layer-opacity');
+		await tabTo(opacity, disclosure);
 		const before = await opacity.inputValue();
 		await page.keyboard.press('ArrowLeft');
 		expect(await opacity.inputValue()).not.toBe(before);
@@ -2809,7 +3011,7 @@ test.describe('a Reader using a keyboard', () => {
 		// Asserted on the *navigation* rather than on the viewer, because this Project is unstamped and
 		// therefore takes the refusal branch — which is its own test. What is under test here is that a
 		// keyboard reaches the control and Enter acts on it.
-		await tabTo(page.getByTestId('reader-layer-unwarped'));
+		await tabTo(page.getByTestId('read-as-document'), opacity);
 		await page.keyboard.press('Enter');
 		await expect(page).toHaveURL(new RegExp(`unwarped=${MAP_LAYER_ID}`));
 		await expect(page.getByTestId('back-to-project')).toBeVisible();
@@ -3044,9 +3246,9 @@ test.describe('a Published Site opens on the Project’s content', () => {
 
 		// The Layer is still reported unreadable and still not drawn — this changes what the sheet
 		// contributes to the *box*, not what goes on the map.
-		await expect(
-			page.locator(`[data-layer-id="${MAP_LAYER_ID}"]`).getByTestId('reader-layer-problem')
-		).toContainText('did not answer');
+		await expect(layerRow(page, MAP_LAYER_ID).getByTestId('layer-problem')).toContainText(
+			'did not answer'
+		);
 		expect(
 			await page.evaluate(() => window.ballastellaReaderMap!.map.getLayersOrder())
 		).not.toContain(`ballastella-layer-${MAP_LAYER_ID}`);
@@ -3080,9 +3282,9 @@ test.describe('a Published Site opens on the Project’s content', () => {
 		// only Layer is off — which is why the viewport is read after the Layer comes back rather than
 		// in between. What is being asserted is unaffected: a refit on either toggle would have moved the
 		// map, and the pane's own map is never rebuilt by a stack rebuild.
-		await page.getByTestId('reader-layer-visible').first().uncheck();
+		await page.getByTestId('layer-visible').first().uncheck();
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '0');
-		await page.getByTestId('reader-layer-visible').first().check();
+		await page.getByTestId('layer-visible').first().check();
 		await mapReady(page);
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
 

@@ -1891,6 +1891,14 @@ test.describe('a Layer kind this build has never heard of (ADR-0014)', () => {
 
 		// Renaming starts at the pencil in an open card since the Layers revision.
 		const renamingForeign = await openLayerRow(page, rows(page).nth(0));
+		// **The one says-claim that stays here, and it is a positive control.** What becomes of a foreign
+		// Layer is the editor's own sentence — `packages/ui` may not import from `apps/` (ADR-0034), so
+		// the shared card is handed it as a snippet and cannot hold these words. `e2e/viewer-reader.e2e.ts`
+		// asserts a Reader is told none of it; without this line that absence could pass by the sentence
+		// having quietly gone everywhere.
+		await expect(renamingForeign.getByTestId('layer-foreign-note')).toContainText(
+			'you can still rename it, hide it, and move it in the stack'
+		);
 		await renamingForeign.getByTestId('layer-rename').click();
 		await renamingForeign.getByTestId('layer-name').fill('The cartouche');
 		await renamingForeign.getByTestId('layer-name').blur();
