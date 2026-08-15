@@ -150,9 +150,9 @@ shared card's classes then, and what leaves now is the deleted component's own u
 
 `grep -rl lucide apps/viewer/build` finds one chunk, which is the expected and recorded cost.
 
-Re-measured after the empty state became a snippet: whole `build/` **2,835,957 B**, `build/_app`
-2,832,599 B, JavaScript 2,578,733 B, CSS 253,839 B. **−121 B**, which is the editor's guidance
-sentence leaving the viewer's chunk — the only direction that change could go.
+Re-measured after the empty state and the foreign-kind sentence became snippets: whole `build/`
+**2,835,928 B**, `build/_app` 2,832,570 B, JavaScript 2,578,704 B, CSS 253,839 B. **−150 B**, which is
+the editor's two sentences leaving the viewer's chunk — the only direction those changes could go.
 
 ## Completion note
 
@@ -169,6 +169,14 @@ sentence leaving the viewer's chunk — the only direction that change could go.
   Layers on it.*, and the guidance is markup `ProjectScreen` passes in, word for word unchanged. No
   `readOnly`, `mode` or `editable` prop; the absence of a snippet is what removes the instructions,
   which is the same grammar as every other subtraction here.
+- **The same defect was found a second time, in the foreign-kind sentence, and fixed the same way.**
+  An open card for a Layer of a kind this build cannot draw told everybody it "is kept exactly as it
+  was found and written back untouched, and you can still rename it, hide it, and move it in the
+  stack" — three affordances the viewer offers none of two of, promised inside the card the Contract
+  says has no editing on it, so story 18's "say so and be left alone" was not delivered in the viewer.
+  `LayerList` now says only that there is nothing to show and nothing drawn; the rest is
+  `foreignLayerNote`, a second optional snippet, and `ProjectScreen` supplies it word for word
+  unchanged. It is the same grammar as the empty state and there is still no `readOnly` prop.
 - **The announcement is on the viewer's page**, beside the card, which the Contract offers as one of
   its two acceptable homes. It keeps its `layer-view-status` id and its `aria-live="polite"` /
   `aria-atomic="true"` pair. The card's own `layer-move-status` announces the one change the card
@@ -186,8 +194,16 @@ sentence leaving the viewer's chunk — the only direction that change could go.
   note inside a Reader's open card (story 18).
 - **`expectNothingEditable` sweeps prose as well as controls.** The empty-state regression was
   invisible to it because the two Add names are `<strong>` text in a `<p>` and `getByRole('button')`
-  cannot see them, so it now also asserts that neither Add label and no mention of "this Workspace"
-  appears anywhere in the viewer's `textContent`.
+  cannot see them, so it now also asserts that neither Add label, no mention of "this Workspace" and
+  no "you can still rename" appears anywhere in the viewer's `textContent`. **It runs in two states**:
+  in "reads everything through the HTTP store" with a drawable Layer's card open, and in "a Layer
+  whose kind this build cannot draw is listed and says so" with the *foreign* Layer's card open —
+  the only state in which that sentence exists at all, and the reason the first sweep could never
+  have caught it.
+- The editor's own foreign-kind wording has its positive control in `e2e/editor-layers.e2e.ts`'s "is
+  listed, is reorderable, and is written back intact", which already opens that card: `packages/ui`
+  may not import from `apps/` (ADR-0034), so the words cannot be asserted at Seam 3 and the viewer's
+  absence needs somewhere real to be paired against.
 
 **Mutation check, both halves in one run.** With `referencedImageIds` re-added to the viewer's prop
 set, `pnpm test:e2e viewer-reader editor-layers -g "warns that a referenced Historical Map|shows the
@@ -206,6 +222,12 @@ and allows exactly one key: the Base Map preference, by value as well as by name
 below it keep their `startsWith('ballastella.baseMap')` filter, which is right for what they claim and
 blind to what this one claims. Mutation: a `localStorage.setItem` in the shared card's disclosure
 handler turns it red with `+ "ballastella.layerOpen": "l-map"`; reverted.
+
+**The foreign-kind sentence, both directions.** Dropping `{@render foreignLayerNote()}` turns the
+editor half of "tells a Reader a Layer of a kind this build cannot draw is left alone" red; putting
+the editing promise back into the shared paragraph turns the viewer half of it red on the "rename"
+assertion *and* turns the browser sweep red with `“you can still rename” in the viewer`. Reverted,
+after which the editor's positive control and the viewer's absence pass in one run.
 
 ## Coverage gaps
 

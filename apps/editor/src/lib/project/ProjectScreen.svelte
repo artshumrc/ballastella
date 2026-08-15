@@ -944,6 +944,7 @@
 					onmove={(id, toIndex) => session.moveLayerTo(id, toIndex)}
 					ondelete={(id) => void session.deleteLayer(id)}
 					{noLayersGuidance}
+					{foreignLayerNote}
 					preparing={session.ingest ? preparingLayer : undefined}
 					{mapContents}
 					problemAction={layerProblemAction}
@@ -1400,6 +1401,17 @@
 	No Layers yet. Press <strong>Add a Historical Map</strong> to bring one in — from a file, from a
 	library, or from one this Workspace already holds — and it appears here straight away, aligned or
 	not. <strong>Add an Annotation Layer</strong> is for whenever you have something to say over it.
+{/snippet}
+
+{#snippet foreignLayerNote()}
+	<!--
+		What becomes of a Layer this build cannot draw, **in this app** (ADR-0014). The card says there is
+		nothing to show and nothing drawn, which is true anywhere; this is the half that is only true
+		where there is a Workspace to write back to and a pencil, a toggle and two arrows to do it with.
+		A published site promises none of it, so a Reader is told none of it.
+	-->
+	It is kept exactly as it was found and written back untouched, and you can still rename it, hide it,
+	and move it in the stack.
 {/snippet}
 
 {#snippet preparingLayer()}

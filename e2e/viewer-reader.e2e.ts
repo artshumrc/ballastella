@@ -351,12 +351,16 @@ const EDITING_CONTROLS = [
  * `<p>` and nothing on that page is a `button` at all.
  *
  * Each phrase is one the editor really says: the two Add labels are the words on
- * `ProjectScreen`'s own buttons, and "this Workspace" is the concept a published site does not have.
+ * `ProjectScreen`'s own buttons, "this Workspace" is the concept a published site does not have, and
+ * the last is the open card of a Layer this build cannot draw promising three editing affordances a
+ * Reader is offered none of two of. That one was the same bug found a second time, in a sentence
+ * rather than in an empty state, which is why this list is a list rather than a special case.
  */
 const EDITOR_ONLY_PROSE = [
 	'Add a Historical Map',
 	'Add an Annotation Layer',
-	'this Workspace'
+	'this Workspace',
+	'you can still rename'
 ] as const;
 
 /**
@@ -1081,6 +1085,16 @@ test.describe('exploring a Project', () => {
 		await expect(row.getByTestId('layer-kind')).toContainText('image-space-annotation');
 		// The rest of the Project is unaffected.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '1');
+
+		// **Opened, and swept while open** — this is the one state in the viewer where the foreign-kind
+		// sentence exists at all, and it is where that sentence used to tell a Reader they could still
+		// rename and move the Layer. The sweep in "reads everything through the HTTP store" runs on a
+		// Project of drawable kinds and could never have seen it, which is why it also runs here.
+		const opened = await openLayerRow(page, row);
+		await expect(opened.getByTestId('layer-foreign-note')).toContainText(
+			'nothing of it is drawn on the map'
+		);
+		await expectNothingEditable(page);
 		expect(seen.failures).toEqual([]);
 	});
 });

@@ -199,6 +199,7 @@ type OptionalProps = {
 	ondelete?: (id: string) => void;
 	referencedImageIds?: ReadonlySet<string>;
 	noLayersGuidance?: Snippet;
+	foreignLayerNote?: Snippet;
 	mapContents?: Snippet<[MapLayer]>;
 	annotationContents?: Snippet<[]>;
 	problemAction?: Snippet<[Layer]>;
@@ -1044,17 +1045,33 @@ describe('the two prop sets a real consumer passes (SPEC stories 19, 58, 60)', (
 	});
 
 	test('tells a Reader a Layer of a kind this build cannot draw is left alone (SPEC story 18)', () => {
-		offering(viewerProps(), {
-			layers: [foreignLayer('l-cartouche', 'Cartouche')],
-			openLayerId: 'l-cartouche'
-		});
+		// ⚠ **The second half of the same defect the empty state had.** This sentence used to end "and you
+		// can still rename it, hide it, and move it in the stack" for everybody — three affordances a
+		// Reader is offered none of two of, promised inside the card the Contract says has no editing on
+		// it. What the card says by itself is what is true wherever the Layer is met; what becomes of it
+		// afterwards is the consumer's.
+		const foreign = (): Layer[] => [foreignLayer('l-cartouche', 'Cartouche')];
 
+		offering(
+			{ ...editorProps(), foreignLayerNote: marker<[]>('supplied-foreign-layer-note') },
+			{ layers: foreign(), openLayerId: 'l-cartouche' }
+		);
+
+		expect(one('supplied-foreign-layer-note')).toBeInTheDocument();
+
+		takeDown();
+		offering(viewerProps(), { layers: foreign(), openLayerId: 'l-cartouche' });
+
+		expect(one('supplied-foreign-layer-note')).not.toBeInTheDocument();
 		// A site published by a newer version still opens, and the Layer it could not draw says which
 		// kind it was rather than going missing — in the app where nobody can open the file to find out.
 		expect(one('layer-kind')).toHaveTextContent('Not shown by this version (image-annotation)');
 		expect(one('layer-foreign-note')).toHaveTextContent(
 			'a kind this version of Ballastella does not understand'
 		);
+		expect(one('layer-foreign-note')).toHaveTextContent('nothing of it is drawn on the map');
+		// And the card stops there: it does not go on to promise a Reader anything about the Layer.
+		expect(one('layer-foreign-note')).not.toHaveTextContent('rename');
 	});
 
 	test('drains a hidden Layer’s card and says "Hidden" for a Reader too', () => {
