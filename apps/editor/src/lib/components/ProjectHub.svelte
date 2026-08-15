@@ -7,6 +7,7 @@
 		type ProjectSummary,
 		type WorkspaceHistoricalMap
 	} from '@ballastella/core';
+	import { ProjectCardList } from '@ballastella/ui';
 
 	import type { EditorSession } from '../editor-session.svelte.js';
 	import MapThumbnail from '../historical-maps/MapThumbnail.svelte';
@@ -168,6 +169,23 @@
 			: 'Not on the front page — but still readable by anyone with the link. It goes to your ' +
 				'Published Site with the rest of the Workspace, and anyone who knows its folder name can ' +
 				'open it.';
+
+	/** A Project as the shared card list takes it: the summary, and where its name links. */
+	type ListedProject = ProjectSummary & { readonly href: string };
+
+	/**
+	 * The Project list, each entry carrying the link its name wears.
+	 *
+	 * `resolve` stays in the app: `packages/ui` has no SvelteKit to resolve a path against, which is
+	 * why the card is handed a finished `href` rather than a directory to compose one from. The query
+	 * parameter is built from the **folder** and encoded (ADR-0008), never from the display name.
+	 */
+	const listed = $derived<readonly ListedProject[]>(
+		session.projects.map((project) => ({
+			...project,
+			href: resolve(`/?p=${encodeURIComponent(project.directory)}`)
+		}))
+	);
 
 	const dateFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: 'medium',
@@ -455,6 +473,103 @@
 	});
 </script>
 
+<!-- When a Project was last written, beside the folder on the card's own line of facts. -->
+{#snippet facts(project: ListedProject)}
+	Last saved <time datetime={project.updatedAt}>{lastTouched(project.updatedAt)}</time>
+{/snippet}
+
+<!--
+	What else the Hub says about a Project: whether this build can read it, and whether a Reader
+	arriving at the Published Site is offered it.
+-->
+{#snippet details(project: ListedProject)}
+	{#if project.problem === 'format-too-new'}
+		<p class="text-sm text-warning">Made with a newer version of Ballastella.</p>
+	{:else if project.problem === 'unreadable'}
+		<p class="text-sm text-warning">Its project.json could not be read.</p>
+	{/if}
+	<!--
+		The Front Page choice (ADR-0032), with its consequence beside it rather than in a
+		tooltip, a badge, or a dialog the user meets once: the sentence is the safeguard, so
+		it is on screen whenever the control is.
+
+		`aria-describedby` rather than a paragraph that merely happens to sit underneath, so
+		a screen-reader user is given the caution as part of the control instead of having to
+		find it. `disabled` for a Project this build cannot read, because setting the field
+		means writing `project.json` and ADR-0010 forbids that for one from the future — the
+		same reason Rename and Duplicate are disabled beside it.
+
+		⚠ **A two-way binding, not `checked={…}`.** The box has to show what `project.json`
+		says, and a one-way `checked` shows what the user clicked: a write refused by quota
+		or by the filesystem would leave the box flipped, the file untouched, and the caution
+		beneath it describing the other state — a control contradicting itself about the one
+		thing this ticket asks it to be trusted on. The setter goes through the session, whose
+		refresh re-reads the Workspace, so what the box settles on is the file's answer
+		whether the write landed or not.
+	-->
+	<label class="mt-2 flex w-fit items-center gap-2 text-sm">
+		<input
+			type="checkbox"
+			class="toggle toggle-sm"
+			data-testid="on-front-page-{project.directory}"
+			bind:checked={
+				() => project.onFrontPage,
+				(onFrontPage) => session.setProjectOnFrontPage(project.directory, onFrontPage)
+			}
+			disabled={project.problem !== null}
+			aria-describedby="front-page-note-{project.directory}"
+		/>
+		On the front page<span class="sr-only"> — {project.name}</span>
+	</label>
+	<p
+		id="front-page-note-{project.directory}"
+		class="mt-1 max-w-prose text-sm opacity-70"
+		data-testid="front-page-note-{project.directory}"
+	>
+		{frontPageNote(project)}
+	</p>
+{/snippet}
+
+<!--
+	What can be done to one Project. **Nowhere in the viewer**: a Reader is handed the same card
+	without these, rather than a menu of controls that are there and refused (SPEC story 54).
+-->
+{#snippet actions(project: ListedProject)}
+	<button
+		class="btn btn-sm"
+		onclick={() => startRenaming(project)}
+		disabled={project.problem !== null}
+	>
+		Rename<span class="sr-only"> {project.name}</span>
+	</button>
+	<button
+		class="btn btn-sm"
+		onclick={() => session.duplicateProject(project.directory)}
+		disabled={project.problem !== null}
+	>
+		Duplicate<span class="sr-only"> {project.name}</span>
+	</button>
+	<!-- Available even for a Project this build cannot open: a Project from a newer
+	     version is the one a user most needs to get out of a browser they cannot see
+	     into, and export never parses `project.json` (ADR-0010). -->
+	<!-- `aria-disabled`, not `disabled`. A `disabled` button is removed from the tab
+	     order the moment it is pressed, so a keyboard user's focus fell to `<body>`
+	     for the length of the export and was not restored when it came back —
+	     leaving them to tab in from the top of the page after every export
+	     (SPEC story 95, WCAG 2.4.3). -->
+	<button
+		class="btn btn-sm"
+		class:btn-disabled={transferring}
+		aria-disabled={transferring}
+		onclick={() => exportProject(project)}
+	>
+		Export<span class="sr-only"> {project.name}</span>
+	</button>
+	<button class="btn btn-outline btn-error btn-sm" onclick={() => (deleting = project)}>
+		Delete<span class="sr-only"> {project.name}</span>
+	</button>
+{/snippet}
+
 <section class="mt-8">
 	<div class="flex flex-wrap items-baseline justify-between gap-4">
 		<h2 class="text-2xl font-semibold">Projects</h2>
@@ -583,106 +698,12 @@
 			make, and the Annotations you write.
 		</p>
 	{:else}
-		<ul class="mt-6 flex flex-col gap-3">
-			{#each session.projects as project (project.directory)}
-				<li class="card bg-base-100 card-border">
-					<div class="card-body flex-row flex-wrap items-center justify-between gap-4">
-						<div>
-							<h3 class="text-lg font-medium">
-								<a class="link" href={resolve(`/?p=${encodeURIComponent(project.directory)}`)}>
-									{project.name}
-								</a>
-							</h3>
-							<p class="text-sm opacity-70">
-								Last saved <time datetime={project.updatedAt}>{lastTouched(project.updatedAt)}</time
-								>
-								· folder <code>{project.directory}</code>
-							</p>
-							{#if project.problem === 'format-too-new'}
-								<p class="text-sm text-warning">Made with a newer version of Ballastella.</p>
-							{:else if project.problem === 'unreadable'}
-								<p class="text-sm text-warning">Its project.json could not be read.</p>
-							{/if}
-							<!--
-								The Front Page choice (ADR-0032), with its consequence beside it rather than in a
-								tooltip, a badge, or a dialog the user meets once: the sentence is the safeguard, so
-								it is on screen whenever the control is.
-
-								`aria-describedby` rather than a paragraph that merely happens to sit underneath, so
-								a screen-reader user is given the caution as part of the control instead of having to
-								find it. `disabled` for a Project this build cannot read, because setting the field
-								means writing `project.json` and ADR-0010 forbids that for one from the future — the
-								same reason Rename and Duplicate are disabled beside it.
-
-								⚠ **A two-way binding, not `checked={…}`.** The box has to show what `project.json`
-								says, and a one-way `checked` shows what the user clicked: a write refused by quota
-								or by the filesystem would leave the box flipped, the file untouched, and the caution
-								beneath it describing the other state — a control contradicting itself about the one
-								thing this ticket asks it to be trusted on. The setter goes through the session, whose
-								refresh re-reads the Workspace, so what the box settles on is the file's answer
-								whether the write landed or not.
-							-->
-							<label class="mt-2 flex w-fit items-center gap-2 text-sm">
-								<input
-									type="checkbox"
-									class="toggle toggle-sm"
-									data-testid="on-front-page-{project.directory}"
-									bind:checked={
-										() => project.onFrontPage,
-										(onFrontPage) => session.setProjectOnFrontPage(project.directory, onFrontPage)
-									}
-									disabled={project.problem !== null}
-									aria-describedby="front-page-note-{project.directory}"
-								/>
-								On the front page<span class="sr-only"> — {project.name}</span>
-							</label>
-							<p
-								id="front-page-note-{project.directory}"
-								class="mt-1 max-w-prose text-sm opacity-70"
-								data-testid="front-page-note-{project.directory}"
-							>
-								{frontPageNote(project)}
-							</p>
-						</div>
-						<div class="flex flex-wrap gap-2">
-							<button
-								class="btn btn-sm"
-								onclick={() => startRenaming(project)}
-								disabled={project.problem !== null}
-							>
-								Rename<span class="sr-only"> {project.name}</span>
-							</button>
-							<button
-								class="btn btn-sm"
-								onclick={() => session.duplicateProject(project.directory)}
-								disabled={project.problem !== null}
-							>
-								Duplicate<span class="sr-only"> {project.name}</span>
-							</button>
-							<!-- Available even for a Project this build cannot open: a Project from a newer
-							     version is the one a user most needs to get out of a browser they cannot see
-							     into, and export never parses `project.json` (ADR-0010). -->
-							<!-- `aria-disabled`, not `disabled`. A `disabled` button is removed from the tab
-							     order the moment it is pressed, so a keyboard user's focus fell to `<body>`
-							     for the length of the export and was not restored when it came back —
-							     leaving them to tab in from the top of the page after every export
-							     (SPEC story 95, WCAG 2.4.3). -->
-							<button
-								class="btn btn-sm"
-								class:btn-disabled={transferring}
-								aria-disabled={transferring}
-								onclick={() => exportProject(project)}
-							>
-								Export<span class="sr-only"> {project.name}</span>
-							</button>
-							<button class="btn btn-outline btn-error btn-sm" onclick={() => (deleting = project)}>
-								Delete<span class="sr-only"> {project.name}</span>
-							</button>
-						</div>
-					</div>
-				</li>
-			{/each}
-		</ul>
+		<!--
+			The same list a Reader is offered on a Published Site's Front Page, from the one component
+			(SPEC stories 8, 52–54). What is the Hub's rather than the card's arrives as the three
+			snippets below, and what a Reader must not be offered is what the viewer does not pass.
+		-->
+		<ProjectCardList class="mt-6" heading="h3" projects={listed} {facts} {details} {actions} />
 	{/if}
 </section>
 
