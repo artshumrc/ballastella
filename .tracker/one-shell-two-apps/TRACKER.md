@@ -18,7 +18,7 @@ below.
 
 Overall status: `In Progress`
 
-Current ticket: 08 (wave 5); 07 held until 08 merges (both edit the map panes)
+Current ticket: 07, 10 (wave 6, parallel)
 
 Last updated: 2026-08-14
 
@@ -32,10 +32,10 @@ Last updated: 2026-08-14
 | 04 | [04-the-layer-card-moves-to-the-shared-package.md](./tickets/04-the-layer-card-moves-to-the-shared-package.md) | Completed | 02 | — |
 | 05 | [05-the-readers-stack-becomes-the-layer-card.md](./tickets/05-the-readers-stack-becomes-the-layer-card.md) | Completed | 04 | — |
 | 06 | [06-a-reader-reads-an-annotation-in-its-row.md](./tickets/06-a-reader-reads-an-annotation-in-its-row.md) | Completed | 01, 05 | — |
-| 07 | [07-the-map-popup-retires-on-the-project-screen.md](./tickets/07-the-map-popup-retires-on-the-project-screen.md) | Not Started | 06 | — |
-| 08 | [08-annotations-are-numbered-on-the-map-and-on-the-row.md](./tickets/08-annotations-are-numbered-on-the-map-and-on-the-row.md) | In Progress | 06 | run-epic wave 5 |
+| 07 | [07-the-map-popup-retires-on-the-project-screen.md](./tickets/07-the-map-popup-retires-on-the-project-screen.md) | In Progress | 06 | run-epic wave 6 |
+| 08 | [08-annotations-are-numbered-on-the-map-and-on-the-row.md](./tickets/08-annotations-are-numbered-on-the-map-and-on-the-row.md) | Completed | 06 | — |
 | 09 | [09-the-hub-and-the-front-page-are-one-list.md](./tickets/09-the-hub-and-the-front-page-are-one-list.md) | Completed | 02 | — |
-| 10 | [10-the-alignment-route-joins-the-shell.md](./tickets/10-the-alignment-route-joins-the-shell.md) | Not Started | 03, 08 | — |
+| 10 | [10-the-alignment-route-joins-the-shell.md](./tickets/10-the-alignment-route-joins-the-shell.md) | In Progress | 03, 08 | run-epic wave 6 |
 | 11 | [11-the-map-panes-notices-are-one-component.md](./tickets/11-the-map-panes-notices-are-one-component.md) | Completed | 05 | — |
 | 12 | [12-the-leader-line.md](./tickets/12-the-leader-line.md) | Not Started | 08, 10 | — |
 
