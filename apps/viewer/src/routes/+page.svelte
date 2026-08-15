@@ -78,7 +78,6 @@
 		readRemoteBinding,
 		resolveBaseMap,
 		returnLinkUrl,
-		openingViewSentence,
 		projectOpeningFit,
 		setLayerVisible,
 		setMapLayerOpacity,
@@ -102,6 +101,8 @@
 		AnnotationReading,
 		BaseMapSwitcher,
 		LayerList,
+		MapCommentary,
+		MapNotice,
 		ProjectCardList,
 		pageChrome
 	} from '@ballastella/ui';
@@ -916,6 +917,23 @@
 		})
 	);
 
+	/**
+	 * Whether a Project's map is what is on screen — the only state the two Base Map notices speak in.
+	 *
+	 * ⚠ **The notices are rendered outside every branch and this is what keeps them silent.** They sit
+	 * at the top of `<main>`, above the Front-Page/Project split, because a live region has to be on
+	 * the page *before* its sentence arrives for the arrival to be a change a screen reader announces
+	 * — and everything below that split is built client-side once the Project file resolves, so a
+	 * region rendered inside it is inserted with its text already in it and announced to nobody. This
+	 * moves the element and not the moment: they say something on a Project's map, and nothing on the
+	 * Front Page, on a Project that would not open, or on a sheet being read as a document.
+	 *
+	 * `baseMapNotPublished` in particular is true from the first frame — `bundledBaseMapAvailable` is
+	 * `false` until the site record is read — so without this gate the sentence would be in the
+	 * prerendered HTML, which is the same defect one step earlier.
+	 */
+	const showingTheMap = $derived(openProject !== null && unwarpedLayerId === null);
+
 	/** Remember the Reader's choice for this site, and for no other (ADR-0020). Never Project data. */
 	function chooseBaseMap(id: string): void {
 		chosen = id;
@@ -1142,6 +1160,39 @@
 	sideways (ticket 17's criterion, and SPEC story 84 — a phone is where most Readers arrive).
 -->
 <main class="mx-auto max-w-6xl p-4 sm:p-8">
+	<!--
+		Why the Base Map on screen is not the one the Project asked for (ADR-0020), and what this site
+		was published without.
+
+		⚠ **Above the Front-Page/Project split rather than beside the switcher, and that placement is
+		the mechanism.** Both are `aria-live` regions, which are announced when their text *changes*
+		and not when the element carrying them is inserted — so each has to be on the page before its
+		sentence exists. Everything below this point is built client-side once the site record and the
+		Project file have been read, and both sentences are settled before that happens: `baseMapNotice`
+		falls out of `resolveBaseMap` with the Project file, and `baseMapNotPublished` is true from the
+		first frame. A region rendered down there arrives *with* its text however few `{#if}` blocks
+		are left around it, which is what made these two inaudible when they sat in the controls column.
+		Here they are in the prerendered HTML, empty, and the sentence arriving is a change.
+
+		{@link showingTheMap} keeps *when* they speak unchanged: a Project's map, and nowhere else.
+		`max-w-prose` because this column is the page's full width rather than the switcher's 22rem.
+	-->
+	<MapNotice
+		shape="always-present"
+		variant="plain"
+		class="max-w-prose text-sm text-warning"
+		testid="base-map-notice"
+		text={showingTheMap ? baseMapNotice : ''}
+	/>
+
+	<MapNotice
+		shape="always-present"
+		variant="plain"
+		class="max-w-prose text-sm text-warning"
+		testid="base-map-not-published"
+		text={showingTheMap ? baseMapNotPublished : ''}
+	/>
+
 	{#if openDirectory === null}
 		<!--
 			The site's own sentence about itself, as ordinary markup.
@@ -1286,90 +1337,48 @@
 							/>
 						</div>
 
-						{#if baseMapNotice}
-							<p class="text-sm text-warning" aria-live="polite" data-testid="base-map-notice">
-								{baseMapNotice}
-							</p>
-						{/if}
+						<!--
+							The archive answered nothing while the connection is fine (ticket 22). It comes and
+							goes with the outage, so `MapNotice` makes it an `alert` and renders nothing at all
+							while the archive is answering — the two at the top of the page are the other shape, and
+							the component's header carries the rule and the reason it is not each call site's.
 
-						{#if baseMapNotPublished}
-							<p
-								class="text-sm text-warning"
-								aria-live="polite"
-								data-testid="base-map-not-published"
-							>
-								{baseMapNotPublished}
-							</p>
-						{/if}
+							It is the same alert whether the Base Map is somebody else's or this site's own; what
+							differs is the remedy, and that is `baseMapUnavailableNotice`'s to decide rather than
+							this template's, so the editor and the viewer cannot drift apart.
 
-						{#if archiveUnavailable}
-							<!--
-								The archive answered nothing while the connection is fine (ticket 22). `role="alert"`
-								rather than `aria-live`, and the reasoning is the editor's, copied along with the
-								decision: this element is *inserted* when its text first exists, and an `aria-live`
-								region is announced on a text **change** rather than on insertion — so a live region
-								here is a notice a screen-reader user never hears.
+							Above the map in the DOM, because the controls come first here deliberately (see the
+							grid comment): the account of why the rectangle is empty should be read before the
+							rectangle, not found underneath it.
+						-->
+						<MapNotice
+							shape="comes-and-goes"
+							heading="The Base Map did not load"
+							testid="base-map-unavailable"
+							text={archiveUnavailable}
+						/>
 
-								⚠ **The two notices above have the bug this one avoids**, and saying otherwise here
-								would be worse than saying nothing. Both sit inside `{#if}` blocks, so both are
-								inserted *with* their text and are `aria-live` regions a screen-reader user is
-								unlikely ever to hear. Both predate this ticket and neither is in its scope; the
-								fix is to render them unconditionally with an empty string when they have nothing
-								to say, which is what makes a live region work at all.
+						<!--
+							A Historical Map's tiles stopped arriving (ticket 04, SPEC stories 14–18).
 
-								A deliberate deviation from ADR-0016's `aria-live="polite"` mandate for status,
-								recorded as an amendment in the ADR itself rather than only here, so the next
-								implementer meets it in the table rather than in a template comment.
+							⚠ **This text appears and disappears, so it is the `comes-and-goes` shape and not a
+							permanently-mounted region.** The two are not interchangeable: a standing live region
+							is the right mechanism for text that *changes* between two things worth hearing, and
+							an empty one announces nothing on the way in. The heading makes the alert a landmark
+							a Reader can be sent to.
 
-								It is the same alert whether the Base Map is somebody else's or this site's own; what
-								differs is the remedy, and that is `baseMapUnavailableNotice`'s to decide rather than
-								this template's, so the editor and the viewer cannot drift apart.
-
-								Above the map in the DOM, with the other Base Map notices, because the controls come
-								first here deliberately (see the grid comment): the account of why the rectangle is
-								empty should be read before the rectangle, not found underneath it.
-							-->
-							<div
-								role="alert"
-								class="alert flex-col items-start alert-warning"
-								data-testid="base-map-unavailable"
-							>
-								<h2 class="font-semibold">The Base Map did not load</h2>
-								<p>{archiveUnavailable}</p>
-							</div>
-						{/if}
-
-						{#if tilesUnavailable}
-							<!--
-								A Historical Map's tiles stopped arriving (ticket 04, SPEC stories 14–18).
-
-								`role="alert"` rather than an `aria-live` region, for the reason the outage notice
-								above states and this one inherits: the element is *inserted* when its text first
-								exists, and a live region is announced on a text **change** rather than on insertion,
-								so a live region here is a notice a screen-reader user never hears. It is the same
-								deliberate deviation from ADR-0016's `aria-live="polite"` mandate, recorded there.
-
-								⚠ **`{#if}` and not a permanently-mounted region, and the two are not
-								interchangeable.** A permanently-mounted live region is the right mechanism for text
-								that *changes* between two things worth hearing; this text appears and disappears,
-								and an empty region announces nothing on the way in. The heading is a `<h2>` for the
-								same reason the outage notice's is: the alert is a landmark a Reader can be sent to.
-
-								Beside the Base Map notices and above the map, because the account of why part of
-								the rectangle is missing should be read before the rectangle rather than found
-								underneath it. Distinct from `base-map-unavailable` deliberately — that is the
-								modern reference map underneath the work, this is the work itself, and the remedies
-								differ. The two are not mutually exclusive and both can be up at once.
-							-->
-							<div
-								role="alert"
-								class="alert flex-col items-start alert-warning"
-								data-testid="historical-map-tiles-unavailable"
-							>
-								<h2 class="font-semibold">A Historical Map stopped drawing</h2>
-								<p>{tilesUnavailable}</p>
-							</div>
-						{/if}
+							Beside the Base Map notices and above the map, because the account of why part of
+							the rectangle is missing should be read before the rectangle rather than found
+							underneath it. Distinct from `base-map-unavailable` deliberately — that is the
+							modern reference map underneath the work, this is the work itself, and the remedies
+							differ. The two are not mutually exclusive and both can be up at once.
+						-->
+						<MapNotice
+							shape="comes-and-goes"
+							heading="A Historical Map stopped drawing"
+							testid="historical-map-tiles-unavailable"
+							text={tilesUnavailable}
+						/>
 
 						<!--
 							The Layer stack, as the shared card (SPEC stories 1, 10–19). `base-300` under
@@ -1410,23 +1419,35 @@
 						</div>
 
 						{#if needsNetwork.length > 0}
-							<p class="text-sm text-warning" data-testid="project-needs-network">
+							<!--
+								Which Historical Maps will not draw without a connection, named.
+
+								**Not the per-Layer badge ticket 05 removed.** That said where a Layer's tiles are
+								held, which is the author's publishing decision and nothing a Reader can act on;
+								this names the maps that go blank on a train, which is a fact a Reader acts on by
+								knowing. It comes and goes with the Project, so it is the `alert` shape.
+							-->
+							<MapNotice
+								shape="comes-and-goes"
+								variant="plain"
+								class="text-sm text-warning"
+								testid="project-needs-network"
+							>
 								{needsNetwork.length === 1
 									? 'One Historical Map'
 									: `${needsNetwork.length} Historical Maps`}
 								here {needsNetwork.length === 1 ? 'is' : 'are'} held on the library's own server rather
 								than in this site: {needsNetwork.map((layer) => layer.name).join(', ')}. Without a
 								network connection {needsNetwork.length === 1 ? 'it' : 'they'} cannot be shown.
-							</p>
+							</MapNotice>
 						{/if}
 
 						{#if unreachable.length > 0}
-							<div role="alert" class="alert flex-col items-start alert-warning">
-								<h2 class="font-semibold">Some of this Project could not be reached</h2>
+							<MapNotice shape="comes-and-goes" heading="Some of this Project could not be reached">
 								{#each unreachable as failure (failure.name)}
 									<p data-testid="layer-unreachable">{failure.reason}</p>
 								{/each}
-							</div>
+							</MapNotice>
 						{/if}
 					</div>
 
@@ -1475,53 +1496,37 @@
 							{/if}
 						</div>
 						<!--
-							The map's running commentary, announced but not drawn — the same treatment as the
-							editor's Project screen. A sighted Reader reads both facts off the map itself and off
-							the Layer list beside it, so on screen these two lines were restatement taking room the
-							Base Map wants. `sr-only` rather than deletion: the announcements are the whole reason
-							they were written.
+							The map's running commentary, announced but not drawn, from the component both apps
+							render. A sighted Reader reads both facts off the map itself and off the Layer list
+							beside it, so on screen these two lines were restatement taking room the Base Map
+							wants.
+
+							**A Reader is handed no extra lines**, and that is the whole of the difference from
+							the editor's commentary: what is available offline and what a copy finished doing are
+							announcements for the one person who can make one.
 						-->
-						<div class="sr-only">
-							<!--
-								What is on the map, in words. `aria-live` rather than `role="status"`, because a Reader
-								who has just hidden a Layer needs to be told what the map now holds — and "nothing is
-								drawn" has many reasons, each of which is beside its own Layer in the list.
-							-->
-							<p
-								class="mt-2 min-h-6 text-sm"
-								aria-live="polite"
-								aria-atomic="true"
-								data-testid="stack-status"
-								data-drawn={drawnCount}
-							>
-								{#if layers.length === 0}
-									This Project has nothing on the map.
-								{:else}
-									{drawnCount} of {layers.length}
-									{layers.length === 1 ? 'Layer is' : 'Layers are'} drawn over the Base Map.
-								{/if}
-							</p>
-							<!--
-							Where the map is looking and why (SPEC story 112). A WebGL canvas announces nothing
-							about what it is showing, so a Reader who cannot see it is otherwise never told that
-							the map opened on the author's own work rather than on a default somewhere else.
-						-->
-							<p
-								class="min-h-6 text-sm text-base-content/70"
-								aria-live="polite"
-								aria-atomic="true"
-								data-testid="opening-view"
-								data-opening-view={openingOutcome}
-							>
-								{openingViewSentence(openingOutcome, refitted)}
-							</p>
-						</div>
+						<MapCommentary
+							layerCount={layers.length}
+							{drawnCount}
+							{openingOutcome}
+							{refitted}
+							{emptyStackNote}
+						/>
 					</div>
 				</div>
 			{/if}
 		{/if}
 	{/if}
 </main>
+
+{#snippet emptyStackNote()}
+	<!--
+		What the commentary says when the Project has no Layers at all, **in this app**. It is a
+		statement about the Project rather than an invitation: the editor's sentence ends in "yet",
+		because an author can add something and a Reader cannot.
+	-->
+	This Project has nothing on the map.
+{/snippet}
 
 <!--
 	One Annotation as a Reader meets it, inside the row it belongs to. The row hands its own `index`
