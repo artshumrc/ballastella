@@ -1,0 +1,39 @@
+<script lang="ts">
+	// A stand-in consumer of {@link AppBar}, for `app-bar.dom.test.ts`.
+	//
+	// The bar takes snippets, and a snippet cannot be written in a test body — so the two apps'
+	// arrangements are spelled here instead: identity in `start`, the app's own controls in `end`, and
+	// the same controls again as menu items for the width at which they fold. Which of the two an app
+	// gets is the whole difference the fold tests are about, so `withMenu` is a prop rather than two
+	// harnesses.
+
+	import type { Theme } from '@ballastella/core';
+
+	import AppBar from './AppBar.svelte';
+
+	let {
+		theme = 'light',
+		onToggleTheme = () => {},
+		withMenu = false
+	}: {
+		theme?: Theme;
+		onToggleTheme?: () => void;
+		/** Whether this app offers foldable items, which is what turns the fold on at all. */
+		withMenu?: boolean;
+	} = $props();
+</script>
+
+{#snippet start()}
+	<a data-testid="site-name" href="./">Ballastella</a>
+{/snippet}
+
+{#snippet end()}
+	<button type="button" data-testid="app-control">Publish…</button>
+{/snippet}
+
+{#snippet menu()}
+	<li><button type="button" data-testid="app-control">Publish…</button></li>
+{/snippet}
+
+<!-- `exactOptionalPropertyTypes`: an optional snippet is absent or a snippet, never `undefined`. -->
+<AppBar {start} {end} {...withMenu ? { menu } : {}} {theme} {onToggleTheme} homeHref="./" />

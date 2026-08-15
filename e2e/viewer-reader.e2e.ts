@@ -534,7 +534,8 @@ test.describe('a Published Site a Reader arrives at', () => {
 			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this test
 			// composed — so the link is relative in the way the base path needs (ADR-0006).
 			await page.getByRole('link', { name: 'Amsterdam 1625' }).click();
-			await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+			// The Project's name is on the bar, as the place the Reader is currently in (SPEC story 5).
+			await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
 			await expect(page).toHaveURL(`${served.url}?p=amsterdam-1625`);
 
 			// The Project's own data was read over HTTP, relative to the site.
@@ -599,7 +600,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 			// Not listed, and not withheld: the same Project renders exactly as a listed one does, Layers,
 			// Annotations, map and all.
 			await page.goto(`${served.url}?p=amsterdam-1625`);
-			await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+			await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
 			await expect(page.getByTestId('reader-layers')).toContainText('Blaeu’s plan of 1625');
 			await expect(page.getByTestId('reader-layers')).toContainText('Warehouses');
 			await mapReady(page);
@@ -638,7 +639,7 @@ test.describe('a Published Site a Reader arrives at', () => {
 
 		// And the Project itself is untouched by the wording: still there, still opening.
 		await page.goto(`${site.sites[0]!.url}?p=amsterdam-1625`);
-		await expect(page.getByTestId('project-name')).toHaveText('Amsterdam 1625');
+		await expect(page.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
 	});
 
 	/**
@@ -664,12 +665,26 @@ test.describe('a Published Site a Reader arrives at', () => {
 		for (const served of site.sites) {
 			await page.goto(served.url);
 
-			const clone = page.getByRole('link', { name: 'Open this Workspace in Ballastella' });
+			// On the bar, with the other things that are true on every screen, rather than buried in a
+			// paragraph of prose halfway down the Front Page (SPEC story 9).
+			const bar = page.getByTestId('navigation-bar');
+			const clone = bar.getByRole('link', { name: 'Open in Ballastella' });
 			await expect(clone).toHaveAttribute('href', `${EDITOR_INSTANCE}?clone=ada/atlas`);
+
+			// And the rest of what the bar is for: the way home in the same place on every page, the
+			// list of Projects, and the theme control where the editor keeps its own (stories 3, 4, 7).
+			await expect(bar.getByTestId('site-name')).toBeVisible();
+			await expect(bar.getByTestId('all-projects')).toBeVisible();
+			await expect(bar.getByTestId('theme-toggle')).toBeVisible();
+			await expect(bar.getByTestId('page-heading')).toHaveText('Front Page');
 
 			await page.goto(`${served.url}?p=amsterdam-1625`);
 
-			const review = page.getByRole('link', { name: 'Review this Project in Ballastella' });
+			// The same bar, saying where the Reader is now (story 5).
+			await expect(bar.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
+			await expect(bar.getByTestId('all-projects')).toBeVisible();
+
+			const review = bar.getByRole('link', { name: 'Review this Project in Ballastella' });
 			await expect(review).toHaveAttribute(
 				'href',
 				`${EDITOR_INSTANCE}?review=ada/atlas&p=amsterdam-1625`
@@ -677,6 +692,10 @@ test.describe('a Published Site a Reader arrives at', () => {
 			// The whole-Workspace invitation is the Front Page's, not a Project's: a Reader looking at
 			// one piece of work is offered that piece of work.
 			await expect(clone).toHaveCount(0);
+
+			// And the site's own name is the way home, in the same place on every page (story 4).
+			await bar.getByTestId('site-name').click();
+			await expect(bar.getByTestId('page-heading')).toHaveText('Front Page');
 		}
 	});
 
@@ -1346,8 +1365,11 @@ test.describe('a Historical Map read unwarped', () => {
 		await page.goto(site.sites[0]!.url + `?p=amsterdam-1625&unwarped=${MAP_LAYER_ID}`);
 
 		await expect(page.getByTestId('unwarped-problem')).toContainText('not on this site');
-		// And the way back still works, so one missing image is not a dead end.
-		await expect(page.getByTestId('back-to-project')).toBeVisible();
+		// And the way back still works, so one missing image is not a dead end. **On the bar**, which
+		// is where it is on every other screen of the site — this one included (SPEC story 3).
+		const bar = page.getByTestId('navigation-bar');
+		await expect(bar.getByTestId('back-to-project')).toBeVisible();
+		await expect(bar.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
 		expect(seen.failures).toEqual([]);
 	});
 });
@@ -2647,11 +2669,16 @@ test.describe('a Reader on a phone', () => {
 	});
 
 	/**
-	 * The return links read well at 375 px (ticket 09's criterion, SPEC story 84).
+	 * The bar folds, and the return links read well at 375 px (SPEC stories 6 and 84).
 	 *
-	 * A link is where a long unbroken string usually gets onto a page, and these carry an absolute URL
-	 * — so the failure to look for is a Front Page that scrolls sideways on the width most Readers
-	 * arrive at.
+	 * ⚠ **What must survive the fold is named, not counted.** A Reader on a phone keeps the way home
+	 * and the Project's own name; everything else goes behind one menu, and nothing that goes there
+	 * may become unreachable — which is why the menu is opened *from the keyboard* here rather than
+	 * clicked.
+	 *
+	 * A link is also where a long unbroken string usually gets onto a page, and these carry an
+	 * absolute URL — so the other failure to look for is a page that scrolls sideways on the width
+	 * most Readers arrive at.
 	 */
 	test('the links back to the editor are readable and do not widen the page', async ({ page }) => {
 		site = await published(publishedByEditor());
@@ -2660,10 +2687,30 @@ test.describe('a Reader on a phone', () => {
 		for (const where of ['', '?p=amsterdam-1625'] as const) {
 			await page.goto(site.sites[0]!.url + where);
 
-			const link = page.getByRole('link', { name: /in Ballastella$/ });
+			const bar = page.getByTestId('navigation-bar');
+			// The two things a Reader needs are never the two things that were dropped.
+			await expect(bar.getByTestId('site-name')).toBeVisible();
+			if (where !== '') {
+				await expect(bar.getByTestId('page-heading')).toHaveText('Amsterdam 1625');
+			}
+
+			// Everything else is behind one menu — including the theme control, which is the shell's
+			// rather than this app's and folds with the rest.
+			const menu = bar.getByTestId('bar-menu');
+			await expect(menu).toBeVisible();
+			await expect(bar.getByRole('link', { name: /in Ballastella$/ })).toBeHidden();
+
+			await menu.focus();
+			await page.keyboard.press('Enter');
+			await expect(menu).toHaveAttribute('aria-expanded', 'true');
+			await expect(bar.getByTestId('theme-toggle')).toBeVisible();
+			await expect(bar.getByTestId('all-projects')).toBeVisible();
+
+			const link = bar.getByRole('link', { name: /in Ballastella$/ });
 			await expect(link).toBeVisible();
 			const box = (await link.boundingBox())!;
 			expect(box.width, `link width at ${where || 'the Front Page'}`).toBeLessThanOrEqual(375);
+			expect(box.x, `link off screen at ${where || 'the Front Page'}`).toBeGreaterThanOrEqual(-1);
 
 			expect(
 				await page.evaluate(() => document.documentElement.scrollWidth),

@@ -22,7 +22,7 @@
 	import { resolveBaseMap, type MapLayer } from '@ballastella/core';
 
 	import AlignmentWorkspace from '$lib/alignment/AlignmentWorkspace.svelte';
-	import { pageChrome } from '$lib/components/page-chrome.svelte.js';
+	import { pageChrome } from '@ballastella/ui';
 	import WorkspaceRecovery from '$lib/components/WorkspaceRecovery.svelte';
 	import { useWorkspaceHost } from '$lib/workspace-storage.svelte.js';
 
