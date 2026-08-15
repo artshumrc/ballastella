@@ -354,6 +354,33 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await expect(row).toHaveCount(1);
 		await expect(row).toHaveAttribute('aria-expanded', 'true');
 		const openId = await row.getAttribute('data-annotation-id');
+
+		// **An Escape the row's own fields already answered is not this screen's to act on.** The
+		// title input treats it as "leave this field" and the description textarea ignores it, and
+		// neither stops it propagating — so a window handler that collapsed the row on it would shut
+		// the panel the scholar was typing in, on a keypress that meant far less. Asserted for both
+		// fields, because they answer Escape differently and only one of them answers it at all.
+		await editAnnotationText(page);
+		await page.getByTestId('annotation-title').focus();
+		await page.keyboard.press('Escape');
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+
+		await page.getByTestId('annotation-description').focus();
+		await page.keyboard.press('Escape');
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+
+		// **And nor is the Escape that closed a dialog.** `MakeOfflineDialog` is one of the two on this
+		// screen the handler holds no flag for, so it stands for the class: a `<dialog>` consumes
+		// Escape and keeps it propagating, and the row behind it was never what the user was dismissing.
+		await page.getByTestId('make-offline').click();
+		await expect(page.locator('dialog[open]')).toHaveCount(1);
+		await page.keyboard.press('Escape');
+		await expect(page.locator('dialog[open]')).toHaveCount(0);
+		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+
 		const ids = (await storedAnnotations(page, layerId)).features.map((one) => one.id as string);
 		await waitForPaintedAnnotations(page, ids);
 		await watchAnnotationWrites(page);

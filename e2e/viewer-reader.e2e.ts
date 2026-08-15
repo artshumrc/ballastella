@@ -491,6 +491,15 @@ async function expectNoEditorProse(page: Page): Promise<void> {
 const ANNOTATION_AT: [number, number] = [4.9, 52.3676];
 
 /**
+ * The Annotation that sits at {@link ANNOTATION_AT}, and so the one a click there opens.
+ *
+ * Must match `annotation()`'s default id in `support/reader-project`. Named because a fixture with
+ * more than one Annotation has more than one row, and "the first row in the DOM" is then a different
+ * Annotation from the one the test tapped.
+ */
+const TAPPED_ANNOTATION_ID = '11111111-1111-4111-8111-111111111111';
+
+/**
  * The archive every entry in this deployment's catalog points at (ADR-0020).
  *
  * Named here because a site's cached tiles sit in a directory keyed on it (ticket 12), and because
@@ -3262,9 +3271,24 @@ test.describe('a Reader on a phone', () => {
 		// over the pin *and* the words in it, and the sidebar sits under the map here rather than beside
 		// it — so a tap that opened a popup put the Annotation in one place and the row that names it in
 		// another, several screens apart. One destination, and the page comes to it.
+		//
+		// ⚠ **Fifteen Annotations, and the tapped one is the last of them**, because the scroll is the
+		// subject and a one-Annotation fixture cannot fail for it: the list would be one screen long,
+		// the row already inside the viewport, and an assertion that it is inside the viewport true
+		// whether the code runs or not. Fourteen rows above it are what put it past the fold. The
+		// fillers share a coordinate inside the sheet's own extent — far enough from the tapped pin in
+		// screen pixels that they cannot take its click, close enough that they do not widen the
+		// opening view and move it.
 		site = await published(
 			await oneProject({
 				annotations: [
+					...Array.from({ length: 14 }, (_, index) =>
+						annotation({
+							id: `22222222-2222-4222-8222-${String(index).padStart(12, '0')}`,
+							title: `A warehouse on the west quay, number ${index + 1}`,
+							coordinates: [4.885, 52.361]
+						})
+					),
 					annotation({
 						title: 'The east warehouse',
 						description: 'Rebuilt in **1663** after the fire, and rebuilt again a century later.'
@@ -3282,14 +3306,30 @@ test.describe('a Reader on a phone', () => {
 		await expect(reading).toContainText('Rebuilt in 1663');
 		await expect(reading.locator('strong')).toHaveText('1663');
 
-		// **Brought onto the screen, which is the half the tap cannot do on its own.** The map is below
-		// the fold on a phone, so the row the tap opens is above the viewport when it opens: a Reader
+		// **The row that was tapped, addressed by the Annotation it names.** The first row in the DOM is
+		// a different Annotation here, and asking for it would be asking about a row nobody touched.
+		const tapped = page.locator('[data-testid="annotation-row"][aria-expanded="true"]');
+		await expect(tapped).toHaveAttribute('data-annotation-id', TAPPED_ANNOTATION_ID);
+
+		// The fixture still puts that row below the fold: its offset down the *document* is more than a
+		// screen, so at the scroll position the tap left behind it is off screen and the assertion
+		// below has something to fail for. Read after the settle, because a document offset does not
+		// move when the page scrolls.
+		const [offset, height] = await tapped.evaluate((row) => [
+			row.getBoundingClientRect().top + window.scrollY,
+			window.innerHeight
+		]);
+		expect(offset, 'the tapped row is within the first screen of the document').toBeGreaterThan(
+			height
+		);
+
+		// **Brought onto the screen, which is the half the tap cannot do on its own.** The map is above
+		// the sidebar on a phone, so the row the tap opens is below the viewport when it opens: a Reader
 		// who tapped a pin and was shown nothing has been told less than the popup told them. Polled
 		// because the scroll is smooth, so a single read lands mid-travel.
 		await expect
 			.poll(async () => {
-				const box = await page.getByTestId('annotation-row').first().boundingBox();
-				const height = await page.evaluate(() => window.innerHeight);
+				const box = await tapped.boundingBox();
 				return box !== null && box.y >= -1 && box.y + box.height <= height + 1;
 			})
 			.toBe(true);

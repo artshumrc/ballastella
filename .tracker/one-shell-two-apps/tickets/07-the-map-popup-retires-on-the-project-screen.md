@@ -117,6 +117,14 @@ used to open a row a screen away with nothing to bring the Reader to it.
 dialog and for the Project menu, still abandons a part-drawn shape first, and now collapses the open
 row where it used to close the popup.
 
+Two surfaces joined that early return, because collapsing the row is a heavier consequence than
+clearing a popup was. Any **open `<dialog>`** is asked of the document rather than of a list of flags:
+`MakeOfflineDialog` and `OfflineCopyDialog` are mounted on this screen and were in no such list, so
+Escape closing one of them collapsed the row behind it. And **an Escape pressed inside the open row**
+belongs to the field it was pressed in — the editor's title input treats it as "leave this field" and
+the description textarea ignores it, and neither stops it propagating, so the panel being typed in
+used to shut. Found through the row's own `aria-controls` target, so `AnnotationEditor` is untouched.
+
 ### The sanitiser did not retire with the popup
 
 `renderAnnotationPopup` and `showAnnotationPopup` are untouched, and
@@ -125,6 +133,19 @@ through both. ⚠ **`showAnnotationPopup` now has no caller anywhere in either a
 rather than acted on: deleting it would delete this repository's one `setHTML` and the one worked
 example of how a popup surface is built safely. The decision to remove it belongs to a reviewer, and
 the module's header now says so in as many words.
+
+### Recorded, not fixed: the popup's title class never reaches the document
+
+`renderAnnotationPopup` writes `<p class="ballastella-annotation-title">`, and `class` is not in
+`ALLOWED_ATTR` — so the second sanitise pass strips it, and the
+`.annotation-popup .ballastella-annotation-title` rules at
+`packages/core/src/render/annotation-popup.ts:89–95` have never applied to anything. The title
+renders as an ordinary `<p>`.
+
+Pre-existing and not security-relevant — the stripping is the allowlist working — but a live
+inconsistency in the module this ticket keeps as the worked example. **Left alone deliberately**:
+changing either the CSS or `ALLOWED_ATTR` is a decision about the sanitiser, and the absent class is
+also the fingerprint the second pass is now pinned by (see below).
 
 ### The inertness claim, and the order it moved in
 
@@ -154,6 +175,22 @@ made no-ops): `editor-annotations` went red on 2 tests, `viewer-reader` on 9.
 its input): `the payload is inert in the row where the Annotation is read` went red in the editor and
 all eight payload tests went red in the viewer — so retiring the popup did not quietly retire the only
 thing asserting it.
+
+**`renderAnnotationPopup`'s second pass bypassed** (`return sanitise(parts.join(''))` reduced to
+`return parts.join('')`): green everywhere until `markdown.browser.test.ts` gained the assertion that
+nothing it returns carries a `class`, which is now what pins it. Red in both browser projects with the
+mutant, green restored. That claim was previously carried only by the popup half of
+`e2e/viewer-reader.e2e.ts`, which retired with the popup.
+
+**`AnnotationRow`'s `keepInView` disabled**: `tapping an Annotation opens its row and brings the row
+onto the screen` goes red. It did not before — its fixture had one Annotation, so the row was inside
+the viewport whether the effect ran or not. Fifteen now, the tapped one last, and the row is addressed
+by its Annotation's id rather than as the first in the DOM.
+
+**The Escape guards removed**: `Escape abandons a part-drawn shape first, and then collapses the open
+row` goes red on the row's own fields (Escape in the title input or the description textarea used to
+collapse the row the scholar was typing in), and red again on its own for the `<dialog>` half
+(Escape closing `MakeOfflineDialog` used to collapse the row behind it).
 
 ## Blocked by
 

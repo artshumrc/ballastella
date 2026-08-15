@@ -366,6 +366,13 @@ describe('the popup, where the title is untrusted too', () => {
 
 		expect(host.textContent).toContain('Warehouses');
 		expect(host.querySelector('em')?.textContent).toBe('west');
+		// **The assembled document went through the sanitiser again**, which is what makes the return
+		// value DOMPurify's output rather than a string some of which happens to have been sanitised.
+		// The fingerprint is the `class` the assembly writes on the title: `ALLOWED_ATTR` does not allow
+		// `class`, so the second pass strips it and nothing here carries one. Drop that pass and the
+		// wrapper's `ballastella-annotation-title` survives, which is the only thing in this suite that
+		// can tell the two apart.
+		expect(host.querySelectorAll('[class]')).toHaveLength(0);
 	});
 
 	test('a payload in the title is inert', () => {

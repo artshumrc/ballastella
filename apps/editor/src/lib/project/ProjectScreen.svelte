@@ -782,22 +782,40 @@
 	you have not moved the focus" is not a cancel affordance. It abandons rather than commits, because a
 	half-drawn shape somebody walked away from is not something they asked to keep.
 
-	**Not while a dialog or the Project menu is open.** All three consume Escape themselves — a
-	`<dialog>` closes, and a popover light-dismisses — and all three keep the keypress propagating
-	afterwards, so acting on it here as well would abandon a drawing gesture the user cannot even see
-	behind whichever one they were closing. `addingMap` is in that list for the same reason
-	`settingsOpen` is, and it is the reason this is a list rather than one flag: every dialog added to
-	this screen has to join it, and the next one will be `MakeOfflineDialog`'s if it ever gains a
-	drawing gesture behind it.
+	**Not while a dialog, the Project menu, or the open row's editor has the keypress.** Each of them
+	consumes Escape itself — a `<dialog>` closes, a popover light-dismisses, the editor's title field
+	leaves itself — and every one of them keeps the keypress propagating afterwards, so acting on it
+	here as well would abandon a drawing gesture the user cannot even see, or shut the panel they were
+	typing in.
 -->
 <svelte:window
 	onkeydown={(event) => {
 		if (event.key !== 'Escape' || settingsOpen || addingMap) return;
-		// **Asked of the element, not of a flag.** `MenuPopover.isOpen()` reads `:popover-open`, which
-		// is true throughout the keypress that dismisses it and false on the very next one — a reactive
-		// copy of the same fact lags one flush behind, and that lag swallowed the Escape a user
-		// pressed *after* closing the menu, which is the cancel they actually meant.
+		// **Asked of the element, not of a flag**, for all three of the guards below.
+		//
+		// `MenuPopover.isOpen()` reads `:popover-open`, which is true throughout the keypress that
+		// dismisses it and false on the very next one — a reactive copy of the same fact lags one flush
+		// behind, and that lag swallowed the Escape a user pressed *after* closing the menu, which is
+		// the cancel they actually meant.
+		//
+		// An open `<dialog>` is asked of the document because this screen mounts dialogs it holds no
+		// flag for — `MakeOfflineDialog` and `OfflineCopyDialog` — and a list of flags is a list that
+		// the next dialog silently fails to join. Escape's close request is the keypress's *default
+		// action*, so the element is still open while this handler runs.
+		//
+		// And an Escape inside the open row belongs to the field it was pressed in: the editor's title
+		// input treats it as "leave this field" and the description textarea ignores it, so collapsing
+		// the whole row here would shut the panel the scholar is typing in on a keypress that meant far
+		// less. The region is found through the row's own `aria-controls` target rather than by asking
+		// `AnnotationEditor` to stop propagating — the ordering of Escape's jobs on this screen is this
+		// handler's to know, and the row's header button is deliberately outside it, so Escape with the
+		// row itself focused still collapses it.
 		if (menu?.isOpen()) return;
+		if (document.querySelector('dialog[open]') !== null) return;
+		const openRow = document.getElementById(
+			`annotation-contents-${annotations.selectedAnnotationId}`
+		);
+		if (openRow !== null && event.target instanceof Node && openRow.contains(event.target)) return;
 		if (drawing.cancel()) return;
 		if (annotations.selectedAnnotationId !== null) annotations.selectAnnotation(null);
 	}}
