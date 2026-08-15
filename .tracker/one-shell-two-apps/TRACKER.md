@@ -18,7 +18,7 @@ below.
 
 Overall status: `In Progress`
 
-Current ticket: 06 (wave 4), 09 (in review)
+Current ticket: 06 (in review), 11 (wave 4)
 
 Last updated: 2026-08-14
 
@@ -31,12 +31,12 @@ Last updated: 2026-08-14
 | 03 | [03-one-bar-shell-and-the-viewer-gets-a-navigation-bar.md](./tickets/03-one-bar-shell-and-the-viewer-gets-a-navigation-bar.md) | Completed | 02 | — |
 | 04 | [04-the-layer-card-moves-to-the-shared-package.md](./tickets/04-the-layer-card-moves-to-the-shared-package.md) | Completed | 02 | — |
 | 05 | [05-the-readers-stack-becomes-the-layer-card.md](./tickets/05-the-readers-stack-becomes-the-layer-card.md) | Completed | 04 | — |
-| 06 | [06-a-reader-reads-an-annotation-in-its-row.md](./tickets/06-a-reader-reads-an-annotation-in-its-row.md) | In Progress | 01, 05 | run-epic wave 4 |
+| 06 | [06-a-reader-reads-an-annotation-in-its-row.md](./tickets/06-a-reader-reads-an-annotation-in-its-row.md) | In Progress | 01, 05 | run-epic wave 4 (in review) |
 | 07 | [07-the-map-popup-retires-on-the-project-screen.md](./tickets/07-the-map-popup-retires-on-the-project-screen.md) | Not Started | 06 | — |
 | 08 | [08-annotations-are-numbered-on-the-map-and-on-the-row.md](./tickets/08-annotations-are-numbered-on-the-map-and-on-the-row.md) | Not Started | 06 | — |
-| 09 | [09-the-hub-and-the-front-page-are-one-list.md](./tickets/09-the-hub-and-the-front-page-are-one-list.md) | In Progress | 02 | run-epic wave 3 |
+| 09 | [09-the-hub-and-the-front-page-are-one-list.md](./tickets/09-the-hub-and-the-front-page-are-one-list.md) | Completed | 02 | — |
 | 10 | [10-the-alignment-route-joins-the-shell.md](./tickets/10-the-alignment-route-joins-the-shell.md) | Not Started | 03, 08 | — |
-| 11 | [11-the-map-panes-notices-are-one-component.md](./tickets/11-the-map-panes-notices-are-one-component.md) | Not Started | 05 | — |
+| 11 | [11-the-map-panes-notices-are-one-component.md](./tickets/11-the-map-panes-notices-are-one-component.md) | In Progress | 05 | run-epic wave 4 |
 | 12 | [12-the-leader-line.md](./tickets/12-the-leader-line.md) | Not Started | 08, 10 | — |
 
 ## Notes on the shape of this epic
@@ -63,6 +63,14 @@ spec's "what moves" table:**
 **The `.pane-overlay-point-*` rules stay in the editor's stylesheet**, not the shared one: the viewer
 draws no Control Points and no Resource Mask handles, and shipping rules for a screen no Reader can
 reach is the growth ADR-0019 makes a dependency-graph property. See ticket 02.
+
+**Story 52 is only partly delivered, and that is a recorded decision rather than an oversight.** The
+story asks for a Project card carrying "its folder, its Layer count and when it was last saved". The
+folder and the last-saved line are there; **the Layer count was never built**, in this epic or before
+it, and none of ticket 09's acceptance criteria asked for one. The Contract's "offline availability"
+line is likewise unbuilt and has no defined source of truth. Both were left alone deliberately: a
+Layer count on the Hub would mean reading every Project's `project.json` on a screen that currently
+does no per-Project read. See ticket 09.
 
 **12 is droppable.** The leader line is the most expensive feature here and the last one sequenced.
 The ordinal (08) and the open row (01) carry its meaning on their own, so a ticket that runs into
