@@ -1364,6 +1364,63 @@ test.describe('exploring a Project', () => {
 			'the leader’s canvas end is not where map.project() puts the coordinate on disk'
 		).toBeLessThan(2);
 
+		// ── AND IT FOLLOWS THE CAMERA, IN THE FRAME THE CAMERA MOVED IN (story 40) ──────────
+		//
+		// ⚠ **The camera is moved *after* the row was opened, and the line is read one animation frame
+		// later without leaving the page.** Both halves of that are load-bearing.
+		//
+		// The framing `jumpTo` above happens before the click, so every drawn state asserted so far
+		// comes from `LeaderLine`'s selection effect. Without this paragraph, deleting
+		// `ReaderMapPane`'s `created.on('move' | 'zoom')` pair — the whole of the viewer's camera wiring
+		// — left all 63 tests in this file green while a Reader panning a Published Site got a dashed
+		// line pointing at open water.
+		//
+		// And a *polled* read from the test process does not catch that either: measured with the pair
+		// deleted, the leader was 126 px from its pin one frame after the jump and back within half a
+		// pixel a moment later, put right by something incidental in the map pane rather than by the
+		// camera. So the frame is what is read, which is also what the criterion says — it never lags a
+		// frame behind at rest. `move` fires inside `jumpTo` and the redraw is a microtask, so the
+		// queue has drained long before the frame callback runs; there is nothing racy in reading here.
+		const followed = await page.evaluate((centre) => {
+			const [longitude, latitude] = centre as [number, number];
+			const map = window.ballastellaReaderMap!.map;
+			map.jumpTo({ center: [longitude + 0.004, latitude - 0.003], zoom: 13 });
+			return new Promise<{
+				points: string | null;
+				origin: { x: number; y: number };
+				projected: { x: number; y: number };
+			}>((resolve) =>
+				requestAnimationFrame(() => {
+					const svg = document.querySelector('[data-testid="leader-line"]') as SVGSVGElement;
+					const box = svg.getBoundingClientRect();
+					resolve({
+						points: svg.querySelector('polyline')!.getAttribute('points'),
+						origin: { x: box.x, y: box.y },
+						projected: map.project(centre as [number, number])
+					});
+				})
+			);
+		}, at);
+		expect(followed.points, 'the leader was taken down by a pan rather than moved').not.toBeNull();
+		// The same conversion `leaderPoints` does, done here because the read had to happen in the page.
+		const movedPoints = followed.points!.split(' ').map((pair) => {
+			const [x, y] = pair.split(',').map(Number);
+			return { x: followed.origin.x + (x as number), y: followed.origin.y + (y as number) };
+		});
+		const movedStub = movedPoints[1]!;
+		const movedTarget = {
+			x: pane.x + followed.projected.x,
+			y: pane.y + followed.projected.y - clearance
+		};
+		const movedRun = Math.hypot(movedTarget.x - movedStub.x, movedTarget.y - movedStub.y);
+		expect(
+			Math.hypot(
+				movedPoints[2]!.x - (movedTarget.x - ((movedTarget.x - movedStub.x) * 12) / movedRun),
+				movedPoints[2]!.y - (movedTarget.y - ((movedTarget.y - movedStub.y) * 12) / movedRun)
+			),
+			'the leader stayed where the camera left it, so it is not following the map'
+		).toBeLessThan(2);
+
 		// It says nothing a Reader is not already told: the ordinal is on the mark and on the row, and
 		// `aria-expanded` says which row is open (story 42).
 		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');

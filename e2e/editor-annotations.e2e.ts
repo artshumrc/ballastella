@@ -893,14 +893,33 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		// And the words did land, so this is not passing by having typed into nothing.
 		expect((await storedAnnotations(page, await annotationLayerId(page))).features[0]?.properties) //
 			.toMatchObject({ title: 'The old mill', description: 'Built 1780.' });
-		// **The positive control for the two empty assertions above**, and the same watchers: typing did
+		// **The positive control for the empty *write* assertion**, and the same watcher: typing did
 		// reach the store, so "selecting wrote nothing" is a fact about the gesture rather than about an
 		// instrumentation that was never installed. An absence asserted alone passes when the hook
 		// silently stops working.
 		expect(
 			(await fileWrites(page)).length,
-			'nothing was counted at all, so the empty assertions above are vacuous'
+			'no write was counted at all, so the empty write assertion above is vacuous'
 		).toBeGreaterThan(0);
+
+		// **And the control for the empty *read* assertion**, which is a separate hook and so a separate
+		// fact. `fileReads` reads `window.ballastellaFileReads`, which is `{}` when nothing was ever
+		// installed — so "selecting read nothing" passes identically against a `countFileReads` that
+		// silently stopped patching, which is the shape the write half above is here to rule out.
+		//
+		// ⚠ **The read this counts is the harness's own, and that is not a weaker control than the one
+		// above.** Nothing the app does after the selection reads a file — measured, `{}` at this point
+		// with the two lines above removed: saving writes what the editor already holds in memory and
+		// opens nothing for reading — so there is no product gesture in this test to point at. What the
+		// two `storedAnnotations`/`annotationLayerId` reads just above do go through is
+		// `FileSystemFileHandle.prototype.getFile` *in the page*, which is the one call
+		// `DirectoryHandleStore` reads through and the exact call `countFileReads` patches. So this
+		// establishes what the empty assertion needs establishing: that the counter is installed and
+		// counting.
+		expect(
+			Object.keys(await fileReads(page)),
+			'no read was counted at all, so the empty read assertion above is vacuous'
+		).not.toEqual([]);
 	});
 
 	test('recolouring an Annotation does not rebuild the stack either', async ({ page }) => {

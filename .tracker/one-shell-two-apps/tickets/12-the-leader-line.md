@@ -110,6 +110,20 @@ Do not raise it silently.
 assertion that reads the element's own box and compares it to itself is the exact shape of the defect
 this repository has already been bitten by.
 
+## Recorded risk: the Layer cards' `animate:flip`
+
+A FLIP on the Layer cards (`packages/ui/src/LayerList.svelte`) is a Web Animations API animation like
+every Svelte transition, so it ends with **neither an event nor a DOM change**, and
+`getBoundingClientRect` includes the FLIP transform while it runs — a single redraw taken as the
+cards begin to move therefore reads a row at the position it is animating *from*.
+
+`LeaderLine`'s `followAnimations` is written for this: a keyed reorder is a `childList` change in the
+sidebar, which is what offers the frame loop the animation to follow, and following it draws the
+settled geometry at the end as well as the frames in between. **Not confirmed against a real
+two-Layer reorder with an Annotation selected** — no fixture in the suite has both at once and
+building one was judged out of proportion to the risk, which is cosmetic and lasts 220 ms. Left here
+so the next person to touch either file knows the claim is reasoned rather than measured.
+
 ## Blocked by
 
 - 08 — Annotations are numbered, on the map and on the row

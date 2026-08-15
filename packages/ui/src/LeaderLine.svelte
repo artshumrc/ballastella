@@ -137,6 +137,49 @@
 		});
 	};
 
+	/** Whether {@link followAnimations} already has a redraw running once a frame. */
+	let following = false;
+
+	/**
+	 * Redraw once a frame for as long as something in the sidebar is animating.
+	 *
+	 * ⚠ **This is what carries the row's expand and collapse, and it is not an event listener because
+	 * there is no event to listen for.** Svelte drives a `transition:` — and `animate:flip` on the
+	 * Layer cards — through `element.animate()`
+	 * (`svelte/src/internal/client/dom/elements/transitions.js`): a Web Animations API animation with
+	 * no name, which dispatches neither `animationend` nor `transitionend`. Counted on the container
+	 * over a full open → close → open cycle of two rows, `animationend` fired **zero** times. What
+	 * used to carry this was daisyUI's colour transition on the newly-open row happening to end at
+	 * about the same moment as the slide, which a design tweak to the open row could take away
+	 * without anything going red.
+	 *
+	 * A `flip` is the case an end-of-animation signal would not be enough for on its own: it finishes
+	 * with neither an event nor a DOM change, and because `getBoundingClientRect` includes the FLIP
+	 * transform, a single redraw taken as the cards begin to move reads a row at the position it is
+	 * animating *from*. Following the frames is what makes that come out right at both ends.
+	 *
+	 * ⚠ **`getAnimations` is asked of the sidebar and never of the canvas.** The canvas holds an
+	 * `infinite` keyframe animation — the pending Control Point's pulse in the editor's `layout.css`
+	 * — and a loop that ran while anything in it was running would never stop.
+	 */
+	const followAnimations = (): void => {
+		if (following) return;
+		const running = (): boolean =>
+			(sidebar()?.getAnimations({ subtree: true }) ?? []).some(
+				(animation) => animation.playState === 'running'
+			);
+		if (!running()) return;
+		following = true;
+		// Drawn before the test, so the frame that finds nothing running is also the frame that draws
+		// the settled geometry.
+		const step = (): void => {
+			draw();
+			if (running()) requestAnimationFrame(step);
+			else following = false;
+		};
+		requestAnimationFrame(step);
+	};
+
 	/**
 	 * Redraw whenever what is selected changes.
 	 *
@@ -144,9 +187,14 @@
 	 * selected — so calling them here is how those become this effect's dependencies. Nothing else is
 	 * read, and in particular the map's camera is not: a `$derived` over the camera would put a
 	 * component flush in every frame of a pan.
+	 *
+	 * Choosing a row is also what starts the slide that opens it and the one that closes whatever was
+	 * open before, and Svelte has started both by the time an effect runs — so this is the one place
+	 * that can hand them to {@link followAnimations} at the frame they begin.
 	 */
 	$effect(() => {
 		draw();
+		followAnimations();
 	});
 
 	/**
@@ -158,14 +206,17 @@
 	 * - **scroll, in the capture phase on the window**, which is the only way to hear a scroll inside
 	 *   the sidebar: scroll events do not bubble, but they do capture;
 	 * - **window resize**, which changes both boxes and can cross the stacking breakpoint;
-	 * - **the row's expand and collapse**, and the Layer cards' own reorder, whose ends arrive as
-	 *   `transitionend` and `animationend` — Svelte drives a `transition:` with a CSS animation, so
-	 *   both are listened for;
+	 * - **the end of a CSS transition** anywhere in the container. ⚠ This is *not* what carries the
+	 *   row's expand and collapse — {@link followAnimations} is, and its note says why an event
+	 *   cannot be. It is a backstop for the CSS transitions the two columns really do run, which
+	 *   nothing else would hear the end of;
 	 * - **anything appearing in or leaving either box**: a Layer card opening, a row being rendered
 	 *   for the first time, a mark being added to the map. One `MutationObserver` over the two
 	 *   subtrees answers "which Layers are shown" and "is the row there yet" together, and it watches
 	 *   `childList` only — MapLibre repositions a marker by writing its `transform`, so an attribute
-	 *   observer would fire on every frame of a pan for something `watch` already covers.
+	 *   observer would fire on every frame of a pan for something `watch` already covers. A card
+	 *   arriving or leaving is also how a Layer reorder and a collapse that finished announce
+	 *   themselves, so this is the other place {@link followAnimations} is offered the frame.
 	 */
 	$effect(() => {
 		const column = sidebar();
@@ -176,9 +227,11 @@
 		window.addEventListener('scroll', schedule, true);
 		window.addEventListener('resize', schedule);
 		container?.addEventListener('transitionend', schedule, true);
-		container?.addEventListener('animationend', schedule, true);
 
-		const observer = new MutationObserver(schedule);
+		const observer = new MutationObserver(() => {
+			schedule();
+			followAnimations();
+		});
 		for (const subtree of [column, pane]) {
 			if (subtree) observer.observe(subtree, { childList: true, subtree: true });
 		}
@@ -195,7 +248,6 @@
 			window.removeEventListener('scroll', schedule, true);
 			window.removeEventListener('resize', schedule);
 			container?.removeEventListener('transitionend', schedule, true);
-			container?.removeEventListener('animationend', schedule, true);
 		};
 	});
 </script>

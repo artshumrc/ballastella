@@ -114,8 +114,8 @@
    flat stroke is legible over some of those and not others. Both are theme tokens, so it holds up in
    either flavour without a colour being written twice.
 
-   `z-index: 5` puts it over both columns and under MapLibre's own navigation control, which is at 2
-   inside a stacking context of its own; nothing here may cover a control. */
+   `z-index: 5` puts it over both columns. **Nothing here may cover a control**, and the rule beneath
+   `.leader-line-path` is what actually holds that — see the note there. */
 
 /* ⚠ `width` and `height` are not redundant beside `inset: 0`. An `<svg>` is a replaced element with
    an intrinsic 300 × 150, and an absolutely positioned replaced element with `width: auto` takes that
@@ -140,4 +140,27 @@
 	stroke-linecap: round;
 	stroke-linejoin: round;
 	filter: drop-shadow(0 0 2px var(--color-base-100));
+}
+
+/* ⚠ **THE RULE THAT KEEPS THE LEADER OFF THE MAP'S OWN CONTROLS.**
+
+   MapLibre's numbering does not do it on its own, which is the trap: `.maplibregl-ctrl-*` is
+   `z-index: 2`, but the `.maplibregl-map` it sits in is `position: relative` with `z-index: auto`
+   and so opens **no stacking context** — so that 2 and the leader's 5 are compared against each
+   other in the container both are painted in, and 5 wins. Measured before this rule existed, with
+   `pointer-events` turned on for the measurement and the layer filled: `elementFromPoint` over the
+   middle of the zoom button returned the leader. An Annotation in the top-right quadrant of a map
+   pane had its dashed line drawn across the `+`, the `−` and the compass on all three screens.
+
+   6 rather than a smaller number for no reason beyond being one clear of the leader's 5; the
+   controls are confined to their own pane's box, so nothing else can be shadowed by raising them.
+
+   Written as a descendant of `.maplibregl-map` — one specificity step above MapLibre's own rule —
+   because `maplibre-gl.css` is imported by each map component and this file by the app's stylesheet,
+   and nothing fixes which of the two a bundler emits first. */
+.maplibregl-map .maplibregl-ctrl-top-left,
+.maplibregl-map .maplibregl-ctrl-top-right,
+.maplibregl-map .maplibregl-ctrl-bottom-left,
+.maplibregl-map .maplibregl-ctrl-bottom-right {
+	z-index: 6;
 }

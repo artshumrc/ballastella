@@ -63,3 +63,14 @@ Element.prototype.animate = function (
 	const duration = typeof options === 'number' ? options : Number(options?.duration ?? 0);
 	return new ImmediateAnimation(Number.isFinite(duration) ? duration : 0) as unknown as Animation;
 } as Element['animate'];
+
+/**
+ * Always empty, which is the only answer this seam can honestly give.
+ *
+ * `LeaderLine` asks the sidebar what is animating in it, and happy-dom has no `getAnimations` at all
+ * — without this, mounting it throws. Answering "nothing" is truthful here rather than a
+ * simplification: the shim above has no timeline and finishes on the next microtask, so there is no
+ * interval during which anything *is* running to report. It follows, per this file's ⚠ above, that
+ * nothing at this seam tests the frame loop that reads it; `e2e/` does.
+ */
+Element.prototype.getAnimations = (): Animation[] => [];

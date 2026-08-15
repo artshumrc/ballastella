@@ -632,6 +632,59 @@ test.describe('Control Point pairing', () => {
 			rowBox.x
 		);
 
+		// ── AND IT FOLLOWS THE CAMERA, IN THE FRAME THE CAMERA MOVED IN ─────────────────────
+		//
+		// ⚠ **The camera is moved *after* the pair was selected, and the line is read one animation
+		// frame later without leaving the page.** Everything asserted above is drawn by `LeaderLine`'s
+		// selection effect, so without this the one wire from this screen's camera to the leader — the
+		// `watch` prop `AlignmentWorkspace` hands it — could be dropped and this test would stay green
+		// while a scholar panning mid-refinement watched the line point at where the Control Point used
+		// to be. The frame rather than a poll, for the reason `viewer-reader` records at the same
+		// assertion: a stale line is put right a moment later by signals that are not the camera, so
+		// only a frame-accurate read distinguishes following the map from catching up with it.
+		const followed = await page.evaluate((coordinate) => {
+			const map = (
+				window as unknown as {
+					ballastellaBaseMap: {
+						panBy(offset: [number, number], options: { duration: number }): void;
+						project(at: [number, number]): { x: number; y: number };
+					};
+				}
+			).ballastellaBaseMap;
+			map.panBy([70, -50], { duration: 0 });
+			return new Promise<{
+				points: string | null;
+				origin: { x: number; y: number };
+				projected: { x: number; y: number };
+			}>((resolve) =>
+				requestAnimationFrame(() => {
+					const svg = document.querySelector('[data-testid="leader-line"]') as SVGSVGElement;
+					const box = svg.getBoundingClientRect();
+					resolve({
+						points: svg.querySelector('polyline')!.getAttribute('points'),
+						origin: { x: box.x, y: box.y },
+						projected: map.project(coordinate as [number, number])
+					});
+				})
+			);
+		}, geo);
+		expect(followed.points, 'the leader was taken down by a pan rather than moved').not.toBeNull();
+		// The same conversion `leaderPoints` does, done here because the read had to happen in the page.
+		const movedPoints = followed.points!.split(' ').map((pair) => {
+			const [x, y] = pair.split(',').map(Number);
+			return { x: followed.origin.x + (x as number), y: followed.origin.y + (y as number) };
+		});
+		const movedStub = movedPoints[1]!;
+		const movedTarget = { x: pane.x + followed.projected.x, y: pane.y + followed.projected.y };
+		const movedRun = Math.hypot(movedTarget.x - movedStub.x, movedTarget.y - movedStub.y);
+		expect(
+			Math.hypot(
+				movedPoints[2]!.x - (movedTarget.x - ((movedTarget.x - movedStub.x) * 14) / movedRun),
+				movedPoints[2]!.y - (movedTarget.y - ((movedTarget.y - movedStub.y) * 14) / movedRun)
+			),
+			'the leader stayed where the camera left it, so it is not following the map'
+		).toBeLessThan(2);
+
 		// Decoration only: nothing about which pair is current may depend on seeing it (story 42's
 		// rule, applied here).
 		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');
