@@ -64,15 +64,15 @@ through the shared renderer. There is no `{@html}` in the viewer and this ticket
 
 ## Acceptance criteria
 
-- [ ] One Project card component in `packages/ui`; both apps render it and neither holds a copy.
-- [ ] The Hub shows New Project, Publish, the per-Project menu and each Project's last-saved line.
-- [ ] The Front Page shows none of those and shows the return link and the site's own paragraph.
-- [ ] A Project display name carrying markup renders as text in both apps, with no element created.
-- [ ] A site with no Projects and a site with none on the Front Page say two different things.
-- [ ] `project-hub.dom.test.ts` runs from `packages/ui` and passes.
-- [ ] A component test asserts the Hub-only controls are present with the Hub's props and absent with
+- [x] One Project card component in `packages/ui`; both apps render it and neither holds a copy.
+- [x] The Hub shows New Project, Publish, the per-Project menu and each Project's last-saved line.
+- [x] The Front Page shows none of those and shows the return link and the site's own paragraph.
+- [x] A Project display name carrying markup renders as text in both apps, with no element created.
+- [x] A site with no Projects and a site with none on the Front Page say two different things.
+- [ ] `project-hub.dom.test.ts` runs from `packages/ui` and passes. — **not as written; see the note.**
+- [x] A component test asserts the Hub-only controls are present with the Hub's props and absent with
       the Front Page's, in the same file.
-- [ ] There is no `{@html}` anywhere in the viewer's source.
+- [x] There is no `{@html}` anywhere in the viewer's source.
 
 ```bash
 pnpm lint
@@ -95,3 +95,56 @@ goes red; interpolate a name as markup and show the XSS assertion goes red.
 ## Blocked by
 
 - 02 — a shared UI package, proved by the Base Map switcher
+
+## Done
+
+`packages/ui/src/ProjectCardList.svelte` is the one list, rendered by
+`apps/editor/src/lib/components/ProjectHub.svelte` and by `apps/viewer/src/routes/+page.svelte`, and
+neither app holds a card of its own any more. The Hub passes three snippets — its last-saved line,
+its Front Page choice with the ADR-0032 caution, and its Rename / Duplicate / Export / Delete row —
+and the Front Page passes none of them and links the name to `?p=<directory>`. There is no
+`readOnly`, `mode` or `editable` prop; the card lays itself out as one column rather than two when
+no `actions` snippet arrives, so a Reader's card is not the Hub's with a gap where the buttons were.
+The `href` is composed and encoded by each app from the **folder**, never from the display name, and
+the name is interpolated as text by the shared card.
+
+The Front Page's own paragraph regained the reassurance that was deleted with the return-link
+paragraph in ticket 03 — "You do not need an account, and nothing published here is changed" — as
+ordinary markup, on `data-testid="no-account-needed"`, asserted inside the existing
+`serves the hub and one Project over plain HTTP` spec in `e2e/viewer-reader.e2e.ts`. Said as the
+site's own sentence rather than beside the link, because the link is on the bar now and is absent
+altogether on a site published into a folder, while both halves of the sentence are true of every
+site.
+
+**Mutation checks, both red as required.** Handing the Front Page's mount the Hub's three snippets
+turned the paired test red (`expected document not to contain element, found <span …>`);
+`{@html project.name}` in the card turned the Seam 3 XSS test red
+(`expected 'Amsterdam 1625alert(1)' to be 'Amsterdam <img src=x onerror=…'`) **and**
+`viewer-reader.e2e.ts`'s `never markup` test red against a real built site. Both were reverted.
+
+**Seam 2 is unchanged at 630 of 630.** No browser test was added; the one new browser claim is an
+assertion folded into an existing spec.
+
+**The viewer's bundle** (`du -sb apps/viewer/build`): 2 838 124 bytes before, 2 841 843 after — 3 719
+bytes, which is the shared card plus the restored paragraph.
+
+### Three things a reader of this ticket should know
+
+**`apps/editor/src/lib/components/project-hub.dom.test.ts` did not move**, and the box above is left
+unticked rather than claimed. Everything in it is about the Hub's Historical Maps section and the
+wording of the Front Page choice — both explicitly out of scope here — and it mounts `ProjectHub`
+through an `EditorSession`, `$app/paths` and `$lib`, none of which `packages/ui` may import
+(`scripts/check-ui-package-imports.mjs`). What moved is the *card*, so the seam that moved with it is
+the card's: `packages/ui/src/project-card-list.dom.test.ts`. The editor's file still runs and passes,
+now against a Hub that renders the shared list.
+
+**"the per-Project menu" is the Hub's per-Project control row**, which is four buttons and not a
+popover. The Contract's "offline availability, Open, and the per-Project menu" describes a card the
+Hub does not have today: the name *is* the Open link, nothing on the Hub says whether a Project is
+available offline, and the actions have never been in a menu. Turning four buttons into a popover
+would change deletion and export, which this ticket's Contract forbids, so the controls were moved
+into the snippet exactly as they were.
+
+**`grep -rc "@html" apps/viewer/src --include=*.svelte` reports 3 for `+page.svelte`, unchanged from
+before this ticket, and every one of them is prose in a comment** explaining why the directive is not
+there. There is no `{@html}` directive anywhere in the viewer, and this ticket added none.

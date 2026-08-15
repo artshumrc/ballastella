@@ -77,7 +77,7 @@
 		type TileSourceFailure
 	} from '@ballastella/core';
 	import type { DrawnLayer, DrawnOutcome } from '@ballastella/core/render';
-	import { BaseMapSwitcher, pageChrome } from '@ballastella/ui';
+	import { BaseMapSwitcher, ProjectCardList, pageChrome } from '@ballastella/ui';
 	import { onMount, untrack } from 'svelte';
 
 	import { online } from '$lib/online.svelte';
@@ -993,6 +993,21 @@
 	 */
 	const frontPage = $derived(site?.projects.filter((project) => project.onFrontPage) ?? []);
 
+	/**
+	 * The Front Page's Projects as the shared card list takes them: the name, the folder, and the link.
+	 *
+	 * `resolve` stays in the app — the site's own base path is unknown at build time (ADR-0006) and
+	 * `packages/ui` has no SvelteKit to resolve against — and the query parameter is built from the
+	 * **folder**, encoded, never from the display name.
+	 */
+	const frontPageCards = $derived(
+		frontPage.map((project) => ({
+			name: project.name,
+			directory: project.directory,
+			href: resolve(`/?p=${encodeURIComponent(project.directory)}`)
+		}))
+	);
+
 	/** What this site calls itself in the tab. The Front Page has no name of its own beyond the tool's. */
 	const title = $derived(
 		openProject ? `${openProject.file.name} — Ballastella` : 'Ballastella — published Projects'
@@ -1033,6 +1048,19 @@
 			<a class="link" href="https://github.com/artshumrc/ballastella#readme">Ballastella</a>.
 		</p>
 
+		<!--
+			⚠ **The reassurance, and it is load-bearing.** It belonged to the paragraph that carried the
+			way back to the editor, and it survived that paragraph's move into the navigation bar: a
+			student with no GitHub account is exactly the Reader who will not follow a link that looks
+			like it wants one, and the copy a Clone takes changes nothing on this site. Said here rather
+			than beside the link, because the link is in the bar now and is absent altogether on a site
+			published into a folder — while both halves of this sentence are true of every site.
+		-->
+		<p class="mt-4 max-w-prose" data-testid="no-account-needed">
+			Opening this Workspace in Ballastella takes a copy of all of it onto your own computer. You do
+			not need an account, and nothing published here is changed.
+		</p>
+
 		{#if siteError}
 			<div role="alert" class="mt-8 alert flex-col items-start alert-warning">
 				<h2 class="font-semibold">This site has no list of Projects</h2>
@@ -1058,30 +1086,19 @@
 				</p>
 			{/if}
 		{:else}
-			<ul class="mt-8 flex flex-col gap-3" data-testid="published-projects">
-				{#each frontPage as project (project.directory)}
-					<li class="card bg-base-100 card-border">
-						<div class="card-body">
-							<h2 class="text-lg font-medium">
-								<!--
-									Interpolated as text, never as markup. A display name comes out of a `project.json`
-									and is untrusted content: this site runs on the author's own domain, so a name
-									carrying `<img src=x onerror=…>` rendered as HTML would be stored XSS there
-									(ADR-0009). Svelte escapes it, and both `e2e/editor-publish.e2e.ts` and
-									`e2e/viewer.e2e.ts` assert both halves — that the real name is on the page, and
-									that no element came with it.
-								-->
-								<a class="link" href={resolve(`/?p=${encodeURIComponent(project.directory)}`)}
-									>{project.name}</a
-								>
-							</h2>
-							<p class="text-sm break-words opacity-70">
-								folder <code>{project.directory}</code>
-							</p>
-						</div>
-					</li>
-				{/each}
-			</ul>
+			<!--
+				The same list of cards the editor's Hub renders, from the one component (SPEC stories 8 and
+				53) — so publishing does not reformat a scholar's Projects into something else.
+
+				**A Reader gets it with nothing else passed to it**, and that is the whole of how the
+				authoring controls are absent: no New Project, no per-Project actions, no Front Page
+				choice, because none of them is a snippet this call hands over (SPEC story 54). The name is
+				interpolated as text by the card itself and never as markup, which
+				`packages/ui/src/project-card-list.dom.test.ts` asserts against the component
+				and `e2e/viewer-reader.e2e.ts` and `e2e/editor-publish.e2e.ts` assert against a real
+				published site (ADR-0009).
+			-->
+			<ProjectCardList class="mt-8" testid="published-projects" projects={frontPageCards} />
 		{/if}
 	{:else}
 		{#if projectError}

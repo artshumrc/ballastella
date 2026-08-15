@@ -530,6 +530,13 @@ test.describe('a Published Site a Reader arrives at', () => {
 
 			await expect(page.getByRole('heading', { level: 1, name: 'Front Page' })).toBeVisible();
 			await expect(page.getByTestId('published-projects')).toContainText('Amsterdam 1625');
+			// The site's own sentence about itself, and the reassurance inside it (SPEC story 55). ⚠ It
+			// travelled here from the paragraph that used to carry the way back to the editor, and it is
+			// the sentence a student with no GitHub account reads before deciding whether the link is for
+			// them — so it is asserted rather than left to survive on the strength of nobody deleting it.
+			await expect(page.getByTestId('no-account-needed')).toContainText(
+				'You do not need an account, and nothing published here is changed'
+			);
 
 			// `?p=` opens one, reached by clicking the link the hub rendered rather than by a URL this test
 			// composed — so the link is relative in the way the base path needs (ADR-0006).
