@@ -33,10 +33,11 @@ editor renders exactly as before, from a component that now lives where both app
 
 | Prop | Absent means |
 | --- | --- |
-| `ontypename` / `oncommit` | no rename pencil, and the name is never a field |
-| `onmove` | no Move up / Move down, and the drag handle is not rendered |
+| `ontypename` / `oncommit` | no rename pencil, and the name is never a field — **both, or neither**, so a one-sided pair must be tested and not only the pair and the empty set |
+| `onmove` | no Move up / Move down, the drag handle is not rendered, **and no card is a live drop target** — the three drop handlers go with it, or a card highlights and calls `preventDefault` to accept a drop it cannot perform |
 | `ondelete` | no Delete |
 | `ondragopacity` | no opacity slider |
+| — | ⚠ **`oncommit` is not exclusively the rename's.** The opacity slider's `onchange` calls it too — it ends whichever edit was in flight (ADR-0017 rule 1), and there are two — so `ondragopacity` passed without it would give a slider that reports every position it is dragged through and commits none. No consumer does that, so the prop shape stays as it is; the component header carries the same note, because this table's rows are not the whole truth about `oncommit`. |
 | `onshow` | the visibility toggle is not rendered |
 | `mapContents` / `annotationContents` / `problemAction` | that region simply is not there |
 
@@ -47,6 +48,18 @@ wrong and must be rejected in review.
 **`referencedImageIds` becomes optional too.** When it is not passed, the "Remote reference — needs
 the network" / "Local copy — no network needed" badge is not rendered at all. The editor keeps
 passing it. This is the seam through which ticket 05 drops the badge a Reader cannot act on.
+
+**Every custom property the card reads moves with it.** Ticket 02 took the kind inks; this ticket
+takes `--layer-problem-ink`, which the warning triangle on a refused Layer's band is coloured with.
+It is declared in `packages/ui/src/layout.css` and **nowhere else** — a second declaration in a
+consumer's stylesheet is the drift ticket 02 established this rule against. Left behind in
+`apps/editor/src/routes/layout.css` it was the exact defect ADR-0034 exists to prevent: Tailwind
+emits the *utility* `.text-[var(--layer-problem-ink)]` into both apps' stylesheets the moment the
+component is in the shared package, but the *declaration* went into the editor's alone — so the
+first non-editor consumer to render a Historical Map with no Alignment would draw the triangle in
+the inherited `base-content` instead of the mixed ink at 5:1, with nothing erroring and a grep for
+the class still passing. Verify by grepping the built CSS of **both** apps for the declaration
+`--layer-problem-ink:`, not for the utility.
 
 **The kind-style table moves to `packages/ui` and keeps its whole-class-string rule.** Tailwind finds
 the classes it generates by reading source, so `bg-${token}/10` built at runtime produces a class
@@ -110,6 +123,36 @@ custom property in both builds.
 **Mutation check:** for each optional prop, delete the guard that hides its control and show the
 absent-half assertion goes red. An absence asserted without its positive control passes when a test
 id is renamed, which is the vacuous green this repository's testing decisions exist to prevent.
+
+## What the viewer's bundle cost
+
+ADR-0034 requires the viewer's bundle to be measured across every move into `packages/ui` and the
+number recorded in the ticket that made it, so that sharing components cannot silently make every
+published site larger (SPEC story 61). `pnpm --filter @ballastella/viewer build`, before and after:
+
+| | before | after | delta |
+| --- | --- | --- | --- |
+| whole `build/` | 2,802,711 B | 2,820,923 B | **+18,212 B (+0.65%)** |
+| CSS | 235,868 B | 254,042 B | +18,174 B |
+| JavaScript | 2,563,457 B | 2,563,496 B | +39 B |
+
+193 of those CSS bytes are `--layer-problem-ink` and its `@supports` fallback, which is the whole of
+what moving the declaration here costs a published site — and the price of the triangle being the
+colour the card says it is rather than whatever `base-content` happens to be. It is the only
+difference the move makes to either built stylesheet: the editor's own is byte-identical, same
+content hash, before and after.
+
+**Effectively all of it is CSS.** The viewer still renders `ReaderLayerControls` and imports no
+Layer card, so neither the component nor `@lucide/svelte` — which the shared package now depends
+on, and which the viewer therefore reaches in its dependency graph — is in the bundle:
+`grep -rl lucide apps/viewer/build` finds nothing, and the only `Untitled Layer` in it is
+`ReaderLayerControls`'s own. What grew is the stylesheet, because `@source '.'` in
+`@ballastella/ui/layout.css` now scans a component carrying the kind tints, the toggle and range
+modifiers and the tiles badge. That is this ticket paying a cost of ticket 05's a ticket early
+rather than avoiding one: those are the rules the shared card will need.
+
+The 39 bytes of JavaScript are content-hashed asset names moving in the chunks that reference the
+rebuilt stylesheet; no module entered the graph, which is what the two greps above say directly.
 
 ## Blocked by
 

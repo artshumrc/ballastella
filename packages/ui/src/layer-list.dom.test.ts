@@ -21,12 +21,13 @@
 // what goes inside one is `ProjectScreen`'s and is not.** `LayerListHarness.svelte` supplies markers
 // rather than the real Align link for exactly that reason. Nothing about a *drag* moved, and that was
 // probed rather than assumed — happy-dom's `DragEvent` carries neither `dataTransfer` nor
-// `relatedTarget`, which is entry 4 in `vitest.config.ts`'s catalog.
+// `relatedTarget`, which is entry 4 in `apps/editor/vitest.config.ts`'s catalog.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THIS RUNS IN NODE, AGAINST A DOM IMPLEMENTATION
 //
-// It used to run in vitest's browser mode. `vitest.config.ts` carries the argument for the move and
+// It used to run in vitest's browser mode. This package's `vitest.config.ts`, and
+// `apps/editor/vitest.config.ts` behind it, carry the argument for the move and
 // the record of what this DOM implementation was probed for before any of these claims were trusted
 // — the first test below is the probe that mattered most, re-asked here against the real component
 // so that it cannot quietly stop being true.
@@ -35,12 +36,12 @@
 // object and no component-testing library: `mount` is Svelte's own, and a query is
 // `document.querySelectorAll`. That is the whole seam's machinery.
 
-import type { Layer } from '@ballastella/core';
+import type { Layer, MapLayer } from '@ballastella/core';
 // `@ballastella/core/render` rather than the barrel: everything under `src/render/` is browser-only
 // and the barrel is not, which the barrel's own note explains. `LayerList.svelte` imports it from
 // exactly here.
 import type { DrawnOutcome } from '@ballastella/core/render';
-import { flushSync, mount, tick, unmount } from 'svelte';
+import { createRawSnippet, flushSync, mount, tick, unmount, type Snippet } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import LayerList from './LayerList.svelte';
@@ -113,11 +114,20 @@ const handlers = () => ({
  */
 let mounted: Record<string, unknown> | undefined;
 
-afterEach(() => {
+/**
+ * Take down whatever is mounted and empty the document.
+ *
+ * Called from {@link afterEach}, and called again *inside* the two-halved tests at the foot of this
+ * file: each of those mounts the same stack twice, once with a callback and once without, and the
+ * absent half has to be asserted against a document the present half has been taken out of.
+ */
+const takeDown = (): void => {
 	if (mounted) unmount(mounted);
 	mounted = undefined;
 	document.body.innerHTML = '';
-});
+};
+
+afterEach(takeDown);
 
 /** Remember what was mounted so {@link afterEach} can take it down, and let its effects run. */
 const shown = (component: Record<string, unknown>): void => {
@@ -172,6 +182,65 @@ const liveStack = (options: {
 			}
 		})
 	);
+
+/**
+ * Everything a consumer may withhold — the whole subject of the last block in this file.
+ *
+ * Written out rather than derived from the component's own props, on the same reasoning
+ * `e2e/support/reader-project.ts` records for fixtures: a type read off the component would agree
+ * with it whatever either of them said, and what these tests are for is that the *contract* holds.
+ */
+type OptionalProps = {
+	ontypename?: (id: string, name: string) => void;
+	oncommit?: () => void;
+	onshow?: (id: string, visible: boolean) => void;
+	ondragopacity?: (id: string, opacity: number) => void;
+	onmove?: (id: string, toIndex: number) => void;
+	ondelete?: (id: string) => void;
+	referencedImageIds?: ReadonlySet<string>;
+	mapContents?: Snippet<[MapLayer]>;
+	annotationContents?: Snippet<[]>;
+	problemAction?: Snippet<[Layer]>;
+};
+
+/**
+ * `LayerList` offering **exactly** what it is handed here, and nothing else.
+ *
+ * Deliberately not {@link stack}, which fills in every callback for the tests that are about
+ * rendering rather than about the contract. A helper that supplied a default for a prop it was not
+ * given would make every absence asserted below assert nothing at all.
+ */
+const offering = (
+	optional: OptionalProps,
+	options: {
+		layers: readonly Layer[];
+		outcomes?: Readonly<Record<string, DrawnOutcome>>;
+		openLayerId?: string | null;
+	}
+): void =>
+	shown(
+		mount(LayerList, {
+			target: document.body,
+			props: {
+				layers: options.layers,
+				outcomes: options.outcomes ?? {},
+				openLayerId: options.openLayerId ?? null,
+				onopen: vi.fn(),
+				...optional
+			}
+		})
+	);
+
+/**
+ * A snippet that renders one marker, built from TypeScript rather than from a harness template.
+ *
+ * `createRawSnippet` is Svelte's own way to make a `Snippet` outside a component, and it is what
+ * lets both halves of a snippet's claim live in this file: `LayerListHarness.svelte` passes all
+ * three snippets unconditionally — correctly, since it stands in for the Project screen — so a
+ * consumer that supplies none of them cannot be expressed through it.
+ */
+const marker = <Args extends unknown[]>(testId: string): Snippet<Args> =>
+	createRawSnippet<Args>(() => ({ render: () => `<span data-testid="${testId}"></span>` }));
 
 /** Every element carrying a `data-testid`, in document order. */
 const all = (testId: string): HTMLElement[] => [
@@ -605,5 +674,231 @@ describe('what the screen supplies is drawn only where the card asks for it', ()
 		await openRow(0);
 		expect(all('harness-annotation-contents')).toHaveLength(1);
 		expect(all('harness-map-contents')).toHaveLength(0);
+	});
+});
+
+describe('a control the consumer does not ask for is not there (SPEC stories 58, 60)', () => {
+	// ⚠ **Both halves of every claim, in this file, on purpose.** An absence asserted on its own is
+	// the vacuous green this repository's testing decisions exist to prevent: rename one
+	// `data-testid` and every `not.toBeInTheDocument()` below goes on passing while the control it
+	// names sits on the screen. So each test mounts the same stack twice — once passing the callback
+	// and once not — and the present half is what gives the absent half its meaning.
+	//
+	// **There is no `readOnly` prop to test, and that is the subject rather than an omission.** A
+	// consumer's interface *is* the set of callbacks it passes: a flag beside them would be a second
+	// description of the same thing, and the two can disagree. See the note at the head of
+	// `LayerList.svelte`.
+	//
+	// What is asserted is the control, never what pressing it does. That an editor's Delete really
+	// removes a Layer's file is `e2e/editor-layers.e2e.ts`'s, against a real store.
+
+	const oneMap = (): Layer[] => [mapLayer('l-map', 'La Floride')];
+
+	test('offers the rename pencil, and the name as a field, only with ontypename and oncommit', async () => {
+		offering(
+			{ ontypename: vi.fn(), oncommit: vi.fn() },
+			{ layers: oneMap(), openLayerId: 'l-map' }
+		);
+
+		expect(one('layer-rename')).toBeInTheDocument();
+		// The field is behind the pencil, so the pencil is how the second half of that row of the
+		// contract is reached at all: press it, and the name is a field.
+		await press(nth('layer-rename', 0));
+		expect(one('layer-name')).toHaveValue('La Floride');
+
+		takeDown();
+		offering({}, { layers: oneMap(), openLayerId: 'l-map' });
+
+		expect(one('layer-rename')).not.toBeInTheDocument();
+		expect(one('layer-name')).not.toBeInTheDocument();
+		// The name itself never goes: what the pencil hid was the *field*, and a card that stopped
+		// saying what the Layer is called would be a different change altogether.
+		expect(one('layer-name-text')).toHaveTextContent('La Floride');
+
+		// ⚠ **Both callbacks or neither, and the one-sided halves are what pin the `&&`.** With only
+		// the two sets above, `ontypename || oncommit` and either callback alone are all indis-
+		// tinguishable from the pair — no mount ever hands the component one without the other. A
+		// pencil offered to a consumer that passed only `ontypename` gives a field whose keystrokes
+		// reach the store and whose edit never ends, so the typing never coalesces into a committed
+		// write (ADR-0017 rule 1); one offered for `oncommit` alone gives a field that reports
+		// nothing at all.
+		takeDown();
+		offering({ ontypename: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+		expect(one('layer-rename')).not.toBeInTheDocument();
+
+		takeDown();
+		offering({ oncommit: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+		expect(one('layer-rename')).not.toBeInTheDocument();
+	});
+
+	test('offers Move up, Move down and the drag handle only with onmove', () => {
+		offering({ onmove: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+
+		expect(one('layer-move-up')).toBeInTheDocument();
+		expect(one('layer-move-down')).toBeInTheDocument();
+		// The handle goes with them: ADR-0016 makes the buttons the contract and the drag the
+		// convenience, so a consumer offered the convenience alone would have reordering by pointer
+		// only — which is the arrangement that ADR exists to refuse.
+		expect(one('layer-drag-handle')).toBeInTheDocument();
+
+		takeDown();
+		// ⚠ **With `ondelete`, and that is not incidental.** The two buttons share a row with Delete,
+		// and a card offered neither drops the row itself — so withholding both would make the two
+		// absences below true of a card that never drew the row at all, which is an absence passing for
+		// a reason that has nothing to do with `onmove`. Measured: with `offering({})` here, deleting
+		// the guard around the buttons left this test green.
+		offering({ ondelete: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+
+		expect(one('layer-move-up')).not.toBeInTheDocument();
+		expect(one('layer-move-down')).not.toBeInTheDocument();
+		expect(one('layer-drag-handle')).not.toBeInTheDocument();
+		expect(one('layer-delete')).toBeInTheDocument();
+	});
+
+	test('lights a card up as a drop target only with onmove', () => {
+		// ⚠ **The drop target is a control `onmove` drives, not part of the drag machinery.** A card
+		// that highlights and calls `preventDefault` on `dragover` is telling the pointer the drop
+		// will be accepted, so a consumer with no `onmove` would light every card a Reader dragged a
+		// word or a file across and then do nothing on release. The handle — the drag *source* — is
+		// already withheld by the test above; this is the other end.
+		//
+		// A plain `Event` rather than a `DragEvent`: happy-dom's carries no `dataTransfer`, which is
+		// why nothing else about a drag is asserted at this seam. The highlight is not a drag — it is
+		// what one `dragover` does to one card.
+		const dragOver = (row: HTMLElement): void => {
+			row.dispatchEvent(new Event('dragover', { bubbles: true, cancelable: true }));
+			flushSync();
+		};
+
+		offering({ onmove: vi.fn() }, { layers: oneMap() });
+
+		expect(nth('layer-row', 0)).toHaveAttribute('data-drop-target', 'false');
+		dragOver(nth('layer-row', 0));
+		expect(nth('layer-row', 0)).toHaveAttribute('data-drop-target', 'true');
+
+		takeDown();
+		offering({}, { layers: oneMap() });
+
+		dragOver(nth('layer-row', 0));
+		expect(nth('layer-row', 0)).toHaveAttribute('data-drop-target', 'false');
+	});
+
+	test('drops the row the two share when it would have nothing in it', () => {
+		// The row is not a control and is in no consumer's contract; it is where two of them sit. What
+		// it must not do is survive them both as a bordered strip with nothing in it, which is a rule
+		// about the card and so is asserted here rather than left to the eye.
+		const strip = (): Element | null =>
+			document.querySelector('[data-testid="layer-contents"] > div.border-t');
+
+		offering({ ondelete: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+		expect(strip()).toBeInTheDocument();
+
+		takeDown();
+		offering({}, { layers: oneMap(), openLayerId: 'l-map' });
+		expect(strip()).not.toBeInTheDocument();
+		// And the card is still open, so this is the row going rather than the disclosure.
+		expect(one('layer-contents')).toBeInTheDocument();
+	});
+
+	test('offers Delete only with ondelete', () => {
+		offering({ ondelete: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+
+		expect(one('layer-delete')).toBeInTheDocument();
+
+		takeDown();
+		// With `onmove` and without `ondelete`, so the row the two share is still on the screen: this
+		// is the Delete going, not the strip it sits in.
+		offering({ onmove: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+
+		expect(one('layer-delete')).not.toBeInTheDocument();
+		expect(one('layer-move-up')).toBeInTheDocument();
+	});
+
+	test('offers the opacity slider only with ondragopacity', () => {
+		offering({ ondragopacity: vi.fn() }, { layers: oneMap(), openLayerId: 'l-map' });
+
+		expect(one('layer-opacity')).toBeInTheDocument();
+		expect(one('layer-opacity-value')).toHaveTextContent('100%');
+
+		takeDown();
+		offering({}, { layers: oneMap(), openLayerId: 'l-map' });
+
+		expect(one('layer-opacity')).not.toBeInTheDocument();
+		// The percentage is the control's own value, so it goes with it: a reading left behind on its
+		// own is a number that looks like a control and answers nothing.
+		expect(one('layer-opacity-value')).not.toBeInTheDocument();
+	});
+
+	test('offers the visibility toggle only with onshow', () => {
+		offering({ onshow: vi.fn() }, { layers: oneMap() });
+
+		expect(one('layer-visible')).toBeInTheDocument();
+
+		takeDown();
+		offering({}, { layers: oneMap() });
+
+		expect(one('layer-visible')).not.toBeInTheDocument();
+		// The closed card is otherwise intact — the kind line is what a card is scanned by.
+		expect(one('layer-kind')).toHaveTextContent('Historical Map');
+	});
+
+	test('draws the tiles badge only with referencedImageIds', () => {
+		offering(
+			{ referencedImageIds: new Set(['image-l-map']) },
+			{ layers: oneMap(), openLayerId: 'l-map' }
+		);
+
+		expect(one('layer-image-mode')).toHaveAttribute('data-image-mode', 'referenced');
+
+		takeDown();
+		offering({}, { layers: oneMap(), openLayerId: 'l-map' });
+
+		// Not an empty badge and not the other half of the sentence: no badge. Where a Historical
+		// Map's tiles are held is the author's decision, and a consumer whose user cannot act on it
+		// has no reason to say it (SPEC story 20).
+		expect(one('layer-image-mode')).not.toBeInTheDocument();
+	});
+
+	test('draws a map card’s supplied regions, and leaves out each one it was not given', () => {
+		const outcomes: Readonly<Record<string, DrawnOutcome>> = {
+			'l-map': { status: 'refused', reason: NOT_ALIGNED }
+		};
+
+		offering(
+			{
+				mapContents: marker<[MapLayer]>('supplied-map-contents'),
+				problemAction: marker<[Layer]>('supplied-problem-action')
+			},
+			{ layers: oneMap(), outcomes, openLayerId: 'l-map' }
+		);
+
+		expect(one('supplied-map-contents')).toBeInTheDocument();
+		expect(one('supplied-problem-action')).toBeInTheDocument();
+
+		takeDown();
+		offering({}, { layers: oneMap(), outcomes, openLayerId: 'l-map' });
+
+		expect(one('supplied-map-contents')).not.toBeInTheDocument();
+		expect(one('supplied-problem-action')).not.toBeInTheDocument();
+		// The warning band is the card's own and stays: what the screen supplies is the *action*
+		// beside the sentence, not the sentence.
+		expect(one('layer-problem')).toHaveTextContent(NOT_ALIGNED);
+	});
+
+	test('draws an Annotation card’s supplied contents, and leaves them out when not given', () => {
+		const layers = [annotationLayer('l-notes', 'Notes')];
+
+		offering(
+			{ annotationContents: marker<[]>('supplied-annotation-contents') },
+			{ layers, openLayerId: 'l-notes' }
+		);
+
+		expect(one('supplied-annotation-contents')).toBeInTheDocument();
+
+		takeDown();
+		offering({}, { layers, openLayerId: 'l-notes' });
+
+		expect(one('supplied-annotation-contents')).not.toBeInTheDocument();
+		expect(one('layer-contents')).toBeInTheDocument();
 	});
 });

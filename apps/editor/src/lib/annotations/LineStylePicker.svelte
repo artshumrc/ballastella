@@ -25,8 +25,7 @@
 	// strokes are offered; what they assert is the scholar's to decide (human decision, 2026-08-11).
 
 	import { LINE_STYLES, type LineStyle } from '@ballastella/core';
-
-	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
+	import { KIND_STYLE } from '@ballastella/ui';
 
 	import LineDashed from '../icons/LineDashed.svelte';
 	import LineDotted from '../icons/LineDotted.svelte';

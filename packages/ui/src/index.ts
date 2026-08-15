@@ -19,3 +19,5 @@
 // contributor who comes here looking for the theme should read that header first.
 
 export { default as BaseMapSwitcher } from './BaseMapSwitcher.svelte';
+export { default as LayerList } from './LayerList.svelte';
+export { KIND_STYLE } from './layer-kind-style';

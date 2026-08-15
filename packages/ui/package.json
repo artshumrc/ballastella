@@ -12,7 +12,8 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@ballastella/core": "workspace:*"
+		"@ballastella/core": "workspace:*",
+		"@lucide/svelte": "catalog:"
 	},
 	"peerDependencies": {
 		"svelte": "catalog:"

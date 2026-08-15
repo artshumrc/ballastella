@@ -158,8 +158,16 @@ catalog:
   # "Historical Map", and an icon-only button keeps a visible or `sr-only` label. An icon that
   # would need a tooltip to be understood is the wrong icon.
   #
-  # `apps/editor` only. The published viewer's leanness is enforced by the dependency graph
-  # rather than by tree-shaking (ADR-0019), so a reader downloads none of this.
+  # `apps/editor` and `packages/ui`. The shared package took it when the Layer card moved there:
+  # the card's kind glyph, chevron, drag handle, arrows and trash are the component, and a card
+  # that had to be handed its own icons would be one both apps configure rather than render.
+  #
+  # ⚠ **The viewer now reaches this through `@ballastella/ui`, and that is a real widening of its
+  # graph.** ADR-0019 makes the viewer's leanness a dependency-graph property rather than a
+  # tree-shaking hope, and this is the one dependency of the shared package that a published site
+  # does not need until it renders the shared card. What holds it is the measurement ADR-0034
+  # requires of every move into that package, recorded in the ticket that made it — not the
+  # bundler's cleverness.
   '@lucide/svelte': ^0.552.0
 
   # TypeScript. Held at ^6 rather than ^7: svelte-check and @sveltejs/kit peer on

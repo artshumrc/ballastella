@@ -35,12 +35,12 @@
 		type LineStyle,
 		type Place
 	} from '@ballastella/core';
+	import { KIND_STYLE } from '@ballastella/ui';
 	import { tick } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { slide } from 'svelte/transition';
 
-	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
 	import PlaceSearch from '$lib/places/PlaceSearch.svelte';
 
 	import AnnotationEditor from './AnnotationEditor.svelte';

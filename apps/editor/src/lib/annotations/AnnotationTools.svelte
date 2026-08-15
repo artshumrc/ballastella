@@ -18,9 +18,8 @@
 	// announced through the status region below rather than only drawn, because "which tool am I
 	// holding" is otherwise invisible to anyone not looking at the highlight.
 
+	import { KIND_STYLE } from '@ballastella/ui';
 	import Plus from '@lucide/svelte/icons/plus';
-
-	import { KIND_STYLE } from '$lib/layers/layer-kind-style';
 
 	import { toolName, type AnnotationTool } from './drawing.svelte';
 	import { TOOL_ICONS } from './shape-icons';
