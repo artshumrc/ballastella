@@ -346,7 +346,9 @@
 			// nothing on its own, and there will be a second pane (ticket 03) to tell apart.
 			locale: { 'Map.Title': 'Base Map' }
 		});
-		created.addControl(new NavigationControl({}), 'top-right');
+		// Zoom sits at the bottom-left in every map pane in this application. Bottom-left is the corner
+		// left free here: the top-left holds the place lookup and the bottom-right the attribution.
+		created.addControl(new NavigationControl({}), 'bottom-left');
 
 		// The camera's own events, for anything drawn over this pane in the page's coordinates rather
 		// than in MapLibre's — see {@link onCameraMove}. `move` covers a pan and the frames of a zoom;

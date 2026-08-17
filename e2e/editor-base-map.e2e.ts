@@ -193,11 +193,28 @@ test.describe('the Base Map pane', () => {
 		await routeBaseMapArchive(context);
 	});
 
-	test('renders, and pans and zooms from the keyboard', async ({ page }) => {
+	test('renders with zoom at the bottom-left, and pans and zooms from the keyboard', async ({
+		page
+	}) => {
 		await openPane(page);
 
 		const canvas = page.locator('canvas.maplibregl-canvas');
 		await expect(canvas).toBeVisible();
+
+		// Zoom is at the bottom-left in every map pane (the-annotation-inspector story 18), asserted
+		// against the rendered control rather than the call that placed it: MapLibre creates all four
+		// corner containers whatever is put in them, so the claim is which corner holds the buttons.
+		const pane = page.getByTestId('base-map-pane');
+		const bottomLeft = pane.locator('.maplibregl-ctrl-bottom-left');
+		await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-in')).toBeVisible();
+		await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-out')).toBeVisible();
+		await expect(pane.locator('.maplibregl-ctrl-top-right .maplibregl-ctrl')).toHaveCount(0);
+
+		// And the place lookup is still in the pane's top-left, which is why zoom went to the bottom of
+		// the left edge rather than the top.
+		const search = await page.getByTestId('base-map-place-search').boundingBox();
+		const zoom = await bottomLeft.boundingBox();
+		expect(search!.y + search!.height).toBeLessThan(zoom!.y);
 
 		const start = await page.evaluate(() => ({
 			center: window.ballastellaBaseMap?.getCenter(),

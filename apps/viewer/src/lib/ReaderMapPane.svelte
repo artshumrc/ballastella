@@ -385,7 +385,8 @@
 			// its own.
 			locale: { 'Map.Title': 'Base Map' }
 		});
-		created.addControl(new NavigationControl({}), 'top-right');
+		// Zoom sits at the bottom-left in every map pane in this application.
+		created.addControl(new NavigationControl({}), 'bottom-left');
 
 		// The camera's own events, for anything drawn over this pane in the page's coordinates rather
 		// than in MapLibre's — see {@link onCameraMove}. Identical to `BaseMapPane`'s pair in the

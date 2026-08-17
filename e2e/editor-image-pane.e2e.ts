@@ -102,10 +102,21 @@ const openPane = async (page: Page) => {
 
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 
-test('renders the fixture Historical Map and reports the pixel under the cursor', async ({
+test('renders the fixture Historical Map with zoom at the bottom-left, and reports the pixel under the cursor', async ({
 	page
 }) => {
 	await openPane(page);
+
+	// Zoom is at the bottom-left in every map pane (the-annotation-inspector story 18), asserted
+	// against the rendered control rather than the call that placed it: MapLibre creates all four corner
+	// containers whatever is put in them, so the claim is which corner holds the buttons. No compass,
+	// because there is no north in image pixel space.
+	const pane = page.getByTestId('image-pane');
+	const bottomLeft = pane.locator('.maplibregl-ctrl-bottom-left');
+	await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-in')).toBeVisible();
+	await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-out')).toBeVisible();
+	await expect(pane.locator('button.maplibregl-ctrl-compass')).toHaveCount(0);
+	await expect(pane.locator('.maplibregl-ctrl-top-right .maplibregl-ctrl')).toHaveCount(0);
 
 	// The fixture's geometry is stated on the page, so a fixture swapped for a differently
 	// shaped one cannot quietly keep these tests passing.

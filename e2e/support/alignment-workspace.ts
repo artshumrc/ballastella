@@ -450,8 +450,8 @@ export async function makePair(
 export async function makePairs(page: Page, count: number): Promise<void> {
 	// A deliberately irregular scatter, and all of it well inside both panes: evenly spaced points on
 	// a line are collinear, which is a solve the higher-order polynomials refuse — and MapLibre's
-	// navigation control sits in the top-right corner and its attribution along the bottom, so a click
-	// near either is a click on a control rather than on the earth.
+	// navigation control sits in the bottom-left corner of each pane with its attribution along the
+	// bottom-right, so a click near either is a click on a control rather than on the earth.
 	const spots: readonly (readonly [number, number])[] = [
 		[0.2, 0.25],
 		[0.7, 0.22],

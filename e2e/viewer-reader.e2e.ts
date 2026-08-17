@@ -1201,7 +1201,7 @@ test.describe('exploring a Project', () => {
 		site = null;
 	});
 
-	test('draws the stack in the author’s order, with the Annotation Layer above the map Layer', async ({
+	test('draws the stack in the author’s order with zoom at the bottom-left, and the Annotation Layer above the map Layer', async ({
 		page
 	}) => {
 		// ADR-0002's cross-kind rule, asserted through the mechanism that implements it: MapLibre's own
@@ -1221,6 +1221,16 @@ test.describe('exploring a Project', () => {
 
 		await page.goto(site.sites[0]!.url + '?p=amsterdam-1625');
 		await mapReady(page);
+
+		// Zoom is at the bottom-left in the reader pane as in every other map pane
+		// (the-annotation-inspector story 18), asserted against the rendered control rather than the call
+		// that placed it: MapLibre creates all four corner containers whatever is put in them, so the
+		// claim is which corner holds the buttons.
+		const readerPane = page.getByTestId('reader-map-pane');
+		const bottomLeft = readerPane.locator('.maplibregl-ctrl-bottom-left');
+		await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-in')).toBeVisible();
+		await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-out')).toBeVisible();
+		await expect(readerPane.locator('.maplibregl-ctrl-top-right .maplibregl-ctrl')).toHaveCount(0);
 
 		const order = await page.evaluate(() => window.ballastellaReaderMap!.map.getLayersOrder());
 		const mapLayerAt = order.findIndex((id) => id === `ballastella-layer-${MAP_LAYER_ID}`);

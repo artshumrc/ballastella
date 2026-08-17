@@ -173,7 +173,9 @@
 			fadeDuration: 0
 		});
 
-		created.addControl(new NavigationControl({ showCompass: false }), 'top-right');
+		// Zoom sits at the bottom-left in every map pane in this application, and there is no compass
+		// here for the same reason `dragRotate` is off.
+		created.addControl(new NavigationControl({ showCompass: false }), 'bottom-left');
 
 		created.on('click', (event) => onclickpoint?.(pane.syntheticToResource(event.lngLat)));
 		created.on('mousemove', (event) => {
