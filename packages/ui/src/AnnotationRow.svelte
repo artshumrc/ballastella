@@ -8,9 +8,11 @@
 	// to — the same idea the Layer card one level up already follows.
 	//
 	// **What the open row reveals is the consumer's**, and that is the whole of the difference between
-	// the two apps here: the editor passes its Annotation editor, and a published site passes the
-	// title and the rendered description with nothing to press. There is no `readOnly` prop and no
-	// `mode` prop — a control a Reader must not have is a snippet the viewer does not pass.
+	// the two apps here: a published site passes the title and the rendered description with nothing to
+	// press, and the editor passes nothing at all, because an author reads an Annotation in the
+	// `AnnotationInspector` docked over the map (ADR-0035). There is no `readOnly` prop and no `mode`
+	// prop — a control a Reader must not have is a snippet the viewer does not pass, and a region an
+	// author must not get is a snippet the editor does not pass.
 
 	import { annotationOrdinal, type Annotation } from '@ballastella/core';
 	import type { Snippet } from 'svelte';
@@ -18,6 +20,7 @@
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { slide } from 'svelte/transition';
 
+	import { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
 	import { annotationName, shapeWord } from './annotation-name.js';
 	import { KIND_STYLE } from './layer-kind-style.js';
 	import { iconForGeometry } from './shape-icons.js';
@@ -43,8 +46,9 @@
 		/** The row was pressed: this Annotation's id to open it, `null` to close it. */
 		onopen: (id: string | null) => void;
 		/**
-		 * What the open row reveals, given this Annotation and its place in the collection. Without it
-		 * the row still opens, on nothing.
+		 * What the open row reveals, given this Annotation and its place in the collection. Without it the
+		 * row opens no region at all — a consumer that reads an Annotation somewhere else says so by
+		 * withholding this, and `aria-controls` then names that surface instead.
 		 *
 		 * The index goes with it because a consumer that names the Annotation must be able to name it
 		 * the way the button above does — see `annotation-name.ts`. A snippet that has no use for it
@@ -138,14 +142,15 @@
 	 * pointer that asked for nothing of the sort.
 	 *
 	 * ⚠ **The measurement waits for the column to stop moving, and `await tick()` is not that.** What
-	 * takes the header off the top is not the reveal — the revealed region is *below* the button in
-	 * the same `<li>` and cannot push it anywhere — it is what the consumer's own contents do when
-	 * they appear. The editor's panel calls `scrollIntoView({ behavior: 'smooth' })` on itself, which
-	 * the compositor performs over frames that have not happened yet one microtask after the click.
-	 * Measured in Chromium with eight Annotations in a 260 px column: at the microtask the header sat
-	 * 225 px inside the column, so the guard below found it in view and returned; when the scroll
-	 * finished it was 38 px *above* the top edge. Identical under `prefers-reduced-motion: reduce` —
-	 * Chrome does not make a smooth scroll synchronous for that setting.
+	 * takes the header off the top is not the reveal — the revealed region is *below* the button in the
+	 * same `<li>` and cannot push it anywhere — it is what the consumer's own contents do when they
+	 * appear: contents that scroll anything of their own into view smoothly are performed by the
+	 * compositor over frames that have not happened yet one microtask after the click. Measured in
+	 * Chromium against a panel that did exactly that, with eight Annotations in a 260 px column: at the
+	 * microtask the header sat 225 px inside the column, so the guard below found it in view and
+	 * returned; when the scroll finished it was 38 px *above* the top edge. Identical under
+	 * `prefers-reduced-motion: reduce` — Chrome does not make a smooth scroll synchronous for that
+	 * setting.
 	 *
 	 * {@link scrollSettled} is what waits for it, and it waits for stillness rather than for a single
 	 * `scrollend`, for the reason recorded there.
@@ -235,13 +240,23 @@
 		disclosure, which is what this is, and it is the Layer card's own convention one level down
 		rather than a second one invented here. There is no separate control beside the name for the same
 		reason: the gesture that chooses an Annotation is the gesture that opens it.
+
+		**The region it names is wherever the consumer put the Annotation's content.** A consumer that
+		reveals it inside the row names that region; one that reads it in the `AnnotationInspector`
+		docked over the map names the Inspector, and `aria-controls` does not require containment — so
+		the disclosure semantics survive the region being across the screen (the-annotation-inspector
+		story 53). The unpassed snippet is what decides, so no second prop says it again.
 	-->
 	<button
 		bind:this={button}
 		type="button"
 		class={['flex w-full items-center gap-2 rounded-none py-2', open && 'font-semibold']}
 		aria-expanded={open}
-		aria-controls={open ? `annotation-contents-${annotation.id}` : undefined}
+		aria-controls={open
+			? contents
+				? `annotation-contents-${annotation.id}`
+				: ANNOTATION_INSPECTOR_ID
+			: undefined}
 		data-testid="annotation-row"
 		data-annotation-id={annotation.id}
 		onclick={() => onopen(open ? null : annotation.id)}
@@ -280,10 +295,18 @@
 		</span>
 	</button>
 
-	{#if open}
+	{#if open && contents}
 		<!--
 			Everything this Annotation is, inside the row it belongs to. One row is open at a time,
 			because the consumer holds one open id.
+
+			**`contents` is half the condition rather than only the thing rendered.** A consumer that reads
+			its Annotations elsewhere — the editor, in the Inspector docked over the map (ADR-0035) — passes
+			no snippet, and on `open` alone this region still slid open over 220 ms: an empty box a few
+			hundred pixels wide inside the selected row, carrying an id nothing names, in the one app whose
+			whole point is that selecting opens nothing inside the row
+			(the-annotation-inspector story 10). Withholding the snippet is how a consumer says it has no
+			region here, so there is nothing else for it to say.
 
 			**`block` and `hover:bg-transparent` are undoing daisyUI's `menu`, not decoration.** Every
 			child of a `menu` `<li>` that is not a list or a `.btn` is laid out as a menu item — grid, its
@@ -309,7 +332,7 @@
 			data-reveal-ms={reveal.duration}
 			transition:slide={reveal}
 		>
-			{@render contents?.(annotation, index)}
+			{@render contents(annotation, index)}
 		</div>
 	{/if}
 </li>

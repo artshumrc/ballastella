@@ -448,12 +448,15 @@ export async function chooseTool(
 	await page.getByTestId(`annotation-tool-${tool}`).click();
 }
 
+/** The Annotation Inspector, docked over the Base Map pane's top-right (ADR-0035). */
+export const inspector = (page: Page) => page.getByTestId('annotation-inspector');
+
 /**
  * Make sure the Annotation at `index` in the list is the selected one.
  *
- * **Not simply a click**, because a row is a disclosure and drawing something already selects it — a
- * newly drawn shape is selected so that it can be titled straight away, which is the point of
- * drawing it. Clicking it unconditionally would therefore *deselect* it, and the editor and the
+ * **Not simply a click**, because the row toggles the selection and drawing something already selects
+ * it — a newly drawn shape is selected so that it can be titled straight away, which is the point of
+ * drawing it. Clicking it unconditionally would therefore *deselect* it, and the Inspector and the
  * vertex handles would both vanish. That is not a hypothetical: it is what the first run of this
  * suite did, and eleven tests failed on it with the row still focused and looking selected.
  *
@@ -462,11 +465,10 @@ export async function chooseTool(
  * the case where the shapes are on offer and nothing was drawn, so that a caller asking for a row is
  * not left with a half-started gesture behind it.
  *
- * **Waits for the row that was left to finish closing.** A row collapses over 220 ms, so for that
- * long the Annotation being left still has its editor in the document alongside the one being opened
- * — which is what an animated collapse means. Every caller that reaches into "the editor" without
- * naming an Annotation would otherwise find two of them for a fifth of a second, and Playwright's
- * strict mode is right to refuse to guess which.
+ * **Waits for the Inspector to be showing the row's own Annotation**, by the ordinal both draw from
+ * one rule (`annotationOrdinal`): one Inspector on the screen, headed by the number the row carries.
+ * A caller that went straight on would be reaching into a panel that had not yet been handed the new
+ * selection.
  */
 export async function selectAnnotation(page: Page, index = 0): Promise<void> {
 	await chooseTool(page, 'select');
@@ -474,25 +476,57 @@ export async function selectAnnotation(page: Page, index = 0): Promise<void> {
 	await expect(row).toBeVisible();
 	if ((await row.getAttribute('aria-expanded')) !== 'true') await row.click();
 	await expect(row).toHaveAttribute('aria-expanded', 'true');
-	const id = await row.getAttribute('data-annotation-id');
-	await expect(
-		page.locator(`[data-testid="annotation-editor"][data-annotation-id="${id}"]`)
-	).toBeVisible();
-	await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+	await expect(inspector(page)).toHaveCount(1);
+	await expect(page.getByTestId('annotation-inspector-ordinal')).toHaveText(String(index + 1));
 }
 
 /**
  * Put the selected Annotation's title and description into their fields.
  *
- * The panel shows them as **text** until the pencil is pressed, so every test that types into them
- * goes through here. Idempotent: pressing the pencil again once the fields are open would be a
- * click on whatever moved under it — which is also what makes it right to call after drawing, where
- * the fields are open already because a shape just drawn arrives with the keyboard in its title.
+ * The Inspector's Text face shows them as **text** until *Edit text* is pressed, so every test that
+ * types into them goes through here. Idempotent: pressing the button again once the fields are open
+ * would be a click on whatever moved under it — which is also what makes it right to call after
+ * drawing, where the fields are open already because a shape just drawn arrives with the keyboard in
+ * its title.
+ *
+ * **Asks for the Text face first**, because a test that styled something before typing left the Style
+ * face showing and there is no *Edit text* on it. One press of the strip's own Text tab, which is what
+ * a scholar does.
  */
 export async function editAnnotationText(page: Page): Promise<void> {
-	const pencil = page.getByTestId('annotation-edit-text');
-	if ((await pencil.count()) > 0) await pencil.click();
+	await openFace(page, 'text');
+	const edit = page.getByTestId('annotation-edit-text');
+	if ((await edit.count()) > 0) await edit.click();
 	await expect(page.getByTestId('annotation-title')).toBeVisible();
+}
+
+/**
+ * Show one of the Inspector's two faces.
+ *
+ * **The Style face is one deliberate press away and never simply present** (the-annotation-inspector
+ * story 25), so every test that touches a swatch or a slider comes through here — and the strip has no
+ * memory, so selecting another Annotation puts it back on Text and the next caller has to ask again.
+ *
+ * A click on the tab's own `<label>`, which is where daisyUI puts the hit target; the radio inside it
+ * is `opacity: 0` and spread over the label.
+ */
+export async function openFace(page: Page, face: 'text' | 'style'): Promise<void> {
+	const showing = page.getByTestId('annotation-inspector-face');
+	if ((await showing.getAttribute('data-face')) === face) return;
+	await page.getByTestId(`annotation-inspector-tab-${face}`).click();
+	await expect(showing).toHaveAttribute('data-face', face);
+}
+
+/**
+ * Delete the selected Annotation from the Inspector.
+ *
+ * **Through the Text face**, which is where the delete is: beside the words it destroys rather than on
+ * the row or in the Layer card's footer beside *Delete Layer*. A caller that has just styled something
+ * is looking at the Style face, so the face is asked for rather than assumed.
+ */
+export async function deleteAnnotation(page: Page): Promise<void> {
+	await openFace(page, 'text');
+	await page.getByTestId('annotation-delete').click();
 }
 
 /** Choose the selected Annotation's line style. A radio group, so this is a click, not a select. */
@@ -500,6 +534,7 @@ export async function chooseLineStyle(
 	page: Page,
 	style: 'solid' | 'dashed' | 'dotted'
 ): Promise<void> {
+	await openFace(page, 'style');
 	await page.getByTestId(`annotation-line-style-${style}`).click();
 }
 
@@ -536,6 +571,7 @@ export async function chooseColour(
 	which: 'annotation-marker-color' | 'annotation-stroke' | 'annotation-fill',
 	colour: keyof typeof ANNOTATION_COLOR
 ): Promise<string> {
+	await openFace(page, 'style');
 	await page.getByTestId(`${which}-${colour}`).click();
 	// The chosen swatch says so, so a caller that goes straight to the file is asserting on a choice the
 	// interface has actually taken rather than on a click that landed somewhere.

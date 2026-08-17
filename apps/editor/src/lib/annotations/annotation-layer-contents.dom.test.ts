@@ -4,12 +4,17 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT IS ASSERTED HERE, AND WHAT MOVED TO `packages/ui`
 //
-// The list, the row and the disclosure it opens are `@ballastella/ui`'s, and every claim about them
-// went with them to `packages/ui/src/annotation-list.dom.test.ts` — how a row names an untitled
-// Annotation, that a title which looks like markup is characters, `aria-expanded`, one row open at a
-// time, where the keyboard stays, the reveal's duration, the empty state and the caption. A shared
-// component tested from the app it used to live in is tested through a consumer (ADR-0034), and the
-// second consumer is then either untested or carrying a copy of the same claim.
+// The list and the rows are `@ballastella/ui`'s, and every claim about them went with them to
+// `packages/ui/src/annotation-list.dom.test.ts` — how a row names an untitled Annotation, that a title
+// which looks like markup is characters, `aria-expanded`, `aria-controls`, one row selected at a time,
+// where the keyboard stays, the empty state and the caption. A shared component tested from the app it
+// used to live in is tested through a consumer (ADR-0034), and the second consumer is then either
+// untested or carrying a copy of the same claim.
+//
+// **The selected Annotation itself is no longer here at all** (ADR-0035). It is read in the Annotation
+// Inspector over the map, whose two faces are `annotation-text-face.dom.test.ts`'s and
+// `annotation-style-face.dom.test.ts`'s, and whose tab strip is
+// `packages/ui/src/annotation-inspector.dom.test.ts`'s.
 //
 // **What is left is this app's own composition**: the drawing tools above the list, and the rule that
 // the list of what is already in the Layer is there throughout — while the shapes are on offer and
@@ -83,12 +88,14 @@ describe('“New Annotation” clears the way for the one about to be drawn', ()
 			selectedId: 'a-1',
 			onselect: chose
 		});
-		expect(one('annotation-editor')).toHaveTextContent('The west quay');
+		expect(one('annotation-row')).toHaveAttribute('aria-expanded', 'true');
 
 		await press(one('annotation-new')!);
 
+		// Deselected, which is what takes the Inspector off the map: the panel is on screen because a row
+		// is selected, and this component's half of that is reporting the gesture.
 		expect(chose).toHaveBeenCalledWith(null);
-		expect(all('annotation-editor')).toHaveLength(0);
+		expect(one('annotation-row')).toHaveAttribute('aria-expanded', 'false');
 		expect(one('annotation-tools')).toBeInTheDocument();
 		expect(one('annotation-list')).toBeInTheDocument();
 		// **And the caption with it**, which is the half that says what the list is: a Layer holding one
@@ -130,7 +137,7 @@ describe('the Annotation just drawn is in the list, because that is where it is'
 	// the instant after a shape lands. These assert the state the page is in mid-gesture, which is
 	// where a second list would have to appear if one were going to.
 
-	test('with a tool armed and an Annotation selected, its row is the open one in the list', () => {
+	test('with a tool armed and an Annotation selected, its row is the selected one in the list', () => {
 		contents({
 			collection: collectionOf(
 				annotation({ id: 'a-1', title: 'The west quay' }),
@@ -145,13 +152,11 @@ describe('the Annotation just drawn is in the list, because that is where it is'
 		expect(one('annotation-list')).toBeInTheDocument();
 		// No list of one anywhere: what is on screen is the Layer's Annotations, counted and captioned.
 		expect(all('annotation-row')).toHaveLength(2);
-		expect(all('annotation-editor')).toHaveLength(1);
-		expect(one('annotation-editor')).toHaveAttribute('data-annotation-id', 'a-2');
 		expect(all('annotation-row')[1]).toHaveAttribute('aria-expanded', 'true');
 		expect(all('annotation-row')[0]).toHaveAttribute('aria-expanded', 'false');
 	});
 
-	test('with a tool armed and nothing selected, no row is open', () => {
+	test('with a tool armed and nothing selected, no row is selected', () => {
 		contents({
 			collection: collectionOf(annotation({ id: 'a-1', title: 'The west quay' })),
 			tool: 'point'
@@ -159,31 +164,12 @@ describe('the Annotation just drawn is in the list, because that is where it is'
 
 		expect(one('annotation-tools')).toBeInTheDocument();
 		expect(one('annotation-row')).toHaveAttribute('aria-expanded', 'false');
-		expect(all('annotation-editor')).toHaveLength(0);
 	});
 
-	test('a freshly drawn Annotation opens with its title as a field, and nothing else does', () => {
-		// Titling a shape straight after drawing it is one gesture (the-annotation-inspector story 40),
-		// and the panel is handed the id of the shape that was just drawn rather than a flag — so
-		// selecting an Annotation to *read* it cannot put the same form in front of a reader. Both
-		// halves, because either alone would pass a panel that always opened its fields, or never did.
-		contents({
-			collection: collectionOf(annotation({ id: 'a-1' })),
-			selectedId: 'a-1',
-			titlingId: 'a-1'
-		});
-
-		expect(one('annotation-title')).toBeInTheDocument();
-
-		unmount(mounted!);
-		mounted = undefined;
-		document.body.innerHTML = '';
-
-		contents({ collection: collectionOf(annotation({ id: 'a-1' })), selectedId: 'a-1' });
-
-		expect(all('annotation-title')).toHaveLength(0);
-		expect(one('annotation-edit-text')).toBeInTheDocument();
-	});
+	// **"A freshly drawn Annotation opens with its title as a field" is no longer here.** Nothing about
+	// the words is in this column any more, so the claim is
+	// `annotation-text-face.dom.test.ts`'s test of the same name — handed `titling` directly, which is
+	// the prop the state layer sets from `titlingId`.
 });
 
 describe('a Layer with nothing in it yet', () => {

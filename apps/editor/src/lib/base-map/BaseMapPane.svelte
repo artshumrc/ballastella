@@ -55,7 +55,7 @@
 	} from '@ballastella/core/render';
 	import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import { onMount, untrack } from 'svelte';
+	import { onMount, untrack, type Snippet } from 'svelte';
 
 	import { warpedAddressOf } from '$lib/alignment/map-source.svelte.js';
 	import { exposeLayerStackToBrowserTests } from '$lib/layers/browser-test-handle';
@@ -84,7 +84,8 @@
 		onwarped,
 		onstack,
 		onbasemapstatus,
-		selectedAnnotationId = null
+		selectedAnnotationId = null,
+		overlay
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
@@ -259,6 +260,16 @@
 		 * see {@link stackStructure} for why a selection must not rebuild the stack.
 		 */
 		selectedAnnotationId?: string | null;
+		/**
+		 * What the page draws *over* this pane, inside the pane's own positioned container.
+		 *
+		 * The Annotation Inspector is what this is for (ADR-0035): it is docked over the map, so it has
+		 * to be positioned against the box the map fills rather than against the column the map is in —
+		 * and the page owns what is in it, because a panel of the scholar's Annotations is no business of
+		 * a map pane. The snippet's own element carries the position and the `z-index`; nothing here
+		 * places it.
+		 */
+		overlay?: Snippet;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -989,4 +1000,5 @@
 	<div class="absolute top-2 left-2 z-10 w-72 max-w-[calc(100%-1rem)]">
 		<PlaceSearch testid="base-map-place-search" onchoose={frameOnPlace} />
 	</div>
+	{@render overlay?.()}
 </div>

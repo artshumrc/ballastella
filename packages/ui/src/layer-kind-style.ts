@@ -9,7 +9,7 @@
  *
  * **A module rather than a `const` in `LayerList.svelte`, because the card is not all in one file.**
  * What a card *contains* is supplied as snippets by `ProjectScreen.svelte` — the Align link for a
- * Historical Map, `AnnotationTools` and `AnnotationEditor` for an Annotation Layer — so those files
+ * Historical Map, `AnnotationTools` and the Inspector's faces for an Annotation Layer — so those files
  * draw controls that have to be the same colour as the header above them. They used to say
  * `btn-secondary` and cite this table in a comment, which is a mapping kept in two places and only
  * one of them checked by anything.

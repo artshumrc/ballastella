@@ -24,6 +24,7 @@ import type { DetachedWindowAPI } from 'happy-dom';
 import { flushSync, mount, tick, unmount, type ComponentProps } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
 import AnnotationListHarness from './AnnotationListHarness.svelte';
 import AnnotationReading from './AnnotationReading.svelte';
 
@@ -542,12 +543,36 @@ describe('a surface the consumer does not ask for is not there (SPEC stories 58,
 		list({ annotations: two() });
 		await press(nth('annotation-row', 0));
 
-		// The row still opens — `aria-expanded` and the region are the list's, and they are what a
-		// screen reader is promised — but there is nothing inside it to press.
+		// The row still selects — `aria-expanded` is the list's, and it is what a screen reader is
+		// promised — but **no region opens inside it at all**. On `open` alone one did: an empty box slid
+		// open under the button over 220 ms, carrying an `id` nothing named, in the app whose content is
+		// read over the map instead (ADR-0035, the-annotation-inspector story 10).
 		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'true');
-		expect(one('annotation-row-contents')).toBeInTheDocument();
+		expect(one('annotation-row-contents')).not.toBeInTheDocument();
 		expect(one('harness-annotation-contents')).not.toBeInTheDocument();
 		expect(one('harness-annotation-delete')).not.toBeInTheDocument();
+	});
+
+	test('says which region it controls: the one in the row, or the Inspector across the screen', () => {
+		// Story 53, and **both halves because the value is the whole claim**: a row that named the
+		// Inspector whatever the consumer did would be wrong wherever the content is in the row, and a
+		// row that always named the in-row region would point a screen reader at nothing at all in the
+		// app that reads its Annotations beside the map. `aria-controls` does not require containment,
+		// which is what lets one attribute answer for both.
+		list({ annotations: two(), openId: 'a-1', withContents: true });
+
+		const inTheRow = nth('annotation-row', 0).getAttribute('aria-controls');
+		expect(inTheRow).not.toBe(ANNOTATION_INSPECTOR_ID);
+		expect(document.getElementById(inTheRow!)).toContainElement(one('harness-annotation-contents'));
+
+		takeDown();
+		list({ annotations: two(), openId: 'a-1' });
+
+		// The id itself rather than a literal, so a rename of the Inspector's own id moves both.
+		expect(nth('annotation-row', 0)).toHaveAttribute('aria-controls', ANNOTATION_INSPECTOR_ID);
+		// And only the selected row claims to control it: two rows naming one region would be two rows
+		// claiming the panel is theirs.
+		expect(nth('annotation-row', 1)).not.toHaveAttribute('aria-controls');
 	});
 });
 

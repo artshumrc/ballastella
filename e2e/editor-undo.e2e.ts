@@ -23,6 +23,7 @@ import {
 import {
 	annotationLayerId,
 	chooseLineStyle,
+	deleteAnnotation,
 	drawPin,
 	drawShape,
 	editAnnotationText,
@@ -536,7 +537,7 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		expect(deleted?.properties['stroke-dasharray']).toEqual([1, 3]);
 		const annotationId = deleted?.id as string;
 
-		await page.getByTestId('annotation-delete').click();
+		await deleteAnnotation(page);
 		await saved(page);
 		// On disk, before the undo: the file the user would have been left with.
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(0);
@@ -590,7 +591,7 @@ test.describe('a deleted Annotation (SPEC stories 38 and 66)', () => {
 		const deleted = (await storedAnnotations(page, routes)).features[0];
 		const annotationId = deleted?.id as string;
 
-		await page.getByTestId('annotation-delete').click();
+		await deleteAnnotation(page);
 		await saved(page);
 		expect((await storedAnnotations(page, routes)).features).toHaveLength(0);
 
@@ -889,7 +890,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		await annotating(page);
 		await drawPin(page, 0.5, 0.5);
 		await selectAnnotation(page);
-		await page.getByTestId('annotation-delete').click();
+		await deleteAnnotation(page);
 		await saved(page);
 		await expect(undoButton(page)).toHaveCount(1);
 
@@ -914,7 +915,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		const layerId = await annotating(page);
 		await drawPin(page, 0.5, 0.5);
 		await selectAnnotation(page);
-		await page.getByTestId('annotation-delete').click();
+		await deleteAnnotation(page);
 		await saved(page);
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(0);
 
@@ -940,7 +941,7 @@ test.describe('what the one undo slot will and will not hold (ADR-0014)', () => 
 		await drawPin(page, 0.5, 0.5);
 		await drawPin(page, 0.6, 0.55);
 		await selectAnnotation(page, 1);
-		await page.getByTestId('annotation-delete').click();
+		await deleteAnnotation(page);
 		await saved(page);
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 

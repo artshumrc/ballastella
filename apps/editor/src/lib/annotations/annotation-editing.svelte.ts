@@ -130,6 +130,12 @@ export class AnnotationEditing {
 	 * an id rather than a flag because the surface that opens has to be able to tell "this is the shape
 	 * that was just drawn" from "this is an Annotation somebody selected to read". `null` again the
 	 * moment anything else is selected, so a read gesture never produces a form.
+	 *
+	 * ⚠ **Spent when the title field takes the keyboard, and not only when the selection moves.** The
+	 * Inspector's Text face is unmounted while the Style face shows and mounted again on the way back, so
+	 * an offer that outlived being taken up dragged the keyboard into a title field on a press of *Text*
+	 * — with the same shape still selected, minutes after it was drawn. `AnnotationTextFace`'s `ontitled`
+	 * reports that it has been taken up, and the screen clears this. One gesture, one offer.
 	 */
 	titlingId = $state<string | null>(null);
 
@@ -186,6 +192,35 @@ export class AnnotationEditing {
 
 	get selectedAnnotation() {
 		return this.#selectedAnnotation;
+	}
+
+	/**
+	 * Where the selected Annotation sits in the open Layer's collection, or `-1` when none is.
+	 *
+	 * The *collection's* position rather than a number of its own, because it is what the row's ordinal,
+	 * the mark on the map and the Inspector's header are all drawn from: one Annotation, one number
+	 * (the-annotation-inspector story 2).
+	 */
+	readonly #selectedIndex = $derived(
+		this.#activeCollection && this.selectedAnnotationId
+			? this.#activeCollection.annotations.findIndex((one) => one.id === this.selectedAnnotationId)
+			: -1
+	);
+
+	get selectedIndex(): number {
+		return this.#selectedIndex;
+	}
+
+	/**
+	 * Whether this build can draw the selected Annotation's shape.
+	 *
+	 * Read for one thing: an Annotation this build cannot draw is offered no Style face at all, rather
+	 * than a Style face that explains its own emptiness (the-annotation-inspector story 28). A foreign
+	 * document may carry a `GeometryCollection`, and its shape is written back untouched either way.
+	 */
+	get selectedIsDrawable(): boolean {
+		const type = this.#selectedAnnotation?.geometry?.type;
+		return type === 'Point' || type === 'LineString' || type === 'Polygon';
 	}
 
 	/**

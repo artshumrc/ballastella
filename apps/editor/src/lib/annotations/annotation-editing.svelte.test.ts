@@ -27,6 +27,7 @@ import {
 	simpleStyleViolations,
 	type Annotation,
 	type AnnotationCollection,
+	type AnnotationGeometry,
 	type AnnotationLayer,
 	type Layer,
 	type UndoRecord
@@ -303,6 +304,68 @@ describe('the “shape added” announcement is withdrawn when it stops being tr
 		await it_.annotations.placePin({ lng: 5, lat: 52 }, 'Hampden');
 
 		expect(it_.annotations.drawing.status).toBe('');
+	});
+});
+
+describe('whether the selected Annotation’s shape can be drawn (the-annotation-inspector story 28)', () => {
+	// **The one thing `selectedIsDrawable` is read for is an absence**, which is why it is asserted
+	// here rather than left to the surface: the screen withholds the Inspector's `style` snippet when it
+	// is false, and the Inspector with no snippet renders no tab strip at all
+	// (`packages/ui/src/annotation-inspector.dom.test.ts`). So a value stuck at `true` would put a Style
+	// tab on a `GeometryCollection` and a tab stuck at `false` would take the swatches away from every
+	// pin, and neither shows up as an error anywhere.
+	//
+	// It also carries forward what the retired
+	// `'a shape this version cannot draw says so instead of offering nothing'` asserted with
+	// `expect(all('annotation-marker-color')).toHaveLength(0)` — an undrawable geometry is offered no
+	// style control. The sentence's half of that test lives on in
+	// `annotation-text-face.dom.test.ts`'s `'says so where the words are, and keeps them editable'`;
+	// this is the refusal's half, one seam below where the controls used to be counted.
+
+	/** One Layer open with one Annotation of `geometry` in it, selected: the state the Inspector reads. */
+	const selecting = (geometry: AnnotationGeometry) => {
+		const layer = layerNamed('one');
+		const it_ = screen([layer]);
+		it_.put(layer, { annotations: [newAnnotation({ id: 'a-1', geometry })] });
+		it_.annotations.openLayer('one');
+		it_.annotations.selectAnnotation('a-1');
+		return it_;
+	};
+
+	it('says yes for each of the three shapes this build draws', () => {
+		const shapes: AnnotationGeometry[] = [
+			{ type: 'Point', coordinates: [4.9, 52.37] },
+			{ type: 'LineString', coordinates: [[4.9, 52.37]] },
+			{ type: 'Polygon', coordinates: [[[4.9, 52.37]]] }
+		];
+		for (const geometry of shapes) {
+			expect(selecting(geometry).annotations.selectedIsDrawable, geometry!.type).toBe(true);
+		}
+	});
+
+	it('says no for a geometry from a foreign document', () => {
+		// A `GeometryCollection` reaches this app as a `foreign` geometry carried whole. It is still
+		// titled, described and deleted like anything else, and it is written back untouched — what it
+		// has no controls for is its shape.
+		const it_ = selecting({
+			type: 'foreign',
+			declaredType: 'GeometryCollection',
+			raw: { type: 'GeometryCollection', geometries: [] }
+		});
+
+		expect(it_.annotations.selectedIsDrawable).toBe(false);
+	});
+
+	it('says no for an Annotation with no geometry at all, which RFC 7946 permits', () => {
+		expect(selecting(null).annotations.selectedIsDrawable).toBe(false);
+	});
+
+	it('says no when nothing is selected, so no Style face is offered to nobody', () => {
+		const it_ = selecting({ type: 'Point', coordinates: [4.9, 52.37] });
+
+		it_.annotations.selectAnnotation(null);
+
+		expect(it_.annotations.selectedIsDrawable).toBe(false);
 	});
 });
 

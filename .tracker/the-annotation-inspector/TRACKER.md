@@ -23,7 +23,7 @@ the ADR that replaces that reasoning, and it blocks the two tickets that perform
 
 Overall status: `In Progress`
 
-Current ticket: 06
+Current ticket: 07
 
 Last updated: 2026-08-17
 
@@ -36,8 +36,8 @@ Last updated: 2026-08-17
 | 03 | [03-new-annotation-becomes-an-action.md](./tickets/03-new-annotation-becomes-an-action.md) | Completed | — |
 | 04 | [04-zoom-moves-to-the-bottom-left.md](./tickets/04-zoom-moves-to-the-bottom-left.md) | Completed | — |
 | 05 | [05-the-inspector-proved-at-the-component-seam.md](./tickets/05-the-inspector-proved-at-the-component-seam.md) | Completed | 01 |
-| 06 | [06-an-author-reads-and-writes-in-the-inspector.md](./tickets/06-an-author-reads-and-writes-in-the-inspector.md) | In Progress | 01, 02, 03, 04, 05 |
-| 07 | [07-the-inspector-never-hides-the-mark.md](./tickets/07-the-inspector-never-hides-the-mark.md) | Not Started | 06 |
+| 06 | [06-an-author-reads-and-writes-in-the-inspector.md](./tickets/06-an-author-reads-and-writes-in-the-inspector.md) | Completed | 01, 02, 03, 04, 05 |
+| 07 | [07-the-inspector-never-hides-the-mark.md](./tickets/07-the-inspector-never-hides-the-mark.md) | In Progress | 06 |
 | 08 | [08-a-reader-reads-in-the-same-inspector.md](./tickets/08-a-reader-reads-in-the-same-inspector.md) | Not Started | 06 |
 | 09 | [09-both-apps-stack-on-a-phone.md](./tickets/09-both-apps-stack-on-a-phone.md) | Not Started | 06, 08 |
 

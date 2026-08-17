@@ -55,10 +55,8 @@
 	};
 </script>
 
-{#snippet text(annotation: Annotation, index: number)}
-	<div data-testid="harness-inspector-text" data-annotation-id={annotation.id} data-index={index}>
-		Text face
-	</div>
+{#snippet text(annotation: Annotation)}
+	<div data-testid="harness-inspector-text" data-annotation-id={annotation.id}>Text face</div>
 {/snippet}
 
 {#snippet style(annotation: Annotation)}

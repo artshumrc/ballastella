@@ -1,6 +1,5 @@
 <script lang="ts">
-	// Everything inside one Annotation Layer: the toolbar, the Annotations in it, and the selected
-	// one's editor (SPEC stories 57–67).
+	// Everything inside one Annotation Layer: the toolbar and the Annotations in it (SPEC stories 57–67).
 	//
 	// **Rendered inside that Layer's own open row** (ticket 05), which is what removed the thing this
 	// file used to begin with: a `<select>` labelled "Drawing into". Which Layer is open and which
@@ -16,13 +15,17 @@
 	// for its `defaultStyle`, and a Layer no longer has one (ADR-0009, as amended) — style lives on
 	// each Annotation, put there when it is drawn.
 	//
+	// **A row selects and reveals nothing** (ADR-0035). The Annotation itself is read in the Annotation
+	// Inspector, docked over the Base Map pane, which is `ProjectScreen`'s to render because it is the
+	// screen that owns the pane the Inspector is docked in. So this file passes `AnnotationList` no
+	// `contents`: what an author can change about one Annotation is no longer in this column at all.
+	//
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
 	// WHAT IS SHARED WITH A PUBLISHED SITE, AND WHAT IS THIS APP'S ALONE
 	//
-	// The list, the row and the disclosure it opens are `@ballastella/ui`'s: a Reader meets the same
-	// rows in the same order, opening the same way, and the mechanics exist once. What stays here is
-	// what only an author can do — the drawing tools, the place search, and the editor that an open
-	// row reveals — and it is handed over as the two snippets `AnnotationList` takes.
+	// The list and the rows are `@ballastella/ui`'s: a Reader meets the same rows in the same order,
+	// selecting the same way, and the mechanics exist once. What stays here is what only an author can
+	// do — the drawing tools and the place search — handed over as the `tools` snippet.
 	//
 	// ⚠ **`AnnotationTools` and `PlaceSearch` must not become reachable from a published site.**
 	// `PlaceSearch` calls the place lookup service, and a Published Site quietly issuing lookups for a
@@ -30,24 +33,17 @@
 	// drawing surface. Both are rendered from *this* app's `tools` snippet, which the viewer does not
 	// pass — there is no `readOnly` prop and no `mode` prop to get wrong.
 
-	import {
-		type Annotation,
-		type AnnotationCollection,
-		type LineStyle,
-		type Place
-	} from '@ballastella/core';
+	import { type Annotation, type AnnotationCollection, type Place } from '@ballastella/core';
 	import { AnnotationList } from '@ballastella/ui';
 
 	import PlaceSearch from '$lib/places/PlaceSearch.svelte';
 
-	import AnnotationEditor from './AnnotationEditor.svelte';
 	import AnnotationTools from './AnnotationTools.svelte';
 	import type { AnnotationTool } from './drawing.svelte';
 
 	let {
 		collection,
 		selectedId,
-		titlingId,
 		tool,
 		picking,
 		status,
@@ -59,17 +55,10 @@
 		onfinish,
 		oncancel,
 		onundovertex,
-		onselect,
-		ontext,
-		oncommit,
-		onstyle,
-		onlinestyle,
-		ondelete
+		onselect
 	}: {
 		collection: AnnotationCollection | null;
 		selectedId: string | null;
-		/** The Annotation just drawn, whose title is what the keyboard should be in. */
-		titlingId: string | null;
 		tool: AnnotationTool;
 		/** Whether the three shapes are on offer. The drawing state's, because it ends the gesture. */
 		picking: boolean;
@@ -89,11 +78,6 @@
 		oncancel: () => void;
 		onundovertex: () => void;
 		onselect: (id: string | null) => void;
-		ontext: (text: { title?: string; description?: string }) => void;
-		oncommit: () => void;
-		onstyle: (style: Record<string, unknown>, options?: { debounce?: boolean }) => void;
-		onlinestyle: (line: LineStyle) => void;
-		ondelete: () => void;
 	} = $props();
 
 	const annotations = $derived<readonly Annotation[]>(collection?.annotations ?? []);
@@ -112,11 +96,11 @@
 		{canFinish}
 		onnew={() => {
 			onnew();
-			// **"New Annotation" collapses whatever row was open**, and deselecting is what does it: the
-			// open row is the selected Annotation, so there is one thing to say rather than two. It is
-			// also what the gesture means — a new Annotation is not an edit to the old one — and it is
-			// why the row that was open cannot survive into the moment the next shape is drawn, when the
-			// panel under the pointer would be the wrong Annotation's.
+			// **"New Annotation" deselects**, which takes the Inspector off the map with it: the selected
+			// row is the Annotation the Inspector describes, so there is one thing to say rather than two.
+			// It is also what the gesture means — a new Annotation is not an edit to the old one — and it
+			// is why the selection cannot survive into the moment the next shape is drawn, when the panel
+			// over the map would be describing the wrong Annotation.
 			onselect(null);
 		}}
 		onchoose={onchoosetool}
@@ -144,22 +128,6 @@
 	/>
 {/snippet}
 
-<!--
-	What an open row reveals here: the Annotation itself, with everything an author can change about
-	it. A Reader's row reveals `AnnotationReading` instead, which is the same row saying less.
--->
-{#snippet contents(annotation: Annotation)}
-	<AnnotationEditor
-		{annotation}
-		titling={annotation.id === titlingId}
-		{ontext}
-		{oncommit}
-		{onstyle}
-		{onlinestyle}
-		{ondelete}
-	/>
-{/snippet}
-
 {#snippet noAnnotationsGuidance()}
 	<!--
 		What an empty Annotation Layer tells a scholar, and **it names the button that is actually
@@ -182,14 +150,13 @@
 	step aside for: a gesture ends by itself, so nothing can hold the screen.
 
 	This is also why the freshly drawn Annotation needs nothing of its own here. It is a row in this
-	list, selected, with `titlingId` naming it as the one whose title is a field — captioned and counted
-	alongside the rest, because that is where it is.
+	list, selected — captioned and counted alongside the rest, because that is where it is — and its
+	title is a field in the Inspector, which is where the words are.
 -->
 <AnnotationList
 	{annotations}
 	openId={selectedId}
 	onopen={onselect}
-	{contents}
 	{tools}
 	{noAnnotationsGuidance}
 />

@@ -95,8 +95,8 @@ keeps passing it. This is the expand half of expand–contract. Ticket 08 does t
   not lose a column of width permanently for a panel that is often empty.
 - **16.** As an author, I want the panel to be as tall as its content and no taller, so that a short
   Annotation does not reserve a screen's height to say two sentences.
-- **20.** As an author, I want to dismiss the panel, so that I can have the whole map back without
-  deselecting my place in the list.
+- **20.** As an author, I want to dismiss the panel, so that I can have the whole map back without losing
+  my place in the list.
 - **23.** As an author, I want no swatch and no slider on screen until I ask for one, so that selecting an
   Annotation to read it does not put an authoring form in front of me.
 - **24.** As an author, I want the Style face beside the map, so that the control and the change it makes
@@ -173,8 +173,14 @@ where the control moved, never deleted.
 - [ ] Selecting an Annotation with an undrawable geometry renders no Style tab.
 - [ ] The row carries `aria-expanded` and an `aria-controls` whose value is the Inspector's id;
       `grep -rn "aria-pressed" packages/ui/src apps/editor/src` returns nothing for the row.
-- [ ] Dismissing the Inspector leaves the selection alone in the list and puts focus on a row, not
-      `document.body`. Deleting the Annotation does the same.
+- [ ] Dismissing the Inspector leaves the Layer's card open and the row in place, and puts focus on a
+      row, not `document.body`. Deleting the Annotation does the same.
+
+      Dismissal **is** deselection. The row's `open` is the selection — one fact, one value — so
+      "selected but dismissed" cannot be represented without `aria-expanded` and the wash claiming a
+      panel is showing when none is, and without making a press on the row mean deselect or reopen
+      depending on state nothing draws. What story 20 protects is the author's place in the list, and
+      that survives: the card stays open, the row stays where it was, and it keeps the keyboard.
 - [ ] *Edit text* opens the fields, a whole sentence can be typed without them closing, and the existing
       one-write-per-gesture browser assertions still pass unchanged in intent.
 - [ ] Tabbing through an untouched field writes nothing — the existing assertion still passes.

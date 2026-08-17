@@ -1228,7 +1228,7 @@
 			marketing copy into a pseudo-Annotation: an Annotation is a scholar's content (CONTEXT.md), and
 			the shared renderer's job is a stranger's untrusted text rather than a string in this file. The
 			shared path is live in this bundle where it belongs — an Annotation's row renders its
-			description through `AnnotationReading`, which is `renderDescription` and the package's one
+			description through `AnnotationDescription`, which is `renderDescription` and the package's one
 			`{@html}` — and `e2e/viewer-reader.e2e.ts` asserts a payload is inert there, on the surface a
 			stranger's Project actually writes. There is now no `{@html}` anywhere in this app.
 		-->
@@ -1607,7 +1607,8 @@
 	⚠ **`AnnotationReading` is `@ballastella/ui`'s rather than markup composed here**, and that is the
 	security boundary rather than tidiness. A `description` is a stranger's Markdown, and the only
 	thing that may render it is core's `renderDescription` — `marked` then DOMPurify, in that order and
-	not separately reachable (ADR-0009). Keeping the `{@html}` in the shared component is what keeps
+	not separately reachable (ADR-0009) — which is `AnnotationDescription`'s, the one `{@html}` in that
+	package, composed inside the row's reading. Keeping the `{@html}` in the shared component is what keeps
 	this app's own source free of one, so there is no expression here for a later edit to feed
 	something unsanitised into. `e2e/viewer-reader.e2e.ts` asserts a payload is inert **in this row**,
 	in a real published build.

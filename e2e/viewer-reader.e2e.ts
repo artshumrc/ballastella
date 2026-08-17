@@ -607,12 +607,14 @@ async function openAnnotationRow(page: Page): Promise<Locator> {
  *
  * Each is asserted **present** against the editor's own prop set, so none of these can go quietly
  * green on a renamed id: `annotation-tools` and `annotation-new` in
- * `apps/editor/src/lib/annotations/annotation-layer-contents.dom.test.ts`, the editor's own fields
- * and Delete in `apps/editor/src/lib/annotations/annotation-editor.dom.test.ts`, and
+ * `apps/editor/src/lib/annotations/annotation-layer-contents.dom.test.ts`, the editor's own fields and
+ * Delete in `apps/editor/src/lib/annotations/annotation-text-face.dom.test.ts`,
+ * `annotation-stroke-width` in `annotation-style-face.dom.test.ts` beside it, and
  * `annotation-place-search` in `e2e/editor-annotations.e2e.ts`.
  */
 const ANNOTATION_EDITING_CONTROLS = [
-	'annotation-editor',
+	'annotation-text-face',
+	'annotation-style-face',
 	'annotation-edit-text',
 	'annotation-title',
 	'annotation-description',
@@ -638,8 +640,9 @@ test.describe('untrusted text on a Published Site', () => {
 	 * ticket 10 rather than rediscovered, and it is what stops a future edit "simplifying" the wrong one:
 	 *
 	 *   1. the **Annotation row** — `AnnotationReading` in `@ballastella/ui`: the title interpolated as
-	 *      text by Svelte, the description through core's `renderDescription`, which is `marked` then
-	 *      DOMPurify in that order and not separately reachable;
+	 *      text by Svelte, the description through `AnnotationDescription`, which is the package's one
+	 *      `{@html}` and is fed core's `renderDescription` — `marked` then DOMPurify, in that order and
+	 *      not separately reachable;
 	 *   2. the **names** — a Project's on the hub and a Layer's in the controls — where safety is
 	 *      **Svelte's text interpolation** and DOMPurify is not involved at all.
 	 *

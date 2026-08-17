@@ -42,11 +42,14 @@ import {
 	chooseLineStyle,
 	clickAt,
 	createProject,
+	deleteAnnotation,
 	drawPin,
 	drawShape,
 	editAnnotationText,
 	emptyWorkspace,
 	hashesUnder,
+	inspector,
+	openFace,
 	openLayers,
 	PROJECT_NAME,
 	readProjectFile,
@@ -357,18 +360,97 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 
 		// ── AND NOT TO A ROW THAT HAS LEFT ITS COLUMN ───────────────────────────────────────
 		//
-		// The other end's half of story 41. The column is scrolled until the row's own middle passes
-		// the top edge, which is the moment the line would start pointing at the card above it.
-		const scrolled = await page.getByTestId('layer-sidebar').evaluate((column) => {
-			column.scrollTop = column.scrollHeight;
-			return column.scrollTop;
-		});
+		// The other end's half of story 41: the column is scrolled until the selected row is outside it,
+		// which is the moment the line would start pointing at a row that is not on the screen.
+		//
+		// ⚠ **The window is shortened to make that possible, and the shortening is not the assertion.**
+		// An Annotation's content is read over the map now (ADR-0035), so this column is a stack of rows
+		// and nothing else — at 720 px it does not overflow at all, and a scroll that cannot take the row
+		// out of the column asserts nothing. **Both halves are measured at the same size**, so the only
+		// thing that differs between "no line" and "a line" is where the row is: a shorter window also
+		// shortens the canvas, and a mark that had left the pane would make the first half pass for the
+		// wrong reason.
+		await page.setViewportSize({ width: 1280, height: 320 });
+		const column = page.getByTestId('layer-sidebar');
+		const rowOutsideColumn = () =>
+			column.evaluate((element) => {
+				const rows = [...element.querySelectorAll('[data-testid="annotation-row-item"]')];
+				const at = rows[rows.length - 1]!.getBoundingClientRect();
+				const box = element.getBoundingClientRect();
+				return at.top >= box.bottom || at.bottom <= box.top;
+			});
+
+		await column.evaluate((element) => (element.scrollTop = 0));
 		expect(
-			scrolled,
-			'the sidebar did not scroll, so nothing was taken off its top'
-		).toBeGreaterThan(rowBox.height);
+			await rowOutsideColumn(),
+			'the selected row is still inside its column, so this asserts nothing'
+		).toBe(true);
 		await expect.poll(() => leaderIsDrawn(page)).toBe('no');
-		await page.getByTestId('layer-sidebar').evaluate((column) => (column.scrollTop = 0));
+
+		// ── AND THE RULE IS THE ROW'S CENTRE, WHICH IS WHERE THE LINE STARTS ────────────────
+		//
+		// ⚠ **The boundary is the assertion, not the row being off the screen.** `leaderPath` puts the
+		// sidebar end at the vertical *centre* of the row's near edge and draws nothing when that point
+		// leaves the column — so a row half out of the column has a start point that is not on it, and a
+		// line from there is drawn across the card above. Asserted only where the row has left the column
+		// entirely, a rule keyed on `row.top`, on `row.bottom`, or on the boxes merely overlapping passes
+		// just as well. So the row is scrolled until its centre is a few pixels past the bottom edge with
+		// the rest of it still inside, which is the state that tells those apart.
+		//
+		// ⚠ **The row measured is the *button*, which is the box `leaderPath` is given.** The `<li>` around
+		// it is a couple of pixels taller, and this margin is four.
+		const straddleTheEdge = () =>
+			column.evaluate((element) => {
+				const rows = [...element.querySelectorAll('[data-testid="annotation-row"]')];
+				const at = rows[rows.length - 1]!.getBoundingClientRect();
+				const box = element.getBoundingClientRect();
+				// Four pixels past the edge: far enough that no rounding puts the centre back inside, near
+				// enough that the rest of the row is still in the column.
+				element.scrollTop += (at.top + at.bottom) / 2 - box.bottom - 4;
+			});
+		const straddling = () =>
+			column.evaluate((element) => {
+				const rows = [...element.querySelectorAll('[data-testid="annotation-row"]')];
+				const at = rows[rows.length - 1]!.getBoundingClientRect();
+				const box = element.getBoundingClientRect();
+				return {
+					centreOutside: (at.top + at.bottom) / 2 > box.bottom,
+					overlapping: at.top < box.bottom
+				};
+			});
+
+		// ⚠ **Read after two frames rather than polled, and that is the difference between asserting this
+		// and not.** The redraw is a microtask off the scroll event, so `expect.poll` is satisfied by the one
+		// frame between the scroll landing and the line being recomputed: with the rule changed to "the two
+		// boxes overlap" the line came straight back afterwards and the poll had already passed. The settled
+		// state is the claim.
+		const afterTwoFrames = () =>
+			page.evaluate(
+				() =>
+					new Promise<void>((resolve) =>
+						requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+					)
+			);
+
+		await straddleTheEdge();
+		await afterTwoFrames();
+		expect(
+			await straddling(),
+			'the row is not half out of its column, so this asserts nothing about the centre'
+		).toEqual({ centreOutside: true, overlapping: true });
+		expect(await leaderIsDrawn(page)).toBe('no');
+
+		// And the positive control at the same size, which is what makes the absence above a fact about
+		// the row: scrolled to it, the same row in the same window gets its line back. Scrolled *to the
+		// row* rather than to the bottom of the column — there is a button below the stack, so the far
+		// end of the scroll takes the row off the top instead of bringing it back.
+		await column.evaluate((element) => {
+			const rows = [...element.querySelectorAll('[data-testid="annotation-row-item"]')];
+			rows[rows.length - 1]!.scrollIntoView({ block: 'center' });
+		});
+		expect(await rowOutsideColumn()).toBe(false);
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
+		await page.setViewportSize({ width: 1280, height: 720 });
 		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
 
 		// ── AND THE MAP DRAWS THE SELECTED ANNOTATION MORE STRONGLY (story 40) ───────────────
@@ -455,12 +537,12 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await page.getByTestId('annotation-title').focus();
 		await page.keyboard.press('Escape');
 		await expect(row).toHaveAttribute('aria-expanded', 'true');
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+		await expect(inspector(page)).toHaveCount(1);
 
 		await page.getByTestId('annotation-description').focus();
 		await page.keyboard.press('Escape');
 		await expect(row).toHaveAttribute('aria-expanded', 'true');
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+		await expect(inspector(page)).toHaveCount(1);
 
 		// **And nor is the Escape that closed a dialog.** `MakeOfflineDialog` is one of the two on this
 		// screen the handler holds no flag for, so it stands for the class: a `<dialog>` consumes
@@ -470,7 +552,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await page.keyboard.press('Escape');
 		await expect(page.locator('dialog[open]')).toHaveCount(0);
 		await expect(row).toHaveAttribute('aria-expanded', 'true');
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(1);
+		await expect(inspector(page)).toHaveCount(1);
 
 		const ids = (await storedAnnotations(page, layerId)).features.map((one) => one.id as string);
 		await waitForPaintedAnnotations(page, ids);
@@ -485,11 +567,11 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// because a new Annotation is not an edit to the old one. So the selection is made *again* below,
 		// from the list, which is what gives this Escape two jobs to do in order.
 		await chooseTool(page, 'polygon');
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 		await clickAt(baseMap(page), 0.3, 0.3);
 		await expect(page.getByTestId('annotation-status')).toContainText('1 point placed');
 		// And neither click opened the Annotation under it: the pin is still there, unselected.
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 		await clickAt(baseMap(page), 0.5, 0.4);
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'true');
 
@@ -510,7 +592,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 
 		// And the next Escape, with nothing left to abandon, collapses it.
 		await page.keyboard.press('Escape');
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 		await expect(rows).toHaveCount(2);
 		await expect(rows.nth(0)).toHaveAttribute('aria-expanded', 'false');
 		await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'false');
@@ -561,32 +643,48 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// title** — titling a shape straight after drawing it is one gesture.
 		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
 		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
-		await expect(page.getByTestId('annotation-editor')).toBeVisible();
+		await expect(inspector(page)).toBeVisible();
 		await expect(page.getByTestId('annotation-title')).toBeFocused();
+		// **And the row opened nothing inside itself** (ADR-0035, the-annotation-inspector story 10). The
+		// editor withholds `AnnotationRow`'s `contents`, and on `open` alone the row still slid an empty
+		// region out under the button — a few hundred pixels wide, animating for 220 ms, carrying an `id`
+		// that nothing names. The list stays the same length however much any one Annotation has to say.
+		await expect(page.getByTestId('annotation-row-contents')).toHaveCount(0);
 
 		await page.getByTestId('annotation-title').fill('The west quay');
 		await page.getByTestId('annotation-text-done').click();
-		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
+		await expect(inspector(page)).toContainText('The west quay');
+
+		// ⚠ **And looking at the swatches does not hand the keyboard back to the title.** The Text face is
+		// unmounted while Style is showing and mounted again on the way back, so the offer to title a shape
+		// just drawn has to be *spent* when it is taken up rather than standing while the shape stays
+		// selected: with it standing, a press of *Text* meant to read the words reopened the field and took
+		// the keyboard, minutes after the drawing. This is the gesture an author makes — draw, title, look
+		// at the style, look back at the words.
+		await openFace(page, 'style');
+		await openFace(page, 'text');
+		await expect(page.getByTestId('annotation-title')).toHaveCount(0);
+		await expect(page.getByTestId('annotation-inspector-name')).toHaveText('The west quay');
 
 		// **And the next click on the map selects rather than draws**, which is what disarming the tool
 		// is for. The row is collapsed first, so the click lands on the canvas rather than on the drag
 		// handle a selected Annotation puts over its own coordinate — and so that the selection this
 		// makes is a change.
 		await page.getByTestId('annotation-row').click();
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 		await clickAt(baseMap(page), 0.4, 0.4);
-		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
+		await expect(inspector(page)).toContainText('The west quay');
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 
 		// So a second shape takes a second press of "New Annotation" — and the panel that appears then
 		// belongs to the shape just drawn rather than to the previous Annotation, because pressing the
 		// button deselects.
 		await page.getByTestId('annotation-new').click();
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(baseMap(page), 0.6, 0.6);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
-		await expect(page.getByTestId('annotation-editor')).not.toContainText('The west quay');
+		await expect(inspector(page)).not.toContainText('The west quay');
 	});
 
 	test('the selected row wears the Layer’s own wash and a spine in its ink', async ({ page }) => {
@@ -804,19 +902,22 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await reopenLayers(page);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
-		// Read as text; the pencil is what turns them back into fields.
-		await expect(page.getByTestId('annotation-title-text')).toHaveText('Warehouses');
+		// Read as text; the pencil is what turns them back into fields. The title is read off the
+		// Inspector's header, which is the one place the panel names its Annotation
+		// (the-annotation-inspector story 4), and it appears there exactly once.
+		await expect(page.getByTestId('annotation-inspector-name')).toHaveText('Warehouses');
 		await expect(page.getByTestId('annotation-description-text')).toContainText('The west quay.');
+		expect((await inspector(page).innerText()).match(/Warehouses/g)).toHaveLength(1);
 		await editAnnotationText(page);
 		await expect(page.getByTestId('annotation-title')).toHaveValue('Warehouses');
 		await expect(page.getByTestId('annotation-description')).toHaveValue('The *west* quay.');
 	});
 
 	// **"Typing a whole sentence does not shut the fields" is no longer here.** It is
-	// `annotation-editor.dom.test.ts`'s test of the same name, and the move is exact rather than
+	// `annotation-text-face.dom.test.ts`'s test of the same name, and the move is exact rather than
 	// approximate: the regression is that `annotation` is a *fresh object with the same id* after
-	// every save — which is after every keystroke — and a panel that resets on identity rather than on
-	// id slams the fields shut after one letter. `AnnotationEditorHarness.svelte` rebuilds the
+	// every save — which is after every keystroke — and a face that resets on identity rather than on
+	// id slams the fields shut after one letter. `AnnotationTextFaceHarness.svelte` rebuilds the
 	// Annotation on every write for precisely that reason, so the state the bug needs is constructed
 	// there rather than merely arrived at. The wiring that this file still proves is the test above:
 	// the fields are really reached from the running application, really write, and really survive a
@@ -1172,9 +1273,9 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 		expect(description.handlers).toEqual([]);
 		expect(description.executableUrls).toEqual([]);
 
-		// The title reached the row as characters — a Svelte interpolation, which is a different
-		// mechanism from the description's and is why it is asserted separately.
-		const title = await inertWithin(page, '[data-testid="annotation-title-text"]');
+		// The title reached the Inspector's header as characters — a Svelte interpolation, which is a
+		// different mechanism from the description's and is why it is asserted separately.
+		const title = await inertWithin(page, '[data-testid="annotation-inspector-name"]');
 		expect(title.missing).toBe(false);
 		expect(title.text).toContain('onerror');
 		expect(title.scripts).toBe(0);
@@ -1215,34 +1316,36 @@ test.describe('a description is untrusted, and this is asserted not assumed (ADR
 
 test.describe('style controls write simplestyle names exactly (SPEC stories 63, 64, 65)', () => {
 	/**
-	 * **The nine swatches fit on one line inside the sidebar**, which is the half of this claim that
+	 * **The nine swatches fit on one line inside the Inspector**, which is the half of this claim that
 	 * needs a laid-out page.
 	 *
 	 * That there are nine and no more, that each is a real radio named "Red" rather than "option 4",
 	 * that the chosen one wears a tick in the ink the contrast table calls for, and that the choice is
 	 * said in words, are all `ColorPicker`'s own markup and are asserted in
-	 * `annotation-editor.dom.test.ts`. None of them needed a Project, a boot, or a map: the six
+	 * `annotation-style-face.dom.test.ts`. None of them needed a Project, a boot, or a map: the six
 	 * `chooseColour` round trips this test used to make to check the tick's ink were most of its
 	 * thirty-six seconds.
 	 *
 	 * The measurement cannot follow them. There is no layout at the component seam — no
-	 * `getBoundingClientRect`, no sidebar to be inside — and `vitest.config.ts` records that as a
+	 * `getBoundingClientRect`, no panel to be inside — and `vitest.config.ts` records that as a
 	 * known absence rather than a gap to work around. So what stays is the geometry, plus one
-	 * choice made end to end, which is what proves this picker is really mounted in the Annotation
-	 * panel and really writes.
+	 * choice made end to end, which is what proves this picker is really rendered on the Inspector's
+	 * Style face and really writes.
 	 */
-	test('the nine colours fit on one line inside the sidebar, and choosing one writes', async ({
+	test('the nine colours fit on one line inside the Inspector, and choosing one writes', async ({
 		page
 	}) => {
 		await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
+		await openFace(page, 'style');
 
-		// **All nine on one line, and inside the sidebar.** This was a 3×3 grid, and three of these
-		// pickers made the selected Annotation's card the tallest thing in the column. A wrapped row is
-		// the failure this asserts against — it looks like a design choice rather than a bug — so the
-		// measurement is that every swatch shares a top edge and the last one ends inside the sidebar.
+		// **All nine on one line, and inside the panel they are drawn in.** This was a 3×3 grid, and
+		// three of these pickers made the selected Annotation's card the tallest thing in the sidebar it
+		// used to be in. A wrapped row is the failure this asserts against — it looks like a design
+		// choice rather than a bug — so the measurement is that every swatch shares a top edge and the
+		// last one ends inside the Inspector, which is now the box that has to be wide enough for them.
 		const boxes = await page
 			.getByTestId('annotation-marker-color')
 			.locator('label')
@@ -1254,9 +1357,9 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 			);
 		expect(boxes).toHaveLength(9);
 		expect(new Set(boxes.map((box) => box.top)).size).toBe(1);
-		const sidebar = (await page.getByTestId('layer-sidebar').boundingBox())!;
+		const panel = (await inspector(page).boundingBox())!;
 		expect(Math.max(...boxes.map((box) => box.right))).toBeLessThanOrEqual(
-			Math.round(sidebar.x + sidebar.width)
+			Math.round(panel.x + panel.width)
 		);
 
 		// One choice, made the way a scholar makes it, reaching the file. The *vocabulary* — which nine,
@@ -1268,10 +1371,10 @@ test.describe('style controls write simplestyle names exactly (SPEC stories 63, 
 		expect(chosen).toBe(ANNOTATION_COLOR.purple);
 	});
 
-	// **Which controls a pin is offered is `AnnotationEditor`'s and has moved** — that there is no
-	// fill on a pin so there is no control for one, and that the whole Line group is absent rather
-	// than empty, are asserted per geometry in `annotation-editor.dom.test.ts` against a component
-	// handed a `Point`. What that seam cannot see is the other end of the same union: that what those
+	// **Which controls a pin is offered is the Style face's and has moved** — that there is no fill on a
+	// pin so there is no control for one, and that the whole Line group is absent rather than empty, are
+	// asserted per geometry in `annotation-style-face.dom.test.ts` against a component handed a
+	// `Point`. What that seam cannot see is the other end of the same union: that what those
 	// controls write lands in the Layer's own file under simplestyle's exact names, which is storage
 	// and stays here.
 	test('a pin’s marker properties reach the file under simplestyle’s own names', async ({
@@ -1467,6 +1570,21 @@ test.describe('style is on each Annotation (ADR-0009, as amended)', () => {
 });
 
 test.describe('deleting an Annotation (SPEC story 66)', () => {
+	/**
+	 * Which element has the keyboard, by its `data-testid`, or `'BODY'` for nowhere.
+	 *
+	 * ⚠ **Polled rather than read once.** The keyboard is put back *after* the deletion's store write, so
+	 * "the row is gone" is reached before the focus has moved — measured either side of the same
+	 * assertion on two runs of this test. `document.body` is the failing answer this claim is about, and a
+	 * single read would report it while the fix was on its way.
+	 */
+	const focused = (page: Page): Promise<string> =>
+		page.evaluate(() => {
+			const at = document.activeElement;
+			if (at === null || at === document.body) return 'BODY';
+			return at.getAttribute('data-testid') ?? at.tagName;
+		});
+
 	test('removes it from the file and leaves the others', async ({ page }) => {
 		const layerId = await startAnnotating(page);
 		await drawPin(page, 0.3, 0.3);
@@ -1475,9 +1593,26 @@ test.describe('deleting an Annotation (SPEC story 66)', () => {
 		await chooseTool(page, 'select');
 		await expect(page.getByTestId('annotation-row')).toHaveCount(3);
 
+		// ── DISMISSING LEAVES THE KEYBOARD IN THE LIST (story 56) ───────────────────────────
+		//
+		// Folded in here rather than given a test of its own: this is the suite's Project with three
+		// Annotations in one Layer, which is what both halves of the claim need, and the Seam 2 budget
+		// (`scripts/check-seam-2-size.mjs`) is spent.
+		//
+		// **Both controls that take the Inspector off the map are inside it**, so the keyboard has nowhere
+		// to be unless it is put somewhere: without this it is on `document.body` and the way back into the
+		// list is Tab from the top of the document, past MapLibre's own controls.
+		await selectAnnotation(page, 1);
+		await page.getByTestId('annotation-inspector-close').click();
+		await expect(inspector(page)).toHaveCount(0);
+		await expect.poll(() => focused(page)).toBe('annotation-row');
+		// And dismissing left the list alone: the Layer's card is still open and the rows are still there,
+		// which is the whole of story 20.
+		await expect(page.getByTestId('annotation-row')).toHaveCount(3);
+
 		const before = (await storedAnnotations(page, layerId)).features.map((one) => one.id);
 		await selectAnnotation(page, 1);
-		await page.getByTestId('annotation-delete').click();
+		await deleteAnnotation(page);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		const after = (await storedAnnotations(page, layerId)).features.map((one) => one.id);
@@ -1485,7 +1620,21 @@ test.describe('deleting an Annotation (SPEC story 66)', () => {
 		expect(await readAnnotationText(page, layerId)).not.toContain(before[1]!);
 		await expect(page.getByTestId('annotation-row')).toHaveCount(2);
 		// The editor closes with it, rather than showing an Annotation that is no longer there.
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
+		// And the keyboard goes to the row that took its place, for the same reason as above.
+		await expect.poll(() => focused(page)).toBe('annotation-row');
+
+		// ── AND WHEN THE LAST ANNOTATION GOES, TO *NEW ANNOTATION* IN THE SAME CARD ──────────
+		//
+		// The commonest delete of all — undoing a shape drawn by mistake in a Layer just made — and the
+		// one case where "a row in the list" does not exist to be focused. With `rows.length === 0` the
+		// keyboard was left on `document.body`, which is exactly what story 56 is against.
+		await selectAnnotation(page, 0);
+		await deleteAnnotation(page);
+		await selectAnnotation(page, 0);
+		await deleteAnnotation(page);
+		await expect(page.getByTestId('annotation-row')).toHaveCount(0);
+		await expect.poll(() => focused(page)).toBe('annotation-new');
 	});
 });
 
@@ -1528,7 +1677,7 @@ test.describe('display state never reaches the GeoJSON (ADR-0002, ADR-0010)', ()
 		const row = page.getByTestId('annotation-row').first();
 		await row.click();
 		await expect(row).toHaveAttribute('aria-expanded', 'false');
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 		await row.click();
 		await expect(row).toHaveAttribute('aria-expanded', 'true');
 
@@ -1627,26 +1776,41 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		expect(stored.features).toHaveLength(2);
 		expect(stored.features[1]?.geometry?.type).toBe('LineString');
 
-		// Every control on the selected Annotation is reachable too — including the one that now stands
-		// between the keyboard and the text: the pencil that turns it into fields. It is native, which is
+		// Every control in the Inspector is reachable too — including the one that now stands between the
+		// keyboard and the text: the *Edit text* button that turns it into fields. It is native, which is
 		// why it needed no key handler of its own (ADR-0016); this is what asserts that.
 		await chooseTool(page, 'select');
-		// **Opened as text first, which is how every panel but a freshly drawn one opens.** The line just
-		// finished arrives with its title as a field and the keyboard in it, so the row is collapsed and
-		// opened again — the ordinary read gesture, where the pencil is what stands between the words and
-		// the fields.
-		// Waited on rather than clicked twice in a row: the panel is destroyed when the row finishes
-		// collapsing, and a reopen inside that animation would be handed the same instance with its
-		// fields still up.
+		// **Opened as text first, which is how the Inspector opens for every Annotation but a freshly
+		// drawn one.** The line just finished arrives with its title as a field and the keyboard in it, so
+		// the selection is cleared and made again — the ordinary read gesture, where *Edit text* is what
+		// stands between the words and the fields.
 		await page.getByTestId('annotation-row').nth(1).click();
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 		await selectAnnotation(page, 1);
-		await tabTo(page, page.getByTestId('annotation-edit-text'), 'the edit pencil');
+		await tabTo(page, page.getByTestId('annotation-edit-text'), 'the Edit text button');
 		await page.keyboard.press('Enter');
 		for (const control of ['annotation-title', 'annotation-description']) {
 			await tabTo(page, page.getByTestId(control), control);
 		}
 		await page.getByTestId('annotation-text-done').click();
+
+		// Delete is on the Text face, beside the words it destroys, and it is reached by Tab like the rest.
+		await tabTo(page, page.getByTestId('annotation-delete'), 'annotation-delete');
+
+		// **And the Style face is reached from the keyboard as well, which is the whole of story 59 now
+		// that there is a strip in front of the controls.** The tab strip is a radio group, so it is one
+		// tab stop that lands on the checked member and arrow keys move along it — nothing was written to
+		// make that work, which is what "every control is a native element" buys.
+		await tabTo(
+			page,
+			page.getByTestId('annotation-inspector-tab-text').locator('input'),
+			'the Text tab'
+		);
+		await page.keyboard.press('ArrowRight');
+		await expect(page.getByTestId('annotation-inspector-face')).toHaveAttribute(
+			'data-face',
+			'style'
+		);
 
 		// A radio group is one tab stop and it lands on the checked member, which is why this asks for the
 		// checked swatch rather than for the row: the row itself is a `<div>` and never takes focus.
@@ -1662,11 +1826,7 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		);
 		// The measured properties are reached by Tab and nothing else, now that no disclosure stands in
 		// front of them — and in the order the Line group draws them, which is the order they are read in.
-		for (const control of [
-			'annotation-stroke-width',
-			'annotation-stroke-opacity',
-			'annotation-delete'
-		]) {
+		for (const control of ['annotation-stroke-width', 'annotation-stroke-opacity']) {
 			await tabTo(page, page.getByTestId(control), control);
 		}
 		expect(failures).toEqual([]);
@@ -1868,7 +2028,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		// starting state.
 		await drawPin(page, 0.35, 0.4);
 		await selectAnnotation(page);
-		await expect(page.getByTestId('annotation-editor')).toBeVisible();
+		await expect(inspector(page)).toBeVisible();
 
 		// A second Layer to open. It goes on top, so `routes` moves down and stays open.
 		await page.getByTestId('add-annotation-layer').click();
@@ -1894,7 +2054,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'false');
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', 'select');
 		await expect(page.getByTestId('annotation-new')).toBeVisible();
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 		// And the Layer that was opened is empty, said in this app's own words.
 		await expect(page.getByTestId('annotation-list-empty')).toBeVisible();
 
@@ -1945,7 +2105,7 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 			'aria-expanded',
 			'false'
 		);
-		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await expect(inspector(page)).toHaveCount(0);
 
 		// The pin is still painted, so the click below has something to hit.
 		await waitForPaintedAnnotations(page, [pinId]);
@@ -1961,8 +2121,8 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 			'aria-expanded',
 			'false'
 		);
-		await expect(page.getByTestId('annotation-editor')).toBeVisible();
-		await expect(page.getByTestId('annotation-title-text')).toHaveText('Fort Amsterdam');
+		await expect(inspector(page)).toBeVisible();
+		await expect(page.getByTestId('annotation-inspector-name')).toHaveText('Fort Amsterdam');
 		await expect(rowFor(page, routes).getByTestId('annotation-row').first()).toHaveAttribute(
 			'aria-expanded',
 			'true'
@@ -2156,7 +2316,7 @@ test.describe('placing a Pin at a Place', () => {
 		// **Selected on placement**, exactly as a drawn one is, so retitling it does not begin with
 		// hunting for it. Asserted on the editor and on the row's own expanded state rather than on a
 		// highlight.
-		await expect(page.getByTestId('annotation-editor')).toBeVisible();
+		await expect(inspector(page)).toBeVisible();
 		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
 		// And its vertex handle is on the map, which is the affordance the correction is made with.
 		await expect(page.getByTestId('pane-overlay-point-annotation-vertex')).toHaveCount(1);

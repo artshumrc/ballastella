@@ -41,6 +41,7 @@
 		canSolve,
 		resolveBaseMap,
 		type Alignment,
+		type Annotation,
 		type AnnotationCollection,
 		type AnnotationLayer,
 		type Layer,
@@ -57,6 +58,8 @@
 		type ReadCachedTile
 	} from '@ballastella/core/render';
 	import {
+		AnnotationInspector,
+		ANNOTATION_INSPECTOR_ID,
 		BaseMapSwitcher,
 		KIND_STYLE,
 		LayerList,
@@ -65,9 +68,11 @@
 		MapNotice,
 		type Box
 	} from '@ballastella/ui';
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 
 	import AnnotationLayerContents from '$lib/annotations/AnnotationLayerContents.svelte';
+	import AnnotationStyleFace from '$lib/annotations/AnnotationStyleFace.svelte';
+	import AnnotationTextFace from '$lib/annotations/AnnotationTextFace.svelte';
 	import { AnnotationEditing } from '$lib/annotations/annotation-editing.svelte.js';
 	import BaseMapPane from '$lib/base-map/BaseMapPane.svelte';
 	import MakeOfflineDialog from '$lib/base-map/MakeOfflineDialog.svelte';
@@ -515,6 +520,82 @@
 	};
 
 	/**
+	 * Put the keyboard back in the Annotation list once the Inspector has been asked to go.
+	 *
+	 * The control that was pressed — *Dismiss*, or *Delete* — is inside the panel that is leaving, so
+	 * without this the keyboard ends up nowhere and the way back is Tab from the top of the document,
+	 * past MapLibre's own controls (the-annotation-inspector story 56).
+	 *
+	 * ⚠ **"Focus is on `document.body`" is not the test here, and that is the trap.** The Inspector
+	 * leaves over 220 ms, so one microtask after the selection is cleared the pressed button is still in
+	 * the document and still `document.activeElement` — a guard reading `body` alone did nothing at all,
+	 * and left the keyboard on a control that vanished a fifth of a second later.
+	 * `LayerList.deleteByButton` can read `body` because the card it deletes goes at once.
+	 *
+	 * Focus is still only ever *restored*: anything outside the outgoing panel that has taken the
+	 * keyboard in the meantime keeps it.
+	 */
+	async function returnKeyboardToList(row: Element | null | undefined): Promise<void> {
+		await tick();
+		const active = document.activeElement;
+		const leaving = document.getElementById(ANNOTATION_INSPECTOR_ID);
+		const stranded = active === document.body || (active !== null && leaving?.contains(active));
+		if (!stranded) return;
+		if (row instanceof HTMLElement) row.focus();
+	}
+
+	/**
+	 * Dismiss the Inspector, leaving the keyboard on the row the scholar chose it from.
+	 *
+	 * **Dismissing is deselecting**, because the selected row *is* the Annotation the Inspector
+	 * describes: one fact, one value (the-annotation-inspector story 54), and a row that stayed selected
+	 * with the panel gone would have no way back — pressing it again would deselect it. What dismissing
+	 * does not touch is the list: the Layer's card stays open and the row stays where it was, so the
+	 * scholar's place in it survives the panel going (story 20).
+	 */
+	async function dismissInspector(): Promise<void> {
+		const row = selectedRow();
+		annotations.selectAnnotation(null);
+		await returnKeyboardToList(row);
+	}
+
+	/**
+	 * Delete the selected Annotation, and leave the keyboard in the list rather than nowhere.
+	 *
+	 * The row that had the selection goes with the Annotation, so the keyboard is handed the row that
+	 * takes its place — or the last one, when what was deleted was last. The deletion itself, and the
+	 * undo record it writes, are `AnnotationEditing.deleteSelected`'s.
+	 *
+	 * ⚠ **When there is no Annotation left, the keyboard goes to *New Annotation* in the same card.**
+	 * Deleting the only Annotation in a Layer is the commonest delete of all — it undoes a shape drawn by
+	 * mistake in a Layer just made — and it is the one case where "a row in the list" does not exist to
+	 * be focused. `LayerList.deleteByButton` has a fallback for the same reason one level up. The button
+	 * is in the open Layer's own card, beside where the row was, and pressing it is what somebody who has
+	 * just emptied a Layer is most likely to want next.
+	 *
+	 * ⚠ **Which Annotation takes the place is asked of the collection and only the *row* of the DOM.**
+	 * Counting the rows that are on the screen looks equivalent and is not: `deleteSelected` awaits a
+	 * write, so one `tick` after it the list has sometimes not been re-rendered, and the row at the
+	 * deleted Annotation's index is then the doomed row itself. Focusing it succeeded and the removal
+	 * a moment later put the keyboard on `document.body` — the very outcome this function exists to
+	 * prevent, failing about half the time.
+	 */
+	async function deleteSelectedAnnotation(): Promise<void> {
+		const at = annotations.selectedIndex;
+		await annotations.deleteSelected();
+		await tick();
+		const remaining = annotations.activeCollection?.annotations ?? [];
+		const next = remaining[Math.min(at, remaining.length - 1)];
+		await returnKeyboardToList(
+			next
+				? (layerSidebar?.querySelector<HTMLElement>(
+						`[data-testid="annotation-row"][data-annotation-id="${CSS.escape(next.id)}"]`
+					) ?? null)
+				: layerSidebar?.querySelector<HTMLElement>('[data-testid="annotation-new"]')
+		);
+	}
+
+	/**
 	 * A Place was chosen on the open Annotation Layer: **frame the map on it, and drop a Pin there.**
 	 *
 	 * **Placing always frames** (ADR-0029). A scholar looking at Amsterdam who picks a Boston address
@@ -823,20 +904,21 @@
 </script>
 
 <!--
-	Escape abandons a part-drawn shape from anywhere on the screen, and then collapses the open
-	Annotation row. **In that order**, because a gesture in progress is what somebody pressing Escape
-	almost always means, and the row is what is left when there is no gesture to abandon (ticket 07).
+	Escape abandons a part-drawn shape from anywhere on the screen, and then clears the Annotation
+	selection — which takes the Inspector off the map with it. **In that order**, because a gesture in
+	progress is what somebody pressing Escape almost always means, and the selection is what is left when
+	there is no gesture to abandon (ticket 07).
 
 	On the window rather than on the pane, for the reason ADR-0022 gives for the pending Control Point
 	half: the user may have tabbed away to the toolbar or the Annotation list, and "Escape only works if
 	you have not moved the focus" is not a cancel affordance. It abandons rather than commits, because a
 	half-drawn shape somebody walked away from is not something they asked to keep.
 
-	**Not while a dialog, the Project menu, or the open row's editor has the keypress.** Each of them
-	consumes Escape itself — a `<dialog>` closes, a popover light-dismisses, the editor's title field
-	leaves itself — and every one of them keeps the keypress propagating afterwards, so acting on it
-	here as well would abandon a drawing gesture the user cannot even see, or shut the panel they were
-	typing in.
+	**Not while a dialog, the Project menu, or the Inspector's own fields have the keypress.** Each of
+	them consumes Escape itself — a `<dialog>` closes, a popover light-dismisses, the Inspector's title
+	field leaves itself — and every one of them keeps the keypress propagating afterwards, so acting on it
+	here as well would abandon a drawing gesture the user cannot even see, or take away the panel they
+	were typing in.
 -->
 <svelte:window
 	onkeydown={(event) => {
@@ -853,19 +935,21 @@
 		// the next dialog silently fails to join. Escape's close request is the keypress's *default
 		// action*, so the element is still open while this handler runs.
 		//
-		// And an Escape inside the open row belongs to the field it was pressed in: the editor's title
-		// input treats it as "leave this field" and the description textarea ignores it, so collapsing
-		// the whole row here would shut the panel the scholar is typing in on a keypress that meant far
-		// less. The region is found through the row's own `aria-controls` target rather than by asking
-		// `AnnotationEditor` to stop propagating — the ordering of Escape's jobs on this screen is this
-		// handler's to know, and the row's header button is deliberately outside it, so Escape with the
-		// row itself focused still collapses it.
+		// And an Escape from **anywhere inside the Annotation Inspector** belongs to the Inspector — the
+		// whole region, not only the fields in it. The title input treats it as "leave this field"; the
+		// description, the tab strip, the swatches, the sliders and *Delete* treat it as nothing at all,
+		// which is the right answer for a control whose own Escape means nothing: taking the panel off the
+		// map is far more than the keypress asked for, and the way out of the panel is *Dismiss* or an
+		// Escape from the row. That reach is the one the in-row contents region had while an Annotation was
+		// read inside its row, so it is unchanged rather than widened. The panel is found by its own id
+		// rather than by asking it to stop propagating — the ordering of Escape's jobs on this screen is
+		// this handler's to know — and the row in the sidebar is deliberately outside it, so Escape with
+		// the row itself focused still deselects.
 		if (menu?.isOpen()) return;
 		if (document.querySelector('dialog[open]') !== null) return;
-		const openRow = document.getElementById(
-			`annotation-contents-${annotations.selectedAnnotationId}`
-		);
-		if (openRow !== null && event.target instanceof Node && openRow.contains(event.target)) return;
+		const inspector = document.getElementById(ANNOTATION_INSPECTOR_ID);
+		if (inspector !== null && event.target instanceof Node && inspector.contains(event.target))
+			return;
 		if (drawing.cancel()) return;
 		if (annotations.selectedAnnotationId !== null) annotations.selectAnnotation(null);
 	}}
@@ -1288,6 +1372,7 @@
 						}}
 						onfinishshape={() => void annotations.finishShape()}
 						onstack={(reported) => (rendered = reported)}
+						overlay={mapOverlay}
 					/>
 				</div>
 
@@ -1677,7 +1762,9 @@
 
 <!--
 	What is inside an Annotation Layer, rendered by `LayerList` inside that Layer's open row: the
-	drawing tools, its Annotations, and the selected one's editor.
+	drawing tools and its Annotations. **Not the selected Annotation itself** — that is read in the
+	Annotation Inspector over the map (ADR-0035), which is docked from this file because this file is
+	where the pane is.
 
 	**A snippet passed down rather than markup inside `LayerList`**, because everything it needs is
 	reachable from here and from nowhere in the stack: the collection, the selection, the
@@ -1693,7 +1780,6 @@
 	<AnnotationLayerContents
 		collection={annotations.activeCollection}
 		selectedId={annotations.selectedAnnotationId}
-		titlingId={annotations.titlingId}
 		tool={drawing.tool}
 		picking={drawing.picking}
 		status={drawing.status}
@@ -1706,10 +1792,71 @@
 		oncancel={() => drawing.cancel()}
 		onundovertex={() => drawing.undoVertex()}
 		onselect={(id) => annotations.selectAnnotation(id)}
+	/>
+{/snippet}
+
+<!--
+	The Annotation Inspector's two faces, and the dock it sits in (ADR-0035).
+
+	**Both faces are the editor's snippets, and the Style one is withheld rather than emptied.** An
+	Annotation whose geometry this build cannot draw is passed no `style` at all, so it has no Style tab
+	rather than a tab that opens on an explanation of its own emptiness — and the viewer withholds the
+	same prop for the same effect, which is the whole of why a Reader has no tab strip
+	(the-annotation-inspector stories 28, 66).
+-->
+{#snippet inspectorText(annotation: Annotation)}
+	<AnnotationTextFace
+		{annotation}
+		titling={annotation.id === annotations.titlingId}
 		ontext={(text) => void annotations.typeText(text)}
+		ontitled={() => (annotations.titlingId = null)}
 		oncommit={() => void annotations.commitAnnotationEdit()}
+		ondelete={() => void deleteSelectedAnnotation()}
+	/>
+{/snippet}
+
+{#snippet inspectorStyle(annotation: Annotation)}
+	<AnnotationStyleFace
+		{annotation}
 		onstyle={(style, options) => void annotations.styleSelected(style, options)}
 		onlinestyle={(line) => void annotations.lineStyleSelected(line)}
-		ondelete={() => void annotations.deleteSelected()}
+		oncommit={() => void annotations.commitAnnotationEdit()}
 	/>
+{/snippet}
+
+<!--
+	**Docked inside the Base Map pane's own positioned container**, which is what the pane's `overlay`
+	snippet is for: top-right inset, a comfortable measure wide with a `max-width` so it cannot exceed a
+	narrow pane, and the map still visible below it and beside it (stories 15, 17).
+
+	⚠ **`z-index: 7` is load-bearing.** The leader is 5 and `layout.css` forces MapLibre's four control
+	corners to 6 so the leader cannot be drawn across them; all three are compared in one stacking
+	context, because `.maplibregl-map` opens none. 7 is one clear of the controls, which is what keeps
+	the leader and the zoom control under this rather than through it (stories 18, 22).
+
+	⚠ **The `{#if}` is unkeyed and must not dip false while the selection moves.** `AnnotationInspector`
+	owns a fixed element id and a 220 ms out transition, so an outgoing panel that overlapped an incoming
+	one would put two elements on `id="annotation-inspector"` — merging their tab strips into one radio
+	group and leaving the row's `aria-controls` naming two targets.
+
+	What holds the invariant is that **every transition writes `selectedAnnotationId` and replaces the
+	collection in one synchronous task**, so `selectedAnnotation` never resolves to `null` on a flush in
+	between: `#addDrawn` selects and then commits, and `restoreDeleted` puts the Annotation back and
+	selects it. An `await` slipped between those two writes would leave one flush with the id naming an
+	Annotation the collection has not got, this block would go false for that frame, and the fault would
+	be a duplicated element id rather than anything visible — so the ordering is load-bearing and silent
+	if broken.
+-->
+{#snippet mapOverlay()}
+	{#if annotations.selectedAnnotation}
+		<div class="absolute top-2 right-2 z-[7] w-80 max-w-[calc(100%-1rem)]">
+			<AnnotationInspector
+				annotation={annotations.selectedAnnotation}
+				index={annotations.selectedIndex}
+				onclose={() => void dismissInspector()}
+				text={inspectorText}
+				style={annotations.selectedIsDrawable ? inspectorStyle : undefined}
+			/>
+		</div>
+	{/if}
 {/snippet}

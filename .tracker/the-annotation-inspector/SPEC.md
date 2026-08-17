@@ -125,8 +125,8 @@ An author is a scholar using the editor. A Reader meets a Published Site. Where 
     dismiss a panel to zoom.
 19. As an author, I want the selected mark to stay out from under the panel, so that the leader ends
     somewhere I can see.
-20. As an author, I want to dismiss the panel, so that I can have the whole map back without
-    deselecting my place in the list.
+20. As an author, I want to dismiss the panel, so that I can have the whole map back without losing my
+    place in the list.
 21. As an author, I want a long description to scroll inside the panel, so that the panel cannot grow
     over the attribution the Base Map's licence requires.
 22. As an author, I want the leader drawn under the panel rather than across it, so that a decoration

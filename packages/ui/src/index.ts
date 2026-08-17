@@ -18,7 +18,13 @@
 // the signal behind it is not. Merging them would settle that argument by deleting it, so a
 // contributor who comes here looking for the theme should read that header first.
 
+// One Annotation's description, sanitised. The whole of the package's `{@html}`, so a surface that
+// wants rendered Markdown composes this rather than writing one of its own: see its header.
+export { default as AnnotationDescription } from './AnnotationDescription.svelte';
 export { default as AnnotationInspector } from './AnnotationInspector.svelte';
+// The id a row's `aria-controls` names, so the two spellings cannot drift apart. Its own module rather
+// than the component's `<script module>`: see the header of `annotation-inspector-id.ts`.
+export { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
 export { default as AnnotationList } from './AnnotationList.svelte';
 export { default as AnnotationReading } from './AnnotationReading.svelte';
 export { default as AnnotationRow } from './AnnotationRow.svelte';

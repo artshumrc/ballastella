@@ -9,7 +9,7 @@
 	// state its own gestures change: a click on a row calls `onselect`, "New Annotation" calls
 	// `onselect(null)`, and both then wait for the selection to come back down as a prop. In the
 	// running application `ProjectScreen` updates that `$state` synchronously inside the callback, so
-	// the editor has appeared or gone by the time the click returns. A test that assigned a new
+	// the row is marked or unmarked by the time the click returns. A test that assigned a new
 	// `selectedId` afterwards would be asserting its own assignment rather than the component's
 	// behaviour, and would still pass if the component stopped reporting the gesture at all.
 	//
@@ -28,17 +28,13 @@
 	let {
 		collection,
 		selectedId: initialSelectedId = null,
-		titlingId = null,
 		tool: initialTool = 'select',
 		status = '',
 		canFinish = false,
-		onselect,
-		onstyle,
-		ontext
+		onselect
 	}: {
 		collection: AnnotationCollection | null;
 		selectedId?: string | null;
-		titlingId?: string | null;
 		/**
 		 * The tool in hand at mount, for the state the page is in mid-gesture. Seeded like `selectedId`,
 		 * and the harness's own afterwards.
@@ -48,8 +44,6 @@
 		canFinish?: boolean;
 		/** Reported as well as applied, so a test can assert what the component asked for. */
 		onselect?: (id: string | null) => void;
-		onstyle?: (style: Record<string, unknown>) => void;
-		ontext?: (text: { title?: string; description?: string }) => void;
 	} = $props();
 
 	// Seeded once, then the harness's own: after the first render the selection is whatever the last
@@ -73,7 +67,6 @@
 <AnnotationLayerContents
 	{collection}
 	{selectedId}
-	{titlingId}
 	tool={drawing.tool}
 	picking={drawing.picking}
 	{status}
@@ -89,9 +82,4 @@
 		onselect?.(id);
 		selectedId = id;
 	}}
-	ontext={(text) => ontext?.(text)}
-	oncommit={() => {}}
-	onstyle={(style) => onstyle?.(style)}
-	onlinestyle={() => {}}
-	ondelete={() => {}}
 />

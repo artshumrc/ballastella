@@ -29,6 +29,7 @@
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { fly } from 'svelte/transition';
 
+	import { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
 	import { annotationName, shapeWord } from './annotation-name.js';
 	import { KIND_STYLE } from './layer-kind-style.js';
 	import { iconForGeometry } from './shape-icons.js';
@@ -44,9 +45,9 @@
 		/**
 		 * Where this Annotation sits in its collection, counted from zero.
 		 *
-		 * Read for the ordinal the header draws and for the untitled fallback's number, and handed on to
-		 * the `text` snippet so that whatever a consumer renders there can name the Annotation the way
-		 * the header and the row name it.
+		 * Read for the ordinal the header draws and for the untitled fallback's number, and for nothing
+		 * else: the header is the one place this panel names its Annotation, so a face has no use for a
+		 * number it must not draw a name from.
 		 */
 		index: number;
 		/**
@@ -55,8 +56,15 @@
 		 * the list rather than about this panel.
 		 */
 		onclose: () => void;
-		/** The Text face. Both apps pass `AnnotationReading`; the editor wraps it in its own controls. */
-		text: Snippet<[Annotation, number]>;
+		/**
+		 * The Text face: the Annotation's words, below the header that names it.
+		 *
+		 * ⚠ **A face must not draw the title.** The header above it already does, from the rule the row
+		 * draws from, so a face that named its Annotation too would title it twice a few pixels apart in
+		 * the same weight (the-annotation-inspector story 4). What belongs here is the description —
+		 * `AnnotationDescription` — and whatever controls the consumer has for it.
+		 */
+		text: Snippet<[Annotation]>;
 		/**
 		 * The Style face.
 		 *
@@ -70,14 +78,7 @@
 		style?: Snippet<[Annotation]> | undefined;
 	} = $props();
 
-	/**
-	 * The Inspector's own element id, fixed rather than derived from the Annotation.
-	 *
-	 * One Inspector is on screen at a time — one Layer card open, one row selected — which is what
-	 * makes a fixed id safe, the same argument `AnnotationList` makes for its own. A row's
-	 * `aria-controls` points here.
-	 */
-	const ID = 'annotation-inspector';
+	const ID = ANNOTATION_INSPECTOR_ID;
 
 	const FACE_ID = `${ID}-face`;
 
@@ -107,8 +108,8 @@
 	 * collection is re-read — which is after every save, which is while somebody is typing — so an
 	 * effect that read the object rather than comparing its id would re-run on each keystroke's write
 	 * and slam the face back to Text mid-sentence, taking the Style controls away from under the
-	 * pointer. `AnnotationEditor`'s `shown` guard in the editor records the same rule and the suite
-	 * failure that produced it. Comparing the id makes "a different Annotation arrived" the trigger,
+	 * pointer. The editor's `AnnotationTextFace` carries the same guard, for the same rule and the same
+	 * suite failure. Comparing the id makes "a different Annotation arrived" the trigger,
 	 * which is the whole of what the reset is for: the strip has no memory, so selecting another
 	 * Annotation shows its words rather than the previous one's swatches
 	 * (the-annotation-inspector story 26).
@@ -269,7 +270,7 @@
 		{#if style && face === 'style'}
 			{@render style(annotation)}
 		{:else}
-			{@render text(annotation, index)}
+			{@render text(annotation)}
 		{/if}
 	</div>
 </section>

@@ -20,7 +20,13 @@
 // `vitest.config.ts` records the measurement. That claim lives in `e2e/viewer-reader.e2e.ts`, in a
 // real browser, against a real published build (the-annotation-inspector story 72). What the Inspector does with the
 // description is in any case nothing: the Text face is the consumer's snippet, and
-// `AnnotationReading` is asserted in `annotation-list.dom.test.ts`.
+// `AnnotationDescription` is asserted in `annotation-list.dom.test.ts`.
+//
+// ⚠ **Nor can this file see the Annotation named twice.** The header is here and the words are a
+// snippet, and the snippet below is a marker — so a consumer whose face drew a title of its own would
+// pass everything in this file. That count is taken over the composition, in
+// `apps/editor/src/lib/annotations/annotation-text-face.dom.test.ts`, where the real face is mounted
+// inside this component (the-annotation-inspector story 4).
 //
 // ⚠ **No layout claim belongs here either.** This seam has no viewport, no paint and no geometry, so
 // "the map is visible below the panel", "the panel does not grow over the attribution", "a long
@@ -335,8 +341,8 @@ describe('the strip has no memory (the-annotation-inspector story 26)', () => {
 		// ⚠ **This is the half that catches the regression.** `annotation` is a fresh object after every
 		// save, and a save is every keystroke, so an effect that read the object rather than comparing
 		// its id would slam the face back to Text mid-sentence — taking the swatch out from under the
-		// pointer that was about to press it. `AnnotationEditor`'s `shown` guard is the precedent and
-		// records the suite failure the unguarded version produced.
+		// pointer that was about to press it. The editor's `AnnotationTextFace` carries the same guard over
+		// its own fields, and records the suite failure the unguarded version produced.
 		inspect({ annotation: annotation({ id: 'a-1' }), index: 0, withStyle: true });
 		await press(style());
 		expect(one('harness-inspector-style')).toBeInTheDocument();

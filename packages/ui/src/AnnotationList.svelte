@@ -7,8 +7,9 @@
 	// **The list owns the mechanics and the consumer owns the contents.** Expansion, one row at a time,
 	// `aria-expanded`, the animation, where the keyboard stays and bringing an opened row back into the
 	// column are the same wherever an Annotation is met, and they exist once — in `AnnotationRow`.
-	// What an open row *reveals* differs by app and arrives as a snippet: the editor passes its
-	// Annotation editor, a published site passes the title and the rendered description.
+	// What an open row *reveals* differs by app and arrives as a snippet: a published site passes the
+	// title and the rendered description, and the editor passes nothing, because an author reads an
+	// Annotation in the `AnnotationInspector` docked over the map (ADR-0035).
 	//
 	// ⚠ **`tools` is the drawing surface and the place search, and a published site passes neither.**
 	// Not because they would be harmless there — a place search issues a lookup to a third-party
