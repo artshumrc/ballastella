@@ -18,6 +18,7 @@
 // the signal behind it is not. Merging them would settle that argument by deleting it, so a
 // contributor who comes here looking for the theme should read that header first.
 
+export { default as AnnotationInspector } from './AnnotationInspector.svelte';
 export { default as AnnotationList } from './AnnotationList.svelte';
 export { default as AnnotationReading } from './AnnotationReading.svelte';
 export { default as AnnotationRow } from './AnnotationRow.svelte';
