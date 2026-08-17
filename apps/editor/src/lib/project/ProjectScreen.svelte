@@ -52,7 +52,6 @@
 		type Place
 	} from '@ballastella/core';
 	import {
-		ANNOTATION_ORDINAL_CLASS,
 		type DrawnLayer,
 		type DrawnOutcome,
 		type ReadCachedTile
@@ -63,7 +62,8 @@
 		LayerList,
 		LeaderLine,
 		MapCommentary,
-		MapNotice
+		MapNotice,
+		type Box
 	} from '@ballastella/ui';
 	import { untrack } from 'svelte';
 
@@ -473,14 +473,13 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// The leader (ticket 12, SPEC stories 39–42)
 	//
-	// **Both ends already share an identity**, which is what tickets 08 and 10 bought: the number on
-	// the map carries `data-annotation-id` and so does its row. So this screen contributes only the
-	// two boxes and the way to find the two ends in them, and `LeaderLine` owns everything about when
-	// a line is drawn at all.
+	// **It points at the Annotation itself**, at the middle of whatever is drawn for it. There is no
+	// mark in between to aim at: the pane projects the selected Annotation's own coordinate on demand,
+	// and the map draws that Annotation more strongly so both ends of the line say which one it is.
 	//
-	// **Found by querying rather than passed**, because the mark is a MapLibre `Marker` created by
-	// `annotation-ordinals.ts` and is outside this component's tree entirely — `ANNOTATION_ORDINAL_CLASS`
-	// is exported by `core` for exactly this.
+	// So this screen contributes the two columns, the row — found by querying, since only its
+	// `data-annotation-id` identifies it — and the map end's box; `LeaderLine` owns everything about
+	// when a line is drawn at all.
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/**
@@ -493,13 +492,17 @@
 	let layerSidebar = $state<HTMLElement | undefined>();
 	let mapColumn = $state<HTMLElement | undefined>();
 
-	/** The selected Annotation's number on the map, or `null` when there is nothing to point at. */
-	const selectedMark = (): Element | null => {
-		const id = annotations.selectedAnnotationId;
-		if (id === null || !mapColumn) return null;
-		return mapColumn.querySelector(
-			`.${ANNOTATION_ORDINAL_CLASS}[data-annotation-id="${CSS.escape(id)}"]`
-		);
+	/**
+	 * Where the selected Annotation is on the map, or `null` when there is nothing to point at.
+	 *
+	 * Projected at draw time rather than measured off an element, because an Annotation is painted
+	 * into the map's canvas and has no element of its own. An Annotation whose geometry this build
+	 * cannot draw has no box, and so no line — which is the same answer as before, arrived at without
+	 * a mark having to be missing to say so.
+	 */
+	const selectedMark = (): Box | null => {
+		const annotation = annotations.selectedAnnotation;
+		return annotation ? (baseMapPane?.annotationBox(annotation) ?? null) : null;
 	};
 
 	/** That Annotation's row, which is on screen only while its Layer's card is open. */
@@ -1260,6 +1263,7 @@
 				<div bind:this={mapColumn} class="min-h-0 grow overflow-hidden" data-testid="project-map">
 					<BaseMapPane
 						bind:this={baseMapPane}
+						selectedAnnotationId={annotations.selectedAnnotationId}
 						entryId={resolution.entry.id}
 						{cachedBaseMap}
 						layers={drawn}
@@ -1341,8 +1345,8 @@
 			<!--
 				The leader, last so that it paints over both columns (SPEC stories 39–42).
 
-				⚠ **Nothing about which Annotation is active depends on it.** The number is on the mark and
-				on the row and the row's `aria-expanded` says which one is open, so this adds no fact —
+				⚠ **Nothing about which Annotation is active depends on it.** The row's `aria-expanded` says
+				which one is open and the map draws it more strongly, so this adds no fact —
 				which is why it is `aria-hidden`, takes no pointer events, and is simply not drawn when
 				either end has left its own column.
 			-->

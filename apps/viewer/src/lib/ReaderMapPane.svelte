@@ -41,6 +41,7 @@
 		defaultEntry,
 		isAbsoluteUrl,
 		keepAskingForMissingTiles,
+		type Annotation,
 		type BaseMapCatalog,
 		type FetchFn,
 		type OpeningViewFit
@@ -48,6 +49,7 @@
 	import {
 		annotationDrawKey,
 		annotationLayerIds,
+		annotationMarkBox,
 		cachedBaseMapTileTemplate,
 		drawLayerStack,
 		isDrawnMap,
@@ -56,6 +58,7 @@
 		type DrawnLayer,
 		type DrawnOutcome,
 		type ReadCachedTile,
+		type ScreenBox,
 		type StackRender
 	} from '@ballastella/core/render';
 	import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
@@ -80,7 +83,8 @@
 		tilesMissing = false,
 		onclickannotation,
 		onstack,
-		onbasemapstatus
+		onbasemapstatus,
+		selectedAnnotationId = null
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
@@ -188,6 +192,13 @@
 		 * back. The note on the `error` handler below has which failures recover and which cannot.
 		 */
 		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
+		/**
+		 * Which Annotation is open, so the map draws that one more strongly (SPEC story 40).
+		 *
+		 * The same prop `BaseMapPane` takes, for the same reason: selection is the page's state, and
+		 * the row, the map and the leader all read the one value.
+		 */
+		selectedAnnotationId?: string | null;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -219,6 +230,16 @@
 			const at = cameraWatchers.indexOf(watcher);
 			if (at !== -1) cameraWatchers.splice(at, 1);
 		};
+	}
+
+	/**
+	 * Where `annotation` is drawn on the screen right now, for the leader to point at.
+	 *
+	 * Exported and imperative for the reason {@link onCameraMove} is: the leader asks this once per
+	 * frame of a pan, and a value routed through a `$state` would cost a component flush per frame.
+	 */
+	export function annotationBox(annotation: Annotation): ScreenBox | null {
+		return map ? annotationMarkBox(map, annotation) : null;
 	}
 
 	/**
@@ -709,6 +730,11 @@
 				built.setAnnotations(stacked.layer.id, stacked.annotations ?? { annotations: [] });
 			}
 		}
+	});
+
+	/** The selection, applied in place — see {@link stackStructure} for why this is not a rebuild. */
+	$effect(() => {
+		stack?.setSelectedAnnotation(selectedAnnotationId ?? null);
 	});
 
 	/** Opacity, applied in place — see {@link stackStructure} for why this is not a rebuild. */

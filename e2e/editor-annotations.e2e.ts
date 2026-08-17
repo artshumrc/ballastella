@@ -81,18 +81,17 @@ function watchFailures(page: Page): string[] {
 	return failures;
 }
 
-/** How many ordinal marks left the document and how many entered it, counted in the page. */
-type OrdinalChurn = { added: number; removed: number };
-
 /**
- * How far short of a mark's own coordinate the leader stops, in page pixels.
+ * How far short of an Annotation's own coordinate the leader stops, in page pixels.
  *
- * The mark is a 20 px disc (`annotation-ordinals.ts`) and the line clears it by two, so the end sits
- * twelve pixels back along its own direction. Written out here rather than imported, for the reason
- * `SIMPLESTYLE_NAMES` gives: the Playwright project resolves nothing from `@ballastella/core`, and a
- * number copied from the design is a better witness than one imported from the code under test.
+ * A line and a shape are a *point* on the screen — there is no mark around them to clear — so the
+ * only shortening is the leader's own two-pixel clearance (`leader-line.ts`). A Pin would be its
+ * pin's half-height instead, and the Annotation this is asserted against is a shape. Written out
+ * here rather than imported, for the reason `SIMPLESTYLE_NAMES` gives: the Playwright project
+ * resolves nothing from `@ballastella/core`, and a number copied from the design is a better witness
+ * than one imported from the code under test.
  */
-const MARK_RADIUS = 12;
+const MARK_CLEARANCE = 2;
 
 /**
  * The style property names simplestyle 1.1.0 defines, plus ADR-0009's one extension.
@@ -164,7 +163,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		expect(ring[0]?.at(0)).toEqual(ring[0]?.at(-1));
 	});
 
-	test('all three appear on the map, each painted by the layer for its geometry and numbered', async ({
+	test('all three appear on the map, each painted by the layer for its geometry', async ({
 		page
 	}) => {
 		const failures = watchFailures(page);
@@ -189,33 +188,19 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		expect(painted[shape!]).toContain(`ballastella-layer-${layerId}-fill`);
 
 		// ─────────────────────────────────────────────────────────────────────────────────────
-		// AND EACH CARRIES ITS NUMBER, ON THE MAP AND ON ITS ROW (stories 37, 38, 42)
+		// AND EACH IS NUMBERED IN THE SIDEBAR (stories 37, 38, 42)
 		//
 		// Folded in here rather than given a test of its own because this is already the suite's one
 		// Project holding a pin, a line and a shape at once — and because the Seam 2 budget is spent
 		// (`scripts/check-seam-2-size.mjs`). The *rule* is asserted where it is cheap:
 		// `packages/core/src/annotation/ordinal.test.ts` for what the numbers are and that they reach
-		// no file, `packages/core/src/render/annotation-ordinals.test.ts` for where a shape's number is
-		// anchored, `packages/ui/src/annotation-list.dom.test.ts` for the row. What needs a browser is
-		// that the two surfaces really agree, and that a mark really lands over its Annotation.
-		await expect
-			.poll(() =>
-				page
-					.locator('[data-testid="annotation-ordinal"]')
-					.evaluateAll((marks) =>
-						Object.fromEntries(
-							marks.map((mark) => [
-								(mark as HTMLElement).dataset['annotationId'],
-								mark.textContent?.trim()
-							])
-						)
-					)
-			)
-			.toEqual({ [pin!]: '1', [line!]: '2', [shape!]: '3' });
-		// The sidebar says the same, which is the whole claim: one rule in `core`, read by both, so the
-		// canvas and the column cannot drift apart. `select` first, because the list stands aside while
-		// a drawing tool is armed and what is on screen until then is the one Annotation just drawn —
-		// which is already numbered 3, from its place in the collection rather than in that row.
+		// no file, `packages/ui/src/annotation-list.dom.test.ts` for the row. The number is the list's
+		// own counting and is drawn nowhere on the map: a numbered disc floating over the geography
+		// read as a second kind of pin, in a place the scholar had not put one.
+		//
+		// `select` first, because the list stands aside while a drawing tool is armed and what is on
+		// screen until then is the one Annotation just drawn — which is already numbered 3, from its
+		// place in the collection rather than in that row.
 		await expect(page.getByTestId('annotation-drawn')).toContainText('3');
 		await chooseTool(page, 'select');
 		expect(await page.getByTestId('annotation-row-ordinal').allTextContents()).toEqual([
@@ -224,19 +209,14 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 			'3'
 		]);
 
-		// ── WHERE A SHAPE'S NUMBER IS ANCHORED, AND THAT IT STAYS THERE ──────────────────────
+		// ── WHERE A SHAPE IS POINTED AT ─────────────────────────────────────────────────────
 		//
-		// A line's and a shape's number sits at the middle of the geometry's extent —
-		// `annotationAnchor`'s answer, which is also where the Annotation's popup points — rather than
-		// at the first vertex, which puts a label at the end of a coastline or in a corner of a parish.
-		// The coordinate is asserted in `packages/core/src/render/annotation-ordinals.test.ts`; what
-		// needs a real map is that the mark is *drawn* there, and drawn there again after the map has
-		// been zoomed and panned underneath it.
-		//
-		// Compared against `map.project()` of the coordinate on disk rather than against the element's
-		// own idea of where it is — the trap `apps/editor/src/routes/layout.css` records about the
-		// Annotation vertex handles, where a mark hundreds of pixels from the geography it named passed
-		// a whole ticket's browser suite because every gesture started from wherever the mark was.
+		// A line's and a shape's leader ends at the middle of the geometry's extent —
+		// `annotationAnchor`'s answer, which is also where the Annotation's popup used to point —
+		// rather than at the first vertex, which puts the end at the end of a coastline or in a corner
+		// of a parish. The coordinate is asserted in
+		// `packages/core/src/render/annotation-mark.test.ts`; what needs a real map is that the line is
+		// *drawn* there, and drawn there again after the map has been zoomed and panned underneath it.
 		const ring = stored.features[2]!.geometry!.coordinates as number[][][];
 		const extent = (axis: 0 | 1) =>
 			(Math.min(...ring[0]!.map((at) => at[axis]!)) +
@@ -245,14 +225,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		const middle: [number, number] = [extent(0), extent(1)];
 		const firstVertex = ring[0]![0] as [number, number];
 
-		/** Where the shape's number is drawn, in page pixels. */
-		const drawnAt = async () => {
-			const box = (await page
-				.locator(`[data-testid="annotation-ordinal"][data-annotation-id="${shape}"]`)
-				.boundingBox())!;
-			return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-		};
-		/** Where a place on the earth lands, in the same page pixels. */
+		/** Where a place on the earth lands, in page pixels. */
 		const projected = async (lngLat: [number, number]) => {
 			const pane = (await baseMap(page).boundingBox())!;
 			const at = await page.evaluate(
@@ -265,17 +238,8 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 			return { x: pane.x + at.x, y: pane.y + at.y };
 		};
 
-		const before = await drawnAt();
-		const middleBefore = await projected(middle);
-		expect(before.x).toBeCloseTo(middleBefore.x, 0);
-		expect(before.y).toBeCloseTo(middleBefore.y, 0);
-		// The negative control the criterion is written against: not the first vertex, which for this
-		// triangle is a long way from its middle.
-		const vertexBefore = await projected(firstVertex);
-		expect(Math.hypot(before.x - vertexBefore.x, before.y - vertexBefore.y)).toBeGreaterThan(20);
-
 		// Zoomed in and moved off centre, which is the gesture "stable as the map pans and zooms" is
-		// about. A number placed by anything but the coordinate comes apart here and nowhere else.
+		// about. A line drawn to anything but the coordinate comes apart here and nowhere else.
 		await page.evaluate(async (at) => {
 			const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
 			map.setZoom(11);
@@ -286,15 +250,7 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 			]);
 		}, middle);
 
-		const after = await drawnAt();
-		const middleAfter = await projected(middle);
-		expect(after.x).toBeCloseTo(middleAfter.x, 0);
-		expect(after.y).toBeCloseTo(middleAfter.y, 0);
-		// And the map really did move: an assertion that survives a viewport that ignored the zoom
-		// would be saying nothing about following it.
-		expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(20);
-
-		// ── AND THE LEADER JOINS THAT MARK TO ITS ROW (ticket 12, stories 39–42) ─────────────
+		// ── AND THE LEADER JOINS THE SHAPE TO ITS ROW (ticket 12, stories 39–42) ─────────────
 		//
 		// Folded in here rather than given a test of its own, for the reason the ordinals above were:
 		// this is already the suite's one Project holding a pin, a line and a shape at once, already
@@ -316,15 +272,15 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		 * Where the leader ought to end, given a place on the earth.
 		 *
 		 * The line stops at the edge of the mark rather than under it, so the end is the mark's own
-		 * radius short of the coordinate — *along the line*, which is why the stub is read off the
+		 * clearance short of the coordinate — *along the line*, which is why the stub is read off the
 		 * drawn line and the coordinate is not. The stub sets the direction; the projection sets the
 		 * place.
 		 */
 		const endFor = (target: { x: number; y: number }, stub: { x: number; y: number }) => {
 			const run = Math.hypot(target.x - stub.x, target.y - stub.y);
 			return {
-				x: target.x - ((target.x - stub.x) * MARK_RADIUS) / run,
-				y: target.y - ((target.y - stub.y) * MARK_RADIUS) / run
+				x: target.x - ((target.x - stub.x) * MARK_CLEARANCE) / run,
+				y: target.y - ((target.y - stub.y) * MARK_CLEARANCE) / run
 			};
 		};
 
@@ -356,8 +312,8 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 
 		// ── IT CARRIES NOTHING, AND CANNOT BE REACHED ───────────────────────────────────────
 		//
-		// Story 42: the ordinal and `aria-expanded` are what say which Annotation is active, so this
-		// layer must add nothing to either the accessibility tree or the tab order.
+		// Story 42: `aria-expanded` on the row is what says which Annotation is active, so this layer
+		// must add nothing to either the accessibility tree or the tab order.
 		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');
 		expect(
 			await leaderLayer(page).evaluate(
@@ -417,58 +373,59 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await page.getByTestId('layer-sidebar').evaluate((column) => (column.scrollTop = 0));
 		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
 
-		// ── AND THE NUMBER IS LEGIBLE ON ITS OWN MARK, IN BOTH THEMES ────────────────────────
+		// ── AND THE MAP DRAWS THE SELECTED ANNOTATION MORE STRONGLY (story 40) ───────────────
 		//
-		// **Measured, not assumed** — the constraint `layer-kind-style.ts` and the `--layer-problem-ink`
-		// mix were written for, and the reason the number has a mark of its own rather than being drawn
-		// on the pin: `marker-color` is the scholar's choice and no ink could be guaranteed against it.
-		// The pair is two theme tokens, `info-content` on `info`, and this reads them back out of the
-		// running application in both flavours rather than trusting the palette they came from.
+		// The other end's answer to "which one is this line about". **A change of weight and never of
+		// colour** — `stroke` and `marker-color` are the scholar's own choices — so what is asserted is
+		// the state the paint expressions read, on the feature MapLibre holds, rather than a pixel: a
+		// widened outline is exactly the kind of difference a screenshot comparison reports as noise.
 		//
-		// The colours are rasterised into a 1 × 1 canvas rather than parsed, because
-		// `getComputedStyle(element).color` in Chrome **preserves** `oklch()` instead of serialising to
-		// `rgb()` — measured, and recorded in `packages/core/src/render/distortion-ramp.ts`, where the
-		// same shortcut threw inside a draw path once per frame.
-		const contrast = () =>
-			page.evaluate(() => {
-				const mark = document.querySelector('[data-testid="annotation-ordinal"]')!;
-				const shown = getComputedStyle(mark);
-				const canvas = document.createElement('canvas');
-				canvas.width = 1;
-				canvas.height = 1;
-				const context = canvas.getContext('2d')!;
-				const luminance = (colour: string): number => {
-					context.clearRect(0, 0, 1, 1);
-					context.fillStyle = colour;
-					context.fillRect(0, 0, 1, 1);
-					const [red = 0, green = 0, blue = 0] = context.getImageData(0, 0, 1, 1).data;
-					const channel = (value: number): number => {
-						const part = value / 255;
-						return part <= 0.03928 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4;
-					};
-					return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue);
-				};
-				const ink = luminance(shown.color);
-				const fill = luminance(shown.backgroundColor);
-				return (Math.max(ink, fill) + 0.05) / (Math.min(ink, fill) + 0.05);
-			});
+		// Read back through the source's own feature id, which is `promoteId`'s doing: without it a
+		// GeoJSON source numbers its features by position and the selected one would change identity
+		// whenever the collection was reordered.
+		const annotationSource = `ballastella-layer-${layerId}-source`;
+		const selectedOnMap = (id: string) =>
+			page.evaluate(
+				(target) =>
+					(window as unknown as StackWindow).ballastellaLayerStack!.map.getFeatureState(target),
+				{ source: annotationSource, id }
+			);
+		await expect.poll(() => selectedOnMap(shape!)).toEqual({ selected: true });
+		// And only that one, which is the claim a single `setFeatureState` would pass without.
+		expect(await selectedOnMap(pin!)).toEqual({});
 
-		const measured: Record<string, number> = {};
-		const started = (await page.locator('html').getAttribute('data-theme'))!;
-		measured[started] = await contrast();
+		// It follows the selection rather than being written once: the pin's row is opened, and the
+		// shape gives the emphasis up.
+		await selectAnnotation(page, 0);
+		await expect.poll(() => selectedOnMap(pin!)).toEqual({ selected: true });
+		expect(await selectedOnMap(shape!)).toEqual({});
 
-		await page.getByTestId('theme-toggle').click();
-		await expect(page.locator('html')).not.toHaveAttribute('data-theme', started);
-		// A theme change calls `setStyle`, which takes the stack down and builds it again — so these
-		// marks are new elements and have to be waited for rather than assumed still there.
-		await expect(page.getByTestId('annotation-ordinal')).toHaveCount(3);
-		measured[(await page.locator('html').getAttribute('data-theme'))!] = await contrast();
-
-		// Both flavours, so neither is the one nobody looked at (SPEC story 70), and 4.5:1 because
-		// WCAG 2.1 AA asks that of text this size.
-		expect(Object.keys(measured).sort(), JSON.stringify(measured)).toEqual(['dark', 'light']);
-		expect(measured['light'], `light ${measured['light']}:1`).toBeGreaterThanOrEqual(4.5);
-		expect(measured['dark'], `dark ${measured['dark']}:1`).toBeGreaterThanOrEqual(4.5);
+		// ⚠ **AND THE ANNOTATION'S OWN WIDTH IS NOT WHAT CHANGED.** The emphasis is a halo behind the
+		// drawing; the drawing is painted exactly as the file asks. A selection that widened the
+		// outline instead would say nothing on a Layer whose Annotations have different
+		// `stroke-width`s — a selected hairline stays thinner than an unselected quay wall — which is
+		// why this is asserted as an *absence*: the line's own width reads the feature and nothing
+		// else, with no `feature-state` anywhere in it.
+		const lineWidth = await paintProperty(
+			page,
+			`ballastella-layer-${layerId}-line-solid`,
+			'line-width'
+		);
+		expect(lineWidth, 'the selection changed the width the scholar chose').toEqual([
+			'to-number',
+			['get', 'stroke-width']
+		]);
+		// The halo is the layer that carries it: a fixed number of pixels wider than whatever the
+		// feature asked for, so a hairline and a heavy outline get the same visible aura, and painted
+		// only for the selected one.
+		expect(await paintProperty(page, `ballastella-layer-${layerId}-selected`, 'line-width')) //
+			.toEqual(['+', ['to-number', ['get', 'stroke-width']], 6]);
+		expect(await paintProperty(page, `ballastella-layer-${layerId}-selected`, 'line-opacity')) //
+			.toEqual(['case', ['boolean', ['feature-state', 'selected'], false], 0.3, 0]);
+		// In the Annotation's own colour rather than an accent of ours, so nothing here is a theme
+		// token copied into a paint value and left to drift.
+		expect(await paintProperty(page, `ballastella-layer-${layerId}-selected`, 'line-color')) //
+			.toEqual(['get', 'stroke']);
 
 		expect(failures).toEqual([]);
 	});
@@ -851,30 +808,15 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').click();
 
-		// ── AND THE NUMBER OVER THE PIN IS NOT TORN OFF AND PUT BACK EITHER ─────────────────
+		// ── AND THE EMPHASIS ON THE SELECTED PIN SURVIVES THE KEYSTROKES ────────────────────
 		//
-		// The same thrash arriving through the DOM instead of through the stack, and it was here:
-		// `annotation-ordinals.ts` reconciles its marks by Annotation id so that a mark survives a
-		// keystroke, and then called `Marker.addTo` on every one of them on every update. MapLibre's
-		// `addTo` begins with an unconditional `remove()` — the element out of the container, eleven map
-		// listeners and the element's own click handler unbound — and then appends and binds them all
-		// again. Measured with this observer before the gate: three marks over four keystrokes of a
-		// title, twelve removals and twelve insertions. Counted rather than looked at, because a
-		// detach and a re-attach inside one frame is invisible to every assertion about what is on
-		// screen afterwards.
-		await page.evaluate(() => {
-			const holder = window as unknown as { ballastellaOrdinalChurn?: OrdinalChurn };
-			const churn: OrdinalChurn = { added: 0, removed: 0 };
-			holder.ballastellaOrdinalChurn = churn;
-			const isMark = (node: Node): boolean =>
-				node instanceof HTMLElement && node.dataset['testid'] === 'annotation-ordinal';
-			new MutationObserver((records) => {
-				for (const record of records) {
-					for (const node of record.addedNodes) if (isMark(node)) churn.added++;
-					for (const node of record.removedNodes) if (isMark(node)) churn.removed++;
-				}
-			}).observe(document.body, { childList: true, subtree: true });
-		});
+		// The same thrash arriving through the source instead of through the stack. Every keystroke
+		// writes the file, every write hands the page a new collection, and a new collection is a
+		// `setData` — which MapLibre answers by dropping the source's feature states. So an Annotation
+		// that stayed selected through a rename would lose its emphasis on the first character typed,
+		// with the row still open and nothing on the map saying which one it was about.
+		// `StackRender.setAnnotations` re-applies the selection for exactly this, and this is what holds
+		// it: counted rather than looked at, because the difference is a paint expression's input.
 
 		await page.keyboard.type('The old mill', { delay: 40 });
 		await page.getByTestId('annotation-description').click();
@@ -882,17 +824,20 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 
 		expect(await builds()).toBe(before);
-		// The mark is still the one it was: not replaced, and not left off the map by not replacing it.
-		await expect(page.getByTestId('annotation-ordinal')).toHaveCount(1);
+		// And the words did land, so this is not passing by having typed into nothing.
+		const layerId = await annotationLayerId(page);
+		const stored = await storedAnnotations(page, layerId);
+		expect(stored.features[0]?.properties) //
+			.toMatchObject({ title: 'The old mill', description: 'Built 1780.' });
+		// Still the selected one on the map, after two dozen writes of the file it lives in.
 		expect(
 			await page.evaluate(
-				() =>
-					(window as unknown as { ballastellaOrdinalChurn?: OrdinalChurn }).ballastellaOrdinalChurn
-			)
-		).toEqual({ added: 0, removed: 0 });
-		// And the words did land, so this is not passing by having typed into nothing.
-		expect((await storedAnnotations(page, await annotationLayerId(page))).features[0]?.properties) //
-			.toMatchObject({ title: 'The old mill', description: 'Built 1780.' });
+				(target) =>
+					(window as unknown as StackWindow).ballastellaLayerStack!.map.getFeatureState(target),
+				{ source: `ballastella-layer-${layerId}-source`, id: stored.features[0]!.id! }
+			),
+			'the selected Annotation lost its emphasis while its title was typed'
+		).toEqual({ selected: true });
 		// **The positive control for the empty *write* assertion**, and the same watcher: typing did
 		// reach the store, so "selecting wrote nothing" is a fact about the gesture rather than about an
 		// instrumentation that was never installed. An absence asserted alone passes when the hook

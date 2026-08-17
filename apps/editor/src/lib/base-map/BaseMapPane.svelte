@@ -25,6 +25,7 @@
 		openingViewFit,
 		resolveBaseMap,
 		type Alignment,
+		type Annotation,
 		type DistortionView,
 		type FetchFn,
 		type HistoricalMapSource,
@@ -36,6 +37,7 @@
 	import {
 		annotationDrawKey,
 		annotationLayerIds,
+		annotationMarkBox,
 		cachedBaseMapTileTemplate,
 		createWarpedMapLayer,
 		drawLayerStack,
@@ -47,6 +49,7 @@
 		type DrawnLayer,
 		type DrawnOutcome,
 		type ReadCachedTile,
+		type ScreenBox,
 		type StackRender,
 		type WarpedRender
 	} from '@ballastella/core/render';
@@ -80,7 +83,8 @@
 		onfinishshape,
 		onwarped,
 		onstack,
-		onbasemapstatus
+		onbasemapstatus,
+		selectedAnnotationId = null
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
@@ -247,6 +251,14 @@
 		 * than leave a stale accusation on the screen.
 		 */
 		onbasemapstatus?: (status: 'drawing' | 'unavailable') => void;
+		/**
+		 * Which Annotation is selected, so the map draws that one more strongly (SPEC story 40).
+		 *
+		 * A prop rather than something the pane works out, because selection is the page's state: the
+		 * sidebar, the map and the leader all read the same one value. Applied in place like opacity —
+		 * see {@link stackStructure} for why a selection must not rebuild the stack.
+		 */
+		selectedAnnotationId?: string | null;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -493,6 +505,18 @@
 	 */
 	export function frameOnPlace(place: Place): void {
 		applyOpeningFit(map, openingViewFit(place.bounds), null);
+	}
+
+	/**
+	 * Where `annotation` is drawn on the screen right now, for the leader to point at.
+	 *
+	 * **Exported rather than given as a prop**, and imperative for the same reason
+	 * {@link onCameraMove} is: the leader asks this once per frame of a pan, and a value routed
+	 * through a `$state` would schedule a component flush per frame. It answers against the camera as
+	 * it is at the moment of the call, so there is no ordering hazard with MapLibre's own listeners.
+	 */
+	export function annotationBox(annotation: Annotation): ScreenBox | null {
+		return map ? annotationMarkBox(map, annotation) : null;
 	}
 
 	/**
@@ -841,6 +865,11 @@
 				built.setAnnotations(stacked.layer.id, stacked.annotations ?? { annotations: [] });
 			}
 		}
+	});
+
+	/** The selection, applied in place — see {@link stackStructure} for why this is not a rebuild. */
+	$effect(() => {
+		stack?.setSelectedAnnotation(selectedAnnotationId ?? null);
 	});
 
 	/** Opacity, applied in place — see {@link stackStructure} for why this is not a rebuild. */

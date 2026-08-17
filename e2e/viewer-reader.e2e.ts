@@ -1265,24 +1265,12 @@ test.describe('exploring a Project', () => {
 		// it does in the editor, which is why the rule is one function in `core` rather than an
 		// `index + 1` in each app. The editor's half of this claim is in `e2e/editor-annotations.e2e.ts`
 		// against a pin, a line and a shape; this is the same rule reaching a real published build over
-		// HTTP, on the map and in the sidebar at once.
+		// HTTP. It is the sidebar's numbering and nothing is numbered on the map: a disc of digits
+		// floating over the geography read as a second kind of pin.
 		//
 		// Folded in here rather than given a test of its own because the Seam 2 budget is spent
 		// (`scripts/check-seam-2-size.mjs`), and because this test already has a published Project with
 		// a drawn Annotation Layer on a real map.
-		await expect
-			.poll(() =>
-				page
-					.locator('[data-testid="annotation-ordinal"]')
-					.evaluateAll((marks) =>
-						marks.map((mark) => [
-							(mark as HTMLElement).dataset['annotationId'],
-							mark.textContent?.trim()
-						])
-					)
-			)
-			.toEqual(numbered.map((one, at) => [one.id, String(at + 1)]));
-
 		const card = await openLayerRow(page, layerRow(page, ANNOTATION_LAYER_ID));
 		expect(await card.getByTestId('annotation-row-ordinal').allTextContents()).toEqual([
 			'1',
@@ -1339,25 +1327,26 @@ test.describe('exploring a Project', () => {
 			(centre) => window.ballastellaReaderMap!.map.project(centre as [number, number]),
 			at
 		);
-		// ⚠ **A Pin is anchored at its tip, so its number is drawn above the coordinate rather than on
-		// it** — the pin's own height plus the mark's own radius, which is `annotationMarks`'
-		// `clearance`. The pin is a 96 px sprite at a device pixel ratio of 2, scaled by the
-		// Annotation's `marker-size`, and the mark's radius is 12. Restated here rather than imported,
-		// for the reason every other constant in this suite is: the Playwright project resolves nothing
-		// from `@ballastella/core`, and numbers stated from the design are a better witness than ones
-		// taken from the code under test. Read off the *stored* `marker-size`, so a fixture drawn at
-		// another size moves this assertion rather than quietly breaking it.
+		// ⚠ **A Pin is anchored at its tip, so the line is aimed at the middle of the pin rather than at
+		// the coordinate** — half the pin's own height above it, which is `annotationMarkBox`'s answer.
+		// The pin is a 96 px sprite at a device pixel ratio of 2, scaled by the Annotation's
+		// `marker-size`. Restated here rather than imported, for the reason every other constant in
+		// this suite is: the Playwright project resolves nothing from `@ballastella/core`, and numbers
+		// stated from the design are a better witness than ones taken from the code under test. Read
+		// off the *stored* `marker-size`, so a fixture drawn at another size moves this assertion
+		// rather than quietly breaking it.
 		const pinScale: Record<string, number> = { small: 0.5, medium: 0.7, large: 0.95 };
 		const markerSize = (collection.features[0].properties['marker-size'] ?? 'medium') as string;
-		const clearance = Math.round(48 * (pinScale[markerSize] ?? 0.7)) + 12;
-		const target = { x: pane.x + projected.x, y: pane.y + projected.y - clearance };
-		// The line then stops at the edge of the 20 px ordinal mark and two pixels clear of it, along
-		// its own direction — so the stub sets the direction and the file sets the place.
+		const pinHeight = Math.round(48 * (pinScale[markerSize] ?? 0.7));
+		const target = { x: pane.x + projected.x, y: pane.y + projected.y - pinHeight / 2 };
+		// The line then stops at the edge of the pin and two pixels clear of it, along its own
+		// direction — so the stub sets the direction and the file sets the place.
+		const shorten = pinHeight / 2 + 2;
 		const stub = drawn[1]!;
 		const run = Math.hypot(target.x - stub.x, target.y - stub.y);
 		const wanted = {
-			x: target.x - ((target.x - stub.x) * 12) / run,
-			y: target.y - ((target.y - stub.y) * 12) / run
+			x: target.x - ((target.x - stub.x) * shorten) / run,
+			y: target.y - ((target.y - stub.y) * shorten) / run
 		};
 		expect(
 			Math.hypot(drawn[2]!.x - wanted.x, drawn[2]!.y - wanted.y),
@@ -1410,19 +1399,19 @@ test.describe('exploring a Project', () => {
 		const movedStub = movedPoints[1]!;
 		const movedTarget = {
 			x: pane.x + followed.projected.x,
-			y: pane.y + followed.projected.y - clearance
+			y: pane.y + followed.projected.y - pinHeight / 2
 		};
 		const movedRun = Math.hypot(movedTarget.x - movedStub.x, movedTarget.y - movedStub.y);
 		expect(
 			Math.hypot(
-				movedPoints[2]!.x - (movedTarget.x - ((movedTarget.x - movedStub.x) * 12) / movedRun),
-				movedPoints[2]!.y - (movedTarget.y - ((movedTarget.y - movedStub.y) * 12) / movedRun)
+				movedPoints[2]!.x - (movedTarget.x - ((movedTarget.x - movedStub.x) * shorten) / movedRun),
+				movedPoints[2]!.y - (movedTarget.y - ((movedTarget.y - movedStub.y) * shorten) / movedRun)
 			),
 			'the leader stayed where the camera left it, so it is not following the map'
 		).toBeLessThan(2);
 
-		// It says nothing a Reader is not already told: the ordinal is on the mark and on the row, and
-		// `aria-expanded` says which row is open (story 42).
+		// It says nothing a Reader is not already told: `aria-expanded` says which row is open, and the
+		// map draws that Annotation more strongly (story 42).
 		await expect(leaderLayer(page)).toHaveAttribute('aria-hidden', 'true');
 
 		// ── AND ON A NARROW SCREEN THERE IS NO LINE AT ALL (story 46) ────────────────────────
@@ -2231,12 +2220,6 @@ test.describe('a Published Site that is not entirely well', () => {
 		// The scholar's own work is still drawn, and so is the geography: this is a reference map
 		// missing its lettering, not a missing Project.
 		await expect(page.getByTestId('stack-status')).toHaveAttribute('data-drawn', '2');
-		// **Including the Annotation's number**, which is the site that decided how it is drawn. A
-		// MapLibre `text-field` needs the glyphs this site does not carry, and `ReaderMapPane` drops
-		// every symbol layer here — so an ordinal drawn that way would be silently absent for exactly
-		// these Readers, with no error and no missing image to notice it by. It is a DOM marker
-		// instead, and this is where that shows: see `packages/core/src/render/annotation-ordinals.ts`.
-		await expect(page.getByTestId('annotation-ordinal')).toHaveText('1');
 		// And not one request for a file the site does not hold — the 404s the old empty-rectangle
 		// path existed to prevent are still prevented, glyph ranges and sprites included.
 		expect(seen.requests.filter((request) => request.url.includes('/base-map/'))).toEqual([]);

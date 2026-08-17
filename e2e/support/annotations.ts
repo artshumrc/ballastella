@@ -42,6 +42,8 @@ export interface StackMap {
 	setZoom(zoom: number): void;
 	once(event: string, listener: () => void): unknown;
 	isMoving(): boolean;
+	/** What `StackRender.setSelectedAnnotation` wrote onto a feature, keyed by source and feature id. */
+	getFeatureState(target: { source: string; id: string }): Record<string, unknown>;
 }
 
 /**

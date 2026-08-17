@@ -50,7 +50,7 @@ const canvas = at({ left: 300, top: 0, right: 1000, bottom: 600 });
  * asserted on directly.
  */
 const draw = (
-	over: { mark?: Element | null; row?: Element | null } = {}
+	over: { mark?: Box | null; row?: Element | null } = {}
 ): { layer: SVGSVGElement; line: SVGPolylineElement } => {
 	const target = document.createElement('div');
 	document.body.append(target);
@@ -89,7 +89,8 @@ describe('LeaderLine', () => {
 
 	test('draws exactly one line, from the row to the mark', () => {
 		const row = at({ left: 10, top: 100, right: 290, bottom: 130 });
-		const mark = at({ left: 590, top: 290, right: 610, bottom: 310 });
+		// The mark's box is handed in already projected — an Annotation has no element to measure.
+		const mark = { left: 590, top: 290, right: 610, bottom: 310 };
 		const { layer, line } = draw({ row, mark });
 		// Mounted with the boxes already in hand, so the redraw the mount performed had them.
 		expect(layer.querySelectorAll('polyline')).toHaveLength(1);
@@ -98,8 +99,8 @@ describe('LeaderLine', () => {
 	});
 
 	test('a mark that has gone takes the line with it', () => {
-		// The Annotation was deleted, or its Layer hidden: the row is still on screen and there is
-		// nothing on the canvas to point at.
+		// The Annotation was deleted, or its geometry is one this build cannot draw: the row is still
+		// on screen and there is nothing on the canvas to point at.
 		const row = at({ left: 10, top: 100, right: 290, bottom: 130 });
 		const { layer, line } = draw({ row });
 		expect(layer.dataset['drawn']).toBe('no');

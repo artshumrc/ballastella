@@ -20,5 +20,13 @@ export default defineConfig({
 	// Do not "fix" this at the import sites with `import maplibregl from 'maplibre-gl'` and a
 	// destructure. That is what the Vite error message suggests, and it fails the other way round:
 	// once this line is here the ESM build is what loads, and it has no default export.
-	ssr: { noExternal: ['maplibre-gl'] }
+	//
+	// **The workspace packages must be here too, and for an unrelated reason.** `@ballastella/core`
+	// and `@ballastella/ui` set `exports` to their raw `./src/*.ts` entry points — they are consumed
+	// as source, never built. Left external, Node loads `packages/core/src/index.ts` itself and strips
+	// the types (it can, on Node 22.6+), then fails on the very first re-export: Node's ESM resolver
+	// takes specifiers literally, so `./autosave/autosave.js` does not find `autosave.ts`. Only Vite's
+	// pipeline performs that extensionless/`.js`→`.ts` mapping, so a package that ships TypeScript can
+	// never be externalized. The symptom is `ERR_MODULE_NOT_FOUND` for a file that plainly exists.
+	ssr: { noExternal: ['maplibre-gl', '@ballastella/core', '@ballastella/ui'] }
 });

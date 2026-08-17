@@ -5,8 +5,8 @@
 	// ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 	// │ IT CARRIES NO INFORMATION OF ITS OWN, AND THAT IS THE POINT.                               │
 	// └───────────────────────────────────────────────────────────────────────────────────────────┘
-	// The ordinal is on the mark and on the row, and the row's `aria-expanded` says which Annotation
-	// is active — tickets 01 and 08 built both precisely so that this layer can be decoration. So it
+	// The row's `aria-expanded` says which Annotation is active and the map draws that one more
+	// strongly, so both ends already say so without this line. So it
 	// is `aria-hidden`, it takes no pointer events, it holds nothing focusable, and nothing on either
 	// screen becomes unclear if it is never drawn. Which is also why the whole feature was sequenced
 	// last and was allowed to be dropped.
@@ -41,14 +41,16 @@
 		watch
 	}: {
 		/**
-		 * The selected mark on the canvas, read at draw time.
+		 * The box of the selected mark on the canvas, in the viewport's own coordinates, read at draw
+		 * time.
 		 *
-		 * A function rather than an element, because the mark is drawn imperatively by MapLibre —
-		 * `annotation-ordinals.ts` and `overlay-points.ts` both attach a `Marker` — so it is outside
-		 * every consumer's component tree and is found by querying for it. Reading the consumer's own
-		 * selection inside the accessor is also what makes the redraw below react to it.
+		 * **A box rather than an element, because not every mark is one.** A Control Point is a DOM
+		 * marker and hands in its `getBoundingClientRect`; an Annotation is drawn into the map's canvas
+		 * and has no element at all, so its box is `annotationMarkBox`'s projection of the coordinate.
+		 * Reading the consumer's own selection inside the accessor is what makes the redraw below react
+		 * to it.
 		 */
-		mark: () => Element | null | undefined;
+		mark: () => Box | null | undefined;
 		/** That mark's row in the sidebar. */
 		row: () => Element | null | undefined;
 		/** The box the mark has to be inside: the map pane, not the whole screen. */
@@ -94,7 +96,7 @@
 				? null
 				: leaderPath({
 						layer: layer.getBoundingClientRect(),
-						mark: boxOf(mark()),
+						mark: mark() ?? null,
 						canvas: pane,
 						row: boxOf(row()),
 						sidebar: column
@@ -115,7 +117,9 @@
 	/**
 	 * Redraw once the turn that asked for it has finished.
 	 *
-	 * ⚠ **This is a correctness fix and not a throttle, and the reason is worth keeping.** MapLibre
+	 * ⚠ **This is a correctness fix and not a throttle, and the reason is worth keeping.** It applies
+	 * to a mark that is a DOM `Marker` — a Control Point — rather than to one projected at draw time.
+	 * MapLibre
 	 * repositions each `Marker` from its *own* `move` listener, and listeners run in the order they
 	 * were registered — the pane binds this one when the map is created, and every mark is added to
 	 * the map long afterwards. So a redraw performed inside the `move` handler measures the mark at

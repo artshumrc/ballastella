@@ -59,7 +59,7 @@
 		type ResourcePoint
 	} from '@ballastella/core';
 	import type { WarpedRender } from '@ballastella/core/render';
-	import { BaseMapSwitcher, LeaderLine } from '@ballastella/ui';
+	import { BaseMapSwitcher, LeaderLine, type Box } from '@ballastella/ui';
 	import { onDestroy } from 'svelte';
 
 	import BaseMapPane, { type BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
@@ -578,13 +578,21 @@
 		controlPoints.find((point) => point.id === selectedId)?.ordinal ?? null
 	);
 
-	/** The selected pair's Base Map half, drawn by `overlay-points.ts` outside this component's tree. */
-	const selectedMark = (): Element | null =>
+	/**
+	 * The selected pair's Base Map half, drawn by `overlay-points.ts` outside this component's tree.
+	 *
+	 * Measured here rather than in `LeaderLine`, which takes a box: a Control Point really is a DOM
+	 * marker, so its box is its own rectangle, whereas an Annotation is painted into a canvas and its
+	 * box has to be projected. One prop, two ways of arriving at it.
+	 */
+	const selectedMark = (): Box | null =>
 		selectedOrdinal === null || !baseMapFrame
 			? null
-			: baseMapFrame.querySelector(
-					`[data-testid="pane-overlay-point-control-point"][data-ordinal="${selectedOrdinal}"]`
-				);
+			: (baseMapFrame
+					.querySelector(
+						`[data-testid="pane-overlay-point-control-point"][data-ordinal="${selectedOrdinal}"]`
+					)
+					?.getBoundingClientRect() ?? null);
 
 	/** Its row in the docked column. */
 	const selectedRow = (): Element | null =>

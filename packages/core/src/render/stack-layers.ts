@@ -23,9 +23,9 @@ import {
 	type AnnotationCollection,
 	type LineStyle
 } from '../annotation/annotation.js';
-import { createAnnotationOrdinals, type AnnotationOrdinals } from './annotation-ordinals.js';
 import { PIN_ICON_SIZE, PIN_IMAGE_ID, PIN_PIXEL_RATIO, pinImage } from './pin-icon.js';
 import {
+	ANNOTATION_ID_PROPERTY,
 	LINE_STYLES,
 	LINE_STYLE_PROPERTY,
 	mapLibreDashArray,
@@ -128,6 +128,19 @@ export interface StackRender {
 	 */
 	setAnnotations(layerId: string, collection: AnnotationCollection): void;
 	/**
+	 * Say which Annotation is selected, so the map draws it more strongly (SPEC story 40).
+	 *
+	 * **A feature state and not a rebuilt layer**: the id is written onto the feature MapLibre already
+	 * holds and the paint expressions below read it, so selecting costs one repaint rather than a
+	 * source's worth of work. It is applied to every Annotation source, because an Annotation id is
+	 * unique within its Layer's file and nothing guarantees two files disagree — a state set on a
+	 * source that has no such feature is inert.
+	 *
+	 * `null` clears it. Nothing here is written to disk (ADR-0002): which Annotation is open is the
+	 * screen's state, not the document's.
+	 */
+	setSelectedAnnotation(annotationId: string | null): void;
+	/**
 	 * Take the whole stack off the map. Survivable after a `setStyle` has already removed it.
 	 *
 	 * @param options.mapIsGone the **map itself** has been removed, not just its style. Then its layers
@@ -170,6 +183,61 @@ function ensurePinImage(map: MapLibreMap): boolean {
 }
 
 /**
+ * Choose between two paint values on whether this feature is the selected Annotation.
+ *
+ * The state is written by {@link StackRender.setSelectedAnnotation} against the feature id, which the
+ * source promotes from `ANNOTATION_ID_PROPERTY`. `['boolean', …, false]` is the guard MapLibre needs
+ * for a state that has never been set on a feature: without it the expression's type is unknown at
+ * validation and the whole style is rejected.
+ */
+const selected = (whenSelected: number, otherwise: number): unknown[] => [
+	'case',
+	['boolean', ['feature-state', 'selected'], false],
+	whenSelected,
+	otherwise
+];
+
+/**
+ * How the selected Annotation is emphasised: **a halo around it, and nothing done to it.**
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * ⚠ WHY THE ANNOTATION'S OWN WIDTH IS NOT TOUCHED
+ *
+ * The first version of this drew the selected Annotation's outline 1.75× wider. That reads as
+ * "selected" only on a Layer whose Annotations happen to share a `stroke-width`, and there is no
+ * reason they would: a scholar draws a 1 px conjectural route beside a 6 px quay wall, and selecting
+ * the route takes it to 3.5 px — still visibly thinner than the quay it is meant to stand out from.
+ * The emphasis was *relative to the feature*, when what a reader needs is a mark that means the same
+ * thing wherever it appears. And it spent the one property that is unambiguously the scholar's
+ * statement about the line: how heavy the line is.
+ *
+ * So the selected Annotation is drawn **exactly as the file asks**, and a halo is drawn behind it.
+ * The halo's width is an *addition* in screen pixels rather than a multiple, so a hairline and a
+ * heavy outline get the same visible aura, and it sits under the drawing so the drawing itself is
+ * unobscured. This is a sibling of the pin's `icon-halo-width`, which is why a Pin needs no separate
+ * treatment — the same idea was already there for the one geometry that has no outline to ring.
+ *
+ * **Deliberately faint.** The width is centred on the outline, so it reads as three pixels of aura
+ * either side of whatever the scholar drew. A selection mark is an answer to "which one is open", and
+ * the Annotations are the thing being looked at: a heavy glow competes with the work for attention
+ * and, on a Layer where several Annotations sit close together, reads as a shape of its own.
+ *
+ * **The halo is in the feature's own `stroke`, not a colour of ours.** A MapLibre paint value cannot
+ * read a CSS custom property, so an accent colour here would be a theme token copied into this file
+ * as a literal and left to drift — the cost `ReaderMapPane` records paying twice already. Taking the
+ * colour from the feature means the halo needs contrast against the *base map*, which is the same
+ * bet the Annotation itself already makes: an outline nobody can see against the ground is a
+ * visibility problem the scholar has whether or not it is selected.
+ *
+ * ⚠ **Never a change of hue.** `stroke` and `marker-color` are the scholar's own choices, and a
+ * selection that recoloured an Annotation would be showing them somebody else's map.
+ */
+const SELECTED_HALO_WIDTH = 6;
+const SELECTED_HALO_OPACITY = 0.3;
+/** The pin's own ring, in the same `stroke` colour, at rest and selected. */
+const SELECTED_HALO = 3;
+
+/**
  * The MapLibre layers one Annotation Layer needs.
  *
  * **Every paint value is read from the feature** — `['get', 'stroke']` and not a constant — because
@@ -199,6 +267,33 @@ function annotationLayers(
 ): { id: string; spec: Record<string, unknown> }[] {
 	const source = stackLayerId(layerId, 'source');
 	const strokeWidth = ['to-number', ['get', 'stroke-width']];
+
+	/**
+	 * The halo behind the selected line or shape — see {@link SELECTED_HALO_WIDTH}.
+	 *
+	 * **One layer for every dash pattern and every geometry with an outline**, because the halo is
+	 * solid whatever the line it sits behind is: a dotted line's selection is the line still reading
+	 * as dotted with an aura around it, not a dotted aura. That also keeps this to a single extra
+	 * layer per Annotation Layer rather than one per bucket.
+	 *
+	 * ⚠ **Present always and painted only when something is selected**, because MapLibre does not
+	 * allow `feature-state` in a layer's `filter` — only in its paint. So the selection lives in
+	 * `line-opacity`, and at rest every feature in this layer paints it at zero.
+	 */
+	const selectionHalo = {
+		id: stackLayerId(layerId, 'selected'),
+		spec: {
+			type: 'line',
+			source,
+			filter: ['in', ['geometry-type'], ['literal', ['LineString', 'Polygon']]],
+			layout: { 'line-cap': 'round', 'line-join': 'round' },
+			paint: {
+				'line-color': ['get', 'stroke'],
+				'line-width': ['+', strokeWidth, SELECTED_HALO_WIDTH],
+				'line-opacity': selected(SELECTED_HALO_OPACITY, 0)
+			}
+		}
+	};
 	const lineOf = (style: LineStyle) => ({
 		id: stackLayerId(layerId, `line-${style}`),
 		spec: {
@@ -283,14 +378,21 @@ function annotationLayers(
 				// The ring the pin's own `stroke` used to draw as a circle outline. Kept, because a pin
 				// whose colour matches the ground under it is otherwise invisible.
 				'icon-halo-color': ['get', 'stroke'],
-				'icon-halo-width': 1
+				// Heavier while this pin is the selected Annotation — see {@link SELECTED_HALO}.
+				'icon-halo-width': selected(SELECTED_HALO, 1)
 			}
 		}
 	};
 
-	// Fill under lines under pins, which is the order these read best in: an area's outline over its
-	// own fill, and a pin over both.
+	// The halo under everything, then fill under lines under pins, which is the order these read best
+	// in: an area's outline over its own fill, and a pin over both. The halo is bottom-most so that
+	// selecting an Annotation puts nothing in front of the drawing it is emphasising.
+	//
+	// Only added when this Layer has something with an outline. A Layer of pins alone would otherwise
+	// pay per frame for a line layer that can never match a feature — `annotationLayers`' own rule,
+	// and `lineStyles` is exactly "has a line or a shape", since a Polygon contributes to it too.
 	return [
+		...(present.lineStyles.size > 0 ? [selectionHalo] : []),
 		...(present.hasArea ? [fill] : []),
 		...LINE_STYLES.filter((style) => present.lineStyles.has(style)).map(lineOf),
 		...(present.hasPoint ? [point] : [])
@@ -348,6 +450,11 @@ export function annotationDrawKey(collection: AnnotationCollection | null | unde
  * All five candidates, not only the ones added: which exist depends on what the Layer contains, and a
  * caller hit-testing has to filter by `map.getLayer(id)` anyway — asking MapLibre about a layer that is
  * not there throws. Returning the full set keeps this function free of the contents.
+ *
+ * ⚠ **The selection halo is deliberately absent.** It is a line a dozen pixels wider than the
+ * Annotation it sits behind, so including it would make the selected Annotation — and only the
+ * selected one — easier to click than the rest, which is a hit target that moves as the reader
+ * chooses things. What is clickable is what is drawn for the Annotation itself.
  */
 export const annotationLayerIds = (layerId: string): string[] => [
 	stackLayerId(layerId, 'fill'),
@@ -404,8 +511,8 @@ export function drawLayerStack(options: {
 	const warped: Record<string, ReturnType<typeof createWarpedMapLayer>> = {};
 	const added: string[] = [];
 	const sources: string[] = [];
-	/** Each Annotation Layer's numbers, by Layer id — display state, drawn beside the marks. */
-	const ordinals: Record<string, AnnotationOrdinals> = {};
+	/** Which Annotation is drawn as selected — display state, held here so a redraw can restore it. */
+	let selectedAnnotationId: string | null = null;
 
 	for (const drawn of drawingOrder(layers)) {
 		const layerId = drawn.layer.id;
@@ -428,7 +535,14 @@ export function drawLayerStack(options: {
 		// simplestyle's own (ADR-0009). A Layer with no file yet, or one whose file could not be read,
 		// draws nothing rather than taking the rest of the stack down with it.
 		const rendered = toRenderCollection(drawn.annotations ?? { annotations: [] });
-		map.addSource(source, { type: 'geojson', data: rendered as never });
+		// `promoteId` is what makes the Annotation's own id MapLibre's feature id, which is the only
+		// handle `setFeatureState` takes — a GeoJSON source otherwise numbers its features by position,
+		// so the selected one would change identity whenever the collection was reordered.
+		map.addSource(source, {
+			type: 'geojson',
+			data: rendered as never,
+			promoteId: ANNOTATION_ID_PROPERTY
+		});
 		sources.push(source);
 		const contents = whatItContains(rendered);
 		// No image, no pin layer — which shows as a missing mark rather than as MapLibre logging a
@@ -438,14 +552,25 @@ export function drawLayerStack(options: {
 			map.addLayer({ id, ...spec } as never);
 			added.push(id);
 		}
-		// The numbers over the marks (SPEC stories 37, 38). Outside the source and outside the style:
-		// they are DOM elements MapLibre positions, so a Published Site with no glyphs still shows them
-		// — see `annotation-ordinals.ts` for why that decided it.
-		const numbers = createAnnotationOrdinals(map);
-		numbers.update(drawn.annotations);
-		ordinals[layerId] = numbers;
 		outcomes[layerId] = { status: 'drawn' };
 	}
+
+	/**
+	 * Write the selection onto every Annotation source.
+	 *
+	 * ⚠ **Re-run after a `setData`.** MapLibre drops a GeoJSON source's feature states when its data is
+	 * replaced, so an Annotation that stayed selected through a keystroke would otherwise lose its
+	 * emphasis on the first character typed into its title.
+	 */
+	const paintSelection = (): void => {
+		for (const source of sources) {
+			if (!map.getSource(source)) continue;
+			map.removeFeatureState({ source });
+			if (selectedAnnotationId !== null) {
+				map.setFeatureState({ source, id: selectedAnnotationId }, { selected: true });
+			}
+		}
+	};
 
 	const unexpose = options.onBuilt?.(map, warped) ?? (() => undefined);
 
@@ -460,16 +585,15 @@ export function drawLayerStack(options: {
 			// a `setStyle` there is nothing there at all.
 			const geojson = source as { setData?: (data: unknown) => void } | undefined;
 			geojson?.setData?.(toRenderCollection(collection));
-			// Renumbering is this call and nothing else: an Annotation deleted here leaves the ones after
-			// it counted again from a shorter list, with no file written to say so (ADR-0002).
-			ordinals[layerId]?.update(collection);
+			paintSelection();
+		},
+
+		setSelectedAnnotation(annotationId) {
+			selectedAnnotationId = annotationId;
+			paintSelection();
 		},
 		destroy({ mapIsGone = false } = {}) {
 			unexpose();
-			// The marks are DOM elements rather than style layers, so they have to be taken off whether or
-			// not the map survives — a removed map takes its container's children with it, but a `setStyle`
-			// does not, and a mark left behind would outlive the Layer it belongs to.
-			for (const numbers of Object.values(ordinals)) numbers.destroy();
 			if (mapIsGone) return;
 			// `setStyle` on a theme change removes our layers along with everything else, so removing one
 			// that has already gone has to be survivable rather than an exception in a teardown.

@@ -19,15 +19,8 @@
 // `setHTML` (ADR-0009). A dead-code sweep starts at a barrel, which is why the warning is repeated
 // here as well as in `annotation-popup.ts`. Removing it is a decision, not a tidy-up.
 export { showAnnotationPopup, type AnnotationPopup } from './annotation-popup.js';
-// The number drawn on each Annotation's mark. Built by `drawLayerStack` rather than by either app —
-// exported for the assertions about where a mark sits, and for ticket 12's leader, which needs a
-// class to find one end by.
-export {
-	ANNOTATION_ORDINAL_CLASS,
-	annotationMarks,
-	type AnnotationMark,
-	type AnnotationOrdinals
-} from './annotation-ordinals.js';
+// Where an Annotation sits on the screen, which is what the leader points at.
+export { annotationMarkBox, type ScreenBox } from './annotation-mark.js';
 export { distortionRamp } from './distortion-ramp.js';
 export { registerPmtilesProtocol } from './pmtiles-protocol.js';
 // The Workspace's own Base Map tiles, behind ADR-0011's third `addProtocol` handler (ADR-0025).

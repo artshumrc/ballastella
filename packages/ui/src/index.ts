@@ -25,6 +25,8 @@ export { default as AppBar } from './AppBar.svelte';
 export { default as BaseMapSwitcher } from './BaseMapSwitcher.svelte';
 export { default as LayerList } from './LayerList.svelte';
 export { default as LeaderLine } from './LeaderLine.svelte';
+// The rectangle `LeaderLine` takes for either end of the line, so a consumer can name what it hands in.
+export type { Box } from './leader-line';
 export { default as MapCommentary } from './MapCommentary.svelte';
 export { default as MapNotice } from './MapNotice.svelte';
 export { default as MenuPopover } from './MenuPopover.svelte';

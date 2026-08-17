@@ -94,11 +94,7 @@
 		type RemoteBinding,
 		type TileSourceFailure
 	} from '@ballastella/core';
-	import {
-		ANNOTATION_ORDINAL_CLASS,
-		type DrawnLayer,
-		type DrawnOutcome
-	} from '@ballastella/core/render';
+	import { type DrawnLayer, type DrawnOutcome } from '@ballastella/core/render';
 	import {
 		AnnotationList,
 		AnnotationReading,
@@ -108,7 +104,8 @@
 		MapCommentary,
 		MapNotice,
 		ProjectCardList,
-		pageChrome
+		pageChrome,
+		type Box
 	} from '@ballastella/ui';
 	import { onMount, untrack } from 'svelte';
 
@@ -1001,11 +998,10 @@
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// The leader (ticket 12, SPEC stories 39–42, 46)
 	//
-	// The same line the editor draws, from the same component, between the same two identities: the
-	// number on the map carries `data-annotation-id` and so does its row. A Reader gets it because it
-	// is the answer to "which pin is this row about" — the question the retired map popup used to
-	// answer — and gets it drawn from the same code, so the two apps cannot disagree about where it
-	// goes.
+	// The same line the editor draws, from the same component, between the same two ends: the
+	// Annotation's own drawing on the map, and its row. A Reader gets it because it is the answer to
+	// "which pin is this row about" — the question the retired map popup used to answer — and gets it
+	// drawn from the same code, so the two apps cannot disagree about where it goes.
 	//
 	// Below `lg` the grid is one column and the map sits under the stack: `LeaderLine` measures that
 	// and draws nothing, which is story 46 without a breakpoint being written down twice.
@@ -1017,14 +1013,19 @@
 	let layerColumn = $state<HTMLElement | undefined>();
 	let mapColumn = $state<HTMLElement | undefined>();
 
-	/** The open Annotation's number on the map, or `null` when there is nothing to point at. */
-	const selectedMark = (): Element | null => {
-		const id = openAnnotationId;
-		if (id === null || !mapColumn) return null;
-		return mapColumn.querySelector(
-			`.${ANNOTATION_ORDINAL_CLASS}[data-annotation-id="${CSS.escape(id)}"]`
-		);
-	};
+	/** The open Annotation itself, which is the thing the leader points at. */
+	const openAnnotation = $derived(
+		openAnnotations?.find((annotation) => annotation.id === openAnnotationId) ?? null
+	);
+
+	/**
+	 * Where that Annotation is on the map, or `null` when there is nothing to point at.
+	 *
+	 * Projected at draw time, for the reason `ProjectScreen`'s twin records: an Annotation is painted
+	 * into the map's canvas and has no element to measure.
+	 */
+	const selectedMark = (): Box | null =>
+		openAnnotation ? (readerMapPane?.annotationBox(openAnnotation) ?? null) : null;
 
 	/** That Annotation's row, which is on screen only while its Layer's card is open. */
 	const selectedRow = (): Element | null => {
@@ -1509,6 +1510,7 @@
 							{#if siteRecordKnown}
 								<ReaderMapPane
 									bind:this={readerMapPane}
+									selectedAnnotationId={openAnnotationId}
 									entryId={baseMap.entry.id}
 									{catalog}
 									{bundledBaseMapAvailable}
