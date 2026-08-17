@@ -21,9 +21,9 @@ the ADR that replaces that reasoning, and it blocks the two tickets that perform
 
 ## Current Status
 
-Overall status: `Not Started`
+Overall status: `In Progress`
 
-Current ticket: — (four tickets on the frontier)
+Current ticket: 02
 
 Last updated: 2026-08-17
 
@@ -31,7 +31,7 @@ Last updated: 2026-08-17
 
 | Number | Filename | Status | Depends On |
 | --- | --- | --- | --- |
-| 01 | [01-record-the-reversal.md](./tickets/01-record-the-reversal.md) | Not Started | — |
+| 01 | [01-record-the-reversal.md](./tickets/01-record-the-reversal.md) | Completed | — |
 | 02 | [02-the-selected-row-is-unmistakable.md](./tickets/02-the-selected-row-is-unmistakable.md) | Not Started | — |
 | 03 | [03-new-annotation-becomes-an-action.md](./tickets/03-new-annotation-becomes-an-action.md) | Not Started | — |
 | 04 | [04-zoom-moves-to-the-bottom-left.md](./tickets/04-zoom-moves-to-the-bottom-left.md) | Not Started | — |
