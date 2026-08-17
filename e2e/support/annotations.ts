@@ -38,6 +38,17 @@ export interface StackMap {
 	getCenter(): { lng: number; lat: number };
 	/** Where a place on the earth lands in the pane, in CSS pixels from its top-left corner. */
 	project(lngLat: [number, number]): { x: number; y: number };
+	/** {@link project} backwards: which place on the earth is under a point in the pane. */
+	unproject(point: [number, number]): { lng: number; lat: number };
+	/**
+	 * MapLibre's own canvas.
+	 *
+	 * Read for its box, which is the pane {@link project} and {@link unproject} answer in. Asked of the
+	 * map rather than measured with a Playwright locator so that a claim about where the camera is
+	 * pointing is made against one origin rather than two — the canvas's container is a zero-height div,
+	 * and the difference has already cost a bug in `BaseMapPane.svelte`.
+	 */
+	getCanvas(): HTMLCanvasElement;
 	setCenter(lngLat: [number, number]): void;
 	setZoom(zoom: number): void;
 	once(event: string, listener: () => void): unknown;

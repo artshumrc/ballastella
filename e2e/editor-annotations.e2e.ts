@@ -97,6 +97,16 @@ function watchFailures(page: Page): string[] {
 const MARK_CLEARANCE = 2;
 
 /**
+ * How long the camera's move out from under the Inspector takes, in milliseconds.
+ *
+ * `RESERVATION_EASE_MS` in `apps/editor/src/lib/base-map/BaseMapPane.svelte`, written out again for the
+ * reason {@link MARK_CLEARANCE} gives: this Playwright project resolves nothing from the applications.
+ * Named on both sides so that the two copies can be found from each other, rather than a `500` in a
+ * `waitForTimeout` that nobody can trace back to a duration.
+ */
+const RESERVATION_EASE_MS = 300;
+
+/**
  * The style property names simplestyle 1.1.0 defines, plus ADR-0009's one extension.
  *
  * The same eleven names as `SIMPLESTYLE_PROPERTIES` in `@ballastella/core`, written out again because
@@ -506,6 +516,68 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// token copied into a paint value and left to drift.
 		expect(await paintProperty(page, `ballastella-layer-${layerId}-selected`, 'line-color')) //
 			.toEqual(['get', 'stroke']);
+
+		// ── AND THE LEADER IS DRAWN UNDER THE PANEL AND UNDER THE CONTROLS ──────────────────
+		//
+		// The-annotation-inspector story 22, and the measurement `layout.css` records, repeated on the two
+		// things the line may never be drawn across. `.maplibregl-map` opens no stacking context, so the
+		// leader's 5, MapLibre's control corners at 6 and the Inspector's 7 are all compared in the one
+		// container they are painted in — three numbers in two files, with nothing but a test to say they are
+		// still in that order.
+		//
+		// ⚠ **`pointer-events` has to be turned on for the probe, and that is the whole instrument.** The
+		// leader takes none by design, so `elementFromPoint` answers straight past it whatever the stacking
+		// order is: the same three assertions on the layer as it ships would pass with `z-index: 99`. This is
+		// how the original measurement was taken, and it is why the first of the three is a *positive
+		// control* over bare canvas — without it, a probe that never returns the leader at all would make
+		// the other two vacuous.
+		//
+		// Folded in here rather than given a test of its own: this is already the suite's one test with a
+		// leader drawn, an Inspector open and the pane's controls on the screen, and the Seam 2 budget
+		// (`scripts/check-seam-2-size.mjs`) is spent.
+		const topmostAt = (at: { x: number; y: number }) =>
+			page.evaluate(({ x, y }) => {
+				const layer = document.querySelector<SVGSVGElement>('[data-testid="leader-line"]');
+				if (layer === null) return 'no leader is drawn';
+				layer.style.pointerEvents = 'auto';
+				const hit = document.elementFromPoint(x, y);
+				layer.style.pointerEvents = '';
+				if (hit === null) return 'nothing';
+				if (hit === layer || layer.contains(hit)) return 'the leader';
+				if (hit.closest('[data-testid="annotation-inspector"]')) return 'the Inspector';
+				if (hit.closest('.maplibregl-ctrl')) return 'a map control';
+				if (hit instanceof HTMLCanvasElement) return 'the map';
+				return `${hit.tagName}${hit.getAttribute('data-testid') ?? ''}`;
+			}, at);
+
+		// Selecting the pin above brought its mark out from under the panel, which is a camera move: the
+		// boxes are read once it has stopped, and with a line actually drawn to probe for.
+		await expect
+			.poll(() =>
+				page.evaluate(() =>
+					(window as unknown as StackWindow).ballastellaLayerStack!.map.isMoving()
+				)
+			)
+			.toBe(false);
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
+		const pane = (await baseMap(page).boundingBox())!;
+		const panel = (await inspector(page).boundingBox())!;
+		const zoomIn = (await page.locator('button.maplibregl-ctrl-zoom-in').boundingBox())!;
+
+		// The control: over the canvas, where the leader is the topmost thing there is. If this stops saying
+		// "the leader" the two assertions under it have stopped being about anything.
+		expect(
+			await topmostAt({ x: pane.x + pane.width * 0.5, y: pane.y + pane.height * 0.25 }),
+			'the probe cannot see the leader at all, so it cannot see it covering anything'
+		).toBe('the leader');
+		expect(
+			await topmostAt({ x: panel.x + panel.width / 2, y: panel.y + panel.height / 2 }),
+			'the leader is drawn across the Inspector'
+		).toBe('the Inspector');
+		expect(
+			await topmostAt({ x: zoomIn.x + zoomIn.width / 2, y: zoomIn.y + zoomIn.height / 2 }),
+			'the leader is drawn across the zoom control'
+		).toBe('a map control');
 
 		expect(failures).toEqual([]);
 	});
@@ -954,11 +1026,35 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await expect(onlyRow).toHaveAttribute('aria-expanded', 'false');
 		await countFileReads(page);
 		await countFileWrites(page);
+		// ⚠ **And it costs no camera move either** (the-annotation-inspector story 19, the restraint half).
+		// Selecting an Annotation reserves the Inspector's footprint in the camera so that the mark is never
+		// behind the panel describing it — and that reservation must not be spent on a mark already
+		// comfortably in view. This pin is in the middle of the pane, the gesture was a press of a row, and a
+		// map that jumped under the pointer for it is the defect `keepInView` is careful about in the sidebar
+		// today, and the one this camera inherits from it under ADR-0035. Asserted alongside the store's two counters
+		// because it is the same subject — what choosing an Annotation is allowed to cost — and because this
+		// test depends on the camera for nothing else, so a spurious move has nothing to break but this.
+		const centre = () =>
+			page.evaluate(() =>
+				(window as unknown as StackWindow).ballastellaLayerStack!.map.getCenter()
+			);
+		const moving = () =>
+			page.evaluate(() => (window as unknown as StackWindow).ballastellaLayerStack!.map.isMoving());
+		const camera = await centre();
 		await onlyRow.click();
 		await expect(onlyRow).toHaveAttribute('aria-expanded', 'true');
 		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
 		expect(await fileReads(page), 'selecting an Annotation read from the store').toEqual({});
 		expect(await fileWrites(page), 'selecting an Annotation wrote to the store').toEqual([]);
+		expect(await moving(), 'selecting a mark already in view started a camera move').toBe(false);
+		expect(await centre()).toEqual(camera);
+		// ⚠ **Read again once the move it refuses would have finished**, which is
+		// {@link RESERVATION_EASE_MS} of `easeTo` plus room for the flush that would have started it. The
+		// claim is stillness, and stillness asserted in the same task as the click is green whether a move
+		// was started or not — the panel's own arrival is the only thing between them.
+		await page.waitForTimeout(RESERVATION_EASE_MS + 200);
+		expect(await moving(), 'the camera moved a moment after the selection').toBe(false);
+		expect(await centre()).toEqual(camera);
 
 		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').click();
@@ -1060,6 +1156,100 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		await page.getByTestId('annotation-description').fill('**Certainly** the west quay');
 		await page.getByTestId('annotation-text-done').click();
 		await expect(description.locator('strong')).toHaveText('Certainly');
+
+		// ── AND A LONG ONE SCROLLS INSIDE THE PANEL ─────────────────────────────────────────
+		//
+		// Folded in here rather than given a test of its own because this is already the suite's Project for
+		// what the description does on the screen, and the Seam 2 budget (`scripts/check-seam-2-size.mjs`)
+		// is spent. It cannot be asserted anywhere cheaper: Seam 1c has no layout at all — no scroll
+		// geometry, no `offsetHeight`, no attribution — so a panel growing past the licence it may not cover
+		// is Seam 2 or nothing (the-annotation-inspector story 73).
+		//
+		// **The attribution is the boundary and it is a licence condition** (ODbL), not decoration
+		// (the-annotation-inspector stories 9, 21): the panel is capped so that the words underneath it stay
+		// uncovered, and a description longer than the cap scrolls inside the panel's own body rather than
+		// making the panel taller.
+		await editAnnotationText(page);
+		await page
+			.getByTestId('annotation-description')
+			.fill(
+				Array.from(
+					{ length: 20 },
+					(_, at) => `Paragraph ${at + 1}: the quay, the warehouses, and the survey of 1625.`
+				).join('\n\n')
+			);
+		await page.getByTestId('annotation-text-done').click();
+		await expect(description).toContainText('Paragraph 20');
+
+		const attribution = page.locator('.maplibregl-ctrl-attrib');
+		await expect(attribution).toBeVisible();
+		const panel = (await inspector(page).boundingBox())!;
+		const licence = (await attribution.boundingBox())!;
+		expect(
+			panel.y + panel.height,
+			'the Inspector grew over the Base Map’s attribution'
+		).toBeLessThan(licence.y);
+
+		// **The body scrolls, and the header does not go with it.** Both halves are the claim: a panel that
+		// scrolled as a whole would take the ordinal and the name — the one place the panel says which
+		// Annotation this is — off the top of itself.
+		const face = page.getByTestId('annotation-inspector-face');
+		expect(
+			await face.evaluate((element) => ({
+				scrolls: element.scrollHeight > element.clientHeight,
+				overflow: getComputedStyle(element).overflowY
+			})),
+			'the description is not scrolling inside the panel'
+		).toEqual({ scrolls: true, overflow: 'auto' });
+		// ⚠ **Scrolled by the wheel over the panel rather than by assigning `scrollTop` to the body**, and
+		// that is what gives the second half teeth: a wheel scrolls whatever the pointer is over, so a panel
+		// that scrolled *as a whole* would answer this gesture by moving its own header off the top of itself
+		// — while `element.scrollTop = …` on the body would report nothing at all, the body having nothing to
+		// scroll.
+		const headerTop = () =>
+			page
+				.getByTestId('annotation-inspector-header')
+				.evaluate((element) => Math.round(element.getBoundingClientRect().top));
+		const restingHeader = await headerTop();
+		await page.mouse.move(panel.x + panel.width / 2, panel.y + panel.height / 2);
+		await page.mouse.wheel(0, 2000);
+		// Settled rather than sampled: the wheel's scroll is not over in the task that dispatched it.
+		await expect.poll(() => face.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+		expect(await headerTop(), 'the panel scrolled its own header away').toBe(restingHeader);
+
+		// ── AND THE MAP IS STILL THE MAP BELOW IT ───────────────────────────────────────────
+		//
+		// The-annotation-inspector story 17, read at the panel's tallest, which is the hardest case: the
+		// panel is docked *over* the map rather than beside it, so below its bottom edge — in its own column
+		// — the canvas is still the canvas.
+		//
+		// The point probed is halfway between the panel's bottom edge and the attribution's top, so it is
+		// clear of both: the attribution is in this same column and its links are real links.
+		const pane = (await baseMap(page).boundingBox())!;
+		const below = {
+			x: panel.x + panel.width / 2,
+			y: (panel.y + panel.height + licence.y) / 2
+		};
+		// ⚠ **`elementFromPoint` rather than the click alone, and that is the assertion with the teeth.** A
+		// click driven at the pane is *dispatched* at the pane, so the pin below lands whether or not
+		// anything else is over that spot: measured with the panel's own container deliberately spread down
+		// the column, and the pin was drawn regardless. "The map is visible below it" means the map is the
+		// topmost thing there, and only this asks that.
+		expect(
+			await page.evaluate((at) => {
+				const hit = document.elementFromPoint(at.x, at.y);
+				if (hit === null) return 'nothing';
+				if (hit instanceof HTMLCanvasElement) return 'the map';
+				if (hit.closest('[data-testid="annotation-inspector"]')) return 'the Inspector';
+				return `${hit.tagName}.${hit.className}`;
+			}, below),
+			'something of the Inspector’s is over the map below its bottom edge'
+		).toBe('the map');
+		// And a mark placed there really is drawn on the canvas, which is the same claim in the app's own
+		// terms: the Annotation lands, is numbered 2, and its row joins the list.
+		await drawPin(page, (below.x - pane.x) / pane.width, (below.y - pane.y) / pane.height);
+		await expect(page.getByTestId('annotation-row')).toHaveCount(2);
+		await expect(page.getByTestId('annotation-inspector-ordinal')).toHaveText('2');
 	});
 
 	// **Footnote syntax is not asserted here.** ADR-0009's "the syntax degrades to literal text" is a
@@ -1076,9 +1266,20 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		// row instead, which is where an Annotation is read in both apps — so "what is this shape?" has
 		// one answer rather than a bubble over the map and a row in the sidebar that can disagree.
 		const failures = watchFailures(page);
-		await withOnePin(page);
+		const layerId = await withOnePin(page);
 		await editAnnotationText(page);
-		await page.getByTestId('annotation-description').fill('The *west* quay.');
+		// ⚠ **Long enough that the panel stands at its cap**, which the camera claims below depend on: a
+		// short panel is clear of the middle of the pane, so centring a mark anywhere would satisfy "the mark
+		// is not behind the panel" without the panel's footprint being reserved at all. A panel as tall as it
+		// may get is the case the reservation is actually for.
+		await page
+			.getByTestId('annotation-description')
+			.fill(
+				`The *west* quay.\n\n${Array.from(
+					{ length: 20 },
+					(_, at) => `Paragraph ${at + 1}: the warehouses, and the survey of 1625.`
+				).join('\n\n')}`
+			);
 		// **Put away rather than blurred**, because the panel's resting state is the rendered
 		// description and its editing state is the fields: what a click on the map opens is the
 		// former, and leaving the fields up would be asserting against the wrong half of the panel.
@@ -1089,14 +1290,217 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 		// Annotation carries its drag handle on top of itself, and the handle is a drag target rather
 		// than a way into the Annotation.
 		const row = page.getByTestId('annotation-row');
+		// The panel's own box, while it is on the screen to be measured: the mark is put behind it further
+		// down, and by then nothing is selected and there is no panel to ask.
+		const panelBox = (await inspector(page).boundingBox())!;
 		await row.click();
 		await expect(row).toHaveAttribute('aria-expanded', 'false');
 		await expect(page.getByTestId('pane-overlay-point-annotation-vertex')).toHaveCount(0);
+
 		await clickAt(baseMap(page), 0.4, 0.4);
 
 		await expect(row).toHaveAttribute('aria-expanded', 'true');
 		await expect(page.getByTestId('annotation-description-text').locator('em')).toHaveText('west');
 		await expect(page.locator('.maplibregl-popup')).toHaveCount(0);
+
+		// ── AND A MARK THAT WOULD BE BEHIND THE PANEL IS BROUGHT OUT FROM UNDER IT ──────────
+		//
+		// The-annotation-inspector story 19, and the case a scholar most needs the leader in: the Inspector
+		// docks over the top-right, so a mark in that quadrant ends up behind the panel describing it and the
+		// leader's end goes with it. Nothing throws — the one thing the line exists to show is simply
+		// invisible. Selecting the Annotation therefore reserves the panel's footprint in the camera and
+		// brings the mark out into the part of the pane nothing is covering.
+		//
+		// Folded in here rather than given a test of its own because this is already the suite's Project
+		// with a long description on the screen — which is what makes the panel stand at its cap, and the
+		// cap is what makes the reservation necessary rather than incidental — and the Seam 2 budget
+		// (`scripts/check-seam-2-size.mjs`) is spent.
+		//
+		// ⚠ **The gesture the camera claims are made on is the press of the row below, not the click on the
+		// canvas above.** Both run the same effect, and it deliberately does not care which: the canvas
+		// click is what proves the effect is not wired to the sidebar, and it is asserted for by everything
+		// between here and it. But the occlusion has to be *set up* with nothing selected — there is no
+		// panel to measure once the mark is behind where it will be — so getting back to a selection means
+		// pressing the row. The restraint that stops all this firing on a mark already in view is asserted
+		// where a spurious move is the only thing that could fail: "selecting one costs nothing at all",
+		// above.
+		//
+		// The map is moved rather than the Annotation, so the mark is exactly the one whose description is
+		// on the screen above. `unproject(project(mark) + centre − target)` is the shift that puts a
+		// coordinate at a chosen screen point: Web Mercator is linear at a fixed zoom, and the centre is
+		// asked for by projecting it rather than assumed to be the middle of the pane, because it is the
+		// camera's centre this arithmetic is relative to and nothing promises that is the middle of the pane.
+		await row.click();
+		await expect(inspector(page)).toHaveCount(0);
+		const paneBox = (await baseMap(page).boundingBox())!;
+		const behindThePanel = {
+			x: panelBox.x + panelBox.width / 2 - paneBox.x,
+			y: panelBox.y + panelBox.height / 2 - paneBox.y
+		};
+		const pinAt = (await storedAnnotations(page, layerId)).features[0]!.geometry!.coordinates as [
+			number,
+			number
+		];
+		/** Pan the map — never the Annotation — until the pin lands at `target` in the pane's own pixels. */
+		const panThePinTo = (target: { x: number; y: number }) =>
+			page.evaluate(
+				async ([coordinate, wanted]) => {
+					const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+					const at = map.project(coordinate as [number, number]);
+					const middle = map.project([map.getCenter().lng, map.getCenter().lat]);
+					const to = wanted as { x: number; y: number };
+					const moved = map.unproject([at.x + middle.x - to.x, at.y + middle.y - to.y]);
+					map.setCenter([moved.lng, moved.lat]);
+					await Promise.race([
+						new Promise<void>((resolve) => map.once('idle', () => resolve())),
+						new Promise<void>((resolve) => setTimeout(resolve, 3000))
+					]);
+				},
+				[pinAt, target] as const
+			);
+		await panThePinTo(behindThePanel);
+
+		/** Where the pin lands in the page's own pixels, against the camera as it is now. */
+		const pinOnScreen = async () => {
+			const at = await page.evaluate(
+				(coordinate) =>
+					(window as unknown as StackWindow).ballastellaLayerStack!.map.project(
+						coordinate as [number, number]
+					),
+				pinAt
+			);
+			return { x: paneBox.x + at.x, y: paneBox.y + at.y };
+		};
+		const covers = (
+			box: { x: number; y: number; width: number; height: number },
+			at: { x: number; y: number }
+		) => at.x >= box.x && at.x <= box.x + box.width && at.y >= box.y && at.y <= box.y + box.height;
+
+		// The precondition, stated rather than assumed: with the panel back this pin would be under it.
+		expect(
+			covers(panelBox, await pinOnScreen()),
+			'the pin is not where the Inspector will be, so this asserts nothing'
+		).toBe(true);
+
+		const centre = () =>
+			page.evaluate(() =>
+				(window as unknown as StackWindow).ballastellaLayerStack!.map.getCenter()
+			);
+		const moving = () =>
+			page.evaluate(() => (window as unknown as StackWindow).ballastellaLayerStack!.map.isMoving());
+		const displaced = await centre();
+		await selectAnnotation(page, 0);
+		// Settled rather than sampled: the answer is where the camera *stopped*, and a reading taken while
+		// the ease is running is a true reading of a moving value and a useless assertion.
+		await expect.poll(moving).toBe(false);
+
+		expect(await centre(), 'the occluded mark did not move the camera').not.toEqual(displaced);
+		const shown = (await inspector(page).boundingBox())!;
+		expect(
+			covers(shown, await pinOnScreen()),
+			'the selected mark is still behind the panel that describes it'
+		).toBe(false);
+
+		// **And the leader's end is on the screen with it**, which is the whole reason the mark had to come
+		// out: the line is `z-index: 5` and the Inspector is above MapLibre's controls at 7, so an end under
+		// the panel is an end nobody can see.
+		await expect.poll(() => leaderIsDrawn(page)).toBe('yes');
+		const end = (await leaderPoints(page))!.at(-1)!;
+		expect(covers(shown, end), 'the leader ends underneath the Inspector').toBe(false);
+		expect(covers(paneBox, end), 'the leader ends outside the map pane').toBe(true);
+
+		// **And the row that was pressed still has the keyboard.** The camera moves and nothing else, which
+		// is what lets this run for a selection made on the canvas without stealing the pointer's place:
+		// focus follows the gesture — a press of the row — and never the camera the gesture provoked.
+		expect(
+			await page.evaluate(() => {
+				const at = document.activeElement;
+				if (at === null || at === document.body) return 'BODY';
+				return at.getAttribute('data-testid') ?? at.getAttribute('aria-label') ?? at.tagName;
+			}),
+			'the camera move took the keyboard'
+		).toBe('annotation-row');
+
+		// ── AND NOTHING ASKS THE CAMERA TO MOVE WHILE SOMEBODY IS TYPING ─────────────────────
+		//
+		// ⚠ **A camera move per keystroke is a real hazard of the mechanism above, not a hypothetical.**
+		// Every keystroke saves, every save replaces the collection, and `selectedAnnotation` is therefore a
+		// fresh object on each character; an effect that read the Annotation rather than its id would ask
+		// for the reservation again on every one of them. `ProjectScreen.svelte`'s effect is keyed on the id
+		// and holds a `cleared` note besides, and the note there says which of the two is load-bearing.
+		//
+		// **The mark is panned back under the panel first, and that is what gives this teeth.** With the
+		// mark out in the clear `keepAnnotationClear` refuses the move on its own, so every version of the
+		// effect looks correct — which is what happened when the effect was replaced with an object-keyed,
+		// memo-free one and all 37 tests in this file went on passing. A scholar is allowed to pan the mark
+		// back under the panel; the camera does not fight the user. What must not then happen is the map
+		// being yanked out from under the sentence they are in the middle of.
+		await panThePinTo(behindThePanel);
+		expect(covers(shown, await pinOnScreen()), 'the mark is not back under the panel').toBe(true);
+		const beforeTyping = await centre();
+		await editAnnotationText(page);
+		await page.getByTestId('annotation-description').pressSequentially(' Rebuilt in 1631.');
+		// Waited for on the file rather than on the status line, which may already be reading "Saved
+		// locally" from the description typed further up: what this needs is that the *keystrokes* reached
+		// saves, because that is the thing the effect would have re-run on.
+		await expect
+			.poll(async () =>
+				String((await storedAnnotations(page, layerId)).features[0]!.properties.description)
+			)
+			.toContain('Rebuilt in 1631.');
+		expect(await centre(), 'the camera was asked to move while somebody was typing').toEqual(
+			beforeTyping
+		);
+		expect(await moving(), 'the camera is moving in the middle of a sentence').toBe(false);
+		await page.getByTestId('annotation-text-done').click();
+
+		// ── AND THE RESERVATION IS RELEASED WHEN THE PANEL GOES ──────────────────────────────
+		//
+		// ⚠ **The reservation is a property of one move, not of the viewport.** It was `padding` once, and
+		// `padding` is camera state that survives the move that set it: `getCenter` went on answering with
+		// the centre of a viewport 344 px narrower than the one on the screen, for the rest of the session.
+		// The user-visible fault is below — Enter with the pin tool places a point at `map.getCenter()`, so
+		// the pin landed half a reservation left of the crosshair — and the same phantom viewport anchored
+		// every later ease and zoom. `offset` leaves nothing behind, and this is the assertion that says so.
+		await page.getByTestId('annotation-inspector-close').click();
+		await expect(inspector(page)).toHaveCount(0);
+		expect(
+			await page.evaluate(() => {
+				const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+				const at = map.getCenter();
+				const on = map.project([at.lng, at.lat]);
+				const canvas = map.getCanvas().getBoundingClientRect();
+				return {
+					right: Math.round(on.x - canvas.width / 2),
+					down: Math.round(on.y - canvas.height / 2)
+				};
+			}),
+			'the camera is still centred on a viewport nobody can see'
+		).toEqual({ right: 0, down: 0 });
+
+		// And in the terms a user meets it in: the place under the middle of the pane is the place the pin
+		// lands, one dismissal after a reservation was spent.
+		const underTheCrosshair = await page.evaluate(() => {
+			const map = (window as unknown as StackWindow).ballastellaLayerStack!.map;
+			const canvas = map.getCanvas().getBoundingClientRect();
+			return map.unproject([canvas.width / 2, canvas.height / 2]);
+		});
+		await chooseTool(page, 'point');
+		await page.locator('canvas.maplibregl-canvas').focus();
+		await page.keyboard.press('Enter');
+		await expect.poll(async () => (await storedAnnotations(page, layerId)).features.length).toBe(2);
+		const placed = (await storedAnnotations(page, layerId)).features[1]!.geometry!.coordinates as [
+			number,
+			number
+		];
+		expect(placed[0], 'the pin landed east or west of the crosshair').toBeCloseTo(
+			underTheCrosshair.lng,
+			6
+		);
+		expect(placed[1], 'the pin landed north or south of the crosshair').toBeCloseTo(
+			underTheCrosshair.lat,
+			6
+		);
 		expect(failures).toEqual([]);
 	});
 });

@@ -14,6 +14,13 @@
 	// desktop, a sheet at the bottom on a phone — is the consumer's, because only the consumer knows
 	// what container it is in and what else is in that container. Nothing here sets `position`.
 	//
+	// **It does, though, know how to be short.** How tall it may be is the consumer's — only the consumer
+	// knows what its panel must stay clear of, which over a Base Map is the attribution its licence
+	// requires — and what happens once that cap binds is this component's: the identity header and the tab
+	// strip hold their place and the **face scrolls inside**, so a paragraph of prose is read in the panel
+	// rather than growing it past whatever the consumer capped it for
+	// (the-annotation-inspector stories 9, 21).
+	//
 	// **The block a consumer renders this in must be unkeyed, and must not dip false between
 	// selections.** This component carries a fixed element id and a 220 ms out transition, so a
 	// `{#key annotation.id}` — or an `{#if}` whose condition goes false for a frame while the selection
@@ -160,6 +167,27 @@
 	⚠ **It is evidence about the computation and about nothing else.** The attribute and the directive
 	read one `$derived`, so a test on the attribute goes red when that number is wrong and stays green
 	if the transition were hard-coded past it or deleted outright.
+
+	⚠ **How the cap the consumer sets reaches the words, since its `max-height` is two boxes away from
+	them, and which class does which half.** The two halves are separate and they fail differently.
+
+	*That the panel's box never exceeds the cap* is this `<section>`'s `overflow-hidden`, plus the
+	consumer's `display: flex` (its own note says why): an element whose `overflow` is anything but
+	`visible` has an **automatic minimum size of zero**, which is what lets a flex item be made shorter
+	than its own content at all. So this box shrinks into the cap and clips whatever does not fit — no
+	`min-h-0` needed here, because the `overflow-hidden` already is one.
+
+	*That the words are readable rather than cut off* is the face's `overflow-y-auto`, and only that. It
+	is the same automatic-minimum rule one level down: the face shrinks to the room the header and the
+	strip leave and scrolls its content. Measured with the face at `overflow-y: visible`: the panel still
+	stops above the attribution — this section clips it — and the bottom of the description simply
+	vanishes, unreachable, with no scrollbar. So the cap is not what would break; reading the prose is.
+	Anyone changing that overflow owes the face an explicit `min-h-0` and something else to scroll in.
+
+	`shrink-0` on the header and the tab strip is a statement rather than a mechanism: neither would
+	shrink as things stand — their content is their automatic minimum — and both stay green with the class
+	removed. It is kept so that "these two bands hold their place and the face gives" is written where a
+	reader of the markup meets it, and stays true if either band ever gains a scrolling child of its own.
 -->
 <section
 	id={ID}
@@ -175,7 +203,8 @@
 		beside it exactly as it does in the row.
 	-->
 	<header
-		class="flex items-start gap-2 border-b border-base-300 {KIND_STYLE.annotation.tint} px-3 py-2"
+		class="flex shrink-0 items-start gap-2 border-b border-base-300 {KIND_STYLE.annotation
+			.tint} px-3 py-2"
 		data-testid="annotation-inspector-header"
 	>
 		<span
@@ -224,7 +253,7 @@
 			The panel is a sibling of the strip rather than a child of it, because a `tablist` may contain
 			only tabs.
 		-->
-		<div role="tablist" class="tabs tabs-box px-3" data-testid="annotation-inspector-tabs">
+		<div role="tablist" class="tabs tabs-box shrink-0 px-3" data-testid="annotation-inspector-tabs">
 			<label id={TEXT_TAB_ID} class="tab" data-testid="annotation-inspector-tab-text">
 				<input
 					type="radio"
@@ -258,10 +287,15 @@
 
 		`aria-labelledby` names the showing tab's `<label>` — the element the words are in — so the panel
 		is announced as "Text" or "Style" without anything having to look through a radio for its name.
+
+		**`overflow-y-auto` is the whole of "a paragraph of prose is *read* in the panel rather than growing
+		it"** (the-annotation-inspector stories 9, 21). What keeps the panel inside the consumer's cap is a
+		box up the tree; what keeps the words reachable once it binds is this one class. The note on the
+		`<section>` separates the two and says why neither needs a `min-h-0`.
 	-->
 	<div
 		id={FACE_ID}
-		class="px-3 pb-3"
+		class="overflow-y-auto px-3 pb-3"
 		role={style ? 'tabpanel' : undefined}
 		aria-labelledby={style ? (face === 'style' ? STYLE_TAB_ID : TEXT_TAB_ID) : undefined}
 		data-testid="annotation-inspector-face"

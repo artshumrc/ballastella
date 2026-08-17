@@ -533,6 +533,133 @@
 	}
 
 	/**
+	 * How far inside an edge — of the pane, or of whatever is docked over it — a mark has to be to count
+	 * as comfortably in view.
+	 *
+	 * A mark exactly on the boundary is a mark half under something, and a rule with no margin also
+	 * makes the answer flip on a fraction of a pixel of rounding, which would move the camera on
+	 * selections that changed nothing. Eight would do for the geometry; sixteen also absorbs the 8 px
+	 * the Inspector's arrival transition is still travelling through when its box is measured.
+	 */
+	const MARK_COMFORT = 16;
+
+	/**
+	 * The most of the pane's width that may be reserved for something docked over it.
+	 *
+	 * Past half the pane there is no region left to centre a mark in, and MapLibre would be asked to fit
+	 * one into a strip of a few pixels. A guard rather than a layout: it binds only on a pane narrower
+	 * than about 700 px, which is a pane the phone layout is the answer for rather than this.
+	 */
+	const MOST_RESERVABLE = 0.5;
+
+	/**
+	 * How long the camera takes to bring a mark out from under the panel.
+	 *
+	 * A shade longer than the 220 ms the Inspector's own arrival takes (`AnnotationInspector`'s
+	 * `arrival`, the duration the Layer cards and the Annotation rows also use), and deliberately: the
+	 * panel and the camera set off in the same flush, and a camera that stopped first would show the
+	 * mark arriving before there was a panel for it to be getting out of the way of. Not MapLibre's own
+	 * `easeTo` default of 500 either, which for a move nobody asked for out loud reads as the map
+	 * wandering off on its own.
+	 *
+	 * `e2e/editor-annotations.e2e.ts` carries a named copy rather than importing this: the suite does not
+	 * import application source. Both sides say so.
+	 */
+	const RESERVATION_EASE_MS = 300;
+
+	/**
+	 * Bring `annotation`'s mark into the part of the pane nothing is covering, and only if it is not
+	 * there already (the-annotation-inspector stories 17, 19).
+	 *
+	 * `occluder` is the box of whatever is docked over this pane — the Annotation Inspector — in the
+	 * viewport's own coordinates, or `null` when nothing is. The page measures it because the page is
+	 * what renders it; the pane owns the camera and nothing else.
+	 *
+	 * **"The mark" is exactly the point the leader ends at, and for two of the three geometries that is
+	 * a point rather than the drawing.** `annotationMarkBox` gives a Pin its pin's own extent, a line its
+	 * westmost vertex and a shape its anchor, the last two zero-size. So what this guarantees is that the
+	 * *end of the leader* is clear of the panel: a long line running in from the west keeps its far half
+	 * under the panel, and a shape wider than the un-occluded region cannot be got out from under it at
+	 * all. That is the contract's choice rather than an omission — the leader is what says which mark a
+	 * selection is about, so the end of it is the thing that has to be visible, and a rule that framed
+	 * whole geometries would be a fit rather than a nudge and would zoom the map on every selection.
+	 *
+	 * **It must not fight the user**, which is the whole of the first branch: a mark already inside the
+	 * pane and clear of the panel provokes no camera move at all. Moving the map under a pointer that
+	 * asked for nothing of the sort is the defect this restraint is against, and it is the same restraint
+	 * the sidebar's `keepInView` observes for a row — ADR-0035 replaces that mechanism with this one, and
+	 * ticket 08 is what deletes it, so for now both are live.
+	 *
+	 * **The reservation is the panel's column, and the occlusion test is the panel's box.** Those are
+	 * deliberately different rectangles. A mark below the panel's bottom edge is not hidden — the map is
+	 * visible there and that is the point of docking over it rather than beside it — so it must not
+	 * provoke a move; but the reservation is one number and cannot describe a corner, so once a move is
+	 * warranted the whole column is what gets reserved.
+	 *
+	 * **Nothing is focused here.** The camera moves and whatever holds the keyboard keeps it, which is
+	 * what lets this run for a selection made on the canvas without taking the pointer's place.
+	 *
+	 * `prefers-reduced-motion` is MapLibre's own: `easeTo` skips the animation for anything not marked
+	 * `essential`, and a camera move nobody asked for out loud is exactly that.
+	 */
+	export function keepAnnotationClear(annotation: Annotation, occluder: ScreenBox | null): void {
+		const current = map;
+		if (current === undefined) return;
+		const mark = annotationMarkBox(current, annotation);
+		if (mark === null) return;
+
+		// ⚠ **The canvas rather than its container.** `getCanvasContainer()` is a zero-height div — the
+		// canvas inside it is absolutely positioned — so its rect gives the pane's origin and nothing about
+		// its extent, and every mark reads as off the bottom of a pane 0 px tall.
+		const pane = current.getCanvas().getBoundingClientRect();
+		const onThePane =
+			mark.left >= pane.left + MARK_COMFORT &&
+			mark.right <= pane.right - MARK_COMFORT &&
+			mark.top >= pane.top + MARK_COMFORT &&
+			mark.bottom <= pane.bottom - MARK_COMFORT;
+		const behindThePanel =
+			occluder !== null &&
+			mark.right >= occluder.left - MARK_COMFORT &&
+			mark.left <= occluder.right + MARK_COMFORT &&
+			mark.bottom >= occluder.top - MARK_COMFORT &&
+			mark.top <= occluder.bottom + MARK_COMFORT;
+		if (onThePane && !behindThePanel) return;
+
+		const reserved =
+			occluder === null
+				? 0
+				: Math.min(pane.right - occluder.left + MARK_COMFORT, pane.width * MOST_RESERVABLE);
+		current.easeTo({
+			// The middle of the mark's own box, so a Pin is centred on the pin rather than on the ground
+			// it stands on. Container coordinates, which is what `unproject` takes and what
+			// `annotationMarkBox` returned the viewport's version of.
+			//
+			// ⚠ **Two measured origins, and they coincide today rather than by construction.** `pane` is
+			// `getCanvas()` while `annotationMarkBox` takes its origin from `getCanvasContainer()`; the
+			// canvas is absolutely positioned at its container's origin, so subtracting one from the other
+			// is sound. The container's zero *height* has already caused one bug in this function (see
+			// above), so the difference between the two is worth knowing about before it is relied on
+			// harder.
+			center: current.unproject([
+				(mark.left + mark.right) / 2 - pane.left,
+				(mark.top + mark.bottom) / 2 - pane.top
+			]),
+			// ⚠ **`offset` rather than `padding`, and that is a correctness difference rather than a
+			// preference.** `padding` is *viewport state*: set it on one move and it stays set, so
+			// `getCenter` goes on answering with the padded centre and every later `easeTo`, double-click
+			// zoom and Enter-places-a-point is anchored to a viewport the user cannot see — a Pin placed by
+			// keyboard landed half a reservation left of the crosshair for the rest of the session.
+			// MapLibre also stops an in-flight ease the moment a handler activates, which with `padding`
+			// leaves it frozen at whatever fraction it had reached when the user grabbed the map. `offset`
+			// says "put this point off-centre by this much, for this one move" and leaves nothing behind:
+			// negative x, because the reserved column is on the right and the mark belongs in the middle of
+			// what is left.
+			offset: [-reserved / 2, 0],
+			duration: RESERVATION_EASE_MS
+		});
+	}
+
+	/**
 	 * Whoever wants to be told the camera has moved. The leader line (ticket 12), and nothing else.
 	 *
 	 * A set held here rather than the map handed out, because "the camera moved" is the whole of what

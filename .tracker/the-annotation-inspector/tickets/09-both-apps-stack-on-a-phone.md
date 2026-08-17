@@ -36,6 +36,23 @@ editor's half is new work; the viewer's is a change to a layout that is already 
   exists. If none does, set the viewport in the spec rather than adding a Playwright project; a new
   project multiplies the whole suite.
 
+## Two things ticket 07 left for this ticket
+
+Recorded from ticket 07's review rather than fixed there: both are about what the height cap does on a
+short pane, which is this ticket's subject and not that one's. Neither is a regression — the docked
+panel on a desktop is unaffected — and neither is asserted anywhere yet.
+
+- **The scroll claim is measured on the Text face only.** `editor-annotations.e2e.ts` fills a long
+  description and asserts the face scrolls and the header stays put; the **Style face is never measured at
+  the cap**, and it is the taller of the two — some twenty-five controls. Whatever geometry the sheet gets,
+  assert the cap against the Style face as well as the Text one.
+- **Below about 150 px of pane height the Style tab is unreachable.** The identity header and the tab strip
+  are `shrink-0`, so once the cap falls below their combined height the face is clipped to zero: the strip
+  is on the screen, the Style tab can be pressed, and it opens onto nothing. A phone in landscape with a
+  short map pane is exactly that pane. A sheet anchored to the bottom is measured against the window
+  rather than against a squeezed column, so this may fall out of the sheet's own geometry — but it is a
+  claim to assert, not to assume.
+
 ## Contract
 
 - **Both apps stack at the same breakpoint** — the one the viewer already uses. One width to learn, and
@@ -55,8 +72,10 @@ editor's half is new work; the viewer's is a change to a layout that is already 
   luminance steps in both themes. Stacking changes the axis, not the palette.
 - **The sheet must not cover the attribution**, and its body scrolls inside it — the same rule ticket 07
   established for the docked panel, applied to the sheet's own geometry.
-- If the reader pane or the base map pane needs camera padding for the sheet, use ticket 07's mechanism.
-  A sheet at the bottom is `padding.bottom`, not a new idea.
+- If the reader pane or the base map pane needs the camera moved for the sheet, use ticket 07's
+  mechanism: `keepAnnotationClear`, and a per-move `easeTo` **`offset`** rather than `padding` — see the
+  note there, `padding` is viewport state that outlives the move that set it. A sheet at the bottom is a
+  reservation on the y axis instead of the x, not a new idea.
 - **No change to `leader-line.ts`.**
 
 ## User Stories

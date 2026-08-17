@@ -520,6 +520,65 @@
 	};
 
 	/**
+	 * The Annotation the camera has already been asked to keep clear of the Inspector.
+	 *
+	 * A plain `let`, deliberately: in runes mode it is not reactive, so recording an answer cannot
+	 * re-run the effect that arrived at it — the same reason `BaseMapPane`'s `fitted` is one.
+	 */
+	let cleared: string | null = null;
+
+	/**
+	 * Ask the camera to keep the mark clear of the Inspector when a *different* Annotation is selected,
+	 * so the mark a scholar chose is never behind the panel describing it (the-annotation-inspector
+	 * story 19, ADR-0035).
+	 *
+	 * **What holds the line against a camera move per keystroke is this effect's dependency set, which is
+	 * `selectedAnnotationId` and nothing else.** `selectedAnnotation` is a fresh object after every save,
+	 * and a save is every keystroke, so an effect that read the Annotation instead would re-run on each
+	 * one. Reading only the id also makes "a different Annotation was chosen" the trigger, which is what
+	 * makes this the same gesture that opens the panel — from a row, from the canvas, from a Place or from
+	 * finishing a shape — rather than four call sites that can disagree.
+	 *
+	 * **`cleared` is a second guard covering the same case, and either one alone would be enough.** It is
+	 * kept because it is the guard that survives someone reading more of the Annotation here later; what
+	 * it costs is the note you are reading. If *both* go, the fault is not a crash: a scholar who has
+	 * panned the mark back under the panel — which is allowed, the camera does not fight the user — gets
+	 * the map yanked out from under the sentence they are typing, and pays a forced layout per keystroke
+	 * for `keepAnnotationClear`'s two `getBoundingClientRect` calls in the bargain. Neither shows up as an
+	 * error, which is why `editor-annotations.e2e.ts` types into a panel over a mark it has deliberately
+	 * put back underneath, and asserts the camera stays where it was.
+	 *
+	 * Whether the camera actually moves is `keepAnnotationClear`'s, and for a mark already comfortably in
+	 * view the answer is no.
+	 */
+	$effect(() => {
+		const id = annotations.selectedAnnotationId;
+		if (id === null) {
+			cleared = null;
+			return;
+		}
+		if (id === cleared) return;
+		cleared = id;
+		void keepSelectedMarkClear();
+	});
+
+	/**
+	 * Hand the pane the panel's own footprint, once the panel is on the screen to be measured.
+	 *
+	 * The `tick` is what makes the measurement possible at all: the Inspector is inserted by the same
+	 * flush that changed the selection, so a measurement taken before it has none of the panel to
+	 * measure. It also puts everything below it outside the effect's dependencies, which is why the
+	 * Annotation is read here rather than passed in.
+	 */
+	async function keepSelectedMarkClear(): Promise<void> {
+		await tick();
+		const annotation = annotations.selectedAnnotation;
+		if (!annotation) return;
+		const panel = document.getElementById(ANNOTATION_INSPECTOR_ID);
+		baseMapPane?.keepAnnotationClear(annotation, panel?.getBoundingClientRect() ?? null);
+	}
+
+	/**
 	 * Put the keyboard back in the Annotation list once the Inspector has been asked to go.
 	 *
 	 * The control that was pressed — *Dismiss*, or *Delete* — is inside the panel that is leaving, so
@@ -1829,6 +1888,22 @@
 	snippet is for: top-right inset, a comfortable measure wide with a `max-width` so it cannot exceed a
 	narrow pane, and the map still visible below it and beside it (stories 15, 17).
 
+	⚠ **The `max-height` is what keeps the Base Map's attribution clear** (the-annotation-inspector
+	story 21). The attribution is an ODbL condition rather than decoration, and it sits at the pane's
+	bottom-right — under this panel's own column. 3 rem leaves room for it and for the panel's own 0.5 rem
+	inset, so a long description scrolls inside the panel rather than the panel growing over the licence.
+
+	⚠ **`flex` is what passes that cap on to the panel, and the direction is not the load-bearing half.** A
+	`max-height` on this box constrains nothing inside it on its own: the panel has to be made *sizable
+	against this box's resolved height* rather than against its own content, and `display: flex` is what
+	does that. Both halves are measured rather than reasoned: with `flex-col` removed and `flex` kept the
+	panel still stays above the attribution — Chromium resolves a stretched item against the clamped
+	height just as it does a column's — while with `flex` removed and the `max-height` left in place the
+	panel's bottom edge lands at 1253 px against an attribution at 700. `flex-col` is kept because a
+	one-item column is what this is, and calling it a row would misdescribe the layout; nothing breaks
+	without it. What decides that the *face* is the part that gives, rather than the header or the tab
+	strip, is inside `AnnotationInspector`, and the note above its `<section>` says so.
+
 	⚠ **`z-index: 7` is load-bearing.** The leader is 5 and `layout.css` forces MapLibre's four control
 	corners to 6 so the leader cannot be drawn across them; all three are compared in one stacking
 	context, because `.maplibregl-map` opens none. 7 is one clear of the controls, which is what keeps
@@ -1849,7 +1924,9 @@
 -->
 {#snippet mapOverlay()}
 	{#if annotations.selectedAnnotation}
-		<div class="absolute top-2 right-2 z-[7] w-80 max-w-[calc(100%-1rem)]">
+		<div
+			class="absolute top-2 right-2 z-[7] flex max-h-[calc(100%-3rem)] w-80 max-w-[calc(100%-1rem)] flex-col"
+		>
 			<AnnotationInspector
 				annotation={annotations.selectedAnnotation}
 				index={annotations.selectedIndex}
