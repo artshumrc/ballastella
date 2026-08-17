@@ -36,7 +36,7 @@
 		type LineStyle,
 		type Place
 	} from '@ballastella/core';
-	import { AnnotationList, AnnotationRow } from '@ballastella/ui';
+	import { AnnotationList } from '@ballastella/ui';
 
 	import PlaceSearch from '$lib/places/PlaceSearch.svelte';
 
@@ -47,10 +47,13 @@
 	let {
 		collection,
 		selectedId,
+		titlingId,
 		tool,
+		picking,
 		status,
 		drawing,
 		canFinish,
+		onnew,
 		onchoosetool,
 		onplace,
 		onfinish,
@@ -65,10 +68,16 @@
 	}: {
 		collection: AnnotationCollection | null;
 		selectedId: string | null;
+		/** The Annotation just drawn, whose title is what the keyboard should be in. */
+		titlingId: string | null;
 		tool: AnnotationTool;
+		/** Whether the three shapes are on offer. The drawing state's, because it ends the gesture. */
+		picking: boolean;
 		status: string;
 		drawing: boolean;
 		canFinish: boolean;
+		/** "New Annotation" was pressed: offer the shapes. */
+		onnew: () => void;
 		onchoosetool: (tool: AnnotationTool) => void;
 		/**
 		 * A Place was chosen: frame the map on it and drop a Pin there, titled `query`.
@@ -88,33 +97,6 @@
 	} = $props();
 
 	const annotations = $derived<readonly Annotation[]>(collection?.annotations ?? []);
-
-	/**
-	 * Whether the shapes are on offer — "New Annotation" has been pressed, or a tool is armed.
-	 *
-	 * Held here rather than in the toolbar because it decides more than the toolbar: **the list of
-	 * Annotations is out of the way while a new one is being drawn.** Somebody who has just said "new"
-	 * is looking at the map, and a list of what is already in the Layer is the thing they are not
-	 * doing. It comes back the moment they are done.
-	 *
-	 * `picking` is only the gap the tool cannot describe: pressed, but no shape chosen yet. Once one
-	 * is, the armed tool holds the state on its own, so drawing three pins in a row is three clicks on
-	 * the map rather than three trips through the button.
-	 */
-	let picking = $state(false);
-	const choosing = $derived(picking || tool !== 'select');
-
-	/**
-	 * The one Annotation that stays on screen while a tool is armed: the selected one, if there is
-	 * one.
-	 *
-	 * There can only be one, and it can only have just been made. "New Annotation" deselects, so
-	 * arriving here with a selection means a shape was drawn on the map or a Place was pinned since
-	 * the tools came out — which is exactly the Annotation somebody is about to title.
-	 */
-	const drawn = $derived(
-		choosing ? (annotations.find((annotation) => annotation.id === selectedId) ?? null) : null
-	);
 </script>
 
 <!--
@@ -124,12 +106,12 @@
 {#snippet tools()}
 	<AnnotationTools
 		{tool}
-		{choosing}
+		{picking}
 		{status}
 		{drawing}
 		{canFinish}
 		onnew={() => {
-			picking = true;
+			onnew();
 			// **"New Annotation" collapses whatever row was open**, and deselecting is what does it: the
 			// open row is the selected Annotation, so there is one thing to say rather than two. It is
 			// also what the gesture means — a new Annotation is not an edit to the old one — and it is
@@ -137,10 +119,7 @@
 			// panel under the pointer would be the wrong Annotation's.
 			onselect(null);
 		}}
-		onchoose={(chosen) => {
-			if (chosen === 'select') picking = false;
-			onchoosetool(chosen);
-		}}
+		onchoose={onchoosetool}
 		{onfinish}
 		{oncancel}
 		{onundovertex}
@@ -170,7 +149,15 @@
 	it. A Reader's row reveals `AnnotationReading` instead, which is the same row saying less.
 -->
 {#snippet contents(annotation: Annotation)}
-	<AnnotationEditor {annotation} {ontext} {oncommit} {onstyle} {onlinestyle} {ondelete} />
+	<AnnotationEditor
+		{annotation}
+		titling={annotation.id === titlingId}
+		{ontext}
+		{oncommit}
+		{onstyle}
+		{onlinestyle}
+		{ondelete}
+	/>
 {/snippet}
 
 {#snippet noAnnotationsGuidance()}
@@ -188,54 +175,21 @@
 	Nothing in this Layer yet. Press <strong>New Annotation</strong> and draw one on the map.
 {/snippet}
 
-{#if choosing}
-	<!--
-		**The list stands aside while a shape is armed, but what has just been made does not.** The list
-		is not hidden to save space: it is the answer to "what is already in this Layer", and somebody
-		who has just pressed "New Annotation" is asking the opposite question. It is back as soon as
-		they are done.
+<!--
+	**One list, on screen throughout** (the-annotation-inspector stories 11, 36) — while the shapes are
+	on offer, while a shape is being drawn, and at rest. Hiding the answer to "what is already in this
+	Layer" is no service to somebody who is adding to it, and there is no drawing mode for the list to
+	step aside for: a gesture ends by itself, so nothing can hold the screen.
 
-		⚠ **The Annotation just drawn is the exception, and leaving it out was a regression.** The
-		editor used to sit outside this branch, so it stayed on screen while the list stepped aside;
-		moving it into the row moved it behind the same curtain. Drawing does not disarm the tool —
-		that is deliberate, so three pins in a row are three clicks on the map — so a scholar who drew a
-		shape and wanted to title it had to press "Done" first, and titling a shape straight after
-		drawing it is the point of drawing it. So the tools are followed by that one row, open, with
-		its editor inside it, and the rest of the list stays away.
-
-		**One row rather than a list of one**, which is why this branch renders `AnnotationRow` itself
-		rather than handing `AnnotationList` a collection of one: what is on screen is not "the
-		Annotations in this Layer" and must not be captioned or counted as though it were. The row and
-		its disclosure are still the shared ones, so nothing about how it opens can differ from the
-		list's. Its `index` is its place in the *collection*, so an untitled shape reads as the same
-		"Untitled pin 3" here as it does in the list a moment later.
-	-->
-	<section aria-label="Annotations" class="flex flex-col gap-3">
-		{@render tools()}
-
-		{#if drawn}
-			<ol
-				class="menu w-full gap-0 overflow-hidden menu-sm rounded-lg border border-base-300 p-0"
-				aria-label="The new Annotation"
-				data-testid="annotation-drawn"
-			>
-				<AnnotationRow
-					annotation={drawn}
-					index={annotations.indexOf(drawn)}
-					open
-					onopen={onselect}
-					{contents}
-				/>
-			</ol>
-		{/if}
-	</section>
-{:else}
-	<AnnotationList
-		{annotations}
-		openId={selectedId}
-		onopen={onselect}
-		{contents}
-		{tools}
-		{noAnnotationsGuidance}
-	/>
-{/if}
+	This is also why the freshly drawn Annotation needs nothing of its own here. It is a row in this
+	list, selected, with `titlingId` naming it as the one whose title is a field — captioned and counted
+	alongside the rest, because that is where it is.
+-->
+<AnnotationList
+	{annotations}
+	openId={selectedId}
+	onopen={onselect}
+	{contents}
+	{tools}
+	{noAnnotationsGuidance}
+/>

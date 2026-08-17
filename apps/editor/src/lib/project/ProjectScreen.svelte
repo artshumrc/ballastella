@@ -1693,10 +1693,13 @@
 	<AnnotationLayerContents
 		collection={annotations.activeCollection}
 		selectedId={annotations.selectedAnnotationId}
+		titlingId={annotations.titlingId}
 		tool={drawing.tool}
+		picking={drawing.picking}
 		status={drawing.status}
 		drawing={drawing.drawing}
 		canFinish={drawing.canFinish}
+		onnew={() => drawing.offerShapes()}
 		onchoosetool={(tool) => drawing.choose(tool)}
 		onplace={(place, query) => void placeAtPlace(place, query)}
 		onfinish={() => void annotations.finishShape()}

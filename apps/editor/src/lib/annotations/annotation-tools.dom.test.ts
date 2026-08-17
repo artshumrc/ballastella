@@ -39,7 +39,7 @@ afterEach(() => {
 
 const toolbar = (options: {
 	tool?: AnnotationTool;
-	choosing?: boolean;
+	picking?: boolean;
 	status?: string;
 	drawing?: boolean;
 	canFinish?: boolean;
@@ -49,7 +49,7 @@ const toolbar = (options: {
 		target: document.body,
 		props: {
 			tool: options.tool ?? 'select',
-			choosing: options.choosing ?? false,
+			picking: options.picking ?? false,
 			status: options.status ?? '',
 			drawing: options.drawing ?? false,
 			canFinish: options.canFinish ?? false,
@@ -76,7 +76,7 @@ const press = async (element: HTMLElement): Promise<void> => {
 
 describe('the tool in hand is announced, not only drawn (SPEC story 112)', () => {
 	test('the sentence names the tool and then says what to do with it', () => {
-		toolbar({ tool: 'polygon', choosing: true, status: 'Click the map to start a shape.' });
+		toolbar({ tool: 'polygon', picking: true, status: 'Click the map to start a shape.' });
 
 		// **The name is in the sentence, because the criterion is that the tool is *announced* and a
 		// highlight is not an announcement.** `data-tool` is a test attribute and reaches nobody.
@@ -107,7 +107,7 @@ describe('the tool in hand is announced, not only drawn (SPEC story 112)', () =>
 			['line', 'Line tool.'],
 			['polygon', 'Shape tool.']
 		] as const) {
-			toolbar({ tool, choosing: true, status: 'Click the map.' });
+			toolbar({ tool, picking: true, status: 'Click the map.' });
 			expect(one('annotation-status')).toHaveTextContent(name);
 
 			unmount(mounted!);
@@ -119,7 +119,7 @@ describe('the tool in hand is announced, not only drawn (SPEC story 112)', () =>
 
 describe('the toolbar reaches assistive technology and the keyboard', () => {
 	test('the shapes are one named set of alternatives, each a pressed-state button', () => {
-		toolbar({ tool: 'line', choosing: true });
+		toolbar({ tool: 'line', picking: true });
 
 		const tools = one('annotation-tools')!;
 		expect(tools).toHaveAttribute('role', 'toolbar');
@@ -136,14 +136,14 @@ describe('the toolbar reaches assistive technology and the keyboard', () => {
 	});
 
 	test('resting, there is one button and the shapes are behind it', () => {
-		toolbar({ choosing: false });
+		toolbar({ picking: false });
 
 		expect(one('annotation-new')).toHaveTextContent('New Annotation');
 		expect(all('annotation-tools')).toHaveLength(0);
 	});
 
 	test('choosing a shape reports it rather than deciding it here', async () => {
-		const spies = toolbar({ choosing: true });
+		const spies = toolbar({ picking: true });
 
 		await press(one('annotation-tool-point')!);
 
@@ -155,7 +155,7 @@ describe('the toolbar reaches assistive technology and the keyboard', () => {
 
 describe('a gesture in progress gets the controls a gesture needs, and only then', () => {
 	test('Finish, Undo and Cancel are absent while nothing is being drawn', () => {
-		toolbar({ tool: 'polygon', choosing: true, drawing: false });
+		toolbar({ tool: 'polygon', picking: true, drawing: false });
 
 		// So "Finish" is never a button that does nothing.
 		expect(all('annotation-finish')).toHaveLength(0);
@@ -164,7 +164,7 @@ describe('a gesture in progress gets the controls a gesture needs, and only then
 	});
 
 	test('Finish is offered but refused until the shape is one', () => {
-		toolbar({ tool: 'polygon', choosing: true, drawing: true, canFinish: false });
+		toolbar({ tool: 'polygon', picking: true, drawing: true, canFinish: false });
 
 		// Present and `disabled`, which is information a screen reader gets free from the markup —
 		// rather than absent, which would move under the pointer as the third vertex lands.
@@ -176,7 +176,7 @@ describe('a gesture in progress gets the controls a gesture needs, and only then
 	});
 
 	test('Done abandons a gesture in progress as well as putting the tools away', async () => {
-		const spies = toolbar({ tool: 'polygon', choosing: true, drawing: true, canFinish: true });
+		const spies = toolbar({ tool: 'polygon', picking: true, drawing: true, canFinish: true });
 
 		await press(one('annotation-tool-cancel')!);
 
@@ -187,7 +187,7 @@ describe('a gesture in progress gets the controls a gesture needs, and only then
 	});
 
 	test('Done with nothing in flight cancels nothing', async () => {
-		const spies = toolbar({ tool: 'polygon', choosing: true, drawing: false });
+		const spies = toolbar({ tool: 'polygon', picking: true, drawing: false });
 
 		await press(one('annotation-tool-cancel')!);
 

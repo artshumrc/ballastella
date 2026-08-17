@@ -124,6 +124,16 @@ export class AnnotationEditing {
 	selectedAnnotationId = $state<string | null>(null);
 
 	/**
+	 * The Annotation drawn a moment ago, whose title is where the keyboard belongs.
+	 *
+	 * Titling a shape straight after drawing it is one gesture (the-annotation-inspector story 40), and
+	 * an id rather than a flag because the surface that opens has to be able to tell "this is the shape
+	 * that was just drawn" from "this is an Annotation somebody selected to read". `null` again the
+	 * moment anything else is selected, so a read gesture never produces a form.
+	 */
+	titlingId = $state<string | null>(null);
+
+	/**
 	 * Why an undo did not happen, or `''`.
 	 *
 	 * The affordance disappears when it is pressed, so an undo that quietly declined to do anything
@@ -192,8 +202,11 @@ export class AnnotationEditing {
 	 */
 	openLayer(id: string | null): void {
 		this.openLayerId = id;
-		this.selectedAnnotationId = null;
-		this.drawing.cancel();
+		this.selectAnnotation(null);
+		// **Rest, not `cancel()`.** Cancelling is a no-op when nothing is part-drawn, which leaves the
+		// shapes on offer in a Layer where "New Annotation" was never pressed — and no way out of them
+		// but a "Done" the scholar never asked for.
+		this.drawing.returnToRest();
 	}
 
 	/**
@@ -205,6 +218,14 @@ export class AnnotationEditing {
 	 */
 	selectAnnotation(id: string | null): void {
 		this.selectedAnnotationId = id;
+		// Whatever this is, it is not the shape that was just drawn: only {@link #addDrawn} says that,
+		// and it says it after calling this.
+		this.titlingId = null;
+		// The drawing's "… added, and selected so it can be titled" announcement claims a shape *is* the
+		// selection, so it stops being true here — a deselection, a deletion, and the next Annotation
+		// somebody opens to read all pass through. {@link #addDrawn} restates it after selecting what it
+		// drew, which is the one selection the sentence survives.
+		this.drawing.added = null;
 	}
 
 	/**
@@ -283,6 +304,10 @@ export class AnnotationEditing {
 	 * everything else uses.
 	 */
 	async placePin(point: GeoPoint, title: string): Promise<void> {
+		// No gesture ended here — this Pin came from a lookup, not from a tool — so there is nothing for
+		// the announcement to report, and a sentence left over from the last shape drawn would name that
+		// shape while pointing at this Pin.
+		this.drawing.added = null;
 		await this.#addDrawn({ type: 'Point', coordinates: [point.lng, point.lat] }, title);
 	}
 
@@ -308,7 +333,15 @@ export class AnnotationEditing {
 			title,
 			style: styleForNewAnnotation(collection)
 		});
-		this.selectedAnnotationId = annotation.id;
+		// Captured across the selection below, which retires the announcement for every other caller.
+		// This one selection is what the sentence claims, so it is the one the sentence survives.
+		const added = this.drawing.added;
+		this.selectAnnotation(annotation.id);
+		this.drawing.added = added;
+		// **Straight into its title, unless it arrived with one.** A shape drawn on the map is untitled
+		// and titling it is the next gesture; a Pin dropped on a Place already carries the words the
+		// scholar typed, so opening a field on them would be an edit nobody asked for.
+		if (title === undefined) this.titlingId = annotation.id;
 		await this.commitAnnotations(addAnnotation(collection, annotation));
 	}
 
@@ -421,7 +454,7 @@ export class AnnotationEditing {
 		const annotation = collection.annotations[at];
 		// A refusal is about the record that is being replaced, so it goes with it.
 		this.undoRefusal = '';
-		this.selectedAnnotationId = null;
+		this.selectAnnotation(null);
 		await this.commitAnnotations(removeAnnotation(collection, id));
 		if (!annotation) return;
 		const record: AnnotationDeletedUndo = {
@@ -483,7 +516,7 @@ export class AnnotationEditing {
 			}
 		}
 		this.openLayerId = layer.id;
-		this.selectedAnnotationId = record.annotation.id;
+		this.selectAnnotation(record.annotation.id);
 		await this.commitAnnotationsIn(
 			layer,
 			insertAnnotationAt(collection, record.annotation, record.at)

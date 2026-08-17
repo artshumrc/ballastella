@@ -25,7 +25,7 @@
 
 	let {
 		tool,
-		choosing,
+		picking,
 		status,
 		drawing,
 		canFinish,
@@ -39,10 +39,11 @@
 		/**
 		 * Whether the shapes are on offer.
 		 *
-		 * Owned by the pane rather than here, because it decides more than this toolbar: the list of
-		 * Annotations is out of the way while somebody is drawing a new one.
+		 * Owned by the drawing state rather than here, because what ends the offer is the gesture
+		 * ending, and a gesture can end on the canvas where this toolbar cannot see it: a pin lands
+		 * with one click, a line is finished by a double-click, and Escape abandons either.
 		 */
-		choosing: boolean;
+		picking: boolean;
 		/** The gesture in words, for the announced region. */
 		status: string;
 		drawing: boolean;
@@ -103,7 +104,7 @@
 		leaving it a stray hue. The shapes and Finish match it, because they stand in the same place the
 		moment it is pressed.
 	-->
-	{#if !choosing}
+	{#if !picking}
 		<div>
 			<button
 				type="button"

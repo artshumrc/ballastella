@@ -198,11 +198,9 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// own counting and is drawn nowhere on the map: a numbered disc floating over the geography
 		// read as a second kind of pin, in a place the scholar had not put one.
 		//
-		// `select` first, because the list stands aside while a drawing tool is armed and what is on
-		// screen until then is the one Annotation just drawn — which is already numbered 3, from its
-		// place in the collection rather than in that row.
-		await expect(page.getByTestId('annotation-drawn')).toContainText('3');
-		await chooseTool(page, 'select');
+		// **Read with nothing put away first.** The list is on screen throughout a drawing run, so all
+		// three rows are in it the moment the third shape lands, each numbered from its place in the
+		// collection rather than from its place in the list.
 		expect(await page.getByTestId('annotation-row-ordinal').allTextContents()).toEqual([
 			'1',
 			'2',
@@ -442,10 +440,11 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// on the map carrying no drag handle of its own, which is what lets the click below land on it.
 		await drawPin(page, 0.3, 0.3);
 		await drawPin(page, 0.6, 0.6);
-		const row = page.getByTestId('annotation-row');
-		await expect(row).toHaveCount(1);
+		const rows = page.getByTestId('annotation-row');
+		// Both of them, in the list that no longer stands aside — and the one just drawn is the open one.
+		await expect(rows).toHaveCount(2);
+		const row = rows.nth(1);
 		await expect(row).toHaveAttribute('aria-expanded', 'true');
-		const openId = await row.getAttribute('data-annotation-id');
 
 		// **An Escape the row's own fields already answered is not this screen's to act on.** The
 		// title input treats it as "leave this field" and the description textarea ignores it, and
@@ -481,35 +480,40 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// straight on the first pin. Without the guard on the page it would open that Annotation's row
 		// instead of placing a point. The other half of the pair is `clicking an Annotation on the Base
 		// Map opens its Layer and selects it`, which is the same click with the select tool in hand.
+		//
+		// Pressing "New Annotation" — which is what `chooseTool` does — collapses the row that was open,
+		// because a new Annotation is not an edit to the old one. So the selection is made *again* below,
+		// from the list, which is what gives this Escape two jobs to do in order.
 		await chooseTool(page, 'polygon');
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
 		await clickAt(baseMap(page), 0.3, 0.3);
 		await expect(page.getByTestId('annotation-status')).toContainText('1 point placed');
+		// And neither click opened the Annotation under it: the pin is still there, unselected.
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
 		await clickAt(baseMap(page), 0.5, 0.4);
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'true');
-		// The open row is untouched by either click: still one row, and still the same Annotation's.
-		await expect(row).toHaveCount(1);
-		await expect(row).toHaveAttribute('data-annotation-id', openId!);
-		await expect(row).toHaveAttribute('aria-expanded', 'true');
+
+		const reopened = rows.nth(0);
+		await reopened.click();
+		await expect(reopened).toHaveAttribute('aria-expanded', 'true');
+		// Opening a row is not abandoning a gesture: the two vertices are still in flight.
+		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'true');
 
 		await page.keyboard.press('Escape');
 
 		// The gesture went, and the row that was open stayed: one Escape, one job.
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'false');
-		await expect(row).toHaveAttribute('aria-expanded', 'true');
+		// **And the tool went with it** (the-annotation-inspector stories 38, 41): an abandoned gesture is
+		// over, so the next click on the map selects rather than starting the polygon again.
+		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', 'select');
+		await expect(reopened).toHaveAttribute('aria-expanded', 'true');
 
 		// And the next Escape, with nothing left to abandon, collapses it.
 		await page.keyboard.press('Escape');
 		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
-		await chooseTool(page, 'select');
-		await expect(page.getByTestId('annotation-row')).toHaveCount(2);
-		await expect(page.getByTestId('annotation-row').nth(0)).toHaveAttribute(
-			'aria-expanded',
-			'false'
-		);
-		await expect(page.getByTestId('annotation-row').nth(1)).toHaveAttribute(
-			'aria-expanded',
-			'false'
-		);
+		await expect(rows).toHaveCount(2);
+		await expect(rows.nth(0)).toHaveAttribute('aria-expanded', 'false');
+		await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'false');
 
 		// Escape leaves no trace on disk, which is the whole of the first half: the abandoned polygon
 		// was never written, and the two pins drawn before the watch started are all the Layer holds.
@@ -531,33 +535,54 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 	 * Load-bearing for the rest of this suite, which is why it is asserted rather than assumed: a
 	 * helper that clicked a row unconditionally would deselect the new shape and take the editor and
 	 * the vertex handles with it.
+	 *
+	 * **It is also where "finishing returns everything to rest" is asserted**
+	 * (the-annotation-inspector stories 37, 38, 39, 40). The tool disarming itself is
+	 * `AnnotationDrawing`'s and is asserted directly in `drawing.svelte.test.ts`; what needs a browser
+	 * is the whole surface answering to it at once — the resting button back, the shapes gone, the
+	 * keyboard in the new Annotation's title, and the next click on the canvas selecting rather than
+	 * drawing. None of those five is visible to the node seam or to the component seam.
 	 */
-	test('a shape drawn on the map arrives selected, in an editor of its own', async ({ page }) => {
-		await startAnnotating(page);
+	test('a shape drawn on the map arrives selected, at rest, with its title ready to type', async ({
+		page
+	}) => {
+		const layerId = await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
 
-		// **With the tool still in hand**, which is the flow rather than a shortcut: drawing does not
-		// disarm the tool, so a row that stood aside with the rest of the list would mean pressing
-		// "Done" before the shape just drawn could be titled. One row is on screen and it is that one.
+		// **Back to rest, with nothing put away by hand.** One press of "New Annotation" made one
+		// Annotation: the resting button is showing, the three shapes are not, and the tool is down.
+		await expect(page.getByTestId('annotation-new')).toBeVisible();
+		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
+		const status = page.getByTestId('annotation-status');
+		await expect(status).toHaveAttribute('data-tool', 'select');
+		await expect(status).toHaveAttribute('data-drawing', 'false');
+
+		// The drawn Annotation is the selected one, in the ordinary list, and **the keyboard is in its
+		// title** — titling a shape straight after drawing it is one gesture.
 		await expect(page.getByTestId('annotation-row')).toHaveCount(1);
 		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
 		await expect(page.getByTestId('annotation-editor')).toBeVisible();
+		await expect(page.getByTestId('annotation-title')).toBeFocused();
 
-		// And it can be titled from there, with the tool still armed.
-		await editAnnotationText(page);
 		await page.getByTestId('annotation-title').fill('The west quay');
 		await page.getByTestId('annotation-text-done').click();
 		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
 
-		// The list is back once the tools are put away, and the drawn Annotation is the selected one in
-		// it rather than something the tools left behind.
-		await selectAnnotation(page);
+		// **And the next click on the map selects rather than draws**, which is what disarming the tool
+		// is for. The row is collapsed first, so the click lands on the canvas rather than on the drag
+		// handle a selected Annotation puts over its own coordinate — and so that the selection this
+		// makes is a change.
+		await page.getByTestId('annotation-row').click();
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
+		await clickAt(baseMap(page), 0.4, 0.4);
 		await expect(page.getByTestId('annotation-editor')).toContainText('The west quay');
+		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 
-		// And the panel that appears next belongs to the shape that was just drawn rather than to the
-		// previous Annotation. "New Annotation" deselects — the component seam asserts that it does —
-		// and this is the other end of it.
+		// So a second shape takes a second press of "New Annotation" — and the panel that appears then
+		// belongs to the shape just drawn rather than to the previous Annotation, because pressing the
+		// button deselects.
 		await page.getByTestId('annotation-new').click();
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
 		await page.getByTestId('annotation-tool-point').click();
 		await clickAt(baseMap(page), 0.6, 0.6);
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
@@ -651,6 +676,14 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await clickAt(baseMap(page), 0.5, 0.6);
 		await expect(status).toContainText('3 points placed');
 		await expect(status).toContainText('Finish');
+
+		await page.getByTestId('annotation-finish').click();
+
+		// **And finishing says what happened rather than falling silent.** The tool puts itself down
+		// without being asked, and a region that simply went empty would leave somebody holding a Shape
+		// tool that is no longer in their hand.
+		await expect(status).toContainText('Shape added');
+		await expect(status).toHaveAttribute('data-tool', 'select');
 	});
 });
 
@@ -1573,6 +1606,12 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
 
+		// **The shapes are behind the button again, because that gesture is over** — so a second shape
+		// takes a second press, reached by keyboard like the first.
+		await expect(page.getByTestId('annotation-tools')).toHaveCount(0);
+		await tabTo(page, page.getByTestId('annotation-new'), 'the New Annotation button');
+		await page.keyboard.press('Enter');
+
 		// And a line finished with Shift+Enter, which is the keyboard's double-click.
 		await tabTo(page, page.getByTestId('annotation-tool-line'), 'the line tool');
 		await page.keyboard.press('Enter');
@@ -1592,6 +1631,15 @@ test.describe('the keyboard alone (SPEC stories 95 and 96)', () => {
 		// between the keyboard and the text: the pencil that turns it into fields. It is native, which is
 		// why it needed no key handler of its own (ADR-0016); this is what asserts that.
 		await chooseTool(page, 'select');
+		// **Opened as text first, which is how every panel but a freshly drawn one opens.** The line just
+		// finished arrives with its title as a field and the keyboard in it, so the row is collapsed and
+		// opened again — the ordinary read gesture, where the pencil is what stands between the words and
+		// the fields.
+		// Waited on rather than clicked twice in a row: the panel is destroyed when the row finishes
+		// collapsing, and a reopen inside that animation would be handed the same instance with its
+		// fields still up.
+		await page.getByTestId('annotation-row').nth(1).click();
+		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
 		await selectAnnotation(page, 1);
 		await tabTo(page, page.getByTestId('annotation-edit-text'), 'the edit pencil');
 		await page.keyboard.press('Enter');
@@ -1713,7 +1761,6 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 		// Drawing into the open Layer works, and lands in that Layer's file.
 		await drawPin(page, 0.4, 0.45);
 		expect((await storedAnnotations(page, layerId)).features).toHaveLength(1);
-		await chooseTool(page, 'select');
 		await expect(rowFor(page, layerId).getByTestId('annotation-row')).toHaveCount(1);
 
 		// Closed, none of it is on the screen — and the picker it replaced is not there either.
@@ -1840,16 +1887,15 @@ test.describe('drawing into the Layer that is open (ticket 05)', () => {
 
 		await openLayerRow(page, rowFor(page, places));
 
-		// The gesture is gone and the selection with it. **The tool stays in hand**, which is
-		// `AnnotationDrawing.cancel()`'s existing behaviour and not an oversight: cancelling a shape
-		// almost always means drawing another, and Escape has always left the tool selected too. Ticket
-		// 05 moved where the toolbar is drawn and changed nothing about what it holds.
+		// The gesture is gone and the selection with it — and **the tool went down with the gesture**,
+		// which is `AnnotationDrawing`'s rule: an abandoned gesture is over too, so the surface a Layer
+		// away is at rest rather than armed with nothing being drawn. A tool carried across would be
+		// pointing at a file the scholar was not drawing in.
 		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-drawing', 'false');
-		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', 'polygon');
+		await expect(page.getByTestId('annotation-status')).toHaveAttribute('data-tool', 'select');
+		await expect(page.getByTestId('annotation-new')).toBeVisible();
 		await expect(page.getByTestId('annotation-editor')).toHaveCount(0);
-		// The Layer that was opened is empty — read once the tool is put down, because the list stands
-		// aside while a shape is armed.
-		await chooseTool(page, 'select');
+		// And the Layer that was opened is empty, said in this app's own words.
 		await expect(page.getByTestId('annotation-list-empty')).toBeVisible();
 
 		// And nothing was written into either Layer: the abandoned polygon is not in the file it was

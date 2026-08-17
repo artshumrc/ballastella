@@ -11,9 +11,9 @@
 // component tested from the app it used to live in is tested through a consumer (ADR-0034), and the
 // second consumer is then either untested or carrying a copy of the same claim.
 //
-// **What is left is this app's own composition**: the drawing tools, and the rule that the list of
-// what is already in the Layer stands aside while a shape is armed — except for the one Annotation
-// that has just been drawn. None of that is a published site's, and none of it belongs to the list.
+// **What is left is this app's own composition**: the drawing tools above the list, and the rule that
+// the list of what is already in the Layer is there throughout — while the shapes are on offer and
+// while one is being drawn. None of that is a published site's, and none of it belongs to the list.
 //
 // ⚠ **What stays in `e2e/` is the wiring.** This component is handed `collection` and `selectedId`;
 // it computes neither. So "a newly drawn Annotation is selected" is `ProjectScreen`'s and the
@@ -70,11 +70,13 @@ const press = async (element: HTMLElement): Promise<void> => {
 };
 
 describe('“New Annotation” clears the way for the one about to be drawn', () => {
-	test('closes the Annotation that was open and puts the list away', async () => {
-		// The defect: the editor is not part of the list, so it stayed on screen when the list stepped
-		// aside for the shape buttons — a panel titled after the *previous* Annotation, sitting
-		// directly under the tool about to draw a different one, in the place the new one's own panel
-		// will appear.
+	test('closes the Annotation that was open and leaves the list where it is', async () => {
+		// **Two claims, and they pull in opposite directions.** Pressing "new" must close the panel
+		// titled after the *previous* Annotation — it is not an edit to that one, and its panel would
+		// otherwise sit under the tool about to draw a different one, in the place the new one's own
+		// panel appears. What must *not* go with it is the list: "what is already in this Layer" is not
+		// the thing to take away from somebody who is adding to it
+		// (the-annotation-inspector stories 11, 36).
 		const chose = vi.fn();
 		contents({
 			collection: collectionOf(annotation({ id: 'a-1', title: 'The west quay' })),
@@ -87,51 +89,48 @@ describe('“New Annotation” clears the way for the one about to be drawn', ()
 
 		expect(chose).toHaveBeenCalledWith(null);
 		expect(all('annotation-editor')).toHaveLength(0);
-		// And the list is out of the way too: somebody who has just pressed "new" is asking what they
-		// are about to draw, not what is already there.
-		expect(all('annotation-list')).toHaveLength(0);
 		expect(one('annotation-tools')).toBeInTheDocument();
+		expect(one('annotation-list')).toBeInTheDocument();
+		// **And the caption with it**, which is the half that says what the list is: a Layer holding one
+		// Annotation and a Layer nobody has counted have to stay distinguishable
+		// (the-annotation-inspector story 13).
+		expect(one('annotation-row')).toHaveTextContent('The west quay');
+		expect(document.getElementById('annotation-list-caption')).toHaveTextContent('1 Annotation');
 	});
 
-	test('Done puts the shapes away and brings the list back', async () => {
+	test('Done puts the shapes away, and the list was never the thing hidden', async () => {
 		contents({ collection: collectionOf(annotation({ id: 'a-1', title: 'The west quay' })) });
 
 		await press(one('annotation-new')!);
-		expect(all('annotation-list')).toHaveLength(0);
+		expect(one('annotation-list')).toBeInTheDocument();
 
 		await press(one('annotation-tool-cancel')!);
 
-		// Back to resting: one button, and the Annotations legible again.
+		// Back to resting: one button, and the list untouched throughout.
 		expect(one('annotation-new')).toBeInTheDocument();
 		expect(all('annotation-tools')).toHaveLength(0);
 		expect(one('annotation-list')).toBeInTheDocument();
 	});
 
-	test('an armed shape keeps the list away without pressing “new” again', async () => {
-		// Drawing three pins in a row is three clicks on the map rather than three trips through the
-		// button, which is `choosing` being `picking || tool !== 'select'` rather than `picking` alone.
+	test('an armed shape leaves the list alone too', async () => {
 		contents({ collection: collectionOf(annotation({ id: 'a-1', title: 'The west quay' })) });
 
 		await press(one('annotation-new')!);
 		await press(one('annotation-tool-point')!);
 
 		expect(one('annotation-tool-point')).toHaveAttribute('aria-pressed', 'true');
-		expect(all('annotation-list')).toHaveLength(0);
+		expect(one('annotation-list')).toBeInTheDocument();
 	});
 });
 
-describe('the Annotation just drawn stays under the tools', () => {
-	// ⚠ **The regression these two are the fence around.** Before the editor moved into the row it was
-	// rendered outside this branch, so it survived the list stepping aside for the shape buttons.
-	// Inside the row it went behind the same curtain — and drawing deliberately leaves the tool in
-	// hand, so titling a shape then began with pressing "Done", which is the opposite of what drawing
-	// something is for. Armed *and* selected is the state the page is in the instant a shape lands.
-	//
-	// Asserted as a pair on purpose. "The row is there when something is selected" alone would pass a
-	// component that showed a row whatever happened; "no row when nothing is" alone would pass one
-	// that had gone back to hiding everything.
+describe('the Annotation just drawn is in the list, because that is where it is', () => {
+	// ⚠ **Nothing on this screen is a list of one.** The Annotation just drawn is an ordinary row in
+	// the ordinary list, selected and with its editor open, so it is counted and captioned with the
+	// rest — a Layer holding one Annotation and a Layer nobody has counted stay distinguishable even in
+	// the instant after a shape lands. These assert the state the page is in mid-gesture, which is
+	// where a second list would have to appear if one were going to.
 
-	test('with a tool armed and an Annotation selected, that row and its editor are on screen', () => {
+	test('with a tool armed and an Annotation selected, its row is the open one in the list', () => {
 		contents({
 			collection: collectionOf(
 				annotation({ id: 'a-1', title: 'The west quay' }),
@@ -141,26 +140,49 @@ describe('the Annotation just drawn stays under the tools', () => {
 			tool: 'point'
 		});
 
-		// The tools are still out, so this is not merely the resting list under another name.
+		// The tools are still out, so this is the state the page is in mid-gesture rather than at rest.
 		expect(one('annotation-tools')).toBeInTheDocument();
-		expect(all('annotation-list')).toHaveLength(0);
-
-		// One row, and it is the selected one rather than the first thing in the collection.
-		expect(all('annotation-row')).toHaveLength(1);
-		expect(one('annotation-row')).toHaveAttribute('data-annotation-id', 'a-2');
-		expect(one('annotation-row')).toHaveAttribute('aria-expanded', 'true');
+		expect(one('annotation-list')).toBeInTheDocument();
+		// No list of one anywhere: what is on screen is the Layer's Annotations, counted and captioned.
+		expect(all('annotation-row')).toHaveLength(2);
+		expect(all('annotation-editor')).toHaveLength(1);
 		expect(one('annotation-editor')).toHaveAttribute('data-annotation-id', 'a-2');
+		expect(all('annotation-row')[1]).toHaveAttribute('aria-expanded', 'true');
+		expect(all('annotation-row')[0]).toHaveAttribute('aria-expanded', 'false');
 	});
 
-	test('with a tool armed and nothing selected, no row is', () => {
+	test('with a tool armed and nothing selected, no row is open', () => {
 		contents({
 			collection: collectionOf(annotation({ id: 'a-1', title: 'The west quay' })),
 			tool: 'point'
 		});
 
 		expect(one('annotation-tools')).toBeInTheDocument();
-		expect(all('annotation-row')).toHaveLength(0);
+		expect(one('annotation-row')).toHaveAttribute('aria-expanded', 'false');
 		expect(all('annotation-editor')).toHaveLength(0);
+	});
+
+	test('a freshly drawn Annotation opens with its title as a field, and nothing else does', () => {
+		// Titling a shape straight after drawing it is one gesture (the-annotation-inspector story 40),
+		// and the panel is handed the id of the shape that was just drawn rather than a flag — so
+		// selecting an Annotation to *read* it cannot put the same form in front of a reader. Both
+		// halves, because either alone would pass a panel that always opened its fields, or never did.
+		contents({
+			collection: collectionOf(annotation({ id: 'a-1' })),
+			selectedId: 'a-1',
+			titlingId: 'a-1'
+		});
+
+		expect(one('annotation-title')).toBeInTheDocument();
+
+		unmount(mounted!);
+		mounted = undefined;
+		document.body.innerHTML = '';
+
+		contents({ collection: collectionOf(annotation({ id: 'a-1' })), selectedId: 'a-1' });
+
+		expect(all('annotation-title')).toHaveLength(0);
+		expect(one('annotation-edit-text')).toBeInTheDocument();
 	});
 });
 

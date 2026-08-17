@@ -90,6 +90,31 @@ export class AnnotationDrawing {
 	tool = $state<AnnotationTool>('select');
 
 	/**
+	 * Whether the three shapes are on offer: "New Annotation" has been pressed and the gesture it
+	 * began is not over yet.
+	 *
+	 * **Here rather than in the toolbar, because a gesture can end anywhere.** A pin lands with one
+	 * click on the canvas, a line is finished by a double-click on it or by Shift and Enter, and
+	 * Escape abandons whatever is part-drawn — none of which the toolbar can see. The shapes have to
+	 * go away with the gesture, and {@link #rest} is the one place that says a gesture is over.
+	 */
+	picking = $state(false);
+
+	/**
+	 * The shape the last completed gesture drew, or `null` when there is nothing to announce.
+	 *
+	 * Held so that finishing has something to say. The tool disarms itself the moment a shape is
+	 * finished, and a status region that simply fell silent would leave a screen-reader user holding
+	 * a tool that is no longer in their hand — the change is theirs to be told about.
+	 *
+	 * **Writable from outside, because the sentence it produces makes a claim this class cannot
+	 * check**: it says the shape is *selected so it can be titled*, which stops being true when the
+	 * selection moves off it or it is deleted. The selection's single writer clears this, and
+	 * re-states it across the one selection that a finished gesture itself makes.
+	 */
+	added = $state<AnnotationTool | null>(null);
+
+	/**
 	 * The vertices placed so far, in the order they were placed. Empty whenever nothing is in flight.
 	 *
 	 * `$state.raw`, because a placement replaces the whole array rather than pushing into it — the
@@ -107,14 +132,24 @@ export class AnnotationDrawing {
 		return this.vertices.length >= MINIMUM_VERTICES[this.tool] && this.tool !== 'select';
 	}
 
+	/** "New Annotation": put the three shapes on offer, without choosing one. */
+	offerShapes(): void {
+		this.picking = true;
+		this.added = null;
+	}
+
 	/**
 	 * Choose a tool. **Abandons anything part-drawn**, which is the honest reading of picking up a
 	 * different tool — and it discards rather than committing, because a half-drawn shape the user
 	 * walked away from is not something they asked to keep (the same rule as ADR-0022's pending half).
+	 *
+	 * Choosing a shape leaves it on offer; choosing `select` is the way back out, and puts the
+	 * shapes away with it.
 	 */
 	choose(tool: AnnotationTool): void {
 		this.tool = tool;
 		this.vertices = [];
+		this.picking = tool !== 'select';
 	}
 
 	/**
@@ -131,7 +166,8 @@ export class AnnotationDrawing {
 		this.vertices = [...this.vertices, point];
 		if (this.tool !== 'point') return null;
 		const geometry = this.geometry();
-		this.vertices = [];
+		this.added = this.tool;
+		this.#rest();
 		return geometry;
 	}
 
@@ -144,15 +180,51 @@ export class AnnotationDrawing {
 	finish(): AnnotationGeometry | null {
 		if (!this.canFinish) return null;
 		const geometry = this.geometry();
-		this.vertices = [];
+		this.added = this.tool;
+		this.#rest();
 		return geometry;
 	}
 
 	/** Abandon what is part-drawn. Escape, or the cancel button beside the status line. */
 	cancel(): boolean {
 		if (!this.drawing) return false;
-		this.vertices = [];
+		this.added = null;
+		this.#rest();
 		return true;
+	}
+
+	/**
+	 * Put everything down whatever state it is in: nothing part-drawn, no tool armed, no shapes on
+	 * offer, nothing left to announce.
+	 *
+	 * **For a change of surface rather than the end of a gesture** — the Layer being opened, closed or
+	 * swapped — where the shapes must not follow into a Layer nobody offered them in. {@link cancel}
+	 * cannot serve: its boolean means "a part-drawn gesture was abandoned", which the Escape handler
+	 * spends to decide whether to consume the key, so it has to stay a no-op when nothing is
+	 * part-drawn. "New Annotation pressed, nothing drawn yet" is exactly that state.
+	 */
+	returnToRest(): void {
+		this.added = null;
+		this.#rest();
+	}
+
+	/**
+	 * Back to rest: nothing part-drawn, no tool armed, no shapes on offer.
+	 *
+	 * **One press of "New Annotation" makes one Annotation**, so every way a gesture can end comes
+	 * through here — a pin completed by its only click, a line or a shape finished, and a gesture
+	 * abandoned, which is over too. The rule belongs to the state machine rather than to a page
+	 * handler so that there is exactly one place that says a gesture is over.
+	 *
+	 * A tool never stays in hand between shapes (the-annotation-inspector stories 37, 38, 39): the
+	 * price is a press of "New Annotation" per shape, and it is accepted. If a drawing run proves
+	 * painful the repair is a visible "Draw another" control on the Annotation just finished, never a
+	 * tool that stays armed silently.
+	 */
+	#rest(): void {
+		this.vertices = [];
+		this.tool = 'select';
+		this.picking = false;
 	}
 
 	/** Take back the last vertex placed, so a misplaced click is not the end of the shape. */
@@ -196,8 +268,15 @@ export class AnnotationDrawing {
 		// mid-gesture. The region stays in the DOM and empty, which is also what keeps it announceable:
 		// `aria-live` announces a *change of text in a region that is already there*, so the next real
 		// status is heard. There is nothing to announce about not drawing.
+		//
+		// **Except straight after a shape was drawn**, when the tool put itself down: what happened and
+		// what to do next are both changes the scholar did not make and is owed.
 		if (this.tool === 'select') {
-			return '';
+			if (this.added === null) return '';
+			return (
+				`${toolName(this.added)} added, and selected so it can be titled. ` +
+				'Press New Annotation to draw another.'
+			);
 		}
 		if (this.tool === 'point') {
 			return 'Click the map, or press Enter on it, to place a pin.';

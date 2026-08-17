@@ -425,10 +425,14 @@ export async function clickAt(target: Locator, fx: number, fy: number): Promise<
 /**
  * Choose a drawing tool.
  *
- * **Two clicks now, where the surface used to offer four equal buttons.** Selecting is the resting
- * behaviour rather than a tool, so the three shapes live behind "New Annotation" and `select` is
- * reached by leaving them ("Done"). Every test drives the tools through here, so the change to what
- * a scholar presses is stated once.
+ * **Two clicks, not one.** Selecting is the resting behaviour rather than a tool, so the three shapes
+ * live behind "New Annotation" and `select` is reached by leaving them ("Done"). Every test drives the
+ * tools through here, so what a scholar presses is stated once.
+ *
+ * **And "New Annotation" is pressed once per shape**, because finishing a gesture disarms the tool and
+ * puts the shapes away: one press, one Annotation (the-annotation-inspector story 39). That is why
+ * this asks whether the shapes are on offer rather than assuming they are — a caller drawing two
+ * shapes in a row arrives here with the button showing, not the shapes.
  */
 export async function chooseTool(
 	page: Page,
@@ -453,12 +457,10 @@ export async function chooseTool(
  * vertex handles would both vanish. That is not a hypothetical: it is what the first run of this
  * suite did, and eleven tests failed on it with the row still focused and looking selected.
  *
- * **Puts the drawing tools away first**, because the list stands aside while a shape is armed —
- * somebody who has just pressed "New Annotation" is asking what to draw, not what is already here.
- * Drawing leaves the tool in hand, so a test that draws and then reaches for a row arrives while the
- * list is still out of the way. The one exception is the Annotation just drawn, whose row stays open
- * under the tools so that it can be titled straight away — but this helper is asked for *any* row,
- * including one the tools are hiding, so it puts them away regardless.
+ * **Puts the drawing tools away first**, which is only ever about the tools: the list is on screen
+ * throughout, and a finished gesture puts the shapes away by itself. What is left for this to do is
+ * the case where the shapes are on offer and nothing was drawn, so that a caller asking for a row is
+ * not left with a half-started gesture behind it.
  *
  * **Waits for the row that was left to finish closing.** A row collapses over 220 ms, so for that
  * long the Annotation being left still has its editor in the document alongside the one being opened
@@ -484,7 +486,8 @@ export async function selectAnnotation(page: Page, index = 0): Promise<void> {
  *
  * The panel shows them as **text** until the pencil is pressed, so every test that types into them
  * goes through here. Idempotent: pressing the pencil again once the fields are open would be a
- * click on whatever moved under it.
+ * click on whatever moved under it — which is also what makes it right to call after drawing, where
+ * the fields are open already because a shape just drawn arrives with the keyboard in its title.
  */
 export async function editAnnotationText(page: Page): Promise<void> {
 	const pencil = page.getByTestId('annotation-edit-text');

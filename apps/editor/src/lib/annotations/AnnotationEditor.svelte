@@ -40,6 +40,7 @@
 
 	let {
 		annotation,
+		titling = false,
 		ontext,
 		oncommit,
 		onstyle,
@@ -47,6 +48,14 @@
 		ondelete
 	}: {
 		annotation: Annotation;
+		/**
+		 * Whether this Annotation has just been drawn, and so arrives with the keyboard in its title.
+		 *
+		 * Titling a shape straight after drawing it is one gesture (the-annotation-inspector story 40).
+		 * `false` for every other way a panel opens: selecting an Annotation to *read* it must not put a
+		 * form in front of the reader.
+		 */
+		titling?: boolean;
 		/** Typing. Coalesced into one write per file (ADR-0017 rule 2). */
 		ontext: (text: { title?: string; description?: string }) => void;
 		/** The edit is over — the field blurred, or Enter was pressed (ADR-0017 rule 1). */
@@ -111,7 +120,8 @@
 	 *
 	 * Reset by the `$effect` below whenever a different Annotation arrives, because this panel is
 	 * reused rather than remounted: without it, selecting one Annotation while editing another's text
-	 * would open the second one straight into a form nobody asked to edit.
+	 * would open the second one straight into a form nobody asked to edit. A freshly drawn Annotation
+	 * is the one exception, and {@link titling} is how it says so.
 	 */
 	let editingText = $state(false);
 
@@ -144,7 +154,9 @@
 		const id = annotation.id;
 		if (id === shown) return;
 		shown = id;
-		editingText = false;
+		// A shape just drawn opens straight into its title; anything else opens as text to read.
+		if (titling) void editText();
+		else editingText = false;
 		panel?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 	});
 

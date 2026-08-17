@@ -147,6 +147,33 @@ describe('which Layer is drawn into', () => {
 		expect(it_.annotations.selectedAnnotationId).toBeNull();
 	});
 
+	it('puts the shapes away when another Layer is opened with nothing drawn yet', () => {
+		// **The state a plain `cancel()` cannot reach.** "New Annotation" has been pressed and no vertex
+		// placed, so there is nothing part-drawn to abandon — and the shapes would follow into a Layer
+		// where the button was never pressed, offering Pin/Line/Shape/Done and no way back to rest but a
+		// "Done" nobody asked for.
+		const it_ = screen([layerNamed('one'), layerNamed('two')]);
+		it_.annotations.openLayer('one');
+		it_.annotations.drawing.offerShapes();
+
+		it_.annotations.openLayer('two');
+
+		expect(it_.annotations.drawing.picking).toBe(false);
+		expect(it_.annotations.drawing.tool).toBe('select');
+	});
+
+	it('puts the shapes away when the open Layer is closed, too', () => {
+		// Closing is the same act: the tools go off the screen with the row, so the state behind them
+		// cannot be left holding a gesture that was never begun.
+		const it_ = screen([layerNamed('one')]);
+		it_.annotations.openLayer('one');
+		it_.annotations.drawing.offerShapes();
+
+		it_.annotations.openLayer(null);
+
+		expect(it_.annotations.drawing.picking).toBe(false);
+	});
+
 	it('keeps the selection when an Annotation is opened from the map', () => {
 		// The one path that deliberately does not go through `openLayer`: a click on the map is
 		// *making* a selection, and clearing it would be clearing the thing the user just pointed at.
@@ -171,6 +198,111 @@ describe('which Layer is drawn into', () => {
 		it_.layers.splice(1, 1);
 
 		expect(it_.annotations.activeLayer).toBeNull();
+	});
+});
+
+describe('a drawn Annotation arrives selected and ready to be titled (the-annotation-inspector story 40)', () => {
+	it('selects the shape just drawn and names it as the one to type into', async () => {
+		const it_ = screen([layerNamed('one')]);
+		it_.annotations.openLayer('one');
+		it_.annotations.drawing.choose('point');
+
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+
+		const drawn = written(it_).annotations[0]!.id;
+		expect(it_.annotations.selectedAnnotationId).toBe(drawn);
+		// The id rather than a flag, so the panel that opens can tell the shape just drawn from an
+		// Annotation somebody selected to read.
+		expect(it_.annotations.titlingId).toBe(drawn);
+	});
+
+	it('stops naming it as soon as anything else is selected, so reading opens no form', async () => {
+		const it_ = screen([layerNamed('one')]);
+		it_.annotations.openLayer('one');
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+		const drawn = written(it_).annotations[0]!.id;
+
+		// The same Annotation, selected again — a row pressed rather than a shape drawn.
+		it_.annotations.selectAnnotation(null);
+		it_.annotations.selectAnnotation(drawn);
+
+		expect(it_.annotations.titlingId).toBeNull();
+	});
+
+	it('leaves a Pin dropped on a Place alone, because it arrived with its title', async () => {
+		// The words are the scholar's own query (ADR-0029), so a field opened on them would be an edit
+		// nobody asked for.
+		const it_ = screen([layerNamed('one')]);
+		it_.annotations.openLayer('one');
+
+		await it_.annotations.placePin({ lng: 4.9, lat: 52.37 }, 'Hampden');
+
+		expect(it_.annotations.selectedAnnotationId).toBe(written(it_).annotations[0]!.id);
+		expect(it_.annotations.titlingId).toBeNull();
+	});
+});
+
+describe('the “shape added” announcement is withdrawn when it stops being true', () => {
+	/** A pin drawn into an open Layer: the state in which the announcement is being made. */
+	const drewAPin = async (it_: ReturnType<typeof screen>): Promise<void> => {
+		it_.annotations.openLayer('one');
+		it_.annotations.drawing.offerShapes();
+		it_.annotations.drawing.choose('point');
+		await it_.annotations.placePoint({ lng: 4.9, lat: 52.37 });
+	};
+
+	it('survives the selection the drawn shape itself makes', async () => {
+		// The sentence is made *by* a completed gesture and `#addDrawn` selects what that gesture drew,
+		// so the one selection it must outlive is the one it is about.
+		const it_ = screen([layerNamed('one')]);
+
+		await drewAPin(it_);
+
+		expect(it_.annotations.drawing.status).toContain('Pin added');
+	});
+
+	it('goes when the selection moves off the shape it names', async () => {
+		// It claims the shape is "selected so it can be titled". Two Escapes deselect, and a region still
+		// saying that would be describing a screen the scholar is no longer looking at.
+		const it_ = screen([layerNamed('one')]);
+		await drewAPin(it_);
+
+		it_.annotations.selectAnnotation(null);
+
+		expect(it_.annotations.drawing.status).toBe('');
+	});
+
+	it('goes when the Annotation it announces is deleted', async () => {
+		const it_ = screen([layerNamed('one')]);
+		await drewAPin(it_);
+
+		await it_.annotations.deleteSelected();
+
+		// Announcing that something exists, in a Layer it has just been taken out of.
+		expect(it_.annotations.drawing.status).toBe('');
+		expect(written(it_).annotations).toHaveLength(0);
+	});
+
+	it('goes when another Layer is opened', async () => {
+		const it_ = screen([layerNamed('one'), layerNamed('two')]);
+		await drewAPin(it_);
+
+		it_.annotations.openLayer('two');
+
+		// An empty Layer announcing a Pin added to a different one.
+		expect(it_.annotations.drawing.status).toBe('');
+	});
+
+	it('says nothing about a Pin dropped on a Place, which came from no gesture', async () => {
+		// The words are already the scholar's own (ADR-0029): nothing was armed, nothing disarmed, and a
+		// sentence left over from the last shape drawn would name that shape while pointing at this Pin.
+		const it_ = screen([layerNamed('one')]);
+		await drewAPin(it_);
+
+		await it_.annotations.placePin({ lng: 5, lat: 52 }, 'Hampden');
+
+		expect(it_.annotations.drawing.status).toBe('');
 	});
 });
 
