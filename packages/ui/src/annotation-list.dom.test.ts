@@ -241,8 +241,9 @@ describe('every Annotation is numbered on its row (stories 37, 38, 42)', () => {
 describe('the row is a disclosure (one-shell-two-apps stories 24–32, 35)', () => {
 	// **Openness and selection are one state, so there is one property for them.** The row carries no
 	// `aria-pressed`: an Annotation that was pressed but not open, or open but not pressed, were two
-	// answers to "which one is active" that could disagree, and now there is one. The wash the open
-	// row wears is a paint claim and stays in `e2e/`.
+	// answers to "which one is active" that could disagree, and now there is one. Which element wears
+	// the selection mark is asserted in "the selected row is unmistakable"; what it looks like painted
+	// is `e2e/`'s.
 
 	test('a row expands to reveal its own Annotation, and pressing it again collapses it', async () => {
 		const opened = vi.fn();
@@ -366,6 +367,77 @@ describe('the row is a disclosure (one-shell-two-apps stories 24–32, 35)', () 
 
 		expect(one('annotation-row-contents')).toHaveAttribute('data-reveal-ms', '220');
 	});
+
+	// **The mark on the selected row is deliberately not asserted here.** It is written against the
+	// `<li>` in "the selected row is unmistakable" below, which is where it survives the row ceasing to
+	// be a disclosure — a claim kept in this describe would be removed with the machinery it sat beside.
+});
+
+describe('the selected row is unmistakable (the-annotation-inspector stories 7, 8, 54)', () => {
+	// **Class strings written out rather than read from `KIND_STYLE`**, for the reason
+	// `layer-list.dom.test.ts` gives where it asserts the header's tint: a class read off the table
+	// would agree with the table whatever either of them said. There is no paint at this seam, so what
+	// the wash and the spine *look* like is `e2e/editor-annotations.e2e.ts`'s, where the row's computed
+	// background is compared with the Layer header's and the spine is read off the box shadow.
+
+	const two = (): Annotation[] => [
+		annotation({ id: 'a-1', title: 'One' }),
+		annotation({ id: 'a-2', title: 'Two' })
+	];
+
+	test('the wash and the spine are on the whole row, and on the selected row only', () => {
+		// **On the `<li>` rather than on the header button**, which is the whole of what this asserts: a
+		// wash on the header strip alone marked part of the selected row and left the rest of it plain,
+		// in a column of four near-identical rows where that was reported as not enough to tell which
+		// one had been chosen.
+		list({ annotations: two(), openId: 'a-2', withContents: true });
+
+		const marked = nth('annotation-row-item', 1);
+		const plain = nth('annotation-row-item', 0);
+
+		expect(marked).toHaveClass('bg-info/10');
+		expect(marked).toHaveClass('shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]');
+		expect(plain).not.toHaveClass('bg-info/10');
+		expect(plain).not.toHaveClass('shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]');
+
+		// The header is inside the marked element rather than being the marked element, and so is what
+		// the row reveals: one block wearing one wash, which is what "the whole row" means here.
+		expect(marked).toContainElement(nth('annotation-row', 1));
+		expect(marked).toContainElement(one('harness-annotation-contents'));
+		expect(nth('annotation-row', 1)).not.toHaveClass('bg-info/10');
+	});
+
+	test('the selected row’s name is semibold, and an unselected row’s is not', () => {
+		// Colour is not the only channel: a monochrome screen still says which row it is. This is the
+		// half of story 7 that survives a theme with no colour at all, so it is asserted apart from the
+		// wash and would otherwise be deleted as a duplicate of it.
+		list({ annotations: two(), openId: 'a-1' });
+
+		expect(nth('annotation-row', 0)).toHaveClass('font-semibold');
+		expect(nth('annotation-row', 1)).not.toHaveClass('font-semibold');
+	});
+
+	test('one property carries the selection, on both states, and nothing else claims it', () => {
+		// Story 54, and the reason `AnnotationRow` refuses `aria-pressed`: a row that was pressed but not
+		// open, or open but not pressed, would be two answers to "which Annotation is active". Asserted
+		// across the whole `<li>` rather than on the button, so adding the property to any element in the
+		// row goes red — and on both rows, because a selection carried only by the absence of an
+		// attribute is not carried at all.
+		list({ annotations: two(), openId: 'a-1', withContents: true });
+
+		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'true');
+		expect(nth('annotation-row', 1)).toHaveAttribute('aria-expanded', 'false');
+		for (const row of all('annotation-row-item')) {
+			expect(row.querySelectorAll('[aria-pressed]')).toHaveLength(0);
+		}
+	});
+});
+
+describe('the list says what is in the Layer (the-annotation-inspector stories 12, 13)', () => {
+	// **These claims are the list's own and not the disclosure's**, which is why they are in a describe
+	// of their own: the count above the rows, and the difference between a Layer nobody has read and a
+	// Layer with nothing in it, are true however an Annotation's content comes to be read. A ticket that
+	// changes what a row does must leave every test here green.
 
 	test('a Layer with nothing in it says so instead of drawing an empty list', () => {
 		list({ annotations: [] });

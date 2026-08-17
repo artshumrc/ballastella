@@ -191,43 +191,55 @@
 	const Icon = $derived(iconForGeometry(annotation.geometry?.type));
 </script>
 
-<li class="border-b border-base-200 last:border-b-0">
+<!--
+	**The selected Annotation's row is marked in the Annotation Layer's own two colours, and the marks
+	are on the whole row rather than on the header inside it.** In a 24 rem column of four
+	near-identical rows a wash on the header strip alone was not enough to say which row had been
+	chosen — the fault a scholar reported first — and the header is in any case only part of the row:
+	the wash has to cover the header and whatever the row reveals together, so that the selected
+	Annotation is one marked block instead of a tinted strip above an untinted one.
+
+	`KIND_STYLE.annotation.tint` is the same 10% the card's header wears, from the one table every
+	colour in this card comes from (`layer-kind-style.ts`). It is a wash rather than a fill for a
+	reason: at 10% over `base-100` the row's text stays on the colour it was already legible on, where
+	a `base-content` slab has to re-solve its own contrast and then repaint the text to win.
+
+	⚠ **The spine is not the rule that was removed.** What was removed was `border-primary` over
+	daisyUI's `menu-active`: two colours making two claims, `primary` being the *app's* action colour
+	reserved for the controls outside the Layer cards, and `menu-active` painting `base-content` —
+	near-black in the light theme — so a blue rule sat against a black slab in a card whose every other
+	control is `info`. Nothing about either colour said "this belongs to the Annotations". This spine is
+	the Annotation Layer's own ink, `--layer-kind-ink-annotation`, the same custom property
+	`KIND_STYLE.annotation.ink` sets text in and `layout.css` computes from `--color-info`; and it is on
+	the selected row only, where the removed rule was drawn on a row that was merely `menu-active`.
+
+	An inset box shadow rather than `border-l-2`, because a border is layout: two pixels appearing on
+	the left of the selected row would shift its text sideways as the selection moved down the list.
+
+	Colour is not the only channel (the-annotation-inspector story 7): the name goes semibold, which
+	survives a monochrome screen, and `aria-expanded` is what carries the state to a screen reader
+	(story 8 of the same epic).
+-->
+<li
+	class={[
+		'border-b border-base-200 last:border-b-0',
+		open && `${KIND_STYLE.annotation.tint} shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]`
+	]}
+	data-testid="annotation-row-item"
+>
 	<!--
-		**The open row is marked by the Annotation Layer's own wash, and nothing else.**
-		`KIND_STYLE.annotation.tint` is the same 10% the card's header wears, from the one table every
-		colour in this card comes from (`layer-kind-style.ts`).
-
-		It was `border-primary` with daisyUI's `menu-active`, which is two colours making two claims:
-		`primary` is the *app's* action colour, reserved for the controls outside the Layer cards, and
-		`menu-active` paints `base-content` — near-black in the light theme — so a blue rule sat against
-		a black slab in a card whose every other control is `info`. Reported as clashing, and it was:
-		nothing about either colour said "this belongs to the Annotations".
-
-		**The rule down the left edge went with them.** It was the third mark on a row that needed one,
-		in a column that already draws a hairline between every row and a border around the whole list —
-		a fourth vertical line, two pixels from the box's own. The wash alone says which row it is, and
-		it is a wash rather than a fill for a reason: at 10% over `base-100` the row's text stays on the
-		colour it was already legible on, where a `base-content` slab has to re-solve its own contrast
-		and then repaint the text to win.
-
-		Colour is not the only channel (SPEC story 111): the name goes semibold, which survives a
-		monochrome screen, and `aria-expanded` is what carries the state to a screen reader.
-
 		**That button is also the disclosure, and its expanded state is the selection.** There is
 		deliberately no `aria-pressed` beside it: a row that was pressed but not open, or open but not
 		pressed, would be two answers to "which Annotation is active", and two properties for one fact
-		are two things that can disagree. `aria-expanded` is ADR-0016's shape for a disclosure, which is
-		what this is, and it is the Layer card's own convention one level down rather than a second one
-		invented here. There is no separate control beside the name for the same reason: the gesture
-		that chooses an Annotation is the gesture that opens it.
+		are two things that can disagree (the-annotation-inspector story 54). `aria-expanded` is ADR-0016's shape for a
+		disclosure, which is what this is, and it is the Layer card's own convention one level down
+		rather than a second one invented here. There is no separate control beside the name for the same
+		reason: the gesture that chooses an Annotation is the gesture that opens it.
 	-->
 	<button
 		bind:this={button}
 		type="button"
-		class={[
-			'flex w-full items-center gap-2 rounded-none py-2',
-			open && `font-semibold ${KIND_STYLE.annotation.tint}`
-		]}
+		class={['flex w-full items-center gap-2 rounded-none py-2', open && 'font-semibold']}
 		aria-expanded={open}
 		aria-controls={open ? `annotation-contents-${annotation.id}` : undefined}
 		data-testid="annotation-row"

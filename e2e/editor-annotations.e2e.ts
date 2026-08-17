@@ -564,18 +564,22 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await expect(page.getByTestId('annotation-editor')).not.toContainText('The west quay');
 	});
 
-	test('the selected row wears the Layer’s own wash, and no rule of its own', async ({ page }) => {
+	test('the selected row wears the Layer’s own wash and a spine in its ink', async ({ page }) => {
 		// **Measured, because the defect was two colours making two claims.** The row carried
 		// `border-primary` — the app's action colour, which belongs to the controls *outside* the Layer
 		// cards — over daisyUI's `menu-active`, which paints `base-content`: a blue rule against a
 		// near-black slab, in a card whose every other control is the Annotation kind's `info`.
+		//
+		// ⚠ **Both marks are read off the `<li>` rather than off the row's header button.** Nothing about
+		// the mark is on the button, so a locator on `annotation-row` would report "no background"
+		// whatever the row looked like.
 		const layerId = await startAnnotating(page);
 		await drawPin(page, 0.4, 0.4);
 		await drawPin(page, 0.6, 0.4);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page, 0);
 
-		const rows = page.getByTestId('annotation-row');
+		const rows = page.getByTestId('annotation-row-item');
 		const marked = rows.nth(0);
 		const plain = rows.nth(1);
 		const backgroundOf = (target: typeof marked) =>
@@ -600,11 +604,28 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		// `base-100` because it had to, having made the row near-black.
 		const inkOf = (target: typeof marked) =>
 			target.evaluate((element) => getComputedStyle(element).color);
-		expect(await inkOf(marked)).toBe(await inkOf(plain));
+		const namesOf = (target: typeof marked) => target.getByTestId('annotation-row-name');
+		expect(await inkOf(namesOf(marked))).toBe(await inkOf(namesOf(plain)));
 
-		// No rule down the left edge, on either row. The list already draws a hairline between rows and a
-		// border around itself, and a two-pixel line inside that was a fourth vertical edge in a 384px
-		// column. A one-line `border-l-2` is all it would take to come back.
+		// **The spine, and it is the Annotation Layer's own ink rather than a colour named here.** Read by
+		// comparing it with the ordinal on the same row, which is set in `--layer-kind-ink-annotation` from
+		// the one table (`layer-kind-style.ts`): a spine repainted in the app's action colour is what this
+		// catches, and it catches it without this file holding a second copy of what the ink is.
+		const ink = await inkOf(marked.getByTestId('annotation-row-ordinal'));
+		const spineOf = (target: typeof marked) =>
+			target.evaluate((element) => getComputedStyle(element).boxShadow);
+		const spine = await spineOf(marked);
+		// The offsets are matched as a group rather than as substrings: computed `box-shadow` serialises
+		// as `<color> <x> <y> <blur> <spread> inset`, so a 2px rule across the row's *top* would satisfy
+		// any test that only looked for "2px" somewhere in it.
+		expect(spine).toMatch(/2px 0px 0px 0px inset/);
+		expect(spine).toContain(ink);
+		// And only the chosen row draws one.
+		expect(await spineOf(plain)).toBe('none');
+
+		// **A shadow rather than a border, on both rows, because a border is layout**: two pixels arriving
+		// on the left of the selected row would shift its text sideways as the selection moved down the
+		// list. `border-l-2` is all it would take for that to start happening.
 		for (const row of [marked, plain]) {
 			expect(await row.evaluate((element) => getComputedStyle(element).borderLeftWidth)).toBe(
 				'0px'
