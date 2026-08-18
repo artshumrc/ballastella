@@ -864,25 +864,45 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 test.describe('editing a vertex costs exactly one write, on gesture end (ADR-0017 rule 1)', () => {
 	test('dragging a vertex writes once', async ({ page }) => {
 		const layerId = await startAnnotating(page);
-		await drawPin(page, 0.4, 0.4);
-		// Selecting the pin is what puts its vertex handle on the map.
+		await drawShape(page, 'line', [
+			[0.3, 0.4],
+			[0.7, 0.5]
+		]);
 		await chooseTool(page, 'select');
 		await selectAnnotation(page);
 		const handle = page.getByTestId('pane-overlay-point-annotation-vertex');
-		await expect(handle).toHaveCount(1);
+		await expect(handle).toHaveCount(2);
 
 		const before = await storedAnnotations(page, layerId);
 		await watchAnnotationWrites(page);
 
-		const box = await handle.boundingBox();
+		const box = await handle.first().boundingBox();
 		if (!box) throw new Error('the vertex handle has no box');
-		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+		const to = { x: from.x + 50, y: from.y - 50 };
+		await page.mouse.move(from.x, from.y);
 		await page.mouse.down();
-		// Several moves, so a per-pointer-move implementation would record several writes. This is the
-		// distinction the count exists to make: "did it save" cannot see it.
-		for (const dx of [10, 20, 30, 40, 50]) {
-			await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dx);
-		}
+		await page.mouse.move(to.x, to.y);
+		// The line's actual MapLibre feature follows the handle before the drag commits.
+		await expect
+			.poll(() =>
+				page.evaluate(({ x, y }) => {
+					const map = (window as unknown as StackWindow).ballastellaLayerStack?.map;
+					if (!map) return false;
+					const canvas = map.getCanvas().getBoundingClientRect();
+					const at: [number, number] = [x - canvas.left, y - canvas.top];
+					return map
+						.queryRenderedFeatures(
+							[
+								[at[0] - 6, at[1] - 6],
+								[at[0] + 6, at[1] + 6]
+							],
+							{}
+						)
+						.some((feature) => feature.properties['ballastella:id'] !== undefined);
+				}, to)
+			)
+			.toBe(true);
 		await page.mouse.up();
 		await expect(page.getByRole('status')).toHaveText('Saved locally');
 

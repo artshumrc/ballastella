@@ -69,6 +69,7 @@
 		pageChrome,
 		type Box
 	} from '@ballastella/ui';
+	import Scan from '@lucide/svelte/icons/scan';
 	import { tick, untrack } from 'svelte';
 
 	import AnnotationLayerContents from '$lib/annotations/AnnotationLayerContents.svelte';
@@ -1046,7 +1047,7 @@
 {:else if session.openProject && resolution}
 	<!--
 		`lg:h-full`, and the root layout is what gives it a full screen to be `h-full` of. The map is the
-		thing the scholar is studying, so it gets the height the bar and this header do not take —
+		thing the scholar is studying, so it gets the height the bar does not take —
 		computed by the layout rather than by arithmetic on a `calc()` that goes wrong the moment the
 		bar wraps to two lines.
 
@@ -1057,52 +1058,6 @@
 		block in a page that scrolls as a whole" means here (the-annotation-inspector story 60).
 	-->
 	<div class="flex min-h-0 flex-col lg:h-full" data-testid="project-screen">
-		<div class="flex flex-wrap items-center gap-3 border-b border-base-300 px-4 py-2">
-			<!-- The one Base Map switcher in the app that writes this Project's author default
-			     (ADR-0020). On the Project screen, because that is whose choice it is.
-
-			     The catalog is passed rather than assumed, because the shared component is the same one a
-			     Published Site renders and that site keeps the catalog it was published with. This app is
-			     simply the caller whose catalog is this build's. -->
-			<BaseMapSwitcher
-				entryId={resolution.entry.id}
-				catalog={BASE_MAP_CATALOG}
-				showNetworkRequirement={false}
-				fullWidth={false}
-				onSelect={(id) => session.chooseBaseMap(id)}
-			/>
-
-			<!--
-				ADR-0026's explicit control, and it is a button with words on it rather than an icon with a
-				tooltip (SPEC story 111). It exists because the automatic fit deliberately happens once:
-				everything the once-only rule gives up — coming back after panning away, reframing after
-				drawing somewhere new — is this.
-			-->
-			<button
-				type="button"
-				class="btn btn-sm"
-				data-testid="fit-to-project"
-				onclick={() => void fitToProject()}
-			>
-				Fit to this Project
-			</button>
-
-			<!--
-				Why the Base Map on screen is not the one the Project asked for (ADR-0020). Always present
-				with an empty string when there is nothing to say, which is what makes it a live region a
-				screen-reader user hears — `MapNotice` owns that rule and the reasoning behind it.
-			-->
-			<MapNotice
-				shape="always-present"
-				variant="plain"
-				class="grow text-sm text-base-content/70"
-				testid="base-map-notice"
-				text={notice}
-			/>
-
-			<a class="link text-sm" href={resolve('/')}>Back to all Projects</a>
-		</div>
-
 		<!--
 			`relative` establishes the containing block the leader's own layer is `inset-0` of — it spans
 			the sidebar and the map together, which is the whole reason it is a child of this element
@@ -1218,6 +1173,7 @@
 						entryId={resolution.entry.id}
 						{cachedBaseMap}
 						layers={drawn}
+						annotationDragPreview={annotations.dragPreview}
 						{openingFit}
 						overlayPoints={annotations.annotationPoints}
 						{fetchTile}
@@ -1239,6 +1195,7 @@
 						}}
 						onfinishshape={() => void annotations.finishShape()}
 						onstack={(reported) => (rendered = reported)}
+						controls={mapControls}
 						overlay={mapOverlay}
 					/>
 				</div>
@@ -1914,6 +1871,52 @@
 		onstyle={(style, options) => void annotations.styleSelected(style, options)}
 		onlinestyle={(line) => void annotations.lineStyleSelected(line)}
 		oncommit={() => void annotations.commitAnnotationEdit()}
+	/>
+{/snippet}
+
+<!--
+	The Project's map controls are in the pane rather than in page chrome so all three actions that
+	work on the map are available without spending a row of its height.
+-->
+{#snippet mapControls()}
+	<div class="flex flex-wrap items-center gap-2">
+		<!-- The one Base Map switcher in the app that writes this Project's author default (ADR-0020). -->
+		<BaseMapSwitcher
+			entryId={resolution!.entry.id}
+			catalog={BASE_MAP_CATALOG}
+			labelSrOnly={true}
+			showNetworkRequirement={false}
+			fullWidth={false}
+			class="select-sm"
+			onSelect={(id) => session.chooseBaseMap(id)}
+		/>
+
+		<!--
+			ADR-0026's explicit control covers the reframing automatic fit deliberately does not do: after
+			panning away, or after putting more of this Project on the earth.
+		-->
+		<button
+			type="button"
+			class="btn btn-sm"
+			data-testid="fit-to-project"
+			onclick={() => void fitToProject()}
+		>
+			<Scan size={16} aria-hidden="true" />
+			Fit project
+		</button>
+	</div>
+
+	<!--
+		Why the Base Map on screen is not the one the Project asked for (ADR-0020). Always present with
+		an empty string when there is nothing to say, which makes it a live region a screen-reader user
+		hears.
+	-->
+	<MapNotice
+		shape="always-present"
+		variant="plain"
+		class="basis-full text-sm text-base-content/70"
+		testid="base-map-notice"
+		text={notice}
 	/>
 {/snippet}
 

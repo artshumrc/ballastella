@@ -264,6 +264,7 @@
 	 * Points on is noise, and a mis-aimed click is a moved outline. So the handles are asked for.
 	 */
 	let editingMask = $state(false);
+	let maskPreview = $state.raw<readonly ResourcePoint[] | null>(null);
 
 	/**
 	 * What the last Resource Mask edit did, or why it did not happen.
@@ -313,6 +314,7 @@
 		restoring = false;
 		failure = '';
 		maskStatus = null;
+		maskPreview = null;
 		// The mask belongs to one image's pixel space, so its handles must not survive into another's.
 		// The distortion view is about *drawing* rather than about a coordinate, so it stays.
 		editingMask = false;
@@ -706,8 +708,12 @@
 			label:
 				`Resource Mask corner ${index + 1} of ${current.resourceMask.length}. Arrow keys move it` +
 				(current.canRemoveMaskVertex ? ', Delete removes it.' : '.'),
+			onmove: (to) => {
+				maskPreview = current.resourceMask.map((vertex, at) => (at === index ? to : vertex));
+			},
 			onmoveend: (to) => {
 				current.moveMaskVertex(index, to);
+				maskPreview = null;
 				// Rounded, because the sentence is "the corner went where I pushed it" and not a
 				// coordinate readout — and a nudge is one screen pixel, which is a sub-pixel move when
 				// the pane is zoomed out.
@@ -954,6 +960,7 @@
 										const current = pairing;
 										if (!current) return;
 										current.resetMask();
+										maskPreview = null;
 										maskDone(
 											'The whole sheet is the map again, with ' +
 												`${current.resourceMask.length} Resource Mask corners.`
@@ -975,7 +982,7 @@
 					frameClass="{solvable ? 'mt-3' : 'mt-2'} h-[45dvh] lg:h-auto lg:min-h-64 lg:grow"
 					label="Map Image, unwarped, in image pixel coordinates. Click a feature to start a Control Point."
 					overlayPoints={imagePoints}
-					maskRing={pairing?.resourceMask ?? []}
+					maskRing={maskPreview ?? pairing?.resourceMask ?? []}
 					onclickpoint={clickMapImage}
 					onpane={(pane) => loadAlignment(imageId, pane)}
 					onreadout={(current) => (readout = current)}

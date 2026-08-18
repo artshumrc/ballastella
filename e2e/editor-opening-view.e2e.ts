@@ -556,12 +556,12 @@ test.describe('the fit happens once, on open', () => {
 		await stillParked(page, 'after an Annotation was drawn');
 	});
 
-	test('“Fit to this Project” re-frames on demand, and says so', async ({ page }) => {
+	test('“Fit project” re-frames on demand, and says so', async ({ page }) => {
 		await open(page, workspaceFiles({ layers: [{ kind: 'annotation', id: 'l-pins' }] }));
 		await parkAt(page, PARKED.lng, PARKED.lat, PARKED.zoom);
 
 		// Visible text, not an icon with a tooltip (SPEC story 111).
-		await page.getByRole('button', { name: 'Fit to this Project' }).click();
+		await page.getByRole('button', { name: 'Fit project' }).click();
 
 		// Polled, because reframing re-reads every Layer's documents — the button answers for the whole
 		// Project, hidden Layers and all, which is what the automatic fit answers for.
@@ -572,7 +572,7 @@ test.describe('the fit happens once, on open', () => {
 
 		// And again from the same place, because the box has not changed and the user means it twice.
 		await parkAt(page, PARKED.lng, PARKED.lat, PARKED.zoom);
-		await page.getByRole('button', { name: 'Fit to this Project' }).click();
+		await page.getByRole('button', { name: 'Fit project' }).click();
 		await expect.poll(async () => (await viewport(page)).lat).toBeCloseTo(BOSTON_CENTRE.lat, 3);
 
 		await expect(page.getByTestId('opening-view')).toContainText('Framed on this Project');

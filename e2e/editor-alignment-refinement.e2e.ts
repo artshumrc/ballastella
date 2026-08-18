@@ -79,6 +79,23 @@ test.beforeEach(async ({ page }) => {
 	await routeBaseMapArchive(page);
 });
 
+test('draws a Resource Mask outline while its corner is dragged', async ({ page }) => {
+	await start(page);
+	await maskToggle(page).check();
+	const corner = maskVertices(page).first();
+	await corner.scrollIntoViewIfNeeded();
+	const box = await corner.boundingBox();
+	if (!box) throw new Error('the Resource Mask corner has no box to drag');
+	const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+	const to = { x: from.x + 60, y: from.y + 40 };
+
+	await page.mouse.move(from.x, from.y);
+	await page.mouse.down();
+	await page.mouse.move(to.x, to.y);
+	await expect.poll(() => maskOutlineAt(page, to)).toBe(true);
+	await page.mouse.up();
+});
+
 async function openCheck(page: Page): Promise<void> {
 	await checkToggle(page).click();
 	await expect(distortionControls(page)).toBeVisible();
@@ -124,6 +141,34 @@ async function dragBy(
 	}
 	await page.mouse.up();
 }
+
+/** Whether MapLibre is already drawing the Resource Mask outline at this page coordinate. */
+const maskOutlineAt = (page: Page, point: { x: number; y: number }) =>
+	page.evaluate(({ x, y }) => {
+		const map = (
+			window as unknown as {
+				ballastellaImagePane?: {
+					getCanvas(): HTMLCanvasElement;
+					queryRenderedFeatures(
+						geometry: [[number, number], [number, number]],
+						options: { layers: string[] }
+					): unknown[];
+				};
+			}
+		).ballastellaImagePane;
+		if (!map) return false;
+		const canvas = map.getCanvas().getBoundingClientRect();
+		const at: [number, number] = [x - canvas.left, y - canvas.top];
+		return (
+			map.queryRenderedFeatures(
+				[
+					[at[0] - 6, at[1] - 6],
+					[at[0] + 6, at[1] + 6]
+				],
+				{ layers: ['resource-mask-outline'] }
+			).length > 0
+		);
+	}, point);
 
 /** How far from zero the *displayed* distortion measure is at the triangulated points. */
 const worstDistortion = async (page: Page): Promise<number> =>

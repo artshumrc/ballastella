@@ -1,4 +1,5 @@
 import type { ImagePaneTile } from '@ballastella/core';
+import type { Map as MapLibreMap } from 'maplibre-gl';
 
 /** One tile the pane actually drew, as the Playwright suite reads it back. */
 export type ServedTile = {
@@ -13,6 +14,8 @@ export type ServedTile = {
 
 declare global {
 	interface Window {
+		/** The live Image Pane map, exposed only for browser assertions. */
+		ballastellaImagePane?: MapLibreMap;
 		/**
 		 * Every tile the image pane has been served, in order, for the Playwright suite.
 		 *
@@ -32,6 +35,14 @@ declare global {
 		 */
 		ballastellaServedTiles?: ServedTile[];
 	}
+}
+
+/** Expose the live Image Pane map while it exists, for assertions on its rendered sources. */
+export function exposeImagePaneToBrowserTests(map: MapLibreMap): () => void {
+	window.ballastellaImagePane = map;
+	return () => {
+		if (window.ballastellaImagePane === map) delete window.ballastellaImagePane;
+	};
 }
 
 /**

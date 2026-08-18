@@ -42,6 +42,7 @@
 
 	import { createOverlayPointLayer, type OverlayPointLayer } from '$lib/overlay/overlay-points';
 
+	import { exposeImagePaneToBrowserTests } from './browser-test-handle';
 	import { imagePaneTileTemplate, registerImagePaneTiles } from './tile-protocol';
 
 	let {
@@ -172,6 +173,7 @@
 			attributionControl: false,
 			fadeDuration: 0
 		});
+		const unexpose = exposeImagePaneToBrowserTests(created);
 
 		// Zoom sits at the bottom-left in every map pane in this application, and there is no compass
 		// here for the same reason `dragRotate` is off.
@@ -208,6 +210,7 @@
 		report();
 
 		return () => {
+			unexpose();
 			created.remove();
 			unregisterTiles();
 		};

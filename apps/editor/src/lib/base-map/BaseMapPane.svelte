@@ -1,5 +1,5 @@
 <script module lang="ts">
-	import type { GeoPoint } from '@ballastella/core';
+	import type { AnnotationGeometry, GeoPoint } from '@ballastella/core';
 
 	import type { OverlayPoint } from '$lib/overlay/overlay-points';
 
@@ -11,6 +11,12 @@
 	 * Point's earth half arrives here as `kind: 'control-point'`.
 	 */
 	export type BaseMapOverlayPoint = OverlayPoint<GeoPoint>;
+
+	export type AnnotationDragPreview = {
+		layerId: string;
+		annotationId: string;
+		geometry: AnnotationGeometry;
+	};
 </script>
 
 <script lang="ts">
@@ -24,6 +30,7 @@
 		baseMapStyle,
 		openingViewFit,
 		resolveBaseMap,
+		setGeometry,
 		type Alignment,
 		type Annotation,
 		type DistortionView,
@@ -85,6 +92,8 @@
 		onstack,
 		onbasemapstatus,
 		selectedAnnotationId = null,
+		annotationDragPreview = null,
+		controls,
 		overlay
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
@@ -260,6 +269,14 @@
 		 * see {@link stackStructure} for why a selection must not rebuild the stack.
 		 */
 		selectedAnnotationId?: string | null;
+		annotationDragPreview?: AnnotationDragPreview | null;
+		/**
+		 * Page-owned controls placed beside the place search over the map.
+		 *
+		 * The Project screen uses this for its Base Map choice and its explicit framing action. They
+		 * belong to the Project, not to every consumer of this pane.
+		 */
+		controls?: Snippet;
 		/**
 		 * What the page draws *over* this pane, inside the pane's own positioned container.
 		 *
@@ -1042,9 +1059,16 @@
 	$effect(() => {
 		const built = stack;
 		if (!built) return;
+		const preview = annotationDragPreview;
 		for (const stacked of layers) {
 			if (!isDrawnMap(stacked)) {
-				built.setAnnotations(stacked.layer.id, stacked.annotations ?? { annotations: [] });
+				const annotations = stacked.annotations ?? { annotations: [] };
+				built.setAnnotations(
+					stacked.layer.id,
+					preview?.layerId === stacked.layer.id
+						? setGeometry(annotations, preview.annotationId, preview.geometry)
+						: annotations
+				);
 			}
 		}
 	});
@@ -1152,22 +1176,18 @@
 	the layout moves.
 -->
 <!--
-	The search surface is inside this pane rather than beside it at each call site, and that is what
-	gives both editor screens the feature from one component: `ProjectScreen` and `AlignmentWorkspace`
-	both render this pane, and a scholar hunting the modern half of a Control Point wants "go to
-	Boston" at least as much as an annotator does (ADR-0029). **This one navigates and places
-	nothing**; placing lives on the Annotation Layer surface, where there is always a Layer to draw
-	into.
-
-	Absolutely positioned here, like MapLibre's own controls, so it costs the map no height — and so
-	that the same component can sit in the flow of a sidebar card, which is where the other one is.
-	It is named after the surface it is on, so a test can say which of the two searches on the Project
-	screen it means.
+	The place search and any page-owned map controls are inside this pane rather than beside it in the
+	page flow. Both editor screens therefore get the search without spending map height; only the
+	Project screen supplies its own Base Map controls. This search navigates and places nothing;
+	placing lives on the Annotation Layer surface, where there is always a Layer to draw into.
 -->
 <div class="relative h-full w-full">
 	<div bind:this={container} class="h-full w-full" data-testid="base-map-pane"></div>
-	<div class="absolute top-2 left-2 z-10 w-72 max-w-[calc(100%-1rem)]">
-		<PlaceSearch testid="base-map-place-search" onchoose={frameOnPlace} />
+	<div class="absolute top-2 left-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-start gap-2">
+		<div class="w-72 max-w-full">
+			<PlaceSearch testid="base-map-place-search" onchoose={frameOnPlace} />
+		</div>
+		{@render controls?.()}
 	</div>
 	{@render overlay?.()}
 </div>

@@ -601,7 +601,7 @@
 <p
 	aria-live="polite"
 	aria-atomic="true"
-	class="mt-2 text-sm opacity-80"
+	class={result === '' ? 'sr-only' : 'mt-2 text-sm opacity-80'}
 	data-testid="publish-status"
 >
 	{result}

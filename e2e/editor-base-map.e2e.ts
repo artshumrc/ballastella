@@ -79,6 +79,15 @@ const CATALOG_OPTIONS = [
 const switcher = (page: Page) => page.getByRole('combobox', { name: 'Base Map' });
 const themeToggle = (page: Page) => page.getByRole('button', { name: /switch to .* theme/i });
 
+/** Tab from the current control until `target` has focus, without pretending a canvas is not focusable. */
+async function tabUntilFocused(page: Page, target: Locator, what: string): Promise<void> {
+	for (let press = 0; press < 20; press += 1) {
+		if (await target.evaluate((element) => element === document.activeElement)) return;
+		await page.keyboard.press('Tab');
+	}
+	throw new Error(`“${what}” could not be reached with the keyboard`);
+}
+
 async function waitForLoadedMap(page: Page): Promise<void> {
 	await page.waitForFunction(() => window.ballastellaBaseMap?.loaded() === true, undefined, {
 		timeout: 45_000
@@ -210,10 +219,21 @@ test.describe('the Base Map pane', () => {
 		await expect(bottomLeft.locator('button.maplibregl-ctrl-zoom-out')).toBeVisible();
 		await expect(pane.locator('.maplibregl-ctrl-top-right .maplibregl-ctrl')).toHaveCount(0);
 
-		// And the place lookup is still in the pane's top-left, which is why zoom went to the bottom of
-		// the left edge rather than the top.
+		// The map controls share the floating top-left row, which leaves no page-chrome bar between the
+		// navigation and the map. Zoom therefore remains on the bottom of the left edge.
 		const search = await page.getByTestId('base-map-place-search').boundingBox();
+		const baseMapSwitcher = await switcher(page).boundingBox();
+		const fit = await page.getByTestId('fit-to-project').boundingBox();
 		const zoom = await bottomLeft.boundingBox();
+		const navigation = await page.getByTestId('navigation-bar').boundingBox();
+		const project = await page.getByTestId('project-screen').boundingBox();
+		// The navigation bar's existing bottom border separates it from the Project workspace; an idle
+		// announcement must not reserve another line between them.
+		expect(project!.y - (navigation!.y + navigation!.height)).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs(search!.y + search!.height / 2 - (baseMapSwitcher!.y + baseMapSwitcher!.height / 2))
+		).toBeLessThan(2);
+		expect(Math.abs(search!.y + search!.height / 2 - (fit!.y + fit!.height / 2))).toBeLessThan(2);
 		expect(search!.y + search!.height).toBeLessThan(zoom!.y);
 
 		const start = await page.evaluate(() => ({
@@ -362,13 +382,11 @@ test.describe('the Base Map pane', () => {
 	}) => {
 		await openPane(page);
 
-		// Every control is reachable, in the order the bar puts them. **The Workspace switcher is the
-		// first tab stop since ticket 12** — it was a label and is now a button — followed by the
-		// breadcrumb link, the Project-name edit action, the theme toggle, Publish, and the Base Map
-		// switcher. Choosing *within* a focused `<select>` is the browser's own arrow-key handling —
-		// which is exactly why ADR-0016 mandates a native `<select>` here — and headless Chromium does
-		// not run its native popup, so this asserts the reach and the element, and leaves the popup to
-		// the platform.
+		// The floating controls follow the persistent chrome in document order. MapLibre's focusable
+		// canvas is rightly between them, so traverse it instead of treating it as an omission. Choosing
+		// *within* a focused `<select>` is the browser's own arrow-key handling — which is exactly why
+		// ADR-0016 mandates a native `<select>` here — and headless Chromium does not run its native
+		// popup, so this asserts the reach and the element, and leaves the popup to the platform.
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('workspace-switcher')).toBeFocused();
 		await page.keyboard.press('Tab');
@@ -379,6 +397,9 @@ test.describe('the Base Map pane', () => {
 		await expect(themeToggle(page)).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(page.getByTestId('publish')).toBeFocused();
+		await tabUntilFocused(page, page.getByTestId('place-search-query'), 'place search');
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('place-search-submit')).toBeFocused();
 		await page.keyboard.press('Tab');
 		await expect(switcher(page)).toBeFocused();
 
@@ -386,6 +407,8 @@ test.describe('the Base Map pane', () => {
 		await switcher(page).selectOption('muted');
 		await expect(switcher(page)).toHaveValue('muted');
 		await expect.poll(() => styleLayerIds(page), { timeout: 30_000 }).toContain('water');
+		await page.keyboard.press('Tab');
+		await expect(page.getByTestId('fit-to-project')).toBeFocused();
 	});
 });
 

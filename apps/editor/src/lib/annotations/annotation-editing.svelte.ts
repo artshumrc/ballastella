@@ -45,7 +45,7 @@ import {
 	type UndoRecord
 } from '@ballastella/core';
 
-import type { BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
+import type { AnnotationDragPreview, BaseMapOverlayPoint } from '$lib/base-map/BaseMapPane.svelte';
 
 import { AnnotationDrawing } from './drawing.svelte.js';
 
@@ -122,6 +122,9 @@ export class AnnotationEditing {
 	openLayerId = $state<string | null>(null);
 
 	selectedAnnotationId = $state<string | null>(null);
+
+	/** Geometry used only to repaint an Annotation while one of its vertices is being dragged. */
+	dragPreview = $state<AnnotationDragPreview | null>(null);
 
 	/**
 	 * The Annotation drawn a moment ago, whose title is where the keyboard belongs.
@@ -237,6 +240,7 @@ export class AnnotationEditing {
 	 */
 	openLayer(id: string | null): void {
 		this.openLayerId = id;
+		this.dragPreview = null;
 		this.selectAnnotation(null);
 		// **Rest, not `cancel()`.** Cancelling is a no-op when nothing is part-drawn, which leaves the
 		// shapes on offer in a Layer where "New Annotation" was never pressed — and no way out of them
@@ -253,6 +257,7 @@ export class AnnotationEditing {
 	 */
 	selectAnnotation(id: string | null): void {
 		this.selectedAnnotationId = id;
+		this.dragPreview = null;
 		// Whatever this is, it is not the shape that was just drawn: only {@link #addDrawn} says that,
 		// and it says it after calling this.
 		this.titlingId = null;
@@ -426,6 +431,7 @@ export class AnnotationEditing {
 					'Arrow keys move it.',
 				// **Once, on gesture end.** Pointer-up, or the release of a held arrow key — never per
 				// pointer-move, which is what makes "one edit is one store write" a number the suite counts.
+				onmove: (to) => this.previewReshape(index, to),
 				onmoveend: (to) => void this.reshape(index, to)
 			});
 		});
@@ -447,29 +453,55 @@ export class AnnotationEditing {
 	/** Move one vertex of the selected Annotation, writing once. */
 	async reshape(index: number, to: GeoPoint): Promise<void> {
 		const collection = this.#activeCollection;
+		const layer = this.#activeLayer;
 		const annotation = this.#selectedAnnotation;
 		const geometry = annotation?.geometry;
-		if (!collection || !annotation || !geometry || geometry.type === 'foreign') return;
+		if (!collection || !layer || !annotation || !geometry || geometry.type === 'foreign') {
+			this.dragPreview = null;
+			return;
+		}
 
+		const next = this.#geometryWithVertex(geometry, index, to);
+		const write = this.commitAnnotations(setGeometry(collection, annotation.id, next));
+		this.dragPreview = null;
+		await write;
+	}
+
+	/** Repaint the selected Annotation at a vertex's current drag position without writing it. */
+	previewReshape(index: number, to: GeoPoint): void {
+		const layer = this.#activeLayer;
+		const annotation = this.#selectedAnnotation;
+		const geometry = annotation?.geometry;
+		if (!layer || !annotation || !geometry || geometry.type === 'foreign') return;
+		this.dragPreview = {
+			layerId: layer.id,
+			annotationId: annotation.id,
+			geometry: this.#geometryWithVertex(geometry, index, to)
+		};
+	}
+
+	#geometryWithVertex(
+		geometry: Exclude<AnnotationGeometry, { type: 'foreign' } | null>,
+		index: number,
+		to: GeoPoint
+	): AnnotationGeometry {
 		const moved: [number, number] = [to.lng, to.lat];
-		let next: AnnotationGeometry;
 		if (geometry.type === 'Point') {
-			next = { type: 'Point', coordinates: moved };
+			return { type: 'Point', coordinates: moved };
 		} else if (geometry.type === 'LineString') {
 			const positions = geometry.coordinates.map((position, at) =>
 				at === index ? moved : position
 			);
-			next = { type: 'LineString', coordinates: positions };
+			return { type: 'LineString', coordinates: positions };
 		} else {
 			const ring = (geometry.coordinates[0] ?? []).slice(0, -1);
 			const positions = ring.map((position, at) => (at === index ? moved : position));
 			// Closed again, because a LinearRing whose ends differ is what other tools reject.
-			next = {
+			return {
 				type: 'Polygon',
 				coordinates: [[...positions, positions[0] ?? moved], ...geometry.coordinates.slice(1)]
 			};
 		}
-		await this.commitAnnotations(setGeometry(collection, annotation.id, next));
 	}
 
 	/**
