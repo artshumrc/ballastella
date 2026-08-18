@@ -227,10 +227,16 @@ describe('one Annotation, one name (the-annotation-inspector stories 3, 4)', () 
 		// The mechanism behind the two counts above, asserted where a future edit would break it: the
 		// face renders `AnnotationDescription` and there is no title element anywhere below the header.
 		// Both halves, because an absence on its own goes green when the whole face stops rendering.
+		//
+		// **Asserted as the face's own children rather than as the absence of a `data-testid`.** A
+		// renamed id is exactly how an absence assertion goes quietly green, and there is no title
+		// element left to name — so the honest form of "no title of its own" is that everything the
+		// resting face holds above its control row is the one description section.
 		face({ geometry: POINT, properties: { title: 'Fort Amsterdam' } });
 
 		expect(one('annotation-description-text')).toBeInTheDocument();
-		expect(all('annotation-title-text')).toHaveLength(0);
+		const words = [...one('annotation-text-face')!.children].slice(0, -1);
+		expect(words).toEqual([one('annotation-description-text')]);
 	});
 });
 

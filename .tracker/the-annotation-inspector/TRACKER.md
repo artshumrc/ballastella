@@ -23,7 +23,7 @@ the ADR that replaces that reasoning, and it blocks the two tickets that perform
 
 Overall status: `In Progress`
 
-Current ticket: 08
+Current ticket: 09
 
 Last updated: 2026-08-17
 
@@ -38,8 +38,8 @@ Last updated: 2026-08-17
 | 05 | [05-the-inspector-proved-at-the-component-seam.md](./tickets/05-the-inspector-proved-at-the-component-seam.md) | Completed | 01 |
 | 06 | [06-an-author-reads-and-writes-in-the-inspector.md](./tickets/06-an-author-reads-and-writes-in-the-inspector.md) | Completed | 01, 02, 03, 04, 05 |
 | 07 | [07-the-inspector-never-hides-the-mark.md](./tickets/07-the-inspector-never-hides-the-mark.md) | Completed | 06 |
-| 08 | [08-a-reader-reads-in-the-same-inspector.md](./tickets/08-a-reader-reads-in-the-same-inspector.md) | In Progress | 06 |
-| 09 | [09-both-apps-stack-on-a-phone.md](./tickets/09-both-apps-stack-on-a-phone.md) | Not Started | 06, 08 |
+| 08 | [08-a-reader-reads-in-the-same-inspector.md](./tickets/08-a-reader-reads-in-the-same-inspector.md) | Completed | 06 |
+| 09 | [09-both-apps-stack-on-a-phone.md](./tickets/09-both-apps-stack-on-a-phone.md) | In Progress | 06, 08 |
 
 ## Notes on the shape of this epic
 

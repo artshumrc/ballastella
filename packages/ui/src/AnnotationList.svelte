@@ -1,15 +1,14 @@
 <script lang="ts">
-	// The Annotations inside one Annotation Layer, each in a row that opens on itself.
+	// The Annotations inside one Annotation Layer, each in a row that selects it.
 	//
 	// Rendered inside that Layer's own open card, which is what lets the list carry fixed ids and a
 	// fixed accessible name: only one card is open at a time, so exactly one of these is on screen.
 	//
-	// **The list owns the mechanics and the consumer owns the contents.** Expansion, one row at a time,
-	// `aria-expanded`, the animation, where the keyboard stays and bringing an opened row back into the
-	// column are the same wherever an Annotation is met, and they exist once — in `AnnotationRow`.
-	// What an open row *reveals* differs by app and arrives as a snippet: a published site passes the
-	// title and the rendered description, and the editor passes nothing, because an author reads an
-	// Annotation in the `AnnotationInspector` docked over the map (ADR-0035).
+	// **This list answers membership and nothing else.** Which Annotations are in this Layer, in what
+	// order, how many, and which one is chosen. An Annotation's content is read in the
+	// `AnnotationInspector` docked over the map, in both apps, so no row opens a region and this
+	// component forwards none (ADR-0035). What one row does — select, report, carry `aria-expanded` and
+	// an `aria-controls` naming the Inspector — is `AnnotationRow`'s, once, for both apps.
 	//
 	// ⚠ **`tools` is the drawing surface and the place search, and a published site passes neither.**
 	// Not because they would be harmless there — a place search issues a lookup to a third-party
@@ -26,7 +25,6 @@
 		annotations,
 		openId,
 		onopen,
-		contents,
 		tools,
 		noAnnotationsGuidance
 	}: {
@@ -44,8 +42,6 @@
 		/** The open row, which is the selected Annotation — one fact, so one value. */
 		openId: string | null;
 		onopen: (id: string | null) => void;
-		/** What an open row reveals, given the Annotation it belongs to and its place in the collection. */
-		contents?: Snippet<[Annotation, number]>;
 		/** Whatever this consumer offers above the list. Editor only; a Reader is offered none of it. */
 		tools?: Snippet;
 		/**
@@ -120,7 +116,7 @@
 				data-testid="annotation-list"
 			>
 				{#each annotations as annotation, index (annotation.id)}
-					<AnnotationRow {annotation} {index} open={annotation.id === openId} {onopen} {contents} />
+					<AnnotationRow {annotation} {index} open={annotation.id === openId} {onopen} />
 				{/each}
 			</ol>
 		</div>

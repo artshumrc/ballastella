@@ -1,24 +1,22 @@
 <script lang="ts">
-	// One Annotation's row, and the disclosure that opens it.
+	// One Annotation's row: a selector that opens nothing.
 	//
-	// **The row is the disclosure.** The editor used to render an Annotation's details as a *sibling of
-	// the list*: a box headed "The west quay" sitting under a list in which "The west quay" is one of
-	// four rows, with nothing joining the two. With four Annotations in a 24 rem column, which row the
-	// panel belonged to was inferred rather than seen. So the details open inside the row they belong
-	// to — the same idea the Layer card one level up already follows.
+	// **The row says which Annotation this is and that it is the chosen one, and that is all it says**
+	// (ADR-0035). An Annotation's *membership* — that it belongs to a Layer which is shown, hidden,
+	// ordered, renamed and deleted as a group — is what a stack of cards answers well, and this row is
+	// that answer. Its *content* is read in the `AnnotationInspector` docked over the map, in both apps,
+	// because a title, a paragraph of prose and an author's twenty-five style controls do not fit in a
+	// 24 rem column three sibling rows are sharing. ADR-0035 has the reasoning, including what mooring
+	// the panel to its Annotation now that it is not inside the row: the dashed leader, and the ordinal
+	// and name this row and that header draw from one rule each.
 	//
-	// **What the open row reveals is the consumer's**, and that is the whole of the difference between
-	// the two apps here: a published site passes the title and the rendered description with nothing to
-	// press, and the editor passes nothing at all, because an author reads an Annotation in the
-	// `AnnotationInspector` docked over the map (ADR-0035). There is no `readOnly` prop and no `mode`
-	// prop — a control a Reader must not have is a snippet the viewer does not pass, and a region an
-	// author must not get is a snippet the editor does not pass.
+	// **`open` is the selection, and the disclosure semantics survive the region moving.** The button
+	// keeps `aria-expanded`, and `aria-controls` names the Inspector — which is legal without
+	// containment — so a screen reader is told the same thing it was told when the region was in the
+	// row. `aria-pressed` is still refused: two properties for one fact are two things that can
+	// disagree.
 
 	import { annotationOrdinal, type Annotation } from '@ballastella/core';
-	import type { Snippet } from 'svelte';
-	import { cubicOut } from 'svelte/easing';
-	import { prefersReducedMotion } from 'svelte/motion';
-	import { slide } from 'svelte/transition';
 
 	import { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
 	import { annotationName, shapeWord } from './annotation-name.js';
@@ -29,167 +27,27 @@
 		annotation,
 		index,
 		open,
-		onopen,
-		contents
+		onopen
 	}: {
 		annotation: Annotation;
 		/**
 		 * Where this Annotation sits in its collection, counted from zero.
 		 *
-		 * Read for the ordinal this row draws, for the untitled fallback's number, and by whatever the
-		 * open row reveals, which is handed the same number — and that is why it is the *collection's*
-		 * position rather than this row's: the one Annotation shown on its own under the drawing tools
-		 * must read as the same "Untitled pin 3" it reads as in the list.
+		 * Read for the ordinal this row draws and for the untitled fallback's number. It is the
+		 * *collection's* position rather than this row's place among the rows on screen, so that the
+		 * Inspector's header — handed the same number — names the same "Untitled pin 3".
 		 */
 		index: number;
 		open: boolean;
-		/** The row was pressed: this Annotation's id to open it, `null` to close it. */
+		/** The row was pressed: this Annotation's id to select it, `null` to deselect it. */
 		onopen: (id: string | null) => void;
-		/**
-		 * What the open row reveals, given this Annotation and its place in the collection. Without it the
-		 * row opens no region at all — a consumer that reads an Annotation somewhere else says so by
-		 * withholding this, and `aria-controls` then names that surface instead.
-		 *
-		 * The index goes with it because a consumer that names the Annotation must be able to name it
-		 * the way the button above does — see `annotation-name.ts`. A snippet that has no use for it
-		 * simply declares one parameter.
-		 *
-		 * Explicitly `| undefined` because `AnnotationList` forwards whatever it was given, and
-		 * `exactOptionalPropertyTypes` distinguishes "absent" from "present and undefined".
-		 */
-		contents?: Snippet<[Annotation, number]> | undefined;
 	} = $props();
-
-	/**
-	 * How long a row takes to open or close.
-	 *
-	 * The same pair the Layer cards' reorder uses, read from the same signal — see `moveAnimation` in
-	 * `LayerList.svelte`. A row that simply appeared would leave a scholar to work out where a panel
-	 * of controls had come from; the slide is what says "out of this row".
-	 *
-	 * Zero when the user has asked for less motion, which is the whole of respecting that here: the
-	 * row still opens, it simply arrives rather than travels.
-	 */
-	const reveal = $derived({
-		duration: prefersReducedMotion.current ? 0 : 220,
-		easing: cubicOut
-	});
-
-	/**
-	 * This row's own button, so an opened row can be brought back into the column.
-	 *
-	 * A plain `let` rather than `$state`, for the reason `LayerList`'s button references are: nothing
-	 * renders from it, it is read once after the row opens, and making it reactive would turn writing
-	 * a `bind:this` into a state change.
-	 */
-	let button: HTMLButtonElement | undefined = undefined;
-
-	/**
-	 * The nearest ancestor that scrolls, or `null` when the page itself is what scrolls.
-	 *
-	 * Both answers are real layouts rather than one being a fallback: the editor's sidebar is a
-	 * `overflow-y-auto` column, and a published site's Layer list is an ordinary block in a page that
-	 * scrolls as a whole — which is also what the editor's sidebar becomes on a phone.
-	 */
-	const scrollingAncestor = (from: HTMLElement): HTMLElement | null => {
-		for (let node = from.parentElement; node !== null; node = node.parentElement) {
-			const overflow = getComputedStyle(node).overflowY;
-			if (overflow === 'auto' || overflow === 'scroll') return node;
-		}
-		return null;
-	};
-
-	/** How still the column has to be before it counts as stopped. Two smooth-scroll frames and more. */
-	const STILL_MS = 200;
-
-	/** The longest the measurement will wait, however busy the column is. */
-	const SETTLE_MS = 900;
-
-	/**
-	 * Resolve once nothing has scrolled `column` for {@link STILL_MS}, or once {@link SETTLE_MS} is up.
-	 *
-	 * ⚠ **A single `scrollend` is not enough, and the reason is worth keeping.** Opening a row that is
-	 * only half in view scrolls the column *twice*: once to bring the button the pointer or the
-	 * keyboard is on into view, and again when the panel underneath it appears. The first of those is
-	 * instant, so its `scrollend` can land in the same task as the click — before this ever gets a
-	 * listener on — or immediately after it, and a `once: true` listener that caught it would report
-	 * "settled" while the second scroll had not begun. Measured in Chromium: `scrollend` at 47 ms,
-	 * then a smooth scroll running from 81 ms to 347 ms. Stillness answers "has it stopped" for both.
-	 */
-	const scrollSettled = (column: HTMLElement | Document): Promise<void> =>
-		new Promise((resolve) => {
-			const done = (): void => {
-				clearTimeout(still);
-				clearTimeout(cap);
-				column.removeEventListener('scroll', restart);
-				resolve();
-			};
-			const restart = (): void => {
-				clearTimeout(still);
-				still = setTimeout(done, STILL_MS);
-			};
-			let still = setTimeout(done, STILL_MS);
-			const cap = setTimeout(done, SETTLE_MS);
-			column.addEventListener('scroll', restart);
-		});
-
-	/**
-	 * Bring this row's header back onto the screen if opening it has taken it off.
-	 *
-	 * **A 24 rem sidebar can push a row off its own screen by opening it**: what the row reveals is
-	 * taller than the column has left below it, and the column scrolls to show it. Only when the
-	 * header has really left, though — scrolling a row that is already in view moves the page under a
-	 * pointer that asked for nothing of the sort.
-	 *
-	 * ⚠ **The measurement waits for the column to stop moving, and `await tick()` is not that.** What
-	 * takes the header off the top is not the reveal — the revealed region is *below* the button in the
-	 * same `<li>` and cannot push it anywhere — it is what the consumer's own contents do when they
-	 * appear: contents that scroll anything of their own into view smoothly are performed by the
-	 * compositor over frames that have not happened yet one microtask after the click. Measured in
-	 * Chromium against a panel that did exactly that, with eight Annotations in a 260 px column: at the
-	 * microtask the header sat 225 px inside the column, so the guard below found it in view and
-	 * returned; when the scroll finished it was 38 px *above* the top edge. Identical under
-	 * `prefers-reduced-motion: reduce` — Chrome does not make a smooth scroll synchronous for that
-	 * setting.
-	 *
-	 * {@link scrollSettled} is what waits for it, and it waits for stillness rather than for a single
-	 * `scrollend`, for the reason recorded there.
-	 *
-	 * **Nothing is focused.** Whatever had the keyboard keeps it; this moves the viewport and nothing
-	 * else — which is what lets it run for a row opened from the map without stealing the pointer's
-	 * place on the canvas.
-	 */
-	const keepInView = async (header: HTMLButtonElement): Promise<void> => {
-		const column = scrollingAncestor(header);
-		await scrollSettled(column ?? document);
-		// ⚠ **Taken as an argument and checked afterwards**, because the wait outlives the row: `bind:this`
-		// writes `null` back when the `<li>` goes, and a Layer card closed while the column was still
-		// settling left this reading a property of nothing.
-		if (!header.isConnected) return;
-		const at = header.getBoundingClientRect();
-		const box = column ? column.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
-		if (at.top >= box.top && at.bottom <= box.bottom) return;
-		header.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-	};
-
-	/**
-	 * An open row is on the screen, **however it came to be open**.
-	 *
-	 * An effect rather than the tail of the click handler, because pressing this button is not the
-	 * only way in: clicking an Annotation on the map opens its Layer's card and its row, and on a
-	 * phone that row is a screen away from the pin that was tapped. One rule serves both, and it is
-	 * the rule the row already owned for its own gesture.
-	 */
-	$effect(() => {
-		if (!open || !button) return;
-		void keepInView(button);
-	});
 
 	/**
 	 * How one Annotation reads in the list.
 	 *
-	 * `annotation-name.ts`'s rather than this component's, because what the open row reveals names the
-	 * same Annotation a few pixels below this button and the two must not be able to disagree.
+	 * `annotation-name.ts`'s rather than this component's, because the Inspector's header names the
+	 * same Annotation from the same rule and the two must not be able to disagree (ADR-0035).
 	 */
 	const name = $derived(annotationName(annotation, index));
 
@@ -197,12 +55,10 @@
 </script>
 
 <!--
-	**The selected Annotation's row is marked in the Annotation Layer's own two colours, and the marks
-	are on the whole row rather than on the header inside it.** In a 24 rem column of four
-	near-identical rows a wash on the header strip alone was not enough to say which row had been
-	chosen — the fault a scholar reported first — and the header is in any case only part of the row:
-	the wash has to cover the header and whatever the row reveals together, so that the selected
-	Annotation is one marked block instead of a tinted strip above an untinted one.
+	**The selected Annotation's row is marked in the Annotation Layer's own two colours, over the whole
+	of it.** In a 24 rem column of four near-identical rows, a mark covering part of a row was not
+	enough to say which row had been chosen — the fault a scholar reported first — so the selected
+	Annotation is one marked block.
 
 	`KIND_STYLE.annotation.tint` is the same 10% the card's header wears, from the one table every
 	colour in this card comes from (`layer-kind-style.ts`). It is a wash rather than a fill for a
@@ -233,30 +89,24 @@
 	data-testid="annotation-row-item"
 >
 	<!--
-		**That button is also the disclosure, and its expanded state is the selection.** There is
-		deliberately no `aria-pressed` beside it: a row that was pressed but not open, or open but not
-		pressed, would be two answers to "which Annotation is active", and two properties for one fact
-		are two things that can disagree (the-annotation-inspector story 54). `aria-expanded` is ADR-0016's shape for a
-		disclosure, which is what this is, and it is the Layer card's own convention one level down
-		rather than a second one invented here. There is no separate control beside the name for the same
-		reason: the gesture that chooses an Annotation is the gesture that opens it.
+		**That button's expanded state is the selection.** There is deliberately no `aria-pressed` beside
+		it: a row that was pressed but not open, or open but not pressed, would be two answers to "which
+		Annotation is active", and two properties for one fact are two things that can disagree
+		(the-annotation-inspector story 54). `aria-expanded` is ADR-0016's shape for a disclosure, and it
+		is the Layer card's own convention one level down rather than a second one invented here. There
+		is no separate control beside the name for the same reason: the gesture that chooses an
+		Annotation is the gesture that opens the panel about it.
 
-		**The region it names is wherever the consumer put the Annotation's content.** A consumer that
-		reveals it inside the row names that region; one that reads it in the `AnnotationInspector`
-		docked over the map names the Inspector, and `aria-controls` does not require containment — so
-		the disclosure semantics survive the region being across the screen (the-annotation-inspector
-		story 53). The unpassed snippet is what decides, so no second prop says it again.
+		**The region it names is the `AnnotationInspector`, across the screen** (ADR-0035).
+		`aria-controls` does not require containment, so the disclosure semantics survive the region
+		having moved out of the row (the-annotation-inspector story 53) — and it is named only while this
+		row is the selected one, because two rows naming one panel would be two rows claiming it.
 	-->
 	<button
-		bind:this={button}
 		type="button"
 		class={['flex w-full items-center gap-2 rounded-none py-2', open && 'font-semibold']}
 		aria-expanded={open}
-		aria-controls={open
-			? contents
-				? `annotation-contents-${annotation.id}`
-				: ANNOTATION_INSPECTOR_ID
-			: undefined}
+		aria-controls={open ? ANNOTATION_INSPECTOR_ID : undefined}
 		data-testid="annotation-row"
 		data-annotation-id={annotation.id}
 		onclick={() => onopen(open ? null : annotation.id)}
@@ -294,45 +144,4 @@
 			{name}
 		</span>
 	</button>
-
-	{#if open && contents}
-		<!--
-			Everything this Annotation is, inside the row it belongs to. One row is open at a time,
-			because the consumer holds one open id.
-
-			**`contents` is half the condition rather than only the thing rendered.** A consumer that reads
-			its Annotations elsewhere — the editor, in the Inspector docked over the map (ADR-0035) — passes
-			no snippet, and on `open` alone this region still slid open over 220 ms: an empty box a few
-			hundred pixels wide inside the selected row, carrying an id nothing names, in the one app whose
-			whole point is that selecting opens nothing inside the row
-			(the-annotation-inspector story 10). Withholding the snippet is how a consumer says it has no
-			region here, so there is nothing else for it to say.
-
-			**`block` and `hover:bg-transparent` are undoing daisyUI's `menu`, not decoration.** Every
-			child of a `menu` `<li>` that is not a list or a `.btn` is laid out as a menu item — grid, its
-			own padding, and a background on hover — which is right for the row above and wrong for a
-			panel of controls that happens to sit under it.
-
-			`data-reveal-ms` is the number `reveal` computed, written out because it is otherwise visible
-			only to something that can watch an animation — the same reason `LayerList` writes out
-			`data-drop-target`. It is what lets a test read the reduced-motion branch's result where there
-			is no paint.
-
-			⚠ **It is evidence about the computation and about nothing else.** The attribute and the
-			directive read one `$derived`, so a test on the attribute goes red when that number is wrong —
-			and stays green when the transition is hard-coded past it, or deleted outright. Whether the
-			row *animates*, and for how long, is unasserted at every seam;
-			`.tracker/one-shell-two-apps/tickets/01-an-annotation-opens-in-its-own-row.md` records the gap
-			under "Coverage gap".
-		-->
-		<div
-			id="annotation-contents-{annotation.id}"
-			class="block px-1 pb-2 hover:bg-transparent"
-			data-testid="annotation-row-contents"
-			data-reveal-ms={reveal.duration}
-			transition:slide={reveal}
-		>
-			{@render contents(annotation, index)}
-		</div>
-	{/if}
 </li>

@@ -96,8 +96,10 @@
 	} from '@ballastella/core';
 	import { type DrawnLayer, type DrawnOutcome } from '@ballastella/core/render';
 	import {
+		ANNOTATION_INSPECTOR_ID,
+		AnnotationDescription,
+		AnnotationInspector,
 		AnnotationList,
-		AnnotationReading,
 		BaseMapSwitcher,
 		LayerList,
 		LeaderLine,
@@ -107,7 +109,7 @@
 		pageChrome,
 		type Box
 	} from '@ballastella/ui';
-	import { onMount, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 
 	import { online } from '$lib/online.svelte';
 	import { readLayerDocuments, toContentLayers, type ReadDocuments } from '$lib/project-documents';
@@ -942,23 +944,26 @@
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
-	// The open Annotation (SPEC stories 32–34) — the highest-stakes surface in the epic
+	// The selected Annotation (one-shell-two-apps stories 32–34) — the highest-stakes surface in
+	// the epic
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * The Annotation a Reader is looking at, or `null`.
 	 *
-	 * **One value, because "which Annotation is active" has one answer.** It is the open row in the
-	 * Layer card, and it is what a pin on the map opens: clicking a pin names the Annotation to read
-	 * and its Layer's card opens with it, so the answer to "what is this pin?" is in the sidebar
-	 * rather than in a bubble over the map (ticket 07).
+	 * **One value, because "which Annotation is active" has one answer.** It is the selected row in the
+	 * Layer card, it is what the Annotation Inspector over the map describes, and it is what a pin on
+	 * the map chooses: clicking a pin names the Annotation to read and its Layer's card opens with it,
+	 * so the answer to "what is this pin?" is one panel rather than a bubble over the pin (ticket 07,
+	 * ADR-0035).
 	 *
 	 * Its `title` and `description` are **untrusted text**: a Published Site runs on the author's own
 	 * domain, and the Project may have arrived from a stranger by zip import (ticket 13) or from a
-	 * remote library (ticket 14). Neither is turned into HTML here, and neither may be. The row is
-	 * `AnnotationReading` in `@ballastella/ui`, which renders the title as text and the description
-	 * through `renderDescription` — core's own `marked`-then-DOMPurify pipeline. This app composes no
-	 * markup of its own: there is no `{@html}` in its source at all.
+	 * remote library (ticket 14). Neither is turned into HTML here, and neither may be. The title is a
+	 * Svelte interpolation in `AnnotationRow` and in `AnnotationInspector`'s identity header, and the
+	 * description is `AnnotationDescription`'s — `@ballastella/ui`'s one `{@html}`, fed nothing but
+	 * `renderDescription`'s output, which is core's `marked`-then-DOMPurify pipeline. This app composes
+	 * no markup of its own: there is no `{@html}` in its source at all.
 	 */
 	let selected = $state.raw<{ layerId: string; annotationId: string } | null>(null);
 
@@ -984,15 +989,26 @@
 	});
 
 	/**
-	 * Which row in the open card is expanded.
+	 * Which row in the open card is selected.
 	 *
 	 * Derived rather than held, so that opening a *different* Annotation Layer cannot leave a row
-	 * marked open in a card that does not contain it. The selection itself survives the card being
-	 * closed, which is what lets a pin clicked on the map still be the open row when its Layer is
+	 * marked selected in a card that does not contain it. The selection itself survives the card being
+	 * closed, which is what lets a pin clicked on the map still be the selected row when its Layer is
 	 * opened again.
 	 */
 	const openAnnotationId = $derived(
 		selected !== null && selected.layerId === openLayerId ? selected.annotationId : null
+	);
+
+	/**
+	 * Where the selected Annotation sits in its Layer's collection, for the Inspector's ordinal and the
+	 * untitled fallback's number.
+	 *
+	 * The collection's position rather than the row's place among the rows on screen, which is what
+	 * makes the panel's "Untitled shape 3" and the row's the same words (ADR-0035).
+	 */
+	const openAnnotationIndex = $derived(
+		openAnnotations?.findIndex((candidate) => candidate.id === openAnnotationId) ?? -1
 	);
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1035,6 +1051,30 @@
 			`[data-testid="annotation-row"][data-annotation-id="${CSS.escape(id)}"]`
 		);
 	};
+
+	/**
+	 * Dismiss the Inspector, leaving the keyboard on the row the Reader chose it from.
+	 *
+	 * **Dismissing is deselecting**, because the selected row *is* the Annotation the Inspector
+	 * describes: one fact, one value. What it does not touch is the list — the Layer's card stays open
+	 * and the row stays where it was, so a Reader's place in it survives the panel going.
+	 *
+	 * ⚠ **"Focus is on `document.body`" is not the test here.** The Inspector leaves over 220 ms, so one
+	 * microtask after the selection is cleared the pressed button is still in the document and still
+	 * `document.activeElement`; a guard reading `body` alone would do nothing at all and leave the
+	 * keyboard on a control that vanishes a fifth of a second later. The editor's `ProjectScreen`
+	 * carries the same guard against the same panel, and its note records the measurement.
+	 */
+	async function dismissInspector(): Promise<void> {
+		const row = selectedRow();
+		selected = null;
+		await tick();
+		const active = document.activeElement;
+		const leaving = document.getElementById(ANNOTATION_INSPECTOR_ID);
+		const stranded = active === document.body || (active !== null && leaving?.contains(active));
+		if (!stranded) return;
+		if (row instanceof HTMLElement) row.focus();
+	}
 
 	// ─────────────────────────────────────────────────────────────────────────────────────────
 	// Reading a Historical Map as a document (SPEC story 85)
@@ -1171,9 +1211,9 @@
 <svelte:head><title>{title}</title></svelte:head>
 
 <!--
-	Escape collapses the open Annotation's row, from anywhere on the page rather than only over the
-	map: a Reader who opened a row from a pin has their pointer on the canvas, and a Reader who opened
-	one from the sidebar has the keyboard on its button.
+	Escape deselects the Annotation, and so dismisses the Inspector, from anywhere on the page rather
+	than only over the map: a Reader who chose an Annotation from a pin has their pointer on the
+	canvas, and a Reader who chose one from the sidebar has the keyboard on its row.
 -->
 <svelte:window
 	onkeydown={(event) => {
@@ -1520,11 +1560,11 @@
 									{fetchTile}
 									tilesMissing={tileFailure !== null}
 									onclickannotation={(hit) => {
-										// **The pin opens the Annotation's row, and its Layer's card with it.** A
-										// row inside a closed card is not on the screen, so opening one without the
-										// other would answer a tap with nothing (ticket 07). The row brings itself
-										// into view, which is what makes this work on a phone, where the sidebar
-										// sits under the map.
+										// **The pin selects the Annotation, and opens its Layer's card with it.** The
+										// Inspector arrives over the pane the tap landed on, so the words are where
+										// the Reader is already looking; the card is opened as well because a row
+										// inside a closed card is not on the screen, and the selected row is what
+										// the leader points at (ticket 07, ADR-0035).
 										openLayerId = hit.layerId;
 										selected = hit;
 									}}
@@ -1532,6 +1572,7 @@
 									onbasemapstatus={(status) => {
 										baseMapUnavailable = status === 'unavailable';
 									}}
+									overlay={mapOverlay}
 								/>
 							{/if}
 						</div>
@@ -1583,35 +1624,74 @@
 {/snippet}
 
 <!--
-	One Annotation as a Reader meets it, inside the row it belongs to. The row hands its own `index`
-	down so an untitled Annotation reads as the same "Untitled pin 3" on the button and beneath it.
+	The Annotation Inspector's one face, and the dock it sits in (ADR-0035).
+
+	⚠ **`AnnotationDescription` alone, and no title.** The Inspector's identity header directly above
+	this already names the Annotation from the rule its row draws from, so a face that titled it too
+	would put one title twice a few pixels apart in the same weight — the epic's central fault
+	(the-annotation-inspector story 4). The editor's Text face is the same component plus the controls
+	that change the words.
+
+	⚠ **It is `@ballastella/ui`'s rather than markup composed here**, and that is the security boundary
+	rather than tidiness. A `description` is a stranger's Markdown, and the only thing that may render
+	it is core's `renderDescription` — `marked` then DOMPurify, in that order and not separately
+	reachable (ADR-0009) — which is this component's, the one `{@html}` in that package. Keeping it in
+	shared code is what keeps this app's own source free of one, so there is no expression here for a
+	later edit to feed something unsanitised into, and it is what makes
+	`e2e/viewer-reader.e2e.ts`'s inertness claim a claim about the thing that ships
+	(the-annotation-inspector story 52).
 -->
-{#snippet annotationReading(annotation: Annotation, index: number)}
-	<AnnotationReading {annotation} {index} />
+{#snippet inspectorText(annotation: Annotation)}
+	<AnnotationDescription {annotation} />
 {/snippet}
 
 <!--
-	What is inside an Annotation Layer for a Reader: its Annotations, each in a row that opens on
-	itself (SPEC stories 32–34).
+	⚠ **No `style` snippet, and that absence is the whole of why a Reader has no tab strip** — not a
+	disabled Style tab and not a lone Text tab, because one face is not a choice
+	(the-annotation-inspector stories 45, 46, 66). No `ontext`, no `oncommit` and no `ondelete` either,
+	so there is no *Edit text* and no *Delete*: every difference from the author's panel is a prop this
+	app does not pass rather than a flag it sets, which is the rule the whole shared package follows.
 
-	**The same list and the same row a scholar authors on**, and the whole of the difference is what
-	an open row reveals: the editor puts its Annotation editor in it, and this puts the title and the
-	rendered description. So a Reader can read an Annotation without first hunting for its pin.
+	**Docked inside the reader pane's own positioned container**, which is what the pane's `overlay`
+	snippet is for: top-right inset, a comfortable measure wide with a `max-width` so it cannot exceed a
+	narrow pane, and the map still visible below it and beside it. The same class list the editor's
+	dock carries, including the `max-height` that keeps the Base Map's attribution clear and the `flex`
+	that passes that cap on to the panel — `ProjectScreen`'s own note has the measurements behind both.
+
+	⚠ **`z-index: 7` is load-bearing.** The leader is 5 and `layout.css` forces MapLibre's four control
+	corners to 6 so the leader cannot be drawn across them; all three are compared in one stacking
+	context, because `.maplibregl-map` opens none. 7 is one clear of the controls, which keeps the
+	leader and the zoom control under this rather than through it.
+-->
+{#snippet mapOverlay()}
+	{#if openAnnotation}
+		<div
+			class="absolute top-2 right-2 z-[7] flex max-h-[calc(100%-3rem)] w-80 max-w-[calc(100%-1rem)] flex-col"
+		>
+			<AnnotationInspector
+				annotation={openAnnotation}
+				index={openAnnotationIndex}
+				onclose={() => void dismissInspector()}
+				text={inspectorText}
+			/>
+		</div>
+	{/if}
+{/snippet}
+
+<!--
+	What is inside an Annotation Layer for a Reader: its Annotations, each in a row that selects it
+	(one-shell-two-apps stories 32–34).
+
+	**The same list and the same row a scholar authors on**, and nothing opens inside either: an
+	Annotation's content is read in the Annotation Inspector over the map, in both apps (ADR-0035). So
+	a Reader can read an Annotation without first hunting for its pin, and the list stays the same
+	length however much any one Annotation has to say.
 
 	⚠ **No `tools` snippet, and that absence is the point.** The editor's holds the drawing surface and
 	the place search, and a place search issues a lookup to a third-party service — a Published Site
 	quietly doing that for a Reader who asked for nothing is what ADR-0029 is written against. It is
 	not withheld by a flag: it is a prop this app does not pass, so neither component is reachable from
 	this bundle at all.
-
-	⚠ **`AnnotationReading` is `@ballastella/ui`'s rather than markup composed here**, and that is the
-	security boundary rather than tidiness. A `description` is a stranger's Markdown, and the only
-	thing that may render it is core's `renderDescription` — `marked` then DOMPurify, in that order and
-	not separately reachable (ADR-0009) — which is `AnnotationDescription`'s, the one `{@html}` in that
-	package, composed inside the row's reading. Keeping the `{@html}` in the shared component is what keeps
-	this app's own source free of one, so there is no expression here for a later edit to feed
-	something unsanitised into. `e2e/viewer-reader.e2e.ts` asserts a payload is inert **in this row**,
-	in a real published build.
 -->
 {#snippet annotationContents()}
 	<AnnotationList
@@ -1620,7 +1700,6 @@
 		onopen={(id) =>
 			(selected =
 				id === null || openLayerId === null ? null : { layerId: openLayerId, annotationId: id })}
-		contents={annotationReading}
 	/>
 {/snippet}
 

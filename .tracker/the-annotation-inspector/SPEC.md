@@ -268,6 +268,23 @@ project has already deleted, and a returning name that means something else is w
 
 ### The new shared component
 
+> **Amended by tickets 06 and 08: `AnnotationReading` is gone, and `AnnotationDescription` is what
+> both apps' Text faces render. Read every `AnnotationReading` below as `AnnotationDescription`, and
+> read "the Text face" as the description with no title above it.** As decided below,
+> `AnnotationReading` drew an Annotation's title and then its description, and both apps were to pass
+> it for `text`. But the identity header this epic added draws the name from `annotationName` — so a
+> face that drew it again put one title twice a few pixels apart in the same weight, which is story 4's
+> fault appearing inside the component built to fix it. The title therefore came out of the face, what
+> was left was the description alone, and that is `AnnotationDescription`. Nothing rendered
+> `AnnotationReading` afterwards, so it was deleted rather than left unreachable (story 69).
+>
+> **The two-different-reasons safety note survives the split**, now recorded in both halves rather
+> than in one component. A description is DOMPurify's own output, which is why
+> `AnnotationDescription` holds the package's one `{@html}` and why `{@html}` is correct there and only
+> there. A title is a Svelte interpolation wherever it is drawn — the row, and the Inspector's identity
+> header — so the DOM never parses it as markup and no sanitiser is involved in it at all. The two may
+> not be swapped for each other.
+
 `AnnotationInspector` joins `packages/ui`, beside `AnnotationList`, `AnnotationRow` and
 `AnnotationReading`. It owns the identity header, the tab strip and the dock; it owns none of what
 the faces contain.

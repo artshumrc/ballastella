@@ -11,10 +11,9 @@
 	// assigned a new `openId` afterwards would be asserting its own assignment rather than the
 	// component's behaviour, and would still pass if the component stopped reporting the gesture.
 	//
-	// The two snippets are **markers rather than the real contents**, for the reason
-	// `LayerListHarness` supplies markers for `mapContents`: whether and where the list renders a
-	// snippet is this component's and is asserted here; what a consumer puts inside one is that
-	// consumer's.
+	// The snippets are **markers rather than the real thing**, for the reason `LayerListHarness`
+	// supplies markers for `mapContents`: whether and where the list renders a snippet is this
+	// component's and is asserted here; what a consumer puts inside one is that consumer's.
 
 	import type { Annotation } from '@ballastella/core';
 	import { untrack } from 'svelte';
@@ -24,15 +23,12 @@
 	let {
 		annotations,
 		openId: initialOpenId = null,
-		withContents = false,
 		withTools = false,
 		withGuidance = false,
 		onopen
 	}: {
 		annotations: readonly Annotation[] | null;
 		openId?: string | null;
-		/** Whether this consumer reveals anything at all inside an open row. */
-		withContents?: boolean;
 		/** Whether this consumer has a drawing surface to offer. A published site has none. */
 		withTools?: boolean;
 		/** Whether this consumer has anything to say about an empty Layer. A Reader is told nothing. */
@@ -65,12 +61,6 @@
 	};
 </script>
 
-{#snippet contents(annotation: Annotation)}
-	<div data-testid="harness-annotation-contents" data-annotation-id={annotation.id}>
-		<button type="button" data-testid="harness-annotation-delete">Delete</button>
-	</div>
-{/snippet}
-
 {#snippet tools()}
 	<div data-testid="harness-annotation-tools">Draw</div>
 {/snippet}
@@ -80,9 +70,9 @@
 {/snippet}
 
 <!--
-	Spread rather than `contents={withContents ? contents : undefined}`, because the two are not the
-	same prop set: under `exactOptionalPropertyTypes` a consumer that passes `undefined` has still
-	passed the prop. What is being tested is a consumer that never mentions it.
+	Spread rather than `tools={withTools ? tools : undefined}`, because the two are not the same prop
+	set: under `exactOptionalPropertyTypes` a consumer that passes `undefined` has still passed the
+	prop. What is being tested is a consumer that never mentions it.
 -->
 <AnnotationList
 	annotations={shown}
@@ -91,7 +81,6 @@
 		onopen?.(id);
 		openId = id;
 	}}
-	{...withContents ? { contents } : {}}
 	{...withTools ? { tools } : {}}
 	{...withGuidance ? { noAnnotationsGuidance } : {}}
 />

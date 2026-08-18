@@ -586,9 +586,9 @@
 	 *
 	 * **It must not fight the user**, which is the whole of the first branch: a mark already inside the
 	 * pane and clear of the panel provokes no camera move at all. Moving the map under a pointer that
-	 * asked for nothing of the sort is the defect this restraint is against, and it is the same restraint
-	 * the sidebar's `keepInView` observes for a row — ADR-0035 replaces that mechanism with this one, and
-	 * ticket 08 is what deletes it, so for now both are live.
+	 * asked for nothing of the sort is the defect this restraint is against. **This is the only
+	 * mechanism that keeps a selection's subject visible** (ADR-0035): the sidebar does nothing of the
+	 * sort, because a row holds no content to scroll to.
 	 *
 	 * **The reservation is the panel's column, and the occlusion test is the panel's box.** Those are
 	 * deliberately different rectangles. A mark below the panel's bottom edge is not hidden — the map is

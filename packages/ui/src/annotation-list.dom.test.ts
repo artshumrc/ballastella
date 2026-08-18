@@ -20,23 +20,12 @@
 // the whole of its safety. A change to `{@html}` there would otherwise be silent.
 
 import type { Annotation } from '@ballastella/core';
-import type { DetachedWindowAPI } from 'happy-dom';
 import { flushSync, mount, tick, unmount, type ComponentProps } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
+import AnnotationInspectorHarness from './AnnotationInspectorHarness.svelte';
 import AnnotationListHarness from './AnnotationListHarness.svelte';
-import AnnotationReading from './AnnotationReading.svelte';
-
-/**
- * What this DOM reports about the person using it — here, whether they have asked for less motion.
- *
- * happy-dom answers `prefers-reduced-motion` from these settings, so `prefersReducedMotion` out of
- * `svelte/motion` is reading a real media query against a real `matchMedia` rather than a stub of
- * Svelte's own signal. The settings are the window's, so {@link afterEach} puts them back.
- */
-const device = (): DetachedWindowAPI['settings']['device'] =>
-	(window as unknown as { happyDOM: DetachedWindowAPI }).happyDOM.settings.device;
 
 /**
  * A title a stranger wrote, chosen so that a surface which parsed it would be caught twice over.
@@ -64,12 +53,23 @@ afterEach(() => {
 	if (mounted) unmount(mounted);
 	mounted = undefined;
 	document.body.innerHTML = '';
-	device().prefersReducedMotion = 'no-preference';
 });
 
 /** Mount the harness, remember it for {@link afterEach}, and let its effects run. */
 const list = (props: ComponentProps<typeof AnnotationListHarness>): void => {
 	mounted = mount(AnnotationListHarness, { target: document.body, props });
+	flushSync();
+};
+
+/**
+ * Mount an `AnnotationInspector` instead, for the one claim this file makes about its header.
+ *
+ * Everything else the Inspector does is `annotation-inspector.dom.test.ts`'s. What is here is the
+ * name surface, because the row's and the header's are the same mechanism and a maintainer who
+ * changes one has to meet the other.
+ */
+const inspect = (props: ComponentProps<typeof AnnotationInspectorHarness>): void => {
+	mounted = mount(AnnotationInspectorHarness, { target: document.body, props });
 	flushSync();
 };
 
@@ -121,7 +121,7 @@ const press = async (element: HTMLElement): Promise<void> => {
 	await tick();
 };
 
-describe('an Annotation’s own words reach the row as text (SPEC story 34, ADR-0009)', () => {
+describe('an Annotation’s own words reach the screen as text (one-shell-two-apps story 34, ADR-0009)', () => {
 	test('a title that looks like markup is characters, not elements', () => {
 		list({ annotations: [annotation({ id: 'a-1', title: PAYLOAD })] });
 
@@ -132,6 +132,22 @@ describe('an Annotation’s own words reach the row as text (SPEC story 34, ADR-
 		// the tag *and* left the words after it: no element was created from those characters.
 		expect(row.querySelector('img')).toBeNull();
 		expect(row.children).toHaveLength(0);
+	});
+
+	test('and so is the same title in the Inspector’s identity header', () => {
+		// **The header draws a stranger's title in the viewer, which nothing did before** (ADR-0035): a
+		// Reader's Published Site now renders an authored name in two places rather than one, and this
+		// is the second. It is safe for the row's reason and not the description's — a Svelte
+		// interpolation, so the DOM never parses it and no sanitiser is involved — which is why the
+		// claim sits beside the row's twin above rather than beside `AnnotationDescription`'s, and why
+		// it belongs at this seam: an interpolation cannot be made vacuously green by happy-dom the way
+		// DOMPurify can (the-annotation-inspector story 71).
+		inspect({ annotation: annotation({ id: 'a-1', title: PAYLOAD }), index: 0 });
+
+		const heading = one('annotation-inspector-name')!;
+		expect(heading).toHaveTextContent(PAYLOAD);
+		expect(heading.querySelector('img')).toBeNull();
+		expect(heading.children).toHaveLength(0);
 	});
 
 	test('an Annotation with no title is named by its shape and its place in the list', () => {
@@ -239,21 +255,25 @@ describe('every Annotation is numbered on its row (stories 37, 38, 42)', () => {
 	});
 });
 
-describe('the row is a disclosure (one-shell-two-apps stories 24–32, 35)', () => {
+describe('the row selects and opens nothing (the-annotation-inspector stories 10, 69)', () => {
 	// **Openness and selection are one state, so there is one property for them.** The row carries no
 	// `aria-pressed`: an Annotation that was pressed but not open, or open but not pressed, were two
 	// answers to "which one is active" that could disagree, and now there is one. Which element wears
 	// the selection mark is asserted in "the selected row is unmistakable"; what it looks like painted
 	// is `e2e/`'s.
+	//
+	// **The reduced-motion pair that used to be here went with the reveal**, and its replacement is
+	// `annotation-inspector.dom.test.ts`'s "less motion is respected here as everywhere else": the
+	// surface that arrives on a selection is now the Inspector, and it is the surface that computes a
+	// duration.
 
-	test('a row expands to reveal its own Annotation, and pressing it again collapses it', async () => {
+	test('a row selects, reports which one, and pressing it again deselects', async () => {
 		const opened = vi.fn();
 		list({
 			annotations: [
 				annotation({ id: 'a-1', title: 'One' }),
 				annotation({ id: 'a-2', title: 'Two' })
 			],
-			withContents: true,
 			onopen: opened
 		});
 
@@ -262,69 +282,56 @@ describe('the row is a disclosure (one-shell-two-apps stories 24–32, 35)', () 
 		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'true');
 		expect(nth('annotation-row', 1)).toHaveAttribute('aria-expanded', 'false');
 		expect(nth('annotation-row', 0)).not.toHaveAttribute('aria-pressed');
-		expect(all('harness-annotation-contents')).toHaveLength(1);
 
 		// **The same row again, which is the half a helper that clicked unconditionally would break.**
 		await press(nth('annotation-row', 0));
 		expect(opened).toHaveBeenLastCalledWith(null);
 		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'false');
-		expect(all('harness-annotation-contents')).toHaveLength(0);
 	});
 
-	test('the revealed region is inside the row, and the button says which region it opens', () => {
-		// The defect this is about: the details were a *sibling of the list*, so which of four rows the
-		// panel headed "The west quay" belonged to was inferred rather than seen. Asserted as
-		// containment rather than by counting siblings, because that is the claim — and `aria-controls`
-		// is the same fact said to a screen reader, which cannot see containment at all.
+	test('a selected row is its button and nothing else, whatever the consumer passes', async () => {
+		// Story 10, and the claim the disclosure machinery was deleted for (story 69): the list stays
+		// the same length however much any one Annotation has to say. **Asserted as the row's own
+		// children rather than as the absence of a `data-testid`**, because a renamed id is exactly how
+		// an absence assertion goes quietly green — there is no snippet left to pass, so the only
+		// honest form of "nothing opens" is that the `<li>` holds one element and it is the button.
 		list({
 			annotations: [
 				annotation({ id: 'a-1', title: 'One' }),
 				annotation({ id: 'a-2', title: 'Two' })
-			],
-			openId: 'a-2',
-			withContents: true
+			]
 		});
 
-		const revealed = one('harness-annotation-contents')!;
-		const row = nth('annotation-row', 1);
-		expect(row.closest('li')).toContainElement(revealed);
-		expect(nth('annotation-row', 0).closest('li')).not.toContainElement(revealed);
+		await press(nth('annotation-row', 0));
 
-		const region = row.getAttribute('aria-controls');
-		expect(region).not.toBeNull();
-		expect(document.getElementById(region!)).toContainElement(revealed);
+		const item = nth('annotation-row-item', 0);
+		expect([...item.children]).toEqual([nth('annotation-row', 0)]);
 	});
 
-	test('opening a second Annotation collapses the first', async () => {
+	test('selecting a second Annotation deselects the first', async () => {
 		list({
 			annotations: [
 				annotation({ id: 'a-1', title: 'One' }),
 				annotation({ id: 'a-2', title: 'Two' })
 			],
-			openId: 'a-1',
-			withContents: true
+			openId: 'a-1'
 		});
 
 		await press(nth('annotation-row', 1));
 
 		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'false');
 		expect(nth('annotation-row', 1)).toHaveAttribute('aria-expanded', 'true');
-		// One revealed region, and it is the second Annotation's: a panel that had merely been
-		// re-titled would pass a count and show the wrong Annotation.
-		expect(all('harness-annotation-contents')).toHaveLength(1);
-		expect(one('harness-annotation-contents')).toHaveAttribute('data-annotation-id', 'a-2');
 	});
 
-	test('the keyboard stays on the row’s own button through opening and closing', async () => {
+	test('the keyboard stays on the row’s own button through selecting and deselecting', async () => {
 		// **Nothing here stops existing**, which is what separates this from the Layer card's delete and
-		// reorder: those move focus only because the element holding it was removed. A disclosure that
-		// took the keyboard would cost a reader their place in the list for nothing.
+		// reorder: those move focus only because the element holding it was removed. A row that took the
+		// keyboard would cost a reader their place in the list for nothing.
 		list({
 			annotations: [
 				annotation({ id: 'a-1', title: 'One' }),
 				annotation({ id: 'a-2', title: 'Two' })
-			],
-			withContents: true
+			]
 		});
 
 		nth('annotation-row', 0).focus();
@@ -336,42 +343,6 @@ describe('the row is a disclosure (one-shell-two-apps stories 24–32, 35)', () 
 		await press(nth('annotation-row', 0));
 		expect(document.activeElement).toBe(nth('annotation-row', 0));
 	});
-
-	test('the row computes a zero duration when less motion has been asked for', () => {
-		// ⚠ **This asserts the number the component computed, and not that the row animated.** There is
-		// no paint at this seam and no Web Animations clock, so what an animation looks like has no
-		// answer here. `prefersReducedMotion` is a real media query against this DOM's own device
-		// settings, so the branch that produced the number is the one the application runs.
-		//
-		// ⚠ **What it therefore does not catch**, both measured: a `transition:slide` hard-coded to
-		// `{ duration: 220 }` while this attribute goes on reporting 0 — a reduced-motion user watching
-		// a 220 ms slide — and `transition:slide` deleted altogether. Story 25 ("expand and collapse
-		// with a short animation") is unasserted at every seam; ticket 01 records it under "Coverage
-		// gap". Do not read a green here as coverage of the animation.
-		device().prefersReducedMotion = 'reduce';
-		list({
-			annotations: [annotation({ id: 'a-1', title: 'One' })],
-			openId: 'a-1',
-			withContents: true
-		});
-
-		expect(one('annotation-row-contents')).toHaveAttribute('data-reveal-ms', '0');
-	});
-
-	test('and the Layer cards’ own 220 ms when it has not been', () => {
-		// The positive control. A duration hard-coded to `0` would satisfy the test above for ever.
-		list({
-			annotations: [annotation({ id: 'a-1', title: 'One' })],
-			openId: 'a-1',
-			withContents: true
-		});
-
-		expect(one('annotation-row-contents')).toHaveAttribute('data-reveal-ms', '220');
-	});
-
-	// **The mark on the selected row is deliberately not asserted here.** It is written against the
-	// `<li>` in "the selected row is unmistakable" below, which is where it survives the row ceasing to
-	// be a disclosure — a claim kept in this describe would be removed with the machinery it sat beside.
 });
 
 describe('the selected row is unmistakable (the-annotation-inspector stories 7, 8, 54)', () => {
@@ -391,7 +362,7 @@ describe('the selected row is unmistakable (the-annotation-inspector stories 7, 
 		// wash on the header strip alone marked part of the selected row and left the rest of it plain,
 		// in a column of four near-identical rows where that was reported as not enough to tell which
 		// one had been chosen.
-		list({ annotations: two(), openId: 'a-2', withContents: true });
+		list({ annotations: two(), openId: 'a-2' });
 
 		const marked = nth('annotation-row-item', 1);
 		const plain = nth('annotation-row-item', 0);
@@ -401,10 +372,9 @@ describe('the selected row is unmistakable (the-annotation-inspector stories 7, 
 		expect(plain).not.toHaveClass('bg-info/10');
 		expect(plain).not.toHaveClass('shadow-[inset_2px_0_0_var(--layer-kind-ink-annotation)]');
 
-		// The header is inside the marked element rather than being the marked element, and so is what
-		// the row reveals: one block wearing one wash, which is what "the whole row" means here.
+		// The button is inside the marked element rather than being the marked element: the `<li>` is
+		// what wears the wash, which is what "the whole row" means here.
 		expect(marked).toContainElement(nth('annotation-row', 1));
-		expect(marked).toContainElement(one('harness-annotation-contents'));
 		expect(nth('annotation-row', 1)).not.toHaveClass('bg-info/10');
 	});
 
@@ -424,7 +394,7 @@ describe('the selected row is unmistakable (the-annotation-inspector stories 7, 
 		// across the whole `<li>` rather than on the button, so adding the property to any element in the
 		// row goes red — and on both rows, because a selection carried only by the absence of an
 		// attribute is not carried at all.
-		list({ annotations: two(), openId: 'a-1', withContents: true });
+		list({ annotations: two(), openId: 'a-1' });
 
 		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'true');
 		expect(nth('annotation-row', 1)).toHaveAttribute('aria-expanded', 'false');
@@ -532,82 +502,15 @@ describe('a surface the consumer does not ask for is not there (SPEC stories 58,
 		expect(all('annotation-row')).toHaveLength(2);
 	});
 
-	test('reveals what the consumer put in an open row, and nothing when it put nothing', async () => {
-		list({ annotations: two(), withContents: true });
-		await press(nth('annotation-row', 0));
-
-		expect(one('harness-annotation-contents')).toBeInTheDocument();
-		expect(one('harness-annotation-delete')).toBeInTheDocument();
-
-		takeDown();
-		list({ annotations: two() });
-		await press(nth('annotation-row', 0));
-
-		// The row still selects — `aria-expanded` is the list's, and it is what a screen reader is
-		// promised — but **no region opens inside it at all**. On `open` alone one did: an empty box slid
-		// open under the button over 220 ms, carrying an `id` nothing named, in the app whose content is
-		// read over the map instead (ADR-0035, the-annotation-inspector story 10).
-		expect(nth('annotation-row', 0)).toHaveAttribute('aria-expanded', 'true');
-		expect(one('annotation-row-contents')).not.toBeInTheDocument();
-		expect(one('harness-annotation-contents')).not.toBeInTheDocument();
-		expect(one('harness-annotation-delete')).not.toBeInTheDocument();
-	});
-
-	test('says which region it controls: the one in the row, or the Inspector across the screen', () => {
-		// Story 53, and **both halves because the value is the whole claim**: a row that named the
-		// Inspector whatever the consumer did would be wrong wherever the content is in the row, and a
-		// row that always named the in-row region would point a screen reader at nothing at all in the
-		// app that reads its Annotations beside the map. `aria-controls` does not require containment,
-		// which is what lets one attribute answer for both.
-		list({ annotations: two(), openId: 'a-1', withContents: true });
-
-		const inTheRow = nth('annotation-row', 0).getAttribute('aria-controls');
-		expect(inTheRow).not.toBe(ANNOTATION_INSPECTOR_ID);
-		expect(document.getElementById(inTheRow!)).toContainElement(one('harness-annotation-contents'));
-
-		takeDown();
+	test('the selected row names the Inspector, and an unselected row names nothing', () => {
+		// Story 53. The region an Annotation is read in is across the screen now (ADR-0035), and
+		// `aria-controls` does not require containment — so what a screen reader is told survives the
+		// move. **Both halves, because the value is the whole claim**: a row that named the Inspector
+		// whether or not it was the selected one would have two rows claiming the panel is theirs.
 		list({ annotations: two(), openId: 'a-1' });
 
 		// The id itself rather than a literal, so a rename of the Inspector's own id moves both.
 		expect(nth('annotation-row', 0)).toHaveAttribute('aria-controls', ANNOTATION_INSPECTOR_ID);
-		// And only the selected row claims to control it: two rows naming one region would be two rows
-		// claiming the panel is theirs.
 		expect(nth('annotation-row', 1)).not.toHaveAttribute('aria-controls');
-	});
-});
-
-describe('what an open row reveals is the same Annotation the button above it names', () => {
-	/** Mount `AnnotationReading` on its own, which is what a Reader's open row puts in the row. */
-	const reading = (props: ComponentProps<typeof AnnotationReading>): void => {
-		mounted = mount(AnnotationReading, { target: document.body, props });
-		flushSync();
-	};
-
-	test('an untitled Annotation is “Untitled pin 3” on the button and beneath it', () => {
-		// The row's name first, so the claim is that the two *agree* rather than that each matches a
-		// literal written twice. The reading surface had wording of its own — "Untitled" — so an
-		// untitled Annotation was named two ways a few pixels apart.
-		list({
-			annotations: [annotation({ id: 'a-1' }), annotation({ id: 'a-2' }), annotation({ id: 'a-3' })]
-		});
-		const onTheButton = nth('annotation-row-name', 2).textContent?.trim();
-		expect(onTheButton).toBe('Untitled pin 3');
-
-		takeDown();
-		reading({ annotation: annotation({ id: 'a-3' }), index: 2 });
-
-		expect(one('annotation-title-text')).toHaveTextContent(onTheButton!);
-	});
-
-	test('names the description on an element that can carry a name', () => {
-		// A bare `<div>` has the implicit `generic` role, for which ARIA 1.2 prohibits `aria-label` and
-		// which browsers drop from the accessibility tree: the attribute was there, and named nothing.
-		// A `<section>` with a name is a `region`, so a Reader on a screen reader meets a boundary
-		// between the title and a stranger's prose instead of running straight from one into the other.
-		reading({ annotation: annotation({ id: 'a-1', title: 'The west quay' }), index: 0 });
-
-		const description = one('annotation-description-text');
-		expect(description?.tagName).toBe('SECTION');
-		expect(description).toHaveAttribute('aria-label', 'Description');
 	});
 });

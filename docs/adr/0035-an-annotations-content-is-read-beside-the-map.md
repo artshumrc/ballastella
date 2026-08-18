@@ -96,6 +96,19 @@ byte, and no Project is rewritten because it was opened
 
 Inside [ADR-0034](./0034-a-shared-ui-package-for-the-components-both-apps-render.md)'s boundary rather
 than changing it. `AnnotationInspector` joins `packages/ui` beside `AnnotationList`, `AnnotationRow`
-and `AnnotationReading`, so the Reader's panel is the author's panel with props withheld — the Style
-face is a snippet the viewer does not pass, and the absence of the tab strip falls out of that absence
-rather than out of a mode flag.
+and `AnnotationDescription`, so the Reader's panel is the author's panel with props withheld — the
+Style face is a snippet the viewer does not pass, and the absence of the tab strip falls out of that
+absence rather than out of a mode flag.
+
+**The Text face draws the description and no title**, in both apps: the identity header above it
+already names the Annotation, from `annotationName` — the rule the row draws from — so a face that
+titled it again would put one title twice a few pixels apart in the same weight, which is the fault
+this ADR is written against. So `AnnotationDescription` is what both apps' Text faces render, the
+editor's wrapped in *Edit text* and *Delete* and the viewer's alone.
+
+That leaves the safety argument split across two components, and the halves are safe for different
+reasons which may not be swapped for each other. `AnnotationDescription` holds the package's one
+`{@html}`, fed nothing but `renderDescription`'s output — `marked` then DOMPurify, in that order and
+not separately reachable — and `{@html}` is correct there and only there. A **title** is a Svelte
+interpolation wherever it is drawn, in the row and in the identity header, so the DOM never parses it
+as markup and no sanitiser is involved at all.

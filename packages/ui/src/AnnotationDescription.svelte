@@ -16,10 +16,15 @@
 	// sanitiser with no path into this expression that has not.
 	//
 	// ⚠ **An Annotation's title is safe for an entirely different reason, and the two may not be
-	// swapped for each other.** A title is a Svelte interpolation wherever it is drawn — see
-	// `AnnotationReading` and `AnnotationInspector`'s identity header — so the DOM never parses it as
-	// markup, nothing about it reaches a sanitiser, and nothing about it needs to. Rendering a title
-	// through this component's mechanism would be the vulnerability.
+	// swapped for each other.** A title is a Svelte interpolation wherever it is drawn — `AnnotationRow`
+	// and `AnnotationInspector`'s identity header — so the DOM never parses it as markup, nothing about
+	// it reaches a sanitiser, and nothing about it needs to. Rendering a title through this component's
+	// mechanism would be the vulnerability.
+	//
+	// ⚠ **Both apps compose this directly, and neither draws a title beside it.** The Inspector's header
+	// already names the Annotation from the rule its row draws from (ADR-0035), so a face that titled it
+	// again would put one title twice a few pixels apart in the same weight
+	// (the-annotation-inspector story 4).
 	//
 	// **It lives in this package rather than in the viewer** so that a published site's own source
 	// carries no `{@html}` at all: the sanitised rendering comes from shared code that both apps
@@ -72,7 +77,7 @@
 	supplied. Named rather than anonymous because the prose is a stranger's Markdown and can be
 	anything, including nothing.
 
-	One of these is on screen at a time — one Annotation being read, in the row or in the Inspector —
+	One of these is on screen at a time — one Annotation being read, in the Inspector's showing face —
 	which is what makes a fixed name safe here, the same argument `AnnotationList` makes for its own.
 -->
 <section

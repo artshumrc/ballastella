@@ -717,11 +717,17 @@ test.describe('drawing (SPEC stories 57, 58, 59)', () => {
 		await expect(page.getByTestId('annotation-row')).toHaveAttribute('aria-expanded', 'true');
 		await expect(inspector(page)).toBeVisible();
 		await expect(page.getByTestId('annotation-title')).toBeFocused();
-		// **And the row opened nothing inside itself** (ADR-0035, the-annotation-inspector story 10). The
-		// editor withholds `AnnotationRow`'s `contents`, and on `open` alone the row still slid an empty
-		// region out under the button — a few hundred pixels wide, animating for 220 ms, carrying an `id`
-		// that nothing names. The list stays the same length however much any one Annotation has to say.
-		await expect(page.getByTestId('annotation-row-contents')).toHaveCount(0);
+		// **And the row opened nothing inside itself** (ADR-0035, the-annotation-inspector story 10): the
+		// row is a selector, the Annotation's content is read in the Inspector, and the list stays the
+		// same length however much any one Annotation has to say. Asserted as the `<li>`'s children
+		// rather than as the absence of a `data-testid`, because a renamed id is exactly how an absence
+		// assertion goes quietly green — there is nothing left in the row that could carry one.
+		expect(
+			await page
+				.getByTestId('annotation-row')
+				.evaluate((row) => row.closest('li')!.children.length),
+			'the selected row opened something inside itself'
+		).toBe(1);
 
 		await page.getByTestId('annotation-title').fill('The west quay');
 		await page.getByTestId('annotation-text-done').click();
@@ -1470,9 +1476,12 @@ test.describe('title and description (SPEC stories 62 and 67)', () => {
 				const at = map.getCenter();
 				const on = map.project([at.lng, at.lat]);
 				const canvas = map.getCanvas().getBoundingClientRect();
+				// `|| 0` because `Math.round` of any negative fraction is `-0`, and `toEqual` holds `-0`
+				// and `0` to be different values — so a camera a third of a pixel left of centre would
+				// fail this as though the reservation had leaked.
 				return {
-					right: Math.round(on.x - canvas.width / 2),
-					down: Math.round(on.y - canvas.height / 2)
+					right: Math.round(on.x - canvas.width / 2) || 0,
+					down: Math.round(on.y - canvas.height / 2) || 0
 				};
 			}),
 			'the camera is still centred on a viewport nobody can see'

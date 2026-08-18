@@ -26,7 +26,6 @@ export { default as AnnotationInspector } from './AnnotationInspector.svelte';
 // than the component's `<script module>`: see the header of `annotation-inspector-id.ts`.
 export { ANNOTATION_INSPECTOR_ID } from './annotation-inspector-id.js';
 export { default as AnnotationList } from './AnnotationList.svelte';
-export { default as AnnotationReading } from './AnnotationReading.svelte';
 export { default as AnnotationRow } from './AnnotationRow.svelte';
 export { default as AppBar } from './AppBar.svelte';
 export { default as BaseMapSwitcher } from './BaseMapSwitcher.svelte';

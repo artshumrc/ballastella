@@ -63,7 +63,7 @@
 	} from '@ballastella/core/render';
 	import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import { onMount, untrack } from 'svelte';
+	import { onMount, untrack, type Snippet } from 'svelte';
 
 	import {
 		exposeReaderMapToBrowserTests,
@@ -84,7 +84,8 @@
 		onclickannotation,
 		onstack,
 		onbasemapstatus,
-		selectedAnnotationId = null
+		selectedAnnotationId = null,
+		overlay
 	}: {
 		/** The catalog id currently shown. The page owns which one that is, and its persistence. */
 		entryId: string;
@@ -199,6 +200,16 @@
 		 * the row, the map and the leader all read the one value.
 		 */
 		selectedAnnotationId?: string | null;
+		/**
+		 * What the page draws *over* this pane, inside the pane's own positioned container.
+		 *
+		 * The Annotation Inspector is what this is for (ADR-0035), and it is the same prop the editor's
+		 * `BaseMapPane` takes for the same panel: the Inspector is docked over the map, so it has to be
+		 * positioned against the box the map fills rather than against the column the map is in — and the
+		 * page owns what is in it, because a Reader's Annotations are no business of a map pane. The
+		 * snippet's own element carries the position and the `z-index`; nothing here places it.
+		 */
+		overlay?: Snippet;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -753,5 +764,12 @@
 	panning and +/- zooming itself, so the pane is keyboard operable with nothing added here. The one
 	addition is Enter to open the Annotation at the centre of the map, bound to the canvas in `onMount`
 	rather than to this element — see there for why.
+
+	The wrapper is positioned so that {@link overlay} has a containing block that is the map's own box,
+	which is what lets the Annotation Inspector be docked over the map rather than beside it
+	(ADR-0035). The same arrangement as the editor's `BaseMapPane`, deliberately: one panel, one dock.
 -->
-<div bind:this={container} class="h-full w-full" data-testid="reader-map-pane"></div>
+<div class="relative h-full w-full">
+	<div bind:this={container} class="h-full w-full" data-testid="reader-map-pane"></div>
+	{@render overlay?.()}
+</div>
