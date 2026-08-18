@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { SaveState } from '@ballastella/core';
+	import CircleCheck from '@lucide/svelte/icons/circle-check';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
 	/**
 	 * The save state, shown (ADR-0017 rule 5).
@@ -56,14 +58,42 @@
 	});
 </script>
 
-<!-- The dot is decorative and comes from CSS, so the region's text is exactly the state: a
-     screen reader announces "Saving…", not "bullet Saving…". -->
 <p
 	role="status"
 	data-save-state={shown}
-	class="text-sm before:mr-1.5 before:content-['●']"
-	class:text-success={shown === 'saved'}
-	class:text-warning={shown !== 'saved'}
+	class="badge gap-1.5 badge-sm font-medium whitespace-nowrap shadow-sm"
+	class:badge-success={shown === 'saved'}
+	class:badge-warning={shown !== 'saved'}
 >
+	{#if shown === 'saved'}
+		<span class="saved-mark" aria-hidden="true">
+			<CircleCheck class="size-3.5" />
+		</span>
+	{:else if shown === 'saving'}
+		<span class="loading loading-xs loading-spinner" aria-hidden="true"></span>
+	{:else}
+		<TriangleAlert class="size-3.5" aria-hidden="true" />
+	{/if}
 	{LABELS[shown]}
 </p>
+
+<style>
+	.saved-mark {
+		animation: saved-confirmation 300ms ease-out;
+	}
+
+	@keyframes saved-confirmation {
+		0% {
+			transform: scale(0.6);
+		}
+		60% {
+			transform: scale(1.2);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.saved-mark {
+			animation: none;
+		}
+	}
+</style>
